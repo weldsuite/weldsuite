@@ -411,7 +411,7 @@ fn connection_event(connection: &Row, created: bool) -> PendingEvent {
 // ── Accounts ───────────────────────────────────────────────────────────────
 
 /// `claimAuthoredPullRequests(db, userId, provider, login)`.
-async fn claim_authored_pull_requests(
+pub(crate) async fn claim_authored_pull_requests(
     db: &PgPool,
     user_id: &str,
     provider: &str,

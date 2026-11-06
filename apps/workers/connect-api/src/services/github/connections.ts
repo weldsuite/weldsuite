@@ -144,10 +144,14 @@ export async function revokeInstallation(env: Env, db: Database, installationId:
   await removeGithubInstallationIndex(getMasterDb(env), installationId);
 }
 
-/** Disconnects the workspace: every live GitHub connection is revoked and leaves the master index. */
+/**
+ * Disconnects the connection the settings page shows (`getConnectionByWorkspace`):
+ * it is revoked and leaves the master index. The workspace's other GitHub
+ * organisations, connected in WeldMerge, keep syncing.
+ */
 export async function revokeConnection(env: Env, db: Database): Promise<void> {
-  const rows = await db.select({ externalAccountId: mergeConnections.externalAccountId }).from(mergeConnections).where(githubRows);
-  for (const row of rows) await revokeInstallation(env, db, Number(row.externalAccountId));
+  const connection = await getConnectionByWorkspace(db);
+  if (connection) await revokeInstallation(env, db, connection.installationId);
 }
 
 /**

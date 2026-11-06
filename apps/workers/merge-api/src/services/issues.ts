@@ -7,6 +7,8 @@
 
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { schema } from '@weldsuite/worker-kit/db';
+import { canAccessAgent, type AgentViewer } from '@weldsuite/core-domain/agent-access';
 import { parseIssueKey } from '@weldsuite/merge-domain/keys';
 import { statusTimestamps } from '@weldsuite/merge-domain/automation';
 import type { z } from 'zod';
@@ -388,7 +390,34 @@ export async function listRecordLinks(db: Db, issueId: string): Promise<MergeRec
 
 export type IssueUpdateResult =
   | { ok: true; before: MergeIssueRow; issue: MergeIssueRow; teamKey: string }
-  | { ok: false; reason: 'not_found' | IssueRefFailure };
+  | { ok: false; reason: 'not_found' | IssueRefFailure | 'agent_invalid' };
+
+/**
+ * Who assigns an issue to an agent: the member as an agent viewer
+ * (`canManageAll`: `weldagent:manage`), and whether they hold `weldagent:use`.
+ */
+export interface AgentAssigner extends AgentViewer {
+  canUse: boolean;
+}
+
+/**
+ * Whether `assigner` may hand an issue to agent `agentId`: it exists, is
+ * `active`, and they could use it themselves (`weldagent:use`, and the agent's
+ * visibility lets them in: `canAccessAgent`, the rule agent-api's chat applies).
+ * Assigning publishes `agent_assigned`, which runs the agent with the issue as
+ * its task, so this is where an agent the member cannot use is refused.
+ */
+export async function canAssignAgent(db: Db, agentId: string, assigner: AgentAssigner): Promise<boolean> {
+  if (!assigner.canUse) return false;
+  const { weldagentAgents: a } = schema;
+  const [agent] = await db
+    .select({ id: a.id, ownerId: a.ownerId, visibility: a.visibility, status: a.status })
+    .from(a)
+    .where(and(eq(a.id, agentId), isNull(a.deletedAt)))
+    .limit(1);
+  if (agent?.status !== 'active') return false;
+  return canAccessAgent(db, agent, assigner);
+}
 
 function buildIssuePatch(
   input: UpdateMergeIssueInput,
@@ -416,7 +445,18 @@ function buildIssuePatch(
   return patch;
 }
 
-export async function updateIssue(db: Db, id: string, input: UpdateMergeIssueInput): Promise<IssueUpdateResult> {
+/**
+ * `assigner`: who sets `agentId`. Assigning an agent the issue does not have
+ * yet needs `canAssignAgent` (`agent_invalid` otherwise); without an assigner
+ * (issue sync) a new agent is refused. Unassigning, or sending the agent the
+ * issue already has, needs nothing.
+ */
+export async function updateIssue(
+  db: Db,
+  id: string,
+  input: UpdateMergeIssueInput,
+  assigner?: AgentAssigner,
+): Promise<IssueUpdateResult> {
   const before = await findIssue(db, id);
   if (!before) return { ok: false, reason: 'not_found' };
 
@@ -428,6 +468,9 @@ export async function updateIssue(db: Db, id: string, input: UpdateMergeIssueInp
     selfId: id,
   });
   if (refFailure) return { ok: false, reason: refFailure };
+  if (input.agentId && input.agentId !== before.agentId) {
+    if (!assigner || !(await canAssignAgent(db, input.agentId, assigner))) return { ok: false, reason: 'agent_invalid' };
+  }
 
   const now = new Date();
   const patch = buildIssuePatch(input, labelIds, before, now);

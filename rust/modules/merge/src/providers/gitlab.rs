@@ -373,7 +373,9 @@ fn pipeline_events(payload: &Map<String, Value>, repository: &str) -> Vec<Webhoo
     vec![WebhookEvent::Checks {
         repository: repository.to_owned(),
         head_sha: sha,
-        status: pipeline_status(attrs.and_then(|a| a.get("status"))),
+        // GitLab does not order its pending, running and success hooks: the
+        // receiver re-reads the pipeline.
+        status: None,
         numbers: iid.into_iter().collect(),
     }]
 }
@@ -1056,5 +1058,20 @@ mod tests {
         assert_eq!(review_decision_of(None, None, 0), None);
         assert_eq!(pipeline_status(Some(&json!("failed"))), Some("failure"));
         assert_eq!(pipeline_status(Some(&json!("bogus"))), None);
+    }
+
+    #[test]
+    fn a_pipeline_hook_leaves_the_status_to_a_re_read() {
+        // GitLab does not order its pending, running and success hooks.
+        let hook = json!({
+            "object_kind": "pipeline",
+            "object_attributes": { "id": 1, "sha": "abc123", "status": "running" },
+            "merge_request": { "iid": 12 },
+        });
+        let events = pipeline_events(hook.as_object().expect("an object"), "55");
+        assert!(matches!(
+            events.as_slice(),
+            [WebhookEvent::Checks { status: None, numbers, .. }] if numbers == &vec![12]
+        ));
     }
 }

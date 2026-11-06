@@ -42,6 +42,19 @@ import { useProviderConnect } from './use-provider-connect';
 const NO_TEAM = '__none__';
 const SETTINGS_PATH = '/weldmerge/settings';
 
+/** The message for a refused GitHub installation (`?error=` from the setup route). */
+export function installErrorMessage(
+  code: string,
+  messages: { stateExpired: string; installationUnverified: string; installationTaken: string; generic: string },
+): string {
+  const byCode: Record<string, string> = {
+    state_expired: messages.stateExpired,
+    installation_unverified: messages.installationUnverified,
+    installation_taken: messages.installationTaken,
+  };
+  return byCode[code] ?? messages.generic;
+}
+
 /**
  * Git providers: a card per provider (GitHub through the App, GitLab, Bitbucket
  * and Azure DevOps through OAuth, self-managed GitLab with a token), their
@@ -50,8 +63,12 @@ const SETTINGS_PATH = '/weldmerge/settings';
  *
  * Returning from the GitHub installation lands on `?installed=1`; the page then
  * adopts the connection once (a no-op when the setup route already recorded it).
+ * A refused installation lands on `?error=<code>`, shown as a warning.
  */
-export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>) {
+export function ProvidersSection({
+  installed,
+  installError = null,
+}: Readonly<{ installed: boolean; installError?: string | null }>) {
   const { t, language } = useI18n();
   const tm = t.weldmerge;
   const tg = tm.settings.providers;
@@ -305,6 +322,7 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
 
   return (
     <div className="space-y-8">
+      {installError && <InfoBanner variant="warning">{installErrorMessage(installError, ts.installErrors)}</InfoBanner>}
       <div className="space-y-4">
         <div className="space-y-1">
           <h2 className="text-base font-semibold">{tg.title}</h2>

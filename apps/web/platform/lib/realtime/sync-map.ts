@@ -593,6 +593,11 @@ export const platformSyncMap: EntitySyncMap = {
   merge_connection: inv(['weldmerge']),
   merge_repository: inv(['weldmerge']),
   merge_pull_request: inv(['weldmerge']),
+  // Releases, issue record links and chat subscriptions live under the same
+  // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
+  merge_release: inv(['weldmerge']),
+  merge_record_link: inv(['weldmerge']),
+  merge_chat_subscription: inv(['weldmerge']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki

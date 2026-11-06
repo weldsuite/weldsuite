@@ -22,14 +22,18 @@ use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode, header};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_connect_domain::github_user::{
+    InstallationAccessEvidence, prove_github_installation_access,
+};
 use weldsuite_connect_domain::install_state;
 use weldsuite_db::{Keyring, PgPool, Tenant, js_row};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_merge_domain::installations::{
-    GithubInstallation, record_github_installation, remove_github_installation_index,
-    set_github_installation_status,
+    GithubInstallation, RecordError, record_github_installation, release_github_installation_index,
+    remove_github_installation_index, set_github_installation_status,
 };
+use weldsuite_merge_domain::member_token::stored_member_github_token;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
 
@@ -162,7 +166,10 @@ async fn install_url(
         Ok(read) => read,
         Err(refusal) => return refusal.respond("Failed to build the install URL"),
     };
-    let Some(slug) = env(&caller.overrides, &state, "GITHUB_APP_SLUG") else {
+    let (Some(slug), Some(kv)) = (
+        env(&caller.overrides, &state, "GITHUB_APP_SLUG"),
+        caller.overrides.kv(&state),
+    ) else {
         return ApiError::internal()
             .with_message(NOT_CONFIGURED)
             .into_response();
@@ -176,12 +183,19 @@ async fn install_url(
     if let Some(return_to) = return_to.as_set() {
         claims.insert("returnTo".into(), json!(return_to));
     }
-    claims.insert("nonce".into(), json!(install_state::install_state_nonce()));
+    let nonce = install_state::install_state_nonce();
+    claims.insert("nonce".into(), json!(nonce));
     let secret = state_secret(&caller.overrides, &state);
     if secret.is_empty() {
         return ApiError::internal().into_response();
     }
     let token = install_state::sign_install_state(&claims, &secret);
+    // The state is good for one redirect: the callback (or WeldMerge's setup route) takes the nonce.
+    if let Err(error) =
+        install_state::remember_install_nonce(kv.as_ref(), &nonce, &caller.clerk_org_id).await
+    {
+        return internal(&error, "Failed to build the install URL");
+    }
     let url = format!(
         "https://github.com/apps/{slug}/installations/new?state={}",
         url::form_urlencoded::byte_serialize(token.as_bytes()).collect::<String>()
@@ -238,17 +252,20 @@ async fn revoke_installation(
         .map_err(|error| error.to_string())
 }
 
-/// `revokeConnection(env, db)`: every live GitHub connection of the
-/// workspace is revoked and leaves the master index.
+/// `revokeConnection(env, db)`: the connection the settings page shows
+/// (`getConnectionByWorkspace`: the newest active one, else the newest) is
+/// revoked and leaves the master index. The workspace's other GitHub
+/// organisations, connected in WeldMerge, keep syncing.
 async fn revoke_connection(db: &PgPool, master: Option<&PgPool>) -> Result<(), String> {
-    let installations: Vec<String> = sqlx::query_scalar(
+    let installation: Option<String> = sqlx::query_scalar(
         "select external_account_id from merge_connections
-         where provider = 'github' and deleted_at is null",
+         where provider = 'github' and deleted_at is null
+         order by (status = 'active') desc, created_at desc, id desc limit 1",
     )
-    .fetch_all(db)
+    .fetch_optional(db)
     .await
     .map_err(|error| error.to_string())?;
-    for installation in installations {
+    if let Some(installation) = installation {
         let key = installation_key(weldsuite_kit::validation::js_number(&installation));
         revoke_installation(db, master, &key).await?;
     }
@@ -391,7 +408,8 @@ async fn installation_meta(
 /// the workspace's WeldMerge connection (`merge_connections` and the master
 /// installation index), through WeldMerge's installation recorder, the code
 /// merge-api's setup route runs. `workspace_id` is `workspaces.id`. Answers
-/// the connection row (as Drizzle reads it).
+/// the connection row (as Drizzle reads it), or `None` when another
+/// workspace holds the installation (`GithubInstallationTakenError`).
 async fn record_installation(
     db: &PgPool,
     master: Option<&PgPool>,
@@ -400,7 +418,7 @@ async fn record_installation(
     (app_slug, owner_type, owner_login): &(String, String, String),
     user_id: &str,
     keyring: &Keyring,
-) -> Result<Value, String> {
+) -> Result<Option<Value>, String> {
     let master = master.ok_or("no master database")?;
     let input = GithubInstallation {
         installation_id: installation_id.to_owned(),
@@ -413,10 +431,42 @@ async fn record_installation(
         scopes: None,
         status: None,
     };
-    record_github_installation(db, master, keyring, &input)
-        .await
-        .map(|recorded| recorded.connection)
-        .map_err(|error| error.to_string())
+    match record_github_installation(db, master, keyring, &input).await {
+        Ok(recorded) => Ok(Some(recorded.connection)),
+        Err(RecordError::Taken(_)) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// `proveGithubInstallationAccess(installationId, { code, clientId, clientSecret, memberToken })`:
+/// GitHub's `code` (exchanged with the App's OAuth client), else the
+/// member's linked GitHub account as stored, must reach the installation.
+async fn installation_reachable(
+    overrides: &Overrides,
+    state: &ConnectState,
+    db: &PgPool,
+    keyring: &Keyring,
+    user_id: &str,
+    installation_id: &str,
+    code: Option<&str>,
+) -> Result<bool, String> {
+    let client_id = env(overrides, state, "GITHUB_APP_CLIENT_ID");
+    let client_secret = env(overrides, state, "GITHUB_APP_CLIENT_SECRET");
+    prove_github_installation_access(
+        &http(overrides, state),
+        installation_id,
+        InstallationAccessEvidence {
+            code,
+            client_id: client_id.as_deref(),
+            client_secret: client_secret.as_deref(),
+        },
+        || async {
+            stored_member_github_token(db, keyring, user_id)
+                .await
+                .map_err(|error| error.to_string())
+        },
+    )
+    .await
 }
 
 /// `getWorkspaceForOrg(env, ref).id`: the workspace a Clerk org id (or a
@@ -484,6 +534,29 @@ async fn recover(
             .with_message(NOT_CONFIGURED)
             .into_response();
     };
+    // The installation must be the member's to reach: their linked GitHub account lists it.
+    match installation_reachable(
+        &caller.overrides,
+        &state,
+        &caller.db,
+        &keyring,
+        &caller.user_id,
+        &installation_id.to_string(),
+        None,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return ApiError::new(
+                StatusCode::FORBIDDEN,
+                "installation_unverified",
+                "Link your GitHub account in WeldMerge with access to this installation, or install the GitHub App again",
+            )
+            .into_response();
+        }
+        Err(error) => return internal(&error, FAILED),
+    }
     #[allow(clippy::cast_precision_loss)]
     let meta = match installation_meta(
         &http(&caller.overrides, &state),
@@ -520,9 +593,15 @@ async fn recover(
     )
     .await
     {
-        Ok(row) => Data(format_connection(
+        Ok(Some(row)) => Data(format_connection(
             crate::github_connections::connection_view(&row, &caller.clerk_org_id),
         ))
+        .into_response(),
+        Ok(None) => ApiError::new(
+            StatusCode::CONFLICT,
+            "installation_taken",
+            "This GitHub installation belongs to another workspace",
+        )
         .into_response(),
         Err(error) => internal(&error, FAILED),
     }
@@ -565,6 +644,7 @@ pub(crate) async fn install_callback(
         .filter(|n| *n != 0.0 && !n.is_nan());
     let setup_action = crate::js::query_param(query, "setup_action");
     let state_token = query_truthy(query, "state");
+    let code = crate::js::query_param(query, "code");
     let (Some(installation_id), Some(state_token)) = (installation_id, state_token) else {
         return settings("?error=missing_params", None);
     };
@@ -590,13 +670,23 @@ pub(crate) async fn install_callback(
         tracing::error!("[GitHub] DATABASE_ENCRYPTION_KEY is not configured");
         return settings("?error=configuration_error", workspace_ref);
     }
-    let Some(creds) = credentials(&overrides, &state) else {
-        tracing::error!("[GitHub] GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY is not configured");
+    let (Some(creds), Some(kv)) = (credentials(&overrides, &state), overrides.kv(&state)) else {
+        tracing::error!(
+            "[GitHub] GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY or WORKSPACE_CACHE is not configured"
+        );
         return settings("?error=configuration_error", workspace_ref);
     };
 
     let master = overrides.master(&state);
     let outcome = async {
+        // A state is redeemed once: a replay (or a state never issued) stops here.
+        let nonce = claims.get("nonce").and_then(Value::as_str);
+        if !install_state::consume_install_nonce(kv.as_ref(), nonce)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            return Ok(settings("?error=state_expired", workspace_ref));
+        }
         let tenant = parts.extensions.get::<Tenant>();
         let db = if let Some(tenant) = tenant {
             tenant.db.clone()
@@ -605,23 +695,43 @@ pub(crate) async fn install_callback(
             tenants(workspace.clone()).await?
         };
         let installation = installation_key(installation_id);
-        if setup_action.as_deref() == Some("delete") {
-            revoke_installation(&db, master.as_ref(), &installation).await?;
-            return Ok(settings("?disconnected=1", workspace_ref));
-        }
-        let meta = installation_meta(&http(&overrides, &state), &creds, installation_id).await?;
-        let created_by = match claims.get("userId") {
-            Some(Value::String(u)) => u.clone(),
-            _ => String::new(),
-        };
-        // The installation becomes the workspace's WeldMerge connection
-        // (`merge_connections` + the master index), under its `workspaces.id`
-        // (the request's own tenant's in conformance).
+        // `workspaces.id` (the request's own tenant's in conformance).
         let workspace_id = match tenant {
             Some(tenant) => tenant.workspace_id.clone(),
             None => workspace_id_for(master.as_ref(), &workspace).await?,
         };
-        record_installation(
+        if setup_action.as_deref() == Some("delete") {
+            // Only this workspace's connection, and the index row only when it names this workspace.
+            set_github_installation_status(&db, &installation, "revoked")
+                .await
+                .map_err(|error| error.to_string())?;
+            let master = master.as_ref().ok_or("no master database")?;
+            release_github_installation_index(master, &installation, &workspace_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            return Ok(settings("?disconnected=1", workspace_ref));
+        }
+        let created_by = match claims.get("userId") {
+            Some(Value::String(u)) => u.clone(),
+            _ => String::new(),
+        };
+        let reachable = installation_reachable(
+            &overrides,
+            &state,
+            &db,
+            &keyring,
+            &created_by,
+            &installation,
+            code.as_deref(),
+        )
+        .await?;
+        if !reachable {
+            return Ok(settings("?error=installation_unverified", workspace_ref));
+        }
+        let meta = installation_meta(&http(&overrides, &state), &creds, installation_id).await?;
+        // The installation becomes the workspace's WeldMerge connection
+        // (`merge_connections` + the master index), never taken from another workspace.
+        let recorded = record_installation(
             &db,
             master.as_ref(),
             &workspace_id,
@@ -631,6 +741,9 @@ pub(crate) async fn install_callback(
             &keyring,
         )
         .await?;
+        if recorded.is_none() {
+            return Ok(settings("?error=installation_taken", workspace_ref));
+        }
         Ok::<_, String>(redirect(&success))
     };
     match outcome.await {

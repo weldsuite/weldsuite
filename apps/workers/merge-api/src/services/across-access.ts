@@ -14,6 +14,7 @@ import { checkAppPermission } from '@weldsuite/permissions';
 import { createDrizzlePermissionQueries, resolveEffectivePermissions } from '@weldsuite/permissions/server';
 import type { Env } from '../types';
 import type { Ctx } from '../routes/shared';
+import type { AgentAssigner } from './issues';
 
 /** The member may not do this (or is no longer a member of the workspace). */
 export class MemberForbiddenError extends Error {
@@ -45,6 +46,18 @@ export async function authorizeMember(
   if (!allowed) {
     throw new MemberForbiddenError(`The member this call acts for may not ${doing} (${permission})`);
   }
+}
+
+/**
+ * The member an internal call acts for, as an agent assigner (`updateIssueAs`
+ * with an `agentId`): `weldagent:use` and `weldagent:manage` as their
+ * permissions are now, in any app. A former member can use no agent.
+ */
+export async function memberAgentAssigner(db: Database, userId: string): Promise<AgentAssigner> {
+  const queries = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
+  const resolved = await resolveEffectivePermissions(queries, userId);
+  const holds = (permission: string) => Boolean(resolved.role) && checkAppPermission(resolved, permission, null).allowed;
+  return { userId, canUse: holds('weldagent:use'), canManageAll: holds('weldagent:manage') };
 }
 
 /**

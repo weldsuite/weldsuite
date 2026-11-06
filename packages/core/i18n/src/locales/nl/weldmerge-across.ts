@@ -155,6 +155,7 @@ export const weldmergeAcross = {
       groupMembers: 'Leden',
       groupAgents: 'WeldAgent-agents',
       agentHint: 'Een agent die hier wordt toegewezen, pakt het issue op als zijn taak.',
+      invalidAgent: 'Je kunt deze agent niet toewijzen: hij is niet actief, of je hebt er geen toegang toe.',
     },
   },
 

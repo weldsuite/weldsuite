@@ -116,7 +116,7 @@ describe('parseAzureWebhook', () => {
     resourceContainers: { collection: { baseUrl: 'https://dev.azure.com/acme/' } },
   });
 
-  it('maps a created pull request with its vote-based review and a checks re-read', () => {
+  it('maps a created pull request with a review and a checks re-read (the receiver reads the votes back)', () => {
     const events = parseAzureWebhook({}, delivery('git.pullrequest.created'));
     expect(events.map((e) => e.kind)).toEqual(['pull_request', 'review', 'checks']);
     expect(events[0]).toMatchObject({
@@ -128,7 +128,8 @@ describe('parseAzureWebhook', () => {
         url: 'https://dev.azure.com/acme/Platform/_git/web/pullrequest/77',
       },
     });
-    expect(events[1]).toMatchObject({ number: 77, decision: 'approved' });
+    // Deliveries arrive out of order: the votes in this one may be older than the stored decision.
+    expect(events[1]).toMatchObject({ number: 77, decision: null });
     expect(events[2]).toMatchObject({ headSha: 'abc123', status: null, numbers: [77] });
   });
 

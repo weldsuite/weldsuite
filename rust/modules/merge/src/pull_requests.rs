@@ -470,6 +470,7 @@ pub(crate) async fn link(
     }
     publish(&state, &caller.events, events);
     let detail = issue_detail(db, &id).await?.unwrap_or(Value::Null);
+    let detail = crate::record_links::visible_detail(&caller, detail).await?;
     Ok(Data(detail).into_response())
 }
 

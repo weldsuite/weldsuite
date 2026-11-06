@@ -221,7 +221,9 @@ export function parseAzureWebhook(_headers: Record<string, string>, body: unknow
     { kind: 'pull_request', repositoryExternalId, action: ACTIONS[eventType] ?? 'edited', pullRequest },
   ];
   if (arr(raw.reviewers).length > 0) {
-    events.push({ kind: 'review', repositoryExternalId, number: raw.pullRequestId, decision: azureReviewDecision(raw.reviewers) });
+    // Deliveries arrive out of order and the decision is written without a staleness check:
+    // the receiver re-reads the votes rather than trust this payload's.
+    events.push({ kind: 'review', repositoryExternalId, number: raw.pullRequestId, decision: null });
   }
   if (pullRequest.headSha && pullRequest.state === 'open') {
     // A policy or status change shows up as an update: the receiver re-reads the checks.

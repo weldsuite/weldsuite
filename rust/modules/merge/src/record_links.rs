@@ -21,6 +21,8 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_catalogs::permission_keys::{COMPANIES_READ, TICKETS_READ};
+use weldsuite_chat_domain::access::{Can, can_access_channel};
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, NoContent, generate_id};
@@ -157,6 +159,99 @@ pub(crate) async fn list_record_links(
     ))
 }
 
+/// `recordTitleAccess(db, userId, can)`: a link's stored title is the
+/// record's (a ticket subject, a company name, a channel name), not
+/// WeldMerge's, so `merge_issues:read` alone does not show it. The caller
+/// sees it with the linked module's read permission (`tickets:read`,
+/// `companies:read`), or for a chat channel when they may read the channel
+/// (`canAccessChannel`). Answers are kept for the request.
+pub(crate) struct TitleAccess<'a> {
+    db: &'a PgPool,
+    user_id: &'a str,
+    can: Can<'a>,
+    answers: HashMap<String, bool>,
+}
+
+impl<'a> TitleAccess<'a> {
+    /// `titleAccess(c)`: for the request's caller, with its permissions.
+    pub(crate) fn of(caller: &'a Caller) -> Self {
+        Self {
+            db: &caller.db,
+            user_id: &caller.user_id,
+            can: Can::Context(&caller.permissions),
+            answers: HashMap::new(),
+        }
+    }
+
+    /// `recordTitleAccess(db, userId, userPermissionCheck(db, userId))`: for
+    /// a member an internal call acts for, with their permissions as they
+    /// are now.
+    pub(crate) fn for_member(db: &'a PgPool, user_id: &'a str) -> Self {
+        Self {
+            db,
+            user_id,
+            can: Can::user(db, user_id),
+            answers: HashMap::new(),
+        }
+    }
+
+    /// Whether the caller may read the record's title.
+    pub(crate) async fn visible(
+        &mut self,
+        record_type: &str,
+        record_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let key = if record_type == "chat_channel" {
+            format!("chat_channel:{record_id}")
+        } else {
+            record_type.to_owned()
+        };
+        if let Some(answer) = self.answers.get(&key) {
+            return Ok(*answer);
+        }
+        let answer = match record_type {
+            "chat_channel" => {
+                can_access_channel(self.db, record_id, self.user_id, Some(&self.can)).await?
+            }
+            "desk_ticket" => self.can.can(TICKETS_READ).await?,
+            "crm_company" => self.can.can(COMPANIES_READ).await?,
+            _ => false,
+        };
+        self.answers.insert(key, answer);
+        Ok(answer)
+    }
+
+    /// `withVisibleTitles(access, links)`: `title` null on each link DTO
+    /// (`recordType`, `recordId`, `title`) whose record the caller may not read.
+    pub(crate) async fn hide_titles(&mut self, links: &mut [Value]) -> Result<(), sqlx::Error> {
+        for link in links.iter_mut() {
+            if link.get("title").is_none_or(Value::is_null) {
+                continue;
+            }
+            let (record_type, record_id) = (
+                text(link, "recordType").to_owned(),
+                text(link, "recordId").to_owned(),
+            );
+            if !self.visible(&record_type, &record_id).await? {
+                link["title"] = Value::Null;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// `visibleDetail(c, detail)`: an issue detail with the linked records'
+/// titles the caller may not read left out.
+pub(crate) async fn visible_detail(
+    caller: &Caller,
+    mut detail: Value,
+) -> Result<Value, sqlx::Error> {
+    if let Some(links) = detail.get_mut("recordLinks").and_then(Value::as_array_mut) {
+        TitleAccess::of(caller).hide_titles(links).await?;
+    }
+    Ok(detail)
+}
+
 fn link_event(row: &Row, action: &'static str) -> PendingEvent {
     PendingEvent::new(
         "merge_record_link",
@@ -172,7 +267,9 @@ pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Answer {
         return Err(Refusal::not_found("Issue", Some(&id)));
     }
     let rows = list_record_links(&caller.db, &id).await?;
-    Ok(all(rows.iter().map(record_link_dto).collect()))
+    let mut links: Vec<Value> = rows.iter().map(record_link_dto).collect();
+    TitleAccess::of(&caller).hide_titles(&mut links).await?;
+    Ok(all(links))
 }
 
 /// `POST /issues/:id/links`.
@@ -335,6 +432,16 @@ pub(crate) async fn lookup(caller: Caller, RawQuery(query): RawQuery) -> Answer 
             .unwrap_or_default();
         (record_type, record_id)
     })?;
-    let rows = list_linked_issues(&caller.db, &record_type, &record_id).await?;
+    let mut rows = list_linked_issues(&caller.db, &record_type, &record_id).await?;
+    // The record's own title only for a caller who may read the record.
+    if !rows.is_empty()
+        && !TitleAccess::of(&caller)
+            .visible(&record_type, &record_id)
+            .await?
+    {
+        for row in &mut rows {
+            row["link"]["title"] = Value::Null;
+        }
+    }
     Ok(all(rows))
 }

@@ -8,7 +8,13 @@
  * (`/public/merge/github/setup`) and connect-api's
  * `GET /api/weldconnect/github/callback` both call it, so the two install
  * paths cannot drift. Removal and suspend/unsuspend go through the same module
- * (`removeGithubInstallationIndex`, `setGithubInstallationStatus`).
+ * (`removeGithubInstallationIndex`, `releaseGithubInstallationIndex`,
+ * `setGithubInstallationStatus`).
+ *
+ * A member never takes an installation from another workspace: the index row
+ * is claimed (written, or refreshed when it already names the workspace)
+ * before anything else, and a row naming another workspace refuses the
+ * recording with `GithubInstallationTakenError` (`installation_taken`).
  *
  * Pure of Hono and of any worker env: the caller hands in the two databases
  * and the encryption keyring.
@@ -79,7 +85,20 @@ export async function findGithubConnections(db: InstallationDb, installationId: 
   return rows;
 }
 
-/** Writes (or refreshes) the master `installation id -> workspace` row. */
+/** An installation whose master index row names another workspace: it is not this workspace's to record. */
+export class GithubInstallationTakenError extends Error {
+  constructor(readonly installationId: string) {
+    super(`GitHub installation ${installationId} belongs to another workspace`);
+    this.name = 'GithubInstallationTakenError';
+  }
+}
+
+/**
+ * Writes (or re-points) the master `installation id -> workspace` row. Only for
+ * the webhook receiver's lazy backfill, which found the installation's live
+ * connection in that workspace's tenant database; a member's install goes
+ * through `claimGithubInstallationIndex`, which never re-points.
+ */
 export async function upsertGithubInstallationIndex(
   masterDb: InstallationDb,
   installationId: number | string,
@@ -103,7 +122,60 @@ export async function upsertGithubInstallationIndex(
     });
 }
 
-/** Drops the master index row of an installation (it was uninstalled). */
+/**
+ * Claims the master index row for `workspaceId`: inserts it, or refreshes it
+ * when it already names that workspace. A row naming another workspace is left
+ * as it is and the claim throws `GithubInstallationTakenError`.
+ */
+export async function claimGithubInstallationIndex(
+  masterDb: InstallationDb,
+  installationId: number | string,
+  workspaceId: string,
+  now = new Date(),
+): Promise<void> {
+  const claimed = await masterDb
+    .insert(mergeProviderIndex)
+    .values({
+      id: newId('mpi'),
+      provider: 'github',
+      kind: 'installation',
+      externalKey: String(installationId),
+      workspaceId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [mergeProviderIndex.provider, mergeProviderIndex.kind, mergeProviderIndex.externalKey],
+      set: { updatedAt: now },
+      setWhere: eq(mergeProviderIndex.workspaceId, workspaceId),
+    })
+    .returning({ id: mergeProviderIndex.id });
+  if (claimed.length === 0) throw new GithubInstallationTakenError(String(installationId));
+}
+
+/** Drops the master index row of an installation only when it names `workspaceId` (a member's own disconnect). */
+export async function releaseGithubInstallationIndex(
+  masterDb: InstallationDb,
+  installationId: number | string,
+  workspaceId: string,
+): Promise<void> {
+  await masterDb
+    .delete(mergeProviderIndex)
+    .where(
+      and(
+        eq(mergeProviderIndex.provider, 'github'),
+        eq(mergeProviderIndex.kind, 'installation'),
+        eq(mergeProviderIndex.externalKey, String(installationId)),
+        eq(mergeProviderIndex.workspaceId, workspaceId),
+      ),
+    );
+}
+
+/**
+ * Drops the master index row of an installation (it was uninstalled), whoever
+ * it names. Only for an uninstall GitHub signed (the `installation` webhook);
+ * anything a member starts uses `releaseGithubInstallationIndex`.
+ */
 export async function removeGithubInstallationIndex(masterDb: InstallationDb, installationId: number | string): Promise<void> {
   await masterDb
     .delete(mergeProviderIndex)
@@ -129,10 +201,12 @@ function installationFields(input: RecordGithubInstallationInput, now: Date) {
 }
 
 /**
- * Upserts the installation's connection in the tenant DB and its row in the
- * master index. An existing live row is refreshed (and revived when it was
- * revoked or suspended), keeping its id and webhook secret; a new one gets a
- * fresh random webhook secret, sealed under the keyring. Idempotent.
+ * Claims the installation's row in the master index, then upserts its
+ * connection in the tenant DB. An existing live row is refreshed (and revived
+ * when it was revoked or suspended), keeping its id and webhook secret; a new
+ * one gets a fresh random webhook secret, sealed under the keyring.
+ * Idempotent. Throws `GithubInstallationTakenError`, writing nothing, when the
+ * index row names another workspace.
  */
 export async function recordGithubInstallation(
   tenantDb: InstallationDb,
@@ -141,6 +215,7 @@ export async function recordGithubInstallation(
 ): Promise<RecordedGithubInstallation> {
   const now = input.now ?? new Date();
   const externalAccountId = String(input.installationId);
+  await claimGithubInstallationIndex(masterDb, externalAccountId, input.workspaceId, now);
 
   const refresh = async (existing: MergeConnectionRecord): Promise<MergeConnectionRecord> => {
     const [row] = await tenantDb
@@ -187,7 +262,6 @@ export async function recordGithubInstallation(
     }
   }
 
-  await upsertGithubInstallationIndex(masterDb, externalAccountId, input.workspaceId, now);
   return { connection, action };
 }
 

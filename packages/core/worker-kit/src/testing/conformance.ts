@@ -396,6 +396,12 @@ const WRITING_READS: RegExp[] = [
   // GitHub App's setup redirect records the installation (tenant and master).
   /^\/api\/merge\/(connections|accounts)\/[^/?]+\/authorize-url(\?|$)/,
   /^\/public\/merge\/github\/setup(\?|$)/,
+  // The GitHub App's install URL stores its state's single-use nonce in KV
+  // (WeldMerge's and WeldConnect's), and WeldConnect's install callback takes
+  // it and records the installation.
+  /^\/api\/merge\/connections\/github\/install-url(\?|$)/,
+  /^\/api\/workflow-github\/install-url(\?|$)/,
+  /^\/api\/weldconnect\/github\/callback(\?|$)/,
 ];
 
 interface ConformanceContext {

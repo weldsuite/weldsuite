@@ -54,7 +54,9 @@ export default function WeldMergeSettingsPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
           {readOnly && <InfoBanner variant="neutral">{tm.settings.noAccess}</InfoBanner>}
-          {active === 'providers' && <ProvidersSection installed={search.get('installed') === '1'} />}
+          {active === 'providers' && (
+            <ProvidersSection installed={search.get('installed') === '1'} installError={search.get('error')} />
+          )}
           {active === 'teams' && <TeamsSection />}
           {active === 'labels' && <LabelsSection />}
           {active === 'accounts' && <AccountsSection />}

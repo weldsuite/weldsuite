@@ -8,10 +8,12 @@
  * `expiresAt` is within five minutes: the new credentials replace the stored
  * ones. A refresh the provider refuses marks the connection `needs_attention`
  * (a member account loses its credentials and its `verified_at`, so the member
- * links it again: `account_not_linked`).
+ * links it again: `account_not_linked`), unless another request renewed the
+ * credentials meanwhile: every write is conditional on the sealed credentials
+ * this request read.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import type { MergeStoredCredentials } from '@weldsuite/app-api-client/schemas/weldmerge-providers';
 import type { Env } from '../types';
@@ -69,6 +71,13 @@ function accountHostFilter(provider: MergeProvider, host: string | null | undefi
  * The member's own token for a provider (review and merge run as the member),
  * or null when they have no verified linked account (409 `account_not_linked`).
  * `host`: the self-managed GitLab base URL (an Azure DevOps account has no host: see `accountHostFilter`).
+ *
+ * Concurrent refreshes: GitLab and GitHub rotate the refresh token, so of two
+ * requests refreshing at once the second is refused (`invalid_grant`). Every
+ * write is therefore conditional on the sealed credentials this request read:
+ * a refused refresh drops the link only while those are still stored, and
+ * otherwise uses what the other request stored. A refresh that succeeds after
+ * the other one dropped the link puts it back (credentials and `verified_at`).
  */
 export async function getMemberToken(
   db: Db,
@@ -89,8 +98,9 @@ export async function getMemberToken(
       ),
     )
     .limit(1);
-  if (!account || !account.verifiedAt) return null;
-  let credentials = await openCredentials(env, account.credentials);
+  if (!account?.verifiedAt || !account.credentials) return null;
+  const sealed = account.credentials;
+  let credentials = await openCredentials(env, sealed);
   if (!credentials) return null;
 
   if (needsRefresh(credentials, now)) {
@@ -98,24 +108,56 @@ export async function getMemberToken(
       credentials = await refreshedCredentials(env, provider, account.host, credentials);
     } catch (err) {
       console.error(`[merge-api] ${provider} token refresh failed for a member account:`, err);
-      await db
+      const dropped = await db
         .update(mergeProviderAccounts)
         .set({ credentials: null, credentialsExpireAt: null, verifiedAt: null, updatedAt: now })
-        .where(eq(mergeProviderAccounts.id, account.id));
-      return null;
+        .where(and(eq(mergeProviderAccounts.id, account.id), eq(mergeProviderAccounts.credentials, sealed)))
+        .returning({ id: mergeProviderAccounts.id });
+      if (dropped.length > 0) return null;
+      return storedMemberToken(db, env, account.id);
     }
     await db
       .update(mergeProviderAccounts)
-      .set({ credentials: await sealCredentials(env, credentials), credentialsExpireAt: expiry(credentials), updatedAt: now })
-      .where(eq(mergeProviderAccounts.id, account.id));
+      .set({
+        credentials: await sealCredentials(env, credentials),
+        credentialsExpireAt: expiry(credentials),
+        verifiedAt: account.verifiedAt,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(mergeProviderAccounts.id, account.id),
+          or(eq(mergeProviderAccounts.credentials, sealed), isNull(mergeProviderAccounts.credentials)),
+        ),
+      );
   }
   return { accessToken: credentials.accessToken, tokenType: credentials.tokenType ?? null, login: account.login };
 }
+
+/** The member token another request stored meanwhile (its refresh won), or null when the link is gone. */
+async function storedMemberToken(db: Db, env: CredentialsEnv, accountId: string): Promise<ResolvedToken | null> {
+  const [account] = await db.select().from(mergeProviderAccounts).where(eq(mergeProviderAccounts.id, accountId)).limit(1);
+  if (!account?.verifiedAt) return null;
+  const credentials = await openCredentials(env, account.credentials);
+  if (!credentials) return null;
+  return { accessToken: credentials.accessToken, tokenType: credentials.tokenType ?? null, login: account.login };
+}
+
+/**
+ * Whether the connection is a multi-organisation Azure DevOps connection still
+ * waiting for the member to choose one (`setAzureOrganization`): it stays
+ * `needs_attention` until then, whatever a refresh does.
+ */
+const awaitingOrganization = (connection: Pick<MergeConnectionRow, 'externalAccountId'>): boolean =>
+  connection.externalAccountId.startsWith('pending:');
 
 /**
  * The connection's own token (GitLab, Bitbucket, Azure DevOps). GitHub has none:
  * its installation tokens are minted per call. Null when the connection stores
  * no credentials, or its refresh failed (the connection is then `needs_attention`).
+ * Concurrent refreshes are handled as in `getMemberToken`: a refused refresh
+ * flags the connection only while the credentials this request read are still
+ * stored, and otherwise uses the ones the other request stored.
  */
 export async function getConnectionToken(
   db: Db,
@@ -123,7 +165,9 @@ export async function getConnectionToken(
   connection: MergeConnectionRow,
   now: Date = new Date(),
 ): Promise<ResolvedToken | null> {
-  let credentials = await openCredentials(env, connection.credentials);
+  const sealed = connection.credentials;
+  if (!sealed) return null;
+  let credentials = await openCredentials(env, sealed);
   if (!credentials) return null;
 
   if (needsRefresh(credentials, now)) {
@@ -131,21 +175,36 @@ export async function getConnectionToken(
       credentials = await refreshedCredentials(env, connection.provider, connection.host, credentials);
     } catch (err) {
       console.error(`[merge-api] ${connection.provider} token refresh failed for connection ${connection.id}:`, err);
-      await db
+      const flagged = await db
         .update(mergeConnections)
         .set({ status: 'needs_attention', updatedAt: now })
-        .where(eq(mergeConnections.id, connection.id));
-      return null;
+        .where(and(eq(mergeConnections.id, connection.id), eq(mergeConnections.credentials, sealed)))
+        .returning({ id: mergeConnections.id });
+      if (flagged.length > 0) return null;
+      return storedConnectionToken(db, env, connection.id);
     }
+    const reactivate = connection.status === 'needs_attention' && !awaitingOrganization(connection);
     await db
       .update(mergeConnections)
       .set({
         credentials: await sealCredentials(env, credentials),
         credentialsExpireAt: expiry(credentials),
-        status: connection.status === 'needs_attention' ? 'active' : connection.status,
+        status: reactivate ? 'active' : connection.status,
         updatedAt: now,
       })
-      .where(eq(mergeConnections.id, connection.id));
+      .where(and(eq(mergeConnections.id, connection.id), eq(mergeConnections.credentials, sealed)));
   }
+  return { accessToken: credentials.accessToken, tokenType: credentials.tokenType ?? null };
+}
+
+/** The connection token another request stored meanwhile (its refresh won), or null when there is none. */
+async function storedConnectionToken(db: Db, env: CredentialsEnv, connectionId: string): Promise<ResolvedToken | null> {
+  const [row] = await db
+    .select({ credentials: mergeConnections.credentials })
+    .from(mergeConnections)
+    .where(eq(mergeConnections.id, connectionId))
+    .limit(1);
+  const credentials = await openCredentials(env, row?.credentials ?? null);
+  if (!credentials) return null;
   return { accessToken: credentials.accessToken, tokenType: credentials.tokenType ?? null };
 }

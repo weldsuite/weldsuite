@@ -17,6 +17,7 @@ import {
   useMergeLabels,
   useUpdateMergeIssue,
 } from '@/hooks/queries/use-weldmerge-queries';
+import { reviewErrorCode } from '@/hooks/queries/use-weldmerge-review-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { fill, formatDateRange } from '../lib/format';
 import { IssueAssigneeSelect } from './issue-assignee-select';
@@ -48,7 +49,14 @@ export function IssueProperties({ issue, canEdit }: Readonly<{ issue: MergeIssue
   const siblings = useMergeIssues({ teamId: issue.teamId });
 
   const save = (input: UpdateMergeIssueInput) => {
-    update.mutate({ id: issue.id, input }, { onError: () => toast.error(ti.saveFailed) });
+    update.mutate(
+      { id: issue.id, input },
+      {
+        // An agent the member can't use is refused with 422 invalid_agent.
+        onError: (error) =>
+          toast.error(reviewErrorCode(error) === 'invalid_agent' ? tm.across.issue.agent.invalidAgent : ti.saveFailed),
+      },
+    );
   };
 
   // Estimate and due date save on blur, so typing is not a write per keystroke.

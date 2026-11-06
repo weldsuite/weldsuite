@@ -8,7 +8,9 @@
 //! `expiresAt` is within five minutes: the new credentials replace the stored
 //! ones. A refresh the provider refuses marks the connection
 //! `needs_attention` (a member account loses its credentials and its
-//! `verified_at`, so the member links it again).
+//! `verified_at`, so the member links it again), unless another request
+//! renewed the credentials meanwhile: every write is conditional on the
+//! sealed credentials this request read.
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field};
@@ -146,6 +148,13 @@ async fn refreshed(
 /// (review and merge run as the member), or `None` without a verified
 /// linked account. An Azure DevOps account has no host; a self-managed
 /// GitLab one is per host.
+///
+/// Concurrent refreshes: GitLab and GitHub rotate the refresh token, so of
+/// two requests refreshing at once the second is refused. Every write is
+/// conditional on the sealed credentials this request read: a refused
+/// refresh drops the link only while those are still stored, and otherwise
+/// uses what the other request stored. A refresh that succeeds after the
+/// other one dropped the link puts it back (credentials and `verified_at`).
 #[allow(dead_code)]
 pub(crate) async fn member_token(
     db: &PgPool,
@@ -177,9 +186,10 @@ pub(crate) async fn member_token(
         return Ok(None);
     }
     let keyring = overrides.keyring(state);
-    let Some(mut credentials) =
-        open_credentials(&keyring, account.get("credentials").and_then(Value::as_str))
-    else {
+    let Some(sealed) = opt_text(&account, "credentials").filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let Some(mut credentials) = open_credentials(&keyring, Some(&sealed)) else {
         return Ok(None);
     };
     if needs_refresh(&credentials, now_ms()) {
@@ -196,25 +206,32 @@ pub(crate) async fn member_token(
             Ok(fresh) => credentials = fresh,
             Err(error) => {
                 tracing::error!(?error, provider, "merge: a member token refresh failed");
-                sqlx::query(
+                let dropped = sqlx::query(
                     "update merge_provider_accounts set credentials = null, credentials_expire_at = null, \
-                       verified_at = null, updated_at = $2::timestamptz where id = $1",
+                       verified_at = null, updated_at = $2::timestamptz where id = $1 and credentials = $3",
                 )
                 .bind(text(&account, "id"))
                 .bind(now())
+                .bind(&sealed)
                 .execute(db)
                 .await?;
-                return Ok(None);
+                if dropped.rows_affected() > 0 {
+                    return Ok(None);
+                }
+                return stored_member_token(db, &keyring, text(&account, "id")).await;
             }
         }
         sqlx::query(
             "update merge_provider_accounts set credentials = $2, credentials_expire_at = $3::timestamptz, \
-               updated_at = $4::timestamptz where id = $1",
+               verified_at = $4::timestamptz, updated_at = $5::timestamptz \
+             where id = $1 and (credentials = $6 or credentials is null)",
         )
         .bind(text(&account, "id"))
         .bind(seal_credentials(&keyring, &credentials)?)
         .bind(credentials.expiry())
+        .bind(text(&account, "verifiedAt"))
         .bind(now())
+        .bind(&sealed)
         .execute(db)
         .await?;
     }
@@ -224,9 +241,45 @@ pub(crate) async fn member_token(
     }))
 }
 
+/// `storedMemberToken(db, env, accountId)`: the member token another request
+/// stored meanwhile (its refresh won), or `None` when the link is gone.
+async fn stored_member_token(
+    db: &PgPool,
+    keyring: &Keyring,
+    account_id: &str,
+) -> Result<Option<ResolvedToken>, MergeError> {
+    let account: Option<(Option<String>, Option<String>, bool)> = sqlx::query_as(
+        "select credentials, login, verified_at is not null from merge_provider_accounts \
+         where id = $1 limit 1",
+    )
+    .bind(account_id)
+    .fetch_optional(db)
+    .await?;
+    let Some((sealed, login, true)) = account else {
+        return Ok(None);
+    };
+    Ok(
+        open_credentials(keyring, sealed.as_deref()).map(|credentials| ResolvedToken {
+            access_token: credentials.access_token,
+            login,
+        }),
+    )
+}
+
+/// `awaitingOrganization(connection)`: a multi-organisation Azure DevOps
+/// connection still waiting for the member to choose one
+/// (`setAzureOrganization`) stays `needs_attention` until then, whatever a
+/// refresh does.
+fn awaiting_organization(connection: &Row) -> bool {
+    text(connection, "externalAccountId").starts_with("pending:")
+}
+
 /// `getConnectionToken(db, env, connection)`: the connection's own token
 /// (GitLab, Bitbucket, Azure DevOps). `None` when it stores none, or its
-/// refresh failed (the connection is then `needs_attention`).
+/// refresh failed (the connection is then `needs_attention`). Concurrent
+/// refreshes are handled as in [`member_token`]: a refused refresh flags the
+/// connection only while the credentials this request read are still
+/// stored, and otherwise uses the ones the other request stored.
 pub(crate) async fn connection_token(
     db: &PgPool,
     state: &MergeState,
@@ -234,10 +287,10 @@ pub(crate) async fn connection_token(
     connection: &Row,
 ) -> Result<Option<ResolvedToken>, MergeError> {
     let keyring = overrides.keyring(state);
-    let Some(mut credentials) = open_credentials(
-        &keyring,
-        connection.get("credentials").and_then(Value::as_str),
-    ) else {
+    let Some(sealed) = opt_text(connection, "credentials").filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let Some(mut credentials) = open_credentials(&keyring, Some(&sealed)) else {
         return Ok(None);
     };
     if needs_refresh(&credentials, now_ms()) {
@@ -247,31 +300,38 @@ pub(crate) async fn connection_token(
             Ok(fresh) => credentials = fresh,
             Err(error) => {
                 tracing::error!(?error, provider, "merge: a connection token refresh failed");
-                sqlx::query(
+                let flagged = sqlx::query(
                     "update merge_connections set status = 'needs_attention', updated_at = $2::timestamptz \
-                     where id = $1",
+                     where id = $1 and credentials = $3",
                 )
                 .bind(text(connection, "id"))
                 .bind(now())
+                .bind(&sealed)
                 .execute(db)
                 .await?;
-                return Ok(None);
+                if flagged.rows_affected() > 0 {
+                    return Ok(None);
+                }
+                return stored_connection_token(db, &keyring, text(connection, "id")).await;
             }
         }
-        let status = if text(connection, "status") == "needs_attention" {
+        let status = if text(connection, "status") == "needs_attention"
+            && !awaiting_organization(connection)
+        {
             "active"
         } else {
             text(connection, "status")
         };
         sqlx::query(
             "update merge_connections set credentials = $2, credentials_expire_at = $3::timestamptz, \
-               status = $4, updated_at = $5::timestamptz where id = $1",
+               status = $4, updated_at = $5::timestamptz where id = $1 and credentials = $6",
         )
         .bind(text(connection, "id"))
         .bind(seal_credentials(&keyring, &credentials)?)
         .bind(credentials.expiry())
         .bind(status)
         .bind(now())
+        .bind(&sealed)
         .execute(db)
         .await?;
     }
@@ -279,6 +339,26 @@ pub(crate) async fn connection_token(
         access_token: credentials.access_token,
         login: None,
     }))
+}
+
+/// `storedConnectionToken(db, env, connectionId)`: the connection token
+/// another request stored meanwhile (its refresh won), or `None`.
+async fn stored_connection_token(
+    db: &PgPool,
+    keyring: &Keyring,
+    connection_id: &str,
+) -> Result<Option<ResolvedToken>, MergeError> {
+    let sealed: Option<Option<String>> =
+        sqlx::query_scalar("select credentials from merge_connections where id = $1 limit 1")
+            .bind(connection_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(
+        open_credentials(keyring, sealed.flatten().as_deref()).map(|credentials| ResolvedToken {
+            access_token: credentials.access_token,
+            login: None,
+        }),
+    )
 }
 
 /// `adapterContextFor(db, env, connection, memberToken?)`: GitHub acts with

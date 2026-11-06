@@ -17,6 +17,11 @@ vi.mock('@weldsuite/agent-domain/jobs', () => ({
   enqueueWeldAgentJob: vi.fn(async () => undefined),
 }));
 
+// Whether the member who assigned the issue may use the agent (weldagent:use + access to it).
+vi.mock('@weldsuite/agent-domain/access', () => ({
+  memberCanUseAgent: vi.fn(async () => true),
+}));
+
 vi.mock('@weldsuite/worker-kit/db', () => ({
   schema: {
     weldagentAgentRuns: {
@@ -28,10 +33,12 @@ vi.mock('@weldsuite/worker-kit/db', () => ({
 }));
 
 import { createAgentRun, getAgent } from '@weldsuite/agent-domain/agents';
+import { memberCanUseAgent } from '@weldsuite/agent-domain/access';
 import { dispatchWeldAgentsForEvent } from './dispatch';
 
 const getAgentMock = vi.mocked(getAgent);
 const createRun = vi.mocked(createAgentRun);
+const canUse = vi.mocked(memberCanUseAgent);
 const schedule = vi.fn(async (_job: unknown) => undefined);
 
 const noExistingRun = {
@@ -51,10 +58,13 @@ const assigned = (data: Record<string, unknown>) => ({
 describe('merge_issue.agent_assigned dispatch', () => {
   beforeEach(() => {
     getAgentMock.mockReset();
+    canUse.mockReset();
+    canUse.mockResolvedValue(true);
     createRun.mockClear();
     schedule.mockClear();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
   it('runs the assigned agent with the issue as its task, as the member who assigned it', async () => {
@@ -68,6 +78,26 @@ describe('merge_issue.agent_assigned dispatch', () => {
     expect(String(job.userMessage)).toContain('PLAT-209');
     expect(String(job.userMessage)).toContain('merge_get_issue');
     expect(job.triggerData).toMatchObject({ eventKey: 'merge_issue.agent_assigned', entityId: 'mis_1', eventId: 'evt_1' });
+    // Checked against the member who assigned it, not the agent's owner.
+    expect(canUse).toHaveBeenCalledWith(noExistingRun, expect.objectContaining({ id: 'agt_1' }), 'user_member');
+  });
+
+  it('drops the run when the member who assigned the issue cannot use the agent', async () => {
+    const privateAgent = { id: 'agt_1', status: 'active', createdBy: 'user_owner', ownerId: 'user_owner', visibility: 'private' };
+    getAgentMock.mockResolvedValueOnce(privateAgent as never);
+    canUse.mockResolvedValueOnce(false);
+    await dispatchWeldAgentsForEvent({} as never, noExistingRun as never, assigned({}), schedule);
+    expect(canUse).toHaveBeenCalledWith(noExistingRun, privateAgent, 'user_member');
+    expect(createRun).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('drops the run when the check fails', async () => {
+    getAgentMock.mockResolvedValueOnce({ id: 'agt_1', status: 'active', createdBy: 'user_owner' } as never);
+    canUse.mockRejectedValueOnce(new Error('tenant database down'));
+    await dispatchWeldAgentsForEvent({} as never, noExistingRun as never, assigned({}), schedule);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
   });
 
   it('ignores a paused or missing agent, and an event an agent caused', async () => {

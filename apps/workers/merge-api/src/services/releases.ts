@@ -338,14 +338,19 @@ export async function deleteRelease(db: Db, id: string): Promise<MergeReleaseRow
   return row ?? null;
 }
 
-export async function markShipped(db: Db, id: string): Promise<MergeReleaseRow> {
+/**
+ * Ships a draft release. Only a live draft ships: undefined when the release
+ * was shipped or deleted meanwhile (a second click, a concurrent request), so
+ * `merge_release.shipped` and the chat post go out once.
+ */
+export async function markShipped(db: Db, id: string): Promise<MergeReleaseRow | undefined> {
   const now = new Date();
   const [row] = await db
     .update(mergeReleases)
     .set({ status: 'shipped', shippedAt: now, updatedAt: now })
-    .where(eq(mergeReleases.id, id))
+    .where(and(eq(mergeReleases.id, id), eq(mergeReleases.status, 'draft'), isNull(mergeReleases.deletedAt)))
     .returning();
-  return row!;
+  return row;
 }
 
 export async function saveNotes(db: Db, id: string, notes: string): Promise<MergeReleaseRow> {

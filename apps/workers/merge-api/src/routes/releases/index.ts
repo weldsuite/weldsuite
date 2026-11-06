@@ -11,6 +11,8 @@
  *   POST   /:id/ship            -> status shipped, `merge_release.shipped`, chat post    merge_releases:manage
  *   POST   /:id/publish         -> a WeldKnow page and/or an email with the notes        merge_releases:manage
  *
+ * A desk ticket's subject (`tickets[].title`) is the ticket's: null without tickets:read.
+ *
  * Events: merge_release created | updated | deleted | shipped.
  */
 
@@ -33,7 +35,7 @@ import {
   type OutboundDenialCode,
 } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import type { Env, Variables } from '../../types';
-import { hookContext, githubClientFor, githubFailure, unprocessable, type Ctx } from '../shared';
+import { hookContext, githubClientFor, githubFailure, titleAccess, unprocessable, type Ctx } from '../shared';
 import { diffFields, publishEntityEvents, type PendingEvent } from '../../services/events';
 import { afterReleaseShipped } from '../../services/hooks';
 import { findConnection } from '../../services/connections';
@@ -71,8 +73,15 @@ function releaseEvent(
   return { entityType: 'merge_release', action, entityId: release.id, data: { ...releaseEventData(release), ...extra }, changes };
 }
 
+/** The detail; a desk ticket's subject only for a caller with `tickets:read` (`withVisibleTitles`). */
 async function detailOf(c: Ctx, release: MergeReleaseRow) {
-  return getReleaseDetail(c.get('tenantDb'), release);
+  const detail = await getReleaseDetail(c.get('tenantDb'), release);
+  const access = titleAccess(c);
+  const tickets = [];
+  for (const ticket of detail.tickets) {
+    tickets.push(ticket.title !== null && !(await access('desk_ticket', ticket.ticketId)) ? { ...ticket, title: null } : ticket);
+  }
+  return { ...detail, tickets };
 }
 
 app.get('/', requirePermission('merge_releases:read'), zValidator('query', listMergeReleasesQuerySchema), async (c) => {
@@ -172,6 +181,8 @@ app.post('/:id/ship', requirePermission('merge_releases:manage'), async (c) => {
   if (release.status === 'shipped') return error.conflict(c, 'The release is already shipped');
 
   const shipped = await markShipped(db, id);
+  // Shipped (or deleted) by another request since it was read.
+  if (!shipped) return error.conflict(c, 'The release is already shipped');
   const data = await shippedEventData(db, shipped);
   publishEntityEvents(c, [
     releaseEvent(shipped, 'shipped', {

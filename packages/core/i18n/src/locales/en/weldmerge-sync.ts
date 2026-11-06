@@ -22,6 +22,13 @@ export const weldmergeSync = {
     connected: '{provider} connected',
     redirecting: 'Redirecting to {provider}…',
     startFailed: 'Could not start the {provider} connection',
+    installErrors: {
+      stateExpired: 'That GitHub installation link has expired or was already used. Connect GitHub again.',
+      installationUnverified:
+        'WeldMerge could not confirm that you can manage this GitHub installation. Link your GitHub account under Your accounts, then connect again.',
+      installationTaken: 'This GitHub installation is already connected to another workspace.',
+      generic: 'The GitHub installation could not be connected. Try again.',
+    },
     accountLine: '{account} · {count} repositories',
     selfManagedHost: 'Self-managed at {host}',
     noOrganization: 'No organisation chosen yet',

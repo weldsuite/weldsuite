@@ -7,6 +7,11 @@
  *      (an account loses its credentials and its `verified_at`).
  *   3. A rotated refresh token is kept; an unchanged one stays.
  *   4. An Azure DevOps account is found by member and provider alone.
+ *   5. Concurrent refreshes: a refused refresh only drops a link (or flags a
+ *      connection) whose credentials are still the ones it read; otherwise it
+ *      uses what the other request stored.
+ *   6. A refresh does not make an Azure DevOps connection that still waits for
+ *      its organisation active.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -118,6 +123,41 @@ describe('getConnectionToken', () => {
     expect(await openStored(row!.credentials)).toMatchObject({ accessToken: 'old' });
   });
 
+  it('uses the credentials a concurrent refresh stored when its own refresh is refused, and leaves the status alone', async () => {
+    const connection = await seedConnection(db, {
+      provider: 'gitlab',
+      credentials: await sealCredentials(env, { accessToken: 'old', refreshToken: 'r1', expiresAt: inMinutes(1) }),
+    });
+    const winner = await sealCredentials(env, { accessToken: 'winner', refreshToken: 'r2', expiresAt: inMinutes(120) });
+    stubHttp({
+      // The other request rotated r1 first and stored its credentials; GitLab refuses this one.
+      'POST gitlab.com/oauth/token': async () => {
+        await db.update(schema.mergeConnections).set({ credentials: winner }).where(eq(schema.mergeConnections.id, connection.id));
+        return failure(400, { error: 'invalid_grant' });
+      },
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await getConnectionToken(db, env, connection, NOW)).toEqual({ accessToken: 'winner', tokenType: null });
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, connection.id));
+    expect(row).toMatchObject({ status: 'active', credentials: winner });
+  });
+
+  it('keeps a multi-organisation Azure DevOps connection that has no organisation yet needs_attention after a refresh', async () => {
+    stubHttp({ 'POST login.microsoftonline.com/organizations/oauth2/v2.0/token': { access_token: 'fresh', refresh_token: 'r2', expires_in: 3600 } });
+    const connection = await seedConnection(db, {
+      provider: 'azure_devops',
+      externalAccountId: 'pending:profile-1',
+      accountType: 'user',
+      host: null,
+      status: 'needs_attention',
+      credentials: await sealCredentials(env, { accessToken: 'old', refreshToken: 'r1', expiresAt: inMinutes(1) }),
+    });
+    expect((await getConnectionToken(db, env, connection, NOW))!.accessToken).toBe('fresh');
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, connection.id));
+    expect(row!.status).toBe('needs_attention');
+    expect(await openStored(row!.credentials)).toMatchObject({ accessToken: 'fresh' });
+  });
+
   it('answers null for a connection without credentials (GitHub)', async () => {
     const connection = await seedConnection(db, { provider: 'github' });
     expect(await getConnectionToken(db, env, connection, NOW)).toBeNull();
@@ -154,6 +194,39 @@ describe('getMemberToken', () => {
     const [row] = await db.select().from(schema.mergeProviderAccounts);
     expect(row).toMatchObject({ credentials: null, verifiedAt: null, login: 'bob-gl' });
     expect(await getMemberToken(db, env, BOB, 'gitlab', null, NOW)).toBeNull();
+  });
+
+  it('keeps the link a concurrent refresh renewed, and uses its token, when its own refresh is refused', async () => {
+    await account();
+    const winner = await sealCredentials(env, { accessToken: 'bob-winner', refreshToken: 'br2', expiresAt: inMinutes(120) });
+    stubHttp({
+      'POST gitlab.com/oauth/token': async () => {
+        await db.update(schema.mergeProviderAccounts).set({ credentials: winner }).where(eq(schema.mergeProviderAccounts.id, 'mpa_bob'));
+        return failure(400, { error: 'invalid_grant' });
+      },
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await getMemberToken(db, env, BOB, 'gitlab', null, NOW)).toEqual({ accessToken: 'bob-winner', tokenType: null, login: 'bob-gl' });
+    const [row] = await db.select().from(schema.mergeProviderAccounts);
+    expect(row).toMatchObject({ credentials: winner, verifiedAt: NOW });
+  });
+
+  it('puts the link back when its refresh succeeds after a concurrent, refused one dropped it', async () => {
+    await account();
+    stubHttp({
+      'POST gitlab.com/oauth/token': async () => {
+        // The other request's refresh was refused first and dropped the link.
+        await db
+          .update(schema.mergeProviderAccounts)
+          .set({ credentials: null, credentialsExpireAt: null, verifiedAt: null })
+          .where(eq(schema.mergeProviderAccounts.id, 'mpa_bob'));
+        return { access_token: 'bob-fresh', refresh_token: 'br2', expires_in: 7200 };
+      },
+    });
+    expect((await getMemberToken(db, env, BOB, 'gitlab', null, NOW))!.accessToken).toBe('bob-fresh');
+    const [row] = await db.select().from(schema.mergeProviderAccounts);
+    expect(row!.verifiedAt).toEqual(NOW);
+    expect(await openStored(row!.credentials)).toMatchObject({ accessToken: 'bob-fresh', refreshToken: 'br2' });
   });
 
   it('answers null for a typed (unverified) login and for no account', async () => {

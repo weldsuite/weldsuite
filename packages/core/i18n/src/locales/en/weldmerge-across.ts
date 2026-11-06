@@ -155,6 +155,7 @@ export const weldmergeAcross = {
       groupMembers: 'Members',
       groupAgents: 'WeldAgent agents',
       agentHint: 'An agent assigned here picks the issue up as its task.',
+      invalidAgent: 'You can’t assign this agent: it is inactive, or you don’t have access to it.',
     },
   },
 

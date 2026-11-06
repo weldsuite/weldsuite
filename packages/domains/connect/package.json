@@ -18,7 +18,8 @@
     "./connectors/sync": "./src/connectors/sync.ts",
     "./connectors/webhooks": "./src/connectors/webhooks.ts",
     "./github/app-auth": "./src/github/app-auth.ts",
-    "./github/install-state": "./src/github/install-state.ts"
+    "./github/install-state": "./src/github/install-state.ts",
+    "./github/user-installations": "./src/github/user-installations.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

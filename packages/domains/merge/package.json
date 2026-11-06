@@ -9,6 +9,7 @@
     "./automation": "./src/automation.ts",
     "./github": "./src/github.ts",
     "./installations": "./src/installations.ts",
+    "./member-token": "./src/member-token.ts",
     "./providers/*": "./src/providers/*.ts"
   },
   "scripts": {

@@ -182,10 +182,13 @@ fn line_threads(rows: &[Value]) -> Vec<Value> {
     threads.into_iter().map(|(_, thread)| thread).collect()
 }
 
+/// `GENERAL_THREAD`: the id prefix of a general (conversation) thread.
+const GENERAL_THREAD: &str = "issue-";
+
 /// `generalThread(row)`: a conversation comment.
 fn general_thread(row: &Value) -> Value {
     json!({
-        "id": format!("issue-{}", id_string(row.get("id"))),
+        "id": format!("{GENERAL_THREAD}{}", id_string(row.get("id"))),
         "path": null,
         "line": null,
         "side": null,
@@ -285,7 +288,13 @@ pub(crate) async fn comment(
     input: &CommentInput,
 ) -> Result<Value, MergeError> {
     let reply = input.in_reply_to_id.as_deref().filter(|id| !id.is_empty());
-    if reply.is_some() || input.path.as_deref().is_some_and(|p| !p.is_empty()) {
+    // GitHub has no threaded replies on conversation comments: a reply to a
+    // general thread (`issue-<id>`) is a new issue comment, shown in that thread.
+    let general_reply = reply.filter(|id| id.starts_with(GENERAL_THREAD));
+    let reply = reply.filter(|_| general_reply.is_none());
+    if general_reply.is_none()
+        && (reply.is_some() || input.path.as_deref().is_some_and(|p| !p.is_empty()))
+    {
         // A reply, or a new line comment anchored to the head commit.
         let mut body = serde_json::Map::new();
         body.insert("body".to_owned(), json!(input.body));
@@ -336,10 +345,11 @@ pub(crate) async fn comment(
         json!({ "body": input.body }),
     )
     .await?;
-    Ok(json!({
-        "comment": thread_comment(&row),
-        "threadId": format!("issue-{}", id_string(row.get("id"))),
-    }))
+    let thread = general_reply.map_or_else(
+        || format!("{GENERAL_THREAD}{}", id_string(row.get("id"))),
+        str::to_owned,
+    );
+    Ok(json!({ "comment": thread_comment(&row), "threadId": thread }))
 }
 
 pub(crate) async fn merge(

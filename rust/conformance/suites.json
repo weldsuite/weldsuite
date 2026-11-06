@@ -2397,9 +2397,13 @@
         "packages/core/db/src/lib/crypto.ts",
         "packages/domains/connect/src/github/",
         "packages/domains/merge/src/installations.ts",
+        "packages/domains/merge/src/member-token.ts",
         "rust/modules/connect/",
         "rust/modules/merge/src/installations.rs",
-        "rust/crates/connect-domain/src/github_app.rs"
+        "rust/crates/merge-domain/src/",
+        "rust/crates/connect-domain/src/github_app.rs",
+        "rust/crates/connect-domain/src/github_user.rs",
+        "rust/crates/connect-domain/src/install_state.rs"
       ]
     },
     {
@@ -3335,9 +3339,14 @@
         "packages/domains/merge/src/",
         "packages/domains/connect/src/github/app-auth.ts",
         "packages/domains/connect/src/github/install-state.ts",
+        "packages/domains/connect/src/github/user-installations.ts",
+        "packages/domains/core/src/agent-access.ts",
         "packages/clients/app-api-client/src/schemas/weldmerge-sync.ts",
         "packages/clients/app-api-client/src/schemas/weldmerge-providers.ts",
         "rust/crates/connect-domain/src/install_state.rs",
+        "rust/crates/connect-domain/src/github_user.rs",
+        "rust/crates/merge-domain/src/",
+        "rust/crates/chat-domain/src/agents.rs",
         "packages/domains/chat/src/post-system-message.ts",
         "packages/domains/know/src/pages.ts",
         "packages/clients/app-api-client/src/schemas/weldmerge.ts",

@@ -41,6 +41,17 @@ function text(config: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * Sets an optional text field, or removes the key when it is emptied: the merge
+ * intake rejects an empty title, and an empty assignee would be stored as ''.
+ */
+function withOptionalText(config: Record<string, unknown>, key: string, value: string): Record<string, unknown> {
+  const next = { ...config };
+  if (value.trim() === '') delete next[key];
+  else next[key] = value;
+  return next;
+}
+
 /** Status and priority pickers shared by create and update; `optional` adds a "keep as is" choice. */
 function StatusAndPriority({
   config,
@@ -129,7 +140,7 @@ export function MergeCreateIssueForm({ config, onChange, triggerType, steps = []
       <Field label={tc.issueDescription}>
         <VariableInput
           value={text(config, 'description')}
-          onChange={(value) => onChange({ ...config, description: value })}
+          onChange={(value) => onChange(withOptionalText(config, 'description', value))}
           placeholder={tc.issueDescriptionPlaceholder}
           multiline
           rows={3}
@@ -140,7 +151,7 @@ export function MergeCreateIssueForm({ config, onChange, triggerType, steps = []
       <Field label={tc.assignee}>
         <VariableInput
           value={text(config, 'assigneeUserId')}
-          onChange={(value) => onChange({ ...config, assigneeUserId: value })}
+          onChange={(value) => onChange(withOptionalText(config, 'assigneeUserId', value))}
           placeholder={tc.assigneePlaceholder}
           {...variableProps}
         />
@@ -168,7 +179,7 @@ export function MergeUpdateIssueForm({ config, onChange, triggerType, steps = []
       <Field label={tc.issueTitle}>
         <VariableInput
           value={text(config, 'title')}
-          onChange={(value) => onChange({ ...config, title: value })}
+          onChange={(value) => onChange(withOptionalText(config, 'title', value))}
           placeholder={tc.issueTitlePlaceholder}
           {...variableProps}
         />
@@ -177,7 +188,7 @@ export function MergeUpdateIssueForm({ config, onChange, triggerType, steps = []
       <Field label={tc.assignee}>
         <VariableInput
           value={text(config, 'assigneeUserId')}
-          onChange={(value) => onChange({ ...config, assigneeUserId: value })}
+          onChange={(value) => onChange(withOptionalText(config, 'assigneeUserId', value))}
           placeholder={tc.assigneePlaceholder}
           {...variableProps}
         />

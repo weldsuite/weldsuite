@@ -313,7 +313,8 @@ function pipelineEvents(payload: Json, repositoryExternalId: string): Normalized
       kind: 'checks',
       repositoryExternalId,
       headSha: sha,
-      status: gitlabPipelineStatus(attrs?.status),
+      // GitLab does not order its pending, running and success hooks: the receiver re-reads the pipeline.
+      status: null,
       numbers: Number.isFinite(iid) ? [iid] : [],
     },
   ];

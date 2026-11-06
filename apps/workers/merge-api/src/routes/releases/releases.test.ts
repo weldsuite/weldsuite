@@ -26,7 +26,7 @@ import type {
   MergeReleaseDto,
 } from '@weldsuite/app-api-client/schemas/weldmerge-across';
 import releasesRoutes from './index';
-import { pullRequestNumberOf } from '../../services/releases';
+import { markShipped, pullRequestNumberOf } from '../../services/releases';
 import { markdownToBlocks } from '../../services/release-publish';
 import {
   ADMIN,
@@ -321,11 +321,14 @@ describe('ship', () => {
     await app().request(`${BASE}/${release.id}/refresh`, jsonInit({}));
     clearEvents();
 
-    const shipped = await ok<MergeReleaseDetailDto>(await app().request(`${BASE}/${release.id}/ship`, jsonInit({})));
+    const shipped = await ok<MergeReleaseDetailDto>(await app([...ADMIN, 'tickets:read']).request(`${BASE}/${release.id}/ship`, jsonInit({})));
     expect(shipped.status).toBe('shipped');
     expect(shipped.shippedAt).toEqual(expect.any(String));
     expect(shipped.issues.map((i) => i.key)).toEqual(['PLAT-7']);
     expect(shipped.tickets).toEqual([{ ticketId: 'tkt_1', title: 'Login broken', issueId: issue.id, issueKey: 'PLAT-7' }]);
+    // The ticket's subject is the ticket's: a member without tickets:read sees the link, not the subject.
+    const detail = await ok<MergeReleaseDetailDto>(await app().request(`${BASE}/${release.id}`));
+    expect(detail.tickets).toEqual([{ ticketId: 'tkt_1', title: null, issueId: issue.id, issueKey: 'PLAT-7' }]);
 
     expect(events.map((e) => e.eventType)).toEqual(['merge_release:shipped']);
     expect(events[0]!.data).toMatchObject({
@@ -339,6 +342,19 @@ describe('ship', () => {
     const again = await app().request(`${BASE}/${release.id}/ship`, jsonInit({}));
     expect(again.status).toBe(409);
     expect(events).toHaveLength(1);
+  });
+
+  it('ships only a live draft: a release shipped or deleted since it was read ships nothing', async () => {
+    const world = await createRelease();
+    const { release } = world;
+    // What a request that read the draft before another one shipped (or deleted) it then writes.
+    expect(await markShipped(db, release.id)).toMatchObject({ id: release.id, status: 'shipped' });
+    expect(await markShipped(db, release.id)).toBeUndefined();
+
+    const { release: deleted } = await createRelease({ name: 'Winter' }, world);
+    await db.update(schema.mergeReleases).set({ deletedAt: new Date() }).where(eq(schema.mergeReleases.id, deleted.id));
+    expect(await markShipped(db, deleted.id)).toBeUndefined();
+    expect((await db.select().from(schema.mergeReleases).where(eq(schema.mergeReleases.id, deleted.id)))[0]!.status).toBe('draft');
   });
 });
 

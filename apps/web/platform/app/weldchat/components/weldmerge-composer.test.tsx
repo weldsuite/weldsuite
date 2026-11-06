@@ -143,6 +143,11 @@ describe('useWeldMergeComposer', () => {
     act(() => result.current.setAlsoPost(true));
     act(() => result.current.commentOnPullRequest('LGTM'));
     expect(state.comment).toHaveBeenCalledWith({ id: 'mpr_1', body: 'LGTM' }, expect.any(Object));
+
+    // An attachment-only reply has no text: nothing is posted to the provider.
+    state.comment.mockClear();
+    act(() => result.current.commentOnPullRequest('  '));
+    expect(state.comment).not.toHaveBeenCalled();
   });
 
   it('has no pull request for a thread under an ordinary message or without review permission', async () => {

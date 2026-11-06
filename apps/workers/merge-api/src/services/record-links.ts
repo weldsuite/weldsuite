@@ -6,6 +6,7 @@
 
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { MergeRecordType } from '@weldsuite/db/schema';
+import { canAccessChannel } from '@weldsuite/chat-domain/channel-access';
 import type { MergeRecordLinkedIssue } from '@weldsuite/app-api-client/schemas/weldmerge-across';
 import {
   iso,
@@ -31,6 +32,50 @@ export async function findRecordLink(db: Db, issueId: string, linkId: string): P
 
 export async function deleteRecordLink(db: Db, link: MergeRecordLinkRow): Promise<void> {
   await db.delete(mergeRecordLinks).where(eq(mergeRecordLinks.id, link.id));
+}
+
+/** Whether the caller holds a workspace permission (`hasContextPermission`). */
+export type PermissionCheck = (permission: string) => Promise<boolean>;
+
+/** The permission that lets a member read a linked ticket or company, and so its title. */
+const RECORD_READ: Record<Exclude<MergeRecordType, 'chat_channel'>, string> = {
+  desk_ticket: 'tickets:read',
+  crm_company: 'companies:read',
+};
+
+/** Whether the caller may read a linked record's stored title. */
+export type RecordTitleAccess = (recordType: MergeRecordType, recordId: string) => Promise<boolean>;
+
+/**
+ * A link's stored title is the record's (a ticket subject, a company name, a
+ * channel name), not WeldMerge's: `merge_issues:read` alone does not show it.
+ * The caller sees it with the linked module's read permission (`tickets:read`,
+ * `companies:read`), or for a chat channel when they may read the channel
+ * (`canAccessChannel`). Answers are kept for the request.
+ */
+export function recordTitleAccess(db: Db, userId: string, can: PermissionCheck): RecordTitleAccess {
+  const answers = new Map<string, Promise<boolean>>();
+  return (recordType, recordId) => {
+    const key = recordType === 'chat_channel' ? `chat_channel:${recordId}` : recordType;
+    let answer = answers.get(key);
+    if (!answer) {
+      answer = recordType === 'chat_channel' ? canAccessChannel(db, recordId, userId, { can }) : can(RECORD_READ[recordType]);
+      answers.set(key, answer);
+    }
+    return answer;
+  };
+}
+
+/** The links with `title: null` where the caller may not read the linked record. */
+export async function withVisibleTitles<T extends { recordType: MergeRecordType; recordId: string; title: string | null }>(
+  access: RecordTitleAccess,
+  links: T[],
+): Promise<T[]> {
+  const out: T[] = [];
+  for (const link of links) {
+    out.push(link.title !== null && !(await access(link.recordType, link.recordId)) ? { ...link, title: null } : link);
+  }
+  return out;
 }
 
 type ShippedRelease = NonNullable<MergeRecordLinkedIssue['release']>;

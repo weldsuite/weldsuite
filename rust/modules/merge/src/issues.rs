@@ -5,7 +5,8 @@
 //!   GET    /          → list (teamId, status csv, assignee me|none|<user>, cycleId, labelId, parentIssueId, q; cursor)
 //!   GET    /:idOrKey  → detail by id or key (PLAT-209), with linked pull requests and sub-issues
 //!   POST   /          → new issue; the team's next number is allocated with the insert
-//!   PATCH  /:id       → edit (never the team); status changes keep started/completed timestamps
+//!   PATCH  /:id       → edit (never the team); status changes keep started/completed timestamps;
+//!                       a new `agentId` must be an active agent the caller could use, else 422 `invalid_agent`
 //!   DELETE /:id       → soft delete
 //! ```
 //!
@@ -19,9 +20,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_chat_domain::agents::{AgentAccess, AgentViewer, can_access_agent};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 
 use crate::automation::{StatusTimestamps, status_timestamps};
 use crate::db::{Row, col, like_pattern, one_by_id, opt_text, rows_of, text};
@@ -386,7 +388,9 @@ pub(crate) async fn list_issues(
 
 pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
     match issue_detail(&caller.db, &id).await? {
-        Some(detail) => Ok(Data(detail).into_response()),
+        Some(detail) => {
+            Ok(Data(crate::record_links::visible_detail(&caller, detail).await?).into_response())
+        }
         None => Err(Refusal::not_found("Issue", Some(&id))),
     }
 }
@@ -513,6 +517,16 @@ pub(crate) struct IssueInput {
 }
 
 /// `createMergeIssueSchema` (`partial` false) or `updateMergeIssueSchema`.
+impl IssueInput {
+    /// Whether the input names an agent (`input.agentId` truthy): the
+    /// assigner then matters.
+    pub(crate) fn names_agent(&self) -> bool {
+        self.agent_id
+            .as_set()
+            .is_some_and(|agent| !agent.is_empty())
+    }
+}
+
 fn issue_input(headers: &HeaderMap, body: &Bytes, partial: bool) -> Result<IssueInput, Refusal> {
     validate(headers, body, |issues, fields| {
         read_issue_input(issues, fields, partial)
@@ -852,6 +866,71 @@ pub(crate) async fn team_key_of(db: &PgPool, team_id: &str) -> Result<String, sq
 pub(crate) enum UpdateFailure {
     NotFound,
     Ref(RefFailure),
+    /// `agent_invalid`: a new agent that does not exist, is not active, or
+    /// the assigner could not use.
+    Agent,
+}
+
+/// What the route answers an `agent_invalid` with (422 `invalid_agent`).
+pub(crate) const AGENT_INVALID_MESSAGE: &str =
+    "The agent does not exist, is not active, or you cannot use it";
+
+/// `AgentAssigner`: who assigns an issue to an agent, as an agent viewer
+/// (`weldagent:manage` reaches every agent), and whether they hold
+/// `weldagent:use`.
+#[derive(Debug, Clone)]
+pub(crate) struct AgentAssigner {
+    pub(crate) viewer: AgentViewer,
+    pub(crate) can_use: bool,
+}
+
+impl AgentAssigner {
+    /// The request's member (`hasContextPermission`).
+    pub(crate) fn of_caller(caller: &Caller) -> Self {
+        Self {
+            viewer: AgentViewer {
+                user_id: caller.user_id.clone(),
+                can_manage_all: caller.can("weldagent:manage"),
+            },
+            can_use: caller.can("weldagent:use"),
+        }
+    }
+}
+
+/// `canAssignAgent(db, agentId, assigner)`: the agent exists, is `active`,
+/// and the assigner could use it themselves (`weldagent:use` and
+/// `canAccessAgent`). Assigning runs the agent with the issue as its task.
+pub(crate) async fn can_assign_agent(
+    db: &PgPool,
+    agent_id: &str,
+    assigner: &AgentAssigner,
+) -> Result<bool, sqlx::Error> {
+    if !assigner.can_use {
+        return Ok(false);
+    }
+    let agent: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+        "select id, owner_id, visibility, status from weldagent_agents \
+         where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(agent_id)
+    .fetch_optional(db)
+    .await?;
+    let Some((id, owner_id, visibility, status)) = agent else {
+        return Ok(false);
+    };
+    if status != "active" {
+        return Ok(false);
+    }
+    can_access_agent(
+        db,
+        &AgentAccess {
+            id: &id,
+            owner_id: owner_id.as_deref(),
+            visibility: &visibility,
+        },
+        &assigner.viewer,
+    )
+    .await
 }
 
 /// An updated issue: the rows around the change and the team's key.
@@ -894,10 +973,20 @@ pub(crate) async fn update(
 ) -> Answer {
     let input = issue_input(&headers, &body, true)?;
     let db = &caller.db;
-    let updated = match update_issue(db, &id, &input).await? {
+    let assigner = AgentAssigner::of_caller(&caller);
+    let updated = match update_issue(db, &id, &input, Some(&assigner)).await? {
         Ok(updated) => updated,
         Err(UpdateFailure::NotFound) => return Err(Refusal::not_found("Issue", Some(&id))),
         Err(UpdateFailure::Ref(failure)) => return Err(failure.refusal()),
+        // Assigning runs the agent with the issue as its task: only an agent the caller could use.
+        Err(UpdateFailure::Agent) => {
+            return Err(ApiError::new(
+                http::StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_agent",
+                AGENT_INVALID_MESSAGE,
+            )
+            .into());
+        }
     };
     publish(&state, &caller.events, updated.events());
     crate::hooks::after_issue_updated(
@@ -910,11 +999,14 @@ pub(crate) async fn update(
     Ok(Data(one_dto(db, &updated.issue).await?).into_response())
 }
 
-/// `updateIssue(db, id, input)`.
+/// `updateIssue(db, id, input, assigner)`. A new agent (one the issue does
+/// not have yet) needs [`can_assign_agent`]; without an assigner (issue
+/// sync) it is refused. Unassigning, or the agent the issue has, needs nothing.
 pub(crate) async fn update_issue(
     db: &PgPool,
     id: &str,
     input: &IssueInput,
+    agent_assigner: Option<&AgentAssigner>,
 ) -> Result<Result<UpdatedIssue, UpdateFailure>, sqlx::Error> {
     let Some(before) = find_issue(db, id).await? else {
         return Ok(Err(UpdateFailure::NotFound));
@@ -931,6 +1023,17 @@ pub(crate) async fn update_issue(
     .await?
     {
         return Ok(Err(UpdateFailure::Ref(failure)));
+    }
+    if let Some(agent_id) = input.agent_id.as_set().filter(|agent| !agent.is_empty())
+        && Some(agent_id.as_str()) != before.get("agentId").and_then(Value::as_str)
+    {
+        let allowed = match agent_assigner {
+            Some(agent_assigner) => can_assign_agent(db, agent_id, agent_assigner).await?,
+            None => false,
+        };
+        if !allowed {
+            return Ok(Err(UpdateFailure::Agent));
+        }
     }
     let now = now();
     let (set_description, description) = patch(&input.description);

@@ -43,6 +43,7 @@ import {
   type InlineFileView,
 } from '../lib/composer-content';
 import { fitAttachments, isChatUploadTooLarge, MAX_CHAT_UPLOAD_BYTES, MAX_MESSAGE_ATTACHMENTS, uploadChatFile } from '../lib/chat-upload';
+import { messagePlainText } from '../lib/render-message-content';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
@@ -436,7 +437,8 @@ export function MessageInput({
       attachments: outgoing.length > 0 ? outgoing : undefined,
       _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
-    mergeComposer.commentOnPullRequest(trimmed);
+    // The provider gets plain text: mentions as @Name, no internal tokens.
+    mergeComposer.commentOnPullRequest(messagePlainText(trimmed, membersMap.current));
     clearInput();
   }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t, mergeComposer]);
 

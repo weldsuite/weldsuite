@@ -58,6 +58,17 @@ describe('MergeUpdateIssueForm', () => {
     fireEvent.change(screen.getByPlaceholderText(tc.issueTitlePlaceholder), { target: { value: 'New title' } });
     expect(onChange).toHaveBeenLastCalledWith({ status: 'done', title: 'New title' });
   });
+
+  it('removes an optional field that is cleared instead of storing an empty string', () => {
+    const onChange = vi.fn();
+    render(
+      <MergeUpdateIssueForm config={{ issue: 'PLAT-209', title: 'Old', assigneeUserId: 'user_1' }} onChange={onChange} />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(tc.issueTitlePlaceholder), { target: { value: '  ' } });
+    expect(onChange).toHaveBeenLastCalledWith({ issue: 'PLAT-209', assigneeUserId: 'user_1' });
+    fireEvent.change(screen.getByPlaceholderText(tc.assigneePlaceholder), { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({ issue: 'PLAT-209', title: 'Old' });
+  });
 });
 
 describe('MergeCommentForm', () => {

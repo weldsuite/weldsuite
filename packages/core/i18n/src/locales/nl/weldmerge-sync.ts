@@ -22,6 +22,13 @@ export const weldmergeSync = {
     connected: '{provider} gekoppeld',
     redirecting: 'Doorsturen naar {provider}…',
     startFailed: 'De koppeling met {provider} kon niet worden gestart',
+    installErrors: {
+      stateExpired: 'Die GitHub-installatielink is verlopen of al gebruikt. Koppel GitHub opnieuw.',
+      installationUnverified:
+        'WeldMerge kon niet bevestigen dat je deze GitHub-installatie mag beheren. Koppel je GitHub-account onder Je accounts en koppel daarna opnieuw.',
+      installationTaken: 'Deze GitHub-installatie is al gekoppeld aan een andere workspace.',
+      generic: 'De GitHub-installatie kon niet worden gekoppeld. Probeer het opnieuw.',
+    },
     accountLine: '{account} · {count} repositories',
     selfManagedHost: 'Zelf gehost op {host}',
     noOrganization: 'Nog geen organisatie gekozen',

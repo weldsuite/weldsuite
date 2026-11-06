@@ -6,5 +6,8 @@
 //!   route and installation events and WeldConnect's install callback,
 //!   recover and disconnect all go through it, so the install paths cannot
 //!   drift (ADR MERGE-002).
+//! - [`member_token`]: a member's linked GitHub token as stored (no
+//!   refresh), which WeldConnect proves an install with.
 
 pub mod installations;
+pub mod member_token;

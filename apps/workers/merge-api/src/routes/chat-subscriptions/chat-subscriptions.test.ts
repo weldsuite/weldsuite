@@ -148,20 +148,24 @@ describe('subscriptions', () => {
     await subscribe(channel.id, { events: ['issue_done'] }, { SCHEDULE_INDEX: d1 });
     expect(await dueAt()).toBeNull();
 
+    // Hours relative to now, so "sooner" and "later" hold at any time of day:
+    // the next (now + 2)h comes before the next (now + 10)h, which comes before the next (now + 20)h.
     const before = Date.now();
-    const digest = await subscribe(channel.id, { events: ['daily_digest'], digestHour: 17 }, { SCHEDULE_INDEX: d1 });
+    const hourFromNow = (offset: number) => (new Date(before).getUTCHours() + offset) % 24;
+    const [sooner, middle, later] = [hourFromNow(2), hourFromNow(10), hourFromNow(20)];
+    const digest = await subscribe(channel.id, { events: ['daily_digest'], digestHour: middle }, { SCHEDULE_INDEX: d1 });
     const first = new Date((await dueAt())!);
-    expect([first.getUTCHours(), first.getUTCMinutes(), first.getUTCSeconds()]).toEqual([17, 0, 0]);
+    expect([first.getUTCHours(), first.getUTCMinutes(), first.getUTCSeconds()]).toEqual([middle, 0, 0]);
     expect(first.getTime()).toBeGreaterThan(before);
     expect(first.getTime() - before).toBeLessThanOrEqual(24 * 3_600_000);
 
-    // An earlier hour pulls the due time forward; a later one never pushes it back.
-    await subs(ADMIN, { SCHEDULE_INDEX: d1 }).request(`${BASE}/${digest.id}`, jsonInit({ digestHour: 3 }, 'PATCH'));
+    // A sooner hour pulls the due time forward; a later one never pushes it back.
+    await subs(ADMIN, { SCHEDULE_INDEX: d1 }).request(`${BASE}/${digest.id}`, jsonInit({ digestHour: sooner }, 'PATCH'));
     const earlier = new Date((await dueAt())!);
-    expect(earlier.getUTCHours()).toBe(3);
-    expect(earlier.getTime()).toBeLessThan(first.getTime() + 1);
-    await subs(ADMIN, { SCHEDULE_INDEX: d1 }).request(`${BASE}/${digest.id}`, jsonInit({ digestHour: 20 }, 'PATCH'));
-    expect(new Date((await dueAt())!).getUTCHours()).toBe(3);
+    expect(earlier.getUTCHours()).toBe(sooner);
+    expect(earlier.getTime()).toBeLessThan(first.getTime());
+    await subs(ADMIN, { SCHEDULE_INDEX: d1 }).request(`${BASE}/${digest.id}`, jsonInit({ digestHour: later }, 'PATCH'));
+    expect(new Date((await dueAt())!).getUTCHours()).toBe(sooner);
   });
 });
 

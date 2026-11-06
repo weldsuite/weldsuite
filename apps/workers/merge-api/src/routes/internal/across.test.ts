@@ -157,6 +157,25 @@ describe('WeldAgent tools', () => {
     expect(missing).toEqual({ ok: false, result: null, error: 'Issue PLAT-77 was not found' });
   });
 
+  it("gives a linked record's title only where the acting member may read the record", async () => {
+    const team = await seedTeam(db, 'PLAT');
+    const issue = await seedIssue(db, team.id, 1);
+    await db.delete(schema.chatChannels);
+    await db.insert(schema.chatChannels).values([
+      { id: 'chc_across_open', name: 'General', slug: 'general', type: 'public' },
+      { id: 'chc_across_closed', name: 'Acquisition', slug: 'acquisition', type: 'private' },
+    ]);
+    await db.insert(schema.mergeRecordLinks).values([
+      { id: 'mrk_across_1', issueId: issue.id, recordType: 'chat_channel', recordId: 'chc_across_open', title: 'General' },
+      { id: 'mrk_across_2', issueId: issue.id, recordType: 'chat_channel', recordId: 'chc_across_closed', title: 'Acquisition' },
+    ]);
+    const detail = await tool('user_viewer', 'merge_get_issue', { issue: 'PLAT-1' });
+    const titles = Object.fromEntries(detail.result.recordLinks.map((l: { recordId: string; title: string | null }) => [l.recordId, l.title]));
+    // A private channel the member is not in stays nameless.
+    expect(titles).toEqual({ chc_across_open: 'General', chc_across_closed: null });
+    await db.delete(schema.chatChannels);
+  });
+
   it('writes as the acting member and marks its events as the agent’s', async () => {
     const team = await seedTeam(db, 'PLAT');
     clearEvents();
@@ -172,6 +191,8 @@ describe('WeldAgent tools', () => {
   });
 
   it('assigning an agent also publishes merge_issue:agent_assigned', async () => {
+    await db.delete(schema.weldagentAgents);
+    await db.insert(schema.weldagentAgents).values({ id: 'agt_2', name: 'Triage', status: 'active', visibility: 'workspace' });
     const team = await seedTeam(db, 'PLAT');
     await seedIssue(db, team.id, 5);
     clearEvents();
@@ -180,6 +201,25 @@ describe('WeldAgent tools', () => {
     expect(eventLog()).toEqual(['merge_issue:updated', 'merge_issue:agent_assigned']);
     const [row] = await db.select().from(schema.mergeIssues).where(eq(schema.mergeIssues.agentId, 'agt_2'));
     expect(row).toMatchObject({ status: 'in_progress' });
+  });
+
+  it('refuses to assign an agent the acting member cannot use, and writes nothing', async () => {
+    await db.delete(schema.weldagentAgents);
+    await db.insert(schema.weldagentAgents).values({ id: 'agt_secret', name: 'Secret', status: 'active', visibility: 'private', ownerId: 'user_owner' });
+    const team = await seedTeam(db, 'PLAT');
+    await seedIssue(db, team.id, 6);
+    clearEvents();
+    for (const agentId of ['agt_secret', 'agt_unknown']) {
+      const result = await tool('user_member', 'merge_update_issue', { issue: 'PLAT-6', agentId, status: 'in_progress' });
+      expect(result.ok, agentId).toBe(false);
+      expect(result.error, agentId).toContain('cannot use it');
+      const outcome = await action('user_member', 'merge.update_issue', { issue: 'PLAT-6', agentId });
+      expect(outcome.ok, agentId).toBe(false);
+      expect(outcome.error, agentId).toContain('cannot use it');
+    }
+    const [row] = await db.select().from(schema.mergeIssues);
+    expect(row).toMatchObject({ agentId: null, status: 'backlog' });
+    expect(events).toHaveLength(0);
   });
 
   it('refuses a member without the permission and writes nothing', async () => {

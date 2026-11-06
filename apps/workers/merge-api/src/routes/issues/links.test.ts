@@ -7,6 +7,8 @@
  *      team key and the latest shipped release carrying one of their pull
  *      requests; deleted issues and other records stay out.
  *   3. Reading needs merge_issues:read, changing needs merge_issues:update.
+ *   4. A link's stored title (a ticket subject, a company or channel name) is
+ *      shown only to a member who may read the record itself.
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -17,7 +19,7 @@ import type { MergeRecordLinkedIssue } from '@weldsuite/app-api-client/schemas/w
 import issuesRoutes from './index';
 import linksRoutes from './links';
 import recordLinksRoutes from '../record-links';
-import { ADMIN, VIEWER, clearEvents, errorCode, events, jsonInit, makeApp, newId, ok, openDb, resetTables } from '../../test/helpers';
+import { ADMIN, ALICE, VIEWER, clearEvents, errorCode, events, jsonInit, makeApp, newId, ok, openDb, resetTables } from '../../test/helpers';
 import { seedConnection, seedIssue, seedPullRequest, seedRepository, seedTeam } from '../../test/seed';
 
 let db: Database;
@@ -28,6 +30,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await resetTables(db);
+  await db.delete(schema.chatChannelMembers);
+  await db.delete(schema.chatChannels);
 });
 
 const ISSUES = '/api/merge/issues';
@@ -65,13 +69,49 @@ describe('POST/GET/DELETE /issues/:id/links', () => {
     expect(await ok<MergeRecordLinkDto[]>(await links().request(`${ISSUES}/${issue.id}/links`))).toEqual([]);
   });
 
-  it('shows the links on the issue detail', async () => {
+  it('shows the links on the issue detail, with the title only to a member who may read the record', async () => {
     const { issue } = await seedLinkedWorld();
     await links().request(`${ISSUES}/${issue.id}/links`, jsonInit({ recordType: 'crm_company', recordId: 'cmp_1', title: 'Acme' }));
-    const detail = await ok<{ recordLinks: MergeRecordLinkDto[] }>(
-      await makeApp(db, ISSUES, issuesRoutes).request(`${ISSUES}/${issue.id}`),
-    );
-    expect(detail.recordLinks.map((l) => [l.recordType, l.recordId, l.title])).toEqual([['crm_company', 'cmp_1', 'Acme']]);
+    const detailAs = async (grants: string[]) =>
+      (await ok<{ recordLinks: MergeRecordLinkDto[] }>(await makeApp(db, ISSUES, issuesRoutes, { grants }).request(`${ISSUES}/${issue.id}`)))
+        .recordLinks.map((l) => [l.recordType, l.recordId, l.title]);
+    expect(await detailAs([...ADMIN, 'companies:read'])).toEqual([['crm_company', 'cmp_1', 'Acme']]);
+    expect(await detailAs(ADMIN)).toEqual([['crm_company', 'cmp_1', null]]);
+  });
+
+  it("keeps a linked record's title from a member who may not read the record", async () => {
+    const { issue } = await seedLinkedWorld();
+    await db.insert(schema.chatChannels).values([
+      { id: 'chc_open', name: 'General', slug: 'general', type: 'public' },
+      { id: 'chc_closed', name: 'Acquisition', slug: 'acquisition', type: 'private' },
+    ]);
+    for (const link of [
+      { recordType: 'desk_ticket', recordId: 'tkt_1', title: 'Refund for Acme' },
+      { recordType: 'crm_company', recordId: 'cmp_1', title: 'Acme' },
+      { recordType: 'chat_channel', recordId: 'chc_open', title: 'General' },
+      { recordType: 'chat_channel', recordId: 'chc_closed', title: 'Acquisition' },
+    ]) {
+      await links().request(`${ISSUES}/${issue.id}/links`, jsonInit(link));
+    }
+    const titles = async (grants: string[]) =>
+      (await ok<MergeRecordLinkDto[]>(await links(grants).request(`${ISSUES}/${issue.id}/links`))).map((l) => [l.recordId, l.title]);
+
+    // merge_issues:read alone: only the public channel's name (anyone may read that channel).
+    expect(await titles(VIEWER)).toEqual([
+      ['tkt_1', null],
+      ['cmp_1', null],
+      ['chc_open', 'General'],
+      ['chc_closed', null],
+    ]);
+    // With the desk and CRM read permissions; the private channel still needs a membership.
+    expect(await titles([...VIEWER, 'tickets:read', 'companies:read'])).toEqual([
+      ['tkt_1', 'Refund for Acme'],
+      ['cmp_1', 'Acme'],
+      ['chc_open', 'General'],
+      ['chc_closed', null],
+    ]);
+    await db.insert(schema.chatChannelMembers).values({ id: 'chm_alice', channelId: 'chc_closed', userId: ALICE, role: 'member' });
+    expect((await titles(VIEWER)).find(([id]) => id === 'chc_closed')).toEqual(['chc_closed', 'Acquisition']);
   });
 
   it('answers 404 for an unknown issue or link, 400 for a bad body', async () => {
@@ -142,7 +182,9 @@ describe('GET /record-links', () => {
     await db.insert(schema.mergeIssuePullRequests).values({ id: generateId('mip'), issueId: openIssue.id, pullRequestId: pr.id, source: 'manual', closes: false });
     await db.insert(schema.mergeReleasePullRequests).values({ id: generateId('mrr'), releaseId: draft!.id, pullRequestId: pr.id });
 
-    const found = await ok<MergeRecordLinkedIssue[]>(await lookup().request(`${LOOKUP}?recordType=desk_ticket&recordId=tkt_1`));
+    const found = await ok<MergeRecordLinkedIssue[]>(
+      await lookup([...ADMIN, 'tickets:read']).request(`${LOOKUP}?recordType=desk_ticket&recordId=tkt_1`),
+    );
     expect(found.map((f) => f.issue.key).sort()).toEqual(['PLAT-1', 'PLAT-2']);
     const shipped = found.find((f) => f.issue.key === 'PLAT-1')!;
     expect(shipped).toMatchObject({
@@ -151,6 +193,9 @@ describe('GET /record-links', () => {
       release: { id: latest.id, name: 'Newer', version: 'v1', shippedAt: '2026-11-01T10:00:00.000Z' },
     });
     expect(found.find((f) => f.issue.key === 'PLAT-2')!.release).toBeNull();
+    // Without tickets:read the issues are listed, the ticket's subject is not.
+    const unread = await ok<MergeRecordLinkedIssue[]>(await lookup().request(`${LOOKUP}?recordType=desk_ticket&recordId=tkt_1`));
+    expect(unread.map((f) => f.link.title)).toEqual([null, null]);
 
     expect(await ok<MergeRecordLinkedIssue[]>(await lookup().request(`${LOOKUP}?recordType=crm_company&recordId=cmp_none`))).toEqual([]);
   });

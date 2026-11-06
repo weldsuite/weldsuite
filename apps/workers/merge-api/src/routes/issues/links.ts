@@ -1,7 +1,8 @@
 /**
  * Record links of an issue: /api/merge/issues/:id/links.
  *
- *   GET    /:id/links           -> the records the issue is linked to      (merge_issues:read)
+ *   GET    /:id/links           -> the records the issue is linked to      (merge_issues:read; a record's
+ *                                  title only with its module's read permission or channel access)
  *   POST   /:id/links           -> link a ticket, company or chat channel   (merge_issues:update)
  *   DELETE /:id/links/:linkId   -> remove a link                            (merge_issues:update)
  *
@@ -17,7 +18,8 @@ import type { Env, Variables } from '../../types';
 import { publishEntityEvents } from '../../services/events';
 import { findIssue, insertRecordLinks, listRecordLinks } from '../../services/issues';
 import { recordLinkDto, recordLinkEventData } from '../../services/mappers';
-import { deleteRecordLink, findRecordLink } from '../../services/record-links';
+import { deleteRecordLink, findRecordLink, withVisibleTitles } from '../../services/record-links';
+import { titleAccess } from '../shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -26,7 +28,8 @@ app.get('/:id/links', requirePermission('merge_issues:read'), async (c) => {
   const db = c.get('tenantDb');
   if (!(await findIssue(db, id))) return error.notFound(c, 'Issue', id);
   const rows = await listRecordLinks(db, id);
-  return list(c, rows.map(recordLinkDto), cursorPagination(rows.length, false, null));
+  const links = await withVisibleTitles(titleAccess(c), rows.map(recordLinkDto));
+  return list(c, links, cursorPagination(links.length, false, null));
 });
 
 app.post('/:id/links', requirePermission('merge_issues:update'), zValidator('json', createMergeRecordLinkSchema), async (c) => {

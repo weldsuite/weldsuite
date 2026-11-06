@@ -5,7 +5,10 @@
 //!
 //! The secret is the worker's `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`
 //! on a deployment without Clerk ([`state_secret`]). `workspaceId` is
-//! whatever ref the issuer holds (`ws_…` or the Clerk org id).
+//! whatever ref the issuer holds (`ws_…` or the Clerk org id). A state is
+//! single use: its nonce is kept in KV when it is issued
+//! ([`remember_install_nonce`]) and taken when it is redeemed
+//! ([`consume_install_nonce`]).
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -89,6 +92,51 @@ pub fn verify_install_state(token: &str, secret: &str) -> Option<Map<String, Val
 /// `installStateNonce()`: 32 random hex characters.
 pub fn install_state_nonce() -> String {
     weldsuite_kit::random_string(32, "0123456789abcdef")
+}
+
+/// `installNonceKey(nonce)`: the KV key of an issued state's nonce.
+pub fn install_nonce_key(nonce: &str) -> String {
+    format!("merge_install_nonce:{nonce}")
+}
+
+/// `rememberInstallNonce(kv, nonce, workspaceId)`: keeps the nonce of a
+/// state just issued for the state's lifetime. Both install routes share
+/// `WORKSPACE_CACHE`, so either setup redirect consumes the other's.
+///
+/// # Errors
+///
+/// The cache fails.
+pub async fn remember_install_nonce(
+    cache: &dyn weldsuite_ports::DynCache,
+    nonce: &str,
+    workspace_id: &str,
+) -> Result<(), weldsuite_ports::PortError> {
+    let ttl = std::time::Duration::from_secs(INSTALL_STATE_TTL_SECONDS.unsigned_abs());
+    cache
+        .put_boxed(&install_nonce_key(nonce), workspace_id, Some(ttl))
+        .await
+}
+
+/// `consumeInstallNonce(kv, nonce)`: takes the nonce of a state being
+/// redeemed; `false` when it was never issued, already used or expired
+/// (`error=state_expired`). A state is good for one setup redirect.
+///
+/// # Errors
+///
+/// The cache fails.
+pub async fn consume_install_nonce(
+    cache: &dyn weldsuite_ports::DynCache,
+    nonce: Option<&str>,
+) -> Result<bool, weldsuite_ports::PortError> {
+    let Some(nonce) = nonce.filter(|n| !n.is_empty()) else {
+        return Ok(false);
+    };
+    let key = install_nonce_key(nonce);
+    if cache.get_boxed(&key).await?.is_none() {
+        return Ok(false);
+    }
+    cache.delete_boxed(&key).await?;
+    Ok(true)
 }
 
 #[cfg(test)]

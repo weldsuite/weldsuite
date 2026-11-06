@@ -210,7 +210,7 @@ describe('parseGitlabWebhook', () => {
     expect(events[1]).toMatchObject({ number: 12, decision: null });
   });
 
-  it('maps a pipeline to a checks event', () => {
+  it('maps a pipeline to a checks event the receiver re-reads (hooks arrive out of order)', () => {
     expect(
       parseGitlabWebhook(
         {},
@@ -221,7 +221,7 @@ describe('parseGitlabWebhook', () => {
           merge_request: { iid: 12 },
         },
       ),
-    ).toEqual([{ kind: 'checks', repositoryExternalId: '55', headSha: 'abc123', status: 'failure', numbers: [12] }]);
+    ).toEqual([{ kind: 'checks', repositoryExternalId: '55', headSha: 'abc123', status: null, numbers: [12] }]);
   });
 
   it('maps an issue and an issue note, and skips merge request and system notes', () => {

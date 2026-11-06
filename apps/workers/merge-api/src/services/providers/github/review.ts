@@ -99,8 +99,11 @@ function lineThreads(rows: GithubComment[]): MergeReviewThread[] {
   return [...threads.values()];
 }
 
+/** The id prefix of a general (conversation) thread. */
+const GENERAL_THREAD = 'issue-';
+
 const generalThread = (row: GithubComment): MergeReviewThread => ({
-  id: `issue-${row.id}`,
+  id: `${GENERAL_THREAD}${row.id}`,
   path: null,
   line: null,
   side: null,
@@ -172,9 +175,12 @@ export const githubReview: ReviewAdapter = {
   },
 
   async comment(ctx, repository, number, input) {
-    if (input.inReplyToId || input.path) return reviewComment(ctx, repository, number, input);
+    // GitHub has no threaded replies on conversation comments: a reply to a
+    // general thread (`issue-<id>`) is a new issue comment, shown in that thread.
+    const generalReply = input.inReplyToId?.startsWith(GENERAL_THREAD) ? input.inReplyToId : null;
+    if (!generalReply && (input.inReplyToId || input.path)) return reviewComment(ctx, repository, number, input);
     const row = (await write<GithubComment>(ctx, 'POST', `/repos/${repository.fullName}/issues/${number}/comments`, { body: input.body }))!;
-    return { comment: threadComment(row), threadId: `issue-${row.id}` };
+    return { comment: threadComment(row), threadId: generalReply ?? `${GENERAL_THREAD}${row.id}` };
   },
 
   async merge(ctx, repository, number, input) {

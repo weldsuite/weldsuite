@@ -219,6 +219,7 @@ describe('GitLab', () => {
     const { key, secret, repo } = await gitlabSetup();
     const head = await seedPullRequest(db, repo.id, 1, { provider: 'gitlab', headSha: 'abc123' });
     const other = await seedPullRequest(db, repo.id, 2, { provider: 'gitlab', headSha: 'def456' });
+    stubHttp({ 'GET gitlab.com/api/v4/projects/55/pipelines': [{ id: 1, status: 'failed' }] });
     const result = await send('gitlab', key, gl(secret), {
       object_kind: 'pipeline',
       project: { id: 55 },
@@ -234,6 +235,23 @@ describe('GitLab', () => {
       outcome: 'ignored',
       reason: 'unknown_pull_request',
     });
+  });
+
+  it('re-reads the pipeline rather than trust a hook that arrives out of order', async () => {
+    const { key, secret, repo } = await gitlabSetup();
+    await seedPullRequest(db, repo.id, 1, { provider: 'gitlab', headSha: 'abc123', checksStatus: 'success' });
+    const calls = stubHttp({ 'GET gitlab.com/api/v4/projects/55/pipelines': [{ id: 1, status: 'success' }] });
+    // The `running` hook of a pipeline that has since succeeded.
+    await send('gitlab', key, gl(secret), {
+      object_kind: 'pipeline',
+      project: { id: 55 },
+      object_attributes: { id: 1, sha: 'abc123', status: 'running' },
+      merge_request: { iid: 1 },
+    });
+    expect((await prs())[0]!.checksStatus).toBe('success');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(
+      perRun(['GET gitlab.com/api/v4/projects/55/pipelines?sha=abc123&order_by=id&sort=desc&per_page=1']),
+    );
   });
 
   it('brings a GitLab issue in when issue sync is on, and ignores it when it is off', async () => {
@@ -382,10 +400,13 @@ describe('Azure DevOps', () => {
     expect(await prs()).toEqual([]);
   });
 
-  it('mirrors a created pull request, records the decision from the votes and reads the checks back', async () => {
+  it('mirrors a created pull request, reads the votes and the checks back', async () => {
     const { key, secret } = await azureSetup();
     const calls = stubHttp({
-      'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77': azurePr({ id: 77 }),
+      'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77': azurePr({
+        id: 77,
+        reviewers: [['TJanssen@acme.com', 10], ['MPeters@acme.com', 0]],
+      }),
       'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullRequests/77/statuses': { value: [{ state: 'succeeded' }] },
       'GET dev.azure.com/acme/Platform/_apis/policy/evaluations': { value: [{ status: 'running', configuration: { isBlocking: true } }] },
     });
@@ -403,9 +424,11 @@ describe('Azure DevOps', () => {
       checksStatus: 'pending',
     });
     expect(pr!.requestedReviewers).toMatchObject([{ kind: 'user', login: 'mpeters@acme.com' }]);
+    // The pull request is read twice: for the votes, then for the checks.
     expect(calls.map((c) => `${c.method} ${c.url.split('?')[0]}`).sort()).toEqual(
       perRun([
         'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullRequests/77/statuses',
+        'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77',
         'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77',
         'GET dev.azure.com/acme/Platform/_apis/policy/evaluations',
       ]).sort(),
@@ -413,11 +436,30 @@ describe('Azure DevOps', () => {
     expect(calls.every((c) => c.auth === 'bearer azure_devops-token')).toBe(true);
   });
 
+  it('keeps the votes Azure DevOps reports over an older delivery\'s', async () => {
+    const { key, secret, repo } = await azureSetup();
+    await seedPullRequest(db, repo.id, 77, {
+      provider: 'azure_devops',
+      externalId: '77',
+      reviewDecision: 'approved',
+      providerUpdatedAt: new Date('2026-11-01T12:00:00Z'),
+    });
+    stubHttp({
+      'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77': azurePr({ id: 77, reviewers: [['TJanssen@acme.com', 10]] }),
+    });
+    // An "updated" delivery from before the approval (vote 0), delivered after it.
+    await send('azure_devops', key, basic(secret), azurePrHook({ id: 77, reviewers: [['TJanssen@acme.com', 0]] }, 'git.pullrequest.updated', '2026-11-01T10:00:00.000Z'));
+    expect((await prs())[0]!.reviewDecision).toBe('approved');
+  });
+
   it('turns a rejecting vote into changes_requested and a merge into merged', async () => {
     const { key, secret } = await azureSetup();
-    stubHttp({});
+    // What Azure DevOps reports when the receiver reads the votes back.
+    let votes: Array<[string, number]> = [['TJanssen@acme.com', -10]];
+    stubHttp({ 'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77': () => azurePr({ id: 77, reviewers: votes }) });
     await send('azure_devops', key, basic(secret), azurePrHook({ id: 77, reviewers: [['TJanssen@acme.com', -10]] }, 'git.pullrequest.updated', '2026-11-01T10:00:00.000Z'));
     expect((await prs())[0]!.reviewDecision).toBe('changes_requested');
+    votes = [['TJanssen@acme.com', 10]];
     expect(
       await send(
         'azure_devops',

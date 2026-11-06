@@ -4,17 +4,22 @@
 //!
 //! ```text
 //!   GET /api/merge/connections/github/install-url?returnTo=   → { url }: the App's install page with a signed state
-//!   GET /public/merge/github/setup?installation_id&setup_action&state
-//!       → verifies the state, reads the installation with the App JWT, records it (the merge_connections
-//!         row and the master installation index), publishes merge_connection created/updated and
-//!         redirects to `returnTo` (default the providers tab)
+//!   GET /public/merge/github/setup?installation_id&setup_action&state&code
+//!       → verifies the state and takes its nonce, proves the installing member can reach the
+//!         installation (GitHub's `code`, else their linked GitHub account), reads it with the App
+//!         JWT, records it (the master installation index, claimed for this workspace, and the
+//!         merge_connections row), publishes merge_connection created/updated and redirects to
+//!         `returnTo` (default the providers tab)
 //! ```
 //!
 //! The state is an HS256 JWT (`weldsuite_connect_domain::install_state`),
 //! signed with `CLERK_SECRET_KEY` (else `INTERNAL_API_SECRET`), ten
-//! minutes: `{workspaceId, userId, returnTo?, nonce}`. The setup route runs
-//! before any session: the state decides the workspace. Its failures
-//! redirect back to the providers tab with `error=<code>`.
+//! minutes: `{workspaceId, userId, returnTo?, nonce}`, good for one redirect
+//! (its nonce is kept in `WORKSPACE_CACHE`). The setup route runs before any
+//! session: the state decides the workspace, and `installation_id` counts
+//! only once a GitHub user token proves it
+//! (`weldsuite_connect_domain::github_user`). Its failures redirect back to
+//! the providers tab with `error=<code>`.
 
 use axum::extract::{FromRequestParts, RawQuery, State};
 use axum::response::{IntoResponse, Response};
@@ -22,8 +27,12 @@ use http::request::Parts;
 use http::{StatusCode, header};
 use serde_json::{Map, Value, json};
 use weldsuite_connect_domain::github_app::{AppCredentials, fetch_installation_meta};
+use weldsuite_connect_domain::github_user::{
+    InstallationAccessEvidence, prove_github_installation_access,
+};
 use weldsuite_connect_domain::install_state::{
-    install_state_nonce, sign_install_state, state_secret, verify_install_state,
+    consume_install_nonce, install_state_nonce, remember_install_nonce, sign_install_state,
+    state_secret, verify_install_state,
 };
 use weldsuite_db::Tenant;
 use weldsuite_events::EventContext;
@@ -33,7 +42,7 @@ use weldsuite_kit::{ApiError, Data};
 use crate::db::text;
 use crate::github_client::encode_uri_component;
 use crate::installations::{
-    GithubInstallation, record_github_installation, remove_github_installation_index,
+    GithubInstallation, RecordError, record_github_installation, release_github_installation_index,
     set_github_installation_status,
 };
 use crate::mappers::connection_event_data;
@@ -110,7 +119,10 @@ pub(crate) async fn install_url(
             .into_option()
     })?;
     let overrides = &caller.overrides;
-    let Some(slug) = overrides.env_set(&state, "GITHUB_APP_SLUG") else {
+    let (Some(slug), Some(cache)) = (
+        overrides.env_set(&state, "GITHUB_APP_SLUG"),
+        overrides.cache(&state),
+    ) else {
         return Err(ApiError::unavailable("GitHub is not configured for WeldMerge").into());
     };
     let mut claims = Map::new();
@@ -119,12 +131,17 @@ pub(crate) async fn install_url(
     if let Some(path) = same_app_path(return_to.as_deref()) {
         claims.insert("returnTo".into(), json!(path));
     }
-    claims.insert("nonce".into(), json!(install_state_nonce()));
+    let nonce = install_state_nonce();
+    claims.insert("nonce".into(), json!(nonce));
     let secret = state_secret(
         overrides.env(&state, "CLERK_SECRET_KEY").as_deref(),
         overrides.env(&state, "INTERNAL_API_SECRET").as_deref(),
     );
     let token = sign_install_state(&claims, &secret);
+    // The state is good for one setup redirect: it takes the nonce.
+    remember_install_nonce(cache.as_ref(), &nonce, &caller.workspace_id)
+        .await
+        .map_err(|error| ApiError::internal().with_message(error.to_string()))?;
     Ok(Data(json!({ "url": install_page(&slug, Some(&token)) })).into_response())
 }
 
@@ -149,15 +166,29 @@ impl<S: Send + Sync> FromRequestParts<S> for Setup {
     }
 }
 
+/// The setup redirect's query (`mergeGithubSetupQuerySchema`).
+struct SetupQuery {
+    installation_id: String,
+    setup_action: Option<String>,
+    state: String,
+    /// GitHub's user authorization code, when the App requests it during installation.
+    code: Option<String>,
+}
+
 /// `mergeGithubSetupQuerySchema`: `installation_id` digits, `state` not
-/// empty, `setup_action` any; the first value of each.
-fn setup_query(query: Option<&str>) -> Option<(String, Option<String>, String)> {
+/// empty, `setup_action` and `code` any; the first value of each.
+fn setup_query(query: Option<&str>) -> Option<SetupQuery> {
     let values = query_values(query);
     let text = |key: &str| values.get(key).and_then(Value::as_str).map(str::to_owned);
     let installation_id = text("installation_id")
         .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))?;
     let state = text("state").filter(|s| !s.is_empty())?;
-    Some((installation_id, text("setup_action"), state))
+    Some(SetupQuery {
+        installation_id,
+        setup_action: text("setup_action"),
+        state,
+        code: text("code"),
+    })
 }
 
 /// `GET /public/merge/github/setup`.
@@ -175,7 +206,13 @@ pub(crate) async fn setup(
             &format!("/weldmerge/settings?tab=providers&error={code}"),
         ))
     };
-    let Some((installation_id, setup_action, token)) = setup_query(query.as_deref()) else {
+    let Some(SetupQuery {
+        installation_id,
+        setup_action,
+        state: token,
+        code,
+    }) = setup_query(query.as_deref())
+    else {
         return error_page(None, "missing_params");
     };
     let secret = state_secret(
@@ -216,9 +253,10 @@ pub(crate) async fn setup(
     if keyring.is_empty() {
         return fail("configuration_error");
     }
-    let (Some(app_id), Some(private_key)) = (
+    let (Some(app_id), Some(private_key), Some(cache)) = (
         overrides.env_set(&state, "GITHUB_APP_ID"),
         overrides.env_set(&state, "GITHUB_APP_PRIVATE_KEY"),
+        overrides.cache(&state),
     ) else {
         return fail("configuration_error");
     };
@@ -229,6 +267,16 @@ pub(crate) async fn setup(
         Some(clerk_org_id.as_deref().unwrap_or(&workspace_ref)),
         &user_id,
     );
+
+    // A state is redeemed once: a replay (or a state never issued) stops here.
+    match consume_install_nonce(cache.as_ref(), claim("nonce").as_deref()).await {
+        Ok(true) => {}
+        Ok(false) => return fail("state_expired"),
+        Err(error) => {
+            tracing::error!(%error, "merge: GitHub setup failed");
+            return fail("internal_error");
+        }
+    }
 
     let master = match master_of(&state, overrides) {
         Ok(master) => master,
@@ -247,7 +295,10 @@ pub(crate) async fn setup(
                     return fail("internal_error");
                 }
             };
-        if let Err(error) = remove_github_installation_index(&master, &installation_id).await {
+        // The index row goes only when it names this workspace.
+        if let Err(error) =
+            release_github_installation_index(&master, &installation_id, &tenant.workspace_id).await
+        {
             tracing::error!(%error, "merge: GitHub setup failed");
             return fail("internal_error");
         }
@@ -276,6 +327,36 @@ pub(crate) async fn setup(
     let Some(http) = overrides.outbound(&state) else {
         return fail("internal_error");
     };
+    // `memberCanReachInstallation`: GitHub's `code`, else the member's linked
+    // GitHub account, must reach the installation the redirect names.
+    let client_id = overrides.env_set(&state, "GITHUB_APP_CLIENT_ID");
+    let client_secret = overrides.env_set(&state, "GITHUB_APP_CLIENT_SECRET");
+    let reachable = prove_github_installation_access(
+        &http,
+        &installation_id,
+        InstallationAccessEvidence {
+            code: code.as_deref(),
+            client_id: client_id.as_deref(),
+            client_secret: client_secret.as_deref(),
+        },
+        || async {
+            crate::credentials::member_token(
+                &tenant.db, &state, overrides, &user_id, "github", None,
+            )
+            .await
+            .map(|token| token.map(|token| token.access_token))
+            .map_err(|error| format!("{error:?}"))
+        },
+    )
+    .await;
+    match reachable {
+        Ok(true) => {}
+        Ok(false) => return fail("installation_unverified"),
+        Err(error) => {
+            tracing::error!(error = %weldsuite_kit::log_safe(&error), "merge: GitHub setup failed");
+            return fail("internal_error");
+        }
+    }
     let credentials = AppCredentials {
         app_id,
         private_key,
@@ -306,6 +387,7 @@ pub(crate) async fn setup(
     .await;
     let recorded = match recorded {
         Ok(recorded) => recorded,
+        Err(RecordError::Taken(_)) => return fail("installation_taken"),
         Err(error) => {
             tracing::error!(%error, "merge: GitHub setup failed");
             return fail("internal_error");

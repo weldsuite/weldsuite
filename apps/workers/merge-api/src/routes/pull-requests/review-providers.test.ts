@@ -5,13 +5,16 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { MergePullRequestFile, MergeReviewResult, MergeReviewThread } from '@weldsuite/app-api-client/schemas/weldmerge-review';
 import type { MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import pullRequestsReviewRoutes from './review';
 import { ADMIN, ALICE, VIEWER, errorCode, jsonInit, makeApp, ok, openDb, perRun, resetTables } from '../../test/helpers';
 import { seedConnection, seedPullRequest, seedRepository } from '../../test/seed';
 import { KEY_ENV, callLines, connectionCredentials, failure, linkAccount, stubProviders } from '../../test/fake-review';
+import { failure as httpFailure, stubHttp } from '../../test/fake-http';
+import { PROVIDER_ENV } from '../../test/provider-env';
+import { sealCredentials } from '../../services/credentials';
 
 let db: Database;
 
@@ -276,5 +279,64 @@ describe('Azure DevOps', () => {
       code: 'not_mergeable',
       message: 'Merge conflicts',
     });
+  });
+});
+
+describe('a token refresh that races another request (GitLab rotates refresh tokens)', () => {
+  const HOST = 'gitlab.example.com';
+  const MR = `${HOST}/api/v4/projects/55/merge_requests/7`;
+  const TOKEN = `POST ${HOST}/oauth/token`;
+  const oauthApp = () => makeApp(db, BASE, pullRequestsReviewRoutes, { grants: ADMIN, userId: ALICE, env: PROVIDER_ENV });
+  const approve = (id: string) => oauthApp().request(`${BASE}/${id}/reviews`, jsonInit({ event: 'approve' }));
+  const sealed = (accessToken: string, refreshToken: string, minutes: number) =>
+    sealCredentials(KEY_ENV, { accessToken, refreshToken, expiresAt: new Date(Date.now() + minutes * 60_000).toISOString() });
+  const seed = (credentials?: string) =>
+    seedPull(
+      'gitlab',
+      { externalAccountId: 'g1', host: `https://${HOST}`, ...(credentials ? { credentials } : {}) },
+      { externalId: '55', fullName: 'grp/app' },
+    );
+  const refused = () => httpFailure(400, { error: 'invalid_grant' });
+
+  it("uses the member token the other request stored, and keeps the link, when this request's refresh is refused", async () => {
+    const pr = await seed();
+    await linkAccount(db, ALICE, 'gitlab', { host: `https://${HOST}` });
+    await db.update(schema.mergeProviderAccounts).set({ credentials: await sealed('alice-old', 'ar1', 1) });
+    const winner = await sealed('alice-winner', 'ar2', 120);
+    const calls = stubHttp({
+      // The other request rotated ar1 first and stored its credentials; GitLab refuses this one.
+      [TOKEN]: async () => {
+        await db.update(schema.mergeProviderAccounts).set({ credentials: winner });
+        return refused();
+      },
+      [`POST ${MR}/approve`]: {},
+    });
+
+    await ok<MergeReviewResult>(await approve(pr.id));
+    expect(calls.filter((c) => c.url === `${MR}/approve`).map((c) => c.auth)).toEqual(perRun(['bearer alice-winner']));
+    const [account] = await db.select().from(schema.mergeProviderAccounts);
+    expect(account).toMatchObject({ credentials: winner });
+    expect(account!.verifiedAt).not.toBeNull();
+  });
+
+  it("uses the connection token the other request stored, and stays active, when this request's refresh is refused", async () => {
+    const pr = await seed(await sealed('conn-old', 'cr1', 1));
+    await linkAccount(db, ALICE, 'gitlab', { host: `https://${HOST}`, token: 'glpat-alice' });
+    const winner = await sealed('conn-winner', 'cr2', 120);
+    const calls = stubHttp({
+      [TOKEN]: async () => {
+        await db.update(schema.mergeConnections).set({ credentials: winner });
+        return refused();
+      },
+      [`POST ${MR}/approve`]: {},
+    });
+
+    await ok<MergeReviewResult>(await approve(pr.id));
+    // The mirror is re-read after the review with the connection token: the one the other request stored.
+    const reads = calls.filter((c) => c.method === 'GET');
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((c) => c.auth === 'bearer conn-winner')).toBe(true);
+    const [connection] = await db.select().from(schema.mergeConnections);
+    expect(connection).toMatchObject({ status: 'active', credentials: winner });
   });
 });

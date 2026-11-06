@@ -117,7 +117,8 @@ export function useWeldMergeComposer({ channelId, parentId }: Readonly<{ channel
   /** Posts a thread reply on the pull request too, when the choice is on; the reply itself is already sent. */
   const commentOnPullRequest = useCallback(
     (content: string) => {
-      if (!alsoPost || !pullRequestId) return;
+      // An attachment-only reply has no text to post: skip it rather than fail.
+      if (!alsoPost || !pullRequestId || content.trim() === '') return;
       comment.mutate(
         { id: pullRequestId, body: content },
         {

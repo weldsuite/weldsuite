@@ -742,6 +742,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
     "GITHUB_APP_PRIVATE_KEY",
+    // The App's user authorization client (the same values merge-api has): the
+    // install callback exchanges GitHub's `code` for a user token to prove the
+    // installer can reach the installation it records.
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
     // Verifier side of the X-Internal-Secret handshake (routes/integrations/
     // internal.ts fails closed (401) when this is unset) and of the
     // /api/internal/workflow-actions bearer; also the WooCommerce connect HMAC

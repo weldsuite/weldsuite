@@ -34,11 +34,15 @@ export type MergeGithubInstallState = z.infer<typeof mergeGithubInstallStateSche
 /** Where the public setup route sends the member when `returnTo` is absent. */
 export const MERGE_GITHUB_INSTALL_DEFAULT_RETURN = '/weldmerge/settings?tab=providers&installed=1';
 
-/** Public `GET /public/merge/github/setup?installation_id&setup_action&state` (answers with a redirect). */
+/**
+ * Public `GET /public/merge/github/setup?installation_id&setup_action&state&code` (answers with a redirect).
+ * `code`: GitHub's user authorization code, sent when the App requests user authorization during installation.
+ */
 export const mergeGithubSetupQuerySchema = z.object({
   installation_id: z.string().regex(/^\d+$/),
   setup_action: z.string().optional(),
   state: z.string().min(1),
+  code: z.string().optional(),
 });
 export type MergeGithubSetupQuery = z.input<typeof mergeGithubSetupQuerySchema>;
 

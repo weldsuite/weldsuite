@@ -9,7 +9,13 @@
 //! (`GET /api/weldconnect/github/callback`, `rust/modules/connect`) both call
 //! it, so the two install paths cannot drift. Removal and suspend/unsuspend
 //! go through the same module ([`remove_github_installation_index`],
-//! [`set_github_installation_status`]).
+//! [`release_github_installation_index`], [`set_github_installation_status`]).
+//!
+//! A member never takes an installation from another workspace: the index
+//! row is claimed ([`claim_github_installation_index`]: written, or refreshed
+//! when it already names the workspace) before anything else, and a row
+//! naming another workspace refuses the recording with
+//! [`RecordError::Taken`] (`installation_taken`).
 //!
 //! Rows are answered as Drizzle reads them (camelCase JSON,
 //! `toISOString()` times), with the sealed `webhookSecret` and
@@ -102,7 +108,9 @@ pub async fn find_github_connections(
 }
 
 /// `upsertGithubInstallationIndex(masterDb, installationId, workspaceId)`:
-/// writes (or re-points) the master `installation id → workspace` row.
+/// writes (or re-points) the master `installation id → workspace` row. Only
+/// for the webhook receiver's backfill; a member's install goes through
+/// [`claim_github_installation_index`], which never re-points.
 ///
 /// # Errors
 ///
@@ -128,8 +136,62 @@ pub async fn upsert_github_installation_index(
     Ok(())
 }
 
+/// `claimGithubInstallationIndex(masterDb, installationId, workspaceId)`:
+/// inserts the master index row, or refreshes it when it already names that
+/// workspace. A row naming another workspace is left as it is: `Ok(false)`.
+///
+/// # Errors
+///
+/// The master database fails.
+pub async fn claim_github_installation_index(
+    master: &PgPool,
+    installation_id: &str,
+    workspace_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let now = now();
+    let claimed: Option<String> = sqlx::query_scalar(
+        "insert into merge_provider_index (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
+         values ($1, 'github', 'installation', $2, $3, $4::timestamptz, $4::timestamptz) \
+         on conflict (provider, kind, external_key) do update set updated_at = excluded.updated_at \
+           where merge_provider_index.workspace_id = excluded.workspace_id \
+         returning id",
+    )
+    .bind(generate_id("mpi"))
+    .bind(installation_id)
+    .bind(workspace_id)
+    .bind(&now)
+    .fetch_optional(master)
+    .await?;
+    Ok(claimed.is_some())
+}
+
+/// `releaseGithubInstallationIndex(masterDb, installationId, workspaceId)`:
+/// drops the master index row only when it names `workspace_id` (a
+/// member's own disconnect).
+///
+/// # Errors
+///
+/// The master database fails.
+pub async fn release_github_installation_index(
+    master: &PgPool,
+    installation_id: &str,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "delete from merge_provider_index where provider = 'github' and kind = 'installation' \
+         and external_key = $1 and workspace_id = $2",
+    )
+    .bind(installation_id)
+    .bind(workspace_id)
+    .execute(master)
+    .await?;
+    Ok(())
+}
+
 /// `removeGithubInstallationIndex(masterDb, installationId)`: the App was
-/// uninstalled.
+/// uninstalled, whoever the row names. Only for an uninstall GitHub signed
+/// (the `installation` webhook); anything a member starts uses
+/// [`release_github_installation_index`].
 ///
 /// # Errors
 ///
@@ -154,6 +216,9 @@ pub enum RecordError {
     Db(sqlx::Error),
     /// The keyring cannot seal the webhook secret.
     Seal(String),
+    /// `GithubInstallationTakenError`: the installation's index row names
+    /// another workspace; nothing was written.
+    Taken(String),
 }
 
 impl std::fmt::Display for RecordError {
@@ -161,6 +226,10 @@ impl std::fmt::Display for RecordError {
         match self {
             Self::Db(error) => write!(f, "{error}"),
             Self::Seal(error) => write!(f, "{error}"),
+            Self::Taken(installation_id) => write!(
+                f,
+                "GitHub installation {installation_id} belongs to another workspace"
+            ),
         }
     }
 }
@@ -217,21 +286,28 @@ async fn refresh(
     Ok(js_row(row))
 }
 
-/// `recordGithubInstallation(tenantDb, masterDb, input)`: upserts the
-/// installation's connection in the tenant database and its row in the
-/// master index. An existing live row is refreshed (and revived when it
-/// was revoked or suspended), keeping its id and webhook secret; a new one
-/// gets a fresh random webhook secret, sealed under the keyring. Idempotent.
+/// `recordGithubInstallation(tenantDb, masterDb, input)`: claims the
+/// installation's row in the master index, then upserts its connection in
+/// the tenant database. An existing live row is refreshed (and revived when
+/// it was revoked or suspended), keeping its id and webhook secret; a new
+/// one gets a fresh random webhook secret, sealed under the keyring.
+/// Idempotent.
 ///
 /// # Errors
 ///
-/// A database fails, or the keyring cannot seal the secret.
+/// [`RecordError::Taken`], writing nothing, when the index row names
+/// another workspace; a database fails, or the keyring cannot seal the
+/// secret.
 pub async fn record_github_installation(
     tenant: &PgPool,
     master: &PgPool,
     keyring: &Keyring,
     input: &GithubInstallation,
 ) -> Result<RecordedInstallation, RecordError> {
+    if !claim_github_installation_index(master, &input.installation_id, &input.workspace_id).await?
+    {
+        return Err(RecordError::Taken(input.installation_id.clone()));
+    }
     let now = now();
     let existing = find_github_connections(tenant, &input.installation_id).await?;
     let (connection, action) = if let Some(existing) = existing.first() {
@@ -275,7 +351,6 @@ pub async fn record_github_installation(
             }
         }
     };
-    upsert_github_installation_index(master, &input.installation_id, &input.workspace_id).await?;
     Ok(RecordedInstallation { connection, action })
 }
 

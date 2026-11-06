@@ -107,11 +107,13 @@ new encrypted column: `merge_connections.credentials`,
   `INTERNAL_API_SECRET`), 600 s, `{workspaceId, userId, returnTo, nonce}`, as
   connect-api's `signInstallStateJwt`. `returnTo` must be a same-app relative
   path (`/…`), else ignored.
-- Public `GET /public/merge/github/setup?installation_id&setup_action&state`
-  (merge-api, before Clerk): verify the state, fetch the installation's
-  metadata with the App JWT, upsert the `merge_connections` row and the master
-  index row, publish `merge_connection` created/updated, redirect to
-  `returnTo` (default `/weldmerge/settings?tab=providers&installed=1`).
+- Public `GET /public/merge/github/setup?installation_id&setup_action&state&code`
+  (merge-api, before Clerk): verify the state and take its single-use nonce,
+  prove the installer can reach the installation (a GitHub user token, see
+  Ops), fetch the installation's metadata with the App JWT, claim the master
+  index row (never re-pointed from another workspace) and upsert the
+  `merge_connections` row, publish `merge_connection` created/updated,
+  redirect to `returnTo` (default `/weldmerge/settings?tab=providers&installed=1`).
 - The recording logic lives in `@weldsuite/merge-domain/installations`
   (`recordGithubInstallation(tenantDb, masterDb, …)`), so connect-api's
   existing callback `GET /api/weldconnect/github/callback` calls the same
@@ -336,6 +338,24 @@ the nearest, and unsupported ones are 422.
 - GitHub App: permissions Issues RW, Pull requests RW, Contents RW, Checks R,
   Metadata R; events Issues, Issue comment, Installation (plus phase 1's);
   user authorization callback URL `https://app(-test).weldsuite.org/weldmerge/oauth/callback`.
+- GitHub App install proof: turn on **"Request user authorization (OAuth)
+  during installation"** and make
+  `https://merge-api(-test).weldsuite.org/public/merge/github/setup` the
+  **first** callback URL (keep `…/weldmerge/oauth/callback` as another one:
+  account linking names it as `redirect_uri`). With that option on, GitHub
+  sends the browser to the first callback URL instead of the Setup URL, with
+  `code`, `installation_id`, `setup_action` and the install `state`. The setup
+  route records an installation only when a GitHub user token lists it in
+  `GET /user/installations` (`installation_id` alone can be spoofed): the
+  `code`'s, exchanged with `GITHUB_APP_CLIENT_ID`/`_SECRET`, else the member's
+  linked GitHub account. Without either it answers `error=installation_unverified`.
+  connect-api's callback and `POST /api/workflow-github/recover` apply the same
+  proof (connect-api now also needs `GITHUB_APP_CLIENT_ID`/`_SECRET`; recover
+  uses the member's linked GitHub account only). Check on test that the
+  redirect carries `state`. The install state is single use (its nonce lives
+  in `WORKSPACE_CACHE` for 600 s: `error=state_expired` on a replay), and an
+  installation another workspace already holds in `merge_provider_index` is
+  refused (`error=installation_taken`), never re-pointed.
 - merge-api secrets: `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`,
   `GITHUB_APP_SLUG` (var), `CLERK_SECRET_KEY`, `DATABASE_ENCRYPTION_KEY`(+`_V2`),
   `DATABASE_URL_MASTER`, `GITLAB_OAUTH_CLIENT_ID`/`_SECRET`,

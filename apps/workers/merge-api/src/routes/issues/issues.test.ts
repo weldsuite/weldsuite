@@ -521,13 +521,41 @@ describe('pull request links', () => {
   });
 });
 
+/** A member who may use agents (MEMBER and up hold `weldagent:use`). */
+const AGENT_USER = [...ADMIN, 'weldagent:use'];
+
+/** A WeldAgent agent: active and workspace-visible unless told otherwise. */
+async function seedAgent(
+  id: string,
+  over: { status?: string; visibility?: string; ownerId?: string | null; deletedAt?: Date | null; members?: string[] } = {},
+) {
+  await db.insert(schema.weldagentAgents).values({
+    id,
+    name: id,
+    status: over.status ?? 'active',
+    visibility: over.visibility ?? 'workspace',
+    ownerId: over.ownerId ?? null,
+    deletedAt: over.deletedAt ?? null,
+  });
+  for (const userId of over.members ?? []) {
+    await db.insert(schema.weldagentAgentMembers).values({ id: `agm_${id}_${userId}`, agentId: id, userId });
+  }
+}
+
+async function clearAgents() {
+  await db.delete(schema.weldagentAgentMembers);
+  await db.delete(schema.weldagentAgents);
+}
+
 describe('agent assignment, record links on create, dismissed automatic links', () => {
   it('publishes merge_issue:agent_assigned besides updated when an agent is assigned, and not when it is removed', async () => {
+    await clearAgents();
+    await seedAgent('agt_triage');
     const team = await seedTeam(db, 'PLAT');
     const issue = await newIssue(team.id);
     expect(issue.agentId).toBeNull();
     clearEvents();
-    const assigned = await ok<MergeIssueDto>(await issues().request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_triage' }, 'PATCH')));
+    const assigned = await ok<MergeIssueDto>(await issues(AGENT_USER).request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_triage' }, 'PATCH')));
     expect(assigned.agentId).toBe('agt_triage');
     expect(eventTypes()).toEqual(['merge_issue:updated', 'merge_issue:agent_assigned']);
     expect(events[1]!.data).toMatchObject({ id: issue.id, agentId: 'agt_triage' });
@@ -539,6 +567,55 @@ describe('agent assignment, record links on create, dismissed automatic links', 
     clearEvents();
     const removed = await ok<MergeIssueDto>(await issues().request(`${BASE}/${issue.id}`, jsonInit({ agentId: null }, 'PATCH')));
     expect(removed.agentId).toBeNull();
+    expect(eventTypes()).toEqual(['merge_issue:updated']);
+  });
+
+  it('refuses an agent the member cannot use with 422 invalid_agent, and saves nothing', async () => {
+    await clearAgents();
+    await seedAgent('agt_ws');
+    await seedAgent('agt_private', { visibility: 'private', ownerId: BOB });
+    await seedAgent('agt_members', { visibility: 'members', ownerId: BOB, members: ['user_carol'] });
+    await seedAgent('agt_paused', { status: 'paused' });
+    await seedAgent('agt_gone', { deletedAt: new Date() });
+    const team = await seedTeam(db, 'PLAT');
+    const issue = await newIssue(team.id);
+    clearEvents();
+
+    for (const agentId of ['agt_unknown', 'agt_private', 'agt_members', 'agt_paused', 'agt_gone']) {
+      const res = await issues(AGENT_USER).request(`${BASE}/${issue.id}`, jsonInit({ agentId }, 'PATCH'));
+      expect(res.status, agentId).toBe(422);
+      expect(await errorCode(res), agentId).toBe('invalid_agent');
+    }
+    // Without weldagent:use, not even a workspace agent.
+    const res = await issues(ADMIN).request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_ws', title: 'Renamed' }, 'PATCH'));
+    expect(res.status).toBe(422);
+    expect(await errorCode(res)).toBe('invalid_agent');
+
+    const [row] = await db.select().from(schema.mergeIssues).where(eq(schema.mergeIssues.id, issue.id));
+    expect(row).toMatchObject({ agentId: null, title: 'Fix the tabs' });
+    expect(events).toEqual([]);
+  });
+
+  it('assigns the member’s own agent, a members agent they are listed on, and any agent for weldagent:manage', async () => {
+    await clearAgents();
+    await seedAgent('agt_mine', { visibility: 'private', ownerId: ALICE });
+    await seedAgent('agt_shared', { visibility: 'members', ownerId: BOB, members: [ALICE] });
+    await seedAgent('agt_bobs', { visibility: 'private', ownerId: BOB });
+    const team = await seedTeam(db, 'PLAT');
+    const issue = await newIssue(team.id);
+
+    const assign = async (agentId: string, grants: string[]) =>
+      (await ok<MergeIssueDto>(await issues(grants).request(`${BASE}/${issue.id}`, jsonInit({ agentId }, 'PATCH')))).agentId;
+    expect(await assign('agt_mine', AGENT_USER)).toBe('agt_mine');
+    expect(await assign('agt_shared', AGENT_USER)).toBe('agt_shared');
+    expect(await assign('agt_bobs', [...AGENT_USER, 'weldagent:manage'])).toBe('agt_bobs');
+
+    // The agent the issue already has is not assigned again: editing the issue needs no access to it.
+    clearEvents();
+    const renamed = await ok<MergeIssueDto>(
+      await issues(ADMIN).request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_bobs', title: 'Renamed' }, 'PATCH')),
+    );
+    expect(renamed).toMatchObject({ agentId: 'agt_bobs', title: 'Renamed' });
     expect(eventTypes()).toEqual(['merge_issue:updated']);
   });
 

@@ -240,6 +240,39 @@ describe('accounts/me', () => {
     await accounts(ADMIN, ALICE).request(ME, jsonInit({ github: null }, 'PUT'));
     expect(await userOf(mine.id)).toBeNull();
   });
+
+  it("leaves the member's GitLab, Bitbucket and Azure DevOps pull requests alone", async () => {
+    const connection = await seedConnection(db);
+    const repo = await seedRepository(db, connection.id);
+    const gitlab = await seedPullRequest(db, repo.id, 1, { provider: 'gitlab', authorLogin: 'alice-lab', authorUserId: ALICE });
+    const sameName = await seedPullRequest(db, repo.id, 2, { provider: 'bitbucket', authorLogin: 'alice-gh' });
+    const userOf = async (id: string) => (await db.select().from(schema.mergePullRequests).where(eq(schema.mergePullRequests.id, id)))[0]!.authorUserId;
+
+    await accounts(ADMIN, ALICE).request(ME, jsonInit({ github: 'alice-gh' }, 'PUT'));
+    expect(await userOf(gitlab.id)).toBe(ALICE);
+    expect(await userOf(sameName.id)).toBeNull();
+    await accounts(ADMIN, ALICE).request(ME, jsonInit({ github: '' }, 'PUT'));
+    expect(await userOf(gitlab.id)).toBe(ALICE);
+  });
+
+  it('refuses a different typed login over an OAuth-verified link with 409 account_verified', async () => {
+    const verifiedAt = new Date('2026-10-01T00:00:00Z');
+    await db
+      .insert(schema.mergeProviderAccounts)
+      .values({ id: 'mpa_linked', userId: ALICE, provider: 'github', login: 'alice-gh', credentials: 'sealed', verifiedAt });
+
+    const res = await accounts().request(ME, jsonInit({ github: 'bob-gh' }, 'PUT'));
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe('account_verified');
+    expect(await db.select().from(schema.mergeProviderAccounts)).toEqual([
+      expect.objectContaining({ login: 'alice-gh', credentials: 'sealed', verifiedAt }),
+    ]);
+
+    // The same login, in any case, is no change; an empty one removes the link.
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: 'Alice-GH' }, 'PUT')))).toMatchObject({ github: 'alice-gh' });
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: '' }, 'PUT')))).toMatchObject({ github: null });
+    expect(await db.select().from(schema.mergeProviderAccounts)).toEqual([]);
+  });
 });
 
 describe('inbox', () => {

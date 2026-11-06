@@ -1,6 +1,8 @@
 import type { Context } from 'hono';
+import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../types';
 import type { HookContext } from '../services/hooks';
+import { recordTitleAccess, type RecordTitleAccess } from '../services/record-links';
 import { createGithubClient, GithubApiError, GithubNotConfiguredError, type GithubClient } from '../services/github-client';
 import { ProviderCredentialsError, ProviderNotConfiguredError } from '../services/providers/errors';
 import { ProviderApiError, ProviderUnsupportedError } from '../services/providers/types';
@@ -41,6 +43,10 @@ export function providerFailure(c: Ctx, err: unknown): Response | null {
   if (err instanceof ProviderUnsupportedError) return unprocessable(c, err.message);
   return null;
 }
+
+/** Which linked records' titles the caller may read (their module's permission, or channel access). */
+export const titleAccess = (c: Ctx): RecordTitleAccess =>
+  recordTitleAccess(c.get('tenantDb'), c.get('userId'), (permission) => hasContextPermission(c, permission));
 
 /** What the area hooks (issue sync, chat posts) need, from the request. */
 export const hookContext = (c: Ctx): HookContext => ({

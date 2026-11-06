@@ -268,10 +268,12 @@ async fn update_from_provider(
     let mut outcome = Outcome::Unchanged;
     if !patch.is_empty() {
         let id = text(before, "id").to_owned();
-        let updated = match update_issue(ctx.db, &id, &issue_input(&patch, true)).await? {
+        // A provider's patch never names an agent: no assigner.
+        let updated = match update_issue(ctx.db, &id, &issue_input(&patch, true), None).await? {
             Ok(updated) => updated,
             Err(UpdateFailure::NotFound) => return Ok(ignored("not_found")),
             Err(UpdateFailure::Ref(failure)) => return Ok(ignored(ref_reason(failure))),
+            Err(UpdateFailure::Agent) => return Ok(ignored("agent_invalid")),
         };
         let changes = diff_fields(before, &updated.issue, &ISSUE_CHANGE_FIELDS);
         events.push(

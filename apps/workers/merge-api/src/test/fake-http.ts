@@ -18,7 +18,7 @@ export interface HttpCall {
   auth?: string;
 }
 
-/** A body, a function of the call returning one, or a ready `Response` (to answer with an error status). */
+/** A body, a function of the call returning one (or a promise of one), or a ready `Response` (to answer with an error status). */
 export type HttpAnswer = unknown | ((call: { url: URL; body: unknown }) => unknown);
 
 const realFetch = globalThis.fetch;
@@ -68,7 +68,8 @@ export function stubHttp(answers: Record<string, HttpAnswer>): HttpCall[] {
       calls.push({ method, url: `${url.host}${url.pathname}${url.search}`, ...(body !== undefined ? { body } : {}), auth: authOf(init) });
       const answer = answers[`${method} ${url.host}${url.pathname}`];
       if (answer === undefined) return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 });
-      const value = typeof answer === 'function' ? (answer as (c: { url: URL; body: unknown }) => unknown)({ url, body }) : answer;
+      // An answer may be async (it can change the database first, as a concurrent request would).
+      const value = typeof answer === 'function' ? await (answer as (c: { url: URL; body: unknown }) => unknown)({ url, body }) : answer;
       if (value instanceof Response) return value.clone();
       return new Response(value === null ? null : JSON.stringify(value), {
         status: value === null ? 204 : 200,

@@ -1,7 +1,9 @@
 /**
  * The signed `state` of the GitHub App install redirect (HS256 JWT, 600 s).
  * connect-api's install flow and merge-api's both sign and verify it here, so
- * either callback accepts a state the other issued. Web Crypto only.
+ * either callback accepts a state the other issued. Web Crypto only. A state
+ * is single use: its nonce is stored in KV when it is issued
+ * (`rememberInstallNonce`) and taken when it is redeemed (`consumeInstallNonce`).
  *
  * The secret is the worker's `CLERK_SECRET_KEY` (Rust: falls back to
  * `INTERNAL_API_SECRET`). `workspaceId` is whatever ref the issuer holds
@@ -58,6 +60,41 @@ export async function verifyInstallStateJwt(token: string, secret: string): Prom
 /** A random 32-hex-char nonce for a new state. */
 export function installStateNonce(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** How long a state is valid, and so how long its nonce is kept. */
+export const INSTALL_STATE_TTL_SECONDS = 600;
+
+/** What the nonce store needs of a KV namespace (`WORKSPACE_CACHE`). */
+export interface InstallNonceStore {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
+/** The KV key of an issued state's nonce. */
+export const installNonceKey = (nonce: string): string => `merge_install_nonce:${nonce}`;
+
+/**
+ * Remembers the nonce of a state just issued, for the state's lifetime. Both
+ * install routes (merge-api's and connect-api's) share `WORKSPACE_CACHE`, so
+ * either setup redirect consumes a nonce the other stored.
+ */
+export async function rememberInstallNonce(kv: InstallNonceStore, nonce: string, workspaceId: string): Promise<void> {
+  await kv.put(installNonceKey(nonce), workspaceId, { expirationTtl: INSTALL_STATE_TTL_SECONDS });
+}
+
+/**
+ * Takes the nonce of a state being redeemed: true the first time, false when
+ * it was never issued, already used or expired (the redirect answers
+ * `error=state_expired`). A state is therefore good for one setup redirect.
+ */
+export async function consumeInstallNonce(kv: InstallNonceStore, nonce: string | undefined): Promise<boolean> {
+  if (!nonce) return false;
+  const key = installNonceKey(nonce);
+  if ((await kv.get(key)) === null) return false;
+  await kv.delete(key);
+  return true;
 }
 
 function importHmacKey(secret: string): Promise<CryptoKey> {

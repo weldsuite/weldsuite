@@ -4,7 +4,9 @@
  *   GET    /                          -> list (teamId, status csv, assignee me|none|<user>, cycleId, labelId, parentIssueId, q; cursor)
  *   GET    /:idOrKey                  -> detail by id or key (PLAT-209), with linked pull requests and sub-issues
  *   POST   /                          -> new issue; the team's next number is allocated with the insert
- *   PATCH  /:id                       -> edit (never the team); status changes keep started/completed timestamps
+ *   PATCH  /:id                       -> edit (never the team); status changes keep started/completed timestamps;
+ *                                        a new `agentId` must be an active agent the caller could use
+ *                                        (`weldagent:use` + its visibility), else 422 `invalid_agent`
  *   DELETE /:id                       -> soft delete
  *   GET    /:id/comments              -> comments                       (merge_issues:read)
  *   POST   /:id/comments              -> comment                        (merge_issues:update)
@@ -16,7 +18,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import {
   createMergeCommentSchema,
@@ -26,7 +28,7 @@ import {
   updateMergeIssueSchema,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
 import type { Env, Variables } from '../../types';
-import { hookContext, type Ctx } from '../shared';
+import { hookContext, titleAccess, type Ctx } from '../shared';
 import { diffFields, publishEntityEvents, type PendingEvent } from '../../services/events';
 import { commentDto, issueEventData, recordLinkEventData } from '../../services/mappers';
 import type { MergeIssueRow } from '../../services/db';
@@ -40,11 +42,14 @@ import {
   ISSUE_CHANGE_FIELDS,
   listIssues,
   updateIssue,
+  type AgentAssigner,
   type IssueRefFailure,
 } from '../../services/issues';
 import { afterCommentChanged, afterIssueCreated, afterIssueUpdated } from '../../services/hooks';
 import { linkPullRequest, unlinkPullRequest } from '../../services/pull-requests';
 import { getTeam } from '../../services/teams';
+import { withVisibleTitles } from '../../services/record-links';
+import type { MergeIssueDetailDto } from '@weldsuite/app-api-client/schemas/weldmerge';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -77,6 +82,11 @@ async function oneDto(c: Ctx, issue: MergeIssueRow) {
   return dto!;
 }
 
+/** The detail with the linked records' titles the caller may not read left out (`withVisibleTitles`). */
+async function visibleDetail(c: Ctx, detail: MergeIssueDetailDto): Promise<MergeIssueDetailDto> {
+  return { ...detail, recordLinks: await withVisibleTitles(titleAccess(c), detail.recordLinks) };
+}
+
 app.get('/', requirePermission('merge_issues:read'), zValidator('query', listMergeIssuesQuerySchema), async (c) => {
   const query = c.req.valid('query');
   const page = await listIssues(c.get('tenantDb'), query, c.get('userId'));
@@ -88,7 +98,7 @@ app.get('/:id', requirePermission('merge_issues:read'), async (c) => {
   const id = c.req.param('id');
   const detail = await getIssueDetail(c.get('tenantDb'), id);
   if (!detail) return error.notFound(c, 'Issue', id);
-  return success(c, detail);
+  return success(c, await visibleDetail(c, detail));
 });
 
 app.post('/', requirePermission('merge_issues:create'), zValidator('json', createMergeIssueSchema), async (c) => {
@@ -110,11 +120,25 @@ app.post('/', requirePermission('merge_issues:create'), zValidator('json', creat
   return success(c, await oneDto(c, result.issue), 201);
 });
 
+/** The caller as an agent assigner: `weldagent:use`, and `weldagent:manage` for every agent. */
+async function agentAssigner(c: Ctx): Promise<AgentAssigner> {
+  return {
+    userId: c.get('userId'),
+    canUse: await hasContextPermission(c, 'weldagent:use'),
+    canManageAll: await hasContextPermission(c, 'weldagent:manage'),
+  };
+}
+
 app.patch('/:id', requirePermission('merge_issues:update'), zValidator('json', updateMergeIssueSchema), async (c) => {
   const id = c.req.param('id');
-  const result = await updateIssue(c.get('tenantDb'), id, c.req.valid('json'));
+  const input = c.req.valid('json');
+  const result = await updateIssue(c.get('tenantDb'), id, input, input.agentId ? await agentAssigner(c) : undefined);
   if (!result.ok) {
     if (result.reason === 'not_found') return error.notFound(c, 'Issue', id);
+    // Assigning runs the agent with the issue as its task: only an agent the caller could use themselves.
+    if (result.reason === 'agent_invalid') {
+      return c.json({ error: { code: 'invalid_agent', message: 'The agent does not exist, is not active, or you cannot use it' } }, 422);
+    }
     return refFailure(c, result.reason);
   }
   const changes = diffFields(
@@ -185,7 +209,7 @@ app.post('/:id/pull-requests', requirePermission('merge_issues:update'), zValida
   const result = await linkPullRequest(db, issue, team?.row.key ?? '', input.pullRequestId, input.closes ?? true, c.get('userId'));
   if (!result.ok) return error.notFound(c, 'Pull request', input.pullRequestId);
   publishEntityEvents(c, result.events);
-  return success(c, (await getIssueDetail(db, id))!);
+  return success(c, await visibleDetail(c, (await getIssueDetail(db, id))!));
 });
 
 app.delete('/:id/pull-requests/:prId', requirePermission('merge_issues:update'), async (c) => {

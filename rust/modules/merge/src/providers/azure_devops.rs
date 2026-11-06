@@ -339,10 +339,13 @@ pub(crate) fn parse_webhook(body: &Value) -> Vec<WebhookEvent> {
         pull_request: Box::new(pull_request),
     }];
     if !arr(resource.get("reviewers")).is_empty() {
+        // Deliveries arrive out of order and the decision is written without
+        // a staleness check: the receiver re-reads the votes rather than
+        // trust this payload's.
         events.push(WebhookEvent::Review {
             repository: repository.clone(),
             number,
-            decision: review_decision_of(resource.get("reviewers")),
+            decision: None,
         });
     }
     if let Some(sha) = head_sha.filter(|s| !s.is_empty() && open) {
@@ -848,5 +851,30 @@ mod tests {
             Some("pending")
         );
         assert_eq!(checks_status_of(&[], &[]), None);
+    }
+
+    #[test]
+    fn a_delivery_leaves_the_decision_to_a_re_read() {
+        // Deliveries arrive out of order: this one's votes may be older than the stored decision.
+        let delivery = json!({
+            "eventType": "git.pullrequest.updated",
+            "createdDate": "2026-11-01T10:00:00.000Z",
+            "resource": {
+                "pullRequestId": 77, "status": "active", "title": "T",
+                "repository": { "id": "repo-guid" },
+                "lastMergeSourceCommit": { "commitId": "abc123" },
+                "reviewers": [{ "uniqueName": "a@acme.com", "vote": 10 }],
+            },
+            "resourceContainers": { "collection": { "baseUrl": "https://dev.azure.com/acme/" } },
+        });
+        let events = parse_webhook(&delivery);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            WebhookEvent::Review {
+                number: 77,
+                decision: None,
+                ..
+            }
+        )));
     }
 }

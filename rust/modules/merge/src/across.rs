@@ -144,6 +144,27 @@ impl Scope {
 
 // ── Who may ─────────────────────────────────────────────────────────────────
 
+/// `memberAgentAssigner(db, userId)`: the acting member as an agent
+/// assigner, with `weldagent:use` and `weldagent:manage` as their
+/// permissions are now, in any app. A former member can use no agent.
+async fn member_agent_assigner(
+    scope: &Scope,
+    user_id: &str,
+) -> Result<crate::issues::AgentAssigner, MergeError> {
+    let queries = TenantPermissionQueries::new(scope.db.clone());
+    let resolved = resolve_effective_permissions(&queries, user_id).await?;
+    let holds = |permission: &str| {
+        !resolved.role.is_empty() && check_app_permission(&resolved, permission, None).allowed
+    };
+    Ok(crate::issues::AgentAssigner {
+        viewer: weldsuite_chat_domain::agents::AgentViewer {
+            user_id: user_id.to_owned(),
+            can_manage_all: holds("weldagent:manage"),
+        },
+        can_use: holds("weldagent:use"),
+    })
+}
+
 /// `authorizeMember(db, env, userId, permission, doing)`: `Err(message)`
 /// unless the member holds `permission` (in WeldMerge, or workspace-wide
 /// unless app enforcement is on).
@@ -262,10 +283,24 @@ async fn update_issue_as(
     let Some(existing) = find_issue_by_id_or_key(&scope.db, issue_ref).await? else {
         return Ok(Err(not_found()));
     };
-    let updated = match update_issue(&scope.db, text(&existing, "id"), input).await? {
+    // A new agent must be one the acting member could use (the run it starts acts for them).
+    let assigner = if input.names_agent() {
+        Some(member_agent_assigner(scope, &actor.user_id).await?)
+    } else {
+        None
+    };
+    let updated = match update_issue(&scope.db, text(&existing, "id"), input, assigner.as_ref())
+        .await?
+    {
         Ok(updated) => updated,
         Err(UpdateFailure::NotFound) => return Ok(Err(not_found())),
         Err(UpdateFailure::Ref(reason)) => return Ok(Err(reason.message().to_owned())),
+        Err(UpdateFailure::Agent) => {
+            return Ok(Err(
+                "The agent does not exist, is not active, or the member this call acts for cannot use it"
+                    .to_owned(),
+            ));
+        }
     };
     scope.publish(actor, updated.events()).await;
     crate::hooks::after_issue_updated(
@@ -771,6 +806,12 @@ async fn run_tool(
             let Some(mut detail) = issue_detail(db, &issue_ref).await? else {
                 return Ok(tool_refused(format!("Issue {issue_ref} was not found")));
             };
+            // A linked record's title only where the acting member may read the record.
+            if let Some(links) = detail.get_mut("recordLinks").and_then(Value::as_array_mut) {
+                crate::record_links::TitleAccess::for_member(db, &actor.user_id)
+                    .hide_titles(links)
+                    .await?;
+            }
             let comments: Vec<Value> = sqlx::query_scalar(
                 "select to_jsonb(c) from merge_comments c where c.issue_id = $1 and c.deleted_at is null \
                  order by c.created_at asc, c.id asc",

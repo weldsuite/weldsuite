@@ -43,6 +43,7 @@ use crate::db::{Row, col, opt_text, rows_of, text};
 use crate::github_client::{GithubClient, encode_uri_component};
 use crate::issues::{diff_fields, hydrate_issues, limit_of};
 use crate::mappers::pull_request_summary;
+use crate::record_links::TitleAccess;
 use crate::schemas::nothing_to_update;
 use crate::teams::find_team;
 use crate::{
@@ -277,10 +278,21 @@ async fn desk_tickets_of(db: &PgPool, issues: &[Value]) -> Result<Vec<Value>, sq
     Ok(tickets.into_iter().map(|(_, _, ticket)| ticket).collect())
 }
 
-/// `getReleaseDetail(db, row)`.
-async fn release_detail(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+/// `detailOf(c, row)`: `getReleaseDetail(db, row)`, with a desk ticket's
+/// subject only for a caller with `tickets:read` (`withVisibleTitles`).
+async fn release_detail(caller: &Caller, row: &Row) -> Result<Value, sqlx::Error> {
+    let db = &caller.db;
     let base = one_release_dto(db, row).await?;
-    let contents = release_contents(db, text(row, "id")).await?;
+    let mut contents = release_contents(db, text(row, "id")).await?;
+    let mut access = TitleAccess::of(caller);
+    for ticket in &mut contents.tickets {
+        let ticket_id = text(ticket, "ticketId").to_owned();
+        if ticket.get("title").is_some_and(|t| !t.is_null())
+            && !access.visible("desk_ticket", &ticket_id).await?
+        {
+            ticket["title"] = Value::Null;
+        }
+    }
     let mut detail = match base {
         Value::Object(fields) => fields,
         _ => Map::new(),
@@ -387,7 +399,7 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
     let Some(release) = find_release(&caller.db, &id).await? else {
         return Err(Refusal::not_found("Release", Some(&id)));
     };
-    Ok(Data(release_detail(&caller.db, &release).await?).into_response())
+    Ok(Data(release_detail(&caller, &release).await?).into_response())
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────
@@ -484,7 +496,7 @@ pub(crate) async fn create(
         &caller.events,
         vec![release_event(&release, "created", &[], None)],
     );
-    Ok(Created(release_detail(db, &release).await?).into_response())
+    Ok(Created(release_detail(&caller, &release).await?).into_response())
 }
 
 // ── PATCH /:id and DELETE /:id ──────────────────────────────────────────────
@@ -583,7 +595,7 @@ pub(crate) async fn update(
         &caller.events,
         vec![release_event(&release, "updated", &[], changes)],
     );
-    Ok(Data(release_detail(db, &release).await?).into_response())
+    Ok(Data(release_detail(&caller, &release).await?).into_response())
 }
 
 /// `DELETE /releases/:id`: soft delete.
@@ -841,7 +853,7 @@ pub(crate) async fn refresh(
             None,
         )],
     );
-    Ok(Data(release_detail(db, &updated).await?).into_response())
+    Ok(Data(release_detail(&caller, &updated).await?).into_response())
 }
 
 // ── POST /:id/ship ──────────────────────────────────────────────────────────
@@ -860,16 +872,22 @@ pub(crate) async fn ship(
     if text(&release, "status") == "shipped" {
         return Err(Refusal::conflict("The release is already shipped"));
     }
+    // `markShipped(db, id)`: only a live draft ships, so a second click or a
+    // concurrent request (or a delete in between) ships nothing.
     let now = now();
-    let row: Value = sqlx::query_scalar(
+    let row: Option<Value> = sqlx::query_scalar(
         "update merge_releases set status = 'shipped', shipped_at = $2::timestamptz, \
            updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_releases.*)",
+         where id = $1 and status = 'draft' and deleted_at is null \
+         returning to_jsonb(merge_releases.*)",
     )
     .bind(&id)
     .bind(&now)
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?;
+    let Some(row) = row else {
+        return Err(Refusal::conflict("The release is already shipped"));
+    };
     let shipped = js_row(row);
     let data = shipped_event_data(db, &shipped).await?;
     publish(
@@ -887,7 +905,7 @@ pub(crate) async fn ship(
         )],
     );
     crate::hooks::after_release_shipped(&caller.hook_context(&state), &shipped, &data).await;
-    Ok(Data(release_detail(db, &shipped).await?).into_response())
+    Ok(Data(release_detail(&caller, &shipped).await?).into_response())
 }
 
 #[cfg(test)]

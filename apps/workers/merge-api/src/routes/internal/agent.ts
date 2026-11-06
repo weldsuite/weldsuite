@@ -35,6 +35,7 @@ import {
   type MergeAgentTool,
   type MergeAgentToolResult,
 } from '@weldsuite/app-api-client/schemas/weldmerge-across';
+import { userPermissionCheck } from '@weldsuite/chat-domain/entity-channels';
 import type { Env, Variables } from '../../types';
 import type { Ctx } from '../shared';
 import { authorizeMember, MemberForbiddenError, resolveInternalWorkspace } from '../../services/across-access';
@@ -46,6 +47,7 @@ import { DraftPullRequestError, openDraftPullRequest } from '../../services/draf
 import { getIssueDetail, hydrateIssues, listIssues } from '../../services/issues';
 import { commentDto } from '../../services/mappers';
 import { getPullRequestDetail, listPullRequests } from '../../services/pull-requests';
+import { recordTitleAccess, withVisibleTitles } from '../../services/record-links';
 import { findRepository } from '../../services/repositories';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -107,11 +109,14 @@ const listIssuesTool = tool(listIssuesInput, async (data, { c, actor }) => {
   return ok({ issues: await hydrateIssues(db, page.rows), hasMore: page.hasMore, cursor: page.cursor });
 });
 
-const getIssue = tool(refSchema, async (data, { c }) => {
+const getIssue = tool(refSchema, async (data, { c, actor }) => {
   const db = c.get('tenantDb');
   const detail = await getIssueDetail(db, data.issue);
   if (!detail) return refuse(`Issue ${data.issue} was not found`);
-  return ok({ ...detail, comments: (await listComments(db, detail.id)).map(commentDto) });
+  // A linked record's title only where the acting member may read the record.
+  const access = recordTitleAccess(db, actor.userId, userPermissionCheck(db, actor.userId));
+  const recordLinks = await withVisibleTitles(access, detail.recordLinks);
+  return ok({ ...detail, recordLinks, comments: (await listComments(db, detail.id)).map(commentDto) });
 });
 
 const createIssue = tool(createMergeIssueSchema, async (data, { c, actor }) => {

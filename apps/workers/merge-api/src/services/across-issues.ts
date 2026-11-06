@@ -33,6 +33,7 @@ import {
 } from './issues';
 import { commentDto, issueEventData, recordLinkEventData } from './mappers';
 import { getTeam } from './teams';
+import { memberAgentAssigner } from './across-access';
 
 /** The key entity-event `data` carries when an agent caused the event: agents do not run for their own events (agent-api dispatch). */
 export const AGENT_ORIGIN_KEY = 'triggeredByAgentId';
@@ -50,10 +51,12 @@ export type Outcome<T> = ({ ok: true } & T) | Failure;
 
 const fail = (code: Failure['code'], message: string): Failure => ({ ok: false, code, message });
 
-function refMessage(reason: IssueRefFailure | 'team_not_found'): string {
+function refMessage(reason: IssueRefFailure | 'team_not_found' | 'agent_invalid'): string {
   switch (reason) {
     case 'team_not_found':
       return 'The team does not exist';
+    case 'agent_invalid':
+      return 'The agent does not exist, is not active, or the member this call acts for cannot use it';
     case 'cycle_invalid':
       return 'The cycle does not exist or belongs to another team';
     case 'parent_invalid':
@@ -122,7 +125,9 @@ export async function updateIssueAs(
   const db = c.get('tenantDb');
   const existing = await findIssueByIdOrKey(db, issueRef);
   if (!existing) return fail('not_found', `Issue ${issueRef} was not found`);
-  const result = await updateIssue(db, existing.id, input);
+  // A new agent must be one the acting member could use (the run it starts acts for them).
+  const assigner = input.agentId ? await memberAgentAssigner(db, actor.userId) : undefined;
+  const result = await updateIssue(db, existing.id, input, assigner);
   if (!result.ok) return fail(result.reason === 'not_found' ? 'not_found' : 'invalid', result.reason === 'not_found' ? `Issue ${issueRef} was not found` : refMessage(result.reason));
   const changes = diffFields(
     result.before as unknown as Record<string, unknown>,

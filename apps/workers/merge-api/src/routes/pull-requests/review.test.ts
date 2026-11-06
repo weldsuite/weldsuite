@@ -217,6 +217,23 @@ describe('comments (as the member)', () => {
     expect(calls.every((c) => c.authorization === 'Bearer gho_alice')).toBe(true);
   });
 
+  it('answers a general thread with a new conversation comment, kept in that thread', async () => {
+    const pr = await seedGithubPull();
+    await linkAccount(db, ALICE, 'github', { token: 'gho_alice' });
+    const calls = stubProviders({
+      [`POST ${GH}/repos/acme/web/issues/7/comments`]: { id: 42, body: 'thanks', user: { login: 'alice-gh' }, created_at: '2026-11-02T10:02:00Z' },
+    });
+
+    const reply = await ok<{ comment: { id: string }; threadId: string | null }>(
+      await post(`/${pr.id}/comments`, { body: 'thanks', inReplyToId: 'issue-30' }),
+      201,
+    );
+    expect(reply).toMatchObject({ comment: { id: '42' }, threadId: 'issue-30' });
+    // No `in_reply_to` (GitHub has no threaded issue comments) and nothing to /pulls/7/comments.
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(perRun([`POST ${GH}/repos/acme/web/issues/7/comments`]));
+    expect(calls.map((c) => c.body)).toEqual(perRun([{ body: 'thanks' }]));
+  });
+
   it('rejects a line comment without both path and line, and an empty body', async () => {
     const pr = await seedGithubPull();
     expect((await post(`/${pr.id}/comments`, { body: 'x', path: 'a.ts' })).status).toBe(400);

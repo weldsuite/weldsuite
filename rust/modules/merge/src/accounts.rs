@@ -3,7 +3,8 @@
 //!
 //! ```text
 //!   GET /me → { github, accounts } (accounts: every linked account, never a token)
-//!   PUT /me → set (or, empty, remove) the GitHub login; 409 when another member holds it
+//!   PUT /me → set (or, empty, remove) the GitHub login; 409 when another member holds it,
+//!             409 `account_verified` for a different login while an OAuth-verified link exists
 //! ```
 //!
 //! Permission: `merge_pull_requests:read`. A member edits only their own
@@ -11,17 +12,20 @@
 
 use axum::body::Bytes;
 use axum::response::IntoResponse;
-use http::HeaderMap;
+use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Field, Presence, Text, js_trim};
-use weldsuite_kit::{Data, generate_id};
+use weldsuite_kit::{ApiError, Data, generate_id};
 
 use crate::db::{is_unique_violation, opt_text, rows_of, text};
 use crate::mappers::provider_account_dto;
+use crate::oauth::claim_authored_pull_requests;
 use crate::{Answer, Caller, Refusal, now, validate};
 
 const TAKEN: &str = "This GitHub username is already linked to another member";
+const VERIFIED: &str =
+    "Your GitHub account is linked through GitHub; unlink it before typing a different username";
 
 /// `listAccounts(db, userId)`: every account the member linked (typed logins
 /// and OAuth links), without credentials; `github` is the typed GitHub login.
@@ -85,20 +89,35 @@ pub(crate) async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> A
         _ => None,
     };
     match set_github_login(db, &caller.user_id, raw.as_deref()).await? {
-        Some(_) => Ok(Data(list_accounts(db, &caller.user_id).await?).into_response()),
-        None => Err(Refusal::conflict(TAKEN)),
+        SetLogin::Saved => Ok(Data(list_accounts(db, &caller.user_id).await?).into_response()),
+        SetLogin::Taken => Err(Refusal::conflict(TAKEN)),
+        SetLogin::Verified => {
+            Err(ApiError::new(StatusCode::CONFLICT, "account_verified", VERIFIED).into())
+        }
     }
+}
+
+/// `SetLoginResult`.
+enum SetLogin {
+    Saved,
+    /// `login_taken`: another member holds the login.
+    Taken,
+    /// `account_verified`: a different login while an OAuth-verified link exists.
+    Verified,
 }
 
 /// `setGithubLogin(db, userId, raw)`: saves (or, with an empty login,
 /// removes) the member's GitHub login, stored lower-case, and matches the
-/// pull requests that login authored to the member. `None`: another member
-/// holds the login.
+/// GitHub pull requests that login authored to the member. A login GitHub
+/// vouched for (an OAuth link, `verified_at` set) is not overwritten by a
+/// typed one: a different login is `Verified`, so the member unlinks first
+/// and the link's token never outlives its login. Removing it (an empty
+/// login) drops the link with it.
 async fn set_github_login(
     db: &PgPool,
     user_id: &str,
     raw: Option<&str>,
-) -> Result<Option<Option<String>>, sqlx::Error> {
+) -> Result<SetLogin, sqlx::Error> {
     let login = raw
         .map(|r| js_trim(r).to_lowercase())
         .filter(|l| !l.is_empty());
@@ -110,13 +129,27 @@ async fn set_github_login(
         .execute(db)
         .await?;
         sqlx::query(
-            "update merge_pull_requests set author_user_id = null where author_user_id = $1",
+            "update merge_pull_requests set author_user_id = null \
+             where author_user_id = $1 and provider = 'github'",
         )
         .bind(user_id)
         .execute(db)
         .await?;
-        return Ok(Some(None));
+        return Ok(SetLogin::Saved);
     };
+    let mine: Option<(String, String, bool)> = sqlx::query_as(
+        "select id, login, verified_at is not null from merge_provider_accounts \
+         where user_id = $1 and provider = 'github' limit 1",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?;
+    if mine
+        .as_ref()
+        .is_some_and(|(_, current, verified)| *verified && *current != login)
+    {
+        return Ok(SetLogin::Verified);
+    }
     let holder: Option<String> = sqlx::query_scalar(
         "select user_id from merge_provider_accounts where provider = 'github' and login = $1 limit 1",
     )
@@ -124,17 +157,11 @@ async fn set_github_login(
     .fetch_optional(db)
     .await?;
     if holder.is_some_and(|holder| holder != user_id) {
-        return Ok(None);
+        return Ok(SetLogin::Taken);
     }
     let now = now();
-    let mine: Option<String> = sqlx::query_scalar(
-        "select id from merge_provider_accounts where user_id = $1 and provider = 'github' limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
     let written = match mine {
-        Some(id) => {
+        Some((id, _, _)) => {
             sqlx::query("update merge_provider_accounts set login = $2, updated_at = $3::timestamptz where id = $1")
                 .bind(&id)
                 .bind(&login)
@@ -157,28 +184,13 @@ async fn set_github_login(
     };
     match written {
         Ok(_) => {}
-        Err(error) if is_unique_violation(&error) => return Ok(None),
+        Err(error) if is_unique_violation(&error) => return Ok(SetLogin::Taken),
         Err(error) => return Err(error),
     }
-    // Pull requests the member no longer owns (an old login), then the ones
-    // the new login authored.
-    sqlx::query(
-        "update merge_pull_requests set author_user_id = null \
-         where author_user_id = $1 and author_login <> $2",
-    )
-    .bind(user_id)
-    .bind(&login)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update merge_pull_requests set author_user_id = $1 \
-         where author_login = $2 and author_user_id is null",
-    )
-    .bind(user_id)
-    .bind(&login)
-    .execute(db)
-    .await?;
-    Ok(Some(Some(login)))
+    // GitHub pull requests the member no longer owns (an old login), then
+    // the ones the new login authored.
+    claim_authored_pull_requests(db, user_id, "github", &login).await?;
+    Ok(SetLogin::Saved)
 }
 
 #[cfg(test)]

@@ -26,7 +26,7 @@ import accountsOauthRoutes from '../accounts/oauth';
 import connectionsRoutes from '../connections';
 import connectionsOauthRoutes from '../connections/oauth';
 import oauthRoutes from './index';
-import { openCredentials } from '../../services/credentials';
+import { openCredentials, sealCredentials } from '../../services/credentials';
 import { ADMIN, ALICE, BOB, MEMBER, VIEWER, clearEvents, errorCode, eventTypes, events, jsonInit, makeApp, newId, ok, openDb, perRun, resetTables } from '../../test/helpers';
 import { failure, fakeKv, stubHttp } from '../../test/fake-http';
 import { compose, ENCRYPTION_KEY, providerEnv } from '../../test/provider-env';
@@ -293,6 +293,29 @@ describe('callback: workspace connections', () => {
     const refused = await post(app(kv), '/connections/azure_devops/organization', { connectionId: row!.id, organization: 'gamma' });
     expect(refused.status).toBe(422);
     expect((await db.select().from(schema.mergeConnections))[0]!.host).toBe('https://dev.azure.com/beta');
+  });
+
+  it('keeps a connection that still waits for its organisation needs_attention when choosing one refreshes its token', async () => {
+    const kv = fakeKv();
+    const keys = { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY };
+    const connection = await seedConnection(db, {
+      provider: 'azure_devops',
+      externalAccountId: 'pending:profile-1',
+      accountLogin: 'alice@acme.com',
+      accountType: 'user',
+      host: null,
+      status: 'needs_attention',
+      credentials: await sealCredentials(keys, { accessToken: 'az-old', refreshToken: 'az-r1', expiresAt: new Date(Date.now() + 60_000).toISOString() }),
+    });
+    stubHttp({
+      'POST login.microsoftonline.com/organizations/oauth2/v2.0/token': { access_token: 'az-fresh', refresh_token: 'az-r2', expires_in: 3600 },
+      'GET dev.azure.com/gamma/_apis/projects': failure(401, { message: 'no access' }),
+    });
+    const refused = await post(app(kv), '/connections/azure_devops/organization', { connectionId: connection.id, organization: 'gamma' });
+    expect(refused.status).toBe(422);
+    const [row] = await db.select().from(schema.mergeConnections);
+    expect(row).toMatchObject({ status: 'needs_attention', host: null, externalAccountId: 'pending:profile-1' });
+    expect(await openCredentials(keys, row!.credentials)).toMatchObject({ accessToken: 'az-fresh', refreshToken: 'az-r2' });
   });
 
   it('refuses a state that is spent, unknown, someone else\'s, or needs a permission the caller lacks', async () => {

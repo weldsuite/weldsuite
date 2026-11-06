@@ -18,6 +18,7 @@ import {
   hasRoutineRunForTrigger,
 } from '@weldsuite/agent-domain/parity';
 import { enqueueWeldAgentJob, type WeldAgentJob } from '@weldsuite/agent-domain/jobs';
+import { memberCanUseAgent } from '@weldsuite/agent-domain/access';
 
 type AgentDb = Variables['tenantDb'];
 
@@ -177,7 +178,10 @@ export const MERGE_AGENT_ASSIGNED = { entityType: 'merge_issue', action: 'agent_
  * An issue assigned to an agent (AGENT-009): that agent, whether or not it
  * subscribes to the event, runs with the issue as its task. The agent works
  * through the `merge_*` tools, so it can only do what its grants and the
- * member who assigned it allow.
+ * member who assigned it allow. The member who assigned it must be able to
+ * use that agent themselves, as in the chat (`weldagent:use` and access to the
+ * agent, checked now): otherwise the run is dropped, so assigning an issue
+ * never runs an agent the assigner could not.
  */
 async function dispatchAssignedIssue(ctx: EventDispatchContext): Promise<void> {
   const { db, message } = ctx;
@@ -185,6 +189,16 @@ async function dispatchAssignedIssue(ctx: EventDispatchContext): Promise<void> {
   if (!agentId) return;
   const agent = await getAgent(db, agentId).catch(() => null);
   if (!agent || agent.status !== 'active') return;
+  const allowed = await memberCanUseAgent(db, agent, message.userId).catch((err: unknown) => {
+    console.error('[weldagent/dispatch] could not check the member who assigned the issue:', err);
+    return false;
+  });
+  if (!allowed) {
+    console.warn(
+      `[weldagent/dispatch] Dropped the assignment of ${message.entityId} to agent ${agent.id}: the member who assigned it cannot use that agent`,
+    );
+    return;
+  }
   const key = typeof message.data.key === 'string' ? message.data.key : message.entityId;
   const title = typeof message.data.title === 'string' && message.data.title ? ` "${message.data.title}"` : '';
   const userMessage =
