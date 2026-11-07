@@ -12,6 +12,7 @@ import {
   startTimerOp,
   startVotingOp,
   stopTimerOp,
+  takesOthersVotes,
   timerRemaining,
   timerRunning,
   voteCounts,
@@ -250,7 +251,12 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
                   </Button>
                 )}
                 {canRun && round.status === 'closed' && (
-                  <Button size="sm" variant="outline" className="h-7" onClick={() => c.apply(clearVotingOp(c.board))}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => c.apply(clearVotingOp(c.board), { undoable: !takesOthersVotes(c.board, me) })}
+                  >
                     {tv.clearResults}
                   </Button>
                 )}
@@ -274,7 +280,9 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
                   size="sm"
                   onClick={() => {
                     const scope = onlySelection && c.selection.size ? [...c.selection] : undefined;
-                    c.apply(startVotingOp(c.board, { votesPerPerson: votesEach, anonymous, scope }, newId('v'), me));
+                    c.apply(startVotingOp(c.board, { votesPerPerson: votesEach, anonymous, scope }, newId('v'), me), {
+                      undoable: !takesOthersVotes(c.board, me),
+                    });
                     toast.info(tv.clickToVote);
                   }}
                 >

@@ -189,6 +189,22 @@ describe('BoardRoom', () => {
     });
     expect(ofType(bob, 'ack').map((a) => a.batchId)).toEqual(['b:4']);
     expect(JSON.parse((await room.snapshot(meta())).json).votes ?? {}).toEqual({});
+
+    // Its undo would bring the round back with Alice's votes: that is voting in her name, so it is
+    // refused (the editor records such a round change as no undo step).
+    await send(room, bob, {
+      type: 'submit',
+      batchId: 'b:5',
+      baseRevision: 4,
+      op: {
+        type: 'batch',
+        ops: [
+          { type: 'setBoard', patch: { voting: { id: 'v1', votesPerPerson: 2, anonymous: false, status: 'open' } } },
+          { type: 'vote', user: 'alice', elements: ['s1'] },
+        ],
+      },
+    });
+    expect(ofType(bob, 'reject').at(-1)).toMatchObject({ batchId: 'b:5', reason: 'invalid' });
   });
 
   it('commits server writes and sends them to everyone connected', async () => {
