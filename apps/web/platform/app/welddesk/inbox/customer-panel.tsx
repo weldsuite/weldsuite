@@ -10,6 +10,7 @@ import {
 } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { TicketFields } from './ticket-fields';
+import { ConversationAssets } from './assets/conversation-assets';
 
 interface CustomerPanelProps {
   conversation: DeskConversation;
@@ -116,6 +117,7 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
       </div>
 
       <TicketFields conversation={conversation} />
+      <ConversationAssets conversation={conversation} />
 
       <div className="px-4 py-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">

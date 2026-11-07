@@ -18,6 +18,7 @@ import { ConversationHeader } from './conversation-header';
 import { MessagesTimeline } from './messages-timeline';
 import { Composer } from './composer';
 import { CustomerPanel } from './customer-panel';
+import { useTakeDraftTranslation } from './translation/translation-state';
 
 interface ConversationPaneProps {
   conversationId: string;
@@ -35,6 +36,7 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
   const { data: membersData } = useDeskWorkspaceMembers();
   const room = useDeskConversationRoom(conversationId);
   const reply = useReplyToDeskConversation();
+  const takeTranslation = useTakeDraftTranslation(conversationId);
 
   const conversation = data?.data;
   const messages = conversation?.messages ?? [];
@@ -76,11 +78,11 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
     ) => {
       room.stopTyping();
       reply.mutate(
-        { id: conversationId, data: { kind, body, attachments }, authorId: user?.id, clientId },
+        { id: conversationId, data: { kind, body, attachments, ...takeTranslation(kind) }, authorId: user?.id, clientId },
         { onError: () => toast.error(t.composer.replyError) },
       );
     },
-    [conversationId, reply, room, t.composer.replyError, user?.id],
+    [conversationId, reply, room, t.composer.replyError, user?.id, takeTranslation],
   );
 
   const retry = useCallback(

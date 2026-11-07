@@ -32,6 +32,7 @@ import { settingsProfileRoutes } from './routes/settings-profile';
 import { customFieldsRoutes } from './routes/custom-fields';
 import { customObjectsRoutes } from './routes/custom-objects';
 import { customObjectRecordsRoutes } from './routes/custom-object-records';
+import { customObjectTemplateRoutes } from './routes/custom-object-templates';
 import {
   customObjectLinkDefinitionRoutes,
   customObjectLinkTraversalRoutes,
@@ -252,6 +253,7 @@ app.route('/api/custom-fields', customFieldsRoutes);
 // and answers with the first registered route that matches. The definition
 // links go first: their static GET /link-targets was shadowed by the base
 // routes' GET /:id (a 404 for an object called 'link-targets').
+app.route('/api/custom-objects', customObjectTemplateRoutes);
 app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
 app.route('/api/custom-objects', customObjectsRoutes);
 app.route('/api/objects', customObjectRecordsRoutes);

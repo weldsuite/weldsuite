@@ -25,7 +25,7 @@ import { customFieldsToImportFields } from '@/components/custom-fields/to-import
 import { useGridViewSettings } from '@/hooks/queries/use-settings-queries';
 import { exportToCSV, exportToExcel } from '@/components/entity-grid/utils/export-utils';
 import { QuickAddPersonDialog } from './quick-add-person-dialog';
-import { ImportEntitiesDialog } from '@/app/weldcrm/components/import-entities-dialog';
+import { ImportEntitiesDialog } from '@/components/import/import-entities-dialog';
 import {
   getPersonImportFields,
   PERSON_IMPORT_REQUIRE_ONE_OF,
@@ -290,6 +290,7 @@ export function PeopleGrid({
         requireOneOf={PERSON_IMPORT_REQUIRE_ONE_OF}
         templateExample={PERSON_IMPORT_TEMPLATE_EXAMPLE}
         templateName="people"
+        tips={[t('crm.importExport.tip1'), t('crm.importExport.tip2'), t('crm.importExport.tip3')]}
         onImportBatch={(records) => importMut.mutateAsync(records as ImportPersonRecord[])}
       />
     </>

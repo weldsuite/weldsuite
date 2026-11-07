@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deskReplyTranslationSchema } from './desk-translation';
 
 export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 'api', 'portal'] as const;
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
@@ -69,6 +70,8 @@ export const replyToConversationSchema = z
     kind: z.enum(['message', 'note']).default('message'),
     body: z.string().trim().max(20_000).default(''),
     attachments: z.array(deskMessageAttachmentSchema).max(10).optional(),
+    /** The agent's own words before "Translate to …" (internal metadata). */
+    translation: deskReplyTranslationSchema.optional(),
   })
   .refine((data) => data.body.length > 0 || (data.attachments?.length ?? 0) > 0, {
     message: 'A reply needs a message or an attachment',

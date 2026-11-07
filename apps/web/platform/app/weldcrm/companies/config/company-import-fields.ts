@@ -4,7 +4,7 @@
  * label shown in the mapping UI and the downloadable template.
  */
 
-import type { ImportFieldDef } from '@/app/weldcrm/components/import-entities-dialog';
+import type { ImportFieldDef } from '@/components/import/import-entities-dialog';
 import { companyColumns } from './company-grid-config';
 
 type Tfn = (path: string, params?: Record<string, unknown>) => string;

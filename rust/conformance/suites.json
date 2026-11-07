@@ -45,12 +45,16 @@
       "tests": [
         "src/routes/custom-objects/custom-objects.test.ts",
         "src/routes/custom-object-records/custom-object-records.test.ts",
-        "src/routes/custom-object-links/custom-object-links.test.ts"
+        "src/routes/custom-object-links/custom-object-links.test.ts",
+        "src/routes/custom-object-records/import.test.ts",
+        "src/routes/custom-object-templates/custom-object-templates.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/custom-objects/",
         "apps/workers/app-api/src/routes/custom-object-records/",
         "apps/workers/app-api/src/routes/custom-object-links/",
+        "apps/workers/app-api/src/routes/custom-object-templates/",
+        "apps/workers/app-api/src/services/custom-object-templates.ts",
         "apps/workers/app-api/src/middleware/custom-object.ts",
         "apps/workers/app-api/src/services/custom-object-links.ts",
         "apps/workers/app-api/src/services/custom-object-targets.ts",
@@ -1277,6 +1281,7 @@
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
+        "src/routes/desk-conversations/reply-translation.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1297,6 +1302,16 @@
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/desk/conversations/:id/translate",
+          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
+        },
+        {
+          "route": "POST /api/desk/conversations/:id/translate-reply",
+          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
+        }
       ]
     },
     {

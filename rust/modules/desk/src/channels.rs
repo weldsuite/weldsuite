@@ -18,6 +18,8 @@ mod integrations;
 mod oauth;
 #[path = "channels/providers.rs"]
 mod providers;
+#[path = "channels/translation.rs"]
+mod translation;
 #[path = "channels/webchat.rs"]
 mod webchat;
 
@@ -45,7 +47,10 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .nest("/desk/conversations", inbox::routes(gate))
+        .nest(
+            "/desk/conversations",
+            inbox::routes(gate).merge(translation::routes(gate)),
+        )
         .nest("/helpdesk-integrations", integrations::routes(gate))
 }
 

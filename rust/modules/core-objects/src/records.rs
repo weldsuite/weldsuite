@@ -45,6 +45,10 @@ where
             get(list).post(create).route_layer(resolve()),
         )
         .route(
+            "/{slug}/records/import",
+            get(detail_import).post(import).route_layer(resolve()),
+        )
+        .route(
             "/{slug}/records/{id}",
             get(detail)
                 .patch(update)
@@ -519,6 +523,71 @@ fn values_refusal(error: ValuesError) -> Refusal {
     }
 }
 
+/// `createRecord`: the record with its fields. The shell goes in first, so
+/// the values have a parent, and is deleted by hand when a value is refused
+/// (neon-http has no interactive transactions).
+async fn create_record(
+    caller: &Caller,
+    object: &CustomObject,
+    definitions: &[Definition],
+    fields: Vec<(String, Js)>,
+    owner_id: Option<&str>,
+) -> Result<Value, ValuesError> {
+    let db = &caller.db;
+    let id = generate_id("cor");
+    let now = now();
+    sqlx::query(
+        "insert into custom_object_records
+             (id, object_id, entity_key, title, owner_id, created_by, updated_by, created_at, updated_at)
+         values ($1, $2, $3, null, $4, $5, $5, $6::timestamp, $6::timestamp)",
+    )
+    .bind(&id)
+    .bind(&object.id)
+    .bind(&object.entity_key)
+    .bind(owner_id.unwrap_or(&caller.user_id))
+    .bind(&caller.user_id)
+    .bind(&now)
+    .execute(db)
+    .await?;
+    if let Err(error) = set_values(
+        db,
+        &object.entity_key,
+        &id,
+        &fields,
+        definitions,
+        false,
+        true,
+    )
+    .await
+    {
+        sqlx::query("delete from custom_object_records where id = $1")
+            .bind(&id)
+            .execute(db)
+            .await?;
+        return Err(error);
+    }
+    let lookup = |slug: &str| {
+        fields
+            .iter()
+            .find(|(key, _)| key == slug)
+            .map(|(_, value)| value.clone())
+    };
+    let title = resolve_title(object.title_field_id.as_deref(), definitions, lookup);
+    sqlx::query("update custom_object_records set title = $2 where id = $1")
+        .bind(&id)
+        .bind(&title)
+        .execute(db)
+        .await?;
+    let raw: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(r) from custom_object_records r where id = $1 limit 1")
+            .bind(&id)
+            .fetch_optional(db)
+            .await?;
+    let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
+    record["fields"] = Js::Object(fields).to_value();
+    Ok(record)
+}
+
 async fn create(
     State(state): State<CoreObjectsState>,
     caller: Caller,
@@ -536,44 +605,22 @@ async fn create(
     };
     let object = &access.object;
     let result: Answer = async {
-        let db = &caller.db;
-        let definitions = definitions(db, &object.entity_key).await?;
+        let definitions = definitions(&caller.db, &object.entity_key).await?;
         let fields = input.fields.unwrap_or_default();
-        let id = generate_id("cor");
-        let now = now();
-        // The shell first, so the values have a parent; undone by hand when a
-        // value is refused (neon-http has no interactive transactions).
-        sqlx::query(
-            "insert into custom_object_records
-                 (id, object_id, entity_key, title, owner_id, created_by, updated_by, created_at, updated_at)
-             values ($1, $2, $3, null, $4, $5, $5, $6::timestamp, $6::timestamp)",
-        )
-        .bind(&id)
-        .bind(&object.id)
-        .bind(&object.entity_key)
-        .bind(input.owner_id.as_set().unwrap_or(&caller.user_id))
-        .bind(&caller.user_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
-        if let Err(error) = set_values(db, &object.entity_key, &id, &fields, &definitions, false, true).await {
-            sqlx::query("delete from custom_object_records where id = $1").bind(&id).execute(db).await?;
-            return Err(values_refusal(error));
-        }
-        let lookup = |slug: &str| fields.iter().find(|(key, _)| key == slug).map(|(_, value)| value.clone());
-        let title = resolve_title(object.title_field_id.as_deref(), &definitions, lookup);
-        sqlx::query("update custom_object_records set title = $2 where id = $1")
-            .bind(&id)
-            .bind(&title)
-            .execute(db)
-            .await?;
-        let raw: Option<Value> = sqlx::query_scalar("select to_jsonb(r) from custom_object_records r where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
-        let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
-        record["fields"] = Js::Object(fields).to_value();
-        emit(&state, &caller, object, "created", &id, record.clone(), None);
+        let owner = input.owner_id.as_set().map(String::as_str);
+        let record = create_record(&caller, object, &definitions, fields, owner)
+            .await
+            .map_err(values_refusal)?;
+        let id = record["id"].as_str().unwrap_or_default().to_owned();
+        emit(
+            &state,
+            &caller,
+            object,
+            "created",
+            &id,
+            record.clone(),
+            None,
+        );
         Ok(Created(record).into_response())
     }
     .await;
@@ -581,6 +628,99 @@ async fn create(
         result,
         &format!("Failed to create {}", object.label_singular.to_lowercase()),
     )
+}
+
+// ── POST /:slug/records/import ─────────────────────────────────────────────
+
+/// `importCustomObjectRecordsSchema`: 1 to 200 rows, each a create body:
+/// the owners as validated, each row's `fields` from the body in its own
+/// key order, as the create route reads them.
+fn import_rows(headers: &HeaderMap, body: &Bytes) -> Result<Vec<RecordInput>, Rejected> {
+    let owners = validate(headers, body, |issues, fields| {
+        issues
+            .list(
+                fields,
+                "rows",
+                Presence::Required,
+                Some(1),
+                Some(200),
+                |issues, item| {
+                    let row = issues.object(item)?;
+                    issues.nested(row, "fields", Presence::Optional, |_, _| ());
+                    Some(issues.text(row, "ownerId", Presence::Nullish, None, Some(255)))
+                },
+            )
+            .into_option()
+            .unwrap_or_default()
+    })?;
+    let rows = match parse_body(body).get("rows") {
+        Some(Js::Array(rows)) => rows.clone(),
+        _ => Vec::new(),
+    };
+    Ok(owners
+        .into_iter()
+        .zip(rows)
+        .map(|(owner_id, row)| RecordInput {
+            fields: match row.get("fields") {
+                Some(Js::Object(entries)) => Some(entries.clone()),
+                _ => None,
+            },
+            owner_id,
+        })
+        .collect())
+}
+
+/// Every row created as `POST /records` creates one, in order; a row the
+/// field validation refuses is reported by its 1-based position and the
+/// rest go on.
+async fn import(
+    State(state): State<CoreObjectsState>,
+    caller: Caller,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let access = match require_object(&caller, &slug, Action::Create).await {
+        Ok(access) => access,
+        Err(refused) => return *refused,
+    };
+    let rows = match import_rows(&headers, &body) {
+        Ok(rows) => rows,
+        Err(invalid) => return *invalid,
+    };
+    let object = &access.object;
+    let fallback = format!("Failed to create {}", object.label_singular.to_lowercase());
+    let result: Answer = async {
+        let definitions = definitions(&caller.db, &object.entity_key).await?;
+        let mut created = 0_usize;
+        let mut errors = Vec::new();
+        for (index, input) in rows.into_iter().enumerate() {
+            let owner = input.owner_id.as_set().map(String::as_str);
+            let fields = input.fields.unwrap_or_default();
+            match create_record(&caller, object, &definitions, fields, owner).await {
+                Ok(record) => {
+                    let id = record["id"].as_str().unwrap_or_default().to_owned();
+                    emit(&state, &caller, object, "created", &id, record, None);
+                    created += 1;
+                }
+                Err(ValuesError::Invalid(message)) => {
+                    errors.push(json!({ "row": index + 1, "message": message }));
+                }
+                Err(ValuesError::Database(error)) => {
+                    tracing::error!(%error, row = index + 1, "[app-api/objects] import row failed");
+                    errors.push(json!({ "row": index + 1, "message": fallback }));
+                }
+            }
+        }
+        Ok(Data(json!({ "created": created, "errors": errors })).into_response())
+    }
+    .await;
+    answer(result, &fallback)
+}
+
+/// Hono answers `GET /:slug/records/import` with `GET /:slug/records/:id`.
+async fn detail_import(caller: Caller, Path(slug): Path<String>) -> Response {
+    detail(caller, Path((slug, "import".to_owned()))).await
 }
 
 /// `computeChanges(existing.fields, updated.fields)`: the fields whose JSON
