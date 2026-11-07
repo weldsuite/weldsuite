@@ -33,6 +33,7 @@ mod executions;
 mod external_webhooks;
 mod github;
 mod github_app;
+mod github_connections;
 mod integrations;
 mod js;
 mod mvp;

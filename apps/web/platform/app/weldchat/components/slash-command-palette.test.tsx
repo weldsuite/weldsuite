@@ -3,19 +3,22 @@ import { fireEvent, render } from '@testing-library/react';
 
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
-    t: { weldchat: { slashCommandPalette: { commands: { createtask: 'Create a task' } } } },
+    t: {
+      weldchat: { slashCommandPalette: { commands: { createtask: 'Create a task' } } },
+      weldmerge: { across: { chat: { slash: { merge: 'Share an issue or pull request', issue: 'Create a WeldMerge issue' } } } },
+    },
   }),
 }));
 
 import { SlashCommandPalette } from './slash-command-palette';
 
-function setup(query: string) {
+function setup(query: string, mergeEnabled = false) {
   const onSelect = vi.fn();
   const onDismiss = vi.fn();
   const editorKeyDown = vi.fn();
   const ui = render(
     <div data-chat-composer-root="">
-      <SlashCommandPalette query={query} onSelect={onSelect} onDismiss={onDismiss} />
+      <SlashCommandPalette query={query} onSelect={onSelect} onDismiss={onDismiss} mergeEnabled={mergeEnabled} />
       <div data-testid="editor" contentEditable suppressContentEditableWarning onKeyDown={(e) => editorKeyDown(e.key)} />
     </div>,
   );
@@ -62,5 +65,30 @@ describe('SlashCommandPalette keyboard', () => {
     const { getByText, onSelect } = setup('/');
     fireEvent.mouseDown(getByText('/createtask'));
     expect(onSelect).toHaveBeenCalledWith('/createtask ');
+  });
+});
+
+describe('SlashCommandPalette WeldMerge commands', () => {
+  it('offers /issue and /merge only when WeldMerge is on', () => {
+    const off = setup('/');
+    expect(off.container.textContent).not.toContain('/merge');
+    expect(off.container.textContent).not.toContain('/issue');
+    off.unmount();
+
+    const on = setup('/', true);
+    expect(on.container.textContent).toContain('/issue');
+    expect(on.container.textContent).toContain('/merge');
+  });
+
+  it('filters and completes /merge', () => {
+    const { getByTestId, onSelect } = setup('/me', true);
+    fireEvent.keyDown(getByTestId('editor'), { key: 'Tab' });
+    expect(onSelect).toHaveBeenCalledWith('/merge ');
+  });
+
+  it('completes /issue by click', () => {
+    const { getByText, onSelect } = setup('/', true);
+    fireEvent.mouseDown(getByText('/issue'));
+    expect(onSelect).toHaveBeenCalledWith('/issue ');
   });
 });

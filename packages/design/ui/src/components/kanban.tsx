@@ -135,12 +135,13 @@ export const KanbanCard = <T extends KanbanItemProps = KanbanItemProps>({
   return (
     <>
       <div
-        // dnd-kit's attributes set these too; spelled out so the role is visible here.
-        role="button"
-        tabIndex={0}
         style={style}
         {...listeners}
         {...attributes}
+        // The same values dnd-kit's attributes carry, spelled out after the
+        // spread so the card's role is visible here (and to jsx-a11y).
+        role="button"
+        tabIndex={0}
         onKeyDown={handleKeyDown}
         ref={setNodeRef}
       >

@@ -1,0 +1,18 @@
+# The site's charts (oci://ghcr.io/weldsuite/charts/weldsuite-marketing),
+# which weldsuite-eu-marketing's "EU test image" workflow publishes for every
+# main build. Its packages stay private, like that repository, so this reads
+# them with the ghcr Secret (secrets/examples/secrets.example.yaml: a classic
+# GitHub token with read:packages), which the pods pull the image with too.
+# Its own source rather than weldsuite-develop, so the platform's public
+# charts never depend on that token.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: weldsuite-marketing
+  namespace: marketing
+spec:
+  type: oci
+  interval: 5m
+  url: oci://ghcr.io/weldsuite/charts
+  secretRef:
+    name: ghcr

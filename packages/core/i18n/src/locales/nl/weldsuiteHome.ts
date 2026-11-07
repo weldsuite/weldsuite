@@ -92,6 +92,7 @@ export const weldsuiteHome = {
     weldcall: 'WeldCall',
     welddrive: 'WeldDrive',
     weldhost: 'WeldHost',
+    weldmerge: 'WeldMerge',
   },
   widgets: {
     'analytics-activity': { title: 'Activiteit in WeldSuite', description: 'Grafiek met meerdere reeksen voor bestellingen, omzet, tickets en meer.' },
@@ -124,6 +125,7 @@ export const weldsuiteHome = {
     'weldcall-history': { title: 'Belgeschiedenis', description: 'Inkomende en uitgaande oproepen met opnames.' },
     'welddrive-recent': { title: 'Recente bestanden', description: 'Recent gewijzigde bestanden in WeldDrive.' },
     'weldhost-domains': { title: 'Domeinen', description: 'Status van domeinen, vervaldata en registrar.' },
+    'weldmerge-inbox': { title: 'WeldMerge-inbox', description: 'De pull requests en issues die jou nodig hebben.' },
   },
   fields: {
     maxRows: 'Max. rijen',

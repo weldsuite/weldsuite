@@ -8,6 +8,7 @@
     "dev": "wrangler dev",
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

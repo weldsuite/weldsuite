@@ -80,7 +80,7 @@ describe('CreateMailboxForm', () => {
   it('shows the price and the address on the chosen domain', () => {
     renderForm();
     expect(screen.getByText('@getacme.com')).toBeInTheDocument();
-    expect(screen.getByText(/\$5 per month, billed to your payment method/)).toBeInTheDocument();
+    expect(screen.getByText(/\$8 per month, billed to your payment method/)).toBeInTheDocument();
   });
 
   it('asks for a connected domain first when there is none', () => {

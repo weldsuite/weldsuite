@@ -19,10 +19,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /**
- * The namespaces the bridge serves. `DOC_ROOM` and `SHEET_ROOM` are the
- * collaborative rooms (rust/docs/collab-rooms.md: on Kubernetes the
- * collab-rooms service answers the same calls); `DOC_ENGINE` and
- * `SHEET_ENGINE` are the engine work a room-less route needs, a test's own
+ * The namespaces the bridge serves. `DOC_ROOM`, `SHEET_ROOM` and
+ * `BOARD_ROOM` are the collaborative rooms (rust/docs/collab-rooms.md: on
+ * Kubernetes the collab-rooms service answers the same calls); `DOC_ENGINE`,
+ * `SHEET_ENGINE` and `BOARD_ENGINE` are the engine work a room-less route
+ * needs, a test's own
  * engine functions, which the TypeScript routes call in process: Rust's
  * calls to them are served but not recorded.
  */
@@ -32,8 +33,10 @@ export const LEDGER_BINDINGS = [
   'PORTAL_RATE_LIMITER',
   'DOC_ROOM',
   'SHEET_ROOM',
+  'BOARD_ROOM',
   'DOC_ENGINE',
   'SHEET_ENGINE',
+  'BOARD_ENGINE',
   // WeldPanel's collector: the daily salt and the per-workspace event counts.
   'PANEL_SALT',
   'PANEL_USAGE',
@@ -41,7 +44,7 @@ export const LEDGER_BINDINGS = [
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
 
 /** Served to Rust, never compared: the TypeScript side runs the same functions in process. */
-const UNRECORDED_BINDINGS: ReadonlySet<string> = new Set(['DOC_ENGINE', 'SHEET_ENGINE']);
+const UNRECORDED_BINDINGS: ReadonlySet<string> = new Set(['DOC_ENGINE', 'SHEET_ENGINE', 'BOARD_ENGINE']);
 
 /**
  * Bytes cross the bridge as `{ "$bytes": "<base64>" }`, both ways (an
@@ -100,11 +103,16 @@ export interface LedgerCall {
 const RESERVATION_METHODS = new Set(['commit', 'release']);
 /**
  * Ids a request mints that reach a room call (a version's id in its key, a
- * restore's automatic version, a new sheet, a connected table's new tab):
- * new per run, so masked.
+ * restore's automatic version, a new sheet, a connected table's new tab, a
+ * board version, a task a board card shows): new per run, so masked.
  */
-const MINTED_ROOM_ID = /\b(?:docv|shtv|sht|shds|sh)_[0-9a-z]{12,}/g;
-const ROOM_BINDINGS: ReadonlySet<string> = new Set(['DOC_ROOM', 'SHEET_ROOM']);
+const MINTED_ROOM_ID = /\b(?:docv|shtv|sht|shds|sh|brdv|task)_[0-9a-z]{12,}/g;
+/**
+ * An element a server write puts on a board (board-engine's `newId()`:
+ * `e`, the time in base 36, six random and two counter characters).
+ */
+const MINTED_ELEMENT_ID = /^e[0-9a-z]{15,17}$/;
+const ROOM_BINDINGS: ReadonlySet<string> = new Set(['DOC_ROOM', 'SHEET_ROOM', 'BOARD_ROOM']);
 const NOW_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 /** The call with its per-run values masked. */
@@ -121,7 +129,10 @@ function masked(call: LedgerCall): LedgerCall {
     return value;
   };
   const maskIds = (value: unknown): unknown => {
-    if (typeof value === 'string') return value.replace(MINTED_ROOM_ID, '<id>');
+    if (typeof value === 'string') {
+      if (call.binding === 'BOARD_ROOM' && MINTED_ELEMENT_ID.test(value)) return '<element-id>';
+      return value.replace(MINTED_ROOM_ID, '<id>');
+    }
     if (Array.isArray(value)) return value.map(maskIds);
     if (value && typeof value === 'object') {
       return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskIds(v)]));

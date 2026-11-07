@@ -118,6 +118,14 @@ service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
 remote = true
 
+# merge-api MergeInternal: workflowAction() runs the merge.* WeldConnect actions
+# (create / update / comment on an issue), permission-checked as the workflow owner.
+[[services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api-test"
+entrypoint = "MergeInternal"
+remote = true
+
 [[workflows]]
 name = "execute-workflow-dev"
 binding = "EXECUTE_WORKFLOW"
@@ -195,6 +203,11 @@ binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
 
+[[env.test.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api-test"
+entrypoint = "MergeInternal"
+
 [[env.test.workflows]]
 name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
@@ -269,6 +282,12 @@ entrypoint = "AppApiInternal"
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api"
 entrypoint = "ConnectInternal"
+
+# merge-api's [env.production] name is "weldsuite-merge-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api"
+entrypoint = "MergeInternal"
 
 [[env.production.workflows]]
 name = "execute-workflow"

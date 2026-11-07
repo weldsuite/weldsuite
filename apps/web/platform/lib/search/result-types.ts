@@ -20,13 +20,22 @@ import {
   Globe,
   Sheet,
   SquareDashedMousePointer,
+  CircleDot,
+  GitPullRequest,
   type LucideIcon,
 } from 'lucide-react';
 import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
 
+/**
+ * The record types the palette can label: the search API's, plus WeldMerge's
+ * (`merge_issue`, `merge_pull_request`). Naming them here keeps the maps complete
+ * whether or not the API's `SEARCH_ENTITY_TYPES` lists them yet.
+ */
+export type PaletteEntityType = SearchEntityType | 'merge_issue' | 'merge_pull_request';
+
 // `contact` / `customer` are the legacy search type keys for CRM people and
 // companies; the UI calls them People and Companies.
-export const RESULT_TYPE_LABEL: Record<SearchEntityType, string> = {
+export const RESULT_TYPE_LABEL: Record<PaletteEntityType, string> = {
   contact: 'People',
   customer: 'Companies',
   lead: 'Leads',
@@ -42,9 +51,11 @@ export const RESULT_TYPE_LABEL: Record<SearchEntityType, string> = {
   sheet: 'Spreadsheets',
   board: 'Boards',
   domain: 'Domains',
+  merge_issue: 'Issues',
+  merge_pull_request: 'Pull requests',
 };
 
-export const RESULT_TYPE_ICON: Record<SearchEntityType, LucideIcon | ComponentType<{ className?: string }>> = {
+export const RESULT_TYPE_ICON: Record<PaletteEntityType, LucideIcon | ComponentType<{ className?: string }>> = {
   contact: Contact,
   customer: Building2,
   lead: UserPlus,
@@ -60,4 +71,6 @@ export const RESULT_TYPE_ICON: Record<SearchEntityType, LucideIcon | ComponentTy
   sheet: Sheet,
   board: SquareDashedMousePointer,
   domain: Globe,
+  merge_issue: CircleDot,
+  merge_pull_request: GitPullRequest,
 };

@@ -67,7 +67,7 @@ function TaskRow({ link }: Readonly<{ link: LinkedObject }>) {
       />
       <button
         type="button"
-        onClick={() => openObjectPanel({ type: 'task', id: task.id })}
+        onClick={() => openObjectPanel({ type: 'task', id: task.id, stack: true })}
         className={cn(
           'min-w-0 flex-1 truncate text-left text-[13px] outline-none hover:underline focus-visible:underline',
           (done || cancelled) && 'text-muted-foreground line-through',

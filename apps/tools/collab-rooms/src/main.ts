@@ -1,5 +1,5 @@
 /**
- * collab-rooms: WeldDocs' and WeldSheets' rooms for the Kubernetes editions
+ * collab-rooms: WeldDocs', WeldSheets' and WeldBoard's rooms for the Kubernetes editions
  * (rust/docs/collab-rooms.md). Reads its settings from the environment:
  *
  *   PORT                      listen port (8090)

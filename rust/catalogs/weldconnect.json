@@ -120,6 +120,27 @@
       "name": "Create Task"
     },
     {
+      "category": "data",
+      "description": "Create a WeldMerge issue in a team",
+      "icon": "git-pull-request",
+      "id": "merge.create_issue",
+      "name": "Create Merge Issue"
+    },
+    {
+      "category": "data",
+      "description": "Change the status, priority, assignee or text of a WeldMerge issue",
+      "icon": "git-pull-request",
+      "id": "merge.update_issue",
+      "name": "Update Merge Issue"
+    },
+    {
+      "category": "data",
+      "description": "Add a comment to a WeldMerge issue",
+      "icon": "message-square",
+      "id": "merge.comment_on_issue",
+      "name": "Comment on Merge Issue"
+    },
+    {
       "category": "logic",
       "description": "Branch based on conditions",
       "icon": "git-branch",
@@ -1059,6 +1080,87 @@
         }
       ],
       "label": "Invoice"
+    },
+    {
+      "category": "WeldMerge",
+      "entityType": "merge_issue",
+      "events": [
+        {
+          "description": "When a merge issue is created",
+          "id": "created",
+          "name": "Merge Issue Created"
+        },
+        {
+          "description": "When a merge issue is updated",
+          "id": "updated",
+          "name": "Merge Issue Updated"
+        },
+        {
+          "description": "When a merge issue is deleted",
+          "id": "deleted",
+          "name": "Merge Issue Deleted"
+        },
+        {
+          "description": "When a merge issue \"Agent Assigned\" event occurs",
+          "id": "agent_assigned",
+          "name": "Merge Issue Agent Assigned"
+        }
+      ],
+      "label": "Merge Issue"
+    },
+    {
+      "category": "WeldMerge",
+      "entityType": "merge_pull_request",
+      "events": [
+        {
+          "description": "When a merge pull request is created",
+          "id": "created",
+          "name": "Merge Pull Request Created"
+        },
+        {
+          "description": "When a merge pull request is updated",
+          "id": "updated",
+          "name": "Merge Pull Request Updated"
+        },
+        {
+          "description": "When a merge pull request \"Merged\" event occurs",
+          "id": "merged",
+          "name": "Merge Pull Request Merged"
+        },
+        {
+          "description": "When a merge pull request is closed",
+          "id": "closed",
+          "name": "Merge Pull Request Closed"
+        }
+      ],
+      "label": "Merge Pull Request"
+    },
+    {
+      "category": "WeldMerge",
+      "entityType": "merge_release",
+      "events": [
+        {
+          "description": "When a merge release is created",
+          "id": "created",
+          "name": "Merge Release Created"
+        },
+        {
+          "description": "When a merge release is updated",
+          "id": "updated",
+          "name": "Merge Release Updated"
+        },
+        {
+          "description": "When a merge release is deleted",
+          "id": "deleted",
+          "name": "Merge Release Deleted"
+        },
+        {
+          "description": "When a merge release \"Shipped\" event occurs",
+          "id": "shipped",
+          "name": "Merge Release Shipped"
+        }
+      ],
+      "label": "Merge Release"
     }
   ],
   "integrations": [
@@ -2407,6 +2509,57 @@
             "type": "entity_event"
           }
         ]
+      },
+      {
+        "category": "development",
+        "description": "When a WeldMerge release ships, post it in a WeldChat channel and email your support team the release and the support tickets it fixes, so they can reply to those customers.",
+        "icon": "Rocket",
+        "id": "builtin_merge_release_shipped",
+        "key": "weldmergeReleaseShipped",
+        "name": "Tell support when a release ships",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_announce"
+          },
+          {
+            "field": "to",
+            "stepId": "step_email"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Release shipped: {{trigger.record.name}} {{trigger.record.version}}. Support tickets it fixes: {{trigger.record.deskTicketIds}}."
+            },
+            "id": "step_announce",
+            "name": "Announce in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          },
+          {
+            "config": {
+              "body": "<p>{{trigger.record.name}} {{trigger.record.version}} has shipped.</p><p>Support tickets linked to the issues in this release: {{trigger.record.deskTicketIds}}.</p><p>Reply to those customers to let them know the fix is live.</p>",
+              "isHtml": true,
+              "subject": "Release shipped: {{trigger.record.name}} {{trigger.record.version}}",
+              "to": ""
+            },
+            "id": "step_email",
+            "name": "Email the support team",
+            "order": 1,
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "merge_release",
+            "eventType": "shipped",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
       }
     ],
     "nl": [
@@ -2841,6 +2994,57 @@
           {
             "entityType": "person",
             "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "development",
+        "description": "Als een WeldMerge-release live gaat, meld je dat in een WeldChat-kanaal en mail je je supportteam de release en de supporttickets die ermee opgelost zijn, zodat ze die klanten kunnen antwoorden.",
+        "icon": "Rocket",
+        "id": "builtin_merge_release_shipped",
+        "key": "weldmergeReleaseShipped",
+        "name": "Support op de hoogte brengen bij een release",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_announce"
+          },
+          {
+            "field": "to",
+            "stepId": "step_email"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Release live: {{trigger.record.name}} {{trigger.record.version}}. Supporttickets die hiermee opgelost zijn: {{trigger.record.deskTicketIds}}."
+            },
+            "id": "step_announce",
+            "name": "Aankondigen in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          },
+          {
+            "config": {
+              "body": "<p>{{trigger.record.name}} {{trigger.record.version}} is live.</p><p>Supporttickets die aan de issues in deze release gekoppeld zijn: {{trigger.record.deskTicketIds}}.</p><p>Laat die klanten weten dat de oplossing live staat.</p>",
+              "isHtml": true,
+              "subject": "Release live: {{trigger.record.name}} {{trigger.record.version}}",
+              "to": ""
+            },
+            "id": "step_email",
+            "name": "Supportteam mailen",
+            "order": 1,
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "merge_release",
+            "eventType": "shipped",
             "id": "trigger_main",
             "isEnabled": true,
             "type": "entity_event"
@@ -3997,6 +4201,41 @@
     "sign_template.deleted",
     "panel_project.created",
     "panel_project.updated",
-    "panel_project.deleted"
+    "panel_project.deleted",
+    "merge_team.created",
+    "merge_team.updated",
+    "merge_team.deleted",
+    "merge_issue.created",
+    "merge_issue.updated",
+    "merge_issue.deleted",
+    "merge_issue.agent_assigned",
+    "merge_comment.created",
+    "merge_comment.updated",
+    "merge_comment.deleted",
+    "merge_label.created",
+    "merge_label.updated",
+    "merge_label.deleted",
+    "merge_cycle.created",
+    "merge_cycle.updated",
+    "merge_cycle.deleted",
+    "merge_connection.created",
+    "merge_connection.updated",
+    "merge_connection.deleted",
+    "merge_repository.created",
+    "merge_repository.updated",
+    "merge_repository.deleted",
+    "merge_pull_request.created",
+    "merge_pull_request.updated",
+    "merge_pull_request.merged",
+    "merge_pull_request.closed",
+    "merge_release.created",
+    "merge_release.updated",
+    "merge_release.deleted",
+    "merge_release.shipped",
+    "merge_record_link.created",
+    "merge_record_link.deleted",
+    "merge_chat_subscription.created",
+    "merge_chat_subscription.updated",
+    "merge_chat_subscription.deleted"
   ]
 }

@@ -30,6 +30,10 @@ export const WELDCONNECT_ACTION_TYPES = [
   'move_deal_stage',
   'log_activity',
   'create_task',
+  // WeldMerge: create / update / comment on an issue, as the workflow's owner.
+  'merge.create_issue',
+  'merge.update_issue',
+  'merge.comment_on_issue',
   // WeldDesk inbox: open (or add to) a conversation, deduplicated by external id.
   'create_conversation',
   'send_notification',

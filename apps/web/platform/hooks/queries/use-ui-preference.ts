@@ -68,3 +68,13 @@ export function useWeldchatSidebarOrder() {
 }
 
 const EMPTY_ORDER: Record<string, string[]> = {};
+
+/** WeldBoard: the colours the user saved in the colour pickers, on every board and device. */
+export function useWeldboardColors() {
+  const { data } = useUserPreferences();
+  const { mutate } = useUiPreferenceMutation('weldboardColors');
+  const saved = data?.uiPreferences?.weldboardColors;
+  return { colors: Array.isArray(saved) ? saved : EMPTY_COLORS, onChange: mutate };
+}
+
+const EMPTY_COLORS: string[] = [];

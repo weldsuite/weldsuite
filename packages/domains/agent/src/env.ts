@@ -9,6 +9,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { NotificationEnv } from '@weldsuite/notifications/types';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
+import type { MergeInternalBinding } from '@weldsuite/app-api-client/schemas/weldmerge-across';
 import type { WeldAgentJob } from './jobs';
 
 export interface WeldAgentEnv extends DbEnv, NotificationEnv {
@@ -81,6 +82,12 @@ export interface WeldAgentEnv extends DbEnv, NotificationEnv {
    * boards are not available.
    */
   BOARDS_INTERNAL?: Fetcher;
+  /**
+   * merge-api `MergeInternal` entrypoint (service binding, RPC `agentTool`): the WeldMerge tools
+   * read and write issues and pull requests through it. Without it they report that WeldMerge
+   * is not available.
+   */
+  MERGE_INTERNAL?: MergeInternalBinding;
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Fallback path only (binding absent). Example: http://localhost:8795 or

@@ -69,10 +69,13 @@ weldsuite-know = { path = "modules/know" }
 weldsuite-know-domain = { path = "crates/know-domain" }
 weldsuite-docs = { path = "modules/docs" }
 weldsuite-sheets = { path = "modules/sheets" }
+weldsuite-board = { path = "modules/board" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
 weldsuite-meet = { path = "modules/meet" }
+weldsuite-merge = { path = "modules/merge" }
+weldsuite-merge-domain = { path = "crates/merge-domain" }
 weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }

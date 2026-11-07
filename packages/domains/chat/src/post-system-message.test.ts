@@ -122,4 +122,16 @@ describe('postSystemChatMessage', () => {
     expect(message.id).toBeTruthy();
     expect(rtCalls).toEqual([]);
   });
+
+  it('marks the message as workflow-posted unless the caller gives its own metadata', async () => {
+    const plain = await postSystemChatMessage(ctx(), { content: 'Plain' });
+    expect(plain.metadata).toEqual({ postedByWorkflow: true });
+
+    const card = await postSystemChatMessage(
+      { ...ctx(), authorId: 'app:weldmerge', authorName: 'WeldMerge' },
+      { content: 'Review requested', metadata: { weldmerge: { kind: 'review_requested', pullRequestId: 'mpr_1' } } },
+    );
+    expect(card.authorId).toBe('app:weldmerge');
+    expect(card.metadata).toEqual({ weldmerge: { kind: 'review_requested', pullRequestId: 'mpr_1' } });
+  });
 });

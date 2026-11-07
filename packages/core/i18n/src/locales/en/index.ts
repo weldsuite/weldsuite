@@ -43,6 +43,7 @@ import { weldsheets } from './weldsheets';
 import { sheetData } from './sheet-data';
 import { weldsign } from './weldsign';
 import { weldpanel } from './weldpanel';
+import { weldmerge } from './weldmerge';
 import { welddocs } from './welddocs';
 import { weldboard } from './weldboard';
 import { weldhr } from './weldhr';
@@ -117,6 +118,7 @@ export const en = {
   sheetData,
   weldsign,
   weldpanel,
+  weldmerge,
   welddocs,
   weldboard,
   weldhr,

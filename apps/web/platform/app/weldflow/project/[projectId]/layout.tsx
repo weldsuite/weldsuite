@@ -89,6 +89,7 @@ const TABS_WITHOUT_TOP_PADDING = new Set([
   'timesheet',
   'tasks',
   'settings',
+  'analytics',
 ]);
 
 function SortableTab({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {

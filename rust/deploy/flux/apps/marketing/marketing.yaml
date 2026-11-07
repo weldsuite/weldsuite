@@ -1,0 +1,40 @@
+# The marketing site (www.weldsuite.org / weldsuite.nl), from the private
+# weldsuite/weldsuite-eu-marketing repository: its "EU test image" workflow
+# builds the image for every push to main and publishes its chart
+# (deploy/helm/weldsuite-marketing there) as
+# oci://ghcr.io/weldsuite/charts/weldsuite-marketing, version
+# <chart>-main.<run>, appVersion the image's tag. This takes the newest, as
+# the weldsuite release takes the newest develop chart. Both packages are
+# private: chart and image are pulled with the ghcr Secret (source.yaml).
+#
+# Test cluster only, so far: the image has the test cluster's URLs compiled
+# in (www.test.weldsuite.eu, nl.test.weldsuite.eu), so production needs its
+# own build before it can take this layer.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: marketing
+  namespace: marketing
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: weldsuite-marketing
+      version: ">=0.0.0-0"
+      reconcileStrategy: ChartVersion
+      interval: 5m
+      sourceRef:
+        kind: HelmRepository
+        name: weldsuite-marketing
+        namespace: marketing
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  valuesFrom:
+    - kind: ConfigMap
+      name: marketing-values

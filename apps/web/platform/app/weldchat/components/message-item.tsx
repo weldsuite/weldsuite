@@ -32,6 +32,7 @@ import { useChatContext } from './chat-context';
 import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
 import { renderMessageBlocks } from '../lib/render-message-blocks';
 import { MessageApprovals } from './message-approvals';
+import { MessageWeldMergeCard } from './message-weldmerge-card';
 import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import { formatCallDuration, type CallSummary } from '../lib/call-history';
@@ -698,6 +699,9 @@ export function MessageItem({
 
         {/* Actions the agent is waiting on a person to approve */}
         <MessageApprovals message={message} />
+
+        {/* A WeldMerge update (or an item shared with /merge) as a card */}
+        <MessageWeldMergeCard message={message} />
 
         {/* Forwarded message snapshot */}
         {message.forwardedFrom && (

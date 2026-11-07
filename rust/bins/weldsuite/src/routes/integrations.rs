@@ -20,8 +20,8 @@ use weldsuite_events::EntityEventPublisher;
 use weldsuite_integrations::crm::{CRM_SYNC_JOB, CrmDeps};
 use weldsuite_integrations::github::{GITHUB_PROJECT_SYNC_JOB, GithubDeps, JobRuns};
 use weldsuite_integrations::{
-    BindingResponse, ConnectCall, ConnectInternal, IntegrationsState, ServiceBinding,
-    TenantResolver, WorkflowRuns,
+    BindingResponse, ConnectCall, ConnectInternal, IntegrationsState, MergeInternal,
+    ServiceBinding, TenantResolver, WorkflowRuns,
 };
 use weldsuite_ports::BoxFuture;
 
@@ -125,7 +125,81 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
             .flatten(),
         execute_workflow: (!conformance && super::mounts("connect"))
             .then(|| execute_workflow(Arc::clone(&state.infra.jobs))),
+        merge_internal: (!conformance && super::mounts("merge")).then(|| {
+            Arc::new(InProcessMergeInternal {
+                router: weldsuite_merge::internal_router(super::merge_state(state)),
+            }) as Arc<dyn MergeInternal>
+        }),
     }
+}
+
+/// `MERGE_INTERNAL` in this process: WeldMerge's internal router, called as
+/// `MergeInternal.githubEvent` / `.providerEvent` call their own
+/// (`POST /github-event`, `POST /provider-event`; an error status thrown,
+/// else the answer's `data`).
+pub(crate) struct InProcessMergeInternal {
+    router: Router,
+}
+
+impl InProcessMergeInternal {
+    async fn call(&self, route: &str, envelope: Value) -> Result<Value, String> {
+        use tower::ServiceExt;
+        let request = http::Request::builder()
+            .method("POST")
+            .uri(format!("/{route}"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(envelope.to_string()))
+            .map_err(|error| error.to_string())?;
+        let response = match self.router.clone().oneshot(request).await {
+            Ok(response) => response,
+            Err(never) => match never {},
+        };
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("merge-api {route} answered {}", status.as_u16()));
+        }
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .map_err(|error| error.to_string())?;
+        let answer: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+        Ok(answer.get("data").cloned().unwrap_or(Value::Null))
+    }
+}
+
+impl MergeInternal for InProcessMergeInternal {
+    fn github_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>> {
+        Box::pin(self.call("github-event", envelope))
+    }
+
+    fn provider_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>> {
+        Box::pin(self.call("provider-event", envelope))
+    }
+}
+
+/// `MERGE_INTERNAL.workflowAction` for WeldConnect's engine, in this
+/// process: `weldsuite_merge::workflow_action`, which runs the action as the
+/// workflow's owner and answers `{ ok, issueId, issueKey, commentId, error }`.
+struct InProcessMergeWorkflowActions {
+    state: weldsuite_merge::MergeState,
+}
+
+impl weldsuite_connect::engine::MergeWorkflowActions for InProcessMergeWorkflowActions {
+    fn workflow_action(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>> {
+        Box::pin(weldsuite_merge::workflow_action(&self.state, envelope))
+    }
+}
+
+/// `MERGE_INTERNAL` for WeldConnect's engine (the `merge.*` steps); none
+/// while merge is not served (the steps then fail, as the worker without the
+/// binding).
+pub(crate) fn merge_workflow_actions(
+    state: &AppState,
+) -> Option<Arc<dyn weldsuite_connect::engine::MergeWorkflowActions>> {
+    super::mounts("merge").then(|| {
+        Arc::new(InProcessMergeWorkflowActions {
+            state: super::merge_state(state),
+        }) as Arc<dyn weldsuite_connect::engine::MergeWorkflowActions>
+    })
 }
 
 /// `BOOKS_INTERNAL`: WeldBooks' internal bank-feed routes in this process,

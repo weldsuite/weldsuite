@@ -3,7 +3,9 @@
  * `/api/github-repo-links` on pglite, through the test app (so the
  * conformance harness runs them against both backends): keyset pages with
  * filters, reads without the webhook secret, passthrough creates and
- * updates, and soft deletes.
+ * updates, and soft deletes. A GitHub connection is a WeldMerge connection
+ * (`merge_connections`, provider `github`): the routes answer it in the shape
+ * they always had and map a body in that shape back to the columns.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -43,16 +45,17 @@ const send = (method: string, body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-async function seedConnection(id: string, createdAt: Date, over: Partial<typeof schema.githubConnections.$inferInsert> = {}) {
-  await db.insert(schema.githubConnections).values({
+async function seedConnection(id: string, createdAt: Date, over: Partial<typeof schema.mergeConnections.$inferInsert> = {}) {
+  await db.insert(schema.mergeConnections).values({
     id,
-    workspaceId: 'org_test_default',
-    installationId: Number(id.replace(/\D/g, '')) + 10_000,
+    provider: 'github',
+    externalAccountId: String(Number(id.replace(/\D/g, '')) + 10_000),
     appSlug: 'weldsuite-test',
-    ownerType: 'org',
-    ownerLogin: `owner-${id}`,
+    accountType: 'organization',
+    accountLogin: `owner-${id}`,
     webhookSecret: 'sealed',
     status: 'active',
+    createdByUserId: 'user_seed',
     createdAt,
     updatedAt: createdAt,
     ...over,
@@ -62,7 +65,7 @@ async function seedConnection(id: string, createdAt: Date, over: Partial<typeof 
 describe('/api/github-connections', () => {
   it('pages newest first, filters by status and hides the webhook secret', async () => {
     await db.delete(schema.githubRepoLinks);
-    await db.delete(schema.githubConnections);
+    await db.delete(schema.mergeConnections);
     await seedConnection('ghc_g1', new Date('2026-01-01T00:00:00.000Z'));
     await seedConnection('ghc_g2', new Date('2026-01-02T00:00:00.000Z'), { status: 'revoked' });
     await seedConnection('ghc_g3', new Date('2026-01-03T00:00:00.000Z'));
@@ -100,7 +103,7 @@ describe('/api/github-connections', () => {
     res = await connections()(`${CONNECTIONS}/ghc_g1`);
     expect(res.status).toBe(200);
     const row = ((await res.json()) as { data: Record<string, unknown> }).data;
-    expect(row).toMatchObject({ id: 'ghc_g1', installationId: 10_001, ownerLogin: 'owner-ghc_g1', deletedAt: null });
+    expect(row).toMatchObject({ id: 'ghc_g1', installationId: 10_001, ownerType: 'org', ownerLogin: 'owner-ghc_g1', createdBy: 'user_seed', deletedAt: null });
     expect(row).not.toHaveProperty('webhookSecret');
 
     res = await connections()(`${CONNECTIONS}/ghc_g5`);
@@ -121,14 +124,21 @@ describe('/api/github-connections', () => {
     );
     expect(res.status).toBe(201);
     const id = ((await res.json()) as { data: { id: string } }).data.id;
-    let [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, id));
-    expect(row).toMatchObject({ installationId: 31337, ownerLogin: 'jane', status: 'active' });
+    let [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
+    expect(row).toMatchObject({
+      provider: 'github',
+      externalAccountId: '31337',
+      accountType: 'user',
+      accountLogin: 'jane',
+      appSlug: 'weldsuite-test',
+      status: 'active',
+    });
 
     res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { status: 'suspended', ownerLogin: 'jane-2' }));
     expect(res.status).toBe(200);
     expect(((await res.json()) as { data: { id: string } }).data.id).toBe(id);
-    [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, id));
-    expect(row).toMatchObject({ status: 'suspended', ownerLogin: 'jane-2' });
+    [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
+    expect(row).toMatchObject({ status: 'suspended', accountLogin: 'jane-2' });
 
     res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { revokedAt: '2026-01-01T00:00:00Z' }));
     expect(res.status).toBe(500);
@@ -146,8 +156,8 @@ describe('/api/github-connections', () => {
     expect(res.status).toBe(400);
     res = await connections()(CONNECTIONS, send('POST', { status: 'x'.repeat(31) }));
     expect(res.status).toBe(400);
-    // No workspace, slug or owner: the insert fails.
-    res = await connections()(CONNECTIONS, send('POST', { installationId: '1' }));
+    // No installation id: the insert fails.
+    res = await connections()(CONNECTIONS, send('POST', { appSlug: 'weldsuite-test' }));
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: { message: string } }).error.message).toBe('Failed to create github connection');
   });
@@ -161,7 +171,7 @@ describe('/api/github-connections', () => {
 describe('/api/github-repo-links', () => {
   it('creates, filters, reads, updates and deletes links', async () => {
     await db.delete(schema.githubRepoLinks);
-    await db.delete(schema.githubConnections);
+    await db.delete(schema.mergeConnections);
     await seedConnection('ghc_r1', new Date('2026-02-01T00:00:00.000Z'));
     await seedConnection('ghc_r2', new Date('2026-02-02T00:00:00.000Z'));
 

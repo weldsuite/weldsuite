@@ -1,8 +1,12 @@
 # WeldReach warmup: WeldSuite's own warmup network
 
-Status (2026-10-13): built on branch `claude/weldsuite-cold-email-platform-72f54d`
-(PR #1115), not deployed; Phase W0 checks against real mailboxes are still open.
-Migrations (master 0056, tenant 0210) were generated with the owner's go-ahead.
+Status (2026-11-06): merged with WeldReach (PR #1115) and deployed, then
+**switched off on 2026-11-04** because nobody uses WeldReach yet:
+`reach-warmup-worker` has `crons = []` in every environment, and the header
+of its `wrangler.toml` lists the three crons to restore. Until they are back,
+new mailboxes stay in `warming`. Phase W0 checks against real mailboxes are
+still open. Migrations (master 0056, tenant 0210) were generated with the
+owner's go-ahead.
 Replaces the Mailpool warmup that WeldReach uses today
 (docs/plans/weldreach.md, "Mailboxes, domains and warmup"). WeldReach is not
 live yet, so WeldSuite's warmup is the only warmup from the first release:
@@ -64,7 +68,7 @@ own counters. That rate is the health signal above and is shown to the customer.
 | Health gate | 14 days of warmup and at least 85% inbox placement over the last 3 days, with no login errors. Replaces Mailpool's "healthy" report. |
 | Cross-workspace | Agreed. The emails are synthetic (no customer data); new access term, terms version bumped. |
 | Kill switch | Flagship flag `weldreach-warmup` (default on), separate from `weldreach-sending`. |
-| Price | Included in the $5 per inbox. |
+| Price | Included in the $8 per inbox ($5 until 2026-11-06). |
 
 ## How the engine works
 

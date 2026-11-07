@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import type { ChangeRequestDetail } from '@weldsuite/app-api-client/domains/flow-approvals';
+import type { ChangeRequest } from '@weldsuite/app-api-client/domains/flow-approvals';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCreateChangeRequest, useUpdateChangeRequest } from '@/hooks/queries/use-flow-approvals-queries';
 import { useProjectMilestones } from '@/hooks/queries/use-project-control-queries';
@@ -19,10 +19,11 @@ interface ChangeDialogProps {
   projectId: string;
   currency: string | null;
   /** The change being edited; null creates a new one. The dialog is open while `open`. */
-  change: ChangeRequestDetail | null;
+  change: ChangeRequest | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSaved: (id: string) => void;
+  /** The change was saved (created or edited). */
+  onSaved?: (id: string) => void;
 }
 
 /** Create or edit a change request: its words, its impact and the plan and scope changes. */
@@ -51,7 +52,7 @@ export function ChangeDialog({ projectId, currency, change, open, onOpenChange, 
     try {
       const saved = change ? await update.mutateAsync({ id: change.id, ...body }) : await create.mutateAsync({ projectId, ...body });
       toast.success(copy.form.saved);
-      onSaved(saved.data.id);
+      onSaved?.(saved.data.id);
       onOpenChange(false);
     } catch (error) {
       toast.error(isApiError(error) && error.message ? error.message : copy.form.failed);
@@ -63,7 +64,9 @@ export function ChangeDialog({ projectId, currency, change, open, onOpenChange, 
       <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-xl">
         <DialogHeader className="border-b px-6 pb-4 pt-6 text-left">
           <DialogTitle>{change ? format(copy.form.editTitle, { code: change.code }) : copy.form.createTitle}</DialogTitle>
-          {change?.status === 'awaiting_approval' ? <DialogDescription>{copy.actions.editWarning}</DialogDescription> : null}
+          <DialogDescription className={change?.status === 'awaiting_approval' ? undefined : 'sr-only'}>
+            {change?.status === 'awaiting_approval' ? copy.actions.editWarning : copy.title}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">

@@ -32,3 +32,19 @@ describe('http_request required fields', () => {
     expect(getMissingRequiredFields('http_request', { url: 'https://x.test', method: 'GET' })).toEqual([]);
   });
 });
+
+describe('WeldMerge actions', () => {
+  it('stores the status and priority the create form displays', () => {
+    expect(withActionDefaults('merge.create_issue', { teamId: 'mtm_1' })).toEqual({ teamId: 'mtm_1', status: 'backlog', priority: 0 });
+    expect(withActionDefaults('merge.create_issue', { priority: 2 })).toEqual({ status: 'backlog', priority: 2 });
+  });
+
+  it('asks for the team and title to create, the issue to update, the issue and text to comment', () => {
+    expect(getMissingRequiredFields('merge.create_issue', {})).toEqual([{ labelKey: 'mergeTeam' }, { labelKey: 'title' }]);
+    expect(getMissingRequiredFields('merge.create_issue', { teamId: 'mtm_1', title: 'Fix' })).toEqual([]);
+    expect(getMissingRequiredFields('merge.update_issue', {})).toEqual([{ labelKey: 'mergeIssue' }]);
+    expect(getMissingRequiredFields('merge.update_issue', { issue: 'PLAT-1' })).toEqual([]);
+    expect(getMissingRequiredFields('merge.comment_on_issue', { issue: 'PLAT-1' })).toEqual([{ labelKey: 'mergeComment' }]);
+    expect(getMissingRequiredFields('merge.comment_on_issue', { issue: 'PLAT-1', body: 'Done' })).toEqual([]);
+  });
+});

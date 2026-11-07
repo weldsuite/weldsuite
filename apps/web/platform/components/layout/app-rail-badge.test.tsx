@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { AppRailBadge, RailIconCorner, formatRailBadgeCount } from './app-rail-badge';
+import { formatCount } from '@weldsuite/ui/components/count-badge';
+import { AppRailBadge, RailIconCorner } from './app-rail-badge';
 
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({ t: { navigation: { unreadBadge: '{count} unread' } } }),
@@ -38,11 +39,12 @@ describe('AppRailBadge', () => {
   });
 });
 
-describe('formatRailBadgeCount', () => {
+describe('formatCount', () => {
   it('formats counts', () => {
-    expect(formatRailBadgeCount(1)).toBe('1');
-    expect(formatRailBadgeCount(99)).toBe('99');
-    expect(formatRailBadgeCount(100)).toBe('99+');
+    expect(formatCount(1)).toBe('1');
+    expect(formatCount(99)).toBe('99');
+    expect(formatCount(100)).toBe('99+');
+    expect(formatCount('99+')).toBe('99+');
   });
 });
 

@@ -1,9 +1,9 @@
-//! The collaborative rooms of WeldDocs and WeldSheets (`rust/docs/collab-rooms.md`):
-//! on Global one Durable Object per document (`DocRoom`, `SheetRoom`), on
+//! The collaborative rooms of WeldDocs, WeldSheets and WeldBoard (`rust/docs/collab-rooms.md`):
+//! on Global one Durable Object per document (`DocRoom`, `SheetRoom`, `BoardRoom`), on
 //! Kubernetes the same classes in the `collab-rooms` Node service. A route
 //! calls a room as the workers do, `ns.get(ns.idFromName(name))[method](...args)`,
 //! and the engine work it cannot do in Rust (a new document's checkpoint, an
-//! import, an export) on the `DOC_ENGINE` / `SHEET_ENGINE` bindings.
+//! import, an export) on the `DOC_ENGINE` / `SHEET_ENGINE` / `BOARD_ENGINE` bindings.
 //!
 //! Values are JSON; bytes travel as `{ "$bytes": "<base64>" }` ([`bytes_value`],
 //! [`value_bytes`]). Reach it through the request's [`RequestCollab`]
@@ -19,9 +19,11 @@ use crate::{BoxFuture, PortError};
 /// The rooms of one binding.
 pub const DOC_ROOM: &str = "DOC_ROOM";
 pub const SHEET_ROOM: &str = "SHEET_ROOM";
+pub const BOARD_ROOM: &str = "BOARD_ROOM";
 /// The engines' functions.
 pub const DOC_ENGINE: &str = "DOC_ENGINE";
 pub const SHEET_ENGINE: &str = "SHEET_ENGINE";
+pub const BOARD_ENGINE: &str = "BOARD_ENGINE";
 
 /// What a room or engine call can come back with.
 #[derive(Debug)]

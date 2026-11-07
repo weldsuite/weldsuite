@@ -40,21 +40,22 @@ let seq = 0;
 
 async function seedConnection(status = 'active') {
   const id = `ghc_pl_${++seq}`;
-  await db.insert(schema.githubConnections).values({
+  await db.insert(schema.mergeConnections).values({
     id,
-    workspaceId: ORG,
-    installationId: 700_000 + seq,
+    provider: 'github',
+    externalAccountId: String(700_000 + seq),
     appSlug: 'weldsuite-test',
-    ownerType: 'org',
-    ownerLogin: 'acme-corp',
+    accountType: 'organization',
+    accountLogin: 'acme-corp',
     status: status as 'active',
+    createdByUserId: 'user_seed',
   });
   return id;
 }
 
 async function reset() {
   await db.delete(schema.githubProjectLinks);
-  await db.delete(schema.githubConnections);
+  await db.delete(schema.mergeConnections);
 }
 
 const link = (over: Record<string, unknown> = {}) => ({

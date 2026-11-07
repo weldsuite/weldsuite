@@ -14,6 +14,7 @@ export const ACTION_INPUT_DEFAULTS: Readonly<Record<string, Readonly<Record<stri
   create_customer: { status: 'active' },
   log_activity: { type: 'note' },
   create_task: { priority: 'medium' },
+  'merge.create_issue': { status: 'backlog', priority: 0 },
   send_notification: { category: 'task', severity: 'info' },
 };
 

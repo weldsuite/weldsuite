@@ -1,12 +1,10 @@
 
 import { useState } from 'react';
-import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link, useRouter } from '@/lib/router';
 import { formatDate } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { Plus, EllipsisVertical, Pencil, Copy, Trash2, BarChart3 } from 'lucide-react';
+import { EllipsisVertical, Pencil, Copy, Trash2, BarChart3 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,34 +45,27 @@ interface AnalyticsListClientProps {
   reports: AnalyticsReport[];
   /** Base path for report links (default `/weldflow/analytics`). */
   basePath?: string;
-  /** When true, omit page title/description (used under KPI hub). */
-  embedded?: boolean;
-  /** Section heading when embedded. */
-  sectionTitle?: string;
-  /** Render reports as cards (default) or as a standalone EntityList of table rows. */
-  layout?: 'grid' | 'table';
   /** Set on a project's analytics page so new reports are created for that project. */
   projectId?: string;
+  /** Passed to EntityList; the page's frame decides it (`-16` under the dashboard's padded main). */
+  stickyOffset?: number;
+  /** Passed to EntityList, e.g. to centre the empty state in a project tab. */
+  emptyStateClassName?: string;
 }
 
+/**
+ * The WeldFlow analytics reports list. The workspace Analytics page and every
+ * project's Analytics tab render this same component, so they stay one design;
+ * the page around it owns the breadcrumbs and the frame.
+ */
 export function AnalyticsListClient({
   reports,
   projectId,
   basePath = '/weldflow/analytics',
-  embedded = false,
-  sectionTitle,
-  layout = 'grid',
+  stickyOffset,
+  emptyStateClassName,
 }: Readonly<AnalyticsListClientProps>) {
   const { t } = useI18n();
-  // When embedded under a KPI hub, the parent page owns the breadcrumb trail.
-  useBreadcrumbs(
-    [
-      { label: t.projects.title, href: '/weldflow' },
-      { label: t.projects.analytics.title },
-    ],
-    { enabled: !embedded },
-  );
-
   const router = useRouter();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -149,9 +140,6 @@ export function AnalyticsListClient({
     setSelectedReport(report);
     setIsDeleteDialogOpen(true);
   };
-
-  const chartCountLabel = (count: number) =>
-    (count !== 1 ? t.projects.analyticsReports.charts : t.projects.analyticsReports.chart).replace('{count}', String(count));
 
   const renderActions = (report: AnalyticsReport) => (
     <DropdownMenu>
@@ -229,36 +217,6 @@ export function AnalyticsListClient({
       </div>
     </div>
   );
-
-  const renderReports = () => {
-    return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {reports.map((report) => (
-          <Card key={report.id} className="group hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-              <div className="space-y-1">
-                <CardTitle className="text-base font-semibold">
-                  <Link href={`${basePath}/${report.id}`} className="hover:underline">
-                    {report.title}
-                  </Link>
-                </CardTitle>
-                <CardDescription className="line-clamp-2">{report.description || t.projects.analyticsReports.noDescription}</CardDescription>
-              </div>
-              {renderActions(report)}
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>
-                  {chartCountLabel(report.chartCount)}
-                </span>
-                <span>{t.projects.analyticsReports.updated} <span className="tabular-nums text-foreground">{formatDate(report.updatedAt)}</span></span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  };
 
   const dialogs = (
     <>
@@ -357,85 +315,39 @@ export function AnalyticsListClient({
     </>
   );
 
-  if (layout === 'table') {
-    return (
-      <>
-        <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
-          <EntityList<AnalyticsReport>
-            items={reports}
-            isLoading={false}
-            error={null}
-            headerColumns={headerColumns}
-            filters={[]}
-            renderRow={renderRow}
-            searchPlaceholder={t.projects.analyticsReports.searchReports}
-            searchFields={['title', 'description']}
-            topBarClassName="pt-2 pb-2"
-            stickyOffset={-16}
-            createButton={{
-              label: t.projects.analyticsReports.newReport,
-              onClick: () => setIsCreateDialogOpen(true),
-            }}
-            emptyState={{
-              icon: (
-                <EmptyStateIllustration>
-                  <BarChart3 className="h-12 w-12 text-gray-300 dark:text-muted-foreground" />
-                </EmptyStateIllustration>
-              ),
-              title: t.projects.analyticsReports.noReports,
-              description: t.projects.analyticsReports.noReportsDescription,
-              action: {
-                label: t.projects.analyticsReports.createFirstReport,
-                onClick: () => setIsCreateDialogOpen(true),
-              },
-            }}
-          />
-        </div>
-        {dialogs}
-      </>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          {embedded ? (
-            <h2 className="text-lg font-semibold tracking-tight">
-              {sectionTitle ?? t.projects.dashboard.customReports}
-            </h2>
-          ) : (
-            <>
-              <h1 className="text-2xl font-bold tracking-tight">{t.projects.analyticsReports.title}</h1>
-              <p className="text-muted-foreground">
-                {t.projects.analyticsReports.description}
-              </p>
-            </>
-          )}
-        </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="mr-0.5 h-4 w-4" />
-          {t.projects.analyticsReports.newReport}
-        </Button>
-      </div>
-
-      {reports.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center p-12">
-          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold">{t.projects.analyticsReports.noReports}</h3>
-          <p className="text-muted-foreground text-center max-w-md mt-2">
-            {t.projects.analyticsReports.noReportsDescription}
-          </p>
-          <Button className="mt-6" onClick={() => setIsCreateDialogOpen(true)}>
-            <Plus className="mr-0.5 h-4 w-4" />
-            {t.projects.analyticsReports.createFirstReport}
-          </Button>
-        </Card>
-      ) : (
-        renderReports()
-      )}
-
+    <>
+      <EntityList<AnalyticsReport>
+        items={reports}
+        isLoading={false}
+        error={null}
+        headerColumns={headerColumns}
+        filters={[]}
+        renderRow={renderRow}
+        searchPlaceholder={t.projects.analyticsReports.searchReports}
+        searchFields={['title', 'description']}
+        topBarClassName="pt-2 pb-2"
+        stickyOffset={stickyOffset}
+        emptyStateClassName={emptyStateClassName}
+        createButton={{
+          label: t.projects.analyticsReports.newReport,
+          onClick: () => setIsCreateDialogOpen(true),
+        }}
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <BarChart3 className="h-12 w-12 text-gray-300 dark:text-muted-foreground" />
+            </EmptyStateIllustration>
+          ),
+          title: t.projects.analyticsReports.noReports,
+          description: t.projects.analyticsReports.noReportsDescription,
+          action: {
+            label: t.projects.analyticsReports.createFirstReport,
+            onClick: () => setIsCreateDialogOpen(true),
+          },
+        }}
+      />
       {dialogs}
-    </div>
+    </>
   );
 }

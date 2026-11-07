@@ -57,15 +57,26 @@ describe('SubNavPills', () => {
 });
 
 describe('ProjectSubNavLayout', () => {
-  it('renders the pills for the project in the URL and the page under them', () => {
+  it('renders the sub-tabs for the project in the URL in the toolbar, and the page under them', () => {
     render(
       <ProjectSubNavLayout section="governance" label="Governance" items={items}>
         <p>page body</p>
       </ProjectSubNavLayout>,
     );
-    expect(screen.getByRole('link', { name: 'Change requests' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Decisions' })).toHaveAttribute('href', `${base}/decisions`);
+    // The toolbar and the phone-only row under it both carry the sub-tabs.
+    for (const link of screen.getAllByRole('link', { name: 'Change requests' })) expect(link).toHaveAttribute('aria-current', 'page');
+    for (const link of screen.getAllByRole('link', { name: 'Decisions' })) expect(link).toHaveAttribute('href', `${base}/decisions`);
     expect(screen.getByText('page body')).toBeInTheDocument();
+  });
+
+  it('lets a flush sub-page scroll edge to edge, without the padding', () => {
+    const { container } = render(
+      <ProjectSubNavLayout section="governance" label="Governance" items={items} flushIds={['changes']}>
+        <p>page body</p>
+      </ProjectSubNavLayout>,
+    );
+    expect(screen.getByText('page body').parentElement).toHaveClass('overflow-y-auto');
+    expect(container.querySelector('.px-3.pt-4')).toBeNull();
   });
 
   it('lets the full-bleed pill lay out its own page', () => {

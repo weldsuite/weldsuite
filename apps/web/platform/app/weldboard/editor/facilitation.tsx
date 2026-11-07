@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { EyeOff, Eye, Pause, Play, Plus, SmilePlus, Square, Timer, Vote } from 'lucide-react';
+import { Pause, Play, Plus, Square } from 'lucide-react';
 import {
   addTimeOp,
   clearVotingOp,
@@ -22,10 +22,11 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Label } from '@weldsuite/ui/components/label';
 import { NumberInput } from '@weldsuite/ui/components/number-input';
-import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
+import { Switch } from '@weldsuite/ui/components/switch';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
+import { BarButton } from './ui';
 
 const TIMER_PRESETS = [1, 3, 5, 10, 15];
 export const REACTIONS = ['👍', '❤️', '😂', '🎉', '👏', '🤔'];
@@ -107,39 +108,68 @@ function chime(): void {
   }
 }
 
-/**
- * Facilitation for everyone on the board, at the bottom: a shared timer,
- * voting rounds, reactions and private mode. Starting and stopping is for
- * those who may edit; anyone who may comment can vote and react.
- */
-export function FacilitationBar({ controller: c }: { controller: BoardController }) {
-  useSyncExternalStore(c.subscribe, c.getVersion);
-  const { t, format } = useI18n();
-  const te = t.weldboard.editor;
-  const tt = te.timer;
-  const tv = te.voting;
+/** The board's shared timer and the time it has left, ticking while it runs. */
+function useBoardTimer(c: BoardController) {
   const [now, setNow] = useState(() => Date.now());
   const timer = c.board.props.timer ?? null;
-  const round = c.board.props.voting ?? null;
-  const canRun = !c.readOnly;
-  const canTakePart = !c.readOnly || c.canComment;
-  const me = c.options.userId;
-
-  // Tick while a timer runs; say so once when it reaches zero.
   const running = timerRunning(timer);
-  const left = timerRemaining(timer, now);
-  const rang = useRef<number | null>(null);
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [running]);
+  return { timer, running, left: timerRemaining(timer, now) };
+}
+
+/**
+ * The header button that opens the facilitation panel. It stays on screen
+ * while the panel is closed, so it rings when the timer runs out and shows
+ * what is running: the clock, and the votes this person has left.
+ */
+export function FacilitateButton({ controller: c, open, onToggle }: { controller: BoardController; open: boolean; onToggle: () => void }) {
+  useSyncExternalStore(c.subscribe, c.getVersion);
+  const { t, format } = useI18n();
+  const te = t.weldboard.editor;
+  const { timer, running, left } = useBoardTimer(c);
+  const round = c.board.props.voting ?? null;
+  const canTakePart = !c.readOnly || c.canComment;
+
+  // Say so once when the timer reaches zero.
+  const rang = useRef<number | null>(null);
   useEffect(() => {
     if (!running || left > 0 || !timer?.endsAt || rang.current === timer.endsAt) return;
     rang.current = timer.endsAt;
     chime();
-    toast.info(tt.done);
-  }, [running, left, timer?.endsAt, tt.done]);
+    toast.info(te.timer.done);
+  }, [running, left, timer?.endsAt, te.timer.done]);
+
+  const myLeft = round?.status === 'open' && canTakePart ? votesLeft(c.board, c.options.userId) : null;
+
+  return (
+    <Button size="sm" variant="outline" className={cn('h-8 gap-1.5', open && 'bg-accent')} aria-pressed={open} onClick={onToggle}>
+      {te.facilitation}
+      {timer && <span className={cn('font-mono tabular-nums text-muted-foreground', left === 0 && 'text-destructive')}>{clock(left)}</span>}
+      {myLeft !== null && <span className="text-muted-foreground">{myLeft ? format(te.voting.left, { count: myLeft }) : te.voting.noneLeft}</span>}
+    </Button>
+  );
+}
+
+/**
+ * Facilitation for everyone on the board, in a panel on the right: a shared
+ * timer, voting rounds, reactions and private mode. Starting and stopping is
+ * for those who may edit; anyone who may comment can vote and react.
+ */
+export function FacilitationPanel({ controller: c, onClose }: { controller: BoardController; onClose: () => void }) {
+  useSyncExternalStore(c.subscribe, c.getVersion);
+  const { t, format } = useI18n();
+  const te = t.weldboard.editor;
+  const tt = te.timer;
+  const tv = te.voting;
+  const { timer, running, left } = useBoardTimer(c);
+  const round = c.board.props.voting ?? null;
+  const canRun = !c.readOnly;
+  const canTakePart = !c.readOnly || c.canComment;
+  const me = c.options.userId;
 
   const [votesEach, setVotesEach] = useState(3);
   const [anonymous, setAnonymous] = useState(false);
@@ -154,148 +184,129 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
   };
 
   return (
-    <div className="pointer-events-auto flex items-center gap-1 rounded-xl border bg-background px-1.5 py-1 shadow-md">
-      {/* Timer */}
-      {timer ? (
-        <div className="flex items-center gap-0.5" role="timer" aria-label={tt.title}>
-          <span className={cn('min-w-[3.5rem] px-1 text-center font-mono text-sm tabular-nums', left === 0 && 'text-destructive')}>{clock(left)}</span>
-          {canRun && (
-            <>
-              {running ? (
-                <Button size="icon" variant="ghost" className="size-7" aria-label={tt.pause} onClick={() => c.apply(pauseTimerOp(timer, Date.now()))}>
-                  <Pause className="size-4" />
-                </Button>
-              ) : (
-                <Button size="icon" variant="ghost" className="size-7" aria-label={tt.resume} onClick={() => c.apply(resumeTimerOp(timer, Date.now()))}>
-                  <Play className="size-4" />
-                </Button>
-              )}
-              <Button size="icon" variant="ghost" className="size-7" aria-label={tt.add} onClick={() => c.apply(addTimeOp(timer, 60_000, Date.now()))}>
-                <Plus className="size-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className="size-7" aria-label={tt.stop} onClick={() => c.apply(stopTimerOp())}>
-                <Square className="size-3.5" />
-              </Button>
-            </>
-          )}
-        </div>
-      ) : (
-        canRun && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5">
-                <Timer className="size-4" />
-                <span className="hidden sm:inline">{tt.title}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" className="w-56">
-              <p className="mb-2 text-sm font-medium">{tt.startFor}</p>
-              <div className="grid grid-cols-5 gap-1">
-                {TIMER_PRESETS.map((m) => (
-                  <Button key={m} size="sm" variant="outline" onClick={() => c.apply(startTimerOp(m * 60_000, Date.now(), me))}>
-                    {format(tt.minutes, { n: m })}
-                  </Button>
-                ))}
+    <aside className="pointer-events-auto flex max-h-[70vh] w-72 flex-col rounded-xl border bg-background shadow-md">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <h2 className="text-sm font-semibold">{te.facilitation}</h2>
+        <BarButton label={t.common.actions.close} onClick={onClose}>
+          <Plus className="rotate-45" />
+        </BarButton>
+      </div>
+      <div className="min-h-0 flex-1 divide-y overflow-y-auto">
+        {/* Timer */}
+        {(timer || canRun) && (
+          <section className="space-y-2 p-3">
+            <h3 className="text-xs font-medium text-muted-foreground">{tt.title}</h3>
+            {timer ? (
+              <div className="flex items-center gap-0.5" role="timer" aria-label={tt.title}>
+                <span className={cn('flex-1 font-mono text-2xl tabular-nums', left === 0 && 'text-destructive')}>{clock(left)}</span>
+                {canRun && (
+                  <>
+                    {running ? (
+                      <Button size="icon" variant="ghost" className="size-8" aria-label={tt.pause} onClick={() => c.apply(pauseTimerOp(timer, Date.now()))}>
+                        <Pause className="size-4" />
+                      </Button>
+                    ) : (
+                      <Button size="icon" variant="ghost" className="size-8" aria-label={tt.resume} onClick={() => c.apply(resumeTimerOp(timer, Date.now()))}>
+                        <Play className="size-4" />
+                      </Button>
+                    )}
+                    <Button size="icon" variant="ghost" className="size-8" aria-label={tt.add} onClick={() => c.apply(addTimeOp(timer, 60_000, Date.now()))}>
+                      <Plus className="size-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="size-8" aria-label={tt.stop} onClick={() => c.apply(stopTimerOp())}>
+                      <Square className="size-3.5" />
+                    </Button>
+                  </>
+                )}
               </div>
-            </PopoverContent>
-          </Popover>
-        )
-      )}
+            ) : (
+              <>
+                <p className="text-sm">{tt.startFor}</p>
+                <div className="grid grid-cols-5 gap-1">
+                  {TIMER_PRESETS.map((m) => (
+                    <Button key={m} size="sm" variant="outline" className="px-0" onClick={() => c.apply(startTimerOp(m * 60_000, Date.now(), me))}>
+                      {format(tt.minutes, { n: m })}
+                    </Button>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
 
-      <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
-
-      {/* Voting */}
-      {round ? (
-        <div className="flex items-center gap-1">
-          <Vote className="ml-1 size-4 text-muted-foreground" aria-hidden="true" />
-          <span className="px-1 text-sm">
-            {votingSummary({ open: round.status === 'open', canTakePart, myLeft, totalVotes }, tv, format)}
-          </span>
-          {canRun && round.status === 'open' && (
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => {
-              const op = closeVotingOp(c.board);
-              if (op) c.apply(op);
-            }}>
-              {tv.end}
-            </Button>
-          )}
-          {canRun && round.status === 'closed' && (
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => c.apply(clearVotingOp(c.board))}>
-              {tv.clearResults}
-            </Button>
-          )}
-        </div>
-      ) : (
-        canRun && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5">
-                <Vote className="size-4" />
-                <span className="hidden sm:inline">{tv.title}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" className="w-64 space-y-3">
-              <p className="text-sm font-medium">{tv.start}</p>
+        {/* Voting */}
+        {(round || canRun) && (
+          <section className="space-y-3 p-3">
+            <h3 className="text-xs font-medium text-muted-foreground">{tv.title}</h3>
+            {round ? (
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="wb-votes-each">{tv.votesPerPerson}</Label>
-                <NumberInput id="wb-votes-each" className="w-20" min={1} max={100} value={votesEach} onValueChange={(v) => setVotesEach(Math.min(100, Math.max(1, Math.round(v ?? 1))))} />
+                <span className="text-sm">{votingSummary({ open: round.status === 'open', canTakePart, myLeft, totalVotes }, tv, format)}</span>
+                {canRun && round.status === 'open' && (
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => {
+                    const op = closeVotingOp(c.board);
+                    if (op) c.apply(op);
+                  }}>
+                    {tv.end}
+                  </Button>
+                )}
+                {canRun && round.status === 'closed' && (
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => c.apply(clearVotingOp(c.board))}>
+                    {tv.clearResults}
+                  </Button>
+                )}
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={anonymous} onCheckedChange={(v) => setAnonymous(!!v)} />
-                {tv.anonymous}
-              </label>
-              <label className={cn('flex items-center gap-2 text-sm', c.selection.size === 0 && 'opacity-50')}>
-                <Checkbox checked={onlySelection && c.selection.size > 0} disabled={c.selection.size === 0} onCheckedChange={(v) => setOnlySelection(!!v)} />
-                {tv.onlySelection}
-              </label>
-              <Button
-                className="w-full"
-                size="sm"
-                onClick={() => {
-                  const scope = onlySelection && c.selection.size ? [...c.selection] : undefined;
-                  c.apply(startVotingOp(c.board, { votesPerPerson: votesEach, anonymous, scope }, newId('v'), me));
-                  toast.info(tv.clickToVote);
-                }}
-              >
-                {tv.start}
-              </Button>
-            </PopoverContent>
-          </Popover>
-        )
-      )}
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="wb-votes-each">{tv.votesPerPerson}</Label>
+                  <NumberInput id="wb-votes-each" className="w-20" min={1} max={100} value={votesEach} onValueChange={(v) => setVotesEach(Math.min(100, Math.max(1, Math.round(v ?? 1))))} />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={anonymous} onCheckedChange={(v) => setAnonymous(!!v)} />
+                  {tv.anonymous}
+                </label>
+                <label className={cn('flex items-center gap-2 text-sm', c.selection.size === 0 && 'opacity-50')}>
+                  <Checkbox checked={onlySelection && c.selection.size > 0} disabled={c.selection.size === 0} onCheckedChange={(v) => setOnlySelection(!!v)} />
+                  {tv.onlySelection}
+                </label>
+                <Button
+                  className="w-full"
+                  size="sm"
+                  onClick={() => {
+                    const scope = onlySelection && c.selection.size ? [...c.selection] : undefined;
+                    c.apply(startVotingOp(c.board, { votesPerPerson: votesEach, anonymous, scope }, newId('v'), me));
+                    toast.info(tv.clickToVote);
+                  }}
+                >
+                  {tv.start}
+                </Button>
+              </>
+            )}
+          </section>
+        )}
 
-      {/* Reactions */}
-      {canTakePart && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button size="icon" variant="ghost" className="size-8" aria-label={te.reactions.title}>
-              <SmilePlus className="size-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent side="top" className="flex w-auto gap-1 p-1.5">
-            {REACTIONS.map((emoji) => (
-              <button key={emoji} type="button" className="rounded-md px-1.5 py-1 text-xl hover:bg-muted" onClick={() => react(emoji)} aria-label={emoji}>
-                {emoji}
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-      )}
+        {/* Reactions */}
+        {canTakePart && (
+          <section className="space-y-2 p-3">
+            <h3 className="text-xs font-medium text-muted-foreground">{te.reactions.title}</h3>
+            <div className="flex flex-wrap gap-1">
+              {REACTIONS.map((emoji) => (
+                <button key={emoji} type="button" className="rounded-md px-1.5 py-1 text-xl hover:bg-muted" onClick={() => react(emoji)} aria-label={emoji}>
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
-      {/* Private mode */}
-      {canRun && (
-        <Button
-          size="icon"
-          variant={c.board.props.privateMode ? 'secondary' : 'ghost'}
-          className="size-8"
-          aria-pressed={!!c.board.props.privateMode}
-          aria-label={c.board.props.privateMode ? te.privateMode.reveal : te.privateMode.start}
-          title={c.board.props.privateMode ? te.privateMode.reveal : te.privateMode.start}
-          onClick={() => c.apply(privateModeOp(!c.board.props.privateMode))}
-        >
-          {c.board.props.privateMode ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </Button>
-      )}
-    </div>
+        {/* Private mode */}
+        {canRun && (
+          <section className="flex items-center justify-between gap-2 p-3">
+            <Label htmlFor="wb-private-mode">{te.privateMode.title}</Label>
+            <Switch id="wb-private-mode" checked={!!c.board.props.privateMode} onCheckedChange={(on) => c.apply(privateModeOp(on))} />
+          </section>
+        )}
+      </div>
+    </aside>
   );
 }

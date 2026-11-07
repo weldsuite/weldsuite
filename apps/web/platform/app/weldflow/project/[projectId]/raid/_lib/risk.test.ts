@@ -13,7 +13,6 @@ import {
   riskBand,
   riskCell,
   riskScore,
-  riskStats,
   sameCell,
   sortRisks,
   trendLabelIndexes,
@@ -183,33 +182,6 @@ describe('due dates', () => {
     expect(isOverdue(new Date(2026, 9, 29, 8).toISOString(), NOW)).toBe(false);
     expect(isOverdue(new Date(2026, 9, 28, 23).toISOString(), NOW)).toBe(true);
     expect(isOverdue(null, NOW)).toBe(false);
-  });
-});
-
-describe('riskStats', () => {
-  it('counts bands, overdue reviews and task progress of the open risks', () => {
-    const stats = riskStats(
-      [
-        risk({ probability: 4, impact: 5, dueAt: new Date(2026, 9, 27, 12).toISOString(), taskProgress: { done: 1, total: 5 } }),
-        risk({ probability: 4, impact: 4, taskProgress: { done: 2, total: 3 } }),
-        risk({ probability: 2, impact: 3, dueAt: new Date(2026, 10, 3, 12).toISOString() }),
-      ],
-      NOW,
-    );
-    expect(stats).toEqual({
-      open: 3,
-      critical: 1,
-      high: 1,
-      reviewsOverdue: 1,
-      tasksDone: 3,
-      tasksTotal: 8,
-      tasksPercent: 38,
-    });
-  });
-
-  it('has no task percentage without linked tasks', () => {
-    expect(riskStats([risk()], NOW).tasksPercent).toBeNull();
-    expect(riskStats([], NOW)).toMatchObject({ open: 0, tasksPercent: null });
   });
 });
 

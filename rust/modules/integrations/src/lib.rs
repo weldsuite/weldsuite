@@ -25,6 +25,11 @@
 //! - WeldConnect's integration triggers: the Slack, Twilio and GitHub
 //!   receivers ([`workflow_events`]) and the Google and Airtable polls
 //!   ([`workflow_polls`]), dispatching to `EXECUTE_WORKFLOW`.
+//! - The GitHub App webhook's forward to WeldMerge ([`merge_internal`]),
+//!   answered in process by WeldMerge's intake, and WeldMerge's GitLab,
+//!   Bitbucket and Azure DevOps webhooks ([`merge_webhook`]): the key
+//!   resolved through the master `merge_provider_index`, the delivery handed
+//!   to WeldMerge's provider-event intake.
 
 // The workers' handlers and Workflows are ported step for step, so some are
 // long and take what the TypeScript function took.
@@ -38,6 +43,8 @@ pub mod connect_internal;
 pub mod connectors;
 pub mod crm;
 pub mod github;
+pub mod merge_internal;
+pub mod merge_webhook;
 pub mod meta_ads;
 pub mod workflow_events;
 pub mod workflow_polls;
@@ -57,6 +64,7 @@ pub use binding::{BindingRequest, BindingResponse, RequestBooksBinding, ServiceB
 pub use books::TenantResolver;
 pub use connect_internal::{ConnectCall, ConnectInternal, RequestConnectInternal};
 pub use github::{RequestGithubProjectSync, WorkflowRuns};
+pub use merge_internal::MergeInternal;
 
 /// The integration workers' handle on the app.
 #[derive(Clone)]
@@ -87,6 +95,10 @@ pub struct IntegrationsState {
     /// `EXECUTE_WORKFLOW`: WeldConnect's workflow runs. None: no trigger
     /// dispatches, as the worker without the binding.
     pub execute_workflow: Option<Arc<dyn workflow_events::ExecuteWorkflowRuns>>,
+    /// `MERGE_INTERNAL`: WeldMerge's GitHub and provider event intake. None
+    /// while merge is not served (and in conformance builds, whose tests bind
+    /// none), as the worker without the binding.
+    pub merge_internal: Option<Arc<dyn MergeInternal>>,
 }
 
 impl std::fmt::Debug for IntegrationsState {
@@ -152,6 +164,7 @@ where
         .merge(crm::webhooks::router(state.clone()))
         .merge(meta_ads::router(state.clone()))
         .merge(connectors::router(state.clone()))
+        .merge(merge_webhook::router(state.clone()))
         .merge(workflow_events::router(state))
 }
 

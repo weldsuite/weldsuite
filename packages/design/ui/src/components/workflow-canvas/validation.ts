@@ -100,6 +100,16 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'taskProject', isMissing: (c) => isBlank(c.projectId) },
     { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
   ],
+  // WeldMerge issues: the team (create) or the issue key / id (update, comment) plus what is written.
+  'merge.create_issue': [
+    { labelKey: 'mergeTeam', isMissing: (c) => isBlank(c.teamId) },
+    { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
+  ],
+  'merge.update_issue': [{ labelKey: 'mergeIssue', isMissing: (c) => isBlank(c.issue) }],
+  'merge.comment_on_issue': [
+    { labelKey: 'mergeIssue', isMissing: (c) => isBlank(c.issue) },
+    { labelKey: 'mergeComment', isMissing: (c) => isBlank(c.body) },
+  ],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },

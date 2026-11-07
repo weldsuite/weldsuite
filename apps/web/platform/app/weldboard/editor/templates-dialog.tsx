@@ -58,7 +58,7 @@ export function TemplatesGallery({ onPick, compact = false }: { onPick: (templat
         </div>
       )}
       <ul className={cn(compact ? 'flex gap-4' : 'grid grid-cols-2 gap-3 sm:grid-cols-3')}>
-        {(compact ? shown.slice(0, 6) : shown).map((tpl) => (
+        {(compact ? shown.slice(0, 8) : shown).map((tpl) => (
           <li key={tpl.id} className={cn(compact && 'w-44 shrink-0')}>
             <button type="button" onClick={() => onPick(tpl)} className="group flex w-full flex-col gap-1.5 text-left">
               <span className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border bg-muted/40 transition group-hover:border-primary">

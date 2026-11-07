@@ -49,18 +49,19 @@ describe('RiskMatrix', () => {
   it('shows 25 cells with the counts of the matrix', () => {
     setup();
     expect(screen.getAllByRole('button', { name: /^Probability \d, impact \d:/ })).toHaveLength(25);
-    expect(screen.getByRole('button', { name: 'Probability 4, impact 5: 2 risks' })).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: 'Probability 4, impact 5: 2 risks' })).toHaveTextContent(/^Critical2$/);
     expect(screen.getByRole('button', { name: 'Probability 3, impact 3: 1 risk' })).toHaveTextContent('1');
-    expect(screen.getByRole('button', { name: 'Probability 1, impact 1: 0 risks' })).toHaveTextContent('');
+    expect(screen.getByRole('button', { name: 'Probability 1, impact 1: 0 risks' })).toHaveTextContent(/^Low$/);
   });
 
-  it('names the axes and the four bands', () => {
+  it('labels the axes and names the band of every cell', () => {
     setup();
+    expect(screen.getByText('Probability')).toBeInTheDocument();
+    expect(screen.getByText('Impact')).toBeInTheDocument();
     expect(screen.getByText('Almost certain')).toBeInTheDocument();
     expect(screen.getByText('Negligible')).toBeInTheDocument();
-    for (const legend of ['Low 1–4', 'Medium 5–9', 'High 10–16', 'Critical 20–25']) {
-      expect(screen.getByText(legend)).toBeInTheDocument();
-    }
+    expect(screen.getByRole('button', { name: 'Probability 5, impact 5: 0 risks' })).toHaveTextContent('Critical');
+    expect(screen.getByRole('button', { name: 'Probability 1, impact 1: 0 risks' })).toHaveTextContent('Low');
   });
 
   it('selects the clicked cell', async () => {
@@ -101,6 +102,6 @@ describe('RiskMatrix', () => {
 
   it('shows no counts while loading', () => {
     setup({ matrix: undefined, isLoading: true });
-    expect(screen.getByRole('button', { name: 'Probability 4, impact 5: 0 risks' })).toHaveTextContent('');
+    expect(screen.getByRole('button', { name: 'Probability 4, impact 5: 0 risks' })).toHaveTextContent(/^Critical$/);
   });
 });

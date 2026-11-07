@@ -669,7 +669,21 @@
     "prefixes": [
       "/api/boards"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "board-api"
+  },
+  {
+    "apps": [
+      "weldmerge"
+    ],
+    "binding": "MERGE_API",
+    "devPort": 8827,
+    "id": "merge",
+    "prefixes": [
+      "/api/merge",
+      "/public/merge"
+    ],
+    "rust": true,
+    "worker": "merge-api"
   }
 ]

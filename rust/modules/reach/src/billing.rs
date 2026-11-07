@@ -1,4 +1,4 @@
-//! `lib/billing.ts`: the inbox subscription ($5 per inbox per month) is
+//! `lib/billing.ts`: the inbox subscription ($8 per inbox per month) is
 //! Global's billing-worker (`/api/billing/reach/*`, Stripe), called with the
 //! member's token.
 //!

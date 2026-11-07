@@ -25,6 +25,8 @@ export const timeEntries = pgTable('time_entries', {
   projectId: varchar('project_id', { length: 255 }).references(() => projects.id),
   taskId: varchar('task_id', { length: 255 }).references(() => tasks.id),
   userId: varchar('user_id', { length: 255 }).notNull(),
+  // WeldMerge issue the time was logged against (no FK: other module)
+  mergeIssueId: varchar('merge_issue_id', { length: 30 }),
 
   // Time
   date: date('date').notNull(),
@@ -53,6 +55,7 @@ export const timeEntries = pgTable('time_entries', {
   index('time_entries_project_idx').on(table.projectId),
   index('time_entries_task_idx').on(table.taskId),
   index('time_entries_user_idx').on(table.userId),
+  index('time_entries_merge_issue_idx').on(table.mergeIssueId),
   index('time_entries_date_idx').on(table.date),
   index('time_entries_status_idx').on(table.status),
 ]);

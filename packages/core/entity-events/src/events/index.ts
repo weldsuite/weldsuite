@@ -38,6 +38,7 @@ import { SHEETS_ENTITY_EVENTS } from './sheets';
 import { BOARDS_ENTITY_EVENTS } from './boards';
 import { SIGN_ENTITY_EVENTS } from './sign';
 import { PANEL_ENTITY_EVENTS } from './panel';
+import { MERGE_ENTITY_EVENTS } from './merge';
 
 export const ENTITY_EVENTS = {
   ...CRM_ENTITY_EVENTS,
@@ -64,6 +65,7 @@ export const ENTITY_EVENTS = {
   ...BOARDS_ENTITY_EVENTS,
   ...SIGN_ENTITY_EVENTS,
   ...PANEL_ENTITY_EVENTS,
+  ...MERGE_ENTITY_EVENTS,
 } as const;
 
 export type EntityType = keyof typeof ENTITY_EVENTS;
