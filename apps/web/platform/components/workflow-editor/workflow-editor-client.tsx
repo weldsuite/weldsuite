@@ -44,7 +44,6 @@ import {
   Copy,
   Eye,
   EyeOff,
-  X,
   GitPullRequest,
   History,
   UserPlus,
@@ -72,6 +71,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
+import { EditorPanelHeader, EditorSidePanel } from '@weldsuite/ui/components/editor-side-panel';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
 import { toast } from 'sonner';
 import {
@@ -617,6 +617,15 @@ function readWorkflowCompleteSettings(trigger: WorkflowTriggerBag): WorkflowComp
   };
 }
 
+/** The entity and event an entity-event trigger was saved with; both undefined for any other trigger. */
+function readEntityEventSettings(trigger: WorkflowTriggerBag | undefined): { entityType?: string; eventType?: string } {
+  if (trigger?.type !== 'entity_event') return {};
+  return {
+    entityType: trigger.entityType as string | undefined,
+    eventType: trigger.eventType as string | undefined,
+  };
+}
+
 interface ScheduleSettings {
   scheduleType: 'recurring' | 'one_time';
   timezone: string;
@@ -650,28 +659,20 @@ function readScheduleSettings(
 
 type EditorModule = 'helpdesk' | 'general';
 
-/** Shared ghost "X" button that closes a sidebar panel. */
-function PanelCloseButton({ onClick }: Readonly<{ onClick: () => void }>) {
-  const { t } = useI18n();
-  const label = t.weldconnect.workflowEditorClient.closePanel;
-  return (
-    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClick} aria-label={label} title={label}>
-      <X className="h-4 w-4" />
-    </Button>
-  );
-}
-
-/** Header of a sidebar panel: its title and the close button, 52px tall like the editor's tab bar. */
+/** Header of a sidebar panel: the shared `EditorPanelHeader` with the editor's close label. */
 function PanelHeader({
   title,
   onClose,
   className,
 }: Readonly<{ title: React.ReactNode; onClose: () => void; className?: string }>) {
+  const { t } = useI18n();
   return (
-    <div className={cn('h-[52px] shrink-0 px-3 border-b flex items-center justify-between', className)}>
-      <h3 className="font-semibold text-sm">{title}</h3>
-      <PanelCloseButton onClick={onClose} />
-    </div>
+    <EditorPanelHeader
+      title={title}
+      onClose={onClose}
+      closeLabel={t.weldconnect.workflowEditorClient.closePanel}
+      className={className}
+    />
   );
 }
 
@@ -3388,8 +3389,7 @@ export function WorkflowEditorClient({
   // unknown-variable check and the Test dialog's sample all come from it.
   const firstTrigger = workflow.triggers?.[0];
   const isEntityEventTrigger = firstTrigger?.type === 'entity_event';
-  const savedEntityType = isEntityEventTrigger ? (firstTrigger?.entityType as string | undefined) : undefined;
-  const savedEventType = isEntityEventTrigger ? (firstTrigger?.eventType as string | undefined) : undefined;
+  const { entityType: savedEntityType, eventType: savedEventType } = readEntityEventSettings(firstTrigger);
   const recordFieldDefs = useMemo(
     () => (isEntityEventTrigger ? resolveRecordFields?.(savedEntityType, savedEventType) : undefined),
     [isEntityEventTrigger, resolveRecordFields, savedEntityType, savedEventType],
@@ -4360,19 +4360,11 @@ export function WorkflowEditorClient({
         </div>
 
         {/* Right Sidebar - Actions Panel or Edit Panel */}
-        <div className={cn(
-          "bg-background flex flex-col z-50",
-          // Below lg: covers the editor area. Absolute (not viewport-fixed) so it
-          // stays inside the page content, which already sits right of the app rail.
-          "absolute inset-0 w-full transform transition-transform duration-200",
-          // Desktop: side panel
-          "lg:relative lg:inset-auto lg:w-[399px] lg:border-l",
-          showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
-        )}>
+        <EditorSidePanel open={showMobileSidebar}>
           <TriggerRecordFieldsProvider value={triggerRecordFields}>
             {renderSidebarPanel()}
           </TriggerRecordFieldsProvider>
-        </div>
+        </EditorSidePanel>
       </div>
 
       <TestRunDialog

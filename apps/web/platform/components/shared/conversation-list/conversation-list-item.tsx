@@ -195,6 +195,7 @@ export function ConversationListItem({
     <Link
       href={href}
       scroll={false}
+      aria-current={isSelected ? 'true' : undefined}
       onClick={onClick ? (e) => { e.preventDefault(); onClick(); } : undefined}
       className={cn(
         'group border-b border-gray-100 dark:border-border transition-colors',
