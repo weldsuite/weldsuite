@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { sendSystemEmail } from '@weldsuite/emails';
 import { transportFromEnv } from '@weldsuite/emails/transports/env';

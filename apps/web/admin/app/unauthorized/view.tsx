@@ -1,6 +1,6 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ShieldAlert } from 'lucide-react';
-import { SignOutButton } from '@clerk/nextjs';
+import { SignOutButton } from '@clerk/tanstack-react-start';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import type { UnauthorizedPageData } from './data';

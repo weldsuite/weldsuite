@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';

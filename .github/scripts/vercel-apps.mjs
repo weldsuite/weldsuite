@@ -25,8 +25,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 // apps/web/<app> → Vercel project (team weldsuite). Env vars, domains and the
 // project's Root Directory stay configured on the Vercel project itself.
+// `admin` left: it is a TanStack Start Worker now (ADR FE-018). Its Vercel
+// project keeps serving the last Next.js build until the Worker takes over
+// admin.weldsuite.org.
 const VERCEL_APPS = {
-  admin: 'weldsuite-admin',
   'api-docs': 'weldsuite-api-docs',
   'booking-portal': 'booking-portal',
   docs: 'weldsuite-docs',

@@ -1,50 +1,17 @@
-'use server';
-
-import { revalidatePath } from 'next/cache';
-import { partnerContractSchema } from '@weldsuite/app-api-client/schemas/partners';
-import { guardWrite } from '@/lib/auth';
-import { getMasterDb, masterSchema } from '@/lib/db';
-import { generateId } from '@/lib/id';
-import { PARTNER_CONTRACT_DEFAULTS_KEY, contractDefaultsValue, zodMessage, type ContractTerms } from '@/lib/partners';
-import { partnersCopy } from '@/lib/partners-copy';
-import type { ActionResult } from './workspaces';
-
-const { systemSettings } = masterSchema;
-
 /**
- * Save the default contract terms (`billing.partner_contract_defaults`). They
- * only prefill a new partner's first contract; existing contracts never change.
+ * The default contract terms for new partners, as a server function. The body
+ * is in `./partner-contract-defaults.server.ts`; the export here keeps that
+ * function's signature and runs it on the server.
  */
-export async function savePartnerContractDefaults(contract: Record<string, unknown>): Promise<ActionResult<ContractTerms>> {
-  const guard = await guardWrite();
-  if (!guard.ok) return { ok: false, error: guard.error };
+import { createServerFn } from '@tanstack/react-start';
+import {
+  savePartnerContractDefaults as savePartnerContractDefaultsOnServer,
+} from './partner-contract-defaults.server';
 
-  const parsed = partnerContractSchema.safeParse(contract);
-  if (!parsed.success) return { ok: false, error: zodMessage(parsed.error), code: 'VALIDATION' };
+type Server = typeof import('./partner-contract-defaults.server');
 
-  const value = contractDefaultsValue(parsed.data);
-  const updatedBy = guard.identity.email;
-  try {
-    await getMasterDb()
-      .insert(systemSettings)
-      .values({
-        id: generateId('set'),
-        key: PARTNER_CONTRACT_DEFAULTS_KEY,
-        category: 'billing',
-        dataType: 'json',
-        value,
-        description: 'Default terms of a new reseller partner contract (admin console prefill)',
-        updatedBy,
-      })
-      .onConflictDoUpdate({
-        target: systemSettings.key,
-        set: { value, category: 'billing', dataType: 'json', updatedBy, updatedAt: new Date() },
-      });
-  } catch {
-    return { ok: false, error: partnersCopy().defaults.saveFailed };
-  }
-
-  revalidatePath('/partners/defaults');
-  revalidatePath('/partners/new');
-  return { ok: true, data: value };
-}
+const savePartnerContractDefaultsFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['savePartnerContractDefaults']>) => args)
+  .handler(({ data }) => savePartnerContractDefaultsOnServer(...data));
+export const savePartnerContractDefaults = (...args: Parameters<Server['savePartnerContractDefaults']>) =>
+  savePartnerContractDefaultsFn({ data: args });

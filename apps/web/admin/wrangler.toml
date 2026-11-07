@@ -1,0 +1,83 @@
+# The WeldSuite admin console: TanStack Start on Workers (ADR FE-018, the FE-015
+# pattern). Staff only: it signs in with its own invite-only Clerk instance
+# (ADR SEC-009) and reads and writes the master and tenant databases over Neon
+# HTTP, as it did on Vercel.
+#
+# Built with @cloudflare/vite-plugin. The environment is picked at BUILD time
+# (`CLOUDFLARE_ENV=test pnpm build`), and the plugin writes the resolved config
+# next to the output, so the deploy is a plain `wrangler deploy` (no `--env`).
+#
+# Vars and secrets reach the code as `process.env` (nodejs_compat at this
+# compatibility date populates it). Secrets come from Doppler through
+# `scripts/secrets/manifest.ts` (`admin`): the console's own Clerk keys, the
+# master database URL and keyring, and the shared secrets of the workers it
+# calls (billing-worker, workspace-worker, mail-api, realtime-worker).
+#
+# Hostnames are Workers Custom Domains: Cloudflare creates the DNS record and
+# the certificate. An existing record for the hostname (the Vercel deployment's)
+# has to be removed first.
+
+# Local `vite dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-admin-dev"
+main = "@tanstack/react-start/server-entry"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Local dev talks to the test workers, as .env.example did; their shared
+# secrets go in .dev.vars (`pnpm secrets:dev admin`).
+[vars]
+ENVIRONMENT = "development"
+BILLING_WORKER_URL = "https://billing-worker-test.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
+MAIL_API_URL = "https://mail-api-test.weldsuite.org"
+REALTIME_WORKER_URL = "https://realtime-test.weldsuite.org"
+REALTIME_PUBLIC_URL = "wss://realtime-test.weldsuite.org"
+PLATFORM_APP_URL = "http://localhost:3000"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-admin-test"
+workers_dev = false
+routes = [
+  { pattern = "admin-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+BILLING_WORKER_URL = "https://billing-worker-test.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
+MAIL_API_URL = "https://mail-api-test.weldsuite.org"
+REALTIME_WORKER_URL = "https://realtime-test.weldsuite.org"
+REALTIME_PUBLIC_URL = "wss://realtime-test.weldsuite.org"
+PLATFORM_APP_URL = "https://app-test.weldsuite.org"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-admin"
+workers_dev = false
+routes = [
+  { pattern = "admin.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+BILLING_WORKER_URL = "https://billing-worker.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
+MAIL_API_URL = "https://mail-api.weldsuite.org"
+REALTIME_WORKER_URL = "https://realtime.weldsuite.org"
+REALTIME_PUBLIC_URL = "wss://realtime.weldsuite.org"
+PLATFORM_APP_URL = "https://app.weldsuite.org"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

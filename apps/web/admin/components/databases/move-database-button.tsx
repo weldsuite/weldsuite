@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { ArrowRightLeft } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';

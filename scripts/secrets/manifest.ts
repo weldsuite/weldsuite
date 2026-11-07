@@ -873,6 +873,33 @@ export const manifest: Record<string, SecretEntry[]> = {
     "SIGN_SESSION_SECRET",
   ],
 
+  // admin (apps/web/admin): the staff admin console, a TanStack Start app
+  // deployed as a Worker (ADR FE-018). It signs in with its OWN invite-only
+  // Clerk instance (ADR SEC-009), so its keys are ADMIN_CLERK_* in Doppler, not
+  // the product's CLERK_*. It reads and writes the master and tenant databases,
+  // calls billing-worker, workspace-worker, mail-api and realtime-worker with
+  // their shared admin secrets, prices phone numbers (Telnyx) and domains
+  // (Realtime Register), and emails WeldReach and deletion notices (Cloudflare
+  // Email REST, else Resend).
+  admin: [
+    ["ADMIN_CLERK_SECRET_KEY", "CLERK_SECRET_KEY"],
+    ["ADMIN_CLERK_PUBLISHABLE_KEY", "CLERK_PUBLISHABLE_KEY"],
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "BILLING_ADMIN_SECRET",
+    "WORKSPACE_ADMIN_SECRET",
+    "OUTBOUND_ADMIN_SECRET",
+    "REALTIME_INTERNAL_SECRET",
+    "TELNYX_API_KEY",
+    "REALTIME_REGISTER_API_KEY",
+    "REALTIME_REGISTER_CUSTOMER",
+    "REALTIME_REGISTER_OTE",
+    "CF_ACCOUNT_ID",
+    "CF_EMAIL_SEND_TOKEN",
+    "RESEND_API_KEY",
+  ],
+
   // sign-portal (apps/web/sign-portal): WeldSign's signer portal, a TanStack
   // Start app deployed as a Worker that reads and writes the tenant DB itself
   // (ADR FE-016). Tenant DB resolution, plus sign-api's SIGN_SESSION_SECRET

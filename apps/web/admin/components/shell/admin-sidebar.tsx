@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useClerk } from '@clerk/nextjs';
+import Link from '@/components/link';
+import { usePathname } from '@/lib/navigation';
+import { useClerk } from '@clerk/tanstack-react-start';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import {
   Sidebar,

@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { requireAdmin } from '@/lib/auth';
 import { listApps } from '@/lib/apps-data';

@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { getMasterDb, masterSchema } from './db';
 import { generateId } from './id';

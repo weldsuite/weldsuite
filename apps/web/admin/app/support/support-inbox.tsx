@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/tanstack-react-start';
 import { useSupportRoom } from '@weldsuite/realtime/react';
 import {
   Headphones,
@@ -20,8 +20,6 @@ import type { SupportWorkspace } from '@/lib/support-data';
 import { fetchSupportMessages } from '@/actions/support-messages';
 import { replyToSupport } from '@/actions/support';
 
-const REALTIME_URL = process.env.NEXT_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
-
 type Message = {
   id: string;
   channelId: string;
@@ -33,7 +31,10 @@ type Message = {
   createdAt: Date | string;
 };
 
-export function SupportInbox({ workspaces }: Readonly<{ workspaces: SupportWorkspace[] }>) {
+export function SupportInbox({
+  workspaces,
+  realtimeUrl,
+}: Readonly<{ workspaces: SupportWorkspace[]; realtimeUrl: string }>) {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const selected = workspaces.find((ws) => ws.clerkOrgId === selectedOrgId);
 
@@ -54,7 +55,12 @@ export function SupportInbox({ workspaces }: Readonly<{ workspaces: SupportWorks
       </div>
 
       {selectedOrgId && selected ? (
-        <ChatView key={selectedOrgId} orgId={selectedOrgId} workspaceName={selected.name} />
+        <ChatView
+          key={selectedOrgId}
+          orgId={selectedOrgId}
+          workspaceName={selected.name}
+          realtimeUrl={realtimeUrl}
+        />
       ) : (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <div className="space-y-2 text-center">
@@ -130,7 +136,11 @@ function WorkspaceList({
   );
 }
 
-function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceName: string }>) {
+function ChatView({
+  orgId,
+  workspaceName,
+  realtimeUrl,
+}: Readonly<{ orgId: string; workspaceName: string; realtimeUrl: string }>) {
   const { getToken } = useAuth();
   const { user } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -150,7 +160,7 @@ function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceN
   const adminName = user?.fullName || user?.firstName || 'Support';
 
   const { on, typingUsers, startTyping, stopTyping } = useSupportRoom(orgId, {
-    baseUrl: REALTIME_URL,
+    baseUrl: realtimeUrl,
     getToken: stableGetToken,
     userName: adminName,
   });

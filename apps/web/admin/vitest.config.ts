@@ -11,9 +11,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname),
-      // Next aliases `server-only` itself; it isn't a dependency of this app,
-      // so modules marked with it resolve to an empty module under vitest.
-      'server-only': path.resolve(__dirname, 'test/server-only.ts'),
     },
   },
 });

@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/components/link';
+import { useRouter } from '@/lib/navigation';
 import { useState, useTransition } from 'react';
 import { Plus, Search, Pencil, Trash2, Loader2, Package, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';

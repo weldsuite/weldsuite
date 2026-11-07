@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { Button } from '@weldsuite/ui/components/button';
 import { ActionDialog } from '@/components/billing/action-dialog';
 import { pauseWarmupMailbox, resumeWarmupMailbox } from '@/actions/warmup-network';

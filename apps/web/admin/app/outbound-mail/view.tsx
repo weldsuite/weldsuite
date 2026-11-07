@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { MailWarning } from 'lucide-react';
 import { TableCell, TableRow } from '@weldsuite/ui/components/table';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { toast } from 'sonner';
 import type { PartnerStatementView } from '@weldsuite/app-api-client/schemas/partners';
 import { Button } from '@weldsuite/ui/components/button';

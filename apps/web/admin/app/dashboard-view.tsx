@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Tags, Video } from 'lucide-react';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import {

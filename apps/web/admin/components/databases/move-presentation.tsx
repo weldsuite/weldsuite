@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { adminCopy, fill } from '@/lib/i18n';
 import type { ComputeState, DatabaseMoveKind, DatabaseMoveStatus, WorkerState } from '@/lib/database-moves';

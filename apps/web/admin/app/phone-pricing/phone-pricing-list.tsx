@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { Loader2, Percent, Phone, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@weldsuite/ui/components/badge';

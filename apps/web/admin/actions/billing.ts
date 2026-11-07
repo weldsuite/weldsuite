@@ -1,198 +1,115 @@
-'use server';
-
-import { revalidatePath } from 'next/cache';
-import { getAdminIdentity, guardWrite } from '@/lib/auth';
-import { callBillingWorker } from '@/lib/billing-worker';
-import type { SsoPriceCurrency } from '@weldsuite/app-api-client/schemas/sso';
-import type {
-  CollectionMethod,
-  InvoicePreview,
-  ProrationBehavior,
-  SsoAdminResult,
-  SubscriptionCycle,
-  WithWarnings,
-} from '@/lib/billing-types';
-import type { ActionResult } from './workspaces';
-
 /**
- * Customer billing changes from the workspace screen. Each one is performed
- * (and audited) by the billing worker; these actions only check the admin's
- * role, forward the signed-in identity and refresh the page.
- *
- * `requestId` is created once per dialog submission on the client and becomes
- * the Stripe idempotency key, so a double click cannot charge twice.
+ * Customer billing changes from the workspace screen, as server functions. The
+ * bodies are in `./billing.server.ts`; each export here keeps that function's
+ * signature and runs it on the server.
  */
+import { createServerFn } from '@tanstack/react-start';
+import {
+  previewSubscriptionChange as previewSubscriptionChangeOnServer,
+  changeSubscription as changeSubscriptionOnServer,
+  cancelSubscription as cancelSubscriptionOnServer,
+  reactivateSubscription as reactivateSubscriptionOnServer,
+  setTrialEnd as setTrialEndOnServer,
+  applyDiscount as applyDiscountOnServer,
+  removeDiscount as removeDiscountOnServer,
+  grantComp as grantCompOnServer,
+  endComp as endCompOnServer,
+  adjustCredits as adjustCreditsOnServer,
+  refundPayment as refundPaymentOnServer,
+  voidInvoice as voidInvoiceOnServer,
+  grantSso as grantSsoOnServer,
+  revokeSso as revokeSsoOnServer,
+  disableSsoConnection as disableSsoConnectionOnServer,
+} from './billing.server';
 
-const REQUEST_ID = /^[A-Za-z0-9_-]{8,100}$/;
+type Server = typeof import('./billing.server');
 
-async function workspaceWrite<T>(
-  workspaceId: string,
-  path: string,
-  body: Record<string, unknown>,
-  requestId: string,
-): Promise<ActionResult<T>> {
-  const guard = await guardWrite();
-  if (!guard.ok) return { ok: false, error: guard.error };
-  if (!REQUEST_ID.test(requestId)) return { ok: false, error: 'Invalid request id.' };
+const previewSubscriptionChangeFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['previewSubscriptionChange']>) => args)
+  .handler(({ data }) => previewSubscriptionChangeOnServer(...data));
+export const previewSubscriptionChange = (...args: Parameters<Server['previewSubscriptionChange']>) =>
+  previewSubscriptionChangeFn({ data: args });
 
-  const result = await callBillingWorker<T>(
-    'POST',
-    `/workspaces/${encodeURIComponent(workspaceId)}${path}`,
-    { identity: guard.identity, body, requestId },
-  );
-  revalidatePath(`/workspaces/${workspaceId}`);
-  revalidatePath('/activity');
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
-}
+const changeSubscriptionFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['changeSubscription']>) => args)
+  .handler(({ data }) => changeSubscriptionOnServer(...data));
+export const changeSubscription = (...args: Parameters<Server['changeSubscription']>) =>
+  changeSubscriptionFn({ data: args });
 
-export interface SubscriptionChange {
-  planId: string;
-  cycle: SubscriptionCycle;
-  seats: number;
-  proration: ProrationBehavior;
-  collectionMethod?: CollectionMethod;
-  daysUntilDue?: number;
-}
+const cancelSubscriptionFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['cancelSubscription']>) => args)
+  .handler(({ data }) => cancelSubscriptionOnServer(...data));
+export const cancelSubscription = (...args: Parameters<Server['cancelSubscription']>) =>
+  cancelSubscriptionFn({ data: args });
 
-/** Read-only, so viewers may preview too. */
-export async function previewSubscriptionChange(
-  workspaceId: string,
-  input: SubscriptionChange,
-): Promise<ActionResult<InvoicePreview>> {
-  const identity = await getAdminIdentity();
-  if (!identity) return { ok: false, error: 'Not authorized' };
-  const result = await callBillingWorker<InvoicePreview>(
-    'POST',
-    `/workspaces/${encodeURIComponent(workspaceId)}/subscription/preview`,
-    { identity, body: input },
-  );
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
-}
+const reactivateSubscriptionFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['reactivateSubscription']>) => args)
+  .handler(({ data }) => reactivateSubscriptionOnServer(...data));
+export const reactivateSubscription = (...args: Parameters<Server['reactivateSubscription']>) =>
+  reactivateSubscriptionFn({ data: args });
 
-export async function changeSubscription(
-  workspaceId: string,
-  input: SubscriptionChange & { reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<WithWarnings & { created: boolean; status: string }>(
-    workspaceId,
-    '/subscription',
-    { ...input },
-    requestId,
-  );
-}
+const setTrialEndFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['setTrialEnd']>) => args)
+  .handler(({ data }) => setTrialEndOnServer(...data));
+export const setTrialEnd = (...args: Parameters<Server['setTrialEnd']>) =>
+  setTrialEndFn({ data: args });
 
-export async function cancelSubscription(
-  workspaceId: string,
-  input: { mode: 'period_end' | 'immediately'; reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<{ mode: string; endsAt: string | null }>(
-    workspaceId,
-    '/subscription/cancel',
-    input,
-    requestId,
-  );
-}
+const applyDiscountFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['applyDiscount']>) => args)
+  .handler(({ data }) => applyDiscountOnServer(...data));
+export const applyDiscount = (...args: Parameters<Server['applyDiscount']>) =>
+  applyDiscountFn({ data: args });
 
-export async function reactivateSubscription(workspaceId: string, input: { reason: string }, requestId: string) {
-  return workspaceWrite<{ subscriptionId: string }>(workspaceId, '/subscription/reactivate', input, requestId);
-}
+const removeDiscountFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['removeDiscount']>) => args)
+  .handler(({ data }) => removeDiscountOnServer(...data));
+export const removeDiscount = (...args: Parameters<Server['removeDiscount']>) =>
+  removeDiscountFn({ data: args });
 
-export async function setTrialEnd(workspaceId: string, input: { trialEnd: string; reason: string }, requestId: string) {
-  return workspaceWrite<{ trialEnd: string }>(workspaceId, '/subscription/trial', input, requestId);
-}
+const grantCompFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['grantComp']>) => args)
+  .handler(({ data }) => grantCompOnServer(...data));
+export const grantComp = (...args: Parameters<Server['grantComp']>) =>
+  grantCompFn({ data: args });
 
-export async function applyDiscount(
-  workspaceId: string,
-  input: {
-    percentOff?: number;
-    amountOffCents?: number;
-    duration: 'once' | 'repeating' | 'forever';
-    durationInMonths?: number;
-    reason: string;
-  },
-  requestId: string,
-) {
-  return workspaceWrite<{ couponId: string; name: string }>(workspaceId, '/subscription/discount', input, requestId);
-}
+const endCompFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['endComp']>) => args)
+  .handler(({ data }) => endCompOnServer(...data));
+export const endComp = (...args: Parameters<Server['endComp']>) =>
+  endCompFn({ data: args });
 
-export async function removeDiscount(workspaceId: string, input: { reason: string }, requestId: string) {
-  return workspaceWrite<{ subscriptionId: string }>(workspaceId, '/subscription/discount/remove', input, requestId);
-}
+const adjustCreditsFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['adjustCredits']>) => args)
+  .handler(({ data }) => adjustCreditsOnServer(...data));
+export const adjustCredits = (...args: Parameters<Server['adjustCredits']>) =>
+  adjustCreditsFn({ data: args });
 
-export async function grantComp(
-  workspaceId: string,
-  input: { planId: string; seats: number; endsAt: string | null; cancelStripeSubscription: boolean; reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<WithWarnings & { planId: string }>(workspaceId, '/comp', input, requestId);
-}
+const refundPaymentFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['refundPayment']>) => args)
+  .handler(({ data }) => refundPaymentOnServer(...data));
+export const refundPayment = (...args: Parameters<Server['refundPayment']>) =>
+  refundPaymentFn({ data: args });
 
-export async function endComp(workspaceId: string, input: { reason: string }, requestId: string) {
-  return workspaceWrite<{ outcome: string }>(workspaceId, '/comp/end', input, requestId);
-}
+const voidInvoiceFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['voidInvoice']>) => args)
+  .handler(({ data }) => voidInvoiceOnServer(...data));
+export const voidInvoice = (...args: Parameters<Server['voidInvoice']>) =>
+  voidInvoiceFn({ data: args });
 
-export async function adjustCredits(workspaceId: string, input: { amount: number; reason: string }, requestId: string) {
-  return workspaceWrite<{ newBalance: number }>(workspaceId, '/credits', input, requestId);
-}
+const grantSsoFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['grantSso']>) => args)
+  .handler(({ data }) => grantSsoOnServer(...data));
+export const grantSso = (...args: Parameters<Server['grantSso']>) =>
+  grantSsoFn({ data: args });
 
-export async function refundPayment(
-  workspaceId: string,
-  paymentId: string,
-  input: { amountCents?: number; reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<{ amountCents: number; currency: string }>(
-    workspaceId,
-    `/payments/${encodeURIComponent(paymentId)}/refund`,
-    input,
-    requestId,
-  );
-}
+const revokeSsoFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['revokeSso']>) => args)
+  .handler(({ data }) => revokeSsoOnServer(...data));
+export const revokeSso = (...args: Parameters<Server['revokeSso']>) =>
+  revokeSsoFn({ data: args });
 
-export async function voidInvoice(
-  workspaceId: string,
-  invoiceId: string,
-  input: { reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<{ status: string | null }>(
-    workspaceId,
-    `/invoices/${encodeURIComponent(invoiceId)}/void`,
-    input,
-    requestId,
-  );
-}
-
-// ============================================================================
-// Single sign-on add-on
-// ============================================================================
-
-/**
- * Set the workspace's SSO price: `priceCents` null = the list price, 0 = free
- * (ends a running add-on at once, SSO stays on), above 0 = a custom monthly
- * price in `currency`. `switchOn` starts the add-on on the card on file when
- * none is running.
- */
-export async function grantSso(
-  workspaceId: string,
-  input: { priceCents: number | null; currency: SsoPriceCurrency | null; switchOn: boolean; reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<SsoAdminResult>(workspaceId, '/sso/grant', input, requestId);
-}
-
-/** Clear the SSO price and end the add-on, at period end or at once. */
-export async function revokeSso(
-  workspaceId: string,
-  input: { mode: 'period_end' | 'immediately'; reason: string },
-  requestId: string,
-) {
-  return workspaceWrite<SsoAdminResult>(workspaceId, '/sso/revoke', input, requestId);
-}
-
-/** Support's off switch for a connection whose identity provider locks people out; the configuration stays. */
-export async function disableSsoConnection(workspaceId: string, input: { reason: string }, requestId: string) {
-  return workspaceWrite<{ wasEnabled: boolean }>(workspaceId, '/sso/connection/disable', input, requestId);
-}
+const disableSsoConnectionFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['disableSsoConnection']>) => args)
+  .handler(({ data }) => disableSsoConnectionOnServer(...data));
+export const disableSsoConnection = (...args: Parameters<Server['disableSsoConnection']>) =>
+  disableSsoConnectionFn({ data: args });
