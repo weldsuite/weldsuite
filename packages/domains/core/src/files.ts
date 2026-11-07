@@ -9,7 +9,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type AnyColumn, typ
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { files, folders, sheets, sheetVersions, docs, documentVersions, docVersions } = schema;
+const { files, folders, sheets, sheetVersions, docs, documentVersions, docVersions, whiteboards, boardVersions } = schema;
 
 // ============================================================================
 // Name conflict helpers
@@ -366,21 +366,21 @@ export async function restoreFile(db: Database, id: string) {
 }
 
 /**
- * The R2 keys behind the spreadsheets and WeldDocs documents backed by these
- * files: each one's latest checkpoint, every saved version, and the .xlsx an
- * old WeldFlow project sheet was converted from (`metadata.convertedFrom`).
- * Purging a file removes the `sheets` / `docs` rows (and their versions by
- * cascade), so list the keys first and delete the objects with
- * `deleteStoredObjects`.
+ * The R2 keys behind the spreadsheets, WeldDocs documents and WeldBoard
+ * boards backed by these files: each one's latest checkpoint, every saved
+ * version, a board's thumbnail, and the .xlsx an old WeldFlow project sheet
+ * was converted from (`metadata.convertedFrom`). Purging a file removes the
+ * `sheets` / `docs` / `whiteboards` rows (and their versions by cascade),
+ * so list the keys first and delete the objects with `deleteStoredObjects`.
  * `fileIds` is a list of ids or a sub-select of them (a purge of a whole
- * folder can be large, so callers pass the sub-select). Files that are neither
- * a sheet nor a doc give nothing.
+ * folder can be large, so callers pass the sub-select). Files that are not a
+ * sheet, a doc or a board give nothing.
  */
 export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] | SQLWrapper): Promise<string[]> {
   if (Array.isArray(fileIds) && fileIds.length === 0) return [];
   const among = (column: AnyColumn) => inArray(column, fileIds);
   const convertedFrom = sql<string | null>`${files.metadata}->'convertedFrom'->>'key'`;
-  const [sheetRows, docRows, versionRows, sheetVersionRows, convertedRows] = await Promise.all([
+  const [sheetRows, docRows, versionRows, sheetVersionRows, convertedRows, boardRows, boardVersionRows] = await Promise.all([
     db.select({ key: sheets.snapshotKey }).from(sheets).where(among(sheets.fileId)),
     db.select({ key: docs.snapshotKey }).from(docs).where(among(docs.fileId)),
     db
@@ -397,8 +397,25 @@ export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] |
       .select({ key: convertedFrom })
       .from(files)
       .where(and(among(files.id), isNotNull(convertedFrom))),
+    db.select({ key: whiteboards.snapshotKey }).from(whiteboards).where(among(whiteboards.fileId)),
+    db
+      .select({ key: boardVersions.snapshotKey })
+      .from(boardVersions)
+      .innerJoin(whiteboards, eq(whiteboards.id, boardVersions.boardId))
+      .where(among(whiteboards.fileId)),
   ]);
-  const keys = [...sheetRows, ...docRows, ...versionRows, ...sheetVersionRows, ...convertedRows].map((r) => r.key);
+  // A board's thumbnail sits next to its checkpoint (board-api's room/snapshot.ts).
+  const thumbnails = boardRows.map((r) => ({ key: r.key ? `${r.key.slice(0, r.key.lastIndexOf('/') + 1)}thumbnail.svg` : null }));
+  const keys = [
+    ...sheetRows,
+    ...docRows,
+    ...versionRows,
+    ...sheetVersionRows,
+    ...convertedRows,
+    ...boardRows,
+    ...thumbnails,
+    ...boardVersionRows,
+  ].map((r) => r.key);
   return [...new Set(keys.filter((k): k is string => !!k))];
 }
 
@@ -409,9 +426,11 @@ export async function purgeFile(db: Database, id: string) {
     .where(and(eq(files.id, id), isNotNull(files.deletedAt)))
     .limit(1);
   if (!existing) return null;
-  // A WeldSheets spreadsheet's or WeldDocs document's row references its file.
-  // Its R2 snapshots are the caller's to delete (`listDocumentSnapshotKeys`).
+  // A WeldSheets spreadsheet's, WeldDocs document's or WeldBoard board's row
+  // references its file. Its R2 snapshots are the caller's to delete
+  // (`listDocumentSnapshotKeys`).
   await db.delete(sheets).where(eq(sheets.fileId, id));
+  await db.delete(whiteboards).where(eq(whiteboards.fileId, id));
   await db.delete(documentVersions).where(eq(documentVersions.fileId, id));
   await db.delete(docs).where(eq(docs.fileId, id));
   await db.delete(files).where(eq(files.id, id));

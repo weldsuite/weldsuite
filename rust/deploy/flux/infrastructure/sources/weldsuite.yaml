@@ -1,21 +1,25 @@
-# The weldsuite chart, from this repository. Production should pull it (and
-# the image) from the EU registry instead (P5 work package 5.4, Harbor or
-# Zot), so nothing in the EU path depends on GitHub; until then the cluster
-# reads it with the read-only deploy key flux bootstrap created (flux-system),
-# pinned to a release tag rather than the branch the bootstrap follows.
+# The weldsuite chart's releases, published by the "Rust release" workflow
+# (.github/workflows/rust-release.yml) as
+# oci://ghcr.io/weldsuite/releases/weldsuite:<X.Y.Z>, each installing the
+# images of the same version. The apps layer's HelmRelease pins one
+# (WELDSUITE_VERSION in the cluster's settings).
+#
+# Its own repository, apart from the develop builds in
+# oci://ghcr.io/weldsuite/charts that the test cluster follows: there a
+# release (0.2.0) would rank above every develop build (0.1.0-develop.N).
+# Public, like the images, so no credentials; while it isn't, give this a
+# secretRef to a docker-registry Secret in flux-system. Production should
+# pull from the EU registry instead (P5 work package 5.4, Harbor or Zot).
+#
+# A Helm repository of type oci, not an OCIRepository: through an
+# OCIRepository, helm-controller adds +<digest> to the chart version, which may
+# not go into labels (see Restate in helm-repositories.yaml).
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+kind: HelmRepository
 metadata:
   name: weldsuite
   namespace: flux-system
 spec:
+  type: oci
   interval: 10m
-  url: ssh://git@github.com/weldsuite/weldsuite
-  ref:
-    # A release tag; the drill and the test environment may follow a branch.
-    tag: ${WELDSUITE_GIT_TAG}
-  secretRef:
-    name: flux-system
-  ignore: |
-    /*
-    !/rust/deploy/helm/
+  url: oci://ghcr.io/weldsuite/releases

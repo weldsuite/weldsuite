@@ -1,19 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { LinkedObject, RaidItem, RaidKind } from '@weldsuite/app-api-client/domains/project-control';
 import {
-  ALL,
   EMPTY_FILTERS,
   NO_OWNER,
   ageInDays,
   applyRegisterFilters,
-  assumptionStats,
   categoriesIn,
-  dependencyStats,
   formatShortDate,
   fromDateInput,
   hasActiveFilters,
   initialsOf,
-  issueStats,
   itemsOfKind,
   linkedMilestones,
   linkedRaidItems,
@@ -91,14 +87,28 @@ describe('filters', () => {
     expect(hasActiveFilters({ ...EMPTY_FILTERS, search: 'x' })).toBe(true);
   });
 
+  const where = (...filters: Array<[string, string, string]>) => ({
+    ...EMPTY_FILTERS,
+    filters: filters.map(([field, operator, value], index) => ({ id: String(index), field, operator, value })),
+  });
+
   it('filters by status, owner and category', () => {
-    expect(applyRegisterFilters(all, { ...EMPTY_FILTERS, status: 'mitigating' })).toEqual([a, c]);
-    expect(applyRegisterFilters(all, { ...EMPTY_FILTERS, ownerId: 'u2' })).toEqual([c]);
-    expect(applyRegisterFilters(all, { ...EMPTY_FILTERS, ownerId: NO_OWNER })).toEqual([b]);
-    expect(applyRegisterFilters(all, { ...EMPTY_FILTERS, category: 'technical' })).toEqual([a]);
-    expect(applyRegisterFilters(all, { ...EMPTY_FILTERS, status: 'mitigating', ownerId: 'u1' })).toEqual([a]);
-    expect(hasActiveFilters({ ...EMPTY_FILTERS, status: 'mitigating' })).toBe(true);
-    expect(EMPTY_FILTERS.ownerId).toBe(ALL);
+    expect(applyRegisterFilters(all, where(['status', 'is', 'mitigating']))).toEqual([a, c]);
+    expect(applyRegisterFilters(all, where(['owner', 'is', 'u2']))).toEqual([c]);
+    expect(applyRegisterFilters(all, where(['owner', 'is', NO_OWNER]))).toEqual([b]);
+    expect(applyRegisterFilters(all, where(['category', 'is', 'TECHNICAL']))).toEqual([a]);
+    expect(applyRegisterFilters(all, where(['status', 'is', 'mitigating'], ['owner', 'is', 'u1']))).toEqual([a]);
+    expect(hasActiveFilters(where(['status', 'is', 'mitigating']))).toBe(true);
+  });
+
+  it('drops the matches of an "is not" filter', () => {
+    expect(applyRegisterFilters(all, where(['status', 'is not', 'mitigating']))).toEqual([b]);
+    expect(applyRegisterFilters(all, where(['owner', 'is not', NO_OWNER]))).toEqual([a, c]);
+  });
+
+  it('ignores a filter that is still being built', () => {
+    expect(applyRegisterFilters(all, where(['status', 'is', '']))).toHaveLength(3);
+    expect(hasActiveFilters(where(['status', '', '']))).toBe(false);
   });
 
   it('lists the categories in use once, lower-cased and sorted', () => {
@@ -136,55 +146,13 @@ describe('sortRegister', () => {
   });
 });
 
-describe('register summary tiles', () => {
-  it('counts assumptions', () => {
-    const stats = assumptionStats(
-      [
-        item('assumption', { dueAt: daysFromNow(2) }),
-        item('assumption', { dueAt: daysFromNow(30) }),
-        item('assumption', { dueAt: daysFromNow(-1) }),
-        item('assumption', { status: 'validated', closedAt: daysFromNow(-3) }),
-        item('assumption', { status: 'invalid', closedAt: daysFromNow(-9) }),
-      ],
-      NOW,
-    );
-    expect(stats).toEqual({ total: 5, toValidate: 3, dueSoon: 2, provedWrong: 1 });
-  });
-
-  it('counts issues and their average age', () => {
-    const stats = issueStats(
-      [
-        item('issue', { severity: 'critical', escalatedAt: daysFromNow(-2), createdAt: daysFromNow(-6) }),
-        item('issue', { severity: 'high', createdAt: daysFromNow(-12) }),
-        item('issue', { severity: 'medium', createdAt: daysFromNow(-3) }),
-        item('issue', { status: 'resolved', closedAt: daysFromNow(-1), createdAt: daysFromNow(-40) }),
-      ],
-      NOW,
-    );
-    expect(stats).toEqual({ open: 3, critical: 1, escalated: 1, averageAgeDays: 7 });
-    expect(issueStats([], NOW).averageAgeDays).toBeNull();
-  });
-
-  it('counts dependencies by direction, lateness and risk', () => {
-    const stats = dependencyStats(
-      [
-        item('dependency', { direction: 'inbound', dueAt: daysFromNow(-3) }),
-        item('dependency', { direction: 'inbound', status: 'at_risk', dueAt: daysFromNow(10) }),
-        item('dependency', { direction: 'inbound' }),
-        item('dependency', { direction: 'outbound', dueAt: daysFromNow(30) }),
-        item('dependency', { direction: 'inbound', status: 'delivered', closedAt: daysFromNow(-2), dueAt: daysFromNow(-9) }),
-      ],
-      NOW,
-    );
-    expect(stats).toEqual({ weNeed: 3, theyNeed: 1, late: 1, atRisk: 1 });
-  });
-
-  it('gives the age of an item in whole days, never negative', () => {
+describe('age and progress', () => {
+  it('counts the days an item has been open, never below zero', () => {
     expect(ageInDays(daysFromNow(-6), NOW)).toBe(6);
     expect(ageInDays(daysFromNow(2), NOW)).toBe(0);
   });
 
-  it('gives a progress percentage', () => {
+  it('turns task progress into a whole percent', () => {
     expect(progressPercent({ done: 1, total: 4 })).toBe(25);
     expect(progressPercent({ done: 0, total: 0 })).toBe(0);
   });

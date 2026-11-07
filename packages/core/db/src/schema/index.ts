@@ -53,6 +53,7 @@ export * from './docs';
 export * from './doc-versions';
 export * from './document-versions';
 export * from './whiteboards';
+export * from './board-versions';
 
 // Unified Credits System — moved to master.ts (centralized in master DB)
 
@@ -416,6 +417,9 @@ export * from './weldsign';
 
 // WeldPanel (product analytics and session recordings; config and saved objects only)
 export * from './weldpanel';
+
+// WeldMerge (pull requests and issues across git providers)
+export * from './weldmerge';
 
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

@@ -95,6 +95,15 @@
     "rejected",
     "paid"
   ],
+  "board": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "board_version": [
+    "created",
+    "updated"
+  ],
   "calendar": [
     "created",
     "updated",
@@ -733,6 +742,63 @@
     "updated",
     "deleted",
     "admitted"
+  ],
+  "merge_chat_subscription": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_cycle": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_issue": [
+    "created",
+    "updated",
+    "deleted",
+    "agent_assigned"
+  ],
+  "merge_label": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_pull_request": [
+    "created",
+    "updated",
+    "merged",
+    "closed"
+  ],
+  "merge_record_link": [
+    "created",
+    "deleted"
+  ],
+  "merge_release": [
+    "created",
+    "updated",
+    "deleted",
+    "shipped"
+  ],
+  "merge_repository": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_team": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "notification": [
     "created",

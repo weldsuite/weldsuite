@@ -5,6 +5,7 @@
  */
 
 import type { Database } from '../db';
+import type { MergeInternalBinding } from '@weldsuite/app-api-client/schemas/weldmerge-across';
 import type { MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
 import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
@@ -106,6 +107,9 @@ export interface WorkflowEnv extends MailStoreModeEnv {
   /** connect-api `ConnectInternal` entrypoint (weldsuite-connect-api[-test]):
    *  POST /api/internal/workflow-actions/create-customer, trusted by topology. */
   CONNECT_INTERNAL?: Fetcher;
+  /** merge-api `MergeInternal` entrypoint (weldsuite-merge-api[-test]): the merge.* WeldConnect
+   *  actions via RPC `workflowAction`, trusted by topology. */
+  MERGE_INTERNAL?: MergeInternalBinding;
   /** Fallback path only (binding unbound / entrypoint not deployed yet): bearer
    *  for the public /api/internal HTTP routes. Must match the target's secret. */
   INTERNAL_API_SECRET?: string;

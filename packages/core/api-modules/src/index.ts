@@ -44,7 +44,9 @@ export type ApiModuleId =
   | 'sheets'
   | 'sign'
   | 'docs'
-  | 'panel';
+  | 'panel'
+  | 'board'
+  | 'merge';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -92,7 +94,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge']);
 
 const mod = (
   id: ApiModuleId,
@@ -274,7 +276,6 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/task-tags',
     '/api/tasks',
     '/api/time-entries',
-    '/api/whiteboards',
     '/public/project-portal',
   ]),
   mod('books', 8805, ['weldbooks'], [
@@ -476,6 +477,15 @@ export const API_MODULES: readonly ApiModule[] = [
   // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
   // to the public collector apps/workers/panel-ingest on its own host.
   mod('panel', 8825, ['weldpanel'], ['/api/panel']),
+  // WeldBoard (whiteboards, docs/plans/weldboard.md). Its worker is board-api
+  // (with the BoardRoom Durable Object). WeldFlow is listed too: a project's
+  // whiteboards are WeldBoard boards, and keep working with WeldFlow alone.
+  mod('board', 8826, ['weldboard', 'weldflow'], ['/api/boards']),
+  // WeldMerge (pull requests and issues across git providers; ADR MERGE-001).
+  // Provider webhooks reach it through integration-webhook-worker over the
+  // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
+  // GitHub App's setup redirect (no Clerk session: the signed state decides).
+  mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));
@@ -520,6 +530,8 @@ const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
   'knowledge-pages': 'know',
   'knowledge-spaces': 'know',
   quotes: 'crm',
+  // WeldFlow's deprecated project whiteboard API (served on WeldBoard boards): licensed as it always was.
+  whiteboards: 'flow',
 };
 
 /**
@@ -561,6 +573,7 @@ export const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
   domain: 'host',
   sheet: 'sheets',
   doc: 'docs',
+  board: 'board',
 };
 
 /** The apps that open a first-party path for a licensed workspace; `null` when it is never gated. */

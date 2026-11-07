@@ -17,6 +17,8 @@ export default function ProjectsAnalyticsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   return (
-    <AnalyticsListClient reports={reports} layout="table" />
+    <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
+      <AnalyticsListClient reports={reports} stickyOffset={-16} />
+    </div>
   );
 }

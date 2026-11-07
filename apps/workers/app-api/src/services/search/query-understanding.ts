@@ -174,6 +174,12 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   // sheet
   sheet: 'sheet', sheets: 'sheet', spreadsheet: 'sheet', spreadsheets: 'sheet',
   rekenblad: 'sheet', rekenbladen: 'sheet',
+  // board
+  board: 'board', boards: 'board', whiteboard: 'board', whiteboards: 'board',
+  // merge_issue, merge_pull_request (WeldMerge)
+  issue: 'merge_issue', issues: 'merge_issue',
+  pr: 'merge_pull_request', prs: 'merge_pull_request',
+  pullrequest: 'merge_pull_request', pullrequests: 'merge_pull_request',
   // domain
   domain: 'domain', domains: 'domain', domein: 'domain', domeinen: 'domain',
 };

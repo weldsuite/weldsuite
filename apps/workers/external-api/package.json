@@ -16,11 +16,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@weldsuite/text": "workspace:*",
-    "hono": "4.13.13",
     "@hono/zod-validator": "^0.4.0",
+    "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/board-domain": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
@@ -32,9 +32,10 @@
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/reach-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
-    "@neondatabase/serverless": "^1.0.1",
     "drizzle-orm": "^0.45.2",
+    "hono": "4.13.13",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"
   },

@@ -60,6 +60,8 @@ export const navigation = {
       auditLog: 'Auditlog',
       campaigns: 'Campagnes',
       companies: 'Bedrijven',
+      cycles: 'Cycli',
+      releases: 'Releases',
       connect: 'Verbinden',
       dashboard: 'Dashboard',
       declarations: 'Declaraties',
@@ -69,6 +71,7 @@ export const navigation = {
       filings: 'Aangiftes',
       findLeads: 'Leads zoeken',
       inbox: 'Inbox',
+      issues: 'Issues',
       leave: 'Verlof',
       mailboxesAndDomains: 'Mailboxen & domeinen',
       myHr: 'Mijn HR',
@@ -83,6 +86,7 @@ export const navigation = {
       payrollSettings: 'Loon-instellingen',
       people: 'Personen',
       projects: 'Projecten',
+      pullRequests: 'Pull requests',
       prospects: 'Prospects',
       reviewsAndGoals: 'Beoordelingen & doelen',
       scheduleAndHours: 'Rooster & uren',
@@ -162,8 +166,20 @@ export const navigation = {
         overview: 'Overzicht',
         projects: 'Projecten',
       },
+      weldmerge: {
+        inbox: 'Inbox',
+        pullRequests: 'Pull requests',
+        issues: 'Issues',
+        cycles: 'Cycli',
+        releases: 'Releases',
+        settings: 'Instellingen',
+      },
       welddocs: {
         documents: 'Documenten',
+      },
+      weldboard: {
+        boards: 'Borden',
+        templates: 'Sjablonen',
       },
       weldhr: {
         me: {

@@ -17,7 +17,7 @@ import { useReachBilling } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { SectionCard } from '@weldsuite/ui/components/section-card';
-import { usePaymentMethodSetup } from '../components/use-payment-method-setup';
+import { REACH_SETTINGS_PATH, usePaymentMethodSetup } from '../components/use-payment-method-setup';
 
 const STATUS_TONE: Record<ReachBillingSummary['status'], SoftTone> = {
   none: 'neutral',
@@ -32,7 +32,7 @@ export function BillingSection() {
   const { can } = usePermissions();
   const canUpdate = can('reach_settings:update');
   const billing = useReachBilling(can('reach_settings:read'));
-  const paymentSetup = usePaymentMethodSetup('/weldreach/settings');
+  const paymentSetup = usePaymentMethodSetup(REACH_SETTINGS_PATH);
 
   if (billing.data === null) return null;
 

@@ -5,8 +5,8 @@
 {{- if not .Values.config.files.endpoint }}
 {{- fail "collabRooms.enabled needs config.files (S3): the rooms keep their storage and checkpoints in the private bucket" }}
 {{- end }}
-# WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md): the workers'
-# DocRoom and SheetRoom on Node. One room lives on one pod: the server sends
+# WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md): the
+# workers' DocRoom, SheetRoom and BoardRoom on Node. One room lives on one pod: the server sends
 # a room's calls and sockets to the pod that wins rendezvous hashing on its
 # id, over the pod URLs in COLLAB_ROOMS_URLS. Changing replicaCount moves
 # rooms between pods; a room two pods briefly hold reloads from the bucket.

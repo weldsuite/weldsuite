@@ -19,6 +19,16 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
+# The marketing site (apps/marketing, test only so far). Here rather than in
+# its layer because the secrets layer, which runs first, puts its registry
+# Secret in it. It shares nothing with the platform.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marketing
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -39,5 +49,15 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: openebs
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+# LiveKit runs on the host network with host ports (media goes straight to
+# the node), which the baseline and restricted levels forbid. Its container
+# is locked down instead (infrastructure/video/values/livekit.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: livekit
   labels:
     pod-security.kubernetes.io/enforce: privileged

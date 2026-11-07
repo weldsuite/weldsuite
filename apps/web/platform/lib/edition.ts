@@ -9,7 +9,7 @@
  * hidden, since their API would answer 404. Its `unavailableFeatures` list
  * names what the backend lacks inside the modules it does serve (billing,
  * SSO connections, …). A module that cannot work without one of them counts
- * as not offered (`MODULE_FEATURES`: WeldDocs and WeldSheets without live
+ * as not offered (`MODULE_FEATURES`: WeldDocs, WeldSheets and WeldBoard without live
  * editing). Global serves neither list and offers everything, exactly as
  * before.
  *
@@ -81,8 +81,8 @@ export const EDITION_FEATURES = [
    */
   'agent-ai',
   /**
-   * Live editing of WeldDocs and WeldSheets (the collab-rooms service). Unavailable
-   * when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): both apps are hidden.
+   * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
+   * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.
    */
   'collab-rooms',
 ] as const;
@@ -112,6 +112,7 @@ const APP_MODULE_OVERRIDES: Readonly<Record<string, ApiModuleId>> = {
 const MODULE_FEATURES: Readonly<Partial<Record<ApiModuleId, EditionFeature>>> = {
   docs: 'collab-rooms',
   sheets: 'collab-rooms',
+  board: 'collab-rooms',
 };
 
 /** Canonical app code → the module whose own app it is. */

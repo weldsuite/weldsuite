@@ -340,6 +340,9 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   'gmail.send_email': { icon: Mail, color: 'text-red-600', bgColor: 'bg-red-100 dark:bg-red-900/30' },
   'google_calendar.create_event': { icon: Calendar, color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  'merge.create_issue': { icon: GitPullRequest, color: 'text-violet-600', bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
+  'merge.update_issue': { icon: GitPullRequest, color: 'text-violet-600', bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
+  'merge.comment_on_issue': { icon: MessageCircle, color: 'text-violet-600', bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
   create_conversation: { icon: Inbox, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
@@ -449,6 +452,9 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', icon: Move, category: 'data' },
   { id: 'log_activity', name: 'Log Activity', description: 'Log a call, email, meeting, task or note', icon: Activity, category: 'data' },
   { id: 'create_task', name: 'Create Task', description: 'Create a project task in WeldFlow', icon: ClipboardList, category: 'data' },
+  { id: 'merge.create_issue', name: 'WeldMerge: Create Issue', description: 'Create an issue in a WeldMerge team', icon: GitPullRequest, category: 'data' },
+  { id: 'merge.update_issue', name: 'WeldMerge: Update Issue', description: 'Change the status, priority, assignee or text of an issue', icon: GitPullRequest, category: 'data' },
+  { id: 'merge.comment_on_issue', name: 'WeldMerge: Comment on Issue', description: 'Add a comment to a WeldMerge issue', icon: MessageCircle, category: 'data' },
   { id: 'create_conversation', name: 'Open Inbox Conversation', description: 'Open a WeldDesk inbox conversation, or add to the one with the same external id', icon: Inbox, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
@@ -3413,14 +3419,14 @@ export function WorkflowEditorClient({
     const defs: RecordFieldDef[] = recordFieldDefs ?? [{ path: 'id' }];
     return defs.map((field) => ({
       path: field.path,
-      label: recordFieldLabels[field.path] ?? field.path,
+      label: recordFieldLabels[field.labelKey ?? field.path] ?? field.path,
       type: field.type ?? ('string' as const),
     }));
   }, [chainSettings, chainOutputFields, isEntityEventTrigger, resolveRecordFields, recordFieldDefs, recordFieldLabels]);
   const testRecordFields = useMemo(
     () => recordFieldDefs?.map((field) => ({
       path: field.path,
-      label: recordFieldLabels[field.path] ?? field.path,
+      label: recordFieldLabels[field.labelKey ?? field.path] ?? field.path,
       sample: field.sample,
     })),
     [recordFieldDefs, recordFieldLabels],

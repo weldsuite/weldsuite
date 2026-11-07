@@ -313,6 +313,33 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── Whiteboards (WeldBoard) ───────────────────────────────────────────
+  // These open the app. Who may edit a given board is its own sharing
+  // (owner, editor, commenter, viewer), or for a WeldFlow project's board
+  // the project's membership; `boards:manage` lets an admin see every board
+  // and fix its sharing.
+  {
+    key: 'boards',
+    label: 'Whiteboards (WeldBoard)',
+    permissions: [
+      { key: 'boards:read', label: 'Open whiteboards', description: 'Whiteboards this person owns or that are shared with them.' },
+      { key: 'boards:create', label: 'Create whiteboards' },
+      { key: 'boards:update', label: 'Edit whiteboards' },
+      {
+        key: 'boards:comment',
+        label: 'Comment on whiteboards',
+        description: 'Comment on whiteboards shared with them to view, without editing them.',
+      },
+      { key: 'boards:delete', label: 'Delete whiteboards' },
+      { key: 'boards:share', label: 'Share whiteboards' },
+      {
+        key: 'boards:manage',
+        label: 'Administer whiteboards',
+        description: "See every whiteboard in the workspace and change who it is shared with.",
+      },
+    ],
+  },
+
   // ── E-signatures (WeldSign) ───────────────────────────────────────────
   // Without `sign_envelopes:manage` a person sees the envelopes they sent and
   // the ones they are a recipient of; with it, every envelope in the
@@ -355,6 +382,62 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     permissions: [
       { key: 'panel_people:read', label: 'View tracked user profiles', description: 'Profiles can include the user\'s email and name.' },
       { key: 'panel_people:delete', label: 'Erase tracked users', description: 'Removes the profile, its events and its recordings (GDPR erasure).' },
+    ],
+  },
+
+  // ── Engineering (WeldMerge) ───────────────────────────────────────────
+  // Pull requests are mirrors of the git provider: their fields are read-only
+  // here, but a member with a linked provider account can review and merge as
+  // themselves. Connecting providers and choosing repositories is kept apart
+  // from teams.
+  objectPermissions('merge_issues', 'Issues (WeldMerge)'),
+  {
+    key: 'merge_pull_requests',
+    label: 'Pull requests (WeldMerge)',
+    permissions: [
+      { key: 'merge_pull_requests:read', label: 'View pull requests' },
+      {
+        key: 'merge_pull_requests:review',
+        label: 'Review pull requests',
+        description: 'Approve, request changes and comment on the provider, as the member\'s own linked account.',
+      },
+      {
+        key: 'merge_pull_requests:merge',
+        label: 'Merge pull requests',
+        description: 'Merge on the provider, as the member\'s own linked account.',
+      },
+    ],
+  },
+  {
+    key: 'merge_releases',
+    label: 'Releases (WeldMerge)',
+    permissions: [
+      { key: 'merge_releases:read', label: 'View releases' },
+      {
+        key: 'merge_releases:manage',
+        label: 'Create, ship and publish releases',
+        description: 'Includes generating release notes with AI (billed) and publishing them to WeldKnow and email.',
+      },
+    ],
+  },
+  {
+    key: 'merge_teams',
+    label: 'Teams, labels and cycles (WeldMerge)',
+    permissions: [
+      { key: 'merge_teams:read', label: 'View teams, labels and cycles' },
+      { key: 'merge_teams:manage', label: 'Manage teams, labels and cycles' },
+    ],
+  },
+  {
+    key: 'merge_connections',
+    label: 'Git providers and repositories (WeldMerge)',
+    permissions: [
+      { key: 'merge_connections:read', label: 'View connected git providers and repositories' },
+      {
+        key: 'merge_connections:manage',
+        label: 'Connect git providers and choose repositories',
+        description: 'Decides which repositories WeldMerge reads pull requests from.',
+      },
     ],
   },
 
@@ -804,6 +887,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:comment', 'sheets:delete', 'sheets:share', 'sheets:manage',
   // WeldDocs — admins also administer every document's sharing (docs:manage)
   'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share', 'docs:manage',
+  // WeldBoard — admins also administer every board's sharing (boards:manage)
+  'boards:read', 'boards:create', 'boards:update', 'boards:comment', 'boards:delete', 'boards:share', 'boards:manage',
   // WeldSign — admins also see every envelope and edit the settings (sign_envelopes:manage)
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
@@ -813,6 +898,12 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
   'panel_recordings:read', 'panel_recordings:delete',
   'panel_people:read', 'panel_people:delete',
+  // WeldMerge — admins also manage teams and connect git providers
+  'merge_issues:read', 'merge_issues:create', 'merge_issues:update', 'merge_issues:delete',
+  'merge_pull_requests:read', 'merge_pull_requests:review', 'merge_pull_requests:merge',
+  'merge_releases:read', 'merge_releases:manage',
+  'merge_teams:read', 'merge_teams:manage',
+  'merge_connections:read', 'merge_connections:manage',
   // WeldReach — admins also run mailboxes (billed) and settings
   'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
@@ -937,6 +1028,8 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:comment', 'sheets:delete', 'sheets:share',
   // WeldDocs — a document's own sharing decides who edits it; these open the app.
   'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share',
+  // WeldBoard — a board's own sharing (or its project) decides who edits it; these open the app.
+  'boards:read', 'boards:create', 'boards:update', 'boards:comment', 'boards:delete', 'boards:share',
   // WeldSign — send and track their own signature requests; shared templates are read-only
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void',
@@ -945,6 +1038,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'panel_projects:read',
   'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
   'panel_recordings:read', 'panel_people:read',
+  // WeldMerge — work on issues and see pull requests; teams and providers are read-only
+  'merge_issues:read', 'merge_issues:create', 'merge_issues:update',
+  'merge_pull_requests:read', 'merge_pull_requests:review', 'merge_pull_requests:merge',
+  'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
@@ -977,10 +1074,14 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'sheets:read',
   // WeldDocs — read-only
   'docs:read',
+  // WeldBoard — read-only
+  'boards:read',
   // WeldSign — read-only: only requests they are a recipient of, and templates
   'sign_envelopes:read', 'sign_templates:read',
   // WeldPanel — shared reports and dashboards only; no recordings or profiles
   'panel_projects:read', 'panel_reports:read',
+  // WeldMerge — read-only
+  'merge_issues:read', 'merge_pull_requests:read', 'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];

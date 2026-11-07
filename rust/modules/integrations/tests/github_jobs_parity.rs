@@ -25,7 +25,7 @@ use weldsuite_ports::{
 
 const TABLES: [&str; 5] = [
     "tasks",
-    "github_connections",
+    "merge_connections",
     "github_project_links",
     "github_issue_sync_map",
     "project_pipeline_stages",
@@ -154,7 +154,7 @@ async fn dump(db: &PgPool) -> Value {
         ("tasks", "project_id like 'prj_%'"),
         ("github_issue_sync_map", "true"),
         ("github_project_links", "true"),
-        ("github_connections", "true"),
+        ("merge_connections", "provider = 'github'"),
     ] {
         let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "select to_jsonb(t) from {table} t where {filter}"

@@ -62,7 +62,7 @@ const noBilling: ReachBillingSummary = {
   status: 'none',
   hasPaymentMethod: false,
   inboxCount: 0,
-  unitAmountCents: 500,
+  unitAmountCents: 800,
   currency: 'usd',
   currentPeriodEnd: null,
 };
@@ -220,7 +220,7 @@ describe('Setup wizard', () => {
     it('states the price and keeps Continue off until a payment method is on file', async () => {
       renderWizard('payment');
 
-      expect(await screen.findByText('$5 per mailbox per month')).toBeInTheDocument();
+      expect(await screen.findByText('$8 per mailbox per month')).toBeInTheDocument();
       expect(screen.getByText('No payment method yet.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Skip for now' })).toBeEnabled();

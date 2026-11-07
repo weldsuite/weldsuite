@@ -18,7 +18,7 @@ const summary = {
   status: 'active',
   hasPaymentMethod: true,
   inboxCount: 3,
-  unitAmountCents: 500,
+  unitAmountCents: 800,
   currency: 'usd',
   currentPeriodEnd: '2026-11-12T00:00:00.000Z',
 };

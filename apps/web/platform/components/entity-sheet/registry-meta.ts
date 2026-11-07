@@ -62,6 +62,8 @@ export function pageHrefForEntity(type: EntitySheetType, id: string): string | n
       return `/weldhost/domains/${id}`;
     case 'sheet':
       return `/weldsheets/${id}`;
+    case 'board':
+      return `/weldboard/${id}`;
     default:
       return null;
   }

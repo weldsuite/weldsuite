@@ -42,7 +42,7 @@ export interface Env {
   // application_fee_percent/transfer_data don't require a separate secret)
   STRIPE_SECRET_KEY: string;
   STRIPE_BILLING_WEBHOOK_SECRET: string;
-  /** WeldReach inbox price ($5 per inbox per month). When unset the price is created
+  /** WeldReach inbox price ($8 per inbox per month). When unset the price is created
    *  lazily in Stripe and found again through its lookup key (services/reach-billing.ts). */
   STRIPE_PRICE_WELDREACH_INBOX?: string;
   /** WeldBooks extra bank connection price. When unset the price is created lazily and

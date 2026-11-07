@@ -529,6 +529,7 @@ import { CONNECT_ACTION_ROUTES } from './conformance-schemas-connect-actions';
 import { CONNECT_INTEGRATION_ROUTES } from './conformance-schemas-connect-integrations';
 import { DOCS_ROUTES } from './conformance-schemas-docs';
 import { SHEETS_ROUTES } from './conformance-schemas-sheets';
+import { BOARD_ROUTES } from './conformance-schemas-board';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
@@ -542,6 +543,7 @@ import { HOST_ROUTES } from './conformance-schemas-host';
 import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
 import { PERSONAL_ROUTES } from './conformance-schemas-personal';
 import { PANEL_ROUTES } from './conformance-schemas-panel';
+import { MERGE_ROUTES } from './conformance-schemas-merge';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -1398,6 +1400,7 @@ const ROUTES: RouteSchema[] = [
   ...CONNECT_INTEGRATION_ROUTES,
   ...DOCS_ROUTES,
   ...SHEETS_ROUTES,
+  ...BOARD_ROUTES,
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,
@@ -1411,6 +1414,8 @@ const ROUTES: RouteSchema[] = [
   ...INTEGRATION_WEBHOOK_ROUTES,
   ...PERSONAL_ROUTES,
   ...PANEL_ROUTES,
+  // merge: WeldMerge (teams, issues, pull requests, connections, the GitHub event intake)
+  ...MERGE_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

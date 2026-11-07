@@ -137,4 +137,18 @@ export const weldconnectTemplates = {
       body: '<p>Hi {firstName},</p><p>Thanks for getting in touch. We are glad to have you with us and will be in touch soon.</p><p>Kind regards</p>',
     },
   },
+  weldmergeReleaseShipped: {
+    name: 'Tell support when a release ships',
+    description:
+      'When a WeldMerge release ships, post it in a WeldChat channel and email your support team the release and the support tickets it fixes, so they can reply to those customers.',
+    steps: {
+      announce: 'Announce in WeldChat',
+      email: 'Email the support team',
+    },
+    text: {
+      message: 'Release shipped: {release} {version}. Support tickets it fixes: {tickets}.',
+      subject: 'Release shipped: {release} {version}',
+      body: '<p>{release} {version} has shipped.</p><p>Support tickets linked to the issues in this release: {tickets}.</p><p>Reply to those customers to let them know the fix is live.</p>',
+    },
+  },
 };

@@ -380,11 +380,11 @@ signPortal:
             pathType: Prefix
     tls: []
 
-# WeldDocs' and WeldSheets' live editing (rust/docs/collab-rooms.md): the
-# workers' DocRoom and SheetRoom on Node, in a StatefulSet. The server serves
-# the REST routes and proxies the room sockets (/api/docs/connect,
-# /api/sheets/connect) to the pod that holds each room, so the ingress needs
-# no extra path. Needs config.files (the rooms' storage and checkpoints are
+# WeldDocs', WeldSheets' and WeldBoard's live editing (rust/docs/collab-rooms.md):
+# the workers' DocRoom, SheetRoom and BoardRoom on Node, in a StatefulSet. The
+# server serves the REST routes and proxies the room sockets (/api/docs/connect,
+# /api/sheets/connect, /api/boards/connect) to the pod that holds each room, so
+# the ingress needs no extra path. Needs config.files (the rooms' storage and checkpoints are
 # in the private bucket) and COLLAB_ROOMS_SECRET in the Secret. Off: the
 # documents and sheets are listed and managed, but opening one answers 503.
 collabRooms:
@@ -666,6 +666,13 @@ cron:
     flow-status-reports:
       enabled: true
       schedule: "30 3 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldMerge: the daily WeldChat digests, for the workspaces the
+    # merge_digest due index lists (each subscription posts at its own UTC
+    # hour). Does nothing while merge is not served.
+    merge-digest-sweep:
+      enabled: true
+      schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
     # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
     # rates, in every workspace that used books (the books due index).

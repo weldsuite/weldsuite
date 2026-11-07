@@ -56,8 +56,8 @@ RUN set -eux; \
     UV_THREADPOOL_SIZE=16 node /usr/local/lib/precompress.mjs dist; \
     mv dist /spa
 
-# ── WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md) ──────────────
-# The workers' DocRoom and SheetRoom with the Node runtime of
+# ── WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md) ─
+# The workers' DocRoom, SheetRoom and BoardRoom with the Node runtime of
 # apps/tools/collab-rooms, bundled into one file by esbuild.
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS collab-rooms-build
 ENV CI=true \
@@ -66,13 +66,14 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/tools/collab-rooms/package.json apps/workers/docs-api/package.json apps/workers/sheets-api/package.json packages/*/*/package.json ./
+COPY --parents apps/tools/collab-rooms/package.json apps/workers/docs-api/package.json apps/workers/sheets-api/package.json apps/workers/board-api/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter collab-rooms... --filter docs-api... --filter sheets-api...
+      --filter collab-rooms... --filter docs-api... --filter sheets-api... --filter board-api...
 COPY packages packages
 COPY apps/workers/docs-api apps/workers/docs-api
 COPY apps/workers/sheets-api apps/workers/sheets-api
+COPY apps/workers/board-api apps/workers/board-api
 COPY apps/tools/collab-rooms apps/tools/collab-rooms
 RUN set -eux; \
     cd apps/tools/collab-rooms; \
@@ -84,7 +85,7 @@ RUN set -eux; \
 # collabRooms values: S3, the master database, COLLAB_ROOMS_SECRET).
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS collab-rooms
 LABEL org.opencontainers.image.title="weldsuite-collab-rooms" \
-      org.opencontainers.image.description="WeldDocs' and WeldSheets' collaborative rooms for the Kubernetes editions" \
+      org.opencontainers.image.description="WeldDocs', WeldSheets' and WeldBoard's collaborative rooms for the Kubernetes editions" \
       org.opencontainers.image.source="https://github.com/weldsuite/weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app

@@ -34,7 +34,7 @@ WeldReach is available on request. A workspace owner or admin asks for access fr
 The setup guide walks through four steps.
 
 1. **Sender details** — your company name and address, and the opt-out line added to every email.
-2. **Payment method** — inboxes cost $5 per inbox per month, billed to the card you add.
+2. **Payment method** — inboxes cost $8 per inbox per month, billed to the card you add.
 3. **Domains** — buy a domain in WeldHost, or bring an existing one into WeldHost, then connect it to WeldReach. The mail records (MX, SPF, DKIM, DMARC) are set up for you. A domain that already receives email or hosts a website cannot be connected, because its mail records would change.
 4. **Mailboxes** — create one or more mailboxes per domain, each with its own sender name and signature.
 

@@ -96,6 +96,7 @@ const TEST_SECONDS = {
   'host-api': 24,
   'sign-api': 22,
   'docs-api': 22,
+  'board-api': 20,
   'sheets-api': 19,
   'stash-api': 15,
   'panel-api': 12,

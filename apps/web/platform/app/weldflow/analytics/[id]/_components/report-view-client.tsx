@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PageColumn } from '@weldsuite/ui/components/page-layout';
 
 // Type definitions (previously imported from actions)
 export interface AnalyticsReport {
@@ -122,7 +123,7 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col py-6">
+      <PageColumn className="flex flex-1 flex-col py-6">
         {charts.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center p-12">
             <div className="text-center">
@@ -162,7 +163,7 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
             ))}
           </div>
         )}
-      </div>
+      </PageColumn>
     </div>
   );
 }

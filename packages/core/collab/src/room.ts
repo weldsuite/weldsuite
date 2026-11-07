@@ -31,6 +31,12 @@ export interface RoomOptions<Op, State = unknown, Presence = unknown> {
    * validated) and the document before it. Without it such a peer is read-only.
    */
   mayComment?: (op: Op, peer: Peer<Presence>, state: State) => boolean;
+  /**
+   * Whether any peer, editor or commenter, may commit `op`: for what depends on
+   * who sends it (on a board, nobody votes in another person's name). Called
+   * like `mayComment`, after it; a refusal answers `invalid`.
+   */
+  mayCommit?: (op: Op, peer: Peer<Presence>, state: State) => boolean;
 }
 
 const DEFAULT_MAX_LOG = 2000;
@@ -200,6 +206,21 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     return [{ to: null, except: peer.clientId, msg: { type: 'presence', clientId: peer.clientId, presence } }];
   }
 
+  /**
+   * Why `peer` may not commit `op` (as it would be applied), or null: the document refuses it, or
+   * `mayComment` (a commenter's) or `mayCommit` (anyone's) does.
+   */
+  private refusalOf(
+    op: Op,
+    peer: Peer<Presence>,
+    mayComment: RoomOptions<Op, State, Presence>['mayComment'],
+  ): RejectReason | null {
+    if (this.adapter.validate(this.state, op) !== null) return 'invalid';
+    if (mayComment && !mayComment(op, peer, this.state)) return 'read-only';
+    if (this.options.mayCommit && !this.options.mayCommit(op, peer, this.state)) return 'invalid';
+    return null;
+  }
+
   private submit(peer: Peer<Presence>, batchId: string, baseRevision: number, submitted: Op): Outgoing<Op, Snapshot, Presence>[] {
     const already = this.log.find((c) => c.batchId === batchId);
     if (already) return [{ to: peer.clientId, msg: { type: 'ack', batchId, revision: already.revision } }];
@@ -215,8 +236,8 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     } catch {
       return this.reject(peer.clientId, batchId, 'invalid');
     }
-    if (this.adapter.validate(this.state, op) !== null) return this.reject(peer.clientId, batchId, 'invalid');
-    if (mayComment && !mayComment(op, peer, this.state)) return this.reject(peer.clientId, batchId, 'read-only');
+    const refused = this.refusalOf(op, peer, mayComment);
+    if (refused) return this.reject(peer.clientId, batchId, refused);
     if (!this.applyAtomically(op)) {
       this.needsReload = true;
       // No resync: the document may be half-changed. The sender takes back its

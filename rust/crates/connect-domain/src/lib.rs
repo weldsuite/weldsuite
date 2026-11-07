@@ -11,6 +11,11 @@
 //! - [`clients`]: the WooCommerce, Shopify and Picqer clients (product
 //!   writes, the credential test) with their retries and error kinds;
 //! - [`crypto`]: field encryption as connectors read it;
+//! - [`github_app`]: the WeldSuite GitHub App's JWT and installation tokens
+//!   (`github/app-auth`), which WeldConnect and WeldMerge share;
+//! - [`install_state`], [`github_user`]: the App's install redirect, its
+//!   single-use signed state and the proof that the installer can reach the
+//!   installation it names (`github/install-state`, `github/user-installations`);
 //! - [`stripe`], [`moneybird`], [`lists`], [`provider`]: the provider
 //!   clients' reads, behind one [`provider::ProviderClient`];
 //! - [`sync`], [`ingest`], [`mappers`], [`stripe_mappers`], [`tables`]:
@@ -41,7 +46,10 @@ pub mod catchup;
 pub mod clients;
 pub mod connections;
 pub mod crypto;
+pub mod github_app;
+pub mod github_user;
 pub mod ingest;
+pub mod install_state;
 pub mod js;
 pub mod lists;
 pub mod mappers;

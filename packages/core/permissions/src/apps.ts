@@ -159,6 +159,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['docs'],
   },
   {
+    code: 'weldboard',
+    label: 'WeldBoard',
+    objects: ['boards'],
+  },
+  {
     code: 'weldsign',
     label: 'WeldSign',
     objects: ['sign_envelopes', 'sign_templates'],
@@ -167,6 +172,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     code: 'weldpanel',
     label: 'WeldPanel',
     objects: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
+  },
+  {
+    code: 'weldmerge',
+    label: 'WeldMerge',
+    objects: ['merge_issues', 'merge_pull_requests', 'merge_releases', 'merge_teams', 'merge_connections'],
   },
   {
     code: 'weldreach',

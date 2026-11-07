@@ -729,6 +729,31 @@ export const bankFeedConnectionIndex = pgTable('bank_feed_connection_index', {
   index('bank_feed_connection_index_next_sync_idx').on(table.nextSyncAt),
 ]);
 
+// ----------------------------------------------------------------------------
+// WeldMerge provider index — webhook routing
+// ----------------------------------------------------------------------------
+// Provider webhooks carry the installation id (GitHub) or a repository's
+// random webhook key (GitLab, Bitbucket, Azure DevOps) and nothing about the
+// workspace. This maps them to `workspaces.id` so integration-webhook-worker
+// can forward to merge-api without scanning tenant databases.
+export const mergeProviderIndex = pgTable('merge_provider_index', {
+  id: varchar('id', { length: 30 }).primaryKey(), // mpi_
+  provider: varchar('provider', { length: 20 }).notNull(),
+  /** `installation` = GitHub installation id, `webhook` = a repository's `webhook_key`. */
+  kind: varchar('kind', { length: 20 }).notNull(),
+  externalKey: varchar('external_key', { length: 255 }).notNull(),
+  /** `workspaces.id` (ws_…), ADR SEC-011. */
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('merge_provider_index_key_uidx').on(table.provider, table.kind, table.externalKey),
+  index('merge_provider_index_workspace_idx').on(table.workspaceId),
+]);
+
+export type MergeProviderIndexRow = typeof mergeProviderIndex.$inferSelect;
+export type NewMergeProviderIndexRow = typeof mergeProviderIndex.$inferInsert;
+
 export type BankFeedConnectionIndex = typeof bankFeedConnectionIndex.$inferSelect;
 export type NewBankFeedConnectionIndex = typeof bankFeedConnectionIndex.$inferInsert;
 
@@ -1226,7 +1251,9 @@ export const ADMIN_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'viewer
 // ADMIN AUDIT EVENTS
 // ============================================================================
 
-export type AdminAuditTargetType = 'workspace' | 'plan' | 'partner';
+// `admin_user`: a staff-list change, written by `weldsuite admin staff` on the
+// Kubernetes editions (ADR SEC-014).
+export type AdminAuditTargetType = 'workspace' | 'plan' | 'partner' | 'admin_user';
 export type AdminAuditOutcome = 'success' | 'failure';
 
 // Every change an admin makes from the internal console (plan changes, comps,

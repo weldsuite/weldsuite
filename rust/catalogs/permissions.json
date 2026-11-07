@@ -284,6 +284,13 @@
       ]
     },
     {
+      "code": "weldboard",
+      "label": "WeldBoard",
+      "objects": [
+        "boards"
+      ]
+    },
+    {
       "code": "weldsign",
       "label": "WeldSign",
       "objects": [
@@ -299,6 +306,17 @@
         "panel_reports",
         "panel_recordings",
         "panel_people"
+      ]
+    },
+    {
+      "code": "weldmerge",
+      "label": "WeldMerge",
+      "objects": [
+        "merge_issues",
+        "merge_pull_requests",
+        "merge_releases",
+        "merge_teams",
+        "merge_connections"
       ]
     },
     {
@@ -1452,6 +1470,43 @@
       ]
     },
     {
+      "key": "boards",
+      "label": "Whiteboards (WeldBoard)",
+      "permissions": [
+        {
+          "description": "Whiteboards this person owns or that are shared with them.",
+          "key": "boards:read",
+          "label": "Open whiteboards"
+        },
+        {
+          "key": "boards:create",
+          "label": "Create whiteboards"
+        },
+        {
+          "key": "boards:update",
+          "label": "Edit whiteboards"
+        },
+        {
+          "description": "Comment on whiteboards shared with them to view, without editing them.",
+          "key": "boards:comment",
+          "label": "Comment on whiteboards"
+        },
+        {
+          "key": "boards:delete",
+          "label": "Delete whiteboards"
+        },
+        {
+          "key": "boards:share",
+          "label": "Share whiteboards"
+        },
+        {
+          "description": "See every whiteboard in the workspace and change who it is shared with.",
+          "key": "boards:manage",
+          "label": "Administer whiteboards"
+        }
+      ]
+    },
+    {
       "key": "sign_envelopes",
       "label": "Signature requests (WeldSign)",
       "permissions": [
@@ -1585,6 +1640,92 @@
           "description": "Removes the profile, its events and its recordings (GDPR erasure).",
           "key": "panel_people:delete",
           "label": "Erase tracked users"
+        }
+      ]
+    },
+    {
+      "key": "merge_issues",
+      "label": "Issues (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_issues:read",
+          "label": "View issues (weldmerge)"
+        },
+        {
+          "key": "merge_issues:create",
+          "label": "Create issues (weldmerge)"
+        },
+        {
+          "key": "merge_issues:update",
+          "label": "Edit issues (weldmerge)"
+        },
+        {
+          "key": "merge_issues:delete",
+          "label": "Delete issues (weldmerge)"
+        }
+      ]
+    },
+    {
+      "key": "merge_pull_requests",
+      "label": "Pull requests (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_pull_requests:read",
+          "label": "View pull requests"
+        },
+        {
+          "description": "Approve, request changes and comment on the provider, as the member's own linked account.",
+          "key": "merge_pull_requests:review",
+          "label": "Review pull requests"
+        },
+        {
+          "description": "Merge on the provider, as the member's own linked account.",
+          "key": "merge_pull_requests:merge",
+          "label": "Merge pull requests"
+        }
+      ]
+    },
+    {
+      "key": "merge_releases",
+      "label": "Releases (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_releases:read",
+          "label": "View releases"
+        },
+        {
+          "description": "Includes generating release notes with AI (billed) and publishing them to WeldKnow and email.",
+          "key": "merge_releases:manage",
+          "label": "Create, ship and publish releases"
+        }
+      ]
+    },
+    {
+      "key": "merge_teams",
+      "label": "Teams, labels and cycles (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_teams:read",
+          "label": "View teams, labels and cycles"
+        },
+        {
+          "key": "merge_teams:manage",
+          "label": "Manage teams, labels and cycles"
+        }
+      ]
+    },
+    {
+      "key": "merge_connections",
+      "label": "Git providers and repositories (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_connections:read",
+          "label": "View connected git providers and repositories"
+        },
+        {
+          "description": "Decides which repositories WeldMerge reads pull requests from.",
+          "key": "merge_connections:manage",
+          "label": "Connect git providers and choose repositories"
         }
       ]
     },
@@ -3313,6 +3454,13 @@
         "docs:delete",
         "docs:share",
         "docs:manage",
+        "boards:read",
+        "boards:create",
+        "boards:update",
+        "boards:comment",
+        "boards:delete",
+        "boards:share",
+        "boards:manage",
         "sign_envelopes:read",
         "sign_envelopes:create",
         "sign_envelopes:update",
@@ -3337,6 +3485,19 @@
         "panel_recordings:delete",
         "panel_people:read",
         "panel_people:delete",
+        "merge_issues:read",
+        "merge_issues:create",
+        "merge_issues:update",
+        "merge_issues:delete",
+        "merge_pull_requests:read",
+        "merge_pull_requests:review",
+        "merge_pull_requests:merge",
+        "merge_releases:read",
+        "merge_releases:manage",
+        "merge_teams:read",
+        "merge_teams:manage",
+        "merge_connections:read",
+        "merge_connections:manage",
         "reach_campaigns:read",
         "reach_campaigns:create",
         "reach_campaigns:update",
@@ -3538,6 +3699,12 @@
         "docs:comment",
         "docs:delete",
         "docs:share",
+        "boards:read",
+        "boards:create",
+        "boards:update",
+        "boards:comment",
+        "boards:delete",
+        "boards:share",
         "sign_envelopes:read",
         "sign_envelopes:create",
         "sign_envelopes:update",
@@ -3552,6 +3719,15 @@
         "panel_reports:delete",
         "panel_recordings:read",
         "panel_people:read",
+        "merge_issues:read",
+        "merge_issues:create",
+        "merge_issues:update",
+        "merge_pull_requests:read",
+        "merge_pull_requests:review",
+        "merge_pull_requests:merge",
+        "merge_releases:read",
+        "merge_teams:read",
+        "merge_connections:read",
         "employees:self",
         "reach_campaigns:read",
         "reach_campaigns:create",
@@ -3656,10 +3832,16 @@
         "knowledge:read",
         "sheets:read",
         "docs:read",
+        "boards:read",
         "sign_envelopes:read",
         "sign_templates:read",
         "panel_projects:read",
         "panel_reports:read",
+        "merge_issues:read",
+        "merge_pull_requests:read",
+        "merge_releases:read",
+        "merge_teams:read",
+        "merge_connections:read",
         "reach_campaigns:read",
         "reach_prospects:read",
         "reach_inbox:read",

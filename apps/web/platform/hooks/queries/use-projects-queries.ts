@@ -36,9 +36,6 @@ export const projectKeys = {
   timeEntries: (projectId: string) => [...projectKeys.all, projectId, 'time-entries'] as const,
   files: (projectId: string) => [...projectKeys.all, projectId, 'files'] as const,
   messages: (projectId: string, limit?: number) => [...projectKeys.all, projectId, 'messages', limit] as const,
-  whiteboard: (projectId: string) => [...projectKeys.all, projectId, 'whiteboard'] as const,
-  whiteboards: (projectId: string) => [...projectKeys.all, projectId, 'whiteboards'] as const,
-  whiteboardDetail: (whiteboardId: string) => [...projectKeys.all, 'whiteboard-detail', whiteboardId] as const,
   document: (projectId: string) => [...projectKeys.all, projectId, 'document'] as const,
   workload: (projectId?: string) => [...projectKeys.all, 'workload', projectId] as const,
   goals: (projectId: string) => [...projectKeys.all, projectId, 'goals'] as const,
@@ -47,8 +44,6 @@ export const projectKeys = {
   analyticsReport: (id: string) => [...projectKeys.analytics(), 'reports', id] as const,
   analyticsCharts: (reportId: string) => [...projectKeys.analytics(), 'reports', reportId, 'charts'] as const,
   analyticsChartsData: (reportId: string) => [...projectKeys.analytics(), 'reports', reportId, 'charts-data'] as const,
-  kpiSummary: (period: string, projectId?: string) =>
-    [...projectKeys.analytics(), 'kpi-summary', period, projectId ?? 'workspace'] as const,
 };
 
 // =============================================================================
@@ -342,28 +337,6 @@ export function useProjectGoals(projectId: string, enabled = true) {
 }// =============================================================================
 // Analytics Queries
 // =============================================================================
-
-export function useProjectKpiSummary(
-  opts?: { projectId?: string; period?: '7d' | '30d' | '90d'; enabled?: boolean },
-) {
-  const { getClient } = useAppApiClient();
-  const period = opts?.period ?? '30d';
-  const projectId = opts?.projectId;
-  return useQuery({
-    queryKey: projectKeys.kpiSummary(period, projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      const qs = buildQueryString({ period, projectId });
-      const path = projectId
-        ? `/project-analytics/projects/${projectId}/summary?period=${period}`
-        : `/project-analytics/summary${qs}`;
-      return client.get<{
-        data: import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary;
-      }>(path);
-    },
-    enabled: opts?.enabled !== false,
-  });
-}
 
 /**
  * Analytics reports. Pass `projectId` on a project's analytics page so it lists that

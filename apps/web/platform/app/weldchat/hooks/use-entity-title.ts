@@ -55,7 +55,11 @@ const ENTITY_CONFIG: Record<
   // sheets-api answers 404 for a spreadsheet the caller may not open (WeldDrive
   // sharing), so a private one reads as "deleted" rather than "no access".
   sheet: { path: (id) => `/sheets/${id}`, titleFields: ['name'] },
+  // board-api answers 404 for a board the caller may not open, like sheets-api.
+  board: { path: (id) => `/boards/${id}`, titleFields: ['name'] },
   domain: { path: (id) => `/domains/${id}`, titleFields: ['fullDomain', 'name'] },
+  merge_issue: { path: (id) => `/merge/issues/${id}`, titleFields: ['title', 'key'] },
+  merge_pull_request: { path: (id) => `/merge/pull-requests/${id}`, titleFields: ['title'] },
 };
 
 export type EntityTitleStatus = 'loading' | 'ok' | 'forbidden' | 'notfound' | 'error';

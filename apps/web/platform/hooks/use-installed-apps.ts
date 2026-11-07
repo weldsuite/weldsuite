@@ -35,7 +35,9 @@ const APP_NAMES: Record<string, string> = {
   weldsheets: 'WeldSheets',
   weldsign: 'WeldSign',
   weldpanel: 'WeldPanel',
+  weldmerge: 'WeldMerge',
   welddocs: 'WeldDocs',
+  weldboard: 'WeldBoard',
   weldhr: 'WeldHR',
   weldcall: 'WeldCall',
 };

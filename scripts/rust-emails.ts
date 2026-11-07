@@ -231,6 +231,35 @@ const SPECS: Spec[] = [
       url: S('url'),
     }),
   },
+  // WeldReach's access decisions, sent by `weldsuite admin access` (ADR
+  // SEC-014). The three limits go through `toLocaleString`, which leaves a
+  // sentinel string as it is; Rust groups the digits the same way (en-US
+  // `1,000`, nl-NL `1.000`).
+  {
+    id: 'reach.access-approved',
+    flags: ['name', 'limits'],
+    fields: ['recipient_name', 'workspace_name', 'url', 'domains', 'mailboxes', 'sends'],
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      workspaceName: S('workspace_name'),
+      url: S('url'),
+      limits: f.has('limits')
+        ? { maxDomains: S('domains'), maxMailboxes: S('mailboxes'), maxDailySends: S('sends') }
+        : null,
+    }),
+  },
+  {
+    id: 'reach.access-rejected',
+    flags: ['name', 'url'],
+    fields: ['recipient_name', 'workspace_name', 'reason', 'url'],
+    multiline: ['reason'],
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      workspaceName: S('workspace_name'),
+      reason: S('reason'),
+      url: f.has('url') ? S('url') : null,
+    }),
+  },
   // WeldMeet's invitation: the join link, and the meeting's time when it is
   // scheduled (`formatWhen`, written by Rust, becomes `{{ when }}`).
   {

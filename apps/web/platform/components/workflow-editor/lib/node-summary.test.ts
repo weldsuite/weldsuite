@@ -193,6 +193,15 @@ describe('summarizeStep', () => {
   });
 });
 
+describe('WeldMerge action summaries', () => {
+  it('says what an issue step creates or acts on', () => {
+    expect(getConfigSummary('merge.create_issue', { title: 'Fix login' }, labels)).toBe('Fix login');
+    expect(getConfigSummary('merge.update_issue', { issue: 'PLAT-209' }, labels)).toBe('PLAT-209');
+    expect(getConfigSummary('merge.comment_on_issue', { issue: '{{trigger.record.key}}', body: 'x' }, labels)).toBe('{{trigger.record.key}}');
+    expect(getConfigSummary('merge.update_issue', {}, labels)).toBe('');
+  });
+});
+
 describe('previewEmailStep', () => {
   const emailLabels: EmailPreviewLabels = {
     from: 'From',

@@ -33,6 +33,7 @@ vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
   createMeeting: vi.fn(),
   addParticipant: vi.fn(),
+  ensurePresets: vi.fn(async () => undefined),
   removeParticipant: vi.fn(),
   kickAllParticipants: vi.fn(),
   endMeeting: vi.fn(),

@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-five
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-six
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -192,6 +192,21 @@ modules, each with conformance suites that reach every route:
   refreshes run on the rooms' alarms. Not ported: `/internal/agent/*` (the
   `SheetsInternal` entrypoint the WeldAgent tools call from agent-api,
   chat-api and app-api), which waits for those workers' ports
+- **board** (WeldBoard: boards as WeldDrive files and WeldFlow project
+  whiteboards, the old `project_whiteboards` listed beside a project's boards
+  and converted in place on first open, templates, imports, room sessions,
+  the live snapshot, the SVG render and thumbnail, version history with
+  restore, record cards, stickies made WeldFlow tasks, and link previews
+  fetched through `PublicLinks`: public addresses only, each redirect
+  checked). Its rooms are the workers' own `BoardRoom` in the collab-rooms
+  service, and the work its routes do without a room is the board engine there
+  (`BOARD_ENGINE`, `apps/workers/board-api/src/engine-ops.ts`). The AI
+  actions answer 503 (`agent-ai` is unavailable and the editor hides them).
+  Not ported: `/internal/boards/*` (the `BoardsInternal` entrypoint the
+  WeldAgent tools and mcp-server call). `/v1/whiteboards` still serves
+  `project_whiteboards`; it is to move onto boards where WeldBoard is offered,
+  as on Global, since a whiteboard someone opens is converted and leaves that
+  table
 - **panel** (WeldPanel, product analytics, phase 1: projects with their
   token, settings, pausing, rotation and the install check at
   `/api/panel/projects`, kept in step with the master
@@ -233,11 +248,21 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   `RUST_PORTED_MODULES`; until then the forward fails as without `BOOKS_INTERNAL` and
   the delivery is still acknowledged), and `weldsuite cron bank-feed-due` (the master
   `bank_feed_connection_index`)
-- **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
-  per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
+- **GitHub**: the App's `POST /webhooks/github` (the installation's workspace from the
+  cache, else the master `merge_provider_index`, else a scan of the tenants that writes the
+  index row; the installation's status on its WeldMerge connection, `merge_connections`,
+  which also leaves the index when it is uninstalled; one inbound sync per link per minute;
+  pull requests, reviews, checks, issues, issue comments and the installation lifecycle
+  forwarded to WeldMerge in process) and the Workflows as jobs, `integrations.github-project-sync`
   (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
   `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`, which WeldFlow's task
   routes start for a task created, edited, moved or deleted on a linked project)
+- **WeldMerge's provider webhooks**: `POST /webhooks/merge/:provider/:key` (GitLab,
+  Bitbucket Cloud, Azure DevOps): the repository's webhook key resolved to its workspace
+  through the master `merge_provider_index` (cached), and the raw delivery with its
+  allow-listed headers handed to WeldMerge's provider-event intake in process, which checks
+  the signature with the repository's own secret (401 refused, 404 unknown, 413 over a
+  megabyte, 502 when the intake fails, 503 when the lookup fails or merge is not served)
 - **CRM sync**: the `CRM_SYNC` Workflow as the `integrations.crm-sync` job (Attio,
   HubSpot and Google Calendar into companies, people, opportunities and calendar
   events, through the field mappings; WeldConnect's CRM routes and its internal sync
@@ -380,8 +405,8 @@ renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-One follows the deployment rather than the code: `collab-rooms` (WeldDocs and
-WeldSheets, hidden altogether) when no collab-rooms service is configured
+One follows the deployment rather than the code: `collab-rooms` (WeldDocs,
+WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
 (`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
@@ -445,6 +470,9 @@ rust/
                         share; a workspace API key (no user) reaches open teamspaces only
   crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
                         scopes, reserved codes, and adopting first-party installs onto an official hosted app
+  crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
+                        installation recorded as a merge_connections row and in the master merge_provider_index,
+                        its status and its removal
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
@@ -480,6 +508,24 @@ rust/
                         modules/panel (WeldPanel: projects, the registry sync, and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id),
+                        modules/merge (WeldMerge: teams, issues, the pull request mirror and
+                        its automation, GitHub through the App's tokens in crates/connect-domain
+                        (with the install state and installation metadata), GitLab, Bitbucket
+                        and Azure DevOps behind `providers/` (OAuth, tokens sealed with the
+                        keyring, repository webhooks indexed in the master
+                        `merge_provider_index`), two-way issue sync with GitHub and GitLab
+                        (`issue_sync/`), the GitHub App's install flow and setup redirect
+                        (`/public/merge/github/setup`, `installations` records an installation
+                        for WeldConnect's callback too); review and merge as the member on all
+                        four providers (`review/`), releases with notes written through the AI
+                        Gateway's OpenAI-compatible endpoint (charged to the wallet with a
+                        master database) and published to WeldKnow and by email, record links,
+                        WeldChat subscriptions and cards (`chat/`, posted through
+                        crates/chat-domain's `system_message`; the daily digest is
+                        `weldsuite cron merge-digest-sweep` on the `merge_digest` due index),
+                        and WeldConnect's `merge.*` actions and WeldAgent's tools on its internal router
+                        (`across.rs`, `workflow_action`); its GitHub and provider event intake
+                        answers the integration workers' webhooks in process, `MERGE_INTERNAL`),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -490,6 +536,8 @@ rust/
                         the collab-rooms service, apps/tools/collab-rooms);
                         modules/sheets (WeldSheets; its rooms and the sheets engine the same way,
                         connected tables' definitions checked against catalogs/sheet-data.json);
+                        modules/board (WeldBoard; its rooms and the board engine the same way,
+                        link previews on public addresses only);
 
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
@@ -499,7 +547,7 @@ rust/
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
-  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs' and WeldSheets' rooms, apps/tools/collab-rooms)
+  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs', WeldSheets' and WeldBoard's rooms, apps/tools/collab-rooms)
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
@@ -599,22 +647,61 @@ DATABASE_URL_PERSONAL=postgres://… weldsuite migrate --personal
 weldsuite migrate --tenants --only ws_123 --check-journal
 ```
 
+## Staff work
+
+`weldsuite admin` is what the admin console (`apps/web/admin`) does on Global,
+for the Kubernetes editions (ADR SEC-014): the console stays Global's, and on
+EU and self-hosted installs staff run commands in a server pod through the
+cluster's API. The rules and writes are in `crates/staff-domain`, the
+arguments and output in `bins/weldsuite/src/admin.rs`.
+
+- **`staff`**: the install's staff list, master `admin_users`. Every change
+  names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
+  an active row; a `viewer` only reads, and only a `superadmin` changes the
+  list. The first superadmin is added without `--as` while the list is empty.
+- **`access`**: workspaces' access to apps on request only, WeldReach
+  (ADR REACH-003): `list`, `show`, `approve`, `reject`, `suspend`, `unsuspend`,
+  `revoke` and `limits`, with the console's rules (the table is in
+  `crates/staff-domain/src/access.rs`). Approving also installs the app in the
+  workspace's database and emails the requester; rejecting emails the
+  reason (`SMTP_URL`, with `PLATFORM_URL` for the links). What can't be done
+  is printed as a warning.
+- Every change needs `--reason`, runs in one transaction with its row in
+  `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
+  `--dry-run` shows it without writing. `--json` prints JSON.
+
+```bash
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin staff add you@weldsuite.org --role superadmin --reason "first superadmin"
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access list --status requested
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access approve acme --as you@weldsuite.org --reason "B2B, own customer list"
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access limits acme --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
+```
+
+The module's gate caches a workspace's status for 60 seconds per pod, so a
+decision reaches requests within a minute; WeldReach's sending reads the
+master database on every batch. Not there yet (SEC-014's other areas): feature
+flags, the app catalog's flags, workspaces and plans, which are still SQL.
+
 ## Running it
 
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
-docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs' and WeldSheets' rooms (Node, docs/collab-rooms.md)
+docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs', WeldSheets' and WeldBoard's rooms (Node, docs/collab-rooms.md)
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
 
 Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
-`ghcr.io/weldsuite/weldsuite` and `ghcr.io/weldsuite/weldsuite-sign-portal`,
-amd64, tagged `sha-<12 characters of the commit>`, on every push to `develop`
-or a `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`.
+`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
+`ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
+`sha-<12 characters of the commit>`, on every push to `develop` or a
+`deploy/*` branch that changes what the images are built from. A push to
+`develop` also moves the tag `develop`. Production runs releases: the
+"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
+of those builds to a version, `X.Y.Z`, with the same image digests and the
+chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
 `/srv/spa`, and the server serves it for every path its routes don't answer
@@ -646,7 +733,9 @@ which stays with Global), `workflow-schedules` every minute (WeldConnect's
 scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
 `bank-feed-due` every 15 minutes (WeldBooks' bank feeds due a sync; nothing while
 books is not served), `connector-catchup` every 15 minutes and `moneybird-push`
-every 5 (WeldConnect's connectors; nothing while connect is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+every 5 (WeldConnect's connectors; nothing while connect is not served), and
+`merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
+due index; nothing while merge is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -683,6 +772,8 @@ every 5 (WeldConnect's connectors; nothing while connect is not served). The ser
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | The Stripe connector's ingress: the signing secret of the platform's Connect webhook endpoint (`POST /webhooks/stripe-connect`; unset: 503). `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_CLIENT_ID` are the platform key OAuth Stripe connections are read with and the Connect OAuth app; `MONEYBIRD_CLIENT_ID`/`MONEYBIRD_CLIENT_SECRET` the Moneybird OAuth app; `CONNECTOR_WEBHOOK_BASE_URL` the public origin stores deliver their webhooks to (default by `ENVIRONMENT`) |
 | `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
+| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`/`_SECRET`, `GITLAB_OAUTH_CLIENT_ID`/`_SECRET`, `BITBUCKET_OAUTH_CLIENT_ID`/`_SECRET`, `AZURE_DEVOPS_CLIENT_ID`/`_SECRET`, `APP_URL`, `WEBHOOK_BASE_URL` | WeldMerge: the GitHub App's install page (unset: `install-url` answers 503) and its user authorization for members, the OAuth apps of GitLab.com, Bitbucket Cloud and Azure DevOps (unset: their authorize URLs answer 503), the platform origin OAuth and the App's setup redirect land on (`/weldmerge/oauth/callback`; required for OAuth), and the public origin provider webhooks deliver to (`${WEBHOOK_BASE_URL}/webhooks/merge/<provider>/<key>`). Tokens are sealed with `DATABASE_ENCRYPTION_KEY`; the install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the OAuth state lives in Valkey, or in this process without it |
+| `CF_ACCOUNT_ID` (or `CLOUDFLARE_ACCOUNT_ID`), `AI_GATEWAY_API_TOKEN` (else `CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`), `CF_AI_GATEWAY`, `CF_AIG_TOKEN`, `AI_FALLBACK_MODEL` | WeldMerge: a release's notes written by the model on the Cloudflare AI Gateway's OpenAI-compatible endpoint (`@weldsuite/ai`'s settings: the account, its token, the gateway id (default `default`), a separate gateway token, and the model a refused third-party call falls back to, `none` to disable). Unset account: `generate-notes` answers 503. With the master database the call is charged to the workspace's prepaid credits |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
@@ -694,7 +785,7 @@ every 5 (WeldConnect's connectors; nothing while connect is not served). The ser
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `PROJECT_PORTAL_URL` | WeldFlow: the client portal's origin (`https://projects.weldsuite.org`), for the links in the portal invitation and in status reports emailed to client contacts. Unset: those emails are not sent. `weldsuite cron flow-status-reports` (daily) drafts the status reports whose cadence has come due, over the `status_report_due` due index |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
-| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs and WeldSheets |
+| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
@@ -775,8 +866,9 @@ same call UI:
   portal is not part of this chart yet: it reads the tenant databases and
   calls the realtime worker directly (see its `lib/`).
 
-What a cluster needs (the EU cluster has none of it yet; this chart does not
-deploy it):
+What a cluster needs. This chart does not deploy it; the EU cluster gets
+all of it from Flux (`deploy/flux/infrastructure/video`, runbook
+`deploy/hetzner/README.md`, "Video"), on two of the general workers:
 
 1. A LiveKit server (`livekit/livekit-server`, v1.13 or later for the pinned
    `livekit-client`; the official `livekit/livekit-server` Helm chart, or

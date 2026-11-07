@@ -18,6 +18,7 @@ import { Route as WeldsheetsRouteRouteImport } from './routes/weldsheets/route'
 import { Route as WeldreachRouteRouteImport } from './routes/weldreach/route'
 import { Route as WeldpassRouteRouteImport } from './routes/weldpass/route'
 import { Route as WeldpanelRouteRouteImport } from './routes/weldpanel/route'
+import { Route as WeldmergeRouteRouteImport } from './routes/weldmerge/route'
 import { Route as WeldmeetRouteRouteImport } from './routes/weldmeet/route'
 import { Route as WeldmailRouteRouteImport } from './routes/weldmail/route'
 import { Route as WeldknowRouteRouteImport } from './routes/weldknow/route'
@@ -35,6 +36,7 @@ import { Route as WeldchatRouteRouteImport } from './routes/weldchat/route'
 import { Route as WeldcallRouteRouteImport } from './routes/weldcall/route'
 import { Route as WeldcalendarRouteRouteImport } from './routes/weldcalendar/route'
 import { Route as WeldbooksRouteRouteImport } from './routes/weldbooks/route'
+import { Route as WeldboardRouteRouteImport } from './routes/weldboard/route'
 import { Route as WeldadsRouteRouteImport } from './routes/weldads/route'
 import { Route as SocialRouteRouteImport } from './routes/social/route'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
@@ -48,6 +50,7 @@ import { Route as WeldsheetsIndexRouteImport } from './routes/weldsheets/index'
 import { Route as WeldreachIndexRouteImport } from './routes/weldreach/index'
 import { Route as WeldpassIndexRouteImport } from './routes/weldpass/index'
 import { Route as WeldpanelIndexRouteImport } from './routes/weldpanel/index'
+import { Route as WeldmergeIndexRouteImport } from './routes/weldmerge/index'
 import { Route as WeldmeetIndexRouteImport } from './routes/weldmeet/index'
 import { Route as WeldmailIndexRouteImport } from './routes/weldmail/index'
 import { Route as WeldknowIndexRouteImport } from './routes/weldknow/index'
@@ -65,6 +68,7 @@ import { Route as WeldchatIndexRouteImport } from './routes/weldchat/index'
 import { Route as WeldcallIndexRouteImport } from './routes/weldcall/index'
 import { Route as WeldcalendarIndexRouteImport } from './routes/weldcalendar/index'
 import { Route as WeldbooksIndexRouteImport } from './routes/weldbooks/index'
+import { Route as WeldboardIndexRouteImport } from './routes/weldboard/index'
 import { Route as WeldadsIndexRouteImport } from './routes/weldads/index'
 import { Route as WelcomeIndexRouteImport } from './routes/welcome/index'
 import { Route as SocialIndexRouteImport } from './routes/social/index'
@@ -95,6 +99,7 @@ import { Route as PreviewWelddataRouteRouteImport } from './routes/preview/weldd
 import { Route as PreviewWeldcrmRouteRouteImport } from './routes/preview/weldcrm/route'
 import { Route as PreviewWeldchatRouteRouteImport } from './routes/preview/weldchat/route'
 import { Route as PreviewWeldcalendarRouteRouteImport } from './routes/preview/weldcalendar/route'
+import { Route as PreviewWeldboardRouteRouteImport } from './routes/preview/weldboard/route'
 import { Route as PreviewSettingsRouteRouteImport } from './routes/preview/settings/route'
 import { Route as PreviewAppstoreRouteRouteImport } from './routes/preview/appstore/route'
 import { Route as AppsAppCodeRouteRouteImport } from './routes/apps/$appCode/route'
@@ -116,6 +121,11 @@ import { Route as WeldreachCampaignsIndexRouteImport } from './routes/weldreach/
 import { Route as WeldpassPasswordsIndexRouteImport } from './routes/weldpass/passwords/index'
 import { Route as WeldpassProjectIdIndexRouteImport } from './routes/weldpass/$projectId/index'
 import { Route as WeldpanelProjectsIndexRouteImport } from './routes/weldpanel/projects/index'
+import { Route as WeldmergeSettingsIndexRouteImport } from './routes/weldmerge/settings/index'
+import { Route as WeldmergeReleasesIndexRouteImport } from './routes/weldmerge/releases/index'
+import { Route as WeldmergePullRequestsIndexRouteImport } from './routes/weldmerge/pull-requests/index'
+import { Route as WeldmergeIssuesIndexRouteImport } from './routes/weldmerge/issues/index'
+import { Route as WeldmergeCyclesIndexRouteImport } from './routes/weldmerge/cycles/index'
 import { Route as WeldmeetUpcomingIndexRouteImport } from './routes/weldmeet/upcoming/index'
 import { Route as WeldmeetPeopleIndexRouteImport } from './routes/weldmeet/people/index'
 import { Route as WeldmeetNewIndexRouteImport } from './routes/weldmeet/new/index'
@@ -218,6 +228,8 @@ import { Route as WeldbooksCreditNotesIndexRouteImport } from './routes/weldbook
 import { Route as WeldbooksBillsIndexRouteImport } from './routes/weldbooks/bills/index'
 import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/banking/index'
 import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
+import { Route as WeldboardTemplatesIndexRouteImport } from './routes/weldboard/templates/index'
+import { Route as WeldboardBoardIdIndexRouteImport } from './routes/weldboard/$boardId/index'
 import { Route as WeldadsCampaignsIndexRouteImport } from './routes/weldads/campaigns/index'
 import { Route as WeldadsAccountsIndexRouteImport } from './routes/weldads/accounts/index'
 import { Route as SocialTeamIndexRouteImport } from './routes/social/team/index'
@@ -260,6 +272,7 @@ import { Route as PreviewWeldflowIndexRouteImport } from './routes/preview/weldf
 import { Route as PreviewWelddocsIndexRouteImport } from './routes/preview/welddocs/index'
 import { Route as PreviewWelddataIndexRouteImport } from './routes/preview/welddata/index'
 import { Route as PreviewWeldcalendarIndexRouteImport } from './routes/preview/weldcalendar/index'
+import { Route as PreviewWeldboardIndexRouteImport } from './routes/preview/weldboard/index'
 import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
 import { Route as PreviewAppstoreIndexRouteImport } from './routes/preview/appstore/index'
 import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
@@ -273,12 +286,18 @@ import { Route as AppstoreCodeIndexRouteImport } from './routes/appstore/$code/i
 import { Route as AppsManageIndexRouteImport } from './routes/apps/manage/index'
 import { Route as AppsAppCodeIndexRouteImport } from './routes/apps/$appCode/index'
 import { Route as AgentsIdIndexRouteImport } from './routes/agents/$id/index'
+import { Route as WeldmergeReleasesReleaseIdRouteImport } from './routes/weldmerge/releases/$releaseId'
+import { Route as WeldmergePullRequestsPullRequestIdRouteImport } from './routes/weldmerge/pull-requests/$pullRequestId'
+import { Route as WeldmergeOauthCallbackRouteImport } from './routes/weldmerge/oauth/callback'
+import { Route as WeldmergeIssuesIssueKeyRouteImport } from './routes/weldmerge/issues/$issueKey'
 import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join/$joinCode'
 import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
+import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
+import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
 import { Route as SettingsAppsWeldflowRouteImport } from './routes/settings/apps/weldflow'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
@@ -430,6 +449,8 @@ import { Route as PreviewWelddeskInboxIndexRouteImport } from './routes/preview/
 import { Route as PreviewWeldcrmPeopleIndexRouteImport } from './routes/preview/weldcrm/people/index'
 import { Route as PreviewWeldchatChannelIdIndexRouteImport } from './routes/preview/weldchat/$channelId/index'
 import { Route as PreviewWeldcalendarSchedulingIndexRouteImport } from './routes/preview/weldcalendar/scheduling/index'
+import { Route as PreviewWeldboardTemplatesIndexRouteImport } from './routes/preview/weldboard/templates/index'
+import { Route as PreviewWeldboardBoardIdIndexRouteImport } from './routes/preview/weldboard/$boardId/index'
 import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/settings/team/index'
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
@@ -601,6 +622,11 @@ const WeldpanelRouteRoute = WeldpanelRouteRouteImport.update({
   path: '/weldpanel',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldmergeRouteRoute = WeldmergeRouteRouteImport.update({
+  id: '/weldmerge',
+  path: '/weldmerge',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldmeetRouteRoute = WeldmeetRouteRouteImport.update({
   id: '/weldmeet',
   path: '/weldmeet',
@@ -686,6 +712,11 @@ const WeldbooksRouteRoute = WeldbooksRouteRouteImport.update({
   path: '/weldbooks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldboardRouteRoute = WeldboardRouteRouteImport.update({
+  id: '/weldboard',
+  path: '/weldboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldadsRouteRoute = WeldadsRouteRouteImport.update({
   id: '/weldads',
   path: '/weldads',
@@ -750,6 +781,11 @@ const WeldpanelIndexRoute = WeldpanelIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldmergeIndexRoute = WeldmergeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldmergeRouteRoute,
 } as any)
 const WeldmeetIndexRoute = WeldmeetIndexRouteImport.update({
   id: '/',
@@ -835,6 +871,11 @@ const WeldbooksIndexRoute = WeldbooksIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldboardIndexRoute = WeldboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldboardRouteRoute,
 } as any)
 const WeldadsIndexRoute = WeldadsIndexRouteImport.update({
   id: '/',
@@ -987,6 +1028,11 @@ const PreviewWeldcalendarRouteRoute =
     path: '/preview/weldcalendar',
     getParentRoute: () => rootRouteImport,
   } as any)
+const PreviewWeldboardRouteRoute = PreviewWeldboardRouteRouteImport.update({
+  id: '/preview/weldboard',
+  path: '/preview/weldboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewSettingsRouteRoute = PreviewSettingsRouteRouteImport.update({
   id: '/preview/settings',
   path: '/preview/settings',
@@ -1092,6 +1138,32 @@ const WeldpanelProjectsIndexRoute = WeldpanelProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
   getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldmergeSettingsIndexRoute = WeldmergeSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
+const WeldmergeReleasesIndexRoute = WeldmergeReleasesIndexRouteImport.update({
+  id: '/releases/',
+  path: '/releases/',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
+const WeldmergePullRequestsIndexRoute =
+  WeldmergePullRequestsIndexRouteImport.update({
+    id: '/pull-requests/',
+    path: '/pull-requests/',
+    getParentRoute: () => WeldmergeRouteRoute,
+  } as any)
+const WeldmergeIssuesIndexRoute = WeldmergeIssuesIndexRouteImport.update({
+  id: '/issues/',
+  path: '/issues/',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
+const WeldmergeCyclesIndexRoute = WeldmergeCyclesIndexRouteImport.update({
+  id: '/cycles/',
+  path: '/cycles/',
+  getParentRoute: () => WeldmergeRouteRoute,
 } as any)
 const WeldmeetUpcomingIndexRoute = WeldmeetUpcomingIndexRouteImport.update({
   id: '/upcoming/',
@@ -1626,6 +1698,16 @@ const WeldbooksAccountsIndexRoute = WeldbooksAccountsIndexRouteImport.update({
   path: '/accounts/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldboardTemplatesIndexRoute = WeldboardTemplatesIndexRouteImport.update({
+  id: '/templates/',
+  path: '/templates/',
+  getParentRoute: () => WeldboardRouteRoute,
+} as any)
+const WeldboardBoardIdIndexRoute = WeldboardBoardIdIndexRouteImport.update({
+  id: '/$boardId/',
+  path: '/$boardId/',
+  getParentRoute: () => WeldboardRouteRoute,
+} as any)
 const WeldadsCampaignsIndexRoute = WeldadsCampaignsIndexRouteImport.update({
   id: '/campaigns/',
   path: '/campaigns/',
@@ -1842,6 +1924,11 @@ const PreviewWeldcalendarIndexRoute =
     path: '/',
     getParentRoute: () => PreviewWeldcalendarRouteRoute,
   } as any)
+const PreviewWeldboardIndexRoute = PreviewWeldboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PreviewWeldboardRouteRoute,
+} as any)
 const PreviewHelpDocsIndexRoute = PreviewHelpDocsIndexRouteImport.update({
   id: '/preview/help-docs/',
   path: '/preview/help-docs/',
@@ -1907,6 +1994,28 @@ const AgentsIdIndexRoute = AgentsIdIndexRouteImport.update({
   path: '/$id/',
   getParentRoute: () => AgentsRouteRoute,
 } as any)
+const WeldmergeReleasesReleaseIdRoute =
+  WeldmergeReleasesReleaseIdRouteImport.update({
+    id: '/releases/$releaseId',
+    path: '/releases/$releaseId',
+    getParentRoute: () => WeldmergeRouteRoute,
+  } as any)
+const WeldmergePullRequestsPullRequestIdRoute =
+  WeldmergePullRequestsPullRequestIdRouteImport.update({
+    id: '/pull-requests/$pullRequestId',
+    path: '/pull-requests/$pullRequestId',
+    getParentRoute: () => WeldmergeRouteRoute,
+  } as any)
+const WeldmergeOauthCallbackRoute = WeldmergeOauthCallbackRouteImport.update({
+  id: '/oauth/callback',
+  path: '/oauth/callback',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
+const WeldmergeIssuesIssueKeyRoute = WeldmergeIssuesIssueKeyRouteImport.update({
+  id: '/issues/$issueKey',
+  path: '/issues/$issueKey',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
 const WeldmeetJoinJoinCodeRoute = WeldmeetJoinJoinCodeRouteImport.update({
   id: '/join/$joinCode',
   path: '/join/$joinCode',
@@ -1940,6 +2049,16 @@ const SettingsCustomObjectsObjectIdRoute =
     path: '/custom-objects/$objectId',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsAppsWeldreachRoute = SettingsAppsWeldreachRouteImport.update({
+  id: '/apps/weldreach',
+  path: '/apps/weldreach',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAppsWeldmergeRoute = SettingsAppsWeldmergeRouteImport.update({
+  id: '/apps/weldmerge',
+  path: '/apps/weldmerge',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldhrRoute = SettingsAppsWeldhrRouteImport.update({
   id: '/apps/weldhr',
   path: '/apps/weldhr',
@@ -2815,6 +2934,18 @@ const PreviewWeldcalendarSchedulingIndexRoute =
     path: '/scheduling/',
     getParentRoute: () => PreviewWeldcalendarRouteRoute,
   } as any)
+const PreviewWeldboardTemplatesIndexRoute =
+  PreviewWeldboardTemplatesIndexRouteImport.update({
+    id: '/templates/',
+    path: '/templates/',
+    getParentRoute: () => PreviewWeldboardRouteRoute,
+  } as any)
+const PreviewWeldboardBoardIdIndexRoute =
+  PreviewWeldboardBoardIdIndexRouteImport.update({
+    id: '/$boardId/',
+    path: '/$boardId/',
+    getParentRoute: () => PreviewWeldboardRouteRoute,
+  } as any)
 const PreviewSettingsTeamIndexRoute =
   PreviewSettingsTeamIndexRouteImport.update({
     id: '/team/',
@@ -3572,6 +3703,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
   '/weldads': typeof WeldadsRouteRouteWithChildren
+  '/weldboard': typeof WeldboardRouteRouteWithChildren
   '/weldbooks': typeof WeldbooksRouteRouteWithChildren
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
@@ -3589,6 +3721,7 @@ export interface FileRoutesByFullPath {
   '/weldknow': typeof WeldknowRouteRouteWithChildren
   '/weldmail': typeof WeldmailRouteRouteWithChildren
   '/weldmeet': typeof WeldmeetRouteRouteWithChildren
+  '/weldmerge': typeof WeldmergeRouteRouteWithChildren
   '/weldpanel': typeof WeldpanelRouteRouteWithChildren
   '/weldpass': typeof WeldpassRouteRouteWithChildren
   '/weldreach': typeof WeldreachRouteRouteWithChildren
@@ -3601,6 +3734,7 @@ export interface FileRoutesByFullPath {
   '/apps/$appCode': typeof AppsAppCodeRouteRouteWithChildren
   '/preview/appstore': typeof PreviewAppstoreRouteRouteWithChildren
   '/preview/settings': typeof PreviewSettingsRouteRouteWithChildren
+  '/preview/weldboard': typeof PreviewWeldboardRouteRouteWithChildren
   '/preview/weldcalendar': typeof PreviewWeldcalendarRouteRouteWithChildren
   '/preview/weldchat': typeof PreviewWeldchatRouteRouteWithChildren
   '/preview/weldcrm': typeof PreviewWeldcrmRouteRouteWithChildren
@@ -3631,6 +3765,7 @@ export interface FileRoutesByFullPath {
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
   '/weldads/': typeof WeldadsIndexRoute
+  '/weldboard/': typeof WeldboardIndexRoute
   '/weldbooks/': typeof WeldbooksIndexRoute
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
@@ -3648,6 +3783,7 @@ export interface FileRoutesByFullPath {
   '/weldknow/': typeof WeldknowIndexRoute
   '/weldmail/': typeof WeldmailIndexRoute
   '/weldmeet/': typeof WeldmeetIndexRoute
+  '/weldmerge/': typeof WeldmergeIndexRoute
   '/weldpanel/': typeof WeldpanelIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldreach/': typeof WeldreachIndexRoute
@@ -3668,12 +3804,18 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
+  '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
+  '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id/': typeof AgentsIdIndexRoute
   '/apps/$appCode/': typeof AppsAppCodeIndexRoute
   '/apps/manage/': typeof AppsManageIndexRoute
@@ -3687,6 +3829,7 @@ export interface FileRoutesByFullPath {
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
   '/preview/appstore/': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
+  '/preview/weldboard/': typeof PreviewWeldboardIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
   '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
@@ -3729,6 +3872,8 @@ export interface FileRoutesByFullPath {
   '/social/team/': typeof SocialTeamIndexRoute
   '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
+  '/weldboard/$boardId/': typeof WeldboardBoardIdIndexRoute
+  '/weldboard/templates/': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
@@ -3831,6 +3976,11 @@ export interface FileRoutesByFullPath {
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
   '/weldmeet/people/': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming/': typeof WeldmeetUpcomingIndexRoute
+  '/weldmerge/cycles/': typeof WeldmergeCyclesIndexRoute
+  '/weldmerge/issues/': typeof WeldmergeIssuesIndexRoute
+  '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
+  '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords/': typeof WeldpassPasswordsIndexRoute
@@ -3865,6 +4015,8 @@ export interface FileRoutesByFullPath {
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
+  '/preview/weldboard/$boardId/': typeof PreviewWeldboardBoardIdIndexRoute
+  '/preview/weldboard/templates/': typeof PreviewWeldboardTemplatesIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
   '/preview/weldchat/$channelId/': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
@@ -4138,6 +4290,7 @@ export interface FileRoutesByTo {
   '/social': typeof SocialIndexRoute
   '/welcome': typeof WelcomeIndexRoute
   '/weldads': typeof WeldadsIndexRoute
+  '/weldboard': typeof WeldboardIndexRoute
   '/weldbooks': typeof WeldbooksIndexRoute
   '/weldcalendar': typeof WeldcalendarIndexRoute
   '/weldcall': typeof WeldcallIndexRoute
@@ -4155,6 +4308,7 @@ export interface FileRoutesByTo {
   '/weldknow': typeof WeldknowIndexRoute
   '/weldmail': typeof WeldmailIndexRoute
   '/weldmeet': typeof WeldmeetIndexRoute
+  '/weldmerge': typeof WeldmergeIndexRoute
   '/weldpanel': typeof WeldpanelIndexRoute
   '/weldpass': typeof WeldpassIndexRoute
   '/weldreach': typeof WeldreachIndexRoute
@@ -4170,12 +4324,18 @@ export interface FileRoutesByTo {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
+  '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
+  '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id': typeof AgentsIdIndexRoute
   '/apps/$appCode': typeof AppsAppCodeIndexRoute
   '/apps/manage': typeof AppsManageIndexRoute
@@ -4189,6 +4349,7 @@ export interface FileRoutesByTo {
   '/objects/$slug': typeof ObjectsSlugIndexRoute
   '/preview/appstore': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs': typeof PreviewHelpDocsIndexRoute
+  '/preview/weldboard': typeof PreviewWeldboardIndexRoute
   '/preview/weldcalendar': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata': typeof PreviewWelddataIndexRoute
   '/preview/welddocs': typeof PreviewWelddocsIndexRoute
@@ -4231,6 +4392,8 @@ export interface FileRoutesByTo {
   '/social/team': typeof SocialTeamIndexRoute
   '/weldads/accounts': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns': typeof WeldadsCampaignsIndexRoute
+  '/weldboard/$boardId': typeof WeldboardBoardIdIndexRoute
+  '/weldboard/templates': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills': typeof WeldbooksBillsIndexRoute
@@ -4333,6 +4496,11 @@ export interface FileRoutesByTo {
   '/weldmeet/new': typeof WeldmeetNewIndexRoute
   '/weldmeet/people': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming': typeof WeldmeetUpcomingIndexRoute
+  '/weldmerge/cycles': typeof WeldmergeCyclesIndexRoute
+  '/weldmerge/issues': typeof WeldmergeIssuesIndexRoute
+  '/weldmerge/pull-requests': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases': typeof WeldmergeReleasesIndexRoute
+  '/weldmerge/settings': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords': typeof WeldpassPasswordsIndexRoute
@@ -4360,6 +4528,8 @@ export interface FileRoutesByTo {
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team': typeof PreviewSettingsTeamIndexRoute
+  '/preview/weldboard/$boardId': typeof PreviewWeldboardBoardIdIndexRoute
+  '/preview/weldboard/templates': typeof PreviewWeldboardTemplatesIndexRoute
   '/preview/weldcalendar/scheduling': typeof PreviewWeldcalendarSchedulingIndexRoute
   '/preview/weldchat/$channelId': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleIndexRoute
@@ -4616,6 +4786,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
   '/weldads': typeof WeldadsRouteRouteWithChildren
+  '/weldboard': typeof WeldboardRouteRouteWithChildren
   '/weldbooks': typeof WeldbooksRouteRouteWithChildren
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
@@ -4633,6 +4804,7 @@ export interface FileRoutesById {
   '/weldknow': typeof WeldknowRouteRouteWithChildren
   '/weldmail': typeof WeldmailRouteRouteWithChildren
   '/weldmeet': typeof WeldmeetRouteRouteWithChildren
+  '/weldmerge': typeof WeldmergeRouteRouteWithChildren
   '/weldpanel': typeof WeldpanelRouteRouteWithChildren
   '/weldpass': typeof WeldpassRouteRouteWithChildren
   '/weldreach': typeof WeldreachRouteRouteWithChildren
@@ -4645,6 +4817,7 @@ export interface FileRoutesById {
   '/apps/$appCode': typeof AppsAppCodeRouteRouteWithChildren
   '/preview/appstore': typeof PreviewAppstoreRouteRouteWithChildren
   '/preview/settings': typeof PreviewSettingsRouteRouteWithChildren
+  '/preview/weldboard': typeof PreviewWeldboardRouteRouteWithChildren
   '/preview/weldcalendar': typeof PreviewWeldcalendarRouteRouteWithChildren
   '/preview/weldchat': typeof PreviewWeldchatRouteRouteWithChildren
   '/preview/weldcrm': typeof PreviewWeldcrmRouteRouteWithChildren
@@ -4675,6 +4848,7 @@ export interface FileRoutesById {
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
   '/weldads/': typeof WeldadsIndexRoute
+  '/weldboard/': typeof WeldboardIndexRoute
   '/weldbooks/': typeof WeldbooksIndexRoute
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
@@ -4692,6 +4866,7 @@ export interface FileRoutesById {
   '/weldknow/': typeof WeldknowIndexRoute
   '/weldmail/': typeof WeldmailIndexRoute
   '/weldmeet/': typeof WeldmeetIndexRoute
+  '/weldmerge/': typeof WeldmergeIndexRoute
   '/weldpanel/': typeof WeldpanelIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldreach/': typeof WeldreachIndexRoute
@@ -4712,12 +4887,18 @@ export interface FileRoutesById {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
+  '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
+  '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id/': typeof AgentsIdIndexRoute
   '/apps/$appCode/': typeof AppsAppCodeIndexRoute
   '/apps/manage/': typeof AppsManageIndexRoute
@@ -4731,6 +4912,7 @@ export interface FileRoutesById {
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
   '/preview/appstore/': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
+  '/preview/weldboard/': typeof PreviewWeldboardIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
   '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
@@ -4773,6 +4955,8 @@ export interface FileRoutesById {
   '/social/team/': typeof SocialTeamIndexRoute
   '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
+  '/weldboard/$boardId/': typeof WeldboardBoardIdIndexRoute
+  '/weldboard/templates/': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
@@ -4875,6 +5059,11 @@ export interface FileRoutesById {
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
   '/weldmeet/people/': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming/': typeof WeldmeetUpcomingIndexRoute
+  '/weldmerge/cycles/': typeof WeldmergeCyclesIndexRoute
+  '/weldmerge/issues/': typeof WeldmergeIssuesIndexRoute
+  '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
+  '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords/': typeof WeldpassPasswordsIndexRoute
@@ -4909,6 +5098,8 @@ export interface FileRoutesById {
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
+  '/preview/weldboard/$boardId/': typeof PreviewWeldboardBoardIdIndexRoute
+  '/preview/weldboard/templates/': typeof PreviewWeldboardTemplatesIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
   '/preview/weldchat/$channelId/': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
@@ -5166,6 +5357,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/social'
     | '/weldads'
+    | '/weldboard'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -5183,6 +5375,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldmerge'
     | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
@@ -5195,6 +5388,7 @@ export interface FileRouteTypes {
     | '/apps/$appCode'
     | '/preview/appstore'
     | '/preview/settings'
+    | '/preview/weldboard'
     | '/preview/weldcalendar'
     | '/preview/weldchat'
     | '/preview/weldcrm'
@@ -5225,6 +5419,7 @@ export interface FileRouteTypes {
     | '/social/'
     | '/welcome/'
     | '/weldads/'
+    | '/weldboard/'
     | '/weldbooks/'
     | '/weldcalendar/'
     | '/weldcall/'
@@ -5242,6 +5437,7 @@ export interface FileRouteTypes {
     | '/weldknow/'
     | '/weldmail/'
     | '/weldmeet/'
+    | '/weldmerge/'
     | '/weldpanel/'
     | '/weldpass/'
     | '/weldreach/'
@@ -5262,12 +5458,18 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
+    | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
+    | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id/'
     | '/apps/$appCode/'
     | '/apps/manage/'
@@ -5281,6 +5483,7 @@ export interface FileRouteTypes {
     | '/objects/$slug/'
     | '/preview/appstore/'
     | '/preview/help-docs/'
+    | '/preview/weldboard/'
     | '/preview/weldcalendar/'
     | '/preview/welddata/'
     | '/preview/welddocs/'
@@ -5323,6 +5526,8 @@ export interface FileRouteTypes {
     | '/social/team/'
     | '/weldads/accounts/'
     | '/weldads/campaigns/'
+    | '/weldboard/$boardId/'
+    | '/weldboard/templates/'
     | '/weldbooks/accounts/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
@@ -5425,6 +5630,11 @@ export interface FileRouteTypes {
     | '/weldmeet/new/'
     | '/weldmeet/people/'
     | '/weldmeet/upcoming/'
+    | '/weldmerge/cycles/'
+    | '/weldmerge/issues/'
+    | '/weldmerge/pull-requests/'
+    | '/weldmerge/releases/'
+    | '/weldmerge/settings/'
     | '/weldpanel/projects/'
     | '/weldpass/$projectId/'
     | '/weldpass/passwords/'
@@ -5459,6 +5669,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/group/$channelId'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
+    | '/preview/weldboard/$boardId/'
+    | '/preview/weldboard/templates/'
     | '/preview/weldcalendar/scheduling/'
     | '/preview/weldchat/$channelId/'
     | '/preview/weldcrm/people/'
@@ -5732,6 +5944,7 @@ export interface FileRouteTypes {
     | '/social'
     | '/welcome'
     | '/weldads'
+    | '/weldboard'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -5749,6 +5962,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldmerge'
     | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
@@ -5764,12 +5978,18 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
+    | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
+    | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id'
     | '/apps/$appCode'
     | '/apps/manage'
@@ -5783,6 +6003,7 @@ export interface FileRouteTypes {
     | '/objects/$slug'
     | '/preview/appstore'
     | '/preview/help-docs'
+    | '/preview/weldboard'
     | '/preview/weldcalendar'
     | '/preview/welddata'
     | '/preview/welddocs'
@@ -5825,6 +6046,8 @@ export interface FileRouteTypes {
     | '/social/team'
     | '/weldads/accounts'
     | '/weldads/campaigns'
+    | '/weldboard/$boardId'
+    | '/weldboard/templates'
     | '/weldbooks/accounts'
     | '/weldbooks/banking'
     | '/weldbooks/bills'
@@ -5927,6 +6150,11 @@ export interface FileRouteTypes {
     | '/weldmeet/new'
     | '/weldmeet/people'
     | '/weldmeet/upcoming'
+    | '/weldmerge/cycles'
+    | '/weldmerge/issues'
+    | '/weldmerge/pull-requests'
+    | '/weldmerge/releases'
+    | '/weldmerge/settings'
     | '/weldpanel/projects'
     | '/weldpass/$projectId'
     | '/weldpass/passwords'
@@ -5954,6 +6182,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/group/$channelId'
     | '/preview/appstore/$code'
     | '/preview/settings/team'
+    | '/preview/weldboard/$boardId'
+    | '/preview/weldboard/templates'
     | '/preview/weldcalendar/scheduling'
     | '/preview/weldchat/$channelId'
     | '/preview/weldcrm/people'
@@ -6209,6 +6439,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/social'
     | '/weldads'
+    | '/weldboard'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -6226,6 +6457,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldmerge'
     | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
@@ -6238,6 +6470,7 @@ export interface FileRouteTypes {
     | '/apps/$appCode'
     | '/preview/appstore'
     | '/preview/settings'
+    | '/preview/weldboard'
     | '/preview/weldcalendar'
     | '/preview/weldchat'
     | '/preview/weldcrm'
@@ -6268,6 +6501,7 @@ export interface FileRouteTypes {
     | '/social/'
     | '/welcome/'
     | '/weldads/'
+    | '/weldboard/'
     | '/weldbooks/'
     | '/weldcalendar/'
     | '/weldcall/'
@@ -6285,6 +6519,7 @@ export interface FileRouteTypes {
     | '/weldknow/'
     | '/weldmail/'
     | '/weldmeet/'
+    | '/weldmerge/'
     | '/weldpanel/'
     | '/weldpass/'
     | '/weldreach/'
@@ -6305,12 +6540,18 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
+    | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
+    | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id/'
     | '/apps/$appCode/'
     | '/apps/manage/'
@@ -6324,6 +6565,7 @@ export interface FileRouteTypes {
     | '/objects/$slug/'
     | '/preview/appstore/'
     | '/preview/help-docs/'
+    | '/preview/weldboard/'
     | '/preview/weldcalendar/'
     | '/preview/welddata/'
     | '/preview/welddocs/'
@@ -6366,6 +6608,8 @@ export interface FileRouteTypes {
     | '/social/team/'
     | '/weldads/accounts/'
     | '/weldads/campaigns/'
+    | '/weldboard/$boardId/'
+    | '/weldboard/templates/'
     | '/weldbooks/accounts/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
@@ -6468,6 +6712,11 @@ export interface FileRouteTypes {
     | '/weldmeet/new/'
     | '/weldmeet/people/'
     | '/weldmeet/upcoming/'
+    | '/weldmerge/cycles/'
+    | '/weldmerge/issues/'
+    | '/weldmerge/pull-requests/'
+    | '/weldmerge/releases/'
+    | '/weldmerge/settings/'
     | '/weldpanel/projects/'
     | '/weldpass/$projectId/'
     | '/weldpass/passwords/'
@@ -6502,6 +6751,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/group/$channelId'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
+    | '/preview/weldboard/$boardId/'
+    | '/preview/weldboard/templates/'
     | '/preview/weldcalendar/scheduling/'
     | '/preview/weldchat/$channelId/'
     | '/preview/weldcrm/people/'
@@ -6758,6 +7009,7 @@ export interface RootRouteChildren {
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SocialRouteRoute: typeof SocialRouteRouteWithChildren
   WeldadsRouteRoute: typeof WeldadsRouteRouteWithChildren
+  WeldboardRouteRoute: typeof WeldboardRouteRouteWithChildren
   WeldbooksRouteRoute: typeof WeldbooksRouteRouteWithChildren
   WeldcalendarRouteRoute: typeof WeldcalendarRouteRouteWithChildren
   WeldcallRouteRoute: typeof WeldcallRouteRouteWithChildren
@@ -6775,6 +7027,7 @@ export interface RootRouteChildren {
   WeldknowRouteRoute: typeof WeldknowRouteRouteWithChildren
   WeldmailRouteRoute: typeof WeldmailRouteRouteWithChildren
   WeldmeetRouteRoute: typeof WeldmeetRouteRouteWithChildren
+  WeldmergeRouteRoute: typeof WeldmergeRouteRouteWithChildren
   WeldpanelRouteRoute: typeof WeldpanelRouteRouteWithChildren
   WeldpassRouteRoute: typeof WeldpassRouteRouteWithChildren
   WeldreachRouteRoute: typeof WeldreachRouteRouteWithChildren
@@ -6787,6 +7040,7 @@ export interface RootRouteChildren {
   AppsAppCodeRouteRoute: typeof AppsAppCodeRouteRouteWithChildren
   PreviewAppstoreRouteRoute: typeof PreviewAppstoreRouteRouteWithChildren
   PreviewSettingsRouteRoute: typeof PreviewSettingsRouteRouteWithChildren
+  PreviewWeldboardRouteRoute: typeof PreviewWeldboardRouteRouteWithChildren
   PreviewWeldcalendarRouteRoute: typeof PreviewWeldcalendarRouteRouteWithChildren
   PreviewWeldchatRouteRoute: typeof PreviewWeldchatRouteRouteWithChildren
   PreviewWeldcrmRouteRoute: typeof PreviewWeldcrmRouteRouteWithChildren
@@ -6872,6 +7126,13 @@ declare module '@tanstack/react-router' {
       path: '/weldpanel'
       fullPath: '/weldpanel'
       preLoaderRoute: typeof WeldpanelRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldmerge': {
+      id: '/weldmerge'
+      path: '/weldmerge'
+      fullPath: '/weldmerge'
+      preLoaderRoute: typeof WeldmergeRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/weldmeet': {
@@ -6993,6 +7254,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/weldboard': {
+      id: '/weldboard'
+      path: '/weldboard'
+      fullPath: '/weldboard'
+      preLoaderRoute: typeof WeldboardRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/weldads': {
       id: '/weldads'
       path: '/weldads'
@@ -7083,6 +7351,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldpanel/'
       preLoaderRoute: typeof WeldpanelIndexRouteImport
       parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldmerge/': {
+      id: '/weldmerge/'
+      path: '/'
+      fullPath: '/weldmerge/'
+      preLoaderRoute: typeof WeldmergeIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
     }
     '/weldmeet/': {
       id: '/weldmeet/'
@@ -7202,6 +7477,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldbooks/'
       preLoaderRoute: typeof WeldbooksIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldboard/': {
+      id: '/weldboard/'
+      path: '/'
+      fullPath: '/weldboard/'
+      preLoaderRoute: typeof WeldboardIndexRouteImport
+      parentRoute: typeof WeldboardRouteRoute
     }
     '/weldads/': {
       id: '/weldads/'
@@ -7413,6 +7695,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldcalendarRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/weldboard': {
+      id: '/preview/weldboard'
+      path: '/preview/weldboard'
+      fullPath: '/preview/weldboard'
+      preLoaderRoute: typeof PreviewWeldboardRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/preview/settings': {
       id: '/preview/settings'
       path: '/preview/settings'
@@ -7559,6 +7848,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldpanel/projects/'
       preLoaderRoute: typeof WeldpanelProjectsIndexRouteImport
       parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldmerge/settings/': {
+      id: '/weldmerge/settings/'
+      path: '/settings'
+      fullPath: '/weldmerge/settings/'
+      preLoaderRoute: typeof WeldmergeSettingsIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/releases/': {
+      id: '/weldmerge/releases/'
+      path: '/releases'
+      fullPath: '/weldmerge/releases/'
+      preLoaderRoute: typeof WeldmergeReleasesIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/pull-requests/': {
+      id: '/weldmerge/pull-requests/'
+      path: '/pull-requests'
+      fullPath: '/weldmerge/pull-requests/'
+      preLoaderRoute: typeof WeldmergePullRequestsIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/issues/': {
+      id: '/weldmerge/issues/'
+      path: '/issues'
+      fullPath: '/weldmerge/issues/'
+      preLoaderRoute: typeof WeldmergeIssuesIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/cycles/': {
+      id: '/weldmerge/cycles/'
+      path: '/cycles'
+      fullPath: '/weldmerge/cycles/'
+      preLoaderRoute: typeof WeldmergeCyclesIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
     }
     '/weldmeet/upcoming/': {
       id: '/weldmeet/upcoming/'
@@ -8274,6 +8598,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksAccountsIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldboard/templates/': {
+      id: '/weldboard/templates/'
+      path: '/templates'
+      fullPath: '/weldboard/templates/'
+      preLoaderRoute: typeof WeldboardTemplatesIndexRouteImport
+      parentRoute: typeof WeldboardRouteRoute
+    }
+    '/weldboard/$boardId/': {
+      id: '/weldboard/$boardId/'
+      path: '/$boardId'
+      fullPath: '/weldboard/$boardId/'
+      preLoaderRoute: typeof WeldboardBoardIdIndexRouteImport
+      parentRoute: typeof WeldboardRouteRoute
+    }
     '/weldads/campaigns/': {
       id: '/weldads/campaigns/'
       path: '/campaigns'
@@ -8568,6 +8906,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldcalendarIndexRouteImport
       parentRoute: typeof PreviewWeldcalendarRouteRoute
     }
+    '/preview/weldboard/': {
+      id: '/preview/weldboard/'
+      path: '/'
+      fullPath: '/preview/weldboard/'
+      preLoaderRoute: typeof PreviewWeldboardIndexRouteImport
+      parentRoute: typeof PreviewWeldboardRouteRoute
+    }
     '/preview/help-docs/': {
       id: '/preview/help-docs/'
       path: '/preview/help-docs'
@@ -8659,6 +9004,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsIdIndexRouteImport
       parentRoute: typeof AgentsRouteRoute
     }
+    '/weldmerge/releases/$releaseId': {
+      id: '/weldmerge/releases/$releaseId'
+      path: '/releases/$releaseId'
+      fullPath: '/weldmerge/releases/$releaseId'
+      preLoaderRoute: typeof WeldmergeReleasesReleaseIdRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/pull-requests/$pullRequestId': {
+      id: '/weldmerge/pull-requests/$pullRequestId'
+      path: '/pull-requests/$pullRequestId'
+      fullPath: '/weldmerge/pull-requests/$pullRequestId'
+      preLoaderRoute: typeof WeldmergePullRequestsPullRequestIdRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/oauth/callback': {
+      id: '/weldmerge/oauth/callback'
+      path: '/oauth/callback'
+      fullPath: '/weldmerge/oauth/callback'
+      preLoaderRoute: typeof WeldmergeOauthCallbackRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/issues/$issueKey': {
+      id: '/weldmerge/issues/$issueKey'
+      path: '/issues/$issueKey'
+      fullPath: '/weldmerge/issues/$issueKey'
+      preLoaderRoute: typeof WeldmergeIssuesIssueKeyRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
     '/weldmeet/join/$joinCode': {
       id: '/weldmeet/join/$joinCode'
       path: '/join/$joinCode'
@@ -8699,6 +9072,20 @@ declare module '@tanstack/react-router' {
       path: '/custom-objects/$objectId'
       fullPath: '/settings/custom-objects/$objectId'
       preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldreach': {
+      id: '/settings/apps/weldreach'
+      path: '/apps/weldreach'
+      fullPath: '/settings/apps/weldreach'
+      preLoaderRoute: typeof SettingsAppsWeldreachRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldmerge': {
+      id: '/settings/apps/weldmerge'
+      path: '/apps/weldmerge'
+      fullPath: '/settings/apps/weldmerge'
+      preLoaderRoute: typeof SettingsAppsWeldmergeRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/apps/weldhr': {
@@ -9758,6 +10145,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldcalendarSchedulingIndexRouteImport
       parentRoute: typeof PreviewWeldcalendarRouteRoute
     }
+    '/preview/weldboard/templates/': {
+      id: '/preview/weldboard/templates/'
+      path: '/templates'
+      fullPath: '/preview/weldboard/templates/'
+      preLoaderRoute: typeof PreviewWeldboardTemplatesIndexRouteImport
+      parentRoute: typeof PreviewWeldboardRouteRoute
+    }
+    '/preview/weldboard/$boardId/': {
+      id: '/preview/weldboard/$boardId/'
+      path: '/$boardId'
+      fullPath: '/preview/weldboard/$boardId/'
+      preLoaderRoute: typeof PreviewWeldboardBoardIdIndexRouteImport
+      parentRoute: typeof PreviewWeldboardRouteRoute
+    }
     '/preview/settings/team/': {
       id: '/preview/settings/team/'
       path: '/team'
@@ -10735,6 +11136,8 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
   SettingsAppsWeldflowRoute: typeof SettingsAppsWeldflowRoute
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
+  SettingsAppsWeldmergeRoute: typeof SettingsAppsWeldmergeRoute
+  SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
@@ -10797,6 +11200,8 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldcrmRoute: SettingsAppsWeldcrmRoute,
   SettingsAppsWeldflowRoute: SettingsAppsWeldflowRoute,
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
+  SettingsAppsWeldmergeRoute: SettingsAppsWeldmergeRoute,
+  SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
@@ -10917,6 +11322,22 @@ const WeldadsRouteRouteChildren: WeldadsRouteRouteChildren = {
 
 const WeldadsRouteRouteWithChildren = WeldadsRouteRoute._addFileChildren(
   WeldadsRouteRouteChildren,
+)
+
+interface WeldboardRouteRouteChildren {
+  WeldboardIndexRoute: typeof WeldboardIndexRoute
+  WeldboardBoardIdIndexRoute: typeof WeldboardBoardIdIndexRoute
+  WeldboardTemplatesIndexRoute: typeof WeldboardTemplatesIndexRoute
+}
+
+const WeldboardRouteRouteChildren: WeldboardRouteRouteChildren = {
+  WeldboardIndexRoute: WeldboardIndexRoute,
+  WeldboardBoardIdIndexRoute: WeldboardBoardIdIndexRoute,
+  WeldboardTemplatesIndexRoute: WeldboardTemplatesIndexRoute,
+}
+
+const WeldboardRouteRouteWithChildren = WeldboardRouteRoute._addFileChildren(
+  WeldboardRouteRouteChildren,
 )
 
 interface WeldbooksRouteRouteChildren {
@@ -11984,6 +12405,37 @@ const WeldmeetRouteRouteWithChildren = WeldmeetRouteRoute._addFileChildren(
   WeldmeetRouteRouteChildren,
 )
 
+interface WeldmergeRouteRouteChildren {
+  WeldmergeIndexRoute: typeof WeldmergeIndexRoute
+  WeldmergeIssuesIssueKeyRoute: typeof WeldmergeIssuesIssueKeyRoute
+  WeldmergeOauthCallbackRoute: typeof WeldmergeOauthCallbackRoute
+  WeldmergePullRequestsPullRequestIdRoute: typeof WeldmergePullRequestsPullRequestIdRoute
+  WeldmergeReleasesReleaseIdRoute: typeof WeldmergeReleasesReleaseIdRoute
+  WeldmergeCyclesIndexRoute: typeof WeldmergeCyclesIndexRoute
+  WeldmergeIssuesIndexRoute: typeof WeldmergeIssuesIndexRoute
+  WeldmergePullRequestsIndexRoute: typeof WeldmergePullRequestsIndexRoute
+  WeldmergeReleasesIndexRoute: typeof WeldmergeReleasesIndexRoute
+  WeldmergeSettingsIndexRoute: typeof WeldmergeSettingsIndexRoute
+}
+
+const WeldmergeRouteRouteChildren: WeldmergeRouteRouteChildren = {
+  WeldmergeIndexRoute: WeldmergeIndexRoute,
+  WeldmergeIssuesIssueKeyRoute: WeldmergeIssuesIssueKeyRoute,
+  WeldmergeOauthCallbackRoute: WeldmergeOauthCallbackRoute,
+  WeldmergePullRequestsPullRequestIdRoute:
+    WeldmergePullRequestsPullRequestIdRoute,
+  WeldmergeReleasesReleaseIdRoute: WeldmergeReleasesReleaseIdRoute,
+  WeldmergeCyclesIndexRoute: WeldmergeCyclesIndexRoute,
+  WeldmergeIssuesIndexRoute: WeldmergeIssuesIndexRoute,
+  WeldmergePullRequestsIndexRoute: WeldmergePullRequestsIndexRoute,
+  WeldmergeReleasesIndexRoute: WeldmergeReleasesIndexRoute,
+  WeldmergeSettingsIndexRoute: WeldmergeSettingsIndexRoute,
+}
+
+const WeldmergeRouteRouteWithChildren = WeldmergeRouteRoute._addFileChildren(
+  WeldmergeRouteRouteChildren,
+)
+
 interface WeldpanelRouteRouteChildren {
   WeldpanelIndexRoute: typeof WeldpanelIndexRoute
   WeldpanelProjectsIndexRoute: typeof WeldpanelProjectsIndexRoute
@@ -12146,6 +12598,23 @@ const PreviewSettingsRouteRouteChildren: PreviewSettingsRouteRouteChildren = {
 
 const PreviewSettingsRouteRouteWithChildren =
   PreviewSettingsRouteRoute._addFileChildren(PreviewSettingsRouteRouteChildren)
+
+interface PreviewWeldboardRouteRouteChildren {
+  PreviewWeldboardIndexRoute: typeof PreviewWeldboardIndexRoute
+  PreviewWeldboardBoardIdIndexRoute: typeof PreviewWeldboardBoardIdIndexRoute
+  PreviewWeldboardTemplatesIndexRoute: typeof PreviewWeldboardTemplatesIndexRoute
+}
+
+const PreviewWeldboardRouteRouteChildren: PreviewWeldboardRouteRouteChildren = {
+  PreviewWeldboardIndexRoute: PreviewWeldboardIndexRoute,
+  PreviewWeldboardBoardIdIndexRoute: PreviewWeldboardBoardIdIndexRoute,
+  PreviewWeldboardTemplatesIndexRoute: PreviewWeldboardTemplatesIndexRoute,
+}
+
+const PreviewWeldboardRouteRouteWithChildren =
+  PreviewWeldboardRouteRoute._addFileChildren(
+    PreviewWeldboardRouteRouteChildren,
+  )
 
 interface PreviewWeldcalendarRouteRouteChildren {
   PreviewWeldcalendarIndexRoute: typeof PreviewWeldcalendarIndexRoute
@@ -12373,6 +12842,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SocialRouteRoute: SocialRouteRouteWithChildren,
   WeldadsRouteRoute: WeldadsRouteRouteWithChildren,
+  WeldboardRouteRoute: WeldboardRouteRouteWithChildren,
   WeldbooksRouteRoute: WeldbooksRouteRouteWithChildren,
   WeldcalendarRouteRoute: WeldcalendarRouteRouteWithChildren,
   WeldcallRouteRoute: WeldcallRouteRouteWithChildren,
@@ -12390,6 +12860,7 @@ const rootRouteChildren: RootRouteChildren = {
   WeldknowRouteRoute: WeldknowRouteRouteWithChildren,
   WeldmailRouteRoute: WeldmailRouteRouteWithChildren,
   WeldmeetRouteRoute: WeldmeetRouteRouteWithChildren,
+  WeldmergeRouteRoute: WeldmergeRouteRouteWithChildren,
   WeldpanelRouteRoute: WeldpanelRouteRouteWithChildren,
   WeldpassRouteRoute: WeldpassRouteRouteWithChildren,
   WeldreachRouteRoute: WeldreachRouteRouteWithChildren,
@@ -12402,6 +12873,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppsAppCodeRouteRoute: AppsAppCodeRouteRouteWithChildren,
   PreviewAppstoreRouteRoute: PreviewAppstoreRouteRouteWithChildren,
   PreviewSettingsRouteRoute: PreviewSettingsRouteRouteWithChildren,
+  PreviewWeldboardRouteRoute: PreviewWeldboardRouteRouteWithChildren,
   PreviewWeldcalendarRouteRoute: PreviewWeldcalendarRouteRouteWithChildren,
   PreviewWeldchatRouteRoute: PreviewWeldchatRouteRouteWithChildren,
   PreviewWeldcrmRouteRoute: PreviewWeldcrmRouteRouteWithChildren,

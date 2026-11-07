@@ -27,6 +27,8 @@
 mod actions;
 mod hooks;
 mod steps;
+
+pub use actions::merge::MergeWorkflowActions;
 pub(crate) mod template;
 
 use std::collections::HashMap;
@@ -105,6 +107,10 @@ pub struct EngineDeps {
     /// out inbox conversations a workflow opens or assigns; without it the
     /// pick is local.
     pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
+    /// `env.MERGE_INTERNAL`: WeldMerge's workflow-action intake, for the
+    /// `merge.*` steps. None while WeldMerge is not served: those steps then
+    /// fail, as the worker without the binding.
+    pub merge: Option<Arc<dyn MergeWorkflowActions>>,
 }
 
 impl std::fmt::Debug for EngineDeps {

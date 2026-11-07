@@ -278,6 +278,11 @@ function summarizeTitle(config: Bag): string {
   return text(config.title);
 }
 
+/** `merge.update_issue` and `merge.comment_on_issue`: the issue they act on. */
+function summarizeMergeIssue(config: Bag): string {
+  return text(config.issue);
+}
+
 function summarizePrompt(config: Bag): string {
   return clip(text(config.prompt));
 }
@@ -327,6 +332,9 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['log_activity', summarizeSubject],
   ['post_chat_message', summarizePostChatMessage],
   ['create_task', summarizeTitle],
+  ['merge.create_issue', summarizeTitle],
+  ['merge.update_issue', summarizeMergeIssue],
+  ['merge.comment_on_issue', summarizeMergeIssue],
   ['create_conversation', summarizeTitle],
   ['manual_step', summarizeTitle],
   ['ai_generate', summarizePrompt],

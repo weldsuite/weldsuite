@@ -66,6 +66,10 @@ pub struct OnboardingState {
     /// Creates workspaces; `None` answers 500 "Workspace service not
     /// configured", as app-api without its `WORKSPACE_WORKER` binding.
     pub workspace_service: Option<Arc<WorkspaceService>>,
+    /// WeldBoard is served here: `board` is ported and its rooms (the
+    /// collab-rooms service) are configured. The workers list it in the
+    /// fallback catalog only with their `BOARD_API` binding.
+    pub board_offered: bool,
 }
 
 impl std::fmt::Debug for OnboardingState {

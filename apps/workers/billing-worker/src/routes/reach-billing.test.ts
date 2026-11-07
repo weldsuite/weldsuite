@@ -180,7 +180,7 @@ describe('GET /status', () => {
         status: 'none',
         hasPaymentMethod: true,
         inboxCount: 0,
-        unitAmountCents: 500,
+        unitAmountCents: 800,
         currency: 'usd',
         currentPeriodEnd: null,
       },
@@ -443,13 +443,13 @@ describe('POST /inboxes delta +1', () => {
     expect(created?.form.get('metadata[clerkOrgId]')).toBe('org_1');
     expect(created?.form.get('metadata[appCode]')).toBe('weldreach');
     expect(created?.idempotencyKey).toBe('weldreach-sub:ws_1:rmb_1:none:pm_1');
-    expect(callTo('GET', '/v1/prices')?.query.get('lookup_keys[]')).toBe('weldreach_inbox_monthly_v1');
+    expect(callTo('GET', '/v1/prices')?.query.get('lookup_keys[]')).toBe('weldreach_inbox_monthly_v2');
 
     expect(fake.written('update')[0]).toMatchObject({ stripeSubscriptionId: 'sub_new', billingStatus: 'active' });
     expect((fake.written('update')[0] as { billingStatusAt: unknown }).billingStatusAt).toBeInstanceOf(Date);
   });
 
-  it('creates the $5 USD monthly price lazily when none exists', async () => {
+  it('creates the $8 USD monthly price lazily when none exists', async () => {
     useDb({ selects: [[workspace()], [access()]] });
     stubStripe({
       'GET /v1/customers/cus_1': customerWithCard,
@@ -465,10 +465,10 @@ describe('POST /inboxes delta +1', () => {
     expect(callTo('POST', '/v1/products')?.form.get('metadata[type]')).toBe('weldreach');
     const price = callTo('POST', '/v1/prices')?.form;
     expect(price?.get('product')).toBe('prod_inbox');
-    expect(price?.get('unit_amount')).toBe('500');
+    expect(price?.get('unit_amount')).toBe('800');
     expect(price?.get('currency')).toBe('usd');
     expect(price?.get('recurring[interval]')).toBe('month');
-    expect(price?.get('lookup_key')).toBe('weldreach_inbox_monthly_v1');
+    expect(price?.get('lookup_key')).toBe('weldreach_inbox_monthly_v2');
     expect(callTo('POST', '/v1/subscriptions')?.form.get('items[0][price]')).toBe('price_new');
   });
 

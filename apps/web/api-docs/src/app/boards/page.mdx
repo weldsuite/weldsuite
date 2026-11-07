@@ -1,0 +1,367 @@
+# Boards
+
+Boards are WeldBoard whiteboards: an infinite canvas of sticky notes, shapes, text, cards, frames, arrows and mind maps that people edit together. A board lives in someone's WeldDrive, or in a WeldFlow project. Reads require the `boards:read` scope; changes require `boards:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+You do not draw through the API: you describe what goes on a board (a **board spec**), and WeldBoard lays it out. People who have the board open watch the change arrive, and they can undo it from the board's version history.
+
+<Note>
+  A personal API key acts as its owner: it sees and changes the boards they can open. A workspace API key reaches the boards of every WeldFlow project and no one's own WeldDrive, so it creates project boards only.
+</Note>
+
+---
+
+## The board model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `brd_abc123`). A project whiteboard made before WeldBoard keeps its old id (`pwb_…`).</Property>
+  <Property name="name" type="string">The board's name (its WeldDrive file name).</Property>
+  <Property name="projectId" type="string | null">The WeldFlow project it belongs to, or `null` for a board in WeldDrive.</Property>
+  <Property name="revision" type="integer">Goes up with every change.</Property>
+  <Property name="role" type="string">What the caller may do: `owner`, `editor` or `viewer`.</Property>
+  <Property name="url" type="string">Where the board opens in WeldSuite.</Property>
+  <Property name="createdAt" type="timestamp">When the board was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the board last changed.</Property>
+</Properties>
+
+### Elements
+
+`GET /v1/boards/:id` lists what is on a board, one entry per element:
+
+<Properties>
+  <Property name="id" type="string">The element's id, for `PATCH /v1/boards/:id/elements`.</Property>
+  <Property name="type" type="string">`sticky`, `shape`, `text`, `card`, `frame`, `connector`, `image`, `file`, `link`, `record`, `pen` and so on.</Property>
+  <Property name="text" type="string">Its text (a frame's title).</Property>
+  <Property name="x, y, w, h" type="number">Position and size, in board units.</Property>
+  <Property name="parent" type="string">The frame or group it sits in, when it does.</Property>
+</Properties>
+
+---
+
+## The board spec
+
+What `POST /v1/boards` (as `content`) and `POST /v1/boards/:id/elements` (as `spec`) take. Every field is optional.
+
+<Properties>
+  <Property name="items" type="array">Up to 500 things to put on the board. Each has a `type` (`sticky`, `shape`, `text` or `card`), its `text`, and optionally a `key` (a name for arrows to refer to), a `color` (`yellow`, `orange`, `red`, `pink`, `violet`, `blue`, `cyan`, `teal`, `green`, `lime`, `grey`, `white`), a `shape` for shapes (`rounded`, `rectangle`, `diamond`, `terminator`, `ellipse`, `parallelogram`, `cylinder`, `document`, …), a `description` for cards, and the `frame` it goes in.</Property>
+  <Property name="frames" type="array">Frames laid side by side, each `{ key, title }`. Items that name a frame go in it, in a grid.</Property>
+  <Property name="lines" type="array">Arrows between items, `{ from, to, label? }`, by item key.</Property>
+  <Property name="layout" type="string">`grid` (rows of items) or `flow` (layers that follow the arrows: a flowchart). The default is `flow` when there are arrows.</Property>
+  <Property name="direction" type="string">Which way a flow runs: `down` (default) or `right`.</Property>
+  <Property name="mindmap" type="object">A mind map: `{ text, children: [{ text, children: [...] }] }`, the central topic and its branches.</Property>
+</Properties>
+
+---
+
+## List boards {{ tag: 'GET', label: '/v1/boards' }}
+
+<Row>
+  <Col>
+
+    The boards the caller can open, most recently changed first. Cursor-paginated.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="search" type="string">Part of the board name.</Property>
+      <Property name="projectId" type="string">Only this project's boards.</Property>
+      <Property name="scope" type="string">`drive`: the key owner's WeldDrive boards (the default for a personal key); `projects`: every project board (the default for a workspace key).</Property>
+      <Property name="limit" type="integer">Items per page (max 100, default 25).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/boards">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/boards \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d search=retro
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "brd_abc123",
+          "name": "Sprint 12 retro",
+          "projectId": null,
+          "revision": 42,
+          "role": "owner",
+          "url": "/weldboard/brd_abc123",
+          "createdAt": "2026-11-01T09:00:00.000Z",
+          "updatedAt": "2026-11-04T15:20:00.000Z"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a board {{ tag: 'GET', label: '/v1/boards/:id' }}
+
+<Row>
+  <Col>
+
+    One board, with its elements as they are right now (edits people are making included).
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="format" type="string">`outline` (default): the elements; `text`: the board's text only.</Property>
+      <Property name="limit" type="integer">Most elements in an outline (max 2000, default 500).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/boards/brd_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/boards/brd_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "brd_abc123",
+        "name": "Sprint 12 retro",
+        "revision": 42,
+        "count": 2,
+        "elements": [
+          { "id": "e1", "type": "frame", "text": "Went well", "x": 0, "y": 0, "w": 320, "h": 360 },
+          { "id": "e2", "type": "sticky", "text": "Shipped on time", "x": 48, "y": 80, "w": 200, "h": 200, "parent": "e1" }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a board {{ tag: 'POST', label: '/v1/boards' }}
+
+<Row>
+  <Col>
+
+    Create a board in the key owner's My Drive, or in a project, optionally with content.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">Its name (default `Untitled board`).</Property>
+      <Property name="projectId" type="string">Make it a board of this project. Required with a workspace key.</Property>
+      <Property name="content" type="object">A board spec to start from.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/boards">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/boards \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Sprint 12 retro",
+        "content": {
+          "frames": [
+            { "key": "well", "title": "Went well" },
+            { "key": "better", "title": "To improve" }
+          ],
+          "items": [
+            { "type": "sticky", "text": "Shipped on time", "frame": "well", "color": "green" },
+            { "type": "sticky", "text": "Fewer meetings", "frame": "better", "color": "pink" }
+          ]
+        }
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "brd_new456",
+        "name": "Sprint 12 retro",
+        "projectId": null,
+        "revision": 1,
+        "role": "owner",
+        "url": "/weldboard/brd_new456",
+        "elementIds": ["e7", "e8"],
+        "keys": {}
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add to a board {{ tag: 'POST', label: '/v1/boards/:id/elements' }}
+
+<Row>
+  <Col>
+
+    Put a board spec on a board, laid out. It goes to the right of what is already there, or centred on `at`.
+
+    ### Attributes
+
+    <Properties>
+      <Property name="spec" type="object" required>The board spec.</Property>
+      <Property name="at" type="object">`{ x, y }`: the board point for the middle of the new content.</Property>
+    </Properties>
+
+    The answer gives the new top-level elements (`elementIds`) and the element id each keyed item got (`keys`).
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/boards/brd_abc123/elements">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/boards/brd_abc123/elements \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "spec": {
+          "items": [
+            { "key": "in", "type": "shape", "shape": "terminator", "text": "Ticket comes in" },
+            { "key": "urgent", "type": "shape", "shape": "diamond", "text": "Urgent?" },
+            { "key": "call", "type": "shape", "text": "Call the customer" },
+            { "key": "reply", "type": "shape", "text": "Reply within a day" }
+          ],
+          "lines": [
+            { "from": "in", "to": "urgent" },
+            { "from": "urgent", "to": "call", "label": "Yes" },
+            { "from": "urgent", "to": "reply", "label": "No" }
+          ]
+        }
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "revision": 43,
+        "elementIds": ["e9", "e10", "e11", "e12", "e13", "e14", "e15"],
+        "keys": { "in": "e9", "urgent": "e10", "call": "e11", "reply": "e12" },
+        "url": "/weldboard/brd_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Change elements {{ tag: 'PATCH', label: '/v1/boards/:id/elements' }}
+
+<Row>
+  <Col>
+
+    Change or remove elements by id. Elements that are gone or locked are skipped and listed in `skipped`.
+
+    ### Attributes
+
+    <Properties>
+      <Property name="changes" type="array" required>Up to 500 changes, each `{ id, text?, color?, x?, y?, delete? }`. `text` replaces the element's text; moving a frame moves what is in it; `delete` removes the element and what is inside it.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/boards/brd_abc123/elements">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/boards/brd_abc123/elements \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "changes": [{ "id": "e2", "text": "Shipped early", "color": "green" }, { "id": "e5", "delete": true }] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "revision": 44, "changed": ["e2", "e5"], "skipped": [], "url": "/weldboard/brd_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Rename a board {{ tag: 'PATCH', label: '/v1/boards/:id' }}
+
+<Row>
+  <Col>
+
+    ### Attributes
+
+    <Properties>
+      <Property name="name" type="string" required>The new name.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/boards/brd_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/boards/brd_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Sprint 12 retro (done)" }'
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Delete a board {{ tag: 'DELETE', label: '/v1/boards/:id' }}
+
+<Row>
+  <Col>
+
+    Moves the board to the trash; WeldDrive empties it after 30 days. Answers `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/boards/brd_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/boards/brd_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>

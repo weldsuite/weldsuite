@@ -29,6 +29,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PageColumn } from '@weldsuite/ui/components/page-layout';
 import { useAccountingDashboard } from '@/hooks/queries/use-accounting-queries';
 import { useDashboardCharts } from '@/hooks/queries/use-weldbooks-dashboard-charts';
 import { useI18n } from '@/lib/i18n/provider';
@@ -68,11 +69,11 @@ export default function DashboardChartBuilderPage() {
   if (isLoading || chartsLoading) return <PageLoader fullScreen={false} />;
   const dashboard = data?.data;
   if (!dashboard) {
-    return <div className="mx-auto w-full max-w-7xl p-6 text-muted-foreground">{t.accounting.dashboard.loadingMessage}</div>;
+    return <PageColumn className="py-6 text-muted-foreground">{t.accounting.dashboard.loadingMessage}</PageColumn>;
   }
   const existing = chartId ? charts.find((c) => c.id === chartId) : undefined;
   if (chartId && !existing) {
-    return <div className="mx-auto w-full max-w-7xl p-6 text-muted-foreground">{t.accounting.dashboard.builder.notFound}</div>;
+    return <PageColumn className="py-6 text-muted-foreground">{t.accounting.dashboard.builder.notFound}</PageColumn>;
   }
   return <ChartBuilder key={chartId ?? 'new'} dashboard={dashboard} initial={existing} />;
 }

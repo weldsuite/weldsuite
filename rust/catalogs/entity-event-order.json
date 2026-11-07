@@ -257,7 +257,20 @@
   "sheet",
   "sheet_version",
   "sheet_data_source",
+  "board",
+  "board_version",
   "sign_envelope",
   "sign_template",
-  "panel_project"
+  "panel_project",
+  "merge_team",
+  "merge_issue",
+  "merge_comment",
+  "merge_label",
+  "merge_cycle",
+  "merge_connection",
+  "merge_repository",
+  "merge_pull_request",
+  "merge_release",
+  "merge_record_link",
+  "merge_chat_subscription"
 ]

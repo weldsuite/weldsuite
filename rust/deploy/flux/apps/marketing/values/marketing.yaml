@@ -1,0 +1,37 @@
+# The chart's defaults: weldsuite-eu-marketing, deploy/helm/weldsuite-marketing.
+# The image follows the chart's appVersion (the build it was published with).
+
+# The image is private, like its repository: pulled with the token the chart
+# source uses too (source.yaml).
+imagePullSecrets:
+  - name: ghcr
+
+replicaCount: 1
+
+# marketing-env (secrets example): MASTER_DATABASE_URL, this cluster's own
+# master database as the marketing role, so the pricing pages show the plan
+# prices in its `plans` table, not Global's. No RESEND_API_KEY: the contact
+# and support forms are not delivered.
+existingSecret: marketing-env
+
+# English on www.${DOMAIN}, Dutch on nl.${DOMAIN}: the hosts the image was
+# built for (its workflow's SITE_URL and NL_SITE_URL).
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: www.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: nl.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: marketing-tls
+      hosts:
+        - www.${DOMAIN}
+        - nl.${DOMAIN}

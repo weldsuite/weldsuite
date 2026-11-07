@@ -112,6 +112,14 @@ bucket_name = "weldsuite-private-test"
 binding = "HELPDESK_WORKFLOW"
 service = "helpdesk-workflow-worker-dev"
 
+# board-api's BoardsInternal entrypoint: the MCP whiteboard tools read and write
+# WeldBoard boards through it (src/api/routes/v1/whiteboards). Reachable only over
+# a service binding, so no secret.
+[[services]]
+binding = "BOARDS_INTERNAL"
+service = "weldsuite-board-api-dev"
+entrypoint = "BoardsInternal"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"
@@ -172,6 +180,14 @@ head_sampling_rate = 1
 [[env.test.services]]
 binding = "HELPDESK_WORKFLOW"
 service = "helpdesk-workflow-worker-test"
+
+# board-api's BoardsInternal entrypoint: the MCP whiteboard tools read and write
+# WeldBoard boards through it (src/api/routes/v1/whiteboards). Reachable only over
+# a service binding, so no secret.
+[[env.test.services]]
+binding = "BOARDS_INTERNAL"
+service = "weldsuite-board-api-test"
+entrypoint = "BoardsInternal"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -252,3 +268,11 @@ head_sampling_rate = 1
 [[env.production.services]]
 binding = "HELPDESK_WORKFLOW"
 service = "helpdesk-workflow-worker"
+
+# board-api's BoardsInternal entrypoint: the MCP whiteboard tools read and write
+# WeldBoard boards through it (src/api/routes/v1/whiteboards). Reachable only over
+# a service binding, so no secret.
+[[env.production.services]]
+binding = "BOARDS_INTERNAL"
+service = "weldsuite-board-api"
+entrypoint = "BoardsInternal"

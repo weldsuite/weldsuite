@@ -5,6 +5,8 @@
  *   DOC_ENGINE  docEngine (apps/workers/docs-api/src/engine-ops.ts)
  *   SHEET_ROOM  SheetRoom (apps/workers/sheets-api/src/room/sheet-room.ts)
  *   SHEET_ENGINE  sheetEngineFor(env) (apps/workers/sheets-api/src/engine-ops.ts)
+ *   BOARD_ROOM  BoardRoom (apps/workers/board-api/src/room/board-room.ts)
+ *   BOARD_ENGINE  boardEngine (apps/workers/board-api/src/engine-ops.ts)
  *
  * They are imported by path: the build bundles them with this service's
  * runtime in place of `cloudflare:workers` and Neon (build.mjs).
@@ -14,6 +16,8 @@ import { DocRoom } from '../../../workers/docs-api/src/room/doc-room';
 import { docEngine } from '../../../workers/docs-api/src/engine-ops';
 import { SheetRoom } from '../../../workers/sheets-api/src/room/sheet-room';
 import { sheetEngineFor } from '../../../workers/sheets-api/src/engine-ops';
+import { BoardRoom } from '../../../workers/board-api/src/room/board-room';
+import { boardEngine } from '../../../workers/board-api/src/engine-ops';
 import { RoomNamespace, type RoomFactory } from './runtime/host';
 import { r2Bucket, type ObjectStore } from './runtime/objects';
 import { createCollabServer, type CollabServer } from './server';
@@ -73,11 +77,12 @@ export function createCollabApp(config: CollabConfig): CollabServer {
   const rooms = {
     DOC_ROOM: namespace('DOC_ROOM', (ctx, roomEnv) => new DocRoom(ctx as DurableObjectState, roomEnv as never)),
     SHEET_ROOM: namespace('SHEET_ROOM', (ctx, roomEnv) => new SheetRoom(ctx as DurableObjectState, roomEnv as never)),
+    BOARD_ROOM: namespace('BOARD_ROOM', (ctx, roomEnv) => new BoardRoom(ctx as DurableObjectState, roomEnv as never)),
   };
   return createCollabServer({
     rooms,
-    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngineFor(env as never) },
-    connectPaths: { '/api/docs/connect': 'DOC_ROOM', '/api/sheets/connect': 'SHEET_ROOM' },
+    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngineFor(env as never), BOARD_ENGINE: boardEngine },
+    connectPaths: { '/api/docs/connect': 'DOC_ROOM', '/api/sheets/connect': 'SHEET_ROOM', '/api/boards/connect': 'BOARD_ROOM' },
     secret: config.secret,
     owns: config.owns,
     sweepMs: config.sweepMs,

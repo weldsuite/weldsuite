@@ -18,6 +18,9 @@ export const SEARCH_ENTITY_TYPES = [
   'project',
   'task',
   'sheet',
+  'board',
+  'merge_issue',
+  'merge_pull_request',
   'domain',
 ] as const;
 

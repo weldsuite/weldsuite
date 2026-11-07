@@ -54,7 +54,6 @@ mod task_enrich;
 mod task_writes;
 mod tasks;
 mod time_entries;
-mod whiteboards;
 
 // Project control and delivery (designs weldflow-project-control.md and
 // weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
@@ -217,7 +216,6 @@ where
             personal::router(state.clone(), personal::Kind::Tags, gate),
         ),
         ("/time-entries", time_entries::router(state.clone(), gate)),
-        ("/whiteboards", whiteboards::router(state.clone(), gate)),
     ];
     routers.extend(delivery_routers(state, gate));
     routers
@@ -322,7 +320,6 @@ pub(crate) struct Caller {
     pub(crate) org_id: Option<String>,
     /// `c.get('workspaceId')`: `workspaces.id`.
     pub(crate) workspace_id: String,
-    #[allow(dead_code)]
     env: Option<RequestEnv>,
     buckets: Option<StorageBuckets>,
     master: Option<PgPool>,
@@ -494,6 +491,17 @@ impl Caller {
             .as_ref()
             .and_then(|env| env.get(name))
             .map(str::to_owned)
+    }
+
+    /// `Date.now()` as the request sees it: the test's faked clock in
+    /// conformance (`CONFORMANCE_NOW`, which only the harness sets, in the
+    /// request's env), else the real one.
+    pub(crate) fn now_ms(&self) -> i64 {
+        self.env
+            .as_ref()
+            .and_then(|env| env.get("CONFORMANCE_NOW"))
+            .and_then(weldsuite_flow_domain::js::millis_of)
+            .unwrap_or_else(now_ms)
     }
 }
 

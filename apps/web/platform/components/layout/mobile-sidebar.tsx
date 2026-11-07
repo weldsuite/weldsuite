@@ -32,6 +32,7 @@ import { useSettings } from '@/providers/settings-provider';
 import { useAppRailBadges } from '@/hooks/use-sidebar-badges';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import { RailIconCorner } from '@/components/layout/app-rail-badge';
+import { CountBadge } from '@weldsuite/ui/components/count-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
@@ -445,11 +446,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
                             )
                           )}
                           <span className={cn("truncate min-w-0 flex-1", item.bold && "font-semibold")}>{item.title}</span>
-                          {item.badge && (
-                            <span className="shrink-0 text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] px-1 flex items-center justify-center rounded-[6px]">
-                              {item.badge}
-                            </span>
-                          )}
+                          {item.badge && <CountBadge count={item.badge} />}
                         </Button>
                       );
                     })}

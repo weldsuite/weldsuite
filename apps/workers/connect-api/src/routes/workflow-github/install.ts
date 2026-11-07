@@ -1,8 +1,12 @@
 /**
  * GitHub App Install Routes
  *
- * GET  /install-url  — Returns the GitHub App installation URL with a signed state JWT.
+ * GET  /install-url  — Returns the GitHub App installation URL with a signed state JWT
+ *                      (single use: its nonce is kept in WORKSPACE_CACHE for the state's lifetime).
  * GET  /callback     — Handles the post-install redirect from GitHub, persists connection.
+ * POST /recover      — Records an existing installation the member proves they can reach
+ *                      (their linked GitHub account lists it); 403 `installation_unverified`
+ *                      otherwise, 409 `installation_taken` when another workspace holds it.
  *
  * Both routes require Clerk authentication. The callback additionally verifies
  * the state JWT to bind the installation to the correct workspace/user.
@@ -22,10 +26,16 @@ import {
   RecoverInstallationInputSchema,
 } from '@weldsuite/core-api-client/schemas/github';
 import { signInstallStateJwt, mintAppJwt, fetchInstallationMeta } from '../../services/github/auth';
+import { rememberInstallNonce } from '@weldsuite/connect-domain/github/install-state';
+import { proveGithubInstallationAccess } from '@weldsuite/connect-domain/github/user-installations';
+import { GithubInstallationTakenError } from '@weldsuite/merge-domain/installations';
+import { storedMemberGithubToken } from '@weldsuite/merge-domain/member-token';
 import {
   getConnectionByWorkspace,
+  recordInstallation,
   revokeConnection,
-  upsertConnection,
+  toGithubConnection,
+  type GithubConnectionView,
 } from '../../services/github/connections';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
@@ -49,7 +59,8 @@ app.get(
     }
 
     const appSlug = c.env.GITHUB_APP_SLUG;
-    if (!appSlug) {
+    const kv = c.env.WORKSPACE_CACHE;
+    if (!appSlug || !kv) {
       return error.internal(c, 'GitHub App is not configured');
     }
 
@@ -62,6 +73,9 @@ app.get(
       { workspaceId: clerkOrgId, userId, projectId: projectId ?? undefined, returnTo, nonce },
       c.env.CLERK_SECRET_KEY,
     );
+
+    // The state is good for one redirect: the callback (or merge-api's setup route) takes the nonce.
+    await rememberInstallNonce(kv, nonce, clerkOrgId);
 
     const installUrl =
       `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(stateToken)}`;
@@ -115,7 +129,7 @@ app.delete(
 
     try {
       const db = c.get('tenantDb');
-      await revokeConnection(db, clerkOrgId);
+      await revokeConnection(c.env, db, c.get('workspaceId'));
       return new Response(null, { status: 204 });
     } catch (err) {
       console.error('[GitHub] Failed to disconnect:', err);
@@ -220,25 +234,38 @@ app.post(
     }
 
     try {
-      const meta = await fetchInstallationMeta(appId, privateKey, installationId);
-
       const db = c.get('tenantDb');
-      const { connection } = await upsertConnection(
-        db,
-        clerkOrgId,
-        {
-          installationId,
-          appSlug: meta.appSlug,
-          ownerType: meta.accountType === 'Organization' ? 'org' : 'user',
-          ownerLogin: meta.accountLogin,
-          status: 'active',
-          createdBy: userId,
-        },
-        encryptionKey,
-      );
+      // The installation must be the member's to reach: their linked GitHub account lists it.
+      const reachable = await proveGithubInstallationAccess(installationId, {
+        memberToken: () => storedMemberGithubToken(db, encryptionKey, userId),
+      });
+      if (!reachable) {
+        return c.json(
+          {
+            error: {
+              code: 'installation_unverified',
+              message: 'Link your GitHub account in WeldMerge with access to this installation, or install the GitHub App again',
+            },
+          },
+          403,
+        );
+      }
 
-      return success(c, formatConnection(connection));
+      const meta = await fetchInstallationMeta(appId, privateKey, installationId);
+      const { connection } = await recordInstallation(c.env, db, clerkOrgId, {
+        installationId,
+        appSlug: meta.appSlug,
+        accountLogin: meta.accountLogin,
+        accountType: meta.accountType,
+        userId,
+        keyring: encryptionKey,
+      });
+
+      return success(c, formatConnection(toGithubConnection(connection, clerkOrgId)));
     } catch (err) {
+      if (err instanceof GithubInstallationTakenError) {
+        return c.json({ error: { code: 'installation_taken', message: 'This GitHub installation belongs to another workspace' } }, 409);
+      }
       console.error('[GitHub] Failed to recover installation:', err);
       return error.internal(c, 'Failed to recover GitHub installation');
     }
@@ -257,18 +284,10 @@ function generateNonce(): string {
 }
 
 /**
- * Serialise a githubConnections row for API responses.
+ * Serialise a connection (`toGithubConnection`) for API responses.
  * Strips the encrypted webhookSecret and ISO-stringifies all Date fields.
  */
-function formatConnection(conn: {
-  webhookSecret?: string | null;
-  installedAt?: Date | null;
-  revokedAt?: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
-  [key: string]: unknown;
-}) {
+function formatConnection(conn: GithubConnectionView) {
   const { webhookSecret: _secret, ...safeConn } = conn;
   return {
     ...safeConn,

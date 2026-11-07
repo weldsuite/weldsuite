@@ -69,7 +69,7 @@ export const workspaceAppAccess = pgTable(
     suspendedReason: text('suspended_reason'),
 
     /**
-     * The app's own Stripe subscription (WeldReach: $5 per inbox, quantity =
+     * The app's own Stripe subscription (WeldReach: $8 per inbox, quantity =
      * inboxes), written by billing-worker. `billing_status` follows Stripe's
      * subscription status so the module can pause work after a failed payment
      * without calling Stripe.

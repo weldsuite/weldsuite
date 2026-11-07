@@ -564,6 +564,10 @@ export const platformSyncMap: EntitySyncMap = {
   sheet: inv(['weldsheets'], ['drive']),
   // A version named, renamed or saved by a restore: the version history panel.
   sheet_version: inv(['weldsheets', 'versions']),
+  // WeldBoard boards (create/rename/trash also publish `file`). An open board
+  // is live over its own room socket; this only refreshes the lists.
+  board: inv(['weldboard'], ['drive']),
+  board_version: inv(['weldboard', 'versions']),
   // A connected table added, changed or removed: the data sources panel.
   sheet_data_source: inv(['weldsheets', 'data-sources']),
 
@@ -576,6 +580,24 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
+
+  // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
+  // root: issues, teams, labels, cycles, comments, connections, repositories and
+  // the pull request mirror feed the inbox, board and detail pages alike, and the
+  // payloads carry ids only, so any change refetches the mounted WeldMerge queries.
+  merge_team: inv(['weldmerge']),
+  merge_issue: inv(['weldmerge']),
+  merge_comment: inv(['weldmerge']),
+  merge_label: inv(['weldmerge']),
+  merge_cycle: inv(['weldmerge']),
+  merge_connection: inv(['weldmerge']),
+  merge_repository: inv(['weldmerge']),
+  merge_pull_request: inv(['weldmerge']),
+  // Releases, issue record links and chat subscriptions live under the same
+  // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
+  merge_release: inv(['weldmerge']),
+  merge_record_link: inv(['weldmerge']),
+  merge_chat_subscription: inv(['weldmerge']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki

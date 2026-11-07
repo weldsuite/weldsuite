@@ -265,11 +265,11 @@ export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
 
         const [conn] = await db
           .select()
-          .from(schema.githubConnections)
+          .from(schema.mergeConnections)
           .where(
             and(
-              eq(schema.githubConnections.id, link.connectionId),
-              isNull(schema.githubConnections.deletedAt),
+              eq(schema.mergeConnections.id, link.connectionId),
+              isNull(schema.mergeConnections.deletedAt),
             ),
           )
           .limit(1);
@@ -295,7 +295,7 @@ export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
             statusFieldId: link.statusFieldId,
             statusOptionMap: (link.statusOptionMap ?? null) as StatusOptionMapping[] | null,
           },
-          installationId: conn.installationId,
+          installationId: Number(conn.externalAccountId),
           statusToStageId,
           syncMap: syncMapRow
             ? {

@@ -82,8 +82,11 @@ export function useProjectTabDefs(): ProjectTabDef[] {
     analytics: names.analytics,
     settings: names.settings,
   };
+  // The sheets tab opens WeldSheets and the whiteboard tab WeldBoard boards:
+  // each hidden where the deployment doesn't offer that module.
   const sheetsOffered = isModuleOffered('sheets');
-  return PROJECT_TAB_IDS.filter((id) => id !== 'table' || sheetsOffered).map((id) => ({
+  const boardsOffered = isModuleOffered('board');
+  return PROJECT_TAB_IDS.filter((id) => (id !== 'table' || sheetsOffered) && (id !== 'whiteboard' || boardsOffered)).map((id) => ({
     id,
     name: label[id],
     href: `/${id}`,
