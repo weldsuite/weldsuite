@@ -43,7 +43,8 @@ vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.can, useCanAny: () => state.can }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 vi.mock('@/hooks/queries/use-weldchat-queries', () => ({ useWorkspaceMembers: () => ({ data: { data: [] } }) }));
-// The chat composer, reduced to what the conversation hands it: a placeholder and the submit override.
+// The chat composer, reduced to what the conversation hands it: a placeholder and the submit
+// override. Like the real one it clears on submit and takes the text back when the submit fails.
 vi.mock('@/app/weldchat/components/message-input', async () => {
   const { useState } = await import('react');
   return {
@@ -58,7 +59,13 @@ vi.mock('@/app/weldchat/components/message-input', async () => {
       return (
         <div>
           <textarea aria-label={placeholder} value={text} onChange={(event) => setText(event.target.value)} />
-          <button type="button" onClick={() => void onSubmitOverride({ content: text, mentions: [], attachments: [] })}>
+          <button
+            type="button"
+            onClick={() => {
+              setText('');
+              onSubmitOverride({ content: text, mentions: [], attachments: [] }).catch(() => setText(text));
+            }}
+          >
             Send message
           </button>
         </div>
@@ -248,6 +255,16 @@ describe('WeldMerge pull request panel', () => {
     fireEvent.change(screen.getByLabelText(tr.conversation.newCommentPlaceholder), { target: { value: 'Looks good to me' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await waitFor(() => expect(state.comment).toHaveBeenCalledWith({ body: 'Looks good to me' }));
+  });
+
+  it('keeps a comment that fails to post in the composer and shows why', async () => {
+    state.comment = vi.fn().mockRejectedValue(Object.assign(new Error('Link your account'), { body: { error: { code: 'account_not_linked' } } }));
+    renderPanel();
+    const composer = screen.getByLabelText(tr.conversation.newCommentPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: 'Looks good to me' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(await screen.findByRole('link', { name: tr.errors.linkAccount })).toBeTruthy();
+    await waitFor(() => expect(composer.value).toBe('Looks good to me'));
   });
 
   it('shows comments as chat messages and replies to a thread through the composer', async () => {

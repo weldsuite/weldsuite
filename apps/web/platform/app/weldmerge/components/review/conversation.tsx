@@ -226,12 +226,9 @@ export function Conversation({ pullRequestId, canReview, onReply, onComment }: R
     if (body === '') return;
     const target = replyToRef.current;
     const thread = target ? ordered.find((candidate) => candidate.id === target.messageId) : undefined;
-    try {
-      if (thread) await onReply(thread, body);
-      else await onComment(body);
-    } catch {
-      // Reported by the panel.
-    }
+    // A failure is reported by the panel and rethrown, so the composer puts the text and reply target back.
+    if (thread) await onReply(thread, body);
+    else await onComment(body);
   };
 
   const startReply = (thread: MergeReviewThread, comment: ThreadComment) =>

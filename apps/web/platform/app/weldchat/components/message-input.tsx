@@ -63,7 +63,9 @@ interface MessageInputProps {
    * doesn't exist yet and the first message has to create it. All other
    * UI (mentions, emoji, attachments, toolbar, send button styling)
    * stays identical, so the composer doesn't visually change when the
-   * first message lands.
+   * first message lands. The composer clears on submit; when the returned
+   * promise rejects (the caller reports why) the text, files and reply
+   * target come back, unless something new was typed meanwhile.
    */
   onSubmitOverride?: (payload: {
     content: string;
@@ -426,9 +428,19 @@ export function MessageInput({
     }
 
     if (onSubmitOverride) {
-      void Promise.resolve(
-        onSubmitOverride({ content: trimmed, mentions: extractMentions(trimmed), attachments: outgoing }),
-      );
+      const files = knownFilesRef.current;
+      const strip = attachments;
+      const target = replyTo;
+      Promise.resolve(onSubmitOverride({ content: trimmed, mentions: extractMentions(trimmed), attachments: outgoing })).catch(() => {
+        const editor = editorRef.current;
+        if (!editor || editorHasContent(editor)) return;
+        knownFilesRef.current = files;
+        setContent(trimmed);
+        setAttachments(strip);
+        setReplyTo(target);
+        loadContentIntoEditor(editor, trimmed, membersMap.current, files);
+        placeCaretAtEnd(editor);
+      });
       clearInput();
       return;
     }
@@ -448,7 +460,7 @@ export function MessageInput({
     // The provider gets plain text: mentions as @Name, no internal tokens.
     mergeComposer.commentOnPullRequest(messagePlainText(trimmed, membersMap.current));
     clearInput();
-  }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t, mergeComposer]);
+  }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, setReplyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t, mergeComposer]);
 
   // /merge <term>: share the picked issue or pull request as a card.
   const handleMergePick = useCallback(
