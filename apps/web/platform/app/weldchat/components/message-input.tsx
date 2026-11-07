@@ -76,6 +76,12 @@ interface MessageInputProps {
    * brings it into the chat it creates.
    */
   agentsJoinOnSend?: boolean;
+  /**
+   * Keep the typed text as a chat draft (default). Off for a composer whose
+   * text goes somewhere other than a chat channel, such as a pull request's
+   * conversation, so it never turns up in another composer.
+   */
+  saveDraft?: boolean;
 }
 
 /**
@@ -141,6 +147,7 @@ export function MessageInput({
   client,
   onSubmitOverride,
   agentsJoinOnSend,
+  saveDraft = true,
 }: Readonly<MessageInputProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -217,6 +224,7 @@ export function MessageInput({
     threadParentMessageId: parentId,
     content,
     attachments: allAttachments,
+    enabled: saveDraft,
     onRestore: (restoredContent, restoredAttachments) => {
       // Only restore if the editor is still empty (race guard).
       if (!editorRef.current || editorHasContent(editorRef.current)) return;

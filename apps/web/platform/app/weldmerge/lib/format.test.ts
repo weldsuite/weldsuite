@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cycleState, fill, formatDateRange, initials, relativeTime } from './format';
+import { cycleState, fill, formatDateRange, initials, providerChatMarkdown, providerMarkdown, providerPreviewText, relativeTime } from './format';
 
 describe('fill', () => {
   it('replaces placeholders and leaves unknown ones', () => {
@@ -43,5 +43,40 @@ describe('formatDateRange and initials', () => {
     expect(initials('Sanne de Vries')).toBe('SV');
     expect(initials('octocat')).toBe('O');
     expect(initials('  ')).toBe('?');
+  });
+});
+
+describe('providerMarkdown', () => {
+  it('drops HTML comments, as the provider never shows them', () => {
+    expect(providerMarkdown('<!-- bot:state {"a":1} -->\nLooks good\n<!-- end -->')).toBe('Looks good');
+    expect(providerMarkdown('Text <!-- unclosed')).toBe('Text');
+    expect(providerMarkdown('No comments here')).toBe('No comments here');
+  });
+
+  it('drops HTML tags outside code and keeps the text inside them', () => {
+    expect(providerMarkdown('<details><summary>Preview</summary>Ready <img src="x.png" /></details>')).toBe('Preview\nReady');
+    expect(providerMarkdown('Use `<Button>` here\n```tsx\n<Panel />\n```')).toBe('Use `<Button>` here\n```tsx\n<Panel />\n```');
+    expect(providerMarkdown('a < b and c > d')).toBe('a < b and c > d');
+  });
+
+  it("writes GitHub's alert marker as its title", () => {
+    expect(providerMarkdown('> [!TIP]\n> Approved')).toBe('> **Tip**\n> Approved');
+    expect(providerMarkdown('[!warning]\nCareful')).toBe('**Warning**\nCareful');
+  });
+});
+
+describe('providerPreviewText', () => {
+  it('reads a Markdown comment as one plain line', () => {
+    expect(providerPreviewText('<!-- s -->**🟡 Minor**: only `user` [ops](https://x.test) count\n\n- one\n> quoted')).toBe(
+      '🟡 Minor: only user ops count one quoted',
+    );
+  });
+});
+
+describe('providerChatMarkdown', () => {
+  it('turns links into text with the URL, and drops images and link definitions', () => {
+    const body = '[vc]: #abc123==\nRead [the docs](https://vercel.link/learn) ![Skipped](https://x.test/s.svg)\n`[keep](me)`';
+    expect(providerChatMarkdown(body)).toBe('Read the docs (https://vercel.link/learn) \n`[keep](me)`');
+    expect(providerChatMarkdown('[![badge](https://x.test/b.svg)](https://x.test/run)')).toBe('https://x.test/run');
   });
 });

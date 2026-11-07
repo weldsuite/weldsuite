@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link2, Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -11,15 +11,28 @@ import { IssueStatusIcon } from './primitives';
 /**
  * Find an issue by key or title and hand it back; used to link a pull request
  * to an issue by hand. Issues in `excludeIds` (already linked) are left out.
+ * The trigger is the primary add button of a record panel's list tab, like
+ * Add person on a company's People tab.
  */
 export function LinkIssuePopover({
   excludeIds,
   pending,
   onPick,
-}: Readonly<{ excludeIds: readonly string[]; pending: boolean; onPick: (issueId: string) => void }>) {
+  open: controlledOpen,
+  onOpenChange,
+}: Readonly<{
+  excludeIds: readonly string[];
+  pending: boolean;
+  onPick: (issueId: string) => void;
+  /** Controlled open state, so the tab's empty-state action can open the picker. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}>) {
   const { t } = useI18n();
   const tp = t.weldmerge.pullRequests;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [search, setSearch] = useState('');
   const q = useDebounce(search.trim(), 250) || undefined;
   const issues = useMergeIssues({ q }, open);
@@ -28,8 +41,8 @@ export function LinkIssuePopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" disabled={pending}>
-          {pending ? <Loader2 className="animate-spin" /> : <Link2 />}
+        <Button size="sm" className="h-8 gap-1 bg-primary text-primary-foreground hover:bg-primary/90" disabled={pending}>
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
           {tp.linkIssue}
         </Button>
       </PopoverTrigger>

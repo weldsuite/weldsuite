@@ -1,11 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { GitPullRequest, Loader2, Search } from 'lucide-react';
+import { GitPullRequest, Loader2 } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { FilterSelect } from '@weldsuite/ui/components/filter-select';
-import { Input } from '@weldsuite/ui/components/input';
+import { SearchInput } from '@weldsuite/ui/components/search-input';
 import { ListTable, type ListTableColumn } from '@weldsuite/ui/components/list-table';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
@@ -15,6 +15,11 @@ import {
   type MergePullRequestListItem,
   type MergePullRequestView,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
+import {
+  useObjectPanel,
+  useObjectPanelNavigationSource,
+  useObjectPanelUrlSync,
+} from '@/components/object-panel';
 import { useDebounce } from '@/hooks/use-debounce';
 import {
   useMergePullRequests,
@@ -22,19 +27,21 @@ import {
   useMergeTeams,
 } from '@/hooks/queries/use-weldmerge-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link, useRouter } from '@/lib/router';
+import { Link } from '@/lib/router';
 import { ChecksIndicator, ProviderAvatar, PullRequestStateIcon } from '../components/primitives';
 import { fill, relativeTime } from '../lib/format';
+import { MERGE_PULL_REQUEST_PANEL_TYPE } from './pull-request-panel-type';
 
 /**
  * Pull requests from every tracked repository, in five views: needs my review,
- * mine, open, merged, closed. Rows open the read-only detail page; reviewing and
- * merging happen on the provider.
+ * mine, open, merged, closed. A row opens the pull request in the record panel
+ * (`?stack=merge_pull_request:<id>`), with previous / next through the list.
  */
 export default function WeldMergePullRequestsPage() {
   const { t, language } = useI18n();
   const tm = t.weldmerge;
-  const router = useRouter();
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldmerge/pull-requests');
   const canReadConnections = useCan('merge_connections:read');
 
   const [view, setView] = useState<MergePullRequestView>('needs_review');
@@ -48,6 +55,12 @@ export default function WeldMergePullRequestsPage() {
   const teams = useMergeTeams();
 
   const rows = useMemo(() => pullRequests.data ?? [], [pullRequests.data]);
+  useObjectPanelNavigationSource({
+    type: MERGE_PULL_REQUEST_PANEL_TYPE,
+    ids: rows.map((pr) => pr.id),
+    hasMore: pullRequests.hasNextPage,
+    loadMore: () => pullRequests.fetchNextPage(),
+  });
 
   const tabs: PageTab[] = MERGE_PULL_REQUEST_VIEWS.map((id) => ({ id, label: tm.pullRequests.views[id] }));
 
@@ -178,7 +191,7 @@ export default function WeldMergePullRequestsPage() {
           data={rows}
           rowKey={(pr) => pr.id}
           rowLabel={(pr) => pr.title}
-          onRowClick={(pr) => router.push(`/weldmerge/pull-requests/${pr.id}`)}
+          onRowClick={(pr) => openPanel({ type: MERGE_PULL_REQUEST_PANEL_TYPE, id: pr.id })}
           emptyState={{
             icon: <GitPullRequest className="size-8 text-muted-foreground/60" />,
             title: filtered ? tm.pullRequests.noResultsTitle : tm.pullRequests.emptyTitle,
@@ -206,16 +219,13 @@ export default function WeldMergePullRequestsPage() {
         </div>
         <PageTabs tabs={tabs} activeTab={view} onTabChange={(id) => setView(id as MergePullRequestView)} />
         <div className="flex flex-wrap items-center gap-2 pb-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={tm.pullRequests.searchPlaceholder}
-              aria-label={tm.pullRequests.searchPlaceholder}
-              className="h-8 w-56 pl-8"
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={tm.pullRequests.searchPlaceholder}
+            aria-label={tm.pullRequests.searchPlaceholder}
+            className="w-56"
+          />
           {canReadConnections && (
             <FilterSelect
               value={repositoryId}

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { CircleDot, KanbanSquare, List, Plus, Search } from 'lucide-react';
+import { CircleDot, KanbanSquare, List, Plus } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { FilterSelect } from '@weldsuite/ui/components/filter-select';
-import { Input } from '@weldsuite/ui/components/input';
+import { SearchInput } from '@weldsuite/ui/components/search-input';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
@@ -123,16 +123,13 @@ function IssuesFilterBar({
   const tm = t.weldmerge;
   return (
     <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          placeholder={tm.issues.searchPlaceholder}
-          aria-label={tm.issues.searchPlaceholder}
-          className="h-8 w-52 pl-8"
-        />
-      </div>
+      <SearchInput
+        value={search}
+        onChange={(event) => onSearch(event.target.value)}
+        placeholder={tm.issues.searchPlaceholder}
+        aria-label={tm.issues.searchPlaceholder}
+        className="w-52"
+      />
       <FilterSelect
         value={assignee}
         onChange={onAssignee}
