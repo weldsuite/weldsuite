@@ -4,6 +4,7 @@
  * and runs it on the server.
  */
 import { createServerFn } from '@tanstack/react-start';
+import { globalOnly } from '@/lib/edition';
 import {
   saveCountryPlanPricing as saveCountryPlanPricingOnServer,
   removeCountryPlanPricing as removeCountryPlanPricingOnServer,
@@ -11,13 +12,13 @@ import {
 
 type Server = typeof import('./plan-pricing.server');
 
-const saveCountryPlanPricingFn = createServerFn({ method: 'POST' })
+const saveCountryPlanPricingFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['saveCountryPlanPricing']>) => args)
   .handler(({ data }) => saveCountryPlanPricingOnServer(...data));
 export const saveCountryPlanPricing = (...args: Parameters<Server['saveCountryPlanPricing']>) =>
   saveCountryPlanPricingFn({ data: args });
 
-const removeCountryPlanPricingFn = createServerFn({ method: 'POST' })
+const removeCountryPlanPricingFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['removeCountryPlanPricing']>) => args)
   .handler(({ data }) => removeCountryPlanPricingOnServer(...data));
 export const removeCountryPlanPricing = (...args: Parameters<Server['removeCountryPlanPricing']>) =>

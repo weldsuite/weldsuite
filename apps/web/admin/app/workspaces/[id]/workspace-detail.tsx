@@ -40,6 +40,7 @@ import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
 import { SsoCard } from './billing/sso-card';
 import { HistoryCard } from './billing/history-card';
+import { GLOBAL } from '@/lib/edition';
 
 /** `org:admin` → `Admin`. Unknown Clerk roles fall through unchanged. */
 function roleLabel(role: string): string {
@@ -100,7 +101,8 @@ export function WorkspaceDetail({
   /** Where the workspace's database lives, for the Database tab. */
   database: WorkspaceDatabase;
   /** Its moves, live compute and move targets, from the workspace worker. */
-  databaseTab: WorkspaceDatabaseTabData;
+  /** Null on Kubernetes, which has no Neon to show (lib/edition.ts). */
+  databaseTab: WorkspaceDatabaseTabData | null;
   canWrite: boolean;
   /** A superadmin on a workspace that is not deleted: may move, cancel and recover. */
   canMoveDatabase: boolean;
@@ -141,15 +143,16 @@ export function WorkspaceDetail({
           />
         </div>
 
-        <Tabs defaultValue="billing" className="gap-4">
+        {/* Billing (Stripe) and the database tab (Neon) are Global's. */}
+        <Tabs defaultValue={GLOBAL ? 'billing' : 'members'} className="gap-4">
           <TabsList>
-            <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>
+            {GLOBAL && <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>}
             <TabsTrigger value="members">
               {t.tabs.members}
               <span className="ml-1 text-muted-foreground tabular-nums">{members.length}</span>
             </TabsTrigger>
             <TabsTrigger value="activity">{t.tabs.activity}</TabsTrigger>
-            <TabsTrigger value="database">{t.tabs.database}</TabsTrigger>
+            {databaseTab && <TabsTrigger value="database">{t.tabs.database}</TabsTrigger>}
             {appAccess.length > 0 && (
               <TabsTrigger value="app-access">
                 App access
@@ -162,12 +165,14 @@ export function WorkspaceDetail({
             )}
           </TabsList>
 
-          <TabsContent value="billing" className="space-y-4">
-            <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
-            <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />
-            <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
-            <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
-          </TabsContent>
+          {GLOBAL && (
+            <TabsContent value="billing" className="space-y-4">
+              <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
+              <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />
+              <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
+              <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
+            </TabsContent>
+          )}
 
           {appAccess.length > 0 && (
             <TabsContent value="app-access" className="space-y-4">
@@ -193,15 +198,17 @@ export function WorkspaceDetail({
             <ActivityTable events={activity} />
           </TabsContent>
 
-          <TabsContent value="database" className="space-y-4">
-            <WorkspaceDatabaseTab
-              workspaceId={workspace.id}
-              workspaceName={workspace.name}
-              database={database}
-              data={databaseTab}
-              canManage={canMoveDatabase}
-            />
-          </TabsContent>
+          {databaseTab && (
+            <TabsContent value="database" className="space-y-4">
+              <WorkspaceDatabaseTab
+                workspaceId={workspace.id}
+                workspaceName={workspace.name}
+                database={database}
+                data={databaseTab}
+                canManage={canMoveDatabase}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="members" className="space-y-6">
             <div className="grid grid-cols-3 gap-3">

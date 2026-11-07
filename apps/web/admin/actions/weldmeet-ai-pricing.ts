@@ -4,13 +4,14 @@
  * signature and runs it on the server.
  */
 import { createServerFn } from '@tanstack/react-start';
+import { globalOnly } from '@/lib/edition';
 import {
   saveWeldmeetAiPricing as saveWeldmeetAiPricingOnServer,
 } from './weldmeet-ai-pricing.server';
 
 type Server = typeof import('./weldmeet-ai-pricing.server');
 
-const saveWeldmeetAiPricingFn = createServerFn({ method: 'POST' })
+const saveWeldmeetAiPricingFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['saveWeldmeetAiPricing']>) => args)
   .handler(({ data }) => saveWeldmeetAiPricingOnServer(...data));
 export const saveWeldmeetAiPricing = (...args: Parameters<Server['saveWeldmeetAiPricing']>) =>

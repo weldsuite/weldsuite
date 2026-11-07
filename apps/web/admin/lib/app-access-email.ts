@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { sendSystemEmail } from '@weldsuite/emails';
-import { transportFromEnv } from '@weldsuite/emails/transports/env';
+import { systemEmailTransport } from '@/lib/server/email-transport';
 import type { WeldReachLimits } from './app-access';
 
 /**
@@ -31,7 +31,7 @@ export async function sendAccessApprovedEmail(params: {
   limits: WeldReachLimits;
 }): Promise<EmailOutcome> {
   if (!params.to) return 'skipped';
-  const transport = transportFromEnv(process.env);
+  const transport = systemEmailTransport();
   if (!transport) {
     console.warn('[admin/app-access-email] no email transport configured; skipping the approval email');
     return 'skipped';
@@ -66,7 +66,7 @@ export async function sendAccessRejectedEmail(params: {
   reason: string;
 }): Promise<EmailOutcome> {
   if (!params.to) return 'skipped';
-  const transport = transportFromEnv(process.env);
+  const transport = systemEmailTransport();
   if (!transport) {
     console.warn('[admin/app-access-email] no email transport configured; skipping the rejection email');
     return 'skipped';

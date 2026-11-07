@@ -1,6 +1,6 @@
 import { createMiddleware, createStart } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
-import { clerkMiddleware } from '@clerk/tanstack-react-start/server';
+import { authRequestMiddleware } from '@/lib/auth-middleware';
 
 /**
  * Headers on every response the Worker renders (pages, server functions,
@@ -52,6 +52,6 @@ const sameSiteMutations = createMiddleware({ type: 'function' }).server(async ({
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [securityHeaders, clerkMiddleware()],
+  requestMiddleware: [securityHeaders, ...authRequestMiddleware],
   functionMiddleware: [sameSiteMutations],
 }));

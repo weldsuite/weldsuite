@@ -4,13 +4,14 @@
  * function's signature and runs it on the server.
  */
 import { createServerFn } from '@tanstack/react-start';
+import { globalOnly } from '@/lib/edition';
 import {
   savePartnerContractDefaults as savePartnerContractDefaultsOnServer,
 } from './partner-contract-defaults.server';
 
 type Server = typeof import('./partner-contract-defaults.server');
 
-const savePartnerContractDefaultsFn = createServerFn({ method: 'POST' })
+const savePartnerContractDefaultsFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['savePartnerContractDefaults']>) => args)
   .handler(({ data }) => savePartnerContractDefaultsOnServer(...data));
 export const savePartnerContractDefaults = (...args: Parameters<Server['savePartnerContractDefaults']>) =>

@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { getAdminIdentity } from './auth';
-import { isSignedIn } from './server/identity';
+import { isSignedIn } from '@/lib/server/identity';
 
 /**
  * The session the root route checks before every page: signed in at all (else

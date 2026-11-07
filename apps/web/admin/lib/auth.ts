@@ -2,7 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { redirect } from '@tanstack/react-router';
 import { getRequest } from '@tanstack/react-start/server';
-import { currentAdminIdentity } from './server/identity';
+import { currentAdminIdentity } from '@/lib/server/identity';
 import type { AdminRole } from './roles';
 
 export interface AdminIdentity {

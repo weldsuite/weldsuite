@@ -16,6 +16,12 @@ export const admin = {
     databasesOverview: 'Overview',
   },
 
+  signIn: {
+    unavailableTitle: 'Staff sign-in is not set up yet',
+    unavailableBody:
+      'This install of the admin console has no sign-in yet, so it lets nobody in. Staff sign in with Zitadel once it is configured; until then, use the weldsuite admin commands on the server.',
+  },
+
   common: {
     reason: 'Reason',
     reasonPlaceholder: 'Why are you making this change? It is saved in the activity log.',

@@ -1,13 +1,13 @@
 /// <reference types="vite/client" />
 import { HeadContent, Outlet, ScriptOnce, Scripts, createRootRoute, redirect } from '@tanstack/react-router';
-import { ClerkProvider } from '@clerk/tanstack-react-start';
+import { AuthProvider } from '@/lib/auth-client';
 import { Toaster } from 'sonner';
 import { ThemeProvider, themeBootstrapScript } from '@/components/shell/theme';
 import { getAdminSession } from '@/lib/session';
 import appCss from '@/app/globals.css?url';
 
 export const Route = createRootRoute({
-  // Every page needs a Clerk session (what `middleware.ts` did); who may see
+  // Every page needs a session (what `middleware.ts` did); who may see
   // the console is decided by the `_admin` layout below it.
   beforeLoad: async ({ location }) => {
     if (location.pathname === '/sign-in' || location.pathname.startsWith('/sign-in/')) {
@@ -42,12 +42,12 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
         <HeadContent />
       </head>
       <body>
-        <ClerkProvider>
+        <AuthProvider>
           <ThemeProvider>
             {children}
             <Toaster />
           </ThemeProvider>
-        </ClerkProvider>
+        </AuthProvider>
         <Scripts />
       </body>
     </html>

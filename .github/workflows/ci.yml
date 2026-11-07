@@ -719,6 +719,10 @@ jobs:
       # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
       - name: Admin console unit tests
         run: pnpm --filter admin test
+      # The console's Node build for Kubernetes (ADR FE-018), and its check that
+      # no Clerk, Neon driver or Cloudflare runtime module got into it.
+      - name: Admin console Node build
+        run: pnpm --filter admin build:node
 
   build:
     name: Build

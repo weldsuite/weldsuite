@@ -16,6 +16,9 @@ import { getReachUsage, listWorkspaceAppAccess } from '@/lib/app-access-data';
 import { getOutboundSummary } from '@/lib/outbound-mail-data';
 import { getWorkspaceDatabase } from '@/lib/databases-data';
 import { loadWorkspaceDatabaseTab } from '@/lib/database-moves-data';
+import { GLOBAL } from '@/lib/edition';
+
+const NOT_CONFIGURED = { kind: 'not_configured' } as const;
 
 /** Everything the workspace page shows; null when there is no such workspace (or its billing or database row is missing). */
 export async function loadWorkspaceDetailPage(input: { id: string }) {
@@ -32,8 +35,9 @@ export async function loadWorkspaceDetailPage(input: { id: string }) {
     listWorkspaceInvoices(workspace.id),
     listWorkspacePayments(workspace.id),
     listAuditEvents({ workspaceId: workspace.id, limit: 100 }),
-    loadStripeSnapshot(identity, workspace.id),
-    loadSsoView(identity, workspace.id),
+    // Stripe, SSO and Neon are Global's; Kubernetes has none of them (lib/edition.ts).
+    GLOBAL ? loadStripeSnapshot(identity, workspace.id) : NOT_CONFIGURED,
+    GLOBAL ? loadSsoView(identity, workspace.id) : NOT_CONFIGURED,
     listWorkspaceAppAccess(workspace.id),
     getOutboundSummary(workspace.id),
     getWorkspaceDatabase(workspace.id),
@@ -48,7 +52,7 @@ export async function loadWorkspaceDetailPage(input: { id: string }) {
       ? getReachUsage(reach.access.clerkOrgId)
       : null,
     // Moves and live compute come from the workspace worker; the tab degrades without it.
-    loadWorkspaceDatabaseTab(identity, workspace.id, database),
+    GLOBAL ? loadWorkspaceDatabaseTab(identity, workspace.id, database) : null,
   ]);
   if (reachUsage) appUsage[WELDREACH_APP_CODE] = reachUsage;
 

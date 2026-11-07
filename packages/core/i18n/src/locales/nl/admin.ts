@@ -16,6 +16,12 @@ export const admin = {
     databasesOverview: 'Overzicht',
   },
 
+  signIn: {
+    unavailableTitle: 'Inloggen voor medewerkers is nog niet ingesteld',
+    unavailableBody:
+      'Deze installatie van de beheerconsole heeft nog geen inlogmogelijkheid en laat dus niemand binnen. Medewerkers loggen in met Zitadel zodra dat is ingesteld; gebruik tot dan de weldsuite admin-opdrachten op de server.',
+  },
+
   common: {
     reason: 'Reden',
     reasonPlaceholder: 'Waarom voer je deze wijziging uit? Dit wordt opgeslagen in het activiteitenlogboek.',

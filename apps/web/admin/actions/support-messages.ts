@@ -5,10 +5,11 @@
  */
 import { createServerFn } from '@tanstack/react-start';
 import { fetchSupportMessages as fetchSupportMessagesOnServer } from './support-messages.server';
+import { globalOnly } from '@/lib/edition';
 
 type Server = typeof import('./support-messages.server');
 
-const fetchSupportMessagesFn = createServerFn({ method: 'POST' })
+const fetchSupportMessagesFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['fetchSupportMessages']>) => args)
   .handler(({ data }) => fetchSupportMessagesOnServer(...data));
 export const fetchSupportMessages = (...args: Parameters<Server['fetchSupportMessages']>) =>

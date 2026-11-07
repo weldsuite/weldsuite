@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useAuth, useUser } from '@clerk/tanstack-react-start';
+import { useStaffProfile } from '@/lib/auth-client';
 import { useSupportRoom } from '@weldsuite/realtime/react';
 import {
   Headphones,
@@ -141,8 +141,7 @@ function ChatView({
   workspaceName,
   realtimeUrl,
 }: Readonly<{ orgId: string; workspaceName: string; realtimeUrl: string }>) {
-  const { getToken } = useAuth();
-  const { user } = useUser();
+  const staff = useStaffProfile();
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -156,12 +155,11 @@ function ChatView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const stableGetToken = useCallback(async () => (await getToken()) || '', [getToken]);
-  const adminName = user?.fullName || user?.firstName || 'Support';
+  const adminName = staff.name || 'Support';
 
   const { on, typingUsers, startTyping, stopTyping } = useSupportRoom(orgId, {
     baseUrl: realtimeUrl,
-    getToken: stableGetToken,
+    getToken: staff.getToken,
     userName: adminName,
   });
 
@@ -228,7 +226,7 @@ function ChatView({
         orgId,
         content: trimmed,
         authorName: adminName,
-        authorAvatar: user?.imageUrl ?? null,
+        authorAvatar: staff.imageUrl,
       });
       if (result.ok) {
         await reload();

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from '@/components/link';
 import { usePathname } from '@/lib/navigation';
-import { useClerk } from '@clerk/tanstack-react-start';
+import { useSignOut } from '@/lib/auth-client';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import {
   Sidebar,
@@ -70,7 +70,7 @@ function ThemeToggle() {
  */
 export function AdminSidebar({ name, email, role, avatar }: Readonly<AdminSidebarProps>) {
   const pathname = usePathname() ?? '/';
-  const { signOut } = useClerk();
+  const signOut = useSignOut();
 
   const area = getActiveArea(pathname);
   const AreaIcon = area.icon;
@@ -141,7 +141,7 @@ export function AdminSidebar({ name, email, role, avatar }: Readonly<AdminSideba
         <ThemeToggle />
         <SidebarUserMenu
           user={{ name: name ?? email, email, avatar }}
-          onSignOut={() => void signOut()}
+          onSignOut={signOut}
         />
       </SidebarFooter>
       <SidebarRail />

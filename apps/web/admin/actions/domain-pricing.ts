@@ -4,6 +4,7 @@
  * signature and runs it on the server.
  */
 import { createServerFn } from '@tanstack/react-start';
+import { globalOnly } from '@/lib/edition';
 import {
   backfillDomainPricing as backfillDomainPricingOnServer,
   updateDomainPricingMarkup as updateDomainPricingMarkupOnServer,
@@ -14,29 +15,29 @@ import {
 
 type Server = typeof import('./domain-pricing.server');
 
-const backfillDomainPricingFn = createServerFn({ method: 'POST' })
+const backfillDomainPricingFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .handler(() => backfillDomainPricingOnServer());
 export const backfillDomainPricing = () => backfillDomainPricingFn();
 
-const updateDomainPricingMarkupFn = createServerFn({ method: 'POST' })
+const updateDomainPricingMarkupFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['updateDomainPricingMarkup']>) => args)
   .handler(({ data }) => updateDomainPricingMarkupOnServer(...data));
 export const updateDomainPricingMarkup = (...args: Parameters<Server['updateDomainPricingMarkup']>) =>
   updateDomainPricingMarkupFn({ data: args });
 
-const applyDomainPricingMarkupFn = createServerFn({ method: 'POST' })
+const applyDomainPricingMarkupFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['applyDomainPricingMarkup']>) => args)
   .handler(({ data }) => applyDomainPricingMarkupOnServer(...data));
 export const applyDomainPricingMarkup = (...args: Parameters<Server['applyDomainPricingMarkup']>) =>
   applyDomainPricingMarkupFn({ data: args });
 
-const updateDomainPricingRenewalFn = createServerFn({ method: 'POST' })
+const updateDomainPricingRenewalFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['updateDomainPricingRenewal']>) => args)
   .handler(({ data }) => updateDomainPricingRenewalOnServer(...data));
 export const updateDomainPricingRenewal = (...args: Parameters<Server['updateDomainPricingRenewal']>) =>
   updateDomainPricingRenewalFn({ data: args });
 
-const createDomainPricingFn = createServerFn({ method: 'POST' })
+const createDomainPricingFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
   .validator((args: Parameters<Server['createDomainPricing']>) => args)
   .handler(({ data }) => createDomainPricingOnServer(...data));
 export const createDomainPricing = (...args: Parameters<Server['createDomainPricing']>) =>

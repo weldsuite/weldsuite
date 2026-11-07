@@ -1,11 +1,12 @@
 import Link from '@/components/link';
 import { ShieldAlert } from 'lucide-react';
-import { SignOutButton } from '@clerk/tanstack-react-start';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { useSignOut } from '@/lib/auth-client';
 import type { UnauthorizedPageData } from './data';
 
 export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
+  const signOut = useSignOut();
   return (
     <div className="flex h-full items-center justify-center p-6">
       <Card className="w-full max-w-md py-8">
@@ -27,9 +28,9 @@ export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
                 <Link href="/">Back to dashboard</Link>
               </Button>
             ) : (
-              <SignOutButton>
-                <Button variant="outline">Sign out</Button>
-              </SignOutButton>
+              <Button variant="outline" onClick={signOut}>
+                Sign out
+              </Button>
             )}
           </div>
         </CardContent>
