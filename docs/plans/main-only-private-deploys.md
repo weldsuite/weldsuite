@@ -192,18 +192,15 @@ PR ──► CI (public, required checks) ──► merge to main
   - Hand-off: every green `main` → deploy test.
 - **Promote (private `promote.yml`)**:
   - **Inputs:** `sha` (defaults to the newest commit test deployed) and
-    targets (`global`, `eu`).
+    targets (`global` now, `eu` from phase 4).
   - **Checks:** the sha is on `main`, its CI passed, and test deployed it.
   - **Global:** a production deploy of that sha. Its diff base is the last
     production sha, which may be many commits back.
-  - **EU:** a maintainer first runs the public `rust-release` for that
-    build. It stays in the public repo, and no App can start it. Promote's
-    EU target then takes the version and checks that its tag
-    `weldsuite-vX.Y.Z` names the same commit. Then it commits
-    `WELDSUITE_VERSION` and the base-layer tag (phase 4) to `clusters/eu`
-    and `clusters/drill`.
   - **Mobile:** OTA test → `preview` on every main deploy; `production`
     channel on promote.
+  - **EU waits for phase 4.** Its target commits to the EU cluster folders,
+    which stay in the public repo until then, and a private workflow can't
+    write there.
 - **Retire `develop`.** Keep it read-only for two weeks (a ruleset blocks
   pushes), then delete it.
 - **Words:**
@@ -236,6 +233,13 @@ PR ──► CI (public, required checks) ──► merge to main
   - Private `deploy` GitRepository with `provider: github` (Flux's GitHub App
     auth, Flux 2.5 and later; the pinned 2.9.6 has it), using
     `weldsuite-flux-reader`. It holds the cluster folder and the secrets.
+- **Promote's EU target**, once the cluster folders are private:
+  - A maintainer first runs the public `rust-release` for the build test
+    ran. It stays in the public repo, and no App can start it.
+  - Promote takes the version and checks that its tag `weldsuite-vX.Y.Z`
+    names the same commit.
+  - It commits `WELDSUITE_VERSION` and the base-layer tag to
+    `eu/clusters/eu` and `eu/clusters/drill`. Flux rolls it out.
 - **Move the test cluster first.** Create both sources, point the
   `flux-system` Kustomization at the private path, and check that every layer
   reconciles. Then delete `clusters/*`, `secrets/*` and the WeldSuite-specific
