@@ -4220,6 +4220,7 @@ dependencies = [
 name = "weldsuite-books-domain"
 version = "0.0.0"
 dependencies = [
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
@@ -4240,6 +4241,7 @@ dependencies = [
  "tokio",
  "tracing",
  "unicode-normalization",
+ "url",
  "uuid",
  "weldsuite-auth",
  "weldsuite-catalogs",

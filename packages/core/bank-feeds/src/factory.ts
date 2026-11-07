@@ -127,6 +127,10 @@ export interface BankFeedEnv {
   STRIPE_FC_API_VERSION?: string;
   PONTO_CLIENT_ID?: string;
   PONTO_CLIENT_SECRET?: string;
+  /** Id of the Ponto application's signature certificate (Isabel's developer portal); a live application signs every request. */
+  PONTO_SIGNATURE_CERT_ID?: string;
+  /** That certificate's private key, unencrypted PEM. Both unset: requests go unsigned (sandbox only). */
+  PONTO_SIGNATURE_KEY?: string;
   ENABLE_BANKING_APP_ID?: string;
   ENABLE_BANKING_PRIVATE_KEY?: string;
   BANK_FEED_PROVIDERS?: string;
@@ -166,6 +170,10 @@ export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigO
       clientId: env.PONTO_CLIENT_ID,
       clientSecret: env.PONTO_CLIENT_SECRET,
       fetch: options.pontoFetch ?? options.fetch,
+      signature:
+        env.PONTO_SIGNATURE_CERT_ID && env.PONTO_SIGNATURE_KEY
+          ? { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY }
+          : undefined,
     };
   }
   if (env.ENABLE_BANKING_APP_ID && env.ENABLE_BANKING_PRIVATE_KEY) {
