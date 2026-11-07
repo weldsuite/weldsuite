@@ -228,29 +228,39 @@ kubectl -n postgres exec -i "$MASTER" -c postgres -- psql -d weldsuite_master -c
 ```
 
 Without the grant the read fails (the pod logs `[pricing] master DB read
-failed`) and the site shows its fallback prices: Global's, in USD
+failed`) and the site shows the EU edition's fallback prices, the ones below
 (`lib/pricing.ts` there). So it does for a plan `plans` has no row for.
 
-Nothing writes the prices here (there is no Stripe, which keeps Global's in
-step), so set them by hand, one row per plan slug the site shows. Run it the
-same way, with your prices:
+The EU edition sells Global's tiers under its own names: **Free**,
+**Starter** (Global's Business: 1–10 users), **Business** (Global's Scale:
+11+ users) and **Enterprise**. The site, built as the EU edition, reads them
+from the rows `free`, `starter`, `business` and `enterprise`. Nothing writes
+those here (there is no Stripe, which keeps Global's in step), so set them by
+hand, the same way. The EU prices, per user, in euros: Starter 12 a month or
+10 a month billed annually, Business 25 or 22:
 
 ```bash
 kubectl -n postgres exec -i "$MASTER" -c postgres -- psql -d weldsuite_master <<'SQL'
 INSERT INTO plans (id, name, slug, price_monthly, price_yearly, currency, sort_order) VALUES
-  ('plan_free',       'Free',       'free',       0,                0,                 'EUR', 0),
-  ('plan_business',   'Business',   'business',   <business/month>, <business/year>,   'EUR', 1),
-  ('plan_scale',      'Scale',      'scale',      <scale/month>,    <scale/year>,      'EUR', 2),
-  ('plan_enterprise', 'Enterprise', 'enterprise', 0,                0,                 'EUR', 3)
-ON CONFLICT (slug) DO UPDATE SET price_monthly = EXCLUDED.price_monthly,
+  ('plan_free',       'Free',       'free',       0,  0,   'EUR', 0),
+  ('plan_starter',    'Starter',    'starter',    12, 120, 'EUR', 1),
+  ('plan_business',   'Business',   'business',   25, 264, 'EUR', 2),
+  ('plan_enterprise', 'Enterprise', 'enterprise', 0,  0,   'EUR', 3)
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, price_monthly = EXCLUDED.price_monthly,
   price_yearly = EXCLUDED.price_yearly, currency = EXCLUDED.currency, updated_at = now();
 SQL
 ```
 
+To change a price later, change it in the statement and run it again; the
+site shows it within five minutes.
+
 - `price_monthly` is per user per month on monthly billing; `price_yearly`
   per user per year, which the site shows divided by twelve as the annual
   price (0: no annual discount). Enterprise at 0 reads as "talk to sales".
-- The `business` row's `currency` is the site's currency.
+- The `starter` row's `currency` is the site's currency.
+- The site's names for the plans are its own (`TIERS` in `lib/pricing.ts`
+  there), not the `name` column; a new plan or another name is a change to
+  the site.
 - The platform reads `plans` too: a new workspace starts on `free`, whose
   `max_users`, `included_users`, `monthly_credits` and `features` set its
   seat cap, credits and features. Left at their defaults, the `free` row
