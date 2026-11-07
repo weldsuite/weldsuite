@@ -100,35 +100,31 @@ async fn write(caller: &Caller, matrix: &Value) -> Result<String, sqlx::Error> {
     .fetch_optional(&caller.db)
     .await?;
     let now = now();
-    match existing {
-        Some((id, tickets)) => {
-            let mut tickets = match tickets {
-                Some(Value::Object(fields)) => fields,
-                _ => Map::new(),
-            };
-            tickets.insert("priorityMatrix".to_owned(), matrix.clone());
-            sqlx::query(
-                "update helpdesk_settings set tickets = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(Value::Object(tickets))
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
-            Ok(id)
-        }
-        None => {
-            let id = generate_id("hds");
-            sqlx::query(
-                "insert into helpdesk_settings (id, tickets, created_at, updated_at)
-                 values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-            )
-            .bind(&id)
-            .bind(json!({ "priorityMatrix": matrix }))
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
-            Ok(id)
-        }
-    }
+    let Some((id, tickets)) = existing else {
+        let id = generate_id("hds");
+        sqlx::query(
+            "insert into helpdesk_settings (id, tickets, created_at, updated_at)
+             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
+        )
+        .bind(&id)
+        .bind(json!({ "priorityMatrix": matrix }))
+        .bind(&now)
+        .execute(&caller.db)
+        .await?;
+        return Ok(id);
+    };
+    let mut tickets = match tickets {
+        Some(Value::Object(fields)) => fields,
+        _ => Map::new(),
+    };
+    tickets.insert("priorityMatrix".to_owned(), matrix.clone());
+    sqlx::query(
+        "update helpdesk_settings set tickets = $2::jsonb, updated_at = $3::timestamp where id = $1",
+    )
+    .bind(&id)
+    .bind(Value::Object(tickets))
+    .bind(&now)
+    .execute(&caller.db)
+    .await?;
+    Ok(id)
 }
