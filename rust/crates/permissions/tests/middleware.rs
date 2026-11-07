@@ -14,7 +14,8 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 use weldsuite_auth::AuthContext;
 use weldsuite_permissions::{
-    MemberRow, PermissionGate, PermissionQueries, Permissions, app_context,
+    MemberRow, PermissionGate, PermissionQueries, Permissions, PresetPermissions,
+    ResolvedPermissions, app_context,
 };
 
 /// One member, granted companies in WeldCRM only.
@@ -142,4 +143,47 @@ async fn handlers_can_check_behind_the_resolve_layer() {
     assert_eq!((status, body.as_str()), (StatusCode::OK, "true"));
     let (_, body) = call(app(true, Some("user_1")), "/check", Some("welddesk")).await;
     assert_eq!(body, "false");
+}
+
+/// A preset grant (conformance mode) is used by the layers in place of the
+/// member lookup, and only by them: a route without a layer has no
+/// `Permissions`, as on a real server.
+#[tokio::test]
+async fn a_preset_reaches_handlers_only_through_a_layer() {
+    let gate = Arc::new(PermissionGate::new(|_| Ok(OneMember)));
+    let has = |permissions: Option<axum::Extension<Permissions>>| async move {
+        permissions.map_or_else(
+            || "none".to_owned(),
+            |permissions| permissions.has_any(&["team:read"]).to_string(),
+        )
+    };
+    let preset = Permissions::new(
+        ResolvedPermissions {
+            permissions: vec!["team:read".to_owned()],
+            role: "MEMBER".to_owned(),
+            ..ResolvedPermissions::default()
+        },
+        None,
+        false,
+        "user_nobody".to_owned(),
+    );
+    let router = Router::new()
+        .route("/gated", get(has).route_layer(gate.require(["team:read"])))
+        .route("/resolved", get(has).route_layer(gate.resolve()))
+        .route("/bare", get(has))
+        .layer(axum::Extension(PresetPermissions(preset)))
+        .layer(axum::Extension(AuthContext {
+            user_id: "user_nobody".to_owned(),
+            org_id: Some("org_1".to_owned()),
+            session_id: String::new(),
+            factor_verification_age: None,
+        }));
+
+    // The member lookup knows no `user_nobody`: only the preset grants it.
+    let (status, body) = call(router.clone(), "/gated", None).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "true"));
+    let (status, body) = call(router.clone(), "/resolved", None).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "true"));
+    let (status, body) = call(router, "/bare", None).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "none"));
 }

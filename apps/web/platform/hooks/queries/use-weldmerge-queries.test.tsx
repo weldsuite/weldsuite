@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 
-import { applyIssueUpdate, useMergeIssues, useMoveMergeIssue, weldmergeKeys } from './use-weldmerge-queries';
+import { applyIssueUpdate, useMergeIssues, useMoveMergeIssue, useUpdateMergeIssue, weldmergeKeys } from './use-weldmerge-queries';
 
 function makeIssue(overrides: Partial<MergeIssueDto> = {}): MergeIssueDto {
   return {
@@ -152,5 +152,47 @@ describe('useMoveMergeIssue', () => {
     await act(async () => {
       await pending;
     });
+  });
+});
+
+describe('useUpdateMergeIssue', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  type Detail = { data: MergeIssueDto };
+  const detailKey = weldmergeKeys.issue('PLAT-1');
+
+  it('patches the cached issue detail at once, so a second quick change builds on the first', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    api.weldmerge.issues.update.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    const { client, wrapper } = setup();
+    client.setQueryData<Detail>(detailKey, { data: makeIssue({ labelIds: ['lbl_old'] }) });
+    client.setQueryData<Detail>(weldmergeKeys.issue('PLAT-2'), { data: makeIssue({ id: 'mis_2', key: 'PLAT-2' }) });
+    const { result } = renderHook(() => useUpdateMergeIssue(), { wrapper });
+
+    let pending: Promise<unknown> | undefined;
+    act(() => {
+      pending = result.current.mutateAsync({ id: 'mis_1', input: { labelIds: ['lbl_old', 'lbl_a'] } });
+    });
+    // The label picker reads the detail: the first pick is there before its save settles.
+    await waitFor(() => expect(client.getQueryData<Detail>(detailKey)?.data.labelIds).toEqual(['lbl_old', 'lbl_a']));
+    expect(client.getQueryData<Detail>(weldmergeKeys.issue('PLAT-2'))?.data.labelIds).toEqual([]);
+
+    release({ data: makeIssue() });
+    await act(async () => {
+      await pending;
+    });
+  });
+
+  it('rolls the issue detail back when the save fails', async () => {
+    api.weldmerge.issues.update.mockRejectedValue(new Error('boom'));
+    const { client, wrapper } = setup();
+    client.setQueryData<Detail>(detailKey, { data: makeIssue({ labelIds: ['lbl_old'] }) });
+    const { result } = renderHook(() => useUpdateMergeIssue(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'mis_1', input: { labelIds: ['lbl_a'] } }).catch(() => undefined);
+    });
+
+    expect(client.getQueryData<Detail>(detailKey)?.data.labelIds).toEqual(['lbl_old']);
   });
 });

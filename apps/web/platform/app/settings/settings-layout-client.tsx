@@ -25,6 +25,9 @@ function getContentWrapperClassName(pathname: string): string {
   }
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
+  // WeldMerge: a wider column, its repository table has a team and an issue
+  // sync picker on every row.
+  if (pathname === '/settings/apps/weldmerge') return `${PAGE_PADDING_CLASS} w-full min-w-0 max-w-5xl mx-auto`;
   // Every other settings page: one fixed column width. `w-full` matters, the
   // wrapper is a flex item and would otherwise shrink to its content;
   // `min-w-0` keeps a wide child (table, chart, preview) from pushing it past

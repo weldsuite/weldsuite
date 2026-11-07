@@ -41,7 +41,8 @@ pub use grants::{
     is_grantable_permission_key,
 };
 pub use middleware::{
-    AppContext, PermissionGate, PermissionLayer, PermissionService, Permissions, app_context,
+    AppContext, PermissionGate, PermissionLayer, PermissionService, Permissions, PresetPermissions,
+    app_context,
 };
 pub use resolver::{
     MemberRow, PermissionQueries, ResolvedPermissions, resolve_effective_permissions,

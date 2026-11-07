@@ -28,7 +28,7 @@ vi.mock('@/lib/router', () => ({
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
-import ReachSettingsPage from './page';
+import { ReachSettingsContent as ReachSettingsPage } from './page';
 
 const settings: ReachSettings = {
   id: 'rs_1',
@@ -257,8 +257,8 @@ describe('Billing summary', () => {
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.test/session'));
     expect(api.reach.billingSetup).toHaveBeenCalledWith({
-      successUrl: 'https://app.test/w/acme/weldreach/settings?billing=done',
-      cancelUrl: 'https://app.test/w/acme/weldreach/settings',
+      successUrl: 'https://app.test/w/acme/settings/apps/weldreach?billing=done',
+      cancelUrl: 'https://app.test/w/acme/settings/apps/weldreach',
     });
   });
 });

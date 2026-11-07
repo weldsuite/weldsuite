@@ -6,8 +6,9 @@ import { useConnectMergeGithub } from '@/hooks/queries/use-weldmerge-queries';
 import { useMergeConnectionAuthorizeUrl, useMergeGithubInstallUrl } from '@/hooks/queries/use-weldmerge-sync-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { fill } from '../lib/format';
+import { weldmergeSettingsTab } from '../lib/settings-path';
 
-export const PROVIDERS_RETURN_PATH = '/weldmerge/settings?tab=providers';
+export const PROVIDERS_RETURN_PATH = weldmergeSettingsTab('providers');
 export const GITHUB_INSTALLED_RETURN_PATH = `${PROVIDERS_RETURN_PATH}&installed=1`;
 
 /**

@@ -635,7 +635,7 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
     weldsuite_merge::MergeState {
         events: state.infra.events.clone(),
         env: Arc::new(weldsuite_merge::env_from_process()),
-        http: (!conformance).then(books::books_http).flatten(),
+        http: (!conformance).then(merge_http).flatten(),
         tenants: (!conformance).then(|| {
             Arc::new(move |reference: String| {
                 let workspaces = Arc::clone(&workspaces);
@@ -657,6 +657,29 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
         // A release's notes by email: WeldMail's relay and ledgers.
         mail: deployment_outbound(state),
     }
+}
+
+/// WeldMerge's HTTP client, made once per process. A member chooses the host
+/// of a self-managed GitLab (and it is reused by every later sync), so the
+/// client connects only to public addresses: the pod sits next to the
+/// cluster's own services. `MERGE_ALLOW_PRIVATE_NETWORKS=true` lifts that for
+/// a self-hosted install whose GitLab is on its own network.
+pub(crate) fn merge_http() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        let timeout = std::time::Duration::from_secs(15);
+        let allow_private =
+            std::env::var("MERGE_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "true");
+        let client = if allow_private {
+            weldsuite_adapters_oss::ReqwestOutbound::new(timeout)
+        } else {
+            weldsuite_adapters_oss::ReqwestOutbound::public_only(timeout)
+        };
+        client
+            .ok()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
 }
 
 /// WeldMerge's public routes (`/public/merge/github/setup`, the GitHub App's

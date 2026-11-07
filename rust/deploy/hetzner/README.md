@@ -282,6 +282,38 @@ master's `system_settings`. To run it by hand:
 Organisations made in the console are not workspaces: only onboarding makes
 those.
 
+## Staff work
+
+The admin console is Global's. Here staff work is `weldsuite admin`, run in
+a server pod (ADR SEC-014; `weldsuite admin --help`, and "Staff work" in
+`rust/README.md`). Access to it is access to the cluster's API, which only
+`admin_cidrs` reach. Once per cluster, add the first superadmin (allowed
+without `--as` only while the staff list is empty):
+
+```bash
+A="kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin"
+$A staff add you@weldsuite.org --role superadmin --name "Your Name" --reason "first superadmin"
+$A staff add colleague@weldsuite.org --role admin --as you@weldsuite.org --reason "support"
+```
+
+Then, for example, WeldReach's access requests (REACH-003; the module answers
+403 until a workspace is approved):
+
+```bash
+$A access list --status requested
+$A access show <workspace>               # id, slug or organization id
+$A access approve <workspace> --as you@weldsuite.org --reason "B2B, own customer list"
+$A access limits <workspace> --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
+$A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
+```
+
+Every change is a row in `admin_audit_events`. Approval installs WeldReach in
+the workspace and emails the requester through `SMTP_URL`, with links to
+`PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
+command warns and you tell them yourself. Feature flags, the app catalog's
+flags and plan rows are still SQL against `weldsuite_master` (flags:
+`feature_flag_overrides`; plans: TEST-CLUSTER.md, "Prices").
+
 ## 8. The master database schema
 
 The `master` cluster starts with an empty `weldsuite_master` database. The

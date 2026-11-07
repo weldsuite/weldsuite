@@ -4,6 +4,12 @@
  * shape these routes always answered (`installationId` as a number, `ownerType`, `ownerLogin`,
  * `createdBy`, …) by `toGithubConnection`; a body in that shape is mapped back to the columns.
  *
+ * Only the install flow (`recordInstallation`, after it has proved the member can reach the
+ * installation and claimed it in the master index) decides which installation a workspace is bound
+ * to. These routes therefore never create a connection, and an update cannot set the installation
+ * id, the status or the webhook secret: binding another workspace's installation here would let
+ * this workspace mint that installation's App tokens.
+ *
  * Permissions: integrations:read | integrations:create | integrations:update | integrations:delete.
  */
 
@@ -14,7 +20,6 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { createGithubConnectionSchema, updateGithubConnectionSchema } from '@weldsuite/core-api-client/schemas/github-connections';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { parseLimit } from '../../lib/query-params';
 import { toGithubConnection } from '../../services/github/connections';
@@ -25,18 +30,23 @@ const t = schema.mergeConnections;
 /** What a stored row answers: the legacy shape, without the webhook secret. */
 const present = (row: typeof t.$inferSelect, workspaceId: string) => ({ ...toGithubConnection(row, workspaceId), webhookSecret: undefined });
 
+/** Body keys only the install flow sets. */
+const INSTALL_FLOW_KEYS = ['installationId', 'status', 'webhookSecret'] as const;
+const CREATE_REFUSED = 'A GitHub connection is created by installing the GitHub App';
+const UPDATE_REFUSED = 'installationId, status and webhookSecret are set by the GitHub App install flow';
+
 /**
- * A body in the legacy shape as `merge_connections` columns. Unknown keys are dropped; a value of
- * the wrong type reaches the column and the write fails, as it always did.
+ * A body in the legacy shape as `merge_connections` columns. Unknown keys and the install-flow
+ * keys are dropped; a value of the wrong type reaches the column and the write fails, as it always
+ * did.
  */
 function toColumns(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  if (data.installationId !== undefined && data.installationId !== null) out.externalAccountId = String(data.installationId);
   if (data.appSlug !== undefined) out.appSlug = data.appSlug;
   if (data.ownerType !== undefined) out.accountType = data.ownerType === 'org' ? 'organization' : data.ownerType;
   const login = data.ownerLogin ?? data.accountLogin;
   if (login !== undefined) out.accountLogin = login;
-  for (const key of ['status', 'scopes', 'installedAt', 'revokedAt', 'webhookSecret'] as const) {
+  for (const key of ['scopes', 'installedAt', 'revokedAt'] as const) {
     if (data[key] !== undefined) out[key] = data[key];
   }
   return out;
@@ -94,31 +104,16 @@ app.get('/:id', requirePermission('integrations:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('integrations:create'), zValidator('json', createGithubConnectionSchema), async (c) => {
-  const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
-  const id = generateId('ghc');
-  const now = new Date();
-  try {
-    await db.insert(t).values({
-      id,
-      provider: 'github',
-      createdByUserId: c.get('userId'),
-      ...toColumns(data),
-      createdAt: now,
-      updatedAt: now,
-    } as unknown as typeof t.$inferInsert);
-    return success(c, { id }, 201);
-  } catch (err) {
-    console.error('[app-api/github-connections] create failed:', err);
-    return error.internal(c, 'Failed to create github connection');
-  }
-});
+// The install flow (`/api/workflow-github` callback, setup and recover) is the only way in.
+app.post('/', requirePermission('integrations:create'), zValidator('json', createGithubConnectionSchema), (c) =>
+  error.badRequest(c, CREATE_REFUSED),
+);
 
 app.patch('/:id', requirePermission('integrations:update'), zValidator('json', updateGithubConnectionSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
+  if (INSTALL_FLOW_KEYS.some((key) => data[key] !== undefined)) return error.badRequest(c, UPDATE_REFUSED);
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), eq(t.provider, 'github'), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'GitHub connection', id);

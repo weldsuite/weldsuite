@@ -84,7 +84,7 @@ describe('WeldMerge inbox', () => {
     state.connections = { isSuccess: true, data: [] };
     render(<WeldMergeInboxPage />);
     expect(screen.getByText(en.weldmerge.inbox.noConnectionTitle)).toBeTruthy();
-    expect(screen.getByRole('link', { name: en.weldmerge.inbox.openProviders }).getAttribute('href')).toBe('/weldmerge/settings');
+    expect(screen.getByRole('link', { name: en.weldmerge.inbox.openProviders }).getAttribute('href')).toBe('/settings/apps/weldmerge');
   });
 
   it('shows the empty state when connected and nothing needs the member', () => {

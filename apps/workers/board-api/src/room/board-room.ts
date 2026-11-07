@@ -60,7 +60,7 @@ import type { Env } from '../types';
 import { recordCheckpoint } from '../services/boards';
 import { insertVersion, versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot, writeThumbnail } from './snapshot';
-import { isCommentersOp } from './comment-access';
+import { isCommentersOp, votesAreSenders } from './comment-access';
 
 type BoardRoomCore = RoomCore<Board, Op, BoardSnapshot, BoardPresence>;
 type BoardPeer = Peer<BoardPresence>;
@@ -348,6 +348,7 @@ export class BoardRoom extends DurableObject<Env> {
     return {
       onCommit: (c) => this.persist(c),
       mayComment: (op, peer, board) => isCommentersOp(op, peer.userId, board),
+      mayCommit: (op, peer) => votesAreSenders(op, peer.userId),
     };
   }
 

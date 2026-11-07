@@ -25,7 +25,15 @@ import { reachKeys, useReachAccess } from '@/hooks/queries/use-reach-queries';
 import { appAccessRequiredStatus, isAppAccessRequiredError } from '@/lib/reach/errors';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
-export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode }>) {
+/**
+ * `sendingBanner={false}` leaves out the kill-switch banner: the WeldReach
+ * settings page sits in workspace Settings, outside the module shell, and only
+ * needs the gate.
+ */
+export function ReachAccessBoundary({
+  children,
+  sendingBanner = true,
+}: Readonly<{ children: ReactNode; sendingBanner?: boolean }>) {
   const t = useTranslations();
   const qc = useQueryClient();
   const access = useReachAccess();
@@ -59,7 +67,7 @@ export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode
 
   return (
     <>
-      {!access.data.sendingEnabled && <SendingOffBanner />}
+      {sendingBanner && !access.data.sendingEnabled && <SendingOffBanner />}
       <div className="relative flex min-h-0 flex-1 flex-col">{children}</div>
     </>
   );

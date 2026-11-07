@@ -113,10 +113,15 @@ impl<Q: PermissionQueries + 'static> PermissionGate<Q> {
     }
 
     /// The request's [`Permissions`], resolved now or taken from an earlier
-    /// layer on the same request.
+    /// layer on the same request (or from a [`PresetPermissions`]).
     async fn permissions_for(&self, request: &mut Request) -> Result<Permissions, Box<Response>> {
         if let Some(permissions) = request.extensions().get::<Permissions>() {
             return Ok(permissions.clone());
+        }
+        if let Some(PresetPermissions(preset)) = request.extensions().get::<PresetPermissions>() {
+            let preset = preset.clone();
+            request.extensions_mut().insert(preset.clone());
+            return Ok(preset);
         }
         let Some(user_id) = request
             .extensions()
@@ -153,6 +158,14 @@ fn envelope(status: StatusCode, code: &str, message: &str) -> Response {
     let body = json!({ "success": false, "error": { "code": code, "message": message } });
     (status, axum::Json(body)).into_response()
 }
+
+/// Permissions settled before any gate layer runs: a test harness's
+/// (conformance mode: the test's `c.set('permissions', …)`). A gate layer
+/// takes them instead of resolving the member. They are not [`Permissions`]
+/// themselves, so a route without a layer has none, exactly as on a real
+/// server, where its handler's [`Permissions`] would be missing.
+#[derive(Debug, Clone)]
+pub struct PresetPermissions(pub Permissions);
 
 /// The caller's resolved permissions in this request's app context.
 #[derive(Debug, Clone)]
