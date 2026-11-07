@@ -22,7 +22,13 @@ use crate::assignment::{Picker, auto_assign_with};
 use crate::attributes::{self, Update, UpdateError, normalize_tags};
 use crate::webchat::{self, Append, AppendError};
 
-const CONDITION_KEYS: [&str; 5] = ["channels", "ticketTypeIds", "tags", "priorities", "departmentIds"];
+const CONDITION_KEYS: [&str; 5] = [
+    "channels",
+    "ticketTypeIds",
+    "tags",
+    "priorities",
+    "departmentIds",
+];
 const PRIORITIES: [&str; 4] = ["low", "medium", "high", "urgent"];
 
 /// `idList(value)`: the non-empty strings, each once, in order.
@@ -228,9 +234,15 @@ pub fn matches(rule: &Rule, conversation: &Value) -> bool {
             .any(|tag| list.iter().any(|v| same(v, tag))),
     };
     list_holds(rule.condition("channels"), &conversation["channel"])
-        && list_holds(rule.condition("ticketTypeIds"), &conversation["ticketTypeId"])
+        && list_holds(
+            rule.condition("ticketTypeIds"),
+            &conversation["ticketTypeId"],
+        )
         && list_holds(rule.condition("priorities"), &conversation["priority"])
-        && list_holds(rule.condition("departmentIds"), &conversation["departmentId"])
+        && list_holds(
+            rule.condition("departmentIds"),
+            &conversation["departmentId"],
+        )
         && tags_hold
 }
 
@@ -333,7 +345,9 @@ async fn usable_assignee(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error
 /// left, skips that action.
 pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Routed, RoutingError> {
     let Some((current, _)) = webchat::get(db, conversation_id, false).await? else {
-        return Err(RoutingError(format!("Desk conversation '{conversation_id}' not found")));
+        return Err(RoutingError(format!(
+            "Desk conversation '{conversation_id}' not found"
+        )));
     };
     let (_, rules) = settings(db).await?;
     let Some(rule) = select(&rules, &current) else {
@@ -384,9 +398,15 @@ pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Rou
     if changed {
         let mut extra = Map::new();
         extra.insert("routingRuleId".to_owned(), json!(rule.id));
-        let set =
-            attributes::update_with_metadata(db, conversation_id, "system", None, &input, Some(extra))
-                .await?;
+        let set = attributes::update_with_metadata(
+            db,
+            conversation_id,
+            "system",
+            None,
+            &input,
+            Some(extra),
+        )
+        .await?;
         conversation = set.conversation;
         sla_check_at = earliest(sla_check_at, set.sla_check_at);
         if let Some(message) = set.message {
@@ -539,7 +559,10 @@ mod tests {
         ] })))[0];
         let email_vip = json!({ "channel": "email", "tags": ["vip"], "priority": null });
         assert!(matches(rule, &email_vip));
-        assert!(!matches(rule, &json!({ "channel": "messenger", "tags": ["vip"] })));
+        assert!(!matches(
+            rule,
+            &json!({ "channel": "messenger", "tags": ["vip"] })
+        ));
         assert!(!matches(rule, &json!({ "channel": "email", "tags": [] })));
         let by_priority = &normalize(Some(&json!({ "rules": [
             { "id": "p", "conditions": { "priorities": ["high"] }, "actions": {} },
@@ -551,12 +574,18 @@ mod tests {
 
     #[test]
     fn a_change_reroutes_on_type_or_tags_and_keeps_a_team_it_set() {
-        assert_eq!(change_reroutes(&json!([{ "field": "tags" }])), (true, false));
+        assert_eq!(
+            change_reroutes(&json!([{ "field": "tags" }])),
+            (true, false)
+        );
         assert_eq!(
             change_reroutes(&json!([{ "field": "ticketType" }, { "field": "team" }])),
             (true, true)
         );
-        assert_eq!(change_reroutes(&json!([{ "field": "priority" }])), (false, false));
+        assert_eq!(
+            change_reroutes(&json!([{ "field": "priority" }])),
+            (false, false)
+        );
         assert_eq!(change_reroutes(&Value::Null), (false, false));
     }
 }

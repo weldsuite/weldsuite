@@ -363,8 +363,7 @@ mod tests {
             derive_event_types("updated", Some(&changes)),
             vec!["updated", "status_changed", "tagged"]
         );
-        let changes: Map<String, Value> =
-            serde_json::from_value(json!({ "state": {} })).unwrap();
+        let changes: Map<String, Value> = serde_json::from_value(json!({ "state": {} })).unwrap();
         assert_eq!(
             derive_event_types("updated", Some(&changes)),
             vec!["updated", "state_changed"]

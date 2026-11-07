@@ -39,20 +39,39 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
         } else {
             ev::DESK_CONVERSATION_UPDATED
         };
-        let id = step.conversation["id"].as_str().unwrap_or_default().to_owned();
+        let id = step.conversation["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         services
             .events
-            .publish_and_wait(&context, EntityEvent::new(event, id, step.conversation.clone()))
+            .publish_and_wait(
+                &context,
+                EntityEvent::new(event, id, step.conversation.clone()),
+            )
             .await;
     }
     if let Some(realtime) = &services.realtime {
         for step in &result.steps {
             let mut messages = vec![
-                RealtimeMessage::workspace(org_id, "desk_conversation", "updated", step.conversation.clone(), "system"),
-                RealtimeMessage::workspace(org_id, "desk_message", "created", step.message.clone(), "system"),
+                RealtimeMessage::workspace(
+                    org_id,
+                    "desk_conversation",
+                    "updated",
+                    step.conversation.clone(),
+                    "system",
+                ),
+                RealtimeMessage::workspace(
+                    org_id,
+                    "desk_message",
+                    "created",
+                    step.message.clone(),
+                    "system",
+                ),
             ];
             if webchat::is_public(&step.message) && step.message["kind"] == "message" {
-                let record = webchat::public_message(&step.message, &std::collections::HashMap::new());
+                let record =
+                    webchat::public_message(&step.message, &std::collections::HashMap::new());
                 let id = step.conversation["id"].as_str().unwrap_or_default();
                 messages.push(conversation_publish(
                     id,
@@ -96,8 +115,20 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
         apns: None,
     };
     for owner in &result.new_owners {
-        match ticket_assigned(db, owner, None, EntityKind::Conversation, id, subject, Some(&reference)).await {
-            Ok(Some(notification)) => crate::notify::deliver_with(db, &notifier, org_id, &notification).await,
+        match ticket_assigned(
+            db,
+            owner,
+            None,
+            EntityKind::Conversation,
+            id,
+            subject,
+            Some(&reference),
+        )
+        .await
+        {
+            Ok(Some(notification)) => {
+                crate::notify::deliver_with(db, &notifier, org_id, &notification).await
+            }
             Ok(None) => {}
             Err(error) => tracing::error!(%error, "[DeskEscalation] publishing failed"),
         }
@@ -106,7 +137,7 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
 
 /// `sweepWorkspaceEscalations(env, db, orgId, now)`: run one workspace's due
 /// escalation rules; how many conversations were escalated.
-pub async fn sweep_workspace(
+pub(crate) async fn sweep_workspace(
     services: &SweepServices,
     db: &PgPool,
     org_id: &str,

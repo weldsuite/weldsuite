@@ -45,7 +45,11 @@ pub(crate) async fn announce_call(
             .events
             .publish_and_wait(
                 &context,
-                EntityEvent::new(DESK_CONVERSATION_CREATED, conversation_id, conversation.clone()),
+                EntityEvent::new(
+                    DESK_CONVERSATION_CREATED,
+                    conversation_id,
+                    conversation.clone(),
+                ),
             )
             .await;
     }
@@ -63,11 +67,21 @@ pub(crate) async fn announce_call(
 
     let picker = Picker::Local;
     let done: Result<(Vec<Step>, Option<i64>), String> = if created {
-        routing::route_and_assign(db, conversation_id, Keep::default(), Trigger::Opened, &picker)
-            .await
-            .map(|routed| (routed.steps, routed.sla_check_at))
-            .map_err(|error| error.to_string())
-    } else if conversation["assigneeId"].as_str().is_none_or(str::is_empty) && conversation["state"] == "open" {
+        routing::route_and_assign(
+            db,
+            conversation_id,
+            Keep::default(),
+            Trigger::Opened,
+            &picker,
+        )
+        .await
+        .map(|routed| (routed.steps, routed.sla_check_at))
+        .map_err(|error| error.to_string())
+    } else if conversation["assigneeId"]
+        .as_str()
+        .is_none_or(str::is_empty)
+        && conversation["state"] == "open"
+    {
         auto_assign_with(db, conversation_id, &picker)
             .await
             .map(|assigned| match assigned {
@@ -97,8 +111,13 @@ pub(crate) async fn announce_call(
     if let Some(at) = sla_check_at.and_then(weldsuite_desk_domain::sla::instant) {
         match crate::credits::resolve_workspace(master, org).await {
             Ok(Some(workspace_id)) => {
-                weldsuite_db::due_index::mark_due(master, weldsuite_desk_domain::sla::DUE_KIND, &workspace_id, at)
-                    .await;
+                weldsuite_db::due_index::mark_due(
+                    master,
+                    weldsuite_desk_domain::sla::DUE_KIND,
+                    &workspace_id,
+                    at,
+                )
+                .await;
             }
             Ok(None) => {}
             Err(error) => tracing::warn!(%error, "[desk-phone] desk SLA due mark failed"),
@@ -110,17 +129,35 @@ pub(crate) async fn announce_call(
         } else {
             DESK_CONVERSATION_UPDATED
         };
-        let id = step.conversation["id"].as_str().unwrap_or_default().to_owned();
+        let id = step.conversation["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         state
             .events
-            .publish_and_wait(&context, EntityEvent::new(event, id, step.conversation.clone()))
+            .publish_and_wait(
+                &context,
+                EntityEvent::new(event, id, step.conversation.clone()),
+            )
             .await;
         let Some(realtime) = &state.realtime else {
             continue;
         };
         for publish in [
-            RealtimeMessage::workspace(org, "desk_conversation", "updated", step.conversation.clone(), "system"),
-            RealtimeMessage::workspace(org, "desk_message", "created", step.message.clone(), "system"),
+            RealtimeMessage::workspace(
+                org,
+                "desk_conversation",
+                "updated",
+                step.conversation.clone(),
+                "system",
+            ),
+            RealtimeMessage::workspace(
+                org,
+                "desk_message",
+                "created",
+                step.message.clone(),
+                "system",
+            ),
         ] {
             if let Err(error) = realtime.publish_boxed(&publish).await {
                 tracing::error!(%error, "[desk-phone] realtime publish failed");

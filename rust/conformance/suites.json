@@ -1236,6 +1236,7 @@
         "src/routes/helpcenter-settings/routes.test.ts",
         "src/routes/desk-widget/routes.test.ts",
         "src/routes/desk-assignment/integration.test.ts",
+        "src/routes/desk-routing/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
         "src/routes/helpdesk-analytics/routes.test.ts",
         "src/routes/helpdesk-analytics/reports.integration.test.ts"
@@ -1245,10 +1246,12 @@
         "apps/workers/desk-api/src/routes/helpcenter-settings/",
         "apps/workers/desk-api/src/routes/desk-widget/",
         "apps/workers/desk-api/src/routes/desk-assignment/",
+        "apps/workers/desk-api/src/routes/desk-routing/",
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
         "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
@@ -1277,6 +1280,7 @@
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
+        "src/routes/desk-conversations/routing.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1289,6 +1293,9 @@
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
@@ -1304,7 +1311,8 @@
       "module": "desk",
       "workspace": "apps/workers/desk-api",
       "tests": [
-        "src/cron/sla-sweep.due-index.test.ts"
+        "src/cron/sla-sweep.due-index.test.ts",
+        "src/cron/escalation-sweep.due-index.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/cron/",
@@ -1312,6 +1320,9 @@
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-escalation.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/notifications/src/helpers/helpdesk.ts",
         "packages/core/worker-kit/src/testing/conformance-cron.ts",
         "rust/modules/desk/",
@@ -1328,6 +1339,7 @@
         "src/routes/config.integration.test.ts",
         "src/routes/conversations.integration.test.ts",
         "src/routes/conversations-assignment.integration.test.ts",
+        "src/routes/conversations-routing.integration.test.ts",
         "src/routes/realtime.integration.test.ts",
         "src/routes/attachments.integration.test.ts",
         "src/routes/visitor.integration.test.ts",
@@ -1337,6 +1349,8 @@
         "apps/workers/helpdesk-widget-api/src/",
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/desk-portal.ts",

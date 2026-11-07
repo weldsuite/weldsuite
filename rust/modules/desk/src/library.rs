@@ -155,7 +155,14 @@ pub(crate) fn department_schema(issues: &mut Issues, body: &Map<String, Value>, 
     });
     issues.boolean(body, "autoAssignment", OPT);
     issues.boolean(body, "roundRobinAssignment", OPT);
-    issues.list(body, "escalationRules", OPT, None, Some(20), escalation_rule_schema);
+    issues.list(
+        body,
+        "escalationRules",
+        OPT,
+        None,
+        Some(20),
+        escalation_rule_schema,
+    );
 }
 
 /// `deskEscalationRuleSchema`, in the schema's order.

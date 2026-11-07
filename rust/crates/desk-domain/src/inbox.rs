@@ -862,7 +862,11 @@ type RoutedForInbox = (Value, Vec<Value>, Vec<InboxEvent>, bool);
 
 /// `routeConversation(deps, conversation, keep)`: the workspace's routing
 /// rules ([`crate::routing`]); a team or an owner the writer set stays.
-async fn route_conversation(deps: &InboxDeps<'_>, id: &str, keep: Keep) -> Result<RoutedForInbox, InboxError> {
+async fn route_conversation(
+    deps: &InboxDeps<'_>,
+    id: &str,
+    keep: Keep,
+) -> Result<RoutedForInbox, InboxError> {
     let routed = routing::route(deps.db, id, keep)
         .await
         .map_err(|error| InboxError::Failed(error.to_string()))?;

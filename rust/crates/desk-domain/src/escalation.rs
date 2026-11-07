@@ -215,8 +215,15 @@ pub struct Due {
 /// `deskEscalationsDue({ conversation, rules, episode, breachedAt })`: the
 /// team's rules that can still fire in this episode, earliest first (ties
 /// by index). Pure.
-pub fn due(conversation: &Value, rules: &[RuleAt], episode: &Episode, breached_at: Option<i64>) -> Vec<Due> {
-    let team_id = conversation["departmentId"].as_str().filter(|id| !id.is_empty());
+pub fn due(
+    conversation: &Value,
+    rules: &[RuleAt],
+    episode: &Episode,
+    breached_at: Option<i64>,
+) -> Vec<Due> {
+    let team_id = conversation["departmentId"]
+        .as_str()
+        .filter(|id| !id.is_empty());
     let (true, Some(team_id)) = (conversation["state"] == "open", team_id) else {
         return Vec::new();
     };
@@ -273,33 +280,45 @@ pub async fn team_rules(db: &PgPool, team_id: Option<&str>) -> Result<Vec<RuleAt
 }
 
 /// `loadDeskEscalationTimeline(db, conversationId)`.
-pub async fn timeline(db: &PgPool, conversation_id: &str) -> Result<Vec<TimelineEntry>, sqlx::Error> {
+pub async fn timeline(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Vec<TimelineEntry>, sqlx::Error> {
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(i64, String, String, Option<String>, bool, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "select floor(extract(epoch from created_at) * 1000)::int8, kind, author_type,
+    let rows: Vec<(
+        i64,
+        String,
+        String,
+        Option<String>,
+        bool,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "select floor(extract(epoch from created_at) * 1000)::int8, kind, author_type,
                     metadata->>'eventType',
                     coalesce(metadata->'changes' @> '[{\"field\":\"team\"}]'::jsonb, false),
                     metadata->>'teamId', metadata->>'ruleIndex'
              from desk_messages where conversation_id = $1 and kind in ('message', 'event')
              order by created_at asc, id asc",
-        )
-        .bind(conversation_id)
-        .fetch_all(db)
-        .await?;
+    )
+    .bind(conversation_id)
+    .fetch_all(db)
+    .await?;
     Ok(rows
         .into_iter()
         .map(
-            |(at, kind, author_type, event_type, team_changed, team_id, rule_index)| TimelineEntry {
-                at,
-                kind,
-                author_type,
-                event_type,
-                team_changed,
-                team_id,
-                rule_index: rule_index
-                    .filter(|text| !text.is_empty())
-                    .map(|text| text.trim().parse::<f64>().unwrap_or(f64::NAN)),
+            |(at, kind, author_type, event_type, team_changed, team_id, rule_index)| {
+                TimelineEntry {
+                    at,
+                    kind,
+                    author_type,
+                    event_type,
+                    team_changed,
+                    team_id,
+                    rule_index: rule_index
+                        .filter(|text| !text.is_empty())
+                        .map(|text| text.trim().parse::<f64>().unwrap_or(f64::NAN)),
+                }
             },
         )
         .collect())
@@ -307,7 +326,10 @@ pub async fn timeline(db: &PgPool, conversation_id: &str) -> Result<Vec<Timeline
 
 /// `loadDeskRunningBreach(db, conversationId)`: the earliest breach of a
 /// running SLA clock.
-pub async fn running_breach(db: &PgPool, conversation_id: &str) -> Result<Option<i64>, sqlx::Error> {
+pub async fn running_breach(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Option<i64>, sqlx::Error> {
     sqlx::query_scalar(
         "select floor(extract(epoch from min(breached_at)) * 1000)::int8 from desk_sla_clocks
          where conversation_id = $1 and status = 'running'",
@@ -318,8 +340,14 @@ pub async fn running_breach(db: &PgPool, conversation_id: &str) -> Result<Option
 }
 
 /// `deskEscalationsDueFor(db, conversation, breachedAt)`.
-pub async fn due_for(db: &PgPool, conversation: &Value, breached_at: Option<i64>) -> Result<Vec<Due>, sqlx::Error> {
-    let team_id = conversation["departmentId"].as_str().filter(|id| !id.is_empty());
+pub async fn due_for(
+    db: &PgPool,
+    conversation: &Value,
+    breached_at: Option<i64>,
+) -> Result<Vec<Due>, sqlx::Error> {
+    let team_id = conversation["departmentId"]
+        .as_str()
+        .filter(|id| !id.is_empty());
     if conversation["state"] != "open" || team_id.is_none() {
         return Ok(Vec::new());
     }
@@ -381,7 +409,11 @@ pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, 
 }
 
 /// `backOffDeskEscalation(db, conversationId, retryAt)`.
-pub async fn back_off(db: &PgPool, conversation_id: &str, retry_at: i64) -> Result<(), sqlx::Error> {
+pub async fn back_off(
+    db: &PgPool,
+    conversation_id: &str,
+    retry_at: i64,
+) -> Result<(), sqlx::Error> {
     sqlx::query("update desk_conversations set escalation_check_at = $2::timestamp where id = $1")
         .bind(conversation_id)
         .bind(iso(retry_at))
@@ -445,7 +477,10 @@ impl From<UpdateError> for EscalationError {
 
 /// `memberUserId(db, ref)`: an active internal member, by user id or by
 /// member id (`managerId` holds the latter).
-async fn member_user_id(db: &PgPool, reference: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+async fn member_user_id(
+    db: &PgPool,
+    reference: Option<&str>,
+) -> Result<Option<String>, sqlx::Error> {
     let Some(reference) = reference.filter(|r| !r.is_empty()) else {
         return Ok(None);
     };
@@ -508,7 +543,12 @@ impl Fire<'_> {
     }
 
     /// Hand the conversation to `user_id` (an escalation overrides the owner).
-    async fn assign_to(&mut self, db: &PgPool, conversation: Value, user_id: &str) -> Result<Value, EscalationError> {
+    async fn assign_to(
+        &mut self,
+        db: &PgPool,
+        conversation: Value,
+        user_id: &str,
+    ) -> Result<Value, EscalationError> {
         if conversation["assigneeId"].as_str() == Some(user_id) {
             return Ok(conversation);
         }
@@ -540,7 +580,12 @@ impl Fire<'_> {
 
     /// Move to the next team; an owner outside its members lets go, and the
     /// team's members take it.
-    async fn next_tier(&mut self, db: &PgPool, conversation: &Value, next: &str) -> Result<Value, EscalationError> {
+    async fn next_tier(
+        &mut self,
+        db: &PgPool,
+        conversation: &Value,
+        next: &str,
+    ) -> Result<Value, EscalationError> {
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
         let input = Update {
             department_id: Field::Set(next.to_owned()),
@@ -609,8 +654,16 @@ impl Fire<'_> {
     }
 
     /// `fire(db, ctx, conversation, due)`.
-    async fn fire(&mut self, db: &PgPool, conversation: Value, due: &Due) -> Result<(), EscalationError> {
-        let team_id = conversation["departmentId"].as_str().unwrap_or_default().to_owned();
+    async fn fire(
+        &mut self,
+        db: &PgPool,
+        conversation: Value,
+        due: &Due,
+    ) -> Result<(), EscalationError> {
+        let team_id = conversation["departmentId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
         let rule = &due.rule;
         let mut assignee: Option<String> = None;

@@ -372,7 +372,11 @@ async fn update_attributes(
     if let Some(message) = &updated.message {
         let changes = crate::routing::attribute_changes(before.as_ref(), &conversation);
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-        let mut changed = weldsuite_events::EntityEvent::new(ev::DESK_CONVERSATION_UPDATED, id, conversation.clone());
+        let mut changed = weldsuite_events::EntityEvent::new(
+            ev::DESK_CONVERSATION_UPDATED,
+            id,
+            conversation.clone(),
+        );
         if let Some(changes) = changes {
             changed = changed.with_changes(changes);
         }
@@ -390,10 +394,19 @@ async fn update_attributes(
             &HashMap::new(),
         );
         // A new type or tags can route it elsewhere (a team it set itself stays).
-        if let Some(routed) = crate::routing::reroute_after_attributes(&state, caller, message).await {
+        if let Some(routed) =
+            crate::routing::reroute_after_attributes(&state, caller, message).await
+        {
             for step in &routed.steps {
-                let authors = load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
-                publish_change(&state, &caller.clerk_org_id, &step.conversation, &step.message, &authors);
+                let authors =
+                    load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
+                publish_change(
+                    &state,
+                    &caller.clerk_org_id,
+                    &step.conversation,
+                    &step.message,
+                    &authors,
+                );
             }
             let custom_fields = conversation["customFields"].clone();
             conversation = routed.conversation;

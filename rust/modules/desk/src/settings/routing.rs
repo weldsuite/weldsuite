@@ -33,7 +33,15 @@ where
 }
 
 /// `DESK_CHANNELS`.
-const CHANNELS: [&str; 7] = ["messenger", "email", "phone", "whatsapp", "sms", "api", "portal"];
+const CHANNELS: [&str; 7] = [
+    "messenger",
+    "email",
+    "phone",
+    "whatsapp",
+    "sms",
+    "api",
+    "portal",
+];
 /// `DESK_ROUTING_PRIORITIES`.
 const PRIORITIES: [&str; 4] = ["low", "medium", "high", "urgent"];
 
@@ -46,16 +54,32 @@ async fn read(caller: Caller) -> Response {
 
 /// `z.array(z.string().min(min).max(max)).max(most).optional()` at `key`.
 fn texts(issues: &mut Issues, body: &Map<String, Value>, key: &str, max: usize, most: usize) {
-    issues.list(body, key, Presence::Optional, None, Some(most), |issues, item| {
-        issues.item_text(item, Text::length(Some(1), Some(max)))
-    });
+    issues.list(
+        body,
+        key,
+        Presence::Optional,
+        None,
+        Some(most),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(max))),
+    );
 }
 
 /// `z.array(z.enum(options)).max(most).optional()` at `key`.
-fn choices(issues: &mut Issues, body: &Map<String, Value>, key: &str, options: &[&str], most: usize) {
-    issues.list(body, key, Presence::Optional, None, Some(most), |issues, item| {
-        issues.item_choice(item, options)
-    });
+fn choices(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    options: &[&str],
+    most: usize,
+) {
+    issues.list(
+        body,
+        key,
+        Presence::Optional,
+        None,
+        Some(most),
+        |issues, item| issues.item_choice(item, options),
+    );
 }
 
 /// `deskRoutingRuleSchema`, field by field in the schema's order.
@@ -64,15 +88,26 @@ fn rule_schema(issues: &mut Issues, item: &Value) -> Option<()> {
     issues.text(rule, "id", Presence::Required, Some(1), Some(64));
     issues.text(rule, "name", Presence::Required, Some(1), Some(120));
     issues.boolean(rule, "enabled", Presence::Required);
-    issues.nested(rule, "conditions", Presence::Required, |issues, conditions| {
-        choices(issues, conditions, "channels", &CHANNELS, 10);
-        texts(issues, conditions, "ticketTypeIds", 30, 50);
-        texts(issues, conditions, "tags", 50, 50);
-        choices(issues, conditions, "priorities", &PRIORITIES, 4);
-        texts(issues, conditions, "departmentIds", 30, 50);
-    });
+    issues.nested(
+        rule,
+        "conditions",
+        Presence::Required,
+        |issues, conditions| {
+            choices(issues, conditions, "channels", &CHANNELS, 10);
+            texts(issues, conditions, "ticketTypeIds", 30, 50);
+            texts(issues, conditions, "tags", 50, 50);
+            choices(issues, conditions, "priorities", &PRIORITIES, 4);
+            texts(issues, conditions, "departmentIds", 30, 50);
+        },
+    );
     issues.nested(rule, "actions", Presence::Required, |issues, actions| {
-        issues.text(actions, "departmentId", Presence::Nullish, Some(1), Some(30));
+        issues.text(
+            actions,
+            "departmentId",
+            Presence::Nullish,
+            Some(1),
+            Some(30),
+        );
         issues.text(actions, "assigneeId", Presence::Nullish, Some(1), Some(255));
         issues.choice(actions, "priority", Presence::Nullish, &PRIORITIES);
         texts(issues, actions, "addTags", 50, 20);
@@ -80,17 +115,33 @@ fn rule_schema(issues: &mut Issues, item: &Value) -> Option<()> {
     Some(())
 }
 
-async fn save(State(state): State<DeskState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn save(
+    State(state): State<DeskState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let message = "Failed to save routing rules";
     let valid = validate(&headers, &body, |issues, fields| {
         issues
-            .list(fields, "rules", Presence::Required, None, Some(100), rule_schema)
+            .list(
+                fields,
+                "rules",
+                Presence::Required,
+                None,
+                Some(100),
+                rule_schema,
+            )
             .into_option()
             .map(|_| Value::Object(fields.clone()))
     });
     let data = match valid {
         Ok(Some(data)) => data,
-        Ok(None) => return weldsuite_kit::ApiError::internal().with_message(message).into_response(),
+        Ok(None) => {
+            return weldsuite_kit::ApiError::internal()
+                .with_message(message)
+                .into_response();
+        }
         Err(refusal) => return refusal.respond(message),
     };
     let rules = match routing::save(&caller.db, &data).await {

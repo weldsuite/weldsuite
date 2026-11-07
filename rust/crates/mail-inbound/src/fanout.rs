@@ -383,7 +383,13 @@ async fn publish_all(ctx: &InboundContext, messages: Vec<RealtimeMessage>) {
 }
 
 /// One desk entity event to the hub, as `system` (`publishEntityEventRaw`).
-async fn publish_desk_event(ctx: &InboundContext, org: &str, entity_type: &str, action: &str, row: &Value) {
+async fn publish_desk_event(
+    ctx: &InboundContext,
+    org: &str,
+    entity_type: &str,
+    action: &str,
+    row: &Value,
+) {
     match EventType::catalog(entity_type, action) {
         Ok(event) => {
             let context = EventContext::new(org, "system", EventSource::System);
@@ -532,7 +538,14 @@ async fn auto_assign(
             ],
         )
         .await;
-        publish_desk_event(ctx, org, "desk_conversation", step.action, &step.conversation).await;
+        publish_desk_event(
+            ctx,
+            org,
+            "desk_conversation",
+            step.action,
+            &step.conversation,
+        )
+        .await;
     }
     last
 }

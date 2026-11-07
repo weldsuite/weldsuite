@@ -18,7 +18,10 @@ use crate::{Caller, DeskState};
 const ATTRIBUTE_COLUMNS: [&str; 4] = ["ticketTypeId", "priority", "tags", "departmentId"];
 
 /// `deskAttributeChanges(before, after)`: the entity event's `changes`.
-pub(crate) fn attribute_changes(before: Option<&Value>, after: &Value) -> Option<Map<String, Value>> {
+pub(crate) fn attribute_changes(
+    before: Option<&Value>,
+    after: &Value,
+) -> Option<Map<String, Value>> {
     let before = before?;
     let mut changes = Map::new();
     for key in ATTRIBUTE_COLUMNS {
@@ -60,13 +63,16 @@ pub(crate) async fn reroute_after_attributes(
         team: keep_team,
         assignee: false,
     };
-    let routed = match routing::route_and_assign(&caller.db, id, keep, Trigger::Changed, &Picker::Local).await {
-        Ok(routed) => routed,
-        Err(error) => {
-            tracing::error!(%error, "[desk-api/desk-conversations] routing failed");
-            return None;
-        }
-    };
+    let routed =
+        match routing::route_and_assign(&caller.db, id, keep, Trigger::Changed, &Picker::Local)
+            .await
+        {
+            Ok(routed) => routed,
+            Err(error) => {
+                tracing::error!(%error, "[desk-api/desk-conversations] routing failed");
+                return None;
+            }
+        };
     if routed.steps.is_empty() {
         return None;
     }
@@ -78,8 +84,15 @@ pub(crate) async fn reroute_after_attributes(
         } else {
             ev::DESK_CONVERSATION_UPDATED
         };
-        let conversation_id = step.conversation["id"].as_str().unwrap_or_default().to_owned();
-        events.push(EntityEvent::new(event, conversation_id.clone(), step.conversation.clone()));
+        let conversation_id = step.conversation["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        events.push(EntityEvent::new(
+            event,
+            conversation_id.clone(),
+            step.conversation.clone(),
+        ));
         events.push(EntityEvent::new(
             ev::DESK_MESSAGE_CREATED,
             step.message["id"].as_str().unwrap_or_default().to_owned(),

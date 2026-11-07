@@ -87,7 +87,13 @@ fn hub(org_id: &str, topic: &str, event: &str, data: &Value) -> RealtimeMessage 
 
 /// One `desk_conversation` / `desk_message` event to the hub, as `system`
 /// (`publishEntityEventRaw`).
-async fn publish_entity(state: &WidgetState, org_id: &str, entity_type: &str, action: &str, row: &Value) {
+async fn publish_entity(
+    state: &WidgetState,
+    org_id: &str,
+    entity_type: &str,
+    action: &str,
+    row: &Value,
+) {
     match EventType::catalog(entity_type, action) {
         Ok(event) => {
             let context = EventContext::new(org_id, "system", EventSource::System);
@@ -205,7 +211,12 @@ pub(crate) async fn publish_visitor_event(
 /// `publishInternalEvent(env, orgId, conversation, message)`: a routing
 /// rule's ticket-field change, internal, so the hub and the inbox only
 /// (never the visitor's room).
-async fn publish_internal_event(state: &WidgetState, org_id: &str, conversation: &Value, message: &Value) {
+async fn publish_internal_event(
+    state: &WidgetState,
+    org_id: &str,
+    conversation: &Value,
+    message: &Value,
+) {
     publish_entity(state, org_id, "desk_conversation", "updated", conversation).await;
     publish_all(
         state,
@@ -299,8 +310,15 @@ pub(crate) async fn auto_assign(
         if step.action == "assigned" {
             match resolve_authors(db, &[step.conversation["assigneeId"].as_str()]).await {
                 Ok(authors) => {
-                    publish_visitor_event(state, org_id, &step.conversation, &step.message, &authors, "assigned")
-                        .await;
+                    publish_visitor_event(
+                        state,
+                        org_id,
+                        &step.conversation,
+                        &step.message,
+                        &authors,
+                        "assigned",
+                    )
+                    .await;
                 }
                 Err(error) => {
                     tracing::error!(%error, "[widget-api] routing / auto-assignment failed");
