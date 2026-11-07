@@ -160,6 +160,8 @@ function toCrmTask(
         }
       : null,
     duration: api.duration ?? undefined,
+    sourceType: api.sourceType ?? null,
+    sourceId: api.sourceId ?? null,
     ...(api.customFields ? { customFields: api.customFields } : {}),
   } as CrmTask;
 }

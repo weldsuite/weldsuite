@@ -17,6 +17,7 @@ import {
 import { useManageDeskConversation, type DeskConversation } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { DeskSlaBadge } from './sla-badge';
+import { ConversationActionsMenu } from './conversation-actions-menu';
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
@@ -201,6 +202,7 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
           {manage.isPending && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
           {isClosed ? t.header.reopen : t.header.close}
         </Button>
+        <ConversationActionsMenu conversation={conversation} />
       </div>
     </div>
   );

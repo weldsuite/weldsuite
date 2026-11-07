@@ -776,6 +776,10 @@ export const tasksApi = {
     // instead of POST /tasks/projects/:projectId).
     customerId?: string;
     personId?: string;
+    // The record the task is created from (a WeldDesk ticket); the ticket
+    // lists its tasks and the task links back.
+    sourceType?: 'desk_conversation';
+    sourceId?: string;
   }) => appApiPost<ApiTask>('/tasks', data),
 
   // `nextTaskId` (on `ApiTask`) is present when this update completed a

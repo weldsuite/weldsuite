@@ -1,6 +1,16 @@
 export const helpdesk = {
     title: 'WeldDesk',
     description: 'Manage support tickets and customer service',
+    // WeldFlow tasks created from a ticket (the inbox details panel).
+    ticketTasks: {
+      title: 'Tasks',
+      createTask: 'Create task',
+      moreActions: 'More actions',
+      empty: 'No tasks created from this ticket yet.',
+      unassigned: 'Unassigned',
+      openTask: 'Open task',
+      latestCustomerMessage: 'Latest customer message',
+    },
 
     // Settings > Apps > WeldDesk > SLA policies
     slaPolicies: {

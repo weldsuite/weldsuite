@@ -1508,6 +1508,7 @@
         "src/routes/tasks/integration.test.ts",
         "src/routes/tasks/audit-fixes.integration.test.ts",
         "src/routes/tasks/web-contract.integration.test.ts",
+        "src/routes/tasks/source.integration.test.ts",
         "src/routes/my-tasks/integration.test.ts"
       ],
       "paths": [
@@ -1516,6 +1517,7 @@
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "packages/clients/app-api-client/src/schemas/tasks.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]

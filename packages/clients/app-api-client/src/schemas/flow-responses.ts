@@ -494,6 +494,9 @@ export const flowTaskSchema = z
     customerId: optionalNullableString,
     contactId: optionalNullableString,
     personId: optionalNullableString,
+    /** The record the task was created from (`desk_conversation` + its id). */
+    sourceType: optionalNullableString,
+    sourceId: optionalNullableString,
     status: z.string(),
     priority: z.string(),
     type: optionalNullableString,

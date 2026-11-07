@@ -1,6 +1,11 @@
 export const projects = {
     title: 'Projecten',
     description: 'Beheer projecten, taken en tijdlijnen',
+    // Een taak die vanuit een WeldDesk-ticket is gemaakt, linkt ernaar terug.
+    fromTicket: {
+      label: 'Ticket',
+      value: 'Vanuit ticket #{number}',
+    },
 
     dashboard: {
       title: 'Dashboard',

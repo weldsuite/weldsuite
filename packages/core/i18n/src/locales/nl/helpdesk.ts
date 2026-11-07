@@ -1,6 +1,16 @@
 export const helpdesk = {
     title: 'WeldDesk',
     description: 'Beheer supporttickets en klantenservice',
+    // WeldFlow-taken die vanuit een ticket zijn gemaakt (detailpaneel in de inbox).
+    ticketTasks: {
+      title: 'Taken',
+      createTask: 'Taak maken',
+      moreActions: 'Meer acties',
+      empty: 'Er zijn nog geen taken vanuit dit ticket gemaakt.',
+      unassigned: 'Niet toegewezen',
+      openTask: 'Taak openen',
+      latestCustomerMessage: 'Laatste bericht van de klant',
+    },
 
     // Instellingen > Apps > WeldDesk > SLA-beleid
     slaPolicies: {

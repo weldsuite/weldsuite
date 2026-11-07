@@ -8,7 +8,7 @@
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
-import type { CreateTaskInput, UpdateTaskInput, MoveTaskInput } from '../schemas/tasks';
+import type { CreateTaskInput, UpdateTaskInput, MoveTaskInput, TaskSourceType } from '../schemas/tasks';
 
 export interface TaskRow {
   id: string;
@@ -56,6 +56,9 @@ export interface TaskRow {
     unit?: 'days' | 'weeks' | 'months' | 'years';
   } | null;
   customFields?: Record<string, unknown> | null;
+  /** The record the task was created from: `desk_conversation` + the ticket's id. */
+  sourceType?: TaskSourceType | null;
+  sourceId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,6 +83,10 @@ export interface ListTasksQuery {
   status?: string;
   priority?: string;
   search?: string;
+  /** The tasks created from a record: `sourceType=desk_conversation&sourceId=<ticket id>`. */
+  sourceType?: TaskSourceType;
+  sourceId?: string;
+  enrich?: boolean;
 }
 
 export function createTasksApi(api: ClientApi) {
