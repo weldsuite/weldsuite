@@ -84,9 +84,18 @@ export function parseSmtpUrl(value: string): SmtpRelay {
   if (url.password) {
     relay.auth = { user: decode(url.username), pass: decode(url.password) };
   }
-  const helloName = url.pathname.length > 1 ? url.pathname.replace(/^\/+|\/+$/g, '') : '';
+  const helloName = trimSlashes(url.pathname);
   if (helloName) relay.helloName = helloName;
   return relay;
+}
+
+/** Leading and trailing slashes off, as lettre's `trim_matches('/')`. */
+function trimSlashes(path: string): string {
+  let start = 0;
+  let end = path.length;
+  while (start < end && path[start] === '/') start += 1;
+  while (end > start && path[end - 1] === '/') end -= 1;
+  return path.slice(start, end);
 }
 
 function decode(part: string): string {
@@ -176,5 +185,8 @@ export function nodemailerTransport(transporter: Transporter, name = 'smtp'): Em
 
 /** System email through an SMTP relay. Throws on a malformed `url` (see `parseSmtpUrl`). */
 export function smtpTransport(options: SmtpTransportOptions): EmailTransport {
+  // The URL picks the encryption, as on the Rust server: plain only for a bare
+  // `smtp://` (a relay inside the cluster, Mailpit); `?tls=required` or `smtps://` otherwise.
+  // eslint-disable-next-line sonarjs/no-clear-text-protocols
   return nodemailerTransport(createTransport(smtpOptions(parseSmtpUrl(options.url))));
 }
