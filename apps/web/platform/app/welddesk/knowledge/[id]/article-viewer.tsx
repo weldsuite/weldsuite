@@ -24,7 +24,7 @@ interface Article {
   tags: string[];
   author: string;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'private' | 'internal' | 'logged_in' | 'specific_users' | 'restricted';
+  visibility: 'public' | 'logged_in' | 'groups' | 'internal';
   lastUpdated: Date;
   views?: number;
   helpful?: number;

@@ -69,6 +69,7 @@ macro_rules! listing_as {
     };
 }
 
+mod announcements;
 mod assignment;
 mod channels;
 mod conversations;
@@ -79,6 +80,7 @@ mod discord;
 mod dispatch;
 mod js;
 mod kb;
+mod knowledge;
 mod library;
 mod link;
 mod notify;
@@ -167,10 +169,7 @@ where
     Router::new()
         .nest("/helpdesk-faqs", crud::routes(&simple::FAQS, gate))
         .nest("/helpdesk-news", crud::routes(&simple::NEWS, gate))
-        .nest(
-            "/helpdesk-announcements",
-            crud::routes(&simple::ANNOUNCEMENTS, gate),
-        )
+        .nest("/helpdesk-announcements", announcements::routes(gate))
         .nest("/helpdesk-feedback", crud::routes(&simple::FEEDBACK, gate))
         .nest("/helpdesk-reviews", crud::routes(&simple::REVIEWS, gate))
         .nest("/slas", crud::routes(&simple::SLA, gate))
@@ -196,6 +195,7 @@ where
         .nest("/tickets", tickets::routes(gate))
         .nest("/conversations", conversations::routes(gate))
         .merge(kb::routes(gate))
+        .merge(knowledge::routes(gate))
         .merge(team::routes(gate))
         .merge(settings::routes(gate))
         .merge(channels::routes(gate))

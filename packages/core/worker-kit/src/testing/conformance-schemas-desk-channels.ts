@@ -24,6 +24,7 @@ import {
   helpdeskTokenSavedSchema,
 } from '@weldsuite/core-api-client/schemas/helpdesk-integrations';
 import {
+  publicHelpcenterAnnouncementSchema,
   publicHelpcenterArticlePageSchema,
   publicHelpcenterArticleSchema,
   publicHelpcenterConfigSchema,
@@ -70,4 +71,5 @@ export const DESK_CHANNEL_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/public/helpcenter/articles/:slug', envelope: 'single', data: publicHelpcenterArticleSchema },
   { method: 'POST', route: '/public/helpcenter/articles/:id/feedback', envelope: 'single', data: publicHelpcenterFeedbackSchema },
   { method: 'GET', route: '/public/helpcenter/search', envelope: 'body', data: publicHelpcenterSearchPageSchema },
+  { method: 'GET', route: '/public/helpcenter/announcements', envelope: 'array', data: publicHelpcenterAnnouncementSchema },
 ];

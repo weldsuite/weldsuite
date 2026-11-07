@@ -3,6 +3,7 @@ import { ArrowUp, ChevronLeft, Loader2, Paperclip, X } from 'lucide-react';
 import type { MessageAttachment, ThreadMessage, WidgetConfigResponse } from '@/lib/api/types';
 import { DRAFT_ID, type Messenger } from '@/hooks/use-messenger';
 import { useAvailability } from '@/hooks/use-availability';
+import { useArticleSuggestions } from '@/hooks/use-self-service';
 import { fill, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils/cn';
 import {
@@ -16,6 +17,8 @@ import { Avatar, AvatarStack, TypingDots, clockTime, readableOn } from './parts'
 import { EmailCapture } from './email-capture';
 import { RatingCard } from './rating-card';
 import { AwayNotice, replyTimeText } from './away-notice';
+import { ArticleSuggestions } from './article-suggestions';
+import { LinkifiedText } from './linkified-text';
 
 interface ConversationViewProps {
   config: WidgetConfigResponse;
@@ -105,7 +108,7 @@ function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Re
           style={mine && !mediaOnly ? { backgroundColor: color, color: onColor } : undefined}
           title={new Date(message.createdAt).toLocaleString()}
         >
-          {message.body}
+          {message.body && <LinkifiedText text={message.body} />}
           {attachments.length > 0 && (
             <MessageAttachments attachments={attachments} className={message.body ? 'mt-2' : undefined} />
           )}
@@ -260,6 +263,9 @@ export function ConversationView({
   };
 
   const hasVisitorMessage = messages.some((m) => m.authorType === 'visitor' && m.status !== 'failed');
+  // Deflection: only while the first message of a new conversation is being
+  // written. Once anything is sent, the suggestions get out of the way.
+  const suggestions = useArticleSuggestions(config.widgetId, draft, isDraft && messages.length === 0);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" data-testid="chat-view">
@@ -373,6 +379,7 @@ export function ConversationView({
         }}
         className="flex-shrink-0 p-3"
       >
+        <ArticleSuggestions hits={suggestions} color={color} />
         {pending.length > 0 && (
           <ul className="mb-2 flex flex-wrap gap-1.5" data-testid="pending-attachments">
             {pending.map((file) => (

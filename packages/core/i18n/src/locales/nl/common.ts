@@ -499,6 +499,13 @@ export const common = {
     },
     helpcenter: {
       searchPlaceholder: 'Artikelen zoeken...',
+      selfService: {
+        dismiss: 'Sluiten',
+        otherLanguages: 'Ook beschikbaar in',
+        defaultLanguage: 'Oorspronkelijke taal',
+        suggestionsTitle: 'Deze artikelen kunnen helpen',
+        suggestionsHint: 'Misschien beantwoordt een van deze artikelen je vraag meteen.',
+      },
       portal: {
         signIn: 'Inloggen',
         signOut: 'Uitloggen',

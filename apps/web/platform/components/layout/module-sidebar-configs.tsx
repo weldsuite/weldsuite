@@ -447,6 +447,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
           { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/saved-replies', icon: MessageSquareText },
+          { title: t.helpdesk.announcementsAdmin.navTitle, href: '/welddesk/help-center/announcements', icon: Megaphone },
         ],
       },
       {

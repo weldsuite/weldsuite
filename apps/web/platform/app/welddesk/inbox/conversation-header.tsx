@@ -18,6 +18,7 @@ import { useManageDeskConversation, type DeskConversation } from '@/hooks/querie
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { DeskSlaBadge } from './sla-badge';
 import { TranslateToggle } from './translation/translate-toggle';
+import { CreateArticleAction } from './create-article-action';
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
@@ -128,6 +129,7 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
       </div>
       <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
         <TranslateToggle conversation={conversation} />
+        <CreateArticleAction conversationId={conversation.id} />
         {user?.id && conversation.assigneeId !== user.id && (
           <Button
             variant="ghost"
