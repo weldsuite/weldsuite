@@ -44,7 +44,8 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
 
   useBreadcrumbs([
     { label: t.helpdesk.title, href: '/welddesk' },
-    { label: t.helpdesk.analyticsReports.title },
+    { label: t.helpdesk.reports.title, href: '/welddesk/reports' },
+    { label: t.helpdesk.reports.customTitle },
   ]);
 
   const openCreateDialog = () => {
@@ -73,7 +74,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
             };
             setReports((prev) => [...prev, newReport]);
             setCreateDialogOpen(false);
-            router.push(`/welddesk/analytics/${newReport.id}`);
+            router.push(`/welddesk/reports/custom/${newReport.id}`);
           }
         },
       }
@@ -160,7 +161,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
         <button
           type="button"
           aria-label={report.title}
-          onClick={() => router.push(`/welddesk/analytics/${report.id}`)}
+          onClick={() => router.push(`/welddesk/reports/custom/${report.id}`)}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         />
         {/* Actions */}
