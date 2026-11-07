@@ -36,9 +36,14 @@
 //!   service binding), its in-process implementation, the step handlers and
 //!   the `ConversationWorkflow` as the `desk.conversation-workflow` job.
 //!
+//! - [`articles`] (`@weldsuite/db/lib/desk-articles`): who may read a
+//!   help-center article or announcement, article search, language versions
+//!   and help-center links.
+//!
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+pub mod articles;
 pub mod assignment;
 pub mod assignment_router;
 pub mod attributes;
