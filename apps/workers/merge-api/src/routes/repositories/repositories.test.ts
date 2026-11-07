@@ -15,6 +15,9 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import * as masterSchema from '@weldsuite/db/schema/master';
+import { conformanceMasterDb } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type {
   ConnectMergeGithubResult,
@@ -50,22 +53,35 @@ import {
   seedRepository,
   seedTeam,
 } from '../../test/seed';
+import { fakeKv } from '../../test/fake-http';
+
+const holder = vi.hoisted(() => ({ masterDb: null as unknown }));
+
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.masterDb),
+}));
 
 let db: Database;
+let master: Awaited<ReturnType<typeof createMasterPgliteDb>>['db'];
 
 beforeAll(async () => {
   db = await openDb();
+  master = (await createMasterPgliteDb()).db;
+  holder.masterDb = master;
 }, 120_000);
 
 beforeEach(async () => {
   await resetTables(db);
+  await master.delete(masterSchema.mergeProviderIndex);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const connections = (grants = ADMIN, env = {}) => makeApp(db, '/api/merge/connections', connectionsRoutes, { grants, env });
+const connections = (grants = ADMIN, env = {}) =>
+  makeApp(db, '/api/merge/connections', connectionsRoutes, { grants, env, masterDb: master });
 const repositories = (grants = ADMIN, env = {}) => makeApp(db, '/api/merge/repositories', repositoriesRoutes, { grants, env });
 
 const REPO_900 = { id: 900, full_name: 'acme/web', private: true, default_branch: 'main', html_url: 'https://github.com/acme/web' };
@@ -143,7 +159,8 @@ describe('connections list, delete and available repositories', () => {
 
     expect((await connections(MEMBER).request(`/api/merge/connections/${connection.id}`, { method: 'DELETE' })).status).toBe(403);
     expect((await connections().request('/api/merge/connections/mcn_unknown', { method: 'DELETE' })).status).toBe(404);
-    expect((await connections().request(`/api/merge/connections/${connection.id}`, { method: 'DELETE' })).status).toBe(204);
+    const remove = connections(ADMIN, { WORKSPACE_CACHE: fakeKv() });
+    expect((await remove.request(`/api/merge/connections/${connection.id}`, { method: 'DELETE' })).status).toBe(204);
 
     expect(eventTypes()).toEqual(['merge_repository:deleted', 'merge_connection:deleted']);
     expect(events[0]!.entityId).toBe(repo.id);
@@ -156,6 +173,38 @@ describe('connections list, delete and available repositories', () => {
     expect(await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})))).toEqual({
       status: 'needs_install',
     });
+  });
+
+  it('releases the GitHub installation: its index row (when it names this workspace) and the webhook route cache', async () => {
+    stubGithub({});
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const indexRow = (id: string, externalKey: string, workspaceId: string) => ({
+      id,
+      provider: 'github',
+      kind: 'installation',
+      externalKey,
+      workspaceId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await master.insert(masterSchema.mergeProviderIndex).values([
+      indexRow('mpi_own', '4242', 'ws_alpha'),
+      indexRow('mpi_other', '5151', 'ws_beta'),
+    ]);
+    const kv = fakeKv();
+    await kv.put('gh-install:4242', 'org_alpha');
+    await kv.put('gh-install:5151', 'org_beta');
+    const own = await seedConnection(db);
+    // A stale row naming an installation another workspace holds: deleting it leaves theirs alone.
+    const stale = await seedConnection(db, { externalAccountId: '5151', accountLogin: 'beta' });
+
+    expect((await connections(ADMIN, { WORKSPACE_CACHE: kv }).request(`/api/merge/connections/${own.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await connections(ADMIN, { WORKSPACE_CACHE: kv }).request(`/api/merge/connections/${stale.id}`, { method: 'DELETE' })).status).toBe(204);
+
+    const rows = await master.select().from(masterSchema.mergeProviderIndex);
+    expect(rows.map((row: { id: string }) => row.id)).toEqual(['mpi_other']);
+    expect(await kv.get('gh-install:4242')).toBeNull();
+    expect(await kv.get('gh-install:5151')).toBeNull();
   });
 
   it('lists what the installation can see, marking the repositories already tracked', async () => {
@@ -329,6 +378,21 @@ describe('add a repository (backfill)', () => {
     const failed = await add(connection.id);
     expect(failed.status).toBe(502);
     expect(await db.select().from(schema.mergeRepositories)).toEqual([]);
+  });
+
+  it('keeps a repository whose first sync fails: created with nothing synced, so a retry is not a 409', async () => {
+    const { connection } = await connectionAndIssues();
+    stubGithub({
+      'GET /repositories/900': REPO_900,
+      'GET /repos/acme/web/pulls': new Response('rate limited', { status: 503 }),
+    });
+    clearEvents();
+    const result = await ok<MergeRepositorySyncResult>(await add(connection.id), 201);
+    expect(result).toMatchObject({ pullRequestsSynced: 0, linksCreated: 0 });
+    expect(result.repository).toMatchObject({ fullName: 'acme/web', lastSyncedAt: null });
+    expect(eventTypes()).toEqual(['merge_repository:created']);
+    expect(await db.select().from(schema.mergePullRequests)).toEqual([]);
+    expect((await add(connection.id)).status).toBe(409);
   });
 
   it('adds with pr_sync off when asked', async () => {

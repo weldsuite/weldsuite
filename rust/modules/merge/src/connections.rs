@@ -26,10 +26,11 @@ use weldsuite_kit::{Data, NoContent};
 use crate::credentials::adapter_context;
 use crate::db::{Row, rows_of, text};
 use crate::github_install::install_page;
+use crate::installations::release_github_installation_index;
 use crate::mappers::{connection_dto, connection_event_data, repository_event_data};
 use crate::providers::list_available_repositories;
-use crate::webhooks::release_connection_webhooks;
-use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish};
+use crate::webhooks::{master_of, release_connection_webhooks};
+use crate::{Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, now, publish};
 
 /// Live repositories per connection.
 async fn repository_counts(
@@ -121,8 +122,15 @@ pub(crate) async fn remove(
     Path(id): Path<String>,
 ) -> Answer {
     let db = &caller.db;
-    if find_connection(db, &id).await?.is_none() {
+    let Some(existing) = find_connection(db, &id).await? else {
         return Err(Refusal::not_found("Connection", Some(&id)));
+    };
+    // A GitHub installation leaves the master index (when it names this
+    // workspace) and the webhook route cache, so another workspace can
+    // install it and its events stop reaching this one. First, so a failure
+    // leaves the connection in place to retry.
+    if text(&existing, "provider") == "github" {
+        release_github_installation(&state, &caller, text(&existing, "externalAccountId")).await?;
     }
     let now = now();
     let repositories = rows_of(
@@ -164,6 +172,25 @@ pub(crate) async fn remove(
     ));
     publish(&state, &caller.events, events);
     Ok(NoContent.into_response())
+}
+
+/// `releaseGithubInstallation(env, installationId, workspaceId)`: the
+/// installation's master index row (only when it names this workspace) and
+/// integration-webhook-worker's `gh-install:<id>` route cache.
+async fn release_github_installation(
+    state: &MergeState,
+    caller: &Caller,
+    installation_id: &str,
+) -> Result<(), MergeError> {
+    let master = master_of(state, &caller.overrides)?;
+    release_github_installation_index(&master, installation_id, &caller.workspace_id).await?;
+    if let Some(cache) = caller.overrides.cache(state) {
+        cache
+            .delete_boxed(&format!("gh-install:{installation_id}"))
+            .await
+            .map_err(|error| MergeError::Unexpected(error.to_string()))?;
+    }
+    Ok(())
 }
 
 /// `GET /:id/available-repositories`: what the connection can see, from its

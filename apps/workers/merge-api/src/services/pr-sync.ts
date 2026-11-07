@@ -7,6 +7,7 @@
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import type { MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import { findIssueKeyMentions } from '@weldsuite/merge-domain/keys';
 import {
@@ -356,12 +357,28 @@ export function upsertPullRequest(
   return upsertMirror(db, repository, mapGithubPullRequest(github), options);
 }
 
-/** Mirrors a pull request already mapped to `MirrorFields` (every provider's mapper ends here). */
-export async function upsertMirror(
+/**
+ * Mirrors a pull request already mapped to `MirrorFields` (every provider's mapper ends here).
+ * Providers send several deliveries for one change (GitHub: `opened`, `review_requested` and
+ * `labeled` together): when another delivery inserted the pull request between the read and the
+ * insert, `(repository_id, number)` refuses the second insert, and the mirror is read again and
+ * takes the update path (or is stale) like any later delivery.
+ */
+export function upsertMirror(
   db: Db,
   repository: MergeRepositoryRow,
   fields: MirrorFields,
   options: UpsertOptions,
+): Promise<UpsertOutcome> {
+  return upsertMirrorOnce(db, repository, fields, options, true);
+}
+
+async function upsertMirrorOnce(
+  db: Db,
+  repository: MergeRepositoryRow,
+  fields: MirrorFields,
+  options: UpsertOptions,
+  retryOnRace: boolean,
 ): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
@@ -384,7 +401,12 @@ export async function upsertMirror(
   if (unchanged) {
     row = existing!;
   } else {
-    row = await writeMirror(db, repository, fields, existing);
+    try {
+      row = await writeMirror(db, repository, fields, existing);
+    } catch (err) {
+      if (existing || !retryOnRace || !isUniqueViolation(err)) throw err;
+      return upsertMirrorOnce(db, repository, fields, options, false);
+    }
   }
 
   const { links, created } = await syncAutoLinks(db, row);

@@ -21,7 +21,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::{Issues, Presence, js_number};
-use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
+use weldsuite_kit::{ApiError, Data, List, NoContent, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::js::{next_cursor, page, page_limit, query_truthy, total};
@@ -245,21 +245,22 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, Valu
 /// (`value.toISOString is not a function`).
 const DATE_COLUMNS: [&str; 2] = ["installed_at", "revoked_at"];
 
+/// Body keys only the install flow sets (`INSTALL_FLOW_KEYS`): which
+/// installation a workspace is bound to is decided by `recordInstallation`,
+/// after it has proved the member can reach the installation and claimed it
+/// in the master index. Binding another workspace's installation here would
+/// let this workspace mint that installation's App tokens.
+const INSTALL_FLOW_KEYS: [&str; 3] = ["installationId", "status", "webhookSecret"];
+const CREATE_REFUSED: &str = "A GitHub connection is created by installing the GitHub App";
+const UPDATE_REFUSED: &str =
+    "installationId, status and webhookSecret are set by the GitHub App install flow";
+
 /// `toColumns(data)`: a body in the legacy shape as `merge_connections`
-/// columns. Unknown keys are dropped; a value of the wrong type reaches the
-/// column and the write fails, as it always did. `Err` for a timestamp that
-/// is not null.
+/// columns. Unknown keys and the install-flow keys are dropped; a value of
+/// the wrong type reaches the column and the write fails, as it always did.
+/// `Err` for a timestamp that is not null.
 fn to_columns(data: &Map<String, Value>) -> Result<Map<String, Value>, ()> {
     let mut out = Map::new();
-    match data.get("installationId") {
-        None | Some(Value::Null) => {}
-        Some(Value::String(id)) => {
-            out.insert("external_account_id".into(), json!(id));
-        }
-        Some(other) => {
-            out.insert("external_account_id".into(), json!(other.to_string()));
-        }
-    }
     if let Some(slug) = data.get("appSlug") {
         out.insert("app_slug".into(), slug.clone());
     }
@@ -280,11 +281,9 @@ fn to_columns(data: &Map<String, Value>) -> Result<Map<String, Value>, ()> {
         out.insert("account_login".into(), login.clone());
     }
     for (key, column) in [
-        ("status", "status"),
         ("scopes", "scopes"),
         ("installedAt", "installed_at"),
         ("revokedAt", "revoked_at"),
-        ("webhookSecret", "webhook_secret"),
     ] {
         if let Some(value) = data.get(key) {
             if DATE_COLUMNS.contains(&column) && !value.is_null() {
@@ -296,33 +295,13 @@ fn to_columns(data: &Map<String, Value>) -> Result<Map<String, Value>, ()> {
     Ok(out)
 }
 
-async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+/// The install flow (`/api/workflow-github` callback, setup and recover) is
+/// the only way in: the body is validated, then refused.
+async fn create(_caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     const FAILED: &str = "Failed to create github connection";
-    let data = match validate(&headers, &body, read_body) {
-        Ok(data) => data,
-        Err(refusal) => return refusal.respond(FAILED),
-    };
-    let Ok(mut record) = to_columns(&data) else {
-        return internal(&"value.toISOString is not a function", FAILED);
-    };
-    let id = generate_id("ghc");
-    record.insert("id".into(), json!(id));
-    record.insert("provider".into(), json!("github"));
-    record.insert("created_by_user_id".into(), json!(caller.user_id));
-    let columns: Vec<&str> = record.keys().map(String::as_str).collect();
-    let list = columns.join(", ");
-    let inserted = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "insert into merge_connections ({list}, created_at, updated_at)
-         select {list}, $2::timestamptz, $2::timestamptz
-         from jsonb_populate_record(null::merge_connections, $1)"
-    )))
-    .bind(Value::Object(record.clone()))
-    .bind(now())
-    .execute(&caller.db)
-    .await;
-    match inserted {
-        Ok(_) => Created(json!({ "id": id })).into_response(),
-        Err(error) => internal(&error, FAILED),
+    match validate(&headers, &body, read_body) {
+        Ok(_) => ApiError::bad_request(CREATE_REFUSED).into_response(),
+        Err(refusal) => refusal.respond(FAILED),
     }
 }
 
@@ -337,6 +316,9 @@ async fn update(
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
+    if INSTALL_FLOW_KEYS.iter().any(|key| data.contains_key(*key)) {
+        return ApiError::bad_request(UPDATE_REFUSED).into_response();
+    }
     let result = async {
         if live_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found(RESOURCE, &id));
@@ -421,13 +403,11 @@ mod tests {
         let Value::Object(body) = body else {
             unreachable!()
         };
+        // The installation id and the status are the install flow's.
         let columns = to_columns(&body).unwrap_or_default();
         assert_eq!(
             Value::Object(columns),
-            json!({
-                "external_account_id": "31337", "account_type": "organization",
-                "account_login": "jane", "status": "active",
-            })
+            json!({ "account_type": "organization", "account_login": "jane" })
         );
         let Value::Object(dated) = json!({ "revokedAt": "2026-01-01T00:00:00Z" }) else {
             unreachable!()

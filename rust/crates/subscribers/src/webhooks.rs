@@ -200,36 +200,10 @@ impl std::fmt::Display for BlockedAddress {
 impl StdError for BlockedAddress {}
 
 /// A globally routable address: not loopback, private, link-local, shared
-/// (100.64/10), documentation, multicast, unspecified or unique-local.
+/// (100.64/10), documentation, multicast, unspecified or unique-local
+/// ([`weldsuite_ports::is_public_ip`]).
 pub fn is_public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            !(v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.is_multicast()
-                || v4.is_documentation()
-                || a == 0
-                || (a == 100 && (64..128).contains(&b))
-                || (a == 198 && (b == 18 || b == 19))
-                || a >= 240)
-        }
-        IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_public(IpAddr::V4(v4));
-            }
-            let first = v6.segments()[0];
-            !(v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (first & 0xfe00) == 0xfc00
-                || (first & 0xffc0) == 0xfe80
-                || first == 0x2001 && v6.segments()[1] == 0x0db8)
-        }
-    }
+    weldsuite_ports::is_public_ip(ip)
 }
 
 /// Is `url`'s host an IP literal that is not public? (Names go through the

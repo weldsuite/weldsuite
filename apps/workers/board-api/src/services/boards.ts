@@ -220,7 +220,10 @@ export async function listBoards(
   const merged: BoardRecord[] = [...rows.map(toRecord), ...legacy.map(legacyRecord)].sort(
     (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || idsDescending(a.id, b.id),
   );
-  return { rows: merged.slice(params.offset, params.offset + params.limit), total: (counted?.total ?? 0) + (legacyCounted?.total ?? 0) };
+  // No page reaches past the window, so neither does the total: a cursor past it would answer an
+  // empty page that still says there is more.
+  const total = Math.min((counted?.total ?? 0) + (legacyCounted?.total ?? 0), MAX_PROJECT_WINDOW);
+  return { rows: merged.slice(params.offset, params.offset + params.limit), total };
 }
 
 function scopeCondition(scope: BoardScope): SQL | undefined {

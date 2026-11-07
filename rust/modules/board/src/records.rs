@@ -448,7 +448,9 @@ pub(crate) async fn list_boards(
     let start = usize::try_from(params.offset).unwrap_or(usize::MAX);
     let take = usize::try_from(params.limit).unwrap_or(0);
     let page = merged.into_iter().skip(start).take(take).collect();
-    Ok((page, total + legacy_total))
+    // No page reaches past the window, so neither does the total: a cursor
+    // past it would answer an empty page that still says there is more.
+    Ok((page, (total + legacy_total).min(MAX_PROJECT_WINDOW)))
 }
 
 /// A board not in the trash, or an old WeldFlow whiteboard not converted

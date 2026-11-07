@@ -110,8 +110,11 @@ describe('/api/github-connections', () => {
     expect(res.status).toBe(404);
   });
 
-  it('creates, updates and deletes through the passthrough body', async () => {
-    let res = await connections()(
+  it('never creates a connection: the install flow binds the installation', async () => {
+    await db.delete(schema.githubRepoLinks);
+    await db.delete(schema.mergeConnections);
+    // Another workspace's installation id, made active: refused, nothing written.
+    const res = await connections()(
       CONNECTIONS,
       send('POST', {
         installationId: '31337',
@@ -119,26 +122,39 @@ describe('/api/github-connections', () => {
         appSlug: 'weldsuite-test',
         ownerType: 'user',
         ownerLogin: 'jane',
-        accountLogin: 'not-a-column',
+        status: 'active',
+        webhookSecret: 'plain',
       }),
     );
-    expect(res.status).toBe(201);
-    const id = ((await res.json()) as { data: { id: string } }).data.id;
-    let [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
-    expect(row).toMatchObject({
-      provider: 'github',
-      externalAccountId: '31337',
-      accountType: 'user',
-      accountLogin: 'jane',
-      appSlug: 'weldsuite-test',
-      status: 'active',
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: 'BAD_REQUEST', message: 'A GitHub connection is created by installing the GitHub App' },
     });
+    expect(await db.select().from(schema.mergeConnections)).toHaveLength(0);
+  });
 
-    res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { status: 'suspended', ownerLogin: 'jane-2' }));
+  it('updates the descriptive fields, refuses the install-flow ones and deletes', async () => {
+    await seedConnection('ghc_u1', new Date('2026-01-05T00:00:00.000Z'));
+    const id = 'ghc_u1';
+
+    let res = await connections()(
+      `${CONNECTIONS}/${id}`,
+      send('PATCH', { ownerType: 'user', ownerLogin: 'jane-2', accountLogin: 'not-a-column', workspaceId: 'org_x' }),
+    );
     expect(res.status).toBe(200);
     expect(((await res.json()) as { data: { id: string } }).data.id).toBe(id);
+    let [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
+    expect(row).toMatchObject({ accountType: 'user', accountLogin: 'jane-2', status: 'active', externalAccountId: '10001' });
+
+    for (const body of [{ installationId: '31337' }, { installationId: null }, { status: 'active' }, { webhookSecret: 'plain', ownerLogin: 'x' }]) {
+      res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', body));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: { code: 'BAD_REQUEST', message: 'installationId, status and webhookSecret are set by the GitHub App install flow' },
+      });
+    }
     [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
-    expect(row).toMatchObject({ status: 'suspended', accountLogin: 'jane-2' });
+    expect(row).toMatchObject({ externalAccountId: '10001', status: 'active', webhookSecret: 'sealed', accountLogin: 'jane-2' });
 
     res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { revokedAt: '2026-01-01T00:00:00Z' }));
     expect(res.status).toBe(500);
@@ -147,19 +163,17 @@ describe('/api/github-connections', () => {
     expect(res.status).toBe(204);
     res = await connections()(`${CONNECTIONS}/${id}`, { method: 'DELETE' });
     expect(res.status).toBe(404);
-    res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { status: 'active' }));
+    res = await connections()(`${CONNECTIONS}/${id}`, send('PATCH', { ownerLogin: 'jane-3' }));
     expect(res.status).toBe(404);
   });
 
-  it('validates the body and answers 500 for a row the table refuses', async () => {
+  it('validates the body before refusing it', async () => {
     let res = await connections()(CONNECTIONS, send('POST', { installationId: 12 }));
     expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain('installing the GitHub App');
     res = await connections()(CONNECTIONS, send('POST', { status: 'x'.repeat(31) }));
     expect(res.status).toBe(400);
-    // No installation id: the insert fails.
-    res = await connections()(CONNECTIONS, send('POST', { appSlug: 'weldsuite-test' }));
-    expect(res.status).toBe(500);
-    expect(((await res.json()) as { error: { message: string } }).error.message).toBe('Failed to create github connection');
+    expect(await res.text()).not.toContain('installing the GitHub App');
   });
 
   it('refuses a caller without the permission', async () => {
