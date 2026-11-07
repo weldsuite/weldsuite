@@ -359,6 +359,7 @@ import { Route as WelddeskInboxEmailIndexRouteImport } from './routes/welddesk/i
 import { Route as WelddeskInboxChatIndexRouteImport } from './routes/welddesk/inbox/chat/index'
 import { Route as WelddeskInboxConversationIdIndexRouteImport } from './routes/welddesk/inbox/$conversationId/index'
 import { Route as WelddeskHelpCenterArticlesIndexRouteImport } from './routes/welddesk/help-center/articles/index'
+import { Route as WelddeskHelpCenterAnnouncementsIndexRouteImport } from './routes/welddesk/help-center/announcements/index'
 import { Route as WelddeskChatWidgetWidgetIdIndexRouteImport } from './routes/welddesk/chat-widget/$widgetId/index'
 import { Route as WelddataListsIdIndexRouteImport } from './routes/welddata/lists/$id/index'
 import { Route as WeldcrmSequencesIdIndexRouteImport } from './routes/weldcrm/sequences/$id/index'
@@ -506,6 +507,8 @@ import { Route as WelddeskInboxPhoneConversationIdIndexRouteImport } from './rou
 import { Route as WelddeskInboxEmailConversationIdIndexRouteImport } from './routes/welddesk/inbox/email/$conversationId/index'
 import { Route as WelddeskInboxChatConversationIdIndexRouteImport } from './routes/welddesk/inbox/chat/$conversationId/index'
 import { Route as WelddeskHelpCenterArticlesIdIndexRouteImport } from './routes/welddesk/help-center/articles/$id/index'
+import { Route as WelddeskHelpCenterAnnouncementsNewIndexRouteImport } from './routes/welddesk/help-center/announcements/new/index'
+import { Route as WelddeskHelpCenterAnnouncementsIdIndexRouteImport } from './routes/welddesk/help-center/announcements/$id/index'
 import { Route as WeldcrmSequencesIdSettingsIndexRouteImport } from './routes/weldcrm/sequences/$id/settings/index'
 import { Route as WeldcrmSequencesIdPeopleIndexRouteImport } from './routes/weldcrm/sequences/$id/people/index'
 import { Route as WeldcrmSequencesIdEditIndexRouteImport } from './routes/weldcrm/sequences/$id/edit/index'
@@ -2408,6 +2411,12 @@ const WelddeskHelpCenterArticlesIndexRoute =
     path: '/help-center/articles/',
     getParentRoute: () => WelddeskRouteRoute,
   } as any)
+const WelddeskHelpCenterAnnouncementsIndexRoute =
+  WelddeskHelpCenterAnnouncementsIndexRouteImport.update({
+    id: '/help-center/announcements/',
+    path: '/help-center/announcements/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
 const WelddeskChatWidgetWidgetIdIndexRoute =
   WelddeskChatWidgetWidgetIdIndexRouteImport.update({
     id: '/chat-widget/$widgetId/',
@@ -3275,6 +3284,18 @@ const WelddeskHelpCenterArticlesIdIndexRoute =
   WelddeskHelpCenterArticlesIdIndexRouteImport.update({
     id: '/help-center/articles/$id/',
     path: '/help-center/articles/$id/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskHelpCenterAnnouncementsNewIndexRoute =
+  WelddeskHelpCenterAnnouncementsNewIndexRouteImport.update({
+    id: '/help-center/announcements/new/',
+    path: '/help-center/announcements/new/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskHelpCenterAnnouncementsIdIndexRoute =
+  WelddeskHelpCenterAnnouncementsIdIndexRouteImport.update({
+    id: '/help-center/announcements/$id/',
+    path: '/help-center/announcements/$id/',
     getParentRoute: () => WelddeskRouteRoute,
   } as any)
 const WeldcrmSequencesIdSettingsIndexRoute =
@@ -4145,6 +4166,7 @@ export interface FileRoutesByFullPath {
   '/weldcrm/sequences/$id/': typeof WeldcrmSequencesIdIndexRoute
   '/welddata/lists/$id/': typeof WelddataListsIdIndexRoute
   '/welddesk/chat-widget/$widgetId/': typeof WelddeskChatWidgetWidgetIdIndexRoute
+  '/welddesk/help-center/announcements/': typeof WelddeskHelpCenterAnnouncementsIndexRoute
   '/welddesk/help-center/articles/': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId/': typeof WelddeskInboxConversationIdIndexRoute
   '/welddesk/inbox/chat/': typeof WelddeskInboxChatIndexRoute
@@ -4240,6 +4262,8 @@ export interface FileRoutesByFullPath {
   '/weldcrm/sequences/$id/edit/': typeof WeldcrmSequencesIdEditIndexRoute
   '/weldcrm/sequences/$id/people/': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings/': typeof WeldcrmSequencesIdSettingsIndexRoute
+  '/welddesk/help-center/announcements/$id/': typeof WelddeskHelpCenterAnnouncementsIdIndexRoute
+  '/welddesk/help-center/announcements/new/': typeof WelddeskHelpCenterAnnouncementsNewIndexRoute
   '/welddesk/help-center/articles/$id/': typeof WelddeskHelpCenterArticlesIdIndexRoute
   '/welddesk/inbox/chat/$conversationId/': typeof WelddeskInboxChatConversationIdIndexRoute
   '/welddesk/inbox/email/$conversationId/': typeof WelddeskInboxEmailConversationIdIndexRoute
@@ -4663,6 +4687,7 @@ export interface FileRoutesByTo {
   '/weldcrm/sequences/$id': typeof WeldcrmSequencesIdIndexRoute
   '/welddata/lists/$id': typeof WelddataListsIdIndexRoute
   '/welddesk/chat-widget/$widgetId': typeof WelddeskChatWidgetWidgetIdIndexRoute
+  '/welddesk/help-center/announcements': typeof WelddeskHelpCenterAnnouncementsIndexRoute
   '/welddesk/help-center/articles': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId': typeof WelddeskInboxConversationIdIndexRoute
   '/welddesk/inbox/chat': typeof WelddeskInboxChatIndexRoute
@@ -4758,6 +4783,8 @@ export interface FileRoutesByTo {
   '/weldcrm/sequences/$id/edit': typeof WeldcrmSequencesIdEditIndexRoute
   '/weldcrm/sequences/$id/people': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings': typeof WeldcrmSequencesIdSettingsIndexRoute
+  '/welddesk/help-center/announcements/$id': typeof WelddeskHelpCenterAnnouncementsIdIndexRoute
+  '/welddesk/help-center/announcements/new': typeof WelddeskHelpCenterAnnouncementsNewIndexRoute
   '/welddesk/help-center/articles/$id': typeof WelddeskHelpCenterArticlesIdIndexRoute
   '/welddesk/inbox/chat/$conversationId': typeof WelddeskInboxChatConversationIdIndexRoute
   '/welddesk/inbox/email/$conversationId': typeof WelddeskInboxEmailConversationIdIndexRoute
@@ -5238,6 +5265,7 @@ export interface FileRoutesById {
   '/weldcrm/sequences/$id/': typeof WeldcrmSequencesIdIndexRoute
   '/welddata/lists/$id/': typeof WelddataListsIdIndexRoute
   '/welddesk/chat-widget/$widgetId/': typeof WelddeskChatWidgetWidgetIdIndexRoute
+  '/welddesk/help-center/announcements/': typeof WelddeskHelpCenterAnnouncementsIndexRoute
   '/welddesk/help-center/articles/': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId/': typeof WelddeskInboxConversationIdIndexRoute
   '/welddesk/inbox/chat/': typeof WelddeskInboxChatIndexRoute
@@ -5333,6 +5361,8 @@ export interface FileRoutesById {
   '/weldcrm/sequences/$id/edit/': typeof WeldcrmSequencesIdEditIndexRoute
   '/weldcrm/sequences/$id/people/': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings/': typeof WeldcrmSequencesIdSettingsIndexRoute
+  '/welddesk/help-center/announcements/$id/': typeof WelddeskHelpCenterAnnouncementsIdIndexRoute
+  '/welddesk/help-center/announcements/new/': typeof WelddeskHelpCenterAnnouncementsNewIndexRoute
   '/welddesk/help-center/articles/$id/': typeof WelddeskHelpCenterArticlesIdIndexRoute
   '/welddesk/inbox/chat/$conversationId/': typeof WelddeskInboxChatConversationIdIndexRoute
   '/welddesk/inbox/email/$conversationId/': typeof WelddeskInboxEmailConversationIdIndexRoute
@@ -5814,6 +5844,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/'
     | '/welddata/lists/$id/'
     | '/welddesk/chat-widget/$widgetId/'
+    | '/welddesk/help-center/announcements/'
     | '/welddesk/help-center/articles/'
     | '/welddesk/inbox/$conversationId/'
     | '/welddesk/inbox/chat/'
@@ -5909,6 +5940,8 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/edit/'
     | '/weldcrm/sequences/$id/people/'
     | '/weldcrm/sequences/$id/settings/'
+    | '/welddesk/help-center/announcements/$id/'
+    | '/welddesk/help-center/announcements/new/'
     | '/welddesk/help-center/articles/$id/'
     | '/welddesk/inbox/chat/$conversationId/'
     | '/welddesk/inbox/email/$conversationId/'
@@ -6332,6 +6365,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id'
     | '/welddata/lists/$id'
     | '/welddesk/chat-widget/$widgetId'
+    | '/welddesk/help-center/announcements'
     | '/welddesk/help-center/articles'
     | '/welddesk/inbox/$conversationId'
     | '/welddesk/inbox/chat'
@@ -6427,6 +6461,8 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/edit'
     | '/weldcrm/sequences/$id/people'
     | '/weldcrm/sequences/$id/settings'
+    | '/welddesk/help-center/announcements/$id'
+    | '/welddesk/help-center/announcements/new'
     | '/welddesk/help-center/articles/$id'
     | '/welddesk/inbox/chat/$conversationId'
     | '/welddesk/inbox/email/$conversationId'
@@ -6906,6 +6942,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/'
     | '/welddata/lists/$id/'
     | '/welddesk/chat-widget/$widgetId/'
+    | '/welddesk/help-center/announcements/'
     | '/welddesk/help-center/articles/'
     | '/welddesk/inbox/$conversationId/'
     | '/welddesk/inbox/chat/'
@@ -7001,6 +7038,8 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/edit/'
     | '/weldcrm/sequences/$id/people/'
     | '/weldcrm/sequences/$id/settings/'
+    | '/welddesk/help-center/announcements/$id/'
+    | '/welddesk/help-center/announcements/new/'
     | '/welddesk/help-center/articles/$id/'
     | '/welddesk/inbox/chat/$conversationId/'
     | '/welddesk/inbox/email/$conversationId/'
@@ -9578,6 +9617,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskHelpCenterArticlesIndexRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
+    '/welddesk/help-center/announcements/': {
+      id: '/welddesk/help-center/announcements/'
+      path: '/help-center/announcements'
+      fullPath: '/welddesk/help-center/announcements/'
+      preLoaderRoute: typeof WelddeskHelpCenterAnnouncementsIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
     '/welddesk/chat-widget/$widgetId/': {
       id: '/welddesk/chat-widget/$widgetId/'
       path: '/chat-widget/$widgetId'
@@ -10605,6 +10651,20 @@ declare module '@tanstack/react-router' {
       path: '/help-center/articles/$id'
       fullPath: '/welddesk/help-center/articles/$id/'
       preLoaderRoute: typeof WelddeskHelpCenterArticlesIdIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/help-center/announcements/new/': {
+      id: '/welddesk/help-center/announcements/new/'
+      path: '/help-center/announcements/new'
+      fullPath: '/welddesk/help-center/announcements/new/'
+      preLoaderRoute: typeof WelddeskHelpCenterAnnouncementsNewIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/help-center/announcements/$id/': {
+      id: '/welddesk/help-center/announcements/$id/'
+      path: '/help-center/announcements/$id'
+      fullPath: '/welddesk/help-center/announcements/$id/'
+      preLoaderRoute: typeof WelddeskHelpCenterAnnouncementsIdIndexRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
     '/weldcrm/sequences/$id/settings/': {
@@ -11908,6 +11968,7 @@ interface WelddeskRouteRouteChildren {
   WelddeskReportsCustomIdRoute: typeof WelddeskReportsCustomIdRoute
   WelddeskReportsCustomBuilderRoute: typeof WelddeskReportsCustomBuilderRoute
   WelddeskChatWidgetWidgetIdIndexRoute: typeof WelddeskChatWidgetWidgetIdIndexRoute
+  WelddeskHelpCenterAnnouncementsIndexRoute: typeof WelddeskHelpCenterAnnouncementsIndexRoute
   WelddeskHelpCenterArticlesIndexRoute: typeof WelddeskHelpCenterArticlesIndexRoute
   WelddeskInboxConversationIdIndexRoute: typeof WelddeskInboxConversationIdIndexRoute
   WelddeskInboxChatIndexRoute: typeof WelddeskInboxChatIndexRoute
@@ -11918,6 +11979,8 @@ interface WelddeskRouteRouteChildren {
   WelddeskSettingsPhoneIndexRoute: typeof WelddeskSettingsPhoneIndexRoute
   WelddeskSettingsSavedRepliesIndexRoute: typeof WelddeskSettingsSavedRepliesIndexRoute
   WelddeskSettingsTicketTypesIndexRoute: typeof WelddeskSettingsTicketTypesIndexRoute
+  WelddeskHelpCenterAnnouncementsIdIndexRoute: typeof WelddeskHelpCenterAnnouncementsIdIndexRoute
+  WelddeskHelpCenterAnnouncementsNewIndexRoute: typeof WelddeskHelpCenterAnnouncementsNewIndexRoute
   WelddeskHelpCenterArticlesIdIndexRoute: typeof WelddeskHelpCenterArticlesIdIndexRoute
   WelddeskInboxChatConversationIdIndexRoute: typeof WelddeskInboxChatConversationIdIndexRoute
   WelddeskInboxEmailConversationIdIndexRoute: typeof WelddeskInboxEmailConversationIdIndexRoute
@@ -11940,6 +12003,8 @@ const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskReportsCustomIdRoute: WelddeskReportsCustomIdRoute,
   WelddeskReportsCustomBuilderRoute: WelddeskReportsCustomBuilderRoute,
   WelddeskChatWidgetWidgetIdIndexRoute: WelddeskChatWidgetWidgetIdIndexRoute,
+  WelddeskHelpCenterAnnouncementsIndexRoute:
+    WelddeskHelpCenterAnnouncementsIndexRoute,
   WelddeskHelpCenterArticlesIndexRoute: WelddeskHelpCenterArticlesIndexRoute,
   WelddeskInboxConversationIdIndexRoute: WelddeskInboxConversationIdIndexRoute,
   WelddeskInboxChatIndexRoute: WelddeskInboxChatIndexRoute,
@@ -11951,6 +12016,10 @@ const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSettingsSavedRepliesIndexRoute:
     WelddeskSettingsSavedRepliesIndexRoute,
   WelddeskSettingsTicketTypesIndexRoute: WelddeskSettingsTicketTypesIndexRoute,
+  WelddeskHelpCenterAnnouncementsIdIndexRoute:
+    WelddeskHelpCenterAnnouncementsIdIndexRoute,
+  WelddeskHelpCenterAnnouncementsNewIndexRoute:
+    WelddeskHelpCenterAnnouncementsNewIndexRoute,
   WelddeskHelpCenterArticlesIdIndexRoute:
     WelddeskHelpCenterArticlesIdIndexRoute,
   WelddeskInboxChatConversationIdIndexRoute:

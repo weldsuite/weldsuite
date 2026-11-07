@@ -26,6 +26,7 @@ import {
   DESK_ATTACHMENT_MAX_COUNT,
   formatFileSize,
 } from './attachments';
+import { KnowledgeButton } from './knowledge-panel';
 
 type ComposerTab = 'reply' | 'note';
 
@@ -175,6 +176,11 @@ export function Composer({
     textareaRef.current?.focus();
   };
 
+  const insertText = (text: string) => {
+    setBody((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text));
+    textareaRef.current?.focus();
+  };
+
   return (
     <div className="flex-shrink-0 px-3 md:px-4 pb-3 pt-2 bg-white dark:bg-background" data-testid="desk-inbox-composer">
       <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -287,6 +293,7 @@ export function Composer({
                 >
                   <MessageSquareText className="h-4 w-4" />
                 </Button>
+                <KnowledgeButton conversationId={conversationId} onInsert={insertText} />
                 <span className="hidden sm:inline ml-1.5 text-xs text-muted-foreground truncate">{t.composer.sendHint}</span>
               </div>
               <Button

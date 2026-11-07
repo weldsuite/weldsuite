@@ -14,6 +14,7 @@ import type {
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { Avatar as UiAvatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { formatFileSize } from './attachments';
+import { LinkifiedText } from './linkified-text';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -390,7 +391,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
                       message.pending === 'failed' && 'opacity-60 ring-1 ring-destructive/60',
                     )}
                   >
-                    {message.body}
+                    {message.body && <LinkifiedText text={message.body} />}
                     <AttachmentList attachments={message.attachments} spaced={Boolean(message.body)} />
                   </div>
                   {message.pending === 'sending' && (
