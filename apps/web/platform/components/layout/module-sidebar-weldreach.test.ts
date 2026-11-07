@@ -12,7 +12,7 @@ describe('WeldReach module registration', () => {
     expect(getModuleKey('/weldreach/campaigns/rcp_1')).toBe('weldreach');
   });
 
-  it('lists the six sections, each gated on the object it reads', () => {
+  it('lists the five sections, each gated on the object it reads, with settings left to workspace Settings', () => {
     const items = config.getMenuItems(en).flatMap((group) => group.items);
     expect(items.map((item) => [item.href, item.permission])).toEqual([
       ['/weldreach', undefined],
@@ -20,21 +20,13 @@ describe('WeldReach module registration', () => {
       ['/weldreach/prospects', 'reach_prospects:read'],
       ['/weldreach/inbox', 'reach_inbox:read'],
       ['/weldreach/mailboxes', 'reach_mailboxes:read'],
-      ['/settings/apps/weldreach', 'reach_settings:read'],
     ]);
   });
 
   it('translates the section names', () => {
     const titles = (language: typeof en) => config.getMenuItems(language).flatMap((group) => group.items.map((item) => item.title));
-    expect(titles(en)).toEqual(['Overview', 'Campaigns', 'Prospects', 'Inbox', 'Mailboxes & domains', 'Settings']);
-    expect(titles(nl as unknown as typeof en)).toEqual([
-      'Overzicht',
-      'Campagnes',
-      'Prospects',
-      'Inbox',
-      'Mailboxen & domeinen',
-      'Instellingen',
-    ]);
+    expect(titles(en)).toEqual(['Overview', 'Campaigns', 'Prospects', 'Inbox', 'Mailboxes & domains']);
+    expect(titles(nl as unknown as typeof en)).toEqual(['Overzicht', 'Campagnes', 'Prospects', 'Inbox', 'Mailboxen & domeinen']);
   });
 
   it('has an icon and stays out of onboarding, since it cannot be installed without approval', () => {
