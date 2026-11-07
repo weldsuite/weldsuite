@@ -93,7 +93,7 @@ export function providerMarkdown(body: string): string {
 /** GitHub's alert marker (`> [!TIP]`) is shown there as the alert's title; here it becomes that word in bold. */
 function withAlertTitles(text: string): string {
   return text.replace(
-    /^(\s*>?\s*)\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*$/gim,
+    /^([ \t]*(?:>[ \t]*)?)\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*$/gim,
     (_marker, lead: string, kind: string) => `${lead}**${kind.charAt(0).toUpperCase()}${kind.slice(1).toLowerCase()}**`,
   );
 }
@@ -102,7 +102,8 @@ function withAlertTitles(text: string): string {
 export function providerPreviewText(body: string): string {
   return providerMarkdown(body)
     .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^[\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+\.)\s+/gm, '')
     .replace(/(\*\*|__|\*|_|~~|`)/g, '')
     .replace(/\s+/g, ' ')
@@ -124,7 +125,7 @@ export function providerChatMarkdown(body: string): string {
         : part
             .replace(/^ {0,3}\[[^\]]+\]:[ \t]*\S.*$/gm, '')
             .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-            .replace(/\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_link, text: string, url: string) => {
+            .replace(/\[([^[\]]*)\]\(([^)\s]+)(?:\s[^)]*)?\)/g, (_link, text: string, url: string) => {
               if (text.trim() === '') return url;
               return text === url ? url : `${text} (${url})`;
             }),

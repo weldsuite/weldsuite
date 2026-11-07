@@ -71,6 +71,10 @@ describe('providerPreviewText', () => {
       '🟡 Minor: only user ops count one quoted',
     );
   });
+
+  it('keeps the words of images and of links with a title', () => {
+    expect(providerPreviewText('![chart](https://x.test/c.png) and [link](https://x.test "Title")')).toBe('chart and link');
+  });
 });
 
 describe('providerChatMarkdown', () => {
@@ -78,5 +82,9 @@ describe('providerChatMarkdown', () => {
     const body = '[vc]: #abc123==\nRead [the docs](https://vercel.link/learn) ![Skipped](https://x.test/s.svg)\n`[keep](me)`';
     expect(providerChatMarkdown(body)).toBe('Read the docs (https://vercel.link/learn) \n`[keep](me)`');
     expect(providerChatMarkdown('[![badge](https://x.test/b.svg)](https://x.test/run)')).toBe('https://x.test/run');
+  });
+
+  it('leaves out a link title', () => {
+    expect(providerChatMarkdown('See [the docs](https://x.test/d "The docs").')).toBe('See the docs (https://x.test/d).');
   });
 });

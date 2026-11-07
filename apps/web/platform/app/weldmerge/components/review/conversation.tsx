@@ -35,6 +35,12 @@ function startedAt(thread: MergeReviewThread): number {
   return Date.parse(thread.comments[0]?.createdAt ?? '') || 0;
 }
 
+/** Where a thread sits: a file and line, a file, or nothing for a comment on the whole pull request. */
+function threadPlace(thread: MergeReviewThread, onLine: string): string | null {
+  if (!thread.path) return null;
+  return thread.line === null ? thread.path : fill(onLine, { path: thread.path, line: thread.line });
+}
+
 function sameDay(a: string, b: string): boolean {
   return new Date(a).toDateString() === new Date(b).toDateString();
 }
@@ -264,11 +270,7 @@ export function Conversation({ pullRequestId, canReview, onReply, onComment }: R
   const rows: ReactNode[] = [];
   let previous: ThreadComment | null = null;
   for (const thread of ordered) {
-    const place = thread.path
-      ? thread.line === null
-        ? thread.path
-        : fill(tc.onLine, { path: thread.path, line: thread.line })
-      : null;
+    const place = threadPlace(thread, tc.onLine);
     const folded = thread.resolved && !openResolved.has(thread.id);
     if (thread.resolved) {
       rows.push(
