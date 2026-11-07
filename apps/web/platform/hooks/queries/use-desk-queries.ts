@@ -18,7 +18,8 @@ export type DeskEventType =
   | 'rated'
   | 'attributes_changed'
   | 'sla_warning'
-  | 'sla_breached';
+  | 'sla_breached'
+  | 'escalated';
 export type DeskSlaMetric = 'first_response' | 'next_response' | 'resolution';
 /** What the inbox shows for a conversation's SLA clocks; null when no policy applies. */
 export type DeskSlaStatus = 'active' | 'warning' | 'breached' | 'paused' | 'achieved';

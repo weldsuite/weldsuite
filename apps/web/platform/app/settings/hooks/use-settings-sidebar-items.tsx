@@ -28,6 +28,7 @@ import {
   Tags,
   Shuffle,
   Timer,
+  Route,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
@@ -65,7 +66,10 @@ const APP_SETTINGS_ITEMS = [
  * WeldDesk's settings pages, in the order and grouping of its overview page
  * (`app/settings/apps/welddesk/page.tsx`).
  */
-function welddeskSettingsSubItems(td: TranslationsType['settings']['welddesk']): MenuItemProps[] {
+function welddeskSettingsSubItems(
+  td: TranslationsType['settings']['welddesk'],
+  th: TranslationsType['helpdesk'],
+): MenuItemProps[] {
   return [
     { title: td.chatWidgetTitle, href: '/settings/apps/welddesk/chat-widget', icon: MessagesSquare },
     { title: td.emailTitle, href: '/settings/apps/welddesk/email', icon: Mail },
@@ -73,6 +77,8 @@ function welddeskSettingsSubItems(td: TranslationsType['settings']['welddesk']):
     { title: td.helpCenterTitle, href: '/settings/apps/welddesk/help-center', icon: BookOpen },
     { title: td.voiceAgentsTitle, href: '/settings/apps/welddesk/voice-agents', icon: Bot },
     { title: td.ticketTypesTitle, href: '/settings/apps/welddesk/ticket-types', icon: Tags },
+    { title: th.teamsSettings.title, href: '/settings/apps/welddesk/teams', icon: Users },
+    { title: th.routing.title, href: '/settings/apps/welddesk/routing', icon: Route },
     { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
     { title: td.slaPoliciesTitle, href: '/settings/apps/welddesk/sla-policies', icon: Timer },
   ];
@@ -124,7 +130,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
           icon,
           // WeldDesk opens up to its own settings pages while one of them is open.
           ...(appCode === 'welddesk' && (pathname ?? '').startsWith('/settings/apps/welddesk')
-            ? { subItems: welddeskSettingsSubItems(ts.welddesk) }
+            ? { subItems: welddeskSettingsSubItems(ts.welddesk, t.helpdesk) }
             : {}),
         })),
     ];
@@ -172,7 +178,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
     // Edition flags (4.F3): only pages this deployment serves (no billing,
     // SSO, integrations, … where the backend lacks them).
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => isRouteOffered(item.href)) }));
-  }, [enabled, ts, pathname, installedAppCodes, hasEntityApps]);
+  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps]);
 
   const sidebarProps = React.useMemo(
     () => ({ appName: ts.title, showBackButton: true, onBack: handleBack }),

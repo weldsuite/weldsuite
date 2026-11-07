@@ -538,7 +538,9 @@ import { Route as SettingsEntitiesIdInvoiceTemplatesIndexRouteImport } from './r
 import { Route as SettingsEntitiesIdEditIndexRouteImport } from './routes/settings/entities/$id/edit/index'
 import { Route as SettingsAppsWelddeskVoiceAgentsIndexRouteImport } from './routes/settings/apps/welddesk/voice-agents/index'
 import { Route as SettingsAppsWelddeskTicketTypesIndexRouteImport } from './routes/settings/apps/welddesk/ticket-types/index'
+import { Route as SettingsAppsWelddeskTeamsIndexRouteImport } from './routes/settings/apps/welddesk/teams/index'
 import { Route as SettingsAppsWelddeskSlaPoliciesIndexRouteImport } from './routes/settings/apps/welddesk/sla-policies/index'
+import { Route as SettingsAppsWelddeskRoutingIndexRouteImport } from './routes/settings/apps/welddesk/routing/index'
 import { Route as SettingsAppsWelddeskPhoneIndexRouteImport } from './routes/settings/apps/welddesk/phone/index'
 import { Route as SettingsAppsWelddeskHelpCenterIndexRouteImport } from './routes/settings/apps/welddesk/help-center/index'
 import { Route as SettingsAppsWelddeskEmailIndexRouteImport } from './routes/settings/apps/welddesk/email/index'
@@ -3469,10 +3471,22 @@ const SettingsAppsWelddeskTicketTypesIndexRoute =
     path: '/ticket-types/',
     getParentRoute: () => SettingsAppsWelddeskRouteRoute,
   } as any)
+const SettingsAppsWelddeskTeamsIndexRoute =
+  SettingsAppsWelddeskTeamsIndexRouteImport.update({
+    id: '/teams/',
+    path: '/teams/',
+    getParentRoute: () => SettingsAppsWelddeskRouteRoute,
+  } as any)
 const SettingsAppsWelddeskSlaPoliciesIndexRoute =
   SettingsAppsWelddeskSlaPoliciesIndexRouteImport.update({
     id: '/sla-policies/',
     path: '/sla-policies/',
+    getParentRoute: () => SettingsAppsWelddeskRouteRoute,
+  } as any)
+const SettingsAppsWelddeskRoutingIndexRoute =
+  SettingsAppsWelddeskRoutingIndexRouteImport.update({
+    id: '/routing/',
+    path: '/routing/',
     getParentRoute: () => SettingsAppsWelddeskRouteRoute,
   } as any)
 const SettingsAppsWelddeskPhoneIndexRoute =
@@ -4207,7 +4221,9 @@ export interface FileRoutesByFullPath {
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center/': typeof SettingsAppsWelddeskHelpCenterIndexRoute
   '/settings/apps/welddesk/phone/': typeof SettingsAppsWelddeskPhoneIndexRoute
+  '/settings/apps/welddesk/routing/': typeof SettingsAppsWelddeskRoutingIndexRoute
   '/settings/apps/welddesk/sla-policies/': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
+  '/settings/apps/welddesk/teams/': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types/': typeof SettingsAppsWelddeskTicketTypesIndexRoute
   '/settings/apps/welddesk/voice-agents/': typeof SettingsAppsWelddeskVoiceAgentsIndexRoute
   '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
@@ -4725,7 +4741,9 @@ export interface FileRoutesByTo {
   '/settings/apps/welddesk/email': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center': typeof SettingsAppsWelddeskHelpCenterIndexRoute
   '/settings/apps/welddesk/phone': typeof SettingsAppsWelddeskPhoneIndexRoute
+  '/settings/apps/welddesk/routing': typeof SettingsAppsWelddeskRoutingIndexRoute
   '/settings/apps/welddesk/sla-policies': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
+  '/settings/apps/welddesk/teams': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types': typeof SettingsAppsWelddeskTicketTypesIndexRoute
   '/settings/apps/welddesk/voice-agents': typeof SettingsAppsWelddeskVoiceAgentsIndexRoute
   '/settings/entities/$id/edit': typeof SettingsEntitiesIdEditIndexRoute
@@ -5300,7 +5318,9 @@ export interface FileRoutesById {
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center/': typeof SettingsAppsWelddeskHelpCenterIndexRoute
   '/settings/apps/welddesk/phone/': typeof SettingsAppsWelddeskPhoneIndexRoute
+  '/settings/apps/welddesk/routing/': typeof SettingsAppsWelddeskRoutingIndexRoute
   '/settings/apps/welddesk/sla-policies/': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
+  '/settings/apps/welddesk/teams/': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types/': typeof SettingsAppsWelddeskTicketTypesIndexRoute
   '/settings/apps/welddesk/voice-agents/': typeof SettingsAppsWelddeskVoiceAgentsIndexRoute
   '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
@@ -5876,7 +5896,9 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/email/'
     | '/settings/apps/welddesk/help-center/'
     | '/settings/apps/welddesk/phone/'
+    | '/settings/apps/welddesk/routing/'
     | '/settings/apps/welddesk/sla-policies/'
+    | '/settings/apps/welddesk/teams/'
     | '/settings/apps/welddesk/ticket-types/'
     | '/settings/apps/welddesk/voice-agents/'
     | '/settings/entities/$id/edit/'
@@ -6394,7 +6416,9 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/email'
     | '/settings/apps/welddesk/help-center'
     | '/settings/apps/welddesk/phone'
+    | '/settings/apps/welddesk/routing'
     | '/settings/apps/welddesk/sla-policies'
+    | '/settings/apps/welddesk/teams'
     | '/settings/apps/welddesk/ticket-types'
     | '/settings/apps/welddesk/voice-agents'
     | '/settings/entities/$id/edit'
@@ -6968,7 +6992,9 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/email/'
     | '/settings/apps/welddesk/help-center/'
     | '/settings/apps/welddesk/phone/'
+    | '/settings/apps/welddesk/routing/'
     | '/settings/apps/welddesk/sla-policies/'
+    | '/settings/apps/welddesk/teams/'
     | '/settings/apps/welddesk/ticket-types/'
     | '/settings/apps/welddesk/voice-agents/'
     | '/settings/entities/$id/edit/'
@@ -10831,11 +10857,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWelddeskTicketTypesIndexRouteImport
       parentRoute: typeof SettingsAppsWelddeskRouteRoute
     }
+    '/settings/apps/welddesk/teams/': {
+      id: '/settings/apps/welddesk/teams/'
+      path: '/teams'
+      fullPath: '/settings/apps/welddesk/teams/'
+      preLoaderRoute: typeof SettingsAppsWelddeskTeamsIndexRouteImport
+      parentRoute: typeof SettingsAppsWelddeskRouteRoute
+    }
     '/settings/apps/welddesk/sla-policies/': {
       id: '/settings/apps/welddesk/sla-policies/'
       path: '/sla-policies'
       fullPath: '/settings/apps/welddesk/sla-policies/'
       preLoaderRoute: typeof SettingsAppsWelddeskSlaPoliciesIndexRouteImport
+      parentRoute: typeof SettingsAppsWelddeskRouteRoute
+    }
+    '/settings/apps/welddesk/routing/': {
+      id: '/settings/apps/welddesk/routing/'
+      path: '/routing'
+      fullPath: '/settings/apps/welddesk/routing/'
+      preLoaderRoute: typeof SettingsAppsWelddeskRoutingIndexRouteImport
       parentRoute: typeof SettingsAppsWelddeskRouteRoute
     }
     '/settings/apps/welddesk/phone/': {
@@ -11198,7 +11238,9 @@ interface SettingsAppsWelddeskRouteRouteChildren {
   SettingsAppsWelddeskEmailIndexRoute: typeof SettingsAppsWelddeskEmailIndexRoute
   SettingsAppsWelddeskHelpCenterIndexRoute: typeof SettingsAppsWelddeskHelpCenterIndexRoute
   SettingsAppsWelddeskPhoneIndexRoute: typeof SettingsAppsWelddeskPhoneIndexRoute
+  SettingsAppsWelddeskRoutingIndexRoute: typeof SettingsAppsWelddeskRoutingIndexRoute
   SettingsAppsWelddeskSlaPoliciesIndexRoute: typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
+  SettingsAppsWelddeskTeamsIndexRoute: typeof SettingsAppsWelddeskTeamsIndexRoute
   SettingsAppsWelddeskTicketTypesIndexRoute: typeof SettingsAppsWelddeskTicketTypesIndexRoute
   SettingsAppsWelddeskVoiceAgentsIndexRoute: typeof SettingsAppsWelddeskVoiceAgentsIndexRoute
   SettingsAppsWelddeskChatWidgetWidgetIdIndexRoute: typeof SettingsAppsWelddeskChatWidgetWidgetIdIndexRoute
@@ -11215,8 +11257,11 @@ const SettingsAppsWelddeskRouteRouteChildren: SettingsAppsWelddeskRouteRouteChil
     SettingsAppsWelddeskHelpCenterIndexRoute:
       SettingsAppsWelddeskHelpCenterIndexRoute,
     SettingsAppsWelddeskPhoneIndexRoute: SettingsAppsWelddeskPhoneIndexRoute,
+    SettingsAppsWelddeskRoutingIndexRoute:
+      SettingsAppsWelddeskRoutingIndexRoute,
     SettingsAppsWelddeskSlaPoliciesIndexRoute:
       SettingsAppsWelddeskSlaPoliciesIndexRoute,
+    SettingsAppsWelddeskTeamsIndexRoute: SettingsAppsWelddeskTeamsIndexRoute,
     SettingsAppsWelddeskTicketTypesIndexRoute:
       SettingsAppsWelddeskTicketTypesIndexRoute,
     SettingsAppsWelddeskVoiceAgentsIndexRoute:
