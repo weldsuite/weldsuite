@@ -370,22 +370,21 @@ async fn update_attributes(
         );
     }
     if let Some(message) = &updated.message {
-        let changes = crate::routing::attribute_changes(before.as_ref(), &conversation);
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-        let mut changed = weldsuite_events::EntityEvent::new(
+        let mut updated_event = weldsuite_events::EntityEvent::new(
             ev::DESK_CONVERSATION_UPDATED,
             id,
             conversation.clone(),
         );
-        if let Some(changes) = changes {
-            changed = changed.with_changes(changes);
+        if let Some(diff) = crate::routing::attribute_changes(before.as_ref(), &conversation) {
+            updated_event = updated_event.with_changes(diff);
         }
-        let created = weldsuite_events::EntityEvent::new(
+        let message_event = weldsuite_events::EntityEvent::new(
             ev::DESK_MESSAGE_CREATED,
             message["id"].as_str().unwrap_or_default().to_owned(),
             message.clone(),
         );
-        crate::routing::publish_in_order(&state, caller, vec![changed, created]);
+        crate::routing::publish_in_order(&state, caller, vec![updated_event, message_event]);
         publish_change(
             &state,
             &caller.clerk_org_id,

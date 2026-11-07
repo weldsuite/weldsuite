@@ -31,6 +31,7 @@ const CONVERSATION_RETRY_MS: i64 = 30 * 60_000;
 const CONVERSATIONS_PER_TICK: i64 = 100;
 
 /// `publishEscalation(env, db, orgId, result)`: best effort.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &Escalated) {
     let context = EventContext::new(org_id, "system", EventSource::System);
     for step in &result.steps {
@@ -127,7 +128,7 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
         .await
         {
             Ok(Some(notification)) => {
-                crate::notify::deliver_with(db, &notifier, org_id, &notification).await
+                crate::notify::deliver_with(db, &notifier, org_id, &notification).await;
             }
             Ok(None) => {}
             Err(error) => tracing::error!(%error, "[DeskEscalation] publishing failed"),

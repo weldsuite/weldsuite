@@ -343,6 +343,7 @@ async fn usable_assignee(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error
 /// apply the first matching rule. Writes nothing when no rule matches or
 /// it changes nothing; a team that is gone or inactive, or a teammate who
 /// left, skips that action.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Routed, RoutingError> {
     let Some((current, _)) = webchat::get(db, conversation_id, false).await? else {
         return Err(RoutingError(format!(

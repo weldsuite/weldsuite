@@ -469,8 +469,7 @@ impl From<UpdateError> for EscalationError {
     fn from(error: UpdateError) -> Self {
         match error {
             UpdateError::NotFound => Self("conversation not found".to_owned()),
-            UpdateError::Rejected { message, .. } => Self(message),
-            UpdateError::Failed(message) => Self(message),
+            UpdateError::Rejected { message, .. } | UpdateError::Failed(message) => Self(message),
         }
     }
 }
@@ -875,7 +874,7 @@ mod tests {
             waiting_since: None,
             fired: vec![(Some("dep_1".to_owned()), Some(0.0), 700_000)],
         };
-        assert!(due(&conversation, &rules(), &ep, None).is_empty());
+        assert_eq!(due(&conversation, &rules(), &ep, None).len(), 0);
         // Unassigned again later: a new episode.
         ep.unassigned_since = Some(800_000);
         assert_eq!(due(&conversation, &rules(), &ep, None)[0].due_at, 1_400_000);
@@ -885,10 +884,10 @@ mod tests {
         assert_eq!(due(&conversation, &rules(), &ep, None).len(), 1);
         // Owned, closed or without a team: nothing.
         let owned = json!({ "state": "open", "departmentId": "dep_1", "assigneeId": "user_a" });
-        assert!(due(&owned, &rules(), &ep, None).is_empty());
+        assert_eq!(due(&owned, &rules(), &ep, None).len(), 0);
         let closed = json!({ "state": "closed", "departmentId": "dep_1" });
-        assert!(due(&closed, &rules(), &ep, None).is_empty());
+        assert_eq!(due(&closed, &rules(), &ep, None).len(), 0);
         let teamless = json!({ "state": "open", "departmentId": null });
-        assert!(due(&teamless, &rules(), &ep, None).is_empty());
+        assert_eq!(due(&teamless, &rules(), &ep, None).len(), 0);
     }
 }

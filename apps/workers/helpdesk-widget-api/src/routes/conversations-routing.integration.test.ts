@@ -52,7 +52,7 @@ function app() {
 
 interface Setup {
   mode: 'off' | 'round_robin' | 'balanced';
-  rules: unknown[];
+  rules: tenantSchema.DeskRoutingRule[];
 }
 
 async function arrange({ mode, rules }: Setup) {

@@ -1100,6 +1100,7 @@ async fn load_conversation(db: &PgPool, id: &str) -> Result<Value, InboxError> {
 /// refused one writes nothing at all), then assign or unassign, then close
 /// or reopen, each as the timeline event the inbox itself writes. A change
 /// to what already holds writes nothing.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn update_desk_conversation_from_api(
     deps: &InboxDeps<'_>,
     input: &UpdateConversation,

@@ -22,6 +22,7 @@ use crate::CallState;
 
 /// `announceDeskPhoneCall({ … })`. `org` is the Clerk org id (events,
 /// realtime); the due index is keyed by `workspaces.id`, found from it.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub(crate) async fn announce_call(
     state: &CallState,
     db: &PgPool,
