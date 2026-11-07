@@ -100,7 +100,11 @@ pub struct Changes {
 
 /// One axis: the patch and its entry, when the value changes.
 #[allow(clippy::option_option)] // left alone vs cleared
-fn axis_change(field: &str, current: &Value, input: &Field<String>) -> Option<(Option<String>, Value)> {
+fn axis_change(
+    field: &str,
+    current: &Value,
+    input: &Field<String>,
+) -> Option<(Option<String>, Value)> {
     let next = match input {
         Field::Absent => return None,
         Field::Null => None,
@@ -183,7 +187,10 @@ mod tests {
         assert_eq!(matrix["enabled"], json!(false));
         assert_eq!(matrix["matrix"]["low"]["low"], json!("urgent"));
         assert_eq!(matrix["matrix"]["low"]["medium"], json!("low"));
-        assert_eq!(normalize(&json!({ "enabled": true }))["enabled"], json!(true));
+        assert_eq!(
+            normalize(&json!({ "enabled": true }))["enabled"],
+            json!(true)
+        );
     }
 
     #[test]
