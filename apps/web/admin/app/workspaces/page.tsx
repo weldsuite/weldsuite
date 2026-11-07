@@ -1,17 +1,11 @@
-import { requireAdmin } from '@/lib/auth';
-import { listWorkspaces } from '@/lib/workspaces-data';
-import { WorkspacesList } from './workspaces-list';
+import { loadWorkspacesPage, type WorkspacesSearchParams } from './data';
+import { WorkspacesPage } from './view';
 
 export const dynamic = 'force-dynamic';
 
-export default async function WorkspacesPage(props: Readonly<{
-  searchParams?: Promise<{ search?: string }>;
+export default async function Page(props: Readonly<{
+  searchParams?: Promise<WorkspacesSearchParams>;
 }>) {
-  await requireAdmin();
-  const searchParams = (await props.searchParams) ?? {};
-  const search = (searchParams.search ?? '').trim();
-
-  const workspaces = await listWorkspaces({ search });
-
-  return <WorkspacesList workspaces={workspaces} initialSearch={search} />;
+  const data = await loadWorkspacesPage((await props.searchParams) ?? {});
+  return <WorkspacesPage {...data} />;
 }

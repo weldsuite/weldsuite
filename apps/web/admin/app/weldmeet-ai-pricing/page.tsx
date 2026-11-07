@@ -1,11 +1,9 @@
-import { requireAdmin } from '@/lib/auth';
-import { getWeldmeetAiPricing } from '@/lib/weldmeet-ai-pricing-data';
-import { WeldmeetAiPricingForm } from './weldmeet-ai-pricing-form';
+import { loadWeldmeetAiPricingPage } from './data';
+import { WeldmeetAiPricingPage } from './view';
 
 export const dynamic = 'force-dynamic';
 
-export default async function WeldmeetAiPricingPage() {
-  await requireAdmin();
-  const pricing = await getWeldmeetAiPricing();
-  return <WeldmeetAiPricingForm pricing={pricing} />;
+export default async function Page() {
+  const data = await loadWeldmeetAiPricingPage();
+  return <WeldmeetAiPricingPage {...data} />;
 }
