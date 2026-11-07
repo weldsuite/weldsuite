@@ -389,7 +389,8 @@ fn spawn_visitor_message(
             Fanout::Updated { .. } => "updated",
         };
         publish_visitor_message(&state_, &org, &conversation, &message, &visitor_name, event).await;
-        let current = auto_assign(&state_, &db, &org, &workspace_id, master, conversation).await;
+        let opened = matches!(fanout, Fanout::Created);
+        let current = auto_assign(&state_, &db, &org, &workspace_id, master, conversation, opened).await;
         let notify = match fanout {
             Fanout::Created => Some(true),
             Fanout::Updated {

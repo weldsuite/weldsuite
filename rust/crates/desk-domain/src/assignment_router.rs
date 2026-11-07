@@ -73,6 +73,17 @@ pub struct PickRequest {
     pub mode: PickMode,
     pub candidates: Vec<PickCandidate>,
     pub max_open: Option<i64>,
+    /// The team the candidates are (`teamId`): a pick among a team's members
+    /// keeps that team's own rotation.
+    pub team_id: Option<String>,
+}
+
+/// `deskPickerStateKey(teamId)`: the record field a pick's rotation lives in.
+pub fn picker_state_key(team_id: Option<&str>) -> String {
+    match team_id.filter(|id| !id.is_empty()) {
+        Some(id) => format!("desk:team:{id}"),
+        None => "desk".to_owned(),
+    }
 }
 
 /// One pick of the last 30 seconds.
@@ -385,14 +396,16 @@ impl AssignmentRouter {
         )))
     }
 
-    /// `pickDeskAssignee(request)` on the workspace's record.
+    /// `pickDeskAssignee(request)` on the workspace's record: the roster's
+    /// rotation, or the team's (`request.team_id`).
     pub async fn pick_desk_assignee(
         &self,
         workspace_id: &str,
         request: &PickRequest,
     ) -> Result<Option<String>, PortError> {
         let now = (self.clock)();
-        self.update(&format!("desk:{workspace_id}"), "desk", |stored| {
+        let field = picker_state_key(request.team_id.as_deref());
+        self.update(&format!("desk:{workspace_id}"), &field, |stored| {
             let state: PickerState = stored
                 .and_then(|text| serde_json::from_str(text).ok())
                 .unwrap_or_default();
@@ -485,6 +498,7 @@ mod tests {
                 })
                 .collect(),
             max_open,
+            team_id: None,
         }
     }
 

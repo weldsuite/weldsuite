@@ -1059,7 +1059,7 @@ pub fn is_public(message: &Value) -> bool {
     }
     let internal = matches!(
         message["metadata"]["eventType"].as_str(),
-        Some("attributes_changed" | "sla_warning" | "sla_breached")
+        Some("attributes_changed" | "sla_warning" | "sla_breached" | "escalated")
     );
     !(message["kind"] == "event" && internal)
 }

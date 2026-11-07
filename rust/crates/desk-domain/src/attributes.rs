@@ -457,6 +457,19 @@ pub async fn update(
     author_id: Option<&str>,
     input: &Update,
 ) -> Result<Updated, UpdateError> {
+    update_with_metadata(db, conversation_id, author_type, author_id, input, None).await
+}
+
+/// [`update`] with extra keys on the `attributes_changed` event (`input.metadata`:
+/// a routing rule's id, an escalation).
+pub async fn update_with_metadata(
+    db: &PgPool,
+    conversation_id: &str,
+    author_type: &str,
+    author_id: Option<&str>,
+    input: &Update,
+    extra: Option<Map<String, Value>>,
+) -> Result<Updated, UpdateError> {
     let Some((current, _)) = webchat::get(db, conversation_id, false).await? else {
         return Err(UpdateError::NotFound);
     };
@@ -484,7 +497,7 @@ pub async fn update(
     write_values(db, conversation_id, &definitions, &writes).await?;
     write_columns(db, conversation_id, &patch).await?;
 
-    let mut metadata = Map::new();
+    let mut metadata = extra.unwrap_or_default();
     metadata.insert("eventType".to_owned(), json!("attributes_changed"));
     metadata.insert("changes".to_owned(), Value::Array(changes));
     let appended = webchat::append(

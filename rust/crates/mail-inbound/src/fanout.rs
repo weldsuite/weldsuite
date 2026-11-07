@@ -382,8 +382,23 @@ async fn publish_all(ctx: &InboundContext, messages: Vec<RealtimeMessage>) {
     }
 }
 
-/// `publishDeskInbound`: the inbox's conversation and message topics, and
-/// the conversation room.
+/// One desk entity event to the hub, as `system` (`publishEntityEventRaw`).
+async fn publish_desk_event(ctx: &InboundContext, org: &str, entity_type: &str, action: &str, row: &Value) {
+    match EventType::catalog(entity_type, action) {
+        Ok(event) => {
+            let context = EventContext::new(org, "system", EventSource::System);
+            let id = row["id"].as_str().unwrap_or_default().to_owned();
+            ctx.events
+                .publish_and_wait(&context, EntityEvent::new(event, id, row.clone()))
+                .await;
+        }
+        Err(error) => tracing::error!(%error, "[HelpdeskInbox] unknown entity event"),
+    }
+}
+
+/// `publishDeskInbound`: the hub (`desk_conversation created` for a new
+/// conversation, `desk_message created`, for workflows), the inbox's
+/// conversation and message topics, and the conversation room.
 async fn publish_desk_inbound(
     ctx: &InboundContext,
     org: &str,
@@ -393,6 +408,10 @@ async fn publish_desk_inbound(
     preview: &str,
     sender_name: &str,
 ) {
+    if created {
+        publish_desk_event(ctx, org, "desk_conversation", "created", conversation).await;
+    }
+    publish_desk_event(ctx, org, "desk_message", "created", message).await;
     let room = json!({
         "type": "message",
         "id": message["id"],
@@ -435,20 +454,24 @@ async fn mark_sla_due(ctx: &InboundContext, workspace_id: &str, sla_check_at: Op
     }
 }
 
-/// `autoAssignDeskEmailConversation`: an open, unowned conversation gets an
-/// owner when the workspace has auto-assignment on; the change goes live
-/// and to the hub as `assigned`.
+/// `autoAssignDeskEmailConversation(…, opened)`: a new conversation is
+/// routed by the workspace's routing rules first; then an open, unowned
+/// conversation gets an owner when the workspace has auto-assignment on
+/// (its team's members when it has any, else the roster). Each change goes
+/// live and to the hub (`assigned`, or `updated` for a rule's field change).
 async fn auto_assign(
     ctx: &InboundContext,
     db: &PgPool,
     workspace_id: &str,
     org: &str,
     conversation: Value,
+    opened: bool,
 ) -> Value {
+    use weldsuite_desk_domain::routing::{self, Keep, Step, Trigger};
     let owned = conversation["assigneeId"]
         .as_str()
         .is_some_and(|a| !a.is_empty());
-    if owned || conversation["state"] != "open" {
+    if !opened && (owned || conversation["state"] != "open") {
         return conversation;
     }
     let id = conversation["id"].as_str().unwrap_or_default().to_owned();
@@ -459,42 +482,59 @@ async fn auto_assign(
         },
         None => weldsuite_desk_domain::assignment::Picker::Local,
     };
-    match weldsuite_desk_domain::assignment::auto_assign_with(db, &id, &picker).await {
-        Ok(Some(appended)) => {
-            // The owner can change which SLA policy applies (desk-api's SLA sweep).
-            mark_sla_due(ctx, workspace_id, appended.sla_check_at).await;
-            let (assigned, message) = appended.pair();
-            publish_all(
-                ctx,
-                vec![
-                    RealtimeMessage::workspace(
-                        org,
-                        "desk_conversation",
-                        "updated",
-                        assigned.clone(),
-                        "system",
-                    ),
-                    RealtimeMessage::workspace(org, "desk_message", "created", message, "system"),
-                ],
-            )
-            .await;
-            match EventType::catalog("desk_conversation", "assigned") {
-                Ok(event) => {
-                    let context = EventContext::new(org, "system", EventSource::System);
-                    ctx.events
-                        .publish_and_wait(&context, EntityEvent::new(event, id, assigned.clone()))
-                        .await;
+    let done: Result<(Vec<Step>, Option<i64>), String> = if opened {
+        routing::route_and_assign(db, &id, Keep::default(), Trigger::Opened, &picker)
+            .await
+            .map(|routed| (routed.steps, routed.sla_check_at))
+            .map_err(|error| error.to_string())
+    } else {
+        weldsuite_desk_domain::assignment::auto_assign_with(db, &id, &picker)
+            .await
+            .map(|assigned| match assigned {
+                Some(appended) => {
+                    let at = appended.sla_check_at;
+                    let (conversation, message) = appended.pair();
+                    let step = Step {
+                        conversation,
+                        message,
+                        action: "assigned",
+                    };
+                    (vec![step], at)
                 }
-                Err(error) => tracing::error!(%error, "[HelpdeskInbox] unknown entity event"),
-            }
-            assigned
-        }
-        Ok(None) => conversation,
+                None => (Vec::new(), None),
+            })
+            .map_err(|error| error.to_string())
+    };
+    let (steps, sla_check_at) = match done {
+        Ok(done) => done,
         Err(error) => {
-            tracing::error!(%error, conversation = %id, "[HelpdeskInbox] Auto-assignment failed");
-            conversation
+            tracing::error!(%error, conversation = %id, "[HelpdeskInbox] Routing / auto-assignment failed");
+            return conversation;
         }
+    };
+    let Some(last) = steps.last().map(|step| step.conversation.clone()) else {
+        return conversation;
+    };
+    // The owner can change which SLA policy applies (desk-api's SLA sweep).
+    mark_sla_due(ctx, workspace_id, sla_check_at).await;
+    for step in steps {
+        publish_all(
+            ctx,
+            vec![
+                RealtimeMessage::workspace(
+                    org,
+                    "desk_conversation",
+                    "updated",
+                    step.conversation.clone(),
+                    "system",
+                ),
+                RealtimeMessage::workspace(org, "desk_message", "created", step.message, "system"),
+            ],
+        )
+        .await;
+        publish_desk_event(ctx, org, "desk_conversation", step.action, &step.conversation).await;
     }
+    last
 }
 
 /// `ingestHelpdeskInboxEmail`: one email into one helpdesk inbox; the
@@ -584,6 +624,7 @@ async fn ingest_helpdesk(
                 &inbox.workspace_id,
                 org,
                 ingested.conversation.clone(),
+                ingested.created,
             )
             .await
         }

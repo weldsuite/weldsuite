@@ -271,6 +271,9 @@ pub async fn run_sla_sweep(
                     .await
                     .map_err(|error| error.to_string())?;
                 announced.fetch_add(sent, std::sync::atomic::Ordering::Relaxed);
+                crate::escalation_sweep::sweep_workspace(services, &tenant.db, &tenant.clerk_org_id, at)
+                    .await
+                    .map_err(|error| error.to_string())?;
                 let next = sla::workspace_next_check_at(&tenant.db)
                     .await
                     .map_err(|error| error.to_string())?;
