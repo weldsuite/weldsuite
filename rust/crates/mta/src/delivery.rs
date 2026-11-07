@@ -55,9 +55,15 @@ pub struct Delivery {
     pub max_queue_age: Duration,
     pub warmup: Vec<u32>,
     pub concurrency: usize,
+    /// Connect to MX addresses in private space too (tests and labs only:
+    /// `MTA_ALLOW_PRIVATE_DESTINATIONS`).
+    pub allow_private_destinations: bool,
 }
 
 const LEASE: Duration = Duration::from_mins(15);
+/// At most this many recipients of one domain per connection: at a big
+/// provider's 30 a minute that is a few minutes, well inside the lease.
+const MAX_GROUP: usize = 50;
 const SHAPED_WAIT: Duration = Duration::from_secs(60);
 const MAX_MX_HOSTS: usize = 5;
 const ADDRESSES_PER_HOST: usize = 2;
@@ -94,10 +100,18 @@ impl Delivery {
                 }
             };
             let idle = claimed.is_empty();
-            for (domain, group) in group_by_domain(claimed) {
-                let Ok(permit) = Arc::clone(&slots).acquire_owned().await else {
-                    return;
+            for (domain, mut group) in group_by_domain(claimed) {
+                // A group runs now or goes back: claimed rows never wait for
+                // a slot while their lease runs, and a group is small enough
+                // to finish inside it (the lease is also renewed per send).
+                let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else {
+                    self.release_all(&group, Duration::ZERO).await;
+                    continue;
                 };
+                if group.len() > MAX_GROUP {
+                    let rest = group.split_off(MAX_GROUP);
+                    self.release_all(&rest, Duration::ZERO).await;
+                }
                 let this = Arc::clone(&self);
                 tasks.spawn(async move {
                     this.deliver_group(&domain, group).await;
@@ -141,8 +155,19 @@ impl Delivery {
             outcome = ?outcome,
             "delivery attempt"
         );
-        if let Err(error) = self.store.finish(claimed, sender, &outcome).await {
-            tracing::error!(%error, recipient = %claimed.id, "recording an outcome failed; the lease will expire");
+        match self
+            .store
+            .finish(claimed, &self.owner, sender, &outcome)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => tracing::warn!(
+                recipient = %claimed.id,
+                "the lease ran out before the outcome was recorded; another worker owns it"
+            ),
+            Err(error) => {
+                tracing::error!(%error, recipient = %claimed.id, "recording an outcome failed; the lease will expire");
+            }
         }
     }
 
@@ -193,16 +218,22 @@ impl Delivery {
 
     async fn release_all(&self, group: &[Claimed], delay: Duration) {
         for claimed in group {
-            if let Err(error) = self.store.release(&claimed.id, delay).await {
+            if let Err(error) = self.store.release(&claimed.id, &self.owner, delay).await {
                 tracing::warn!(%error, "releasing a recipient failed; the lease will expire");
             }
         }
     }
 
-    async fn load_messages(&self, group: &[Claimed]) -> HashMap<String, Arc<StoredMessage>> {
+    /// The group's messages, and the ids that could not be loaded because
+    /// the database failed (not the same as a message that is gone).
+    async fn load_messages(
+        &self,
+        group: &[Claimed],
+    ) -> (HashMap<String, Arc<StoredMessage>>, Vec<String>) {
         let mut messages = HashMap::new();
+        let mut failed = Vec::new();
         for claimed in group {
-            if messages.contains_key(&claimed.message_id) {
+            if messages.contains_key(&claimed.message_id) || failed.contains(&claimed.message_id) {
                 continue;
             }
             match self.store.message(&claimed.message_id).await {
@@ -210,14 +241,23 @@ impl Delivery {
                     messages.insert(claimed.message_id.clone(), Arc::new(message));
                 }
                 Ok(None) => {}
-                Err(error) => tracing::warn!(%error, "loading a message failed"),
+                Err(error) => {
+                    tracing::warn!(%error, message = %claimed.message_id, "loading a message failed; trying again later");
+                    failed.push(claimed.message_id.clone());
+                }
             }
         }
-        messages
+        (messages, failed)
     }
 
     async fn deliver_group(&self, domain: &str, group: Vec<Claimed>) {
-        let messages = self.load_messages(&group).await;
+        let (messages, failed) = self.load_messages(&group).await;
+        // A database error is transient: those recipients go back to the
+        // queue, no attempt counted.
+        let (retry_later, group): (Vec<Claimed>, Vec<Claimed>) = group
+            .into_iter()
+            .partition(|c| failed.contains(&c.message_id));
+        self.release_all(&retry_later, SHAPED_WAIT).await;
         let (group, missing): (Vec<Claimed>, Vec<Claimed>) = group.into_iter().partition(|c| {
             messages
                 .get(&c.message_id)
@@ -370,8 +410,14 @@ impl Delivery {
                     continue;
                 }
             };
+            // Never connect into our own networks: an MX that resolves to
+            // loopback, private or link-local space is unreachable.
+            let addresses: Vec<Ipv4Addr> = addresses
+                .into_iter()
+                .filter(|ip| self.allow_private_destinations || public_destination(*ip))
+                .collect();
             if addresses.is_empty() {
-                last = format!("451 4.4.4 {host} has no IPv4 address");
+                last = format!("451 4.4.4 {host} has no public IPv4 address");
             }
             for ip in addresses.into_iter().take(ADDRESSES_PER_HOST) {
                 match self.connect_one(domain, host, ip, sts).await {
@@ -521,6 +567,20 @@ impl Delivery {
                 self.release_all(&group[index..], SHAPED_WAIT).await;
                 break;
             }
+            // Renew the lease right before sending; a lost lease means
+            // another worker may hold the recipient now, so don't send it.
+            match self.store.renew(&claimed.id, &self.owner, LEASE).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(recipient = %claimed.id, "lease lost before sending; skipped");
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "renewing a lease failed");
+                    self.release_all(&group[index..], SHAPED_WAIT).await;
+                    break;
+                }
+            }
             let prepared = self.prepare(message, &mut signed).await;
             let with_id = message::prepend_header(&prepared, "X-WeldSuite-Mta-Id", &claimed.id);
             let wire = message::dot_stuff(&with_id);
@@ -596,6 +656,22 @@ fn tls_failure(error: &ConnectError) -> Option<&'static str> {
     }
 }
 
+/// Whether delivery may connect to `ip`: not loopback, private (RFC 1918),
+/// shared (100.64/10), link-local, unspecified, broadcast, documentation or
+/// multicast space.
+fn public_destination(ip: Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    !(ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || ip.is_multicast()
+        || a == 0
+        || (a == 100 && (64..128).contains(&b)))
+}
+
 /// How a send outcome is recorded; `true` when the connection is unusable
 /// afterwards.
 fn outcome_of(result: SendOutcome, attempts: i32) -> (Outcome, bool) {
@@ -604,6 +680,23 @@ fn outcome_of(result: SendOutcome, attempts: i32) -> (Outcome, bool) {
         SendOutcome::Accepted(reply) => (
             Outcome::Delivered {
                 response: reply.summary(),
+            },
+            false,
+        ),
+        // The sender was refused (our return path or domain): retry a
+        // transient refusal, bounce a permanent one softly. Never a hard
+        // bounce: the recipient's mailbox is not what was refused.
+        SendOutcome::SenderRefused(reply) if reply.is_transient() => (
+            Outcome::Deferred {
+                response: format!("{} (at MAIL FROM)", reply.summary()),
+                delay: retry::delay(next),
+            },
+            reply.code == 421,
+        ),
+        SendOutcome::SenderRefused(reply) => (
+            Outcome::Bounced {
+                response: format!("{} (at MAIL FROM)", reply.summary()),
+                hard: false,
             },
             false,
         ),
@@ -677,6 +770,45 @@ mod tests {
         assert!(unusable);
         let (_, unusable) = outcome_of(SendOutcome::Broken("reset".into()), 2);
         assert!(unusable);
+    }
+
+    #[test]
+    fn a_refused_sender_never_hard_bounces() {
+        let (outcome, _) = outcome_of(
+            SendOutcome::SenderRefused(Reply::new(
+                550,
+                "5.1.8 Sender address rejected: Domain not found",
+            )),
+            0,
+        );
+        assert!(matches!(outcome, Outcome::Bounced { hard: false, .. }));
+        let (outcome, _) = outcome_of(
+            SendOutcome::SenderRefused(Reply::new(450, "4.1.8 try later")),
+            0,
+        );
+        assert!(matches!(outcome, Outcome::Deferred { .. }));
+    }
+
+    #[test]
+    fn connects_only_to_public_addresses() {
+        for private in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "100.64.0.1",
+            "192.0.2.1",
+            "255.255.255.255",
+        ] {
+            assert!(
+                !public_destination(private.parse().expect("ip")),
+                "{private}"
+            );
+        }
+        assert!(public_destination(Ipv4Addr::new(142, 250, 0, 26)));
+        assert!(public_destination(Ipv4Addr::new(100, 128, 0, 1)));
     }
 
     #[test]

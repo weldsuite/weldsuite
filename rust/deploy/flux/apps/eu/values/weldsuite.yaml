@@ -243,7 +243,10 @@ mailInbound:
 # runbook, "Mail".
 mta:
   enabled: true
+  # Its own namespace: the host network is forbidden in weldsuite (restricted).
+  namespace: weldsuite-mail
   existingSecret: weldsuite-mta
+  clientSecret: weldsuite-mta-client
   bounceDomain: bounces.${DOMAIN}
   spfInclude: _spf.${DOMAIN}
   pools:

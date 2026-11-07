@@ -95,8 +95,12 @@ impl std::fmt::Display for ConnectError {
 pub enum SendOutcome {
     /// `250` after the data.
     Accepted(Reply),
-    /// A 4xx or 5xx at MAIL, RCPT or after the data.
+    /// A 4xx or 5xx at RCPT or after the data: about this recipient or
+    /// this message.
     Refused(Reply),
+    /// A 4xx or 5xx at MAIL FROM: about the sender (our return path or
+    /// domain), never a reason to suppress the recipient.
+    SenderRefused(Reply),
     /// The connection broke: the result is unknown, retry later.
     Broken(String),
 }
@@ -309,7 +313,7 @@ impl Connection {
             Ok(reply) if reply.is_positive() => {}
             Ok(reply) => {
                 let _ = self.command("RSET").await;
-                return SendOutcome::Refused(reply);
+                return SendOutcome::SenderRefused(reply);
             }
             Err(error) => return SendOutcome::Broken(error.to_string()),
         }

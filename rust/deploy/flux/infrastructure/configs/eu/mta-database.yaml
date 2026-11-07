@@ -3,7 +3,7 @@
 # managed role kustomization.yaml adds, password from postgres/master-db-mta).
 # `weldsuite mta` creates its tables itself at start, under an advisory lock,
 # so it connects to master-rw directly, not through the transaction-mode
-# PgBouncer (MTA_DATABASE_URL in weldsuite/weldsuite-mta, secrets example).
+# PgBouncer (MTA_DATABASE_URL in weldsuite-mail/weldsuite-mta, secrets example).
 # The database is in master's WAL archive and nightly backups like the rest;
 # `retain` keeps it when this resource goes.
 apiVersion: postgresql.cnpg.io/v1

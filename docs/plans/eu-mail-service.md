@@ -209,6 +209,13 @@ serve `/api/mail-domains` yet: the adapter is built and held in
   jobs get `MTA_API_URL`, `MTA_API_SECRET`, `SMTP_URL` and `MAIL_SMTP_URL`.
   The bounce MX's certificate is self-signed unless `mta.inbound.tls.issuerRef`
   names a DNS-01 issuer (HTTP-01 can't reach the mail nodes).
+- Namespace: the MTA runs on the host network, which the `weldsuite`
+  namespace's restricted Pod Security level forbids, so on the Flux clusters
+  it runs in `weldsuite-mail` (labelled `enforce: privileged`, as `livekit`):
+  `mta.namespace`, with its keys in `weldsuite-mail/weldsuite-mta`
+  (`mta.existingSecret`) and the server's copy of the API secret and
+  submission passwords in `weldsuite/weldsuite-mta-client`
+  (`mta.clientSecret`). The chart refuses a separate namespace without both.
 - CloudNativePG (EU): database `weldsuite_mta` on the `master` cluster,
   owned by the managed role `mta`; `MTA_DATABASE_URL` points at `master-rw`,
   not the transaction-mode pooler (the MTA's advisory lock is per session).

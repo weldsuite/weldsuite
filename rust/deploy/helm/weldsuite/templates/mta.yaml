@@ -11,6 +11,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: {{ printf "%s-selfsigned" (include "weldsuite.mta.fullname" $) }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
 spec:
@@ -21,6 +22,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: {{ printf "%s-inbound" (include "weldsuite.mta.fullname" $) }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
 spec:
@@ -53,6 +55,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: {{ printf "%s-%s" (include "weldsuite.mta.fullname" $) $pool.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
     weldsuite.org/mail-pool: {{ $pool.name }}
@@ -265,6 +268,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "weldsuite.mta.fullname" $ }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
 spec:
@@ -283,6 +287,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "weldsuite.mta.apiName" $ }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
 spec:
@@ -301,6 +306,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "weldsuite.mta.fullname" $ }}
+  namespace: {{ include "weldsuite.mta.namespace" $ }}
   labels:
     {{- include "weldsuite.mta.labels" $ | nindent 4 }}
 spec:

@@ -626,6 +626,20 @@ mta:
   # of the server's environment; the server then reads only MTA_API_SECRET
   # and the submission passwords from it.
   existingSecret: ""
+  # The namespace the MTA runs in (empty: the release's). The MTA is on the
+  # host network, which Pod Security's baseline and restricted levels forbid:
+  # where the release's namespace enforces them (the Flux clusters'
+  # `weldsuite` does), give the MTA a namespace labelled
+  # pod-security.kubernetes.io/enforce: privileged, as LiveKit has. The chart
+  # creates nothing else there: existingSecret must be in it (and the image
+  # pull Secrets, if any), and clientSecret then holds what the server needs.
+  namespace: ""
+  # A Secret in the release's namespace with MTA_API_SECRET and the
+  # submission passwords (MTA_SUBMISSION_PASSWORD_<POOL>), the same values as
+  # the MTA's: what the server, consume and the cron jobs read with
+  # wireServer. Empty: the MTA's own Secret (one namespace). Required with
+  # namespace.
+  clientSecret: ""
   # The return-path domain (bounces.<domain>): its MX are the mail nodes, and
   # the envelope sender becomes b+<id>-<tag>@ it, so DSNs and complaint
   # reports come back here. Empty: senders keep their own MAIL FROM and only

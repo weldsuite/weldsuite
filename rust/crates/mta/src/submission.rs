@@ -66,6 +66,29 @@ impl Submission {
     }
 }
 
+/// The address the sender check and the DKIM signature are for: the one
+/// mailbox of the `From` header, or MAIL FROM when there is no `From` at
+/// all. `None` (refused) for several `From` headers, several mailboxes in
+/// one, or one that can't be parsed: the visible From must be a domain the
+/// pool may sign for.
+pub fn header_sender(block: &[u8], mail_from: &str) -> Option<String> {
+    let froms: Vec<String> = message::headers(block)
+        .into_iter()
+        .filter(|h| h.name.eq_ignore_ascii_case("from"))
+        .map(|h| h.value)
+        .collect();
+    match froms.as_slice() {
+        [] => (!mail_from.is_empty()).then(|| mail_from.to_lowercase()),
+        [value] => {
+            if message::without_quoted(value).matches('@').count() != 1 {
+                return None;
+            }
+            first_address(value)
+        }
+        _ => None,
+    }
+}
+
 /// Removes `Bcc`, adds `Date` and `Message-ID` when missing.
 pub fn fix_headers(message_bytes: &[u8], hostname: &str) -> Vec<u8> {
     let (block, body) = message::split(message_bytes);
@@ -163,10 +186,12 @@ impl Policy for Submission {
         Box::pin(async move {
             let pool = session.pool.clone().unwrap_or_default();
             let (block, _) = message::split(&transaction.message);
-            let header_from = message::header_value(block, "from")
-                .as_deref()
-                .and_then(first_address)
-                .unwrap_or_else(|| transaction.mail_from.to_lowercase());
+            let Some(header_from) = header_sender(block, &transaction.mail_from) else {
+                return Reply::new(
+                    550,
+                    "5.7.1 sender From header not allowed: exactly one mailbox, please",
+                );
+            };
             match self.domain_allowed(&header_from, &pool).await {
                 Ok(true) => {}
                 Ok(false) => return sender_refused(),
@@ -200,6 +225,31 @@ impl Policy for Submission {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn takes_exactly_one_from_mailbox() {
+        let sender = |block: &str| header_sender(block.as_bytes(), "env@acme.eu");
+        assert_eq!(
+            sender("From: Anna <Anna@Acme.eu>\r\n\r\n").as_deref(),
+            Some("anna@acme.eu")
+        );
+        assert_eq!(sender("Subject: x\r\n\r\n").as_deref(), Some("env@acme.eu"));
+        assert_eq!(
+            sender("From: \"a<b\" <ceo@bank.example>\r\n\r\n").as_deref(),
+            Some("ceo@bank.example"),
+            "a quoted display name is not the address"
+        );
+        assert_eq!(
+            sender("From: \"x@acme.eu\" <ceo@bank.example>\r\n\r\n").as_deref(),
+            Some("ceo@bank.example")
+        );
+        assert_eq!(sender("From: a@acme.eu, b@bank.example\r\n\r\n"), None);
+        assert_eq!(
+            sender("From: a@acme.eu\r\nFrom: b@bank.example\r\n\r\n"),
+            None
+        );
+        assert_eq!(sender("From: undisclosed\r\n\r\n"), None);
+    }
 
     #[test]
     fn fixes_headers() {

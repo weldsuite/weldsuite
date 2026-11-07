@@ -84,6 +84,9 @@ pub fn header_value(block: &[u8], name: &str) -> Option<String> {
 /// `anna@acme.eu (Anna)`, `<anna@acme.eu>`), lowercased; the first one of a
 /// list.
 pub fn first_address(value: &str) -> Option<String> {
+    // A quoted display name may hold `<`, `>` or `@`: they are not the address.
+    let unquoted = without_quoted(value);
+    let value = unquoted.as_str();
     if let (Some(open), Some(close)) = (value.find('<'), value.find('>'))
         && open < close
     {
@@ -97,6 +100,32 @@ pub fn first_address(value: &str) -> Option<String> {
         .find(|word| word.contains('@'))?
         .trim_matches(|c: char| c == '"' || c == '(' || c == ')' || c == ';');
     valid_address(candidate).then(|| candidate.to_lowercase())
+}
+
+/// `value` with every quoted string (`"…"`, backslash escapes honoured)
+/// replaced by `""`.
+pub fn without_quoted(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut quoted = false;
+    let mut escaped = false;
+    for c in value.chars() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                quoted = false;
+                out.push('"');
+            }
+            continue;
+        }
+        if c == '"' {
+            quoted = true;
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// `local@domain` with a dotted domain and nothing that breaks an SMTP

@@ -486,7 +486,10 @@ mail provider:
 
 The MTA's queue is its own database, `weldsuite_mta` on `master`
 (`flux/infrastructure/configs/eu/mta-database.yaml`, role `mta`), which it
-migrates at start; its keys are the `weldsuite-mta` Secret. Its delivery
+migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
+Security `privileged`: the host network), with its keys in the
+`weldsuite-mta` Secret there; the server reads the API secret and the
+submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
 events reach `weldsuite consume` over NATS (`mail.sending-events`).
 
 Nothing below is optional: a new address that sends without its DNS in
@@ -557,7 +560,7 @@ The system domain's DKIM key is the MTA's; register it once the MTA runs,
 for the `system` pool only:
 
 ```bash
-M="kubectl -n weldsuite exec ds/weldsuite-mta-system -- weldsuite mta"
+M="kubectl -n weldsuite-mail exec ds/weldsuite-mta-system -- weldsuite mta"
 $M domains add mail.<domain> --pool system   # prints the TXT record to publish
 $M domains list
 ```

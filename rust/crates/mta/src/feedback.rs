@@ -168,6 +168,8 @@ fn arf(parts: &[&[u8]]) -> Report {
 /// (5.7.x), a full mailbox (5.2.2) and size refusals are not.
 pub fn hard_failure(enhanced: Option<(u8, u16, u16)>, code: u16, text: &str) -> bool {
     match enhanced {
+        // 5.1.7 and 5.1.8 are about the sender, not the recipient.
+        Some((5, 1, 7 | 8)) => false,
         Some((5, 1, _) | (5, 2, 1)) => true,
         Some(_) => false,
         None => {
@@ -299,6 +301,12 @@ body\r\n\
     fn tells_hard_from_soft_failures() {
         assert!(hard_failure(Some((5, 1, 1)), 550, "no such user"));
         assert!(hard_failure(Some((5, 2, 1)), 550, "disabled"));
+        assert!(!hard_failure(Some((5, 1, 7)), 553, "bad sender address"));
+        assert!(!hard_failure(
+            Some((5, 1, 8)),
+            550,
+            "Sender address rejected: Domain not found"
+        ));
         assert!(!hard_failure(Some((5, 7, 1)), 550, "blocked by policy"));
         assert!(!hard_failure(Some((5, 2, 2)), 552, "mailbox full"));
         assert!(hard_failure(

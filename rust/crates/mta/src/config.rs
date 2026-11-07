@@ -44,6 +44,8 @@ pub struct Config {
     pub events_subject: String,
     /// Outbound SMTP port (25; tests point it elsewhere).
     pub delivery_port: u16,
+    /// Deliver to MX addresses in private space (tests and labs only).
+    pub allow_private_destinations: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -292,6 +294,7 @@ impl Config {
             events_subject: non_empty(lookup, "MTA_EVENTS_SUBJECT")
                 .unwrap_or_else(|| "mail.sending-events".into()),
             delivery_port: parse(lookup, "MTA_DELIVERY_PORT", 25u16)?,
+            allow_private_destinations: parse(lookup, "MTA_ALLOW_PRIVATE_DESTINATIONS", false)?,
         })
     }
 }
@@ -335,6 +338,7 @@ mod tests {
         assert_eq!(config.events_subject, "mail.sending-events");
         assert!(config.tlsrpt_from.is_none());
         assert_eq!(config.delivery_port, 25);
+        assert!(!config.allow_private_destinations);
     }
 
     #[test]

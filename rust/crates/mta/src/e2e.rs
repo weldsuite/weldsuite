@@ -263,6 +263,7 @@ fn config(database_url: &str, ports: &Ports, resolver: SocketAddr) -> Config {
         ("MTA_SOURCE_IP", "127.0.0.1"),
         ("MTA_BOUNCE_DOMAIN", "bounces.eu.test"),
         ("MTA_WARMUP_SCHEDULE", "off"),
+        ("MTA_ALLOW_PRIVATE_DESTINATIONS", "true"),
     ] {
         vars.insert(k.into(), v.into());
     }
@@ -476,6 +477,97 @@ async fn submits_delivers_bounces_and_takes_late_bounces() {
 
     shutdown.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(60), mta).await;
+    store.pool().close().await;
+    scratch.drop_it().await;
+}
+
+/// A worker whose lease ran out records nothing: no status change, no
+/// event, no suppression; the worker that owns it now does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_lease_records_nothing() {
+    let Some(scratch) = Scratch::create().await else {
+        eprintln!("WELDSUITE_TEST_DATABASE_URL not set: skipped");
+        return;
+    };
+    let store = Store::connect(&scratch.url, 4).expect("store");
+    store.migrate().await.expect("migrate");
+    store
+        .enqueue(
+            "customer",
+            "a@acme.eu",
+            "a@acme.eu",
+            b"Subject: x\r\n\r\nx\r\n",
+            &["bob@example.test".into()],
+        )
+        .await
+        .expect("enqueue");
+    let pools = vec!["customer".to_owned()];
+    let claimed = store
+        .claim(&pools, "worker-a", 10, Duration::from_secs(60))
+        .await
+        .expect("claim")
+        .remove(0);
+    // Worker A's lease lapses and worker B takes the row.
+    sqlx::query("UPDATE mta_recipients SET lease_until = now() - interval '1 second'")
+        .execute(store.pool())
+        .await
+        .expect("expire");
+    let again = store
+        .claim(&pools, "worker-b", 10, Duration::from_secs(60))
+        .await
+        .expect("claim");
+    assert_eq!(again.len(), 1);
+
+    let bounced = crate::store::Outcome::Bounced {
+        response: "550 5.1.1 gone".into(),
+        hard: true,
+    };
+    assert!(
+        !store
+            .renew(&claimed.id, "worker-a", Duration::from_secs(60))
+            .await
+            .expect("renew")
+    );
+    assert!(
+        !store
+            .finish(&claimed, "worker-a", "a@acme.eu", &bounced)
+            .await
+            .expect("finish")
+    );
+    let events: i64 = sqlx::query_scalar("SELECT count(*) FROM mta_outbox")
+        .fetch_one(store.pool())
+        .await
+        .expect("count");
+    assert_eq!(events, 0);
+    assert!(
+        !store
+            .is_suppressed("customer", "bob@example.test")
+            .await
+            .expect("suppressed")
+    );
+
+    let delivered = crate::store::Outcome::Delivered {
+        response: "250 ok".into(),
+    };
+    assert!(
+        store
+            .finish(&again[0], "worker-b", "a@acme.eu", &delivered)
+            .await
+            .expect("finish")
+    );
+    // A second outcome for a final recipient is refused too.
+    assert!(
+        !store
+            .finish(&again[0], "worker-b", "a@acme.eu", &bounced)
+            .await
+            .expect("finish")
+    );
+    let events: i64 = sqlx::query_scalar("SELECT count(*) FROM mta_outbox")
+        .fetch_one(store.pool())
+        .await
+        .expect("count");
+    assert_eq!(events, 1);
+
     store.pool().close().await;
     scratch.drop_it().await;
 }

@@ -398,108 +398,159 @@ impl Store {
     }
 
     /// Gives a claimed recipient back without counting an attempt (warm-up
-    /// cap or shaping), due again after `delay`.
-    pub async fn release(&self, id: &str, delay: Duration) -> Result<()> {
+    /// cap, shaping, a failed message load), due again after `delay`. Only
+    /// while `owner` still holds the lease.
+    pub async fn release(&self, id: &str, owner: &str, delay: Duration) -> Result<()> {
         sqlx::query(
             "UPDATE mta_recipients SET lease_owner = NULL, lease_until = NULL,
-                    next_attempt_at = now() + make_interval(secs => $2)
-              WHERE id = $1 AND status = 'queued'",
+                    next_attempt_at = now() + make_interval(secs => $3)
+              WHERE id = $1 AND lease_owner = $2 AND status = 'queued'",
         )
         .bind(id)
+        .bind(owner)
         .bind(delay.as_secs_f64())
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    /// Records an attempt's outcome and its event.
-    pub async fn finish(&self, claimed: &Claimed, sender: &str, outcome: &Outcome) -> Result<()> {
+    /// Extends `owner`'s lease on a recipient before it is sent. `false`:
+    /// the lease ran out and another worker may have it; don't send.
+    pub async fn renew(&self, id: &str, owner: &str, lease: Duration) -> Result<bool> {
+        let renewed = sqlx::query(
+            "UPDATE mta_recipients SET lease_until = now() + make_interval(secs => $3)
+              WHERE id = $1 AND lease_owner = $2 AND status = 'queued'",
+        )
+        .bind(id)
+        .bind(owner)
+        .bind(lease.as_secs_f64())
+        .execute(&self.pool)
+        .await?;
+        Ok(renewed.rows_affected() == 1)
+    }
+
+    /// Records an attempt's outcome and its event, only while `owner` still
+    /// leases the recipient and it is queued: a worker whose lease ran out
+    /// records nothing (`Ok(false)`), so an outcome and its event are never
+    /// written twice and a final status is never overwritten.
+    pub async fn finish(
+        &self,
+        claimed: &Claimed,
+        owner: &str,
+        sender: &str,
+        outcome: &Outcome,
+    ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
-        match outcome {
-            Outcome::Delivered { response } => {
-                self.set_final(&mut tx, &claimed.id, "delivered", response)
-                    .await?;
-                outbox(
-                    &mut tx,
-                    events::event(Kind::Delivered, sender, &claimed.address, response),
+        let (status, event) = match outcome {
+            Outcome::Delivered { response } => (
+                "delivered",
+                Some(events::event(
+                    Kind::Delivered,
+                    sender,
+                    &claimed.address,
+                    response,
+                )),
+            ),
+            Outcome::Bounced { response, hard } => {
+                let kind = if *hard {
+                    Kind::HardBounce
+                } else {
+                    Kind::SoftBounce
+                };
+                (
+                    "bounced",
+                    Some(events::event(kind, sender, &claimed.address, response)),
                 )
-                .await?;
             }
+            Outcome::Expired { response } => (
+                "expired",
+                Some(events::event(
+                    Kind::SoftBounce,
+                    sender,
+                    &claimed.address,
+                    response,
+                )),
+            ),
             Outcome::Deferred { response, delay } => {
                 // `first`: this is the recipient's first deferral (one
                 // `deferred` event per recipient, as Cloudflare sends).
                 let first: Option<bool> = sqlx::query_scalar(
                     "WITH before AS (
                          SELECT deferred_reported FROM mta_recipients WHERE id = $1 FOR UPDATE)
-                     UPDATE mta_recipients SET attempts = attempts + 1, last_response = $2,
-                            next_attempt_at = now() + make_interval(secs => $3),
+                     UPDATE mta_recipients SET attempts = attempts + 1, last_response = $3,
+                            next_attempt_at = now() + make_interval(secs => $4),
                             lease_owner = NULL, lease_until = NULL, deferred_reported = true
-                      WHERE id = $1 AND status = 'queued'
+                      WHERE id = $1 AND lease_owner = $2 AND status = 'queued'
                   RETURNING NOT (SELECT deferred_reported FROM before)",
                 )
                 .bind(&claimed.id)
+                .bind(owner)
                 .bind(response)
                 .bind(delay.as_secs_f64())
                 .fetch_optional(&mut *tx)
                 .await?;
-                if first == Some(true) {
+                let Some(first) = first else {
+                    return Ok(false);
+                };
+                if first {
                     outbox(
                         &mut tx,
                         events::event(Kind::Deferred, sender, &claimed.address, response),
                     )
                     .await?;
                 }
+                tx.commit().await?;
+                return Ok(true);
             }
-            Outcome::Bounced { response, hard } => {
-                self.set_final(&mut tx, &claimed.id, "bounced", response)
-                    .await?;
-                let kind = if *hard {
-                    Kind::HardBounce
-                } else {
-                    Kind::SoftBounce
-                };
-                outbox(
-                    &mut tx,
-                    events::event(kind, sender, &claimed.address, response),
-                )
+        };
+        let response = match outcome {
+            Outcome::Delivered { response }
+            | Outcome::Bounced { response, .. }
+            | Outcome::Expired { response }
+            | Outcome::Deferred { response, .. } => response,
+        };
+        if !self
+            .set_final(&mut tx, &claimed.id, owner, status, response)
+            .await?
+        {
+            return Ok(false);
+        }
+        if let Some(event) = event {
+            outbox(&mut tx, event).await?;
+        }
+        if let Outcome::Bounced {
+            hard: true,
+            response,
+        } = outcome
+        {
+            self.suppress(&mut tx, &claimed.pool, &claimed.address, "bounce", response)
                 .await?;
-                if *hard {
-                    self.suppress(&mut tx, &claimed.pool, &claimed.address, "bounce", response)
-                        .await?;
-                }
-            }
-            Outcome::Expired { response } => {
-                self.set_final(&mut tx, &claimed.id, "expired", response)
-                    .await?;
-                outbox(
-                    &mut tx,
-                    events::event(Kind::SoftBounce, sender, &claimed.address, response),
-                )
-                .await?;
-            }
         }
         tx.commit().await?;
-        Ok(())
+        Ok(true)
     }
 
+    /// Sets a final status; `false` when `owner` no longer holds the lease.
     async fn set_final(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         id: &str,
+        owner: &str,
         status: &str,
         response: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            "UPDATE mta_recipients SET status = $2, last_response = $3, attempts = attempts + 1,
+    ) -> Result<bool> {
+        let updated = sqlx::query(
+            "UPDATE mta_recipients SET status = $3, last_response = $4, attempts = attempts + 1,
                     lease_owner = NULL, lease_until = NULL, finished_at = now()
-              WHERE id = $1",
+              WHERE id = $1 AND lease_owner = $2 AND status = 'queued'",
         )
         .bind(id)
+        .bind(owner)
         .bind(status)
         .bind(response)
         .execute(&mut **tx)
         .await?;
-        Ok(())
+        Ok(updated.rows_affected() == 1)
     }
 
     async fn suppress(
@@ -600,15 +651,21 @@ impl Store {
             return Ok(false);
         }
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
+        // Only from `delivered` (or `queued`, a copy accepted earlier while a
+        // retry is pending): a status that is already final stays, and no
+        // second event is written.
+        let updated = sqlx::query(
             "UPDATE mta_recipients SET status = 'bounced', last_response = $2,
                     lease_owner = NULL, lease_until = NULL, finished_at = now()
-              WHERE id = $1",
+              WHERE id = $1 AND status IN ('queued', 'delivered')",
         )
         .bind(&info.id)
         .bind(detail)
         .execute(&mut *tx)
         .await?;
+        if updated.rows_affected() == 0 {
+            return Ok(false);
+        }
         let kind = if hard {
             Kind::HardBounce
         } else {

@@ -28,6 +28,25 @@ app.kubernetes.io/part-of: weldsuite
 {{- default (include "weldsuite.secretName" .) .Values.mta.existingSecret }}
 {{- end }}
 
+{{/*
+The namespace the MTA runs in: mta.namespace, else the release's. The MTA
+runs on the host network, which Pod Security's baseline and restricted levels
+forbid, so a cluster that enforces them puts it in a namespace labelled
+privileged (as LiveKit), apart from the platform.
+*/}}
+{{- define "weldsuite.mta.namespace" -}}
+{{- default .Release.Namespace .Values.mta.namespace }}
+{{- end }}
+
+{{/*
+The Secret, in the release's namespace, the server, consume and the cron jobs
+read MTA_API_SECRET and the submission passwords from: mta.clientSecret, else
+the MTA's own Secret (one namespace).
+*/}}
+{{- define "weldsuite.mta.clientSecretName" -}}
+{{- default (include "weldsuite.mta.secretName" .) .Values.mta.clientSecret }}
+{{- end }}
+
 {{/* The kubernetes.io/tls Secret the bounce MX's STARTTLS reads. */}}
 {{- define "weldsuite.mta.inboundTlsSecret" -}}
 {{- default (printf "%s-inbound-tls" (include "weldsuite.mta.fullname" .)) .Values.mta.inbound.tls.existingSecret }}
@@ -67,6 +86,14 @@ app.kubernetes.io/part-of: weldsuite
 {{- fail "mta.inbound.enabled needs mta.bounceDomain: the bounce MX only answers for that domain" }}
 {{- end }}
 {{- end }}
+{{- if ne (include "weldsuite.mta.namespace" .) .Release.Namespace }}
+{{- if not .Values.mta.existingSecret }}
+{{- fail "mta.namespace apart from the release's needs mta.existingSecret: a Secret in that namespace with the MTA's keys" }}
+{{- end }}
+{{- if and .Values.mta.wireServer (not .Values.mta.clientSecret) }}
+{{- fail "mta.namespace apart from the release's needs mta.clientSecret: a Secret in the release's namespace with MTA_API_SECRET and the submission passwords" }}
+{{- end }}
+{{- end }}
 {{- if and (not .Values.secret.existingSecret) (not .Values.mta.existingSecret) }}
 {{- $keys := list "MTA_DATABASE_URL" "MTA_KEY" "MTA_API_SECRET" }}
 {{- range .Values.mta.pools }}
@@ -92,10 +119,11 @@ MAIL_SMTP_URL.
 */}}
 {{- define "weldsuite.mta.clientEnv" -}}
 {{- if and .Values.mta.enabled .Values.mta.wireServer }}
-{{- $secret := include "weldsuite.mta.secretName" . }}
-{{- $submission := printf "%s.%s.svc:%v" (include "weldsuite.mta.fullname" .) .Release.Namespace .Values.mta.submission.service.port -}}
+{{- $secret := include "weldsuite.mta.clientSecretName" . }}
+{{- $namespace := include "weldsuite.mta.namespace" . }}
+{{- $submission := printf "%s.%s.svc:%v" (include "weldsuite.mta.fullname" .) $namespace .Values.mta.submission.service.port -}}
 - name: MTA_API_URL
-  value: {{ printf "http://%s.%s.svc:8025" (include "weldsuite.mta.apiName" .) .Release.Namespace | quote }}
+  value: {{ printf "http://%s.%s.svc:8025" (include "weldsuite.mta.apiName" .) $namespace | quote }}
 - name: MTA_API_SECRET
   valueFrom:
     secretKeyRef:

@@ -127,6 +127,7 @@ fn delivery(
         max_queue_age: config.max_queue_age,
         warmup: config.warmup_schedule.clone(),
         concurrency: config.concurrency,
+        allow_private_destinations: config.allow_private_destinations,
     }))
 }
 
