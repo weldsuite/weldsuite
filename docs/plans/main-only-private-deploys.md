@@ -11,8 +11,9 @@ Decided (2026-11-07):
   already ran, never a new build of something else.
 - **Production is a "Promote" button** in the private repo. The org is on
   GitHub Team, where an environment's required reviewers only work in public
-  repos, so the button (a `workflow_dispatch` only people with write access to
-  the private repo can start) is the gate.
+  repos, so the button is the gate. It runs only when a person with write
+  access to the private repo started it. A run started or re-run by an App or
+  bot is refused, so the hand-off's credentials can never reach production.
 - **Private: the deployment config and the deploy runs.** Public: the app,
   CI, image and chart builds, releases, the Helm chart and the generic
   OpenTofu/Flux base self-hosters need (OPS-014).
@@ -61,9 +62,10 @@ PR ──► CI (public, required checks) ──► merge to main
      EU test cluster: Flux picks up                             ▼
      the newest -main chart                    "Promote" button (private):
                                                - Global → production, same sha
-                                               - EU: public rust-release X.Y.Z,
-                                                 then bump the version in the
-                                                 private cluster settings
+                                               - EU: take release X.Y.Z (cut by
+                                                 a maintainer with the public
+                                                 rust-release), bump the version
+                                                 in the private cluster settings
                                                                 │
                                                                 ▼
                                                Flux rolls out EU production
@@ -110,13 +112,24 @@ PR ──► CI (public, required checks) ──► merge to main
 ### 1. Private repo and plumbing (no behaviour change)
 
 - Create `weldsuite/weldsuite-deploy` (private). Archive `deployment-overlay`.
-- Two GitHub Apps, least privilege:
-  - `weldsuite-deploy-bot`: Actions read/write, installed on both repos.
-    The public hand-off uses it to start the private `deploy` workflow
-    (`workflow_dispatch`), and Promote uses it to start the public
-    `rust-release`. Both workflows check their inputs: the sha is on `main`
-    and its CI passed. A leaked key can only start a deploy of a commit that
-    is already on `main`.
+- Two GitHub Apps, least privilege, neither installed on the public repo:
+  - `weldsuite-deploy-bot`: Actions read/write on `weldsuite-deploy` only.
+    The public hand-off uses it to start the private `deploy-test` workflow
+    (`workflow_dispatch`). Actions write lets an App start *any* dispatchable
+    workflow in a repo it's installed on, with any inputs, and cancel,
+    re-run or disable runs. So:
+    - It is not installed on the public repo. There it could start
+      `publish-cli.yml`, `mobile-build.yml` (`channel: production`) or
+      `release-desktop.yml` (`publish: true`), or cancel and re-run CI.
+    - `deploy-test` deploys only to test, and checks its input: the sha is on
+      `main` and its CI passed.
+    - Promote refuses a run whose `github.triggering_actor` is a bot, or a
+      user without write access to the private repo. Checking
+      `triggering_actor` rather than `actor` also covers re-runs.
+
+    A leaked key can then deploy a commit that is already on `main` to test,
+    or cancel and disable runs in the private repo. It can't reach
+    production or the public repo. If it leaks, rotate it.
   - `weldsuite-flux-reader`: Contents read, on `weldsuite-deploy` only. Flux
     uses it in phase 4 (no deploy keys needed).
 - Create Environments `test` and `production` in the private repo. Fill them
@@ -126,19 +139,26 @@ PR ──► CI (public, required checks) ──► merge to main
   under `.github/actions/deploy-*` and `.github/scripts/`. The public
   `deploy.yml` keeps working on top of them, so this is a refactor with no
   change in behaviour.
-- Add the private `deploy.yml` (inputs `sha`, `environment`), with
-  concurrency per environment so the newest commit wins. The diff base is the
+- Add the private workflows:
+  - `deploy.yml`: reusable (`workflow_call` only, so it can't be dispatched),
+    with inputs `sha` and `environment`;
+  - `deploy-test.yml` (input `sha`) and `promote.yml`, which call it.
+
+  Concurrency is per environment, so the newest commit wins. The diff base is the
   last successful run for that environment in the private repo. First run it
   in plan-only mode next to the public deploys and compare what each would
   deploy.
 
 ### 2. Move Global's deploy runs to the private repo (branch mapping unchanged)
 
-- Public `handoff.yml`: when `CI` finishes successfully on a push, it starts
-  the private deploy with the sha and the environment (`develop` → test,
-  `main` → production, until phase 3). The App key sits in a public
-  environment `handoff` that only `develop`/`main` can use, so fork PRs never
-  see it.
+- Public `handoff.yml`: when `CI` finishes successfully on a push to
+  `develop` (`main` from phase 3), it starts the private `deploy-test` with
+  the sha. The App key sits in a public environment `handoff` that only that
+  branch can use, so fork PRs never see it.
+- Production from here on is Promote, never the hand-off. Until phase 3, a
+  `develop` → `main` merge is followed by Promote for the merge commit. Its
+  "test deployed it" check accepts a commit whose tree equals one that test
+  deployed: the merge commit's tree is the `develop` commit's.
 - After a week of matching runs, remove the deploy jobs from the public
   `deploy.yml` and move `deploy-hosted-apps.yml` across too. Then delete the
   public environments `test`/`production` with their secrets, and the old
@@ -176,9 +196,12 @@ PR ──► CI (public, required checks) ──► merge to main
   - **Checks:** the sha is on `main`, its CI passed, and test deployed it.
   - **Global:** a production deploy of that sha. Its diff base is the last
     production sha, which may be many commits back.
-  - **EU:** start the public `rust-release` with `sha-<12>` and the next
-    version, wait for it, then commit `WELDSUITE_VERSION` and the base-layer
-    tag (phase 4) to `clusters/eu` and `clusters/drill`.
+  - **EU:** a maintainer first runs the public `rust-release` for that
+    build. It stays in the public repo, and no App can start it. Promote's
+    EU target then takes the version and checks that its tag
+    `weldsuite-vX.Y.Z` names the same commit. Then it commits
+    `WELDSUITE_VERSION` and the base-layer tag (phase 4) to `clusters/eu`
+    and `clusters/drill`.
   - **Mobile:** OTA test → `preview` on every main deploy; `production`
     channel on promote.
 - **Retire `develop`.** Keep it read-only for two weeks (a ruleset blocks
