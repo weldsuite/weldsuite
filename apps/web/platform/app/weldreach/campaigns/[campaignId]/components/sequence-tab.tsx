@@ -162,16 +162,25 @@ export function SequenceTab({
     [t],
   );
 
-  const submit = form.handleSubmit(async (values) => {
-    setFailure(null);
-    try {
-      const res = await replaceSteps.mutateAsync(normalizeSteps(values.steps));
-      form.reset({ steps: stepsToDraft(res.data.steps) });
-      toast.success(t('reachEngage.sequence.saved'));
-    } catch (err) {
-      setFailure(errorMessage(err, t('reachEngage.sequence.saveFailed')));
-    }
-  });
+  const submit = form.handleSubmit(
+    async (values) => {
+      setFailure(null);
+      try {
+        const res = await replaceSteps.mutateAsync(normalizeSteps(values.steps));
+        form.reset({ steps: stepsToDraft(res.data.steps) });
+        toast.success(t('reachEngage.sequence.saved'));
+      } catch (err) {
+        setFailure(errorMessage(err, t('reachEngage.sequence.saveFailed')));
+      }
+    },
+    // A step's errors only show in its panel: open the first step that has one.
+    (errors) => {
+      const stepErrors = errors.steps;
+      if (!Array.isArray(stepErrors)) return;
+      const index = stepErrors.findIndex(Boolean);
+      if (index !== -1) setSelectedKey(fields[index]?.id ?? null);
+    },
+  );
 
   // The canvas reads its callbacks from effects; refs keep them stable across renders.
   const latest = useRef({ canvas, fields });

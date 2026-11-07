@@ -128,6 +128,27 @@ describe('SequenceTab', () => {
     expect(reach.replaceSteps).not.toHaveBeenCalled();
   });
 
+  it('opens the step with an error when Save is refused for a step whose panel is closed', async () => {
+    const user = userEvent.setup();
+    const campaign = campaignFixture({
+      steps: [
+        ...campaignFixture().steps,
+        { id: 'stp_2', order: 1, delayDays: 2, delayHours: 0, subject: 'Bump', body: 'Any news?', replyInThread: true },
+      ],
+    });
+    renderWithApp(<SequenceTab campaign={campaign} canEdit />);
+
+    await user.click(screen.getByRole('button', { name: 'node: Follow-up 1' }));
+    await user.clear(screen.getByLabelText('Days'));
+    await user.type(screen.getByLabelText('Days'), '120');
+    await user.click(screen.getByRole('button', { name: 'node: First email' }));
+    await user.click(screen.getByRole('button', { name: 'Save sequence' }));
+
+    expect(await screen.findByRole('heading', { name: 'Follow-up 1' })).toBeInTheDocument();
+    expect(screen.getByText('Enter 0 to 90 days and 0 to 23 hours.')).toBeInTheDocument();
+    expect(reach.replaceSteps).not.toHaveBeenCalled();
+  });
+
   it('shows the API message when saving is refused', async () => {
     const user = userEvent.setup();
     reach.replaceSteps.mockRejectedValue(new Error('Pause the campaign before changing its steps.'));
