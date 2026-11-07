@@ -103,59 +103,76 @@ export async function startFakeProvider(options: FakeProviderOptions, port = 0):
     return callback.href;
   };
 
-  const json = (status: number, value: unknown) => ({ status, value });
+  type Answer = { status: number; value?: unknown; location?: string };
+  const json = (status: number, value: unknown): Answer => ({ status, value });
 
-  async function handle(req: IncomingMessage): Promise<{ status: number; value?: unknown; location?: string }> {
+  const discovery = (): Answer =>
+    json(200, {
+      issuer,
+      authorization_endpoint: `${issuer}/authorize`,
+      token_endpoint: `${issuer}/token`,
+      userinfo_endpoint: `${issuer}/userinfo`,
+      jwks_uri: `${issuer}/keys`,
+      end_session_endpoint: `${issuer}/end_session`,
+      response_types_supported: ['code'],
+      subject_types_supported: ['public'],
+      id_token_signing_alg_values_supported: ['RS256'],
+      code_challenge_methods_supported: ['S256'],
+    });
+
+  /** The code for tokens: the client secret, the redirect URI and PKCE must all match. */
+  async function token(req: IncomingMessage): Promise<Answer> {
+    const basic = Buffer.from((req.headers.authorization ?? '').replace(/^Basic /, ''), 'base64').toString();
+    const [id, secret] = basic.split(':').map(decodeURIComponent);
+    if (id !== options.clientId || secret !== options.clientSecret) return json(401, { error: 'invalid_client' });
+    const form = new URLSearchParams(await body(req));
+    const grant = grants.get(form.get('code') ?? '');
+    grants.delete(form.get('code') ?? '');
+    const valid =
+      form.get('grant_type') === 'authorization_code' &&
+      grant !== undefined &&
+      form.get('redirect_uri') === grant.redirectUri &&
+      (await sha256(form.get('code_verifier') ?? '')) === grant.challenge;
+    if (!valid) return json(400, { error: 'invalid_grant' });
+    const accessToken = crypto.randomUUID();
+    tokens.set(accessToken, provider.person);
+    return json(200, {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: 300,
+      id_token: await idToken(provider.person, grant),
+    });
+  }
+
+  function userinfo(req: IncomingMessage): Answer {
+    const person = tokens.get((req.headers.authorization ?? '').replace(/^Bearer /, ''));
+    if (!person) return json(401, { error: 'invalid_token' });
+    return json(200, {
+      sub: provider.faults.userinfoSub ?? person.sub,
+      email: person.email,
+      email_verified: person.emailVerified,
+      name: person.name,
+    });
+  }
+
+  async function handle(req: IncomingMessage): Promise<Answer> {
     const url = new URL(req.url ?? '/', issuer);
-    if (url.pathname === '/.well-known/openid-configuration') {
-      return json(200, {
-        issuer,
-        authorization_endpoint: `${issuer}/authorize`,
-        token_endpoint: `${issuer}/token`,
-        userinfo_endpoint: `${issuer}/userinfo`,
-        jwks_uri: `${issuer}/keys`,
-        end_session_endpoint: `${issuer}/end_session`,
-        response_types_supported: ['code'],
-        subject_types_supported: ['public'],
-        id_token_signing_alg_values_supported: ['RS256'],
-        code_challenge_methods_supported: ['S256'],
-      });
+    switch (url.pathname) {
+      case '/.well-known/openid-configuration':
+        return discovery();
+      case '/keys':
+        return json(200, { keys: [jwk] });
+      case '/authorize':
+        return { status: 302, location: authorize(url.href) };
+      case '/end_session':
+        return { status: 302, location: url.searchParams.get('post_logout_redirect_uri') ?? issuer };
+      case '/token':
+        return req.method === 'POST' ? token(req) : json(405, { error: 'method_not_allowed' });
+      case '/userinfo':
+        return userinfo(req);
+      default:
+        return json(404, { error: 'not_found' });
     }
-    if (url.pathname === '/keys') return json(200, { keys: [jwk] });
-    if (url.pathname === '/authorize') return { status: 302, location: authorize(url.href) };
-    if (url.pathname === '/end_session') {
-      return { status: 302, location: url.searchParams.get('post_logout_redirect_uri') ?? issuer };
-    }
-    if (url.pathname === '/token' && req.method === 'POST') {
-      const basic = Buffer.from((req.headers.authorization ?? '').replace(/^Basic /, ''), 'base64').toString();
-      const [id, secret] = basic.split(':').map(decodeURIComponent);
-      if (id !== options.clientId || secret !== options.clientSecret) return json(401, { error: 'invalid_client' });
-      const form = new URLSearchParams(await body(req));
-      const grant = grants.get(form.get('code') ?? '');
-      grants.delete(form.get('code') ?? '');
-      if (form.get('grant_type') !== 'authorization_code' || !grant) return json(400, { error: 'invalid_grant' });
-      if (form.get('redirect_uri') !== grant.redirectUri) return json(400, { error: 'invalid_grant' });
-      if ((await sha256(form.get('code_verifier') ?? '')) !== grant.challenge) return json(400, { error: 'invalid_grant' });
-      const accessToken = crypto.randomUUID();
-      tokens.set(accessToken, provider.person);
-      return json(200, {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: 300,
-        id_token: await idToken(provider.person, grant),
-      });
-    }
-    if (url.pathname === '/userinfo') {
-      const person = tokens.get((req.headers.authorization ?? '').replace(/^Bearer /, ''));
-      if (!person) return json(401, { error: 'invalid_token' });
-      return json(200, {
-        sub: provider.faults.userinfoSub ?? person.sub,
-        email: person.email,
-        email_verified: person.emailVerified,
-        name: person.name,
-      });
-    }
-    return json(404, { error: 'not_found' });
   }
 
   const server: Server = createServer((req, res) => {

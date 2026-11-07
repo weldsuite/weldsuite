@@ -121,6 +121,8 @@ export function authorizationServer(config: OidcConfig, now = Date.now()): Promi
   return server;
 }
 
+const RETURN_BASE = 'https://admin.invalid';
+
 /**
  * Where to send someone after they sign in: a path on this console, never
  * another site (`//evil.example`, `/\evil.example` and absolute URLs fall back
@@ -129,8 +131,9 @@ export function authorizationServer(config: OidcConfig, now = Date.now()): Promi
 export function safeReturnTo(value: string | null | undefined): string {
   if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return '/';
   try {
-    const url = new URL(value, 'http://admin.local');
-    if (url.origin !== 'http://admin.local') return '/';
+    // Resolved against a placeholder origin, only to see whether it stays on it.
+    const url = new URL(value, RETURN_BASE);
+    if (url.origin !== RETURN_BASE) return '/';
     if (url.pathname.startsWith('/auth/')) return '/';
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {

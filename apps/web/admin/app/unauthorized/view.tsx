@@ -7,6 +7,14 @@ import { GLOBAL } from '@/lib/edition';
 import { adminCopy } from '@/lib/i18n';
 import type { UnauthorizedPageData } from './data';
 
+/** Why someone signed in but not an admin is here: Clerk's invite list on Global, the staff list on Kubernetes. */
+function noAccess(): string {
+  if (GLOBAL) {
+    return 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.';
+  }
+  return adminCopy().signIn.notOnRoster;
+}
+
 export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
   const signOut = useSignOut();
   return (
@@ -19,11 +27,7 @@ export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
           <div>
             <h1 className="text-lg font-semibold">Access restricted</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isAdmin
-                ? 'This area is limited to superadmins. Ask a superadmin if you need access.'
-                : GLOBAL
-                  ? 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'
-                  : adminCopy().signIn.notOnRoster}
+              {isAdmin ? 'This area is limited to superadmins. Ask a superadmin if you need access.' : noAccess()}
             </p>
           </div>
           <div className="flex items-center justify-center gap-2 pt-2">

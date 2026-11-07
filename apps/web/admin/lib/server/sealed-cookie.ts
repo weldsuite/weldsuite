@@ -36,7 +36,10 @@ async function cookieKey(secret: string, name: string): Promise<CryptoKey> {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  const base64 = btoa(binary).replaceAll('+', '-').replaceAll('/', '_');
+  let end = base64.length;
+  while (end > 0 && base64[end - 1] === '=') end--;
+  return base64.slice(0, end);
 }
 
 function fromBase64Url(value: string): Uint8Array<ArrayBuffer> | null {
