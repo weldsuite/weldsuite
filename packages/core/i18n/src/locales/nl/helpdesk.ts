@@ -2,6 +2,47 @@ export const helpdesk = {
     title: 'WeldDesk',
     description: 'Beheer supporttickets en klantenservice',
 
+    // Assetregister: Instellingen → Apps → WeldDesk en het detailpaneel van de inbox.
+    assets: {
+      settingsTitle: 'Assetregister',
+      settingsDescription: "Houd laptops, telefoons, licenties en andere apparatuur bij, wie ze heeft, en koppel ze aan tickets.",
+      setUp: 'Instellen',
+      settingUp: 'Bezig met instellen…',
+      open: 'Assets openen',
+      installed: 'Het assetregister is ingesteld',
+      installFailed: 'Het assetregister kon niet worden ingesteld',
+      askAdmin: 'Een beheerder die aangepaste objecten beheert, kan dit instellen.',
+      panelTitle: 'Assets',
+      none: 'Geen assets gekoppeld',
+      attach: 'Asset koppelen',
+      searchPlaceholder: 'Assets zoeken…',
+      noResults: 'Geen assets gevonden',
+      detach: '{name} ontkoppelen',
+      attached: 'Asset gekoppeld',
+      detached: 'Asset ontkoppeld',
+      attachFailed: 'De asset kon niet worden gekoppeld',
+      detachFailed: 'De asset kon niet worden ontkoppeld',
+      untitled: 'Naamloze asset',
+    },
+
+    // AI-vertaling in de inbox (alleen Global).
+    translation: {
+      translate: 'Vertalen',
+      turnOn: 'Dit gesprek vertalen',
+      turnOff: 'Stoppen met vertalen',
+      translating: 'Bezig met vertalen…',
+      translatedFrom: 'Vertaald uit het {language}',
+      languageBadge: 'De klant schrijft {language}',
+      sameLanguage: 'De klant schrijft in jouw taal',
+      originalIn: 'Jij schreef ({language})',
+      translateDraft: 'Vertalen naar het {language}',
+      languageUnknown: 'Zet Vertalen eerst aan, zodat de taal van de klant bekend is',
+      draftTranslated: 'Vertaald. Controleer de tekst voordat je hem verstuurt.',
+      failed: 'Vertalen mislukt',
+      noCredits: 'Niet genoeg AI-tegoed om te vertalen. Waardeer het saldo van je werkruimte op.',
+      unavailable: 'Vertalen is nu niet beschikbaar',
+    },
+
     // Instellingen > Apps > WeldDesk > SLA-beleid
     slaPolicies: {
       title: 'SLA-beleid',

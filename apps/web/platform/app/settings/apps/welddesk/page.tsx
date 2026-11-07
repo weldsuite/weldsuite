@@ -1,6 +1,7 @@
 import { BookOpen, Bot, ChevronRight, Mail, MessagesSquare, Phone, Shuffle, Tags, Timer, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
+import { AssetRegisterCard } from './asset-register-card';
 
 interface DeskSettingsLink {
   id: string;
@@ -81,6 +82,8 @@ export default function HelpdeskSettingsPage() {
           </ul>
         </section>
       ))}
+
+      <AssetRegisterCard />
     </div>
   );
 }

@@ -26,6 +26,7 @@ import {
   DESK_ATTACHMENT_MAX_COUNT,
   formatFileSize,
 } from './attachments';
+import { TranslateDraftButton } from './translation/translate-draft-button';
 
 type ComposerTab = 'reply' | 'note';
 
@@ -287,6 +288,7 @@ export function Composer({
                 >
                   <MessageSquareText className="h-4 w-4" />
                 </Button>
+                <TranslateDraftButton conversationId={conversationId} body={body} disabled={tab === 'note'} onTranslated={setBody} />
                 <span className="hidden sm:inline ml-1.5 text-xs text-muted-foreground truncate">{t.composer.sendHint}</span>
               </div>
               <Button

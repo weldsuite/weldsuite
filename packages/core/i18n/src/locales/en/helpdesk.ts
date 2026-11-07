@@ -2,6 +2,47 @@ export const helpdesk = {
     title: 'WeldDesk',
     description: 'Manage support tickets and customer service',
 
+    // Asset register: Settings → Apps → WeldDesk and the inbox's details panel.
+    assets: {
+      settingsTitle: 'Asset register',
+      settingsDescription: 'Keep track of laptops, phones, licences and other equipment, who has them, and attach them to tickets.',
+      setUp: 'Set up',
+      settingUp: 'Setting up…',
+      open: 'Open assets',
+      installed: 'The asset register is set up',
+      installFailed: 'Could not set up the asset register',
+      askAdmin: 'An admin who manages custom objects can set this up.',
+      panelTitle: 'Assets',
+      none: 'No assets attached',
+      attach: 'Attach asset',
+      searchPlaceholder: 'Search assets…',
+      noResults: 'No assets found',
+      detach: 'Detach {name}',
+      attached: 'Asset attached',
+      detached: 'Asset detached',
+      attachFailed: 'Could not attach the asset',
+      detachFailed: 'Could not detach the asset',
+      untitled: 'Untitled asset',
+    },
+
+    // Inbox AI translation (Global only).
+    translation: {
+      translate: 'Translate',
+      turnOn: 'Translate this conversation',
+      turnOff: 'Stop translating',
+      translating: 'Translating…',
+      translatedFrom: 'Translated from {language}',
+      languageBadge: 'The customer writes {language}',
+      sameLanguage: 'The customer writes in your language',
+      originalIn: 'You wrote ({language})',
+      translateDraft: 'Translate to {language}',
+      languageUnknown: "Turn on Translate first, so the customer's language is known",
+      draftTranslated: 'Translated. Check the text before you send it.',
+      failed: 'Translation failed',
+      noCredits: 'Not enough AI credits to translate. Top up your workspace balance.',
+      unavailable: 'Translation is not available right now',
+    },
+
     // Settings > Apps > WeldDesk > SLA policies
     slaPolicies: {
       title: 'SLA policies',

@@ -371,6 +371,8 @@ export interface DeskReplyInput {
   kind: 'message' | 'note';
   body: string;
   attachments?: DeskMessageAttachment[];
+  /** What the agent wrote before translating the reply (internal metadata). */
+  translation?: { original: string; sourceLocale: string; targetLocale: string };
 }
 
 type DeskDetailData = { data: DeskConversation & { messages: DeskMessage[] } };

@@ -14,6 +14,7 @@ import type {
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { Avatar as UiAvatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { formatFileSize } from './attachments';
+import { MessageTranslation } from './translation/message-translation';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -393,6 +394,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
                     {message.body}
                     <AttachmentList attachments={message.attachments} spaced={Boolean(message.body)} />
                   </div>
+                  <MessageTranslation conversation={conversation} messages={messages} message={message} />
                   {message.pending === 'sending' && (
                     <span className="mt-1 text-[11px] text-muted-foreground">{t.pane.sending}</span>
                   )}
