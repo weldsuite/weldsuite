@@ -27,8 +27,8 @@ data:
   # Mapbox's public token (pk.…) for maps and address search; none here.
   MAPBOX_PUBLIC_TOKEN: ""
   # Unused here: the chart is the newest develop build's (layers.yaml,
-  # weldsuite-develop.yaml), not a release tag.
-  WELDSUITE_GIT_TAG: unused
+  # weldsuite-develop.yaml), not a release.
+  WELDSUITE_VERSION: unused
   # Empty: the images are the ones the chart names (its appVersion, the
   # develop build's tag). Pin a build here (sha-<12 characters of a develop
   # commit>) only to hold the cluster at it.

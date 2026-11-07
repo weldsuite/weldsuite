@@ -8,9 +8,10 @@ are no longer available (Hetzner has listed "limited availability" of cloud
 instances since April 2026).
 
 Run it with `scripts/drill.sh` on the **drill runner**: a small always-on EU
-machine (P5 work package 5.6) that holds the drill's Hetzner token, age key
-and a read-only deploy key. It never runs on GitHub, so GitHub holds no EU
-credentials.
+machine (P5 work package 5.6) that holds the drill's Hetzner token and age
+key. It never runs on GitHub, so GitHub holds no EU credentials. Flux reads
+the public repository over anonymous HTTPS, and the drill runs the release
+production runs (`WELDSUITE_VERSION`, the same in both clusters' settings).
 
 ## What it does
 
@@ -39,7 +40,6 @@ credentials.
 export HCLOUD_TOKEN=…                 # the drill project's token
 export DRILL_TFVARS=drill.tfvars      # domain, admin_cidrs (the runner's address)
 export DRILL_AGE_KEY=drill.agekey
-export DEPLOY_KEY=weldsuite-deploy-key   # read-only
 rust/deploy/hetzner/scripts/drill.sh
 ```
 

@@ -1,0 +1,178 @@
+name: Rust release
+
+# Releases a develop build of the Rust backend for the EU production cluster
+# (rust/deploy/hetzner/README.md, "Releases"). A release is not a new build:
+# it promotes one the test cluster already ran.
+#
+# Given the build's image tag (sha-<12 characters of the commit>, as the
+# "Rust images" workflow published it) and a version (X.Y.Z), it
+#   - checks the commit is on develop, its `Rust` check passed, and the
+#     version is newer than every earlier release;
+#   - copies the three images to the version's tag, digest for digest:
+#       ghcr.io/weldsuite/weldsuite:X.Y.Z
+#       ghcr.io/weldsuite/weldsuite-sign-portal:X.Y.Z
+#       ghcr.io/weldsuite/weldsuite-collab-rooms:X.Y.Z
+#   - publishes that commit's chart as
+#       oci://ghcr.io/weldsuite/releases/weldsuite:X.Y.Z (appVersion X.Y.Z),
+#     a repository of its own, so the test cluster, which takes the newest
+#     chart in oci://ghcr.io/weldsuite/charts, never picks up a release;
+#   - tags the commit weldsuite-vX.Y.Z, last, so a failed run can be run
+#     again and the tag always means a finished release.
+# Production moves to it when WELDSUITE_VERSION in
+# rust/deploy/flux/clusters/eu/cluster-settings.yaml says X.Y.Z on main.
+#
+# The registry is ghcr.io until the EU registry (P5 work package 5.4). The
+# packages are public, so the cluster pulls without credentials.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: 'The develop build to release: its image tag, sha-<12 characters> (the test cluster runs it)'
+        required: true
+      version:
+        description: 'The release version, X.Y.Z, newer than the last release'
+        required: true
+
+concurrency:
+  group: rust-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # the release tag
+  packages: write # the image tags and the chart
+  checks: read # the commit's `Rust` check
+
+jobs:
+  release:
+    name: Rust · release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      # Inputs reach the scripts through env, never through ${{ }} in a
+      # command line, and are checked before anything uses them.
+      - name: Check the build and the version
+        id: check
+        env:
+          BUILD: ${{ inputs.build }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          [[ "$BUILD" =~ ^sha-[0-9a-f]{12}$ ]] || fail "build must look like sha-<12 hex characters>, got '$BUILD'"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail "version must be X.Y.Z, got '$VERSION'"
+
+          commit="$(git rev-parse --verify --quiet "${BUILD#sha-}^{commit}")" || fail "no commit $BUILD in this repository"
+          git merge-base --is-ancestor "$commit" origin/develop || fail "$commit is not on develop"
+
+          tag="weldsuite-v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            fail "$tag exists already: a release is never replaced, pick the next version"
+          fi
+          latest="$(git tag --list 'weldsuite-v*' | sed 's/^weldsuite-v//' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+          if [ -n "$latest" ]; then
+            newest="$(printf '%s\n%s\n' "$latest" "$VERSION" | sort -V | tail -n 1)"
+            if [ "$latest" = "$VERSION" ] || [ "$newest" != "$VERSION" ]; then
+              fail "version $VERSION is not newer than the last release, $latest"
+            fi
+          fi
+
+          # The `Rust` check of the develop push that built it. A newer push
+          # cancels an older one's CI (ci.yml's concurrency), so it may never
+          # have finished; branch protection required it on the pull request
+          # either way. Only a check that ran and failed stops the release.
+          rust="$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/check-runs?check_name=Rust&per_page=100" \
+            --jq '[.check_runs[] | select(.status == "completed")] | sort_by(.completed_at) | last | .conclusion // "none"')"
+          case "$rust" in
+            success) ;;
+            failure|timed_out|action_required) fail "the Rust check of $commit is '$rust'" ;;
+            *) echo "::warning::the Rust check of $commit on develop is '$rust' (cancelled by a newer push, or never ran)" ;;
+          esac
+
+          {
+            echo "commit=$commit"
+            echo "tag=$tag"
+            echo "latest=${latest:-none}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A carbon copy of each manifest under the version's tag: the same
+      # digest the test cluster ran, nothing rebuilt.
+      - name: Tag the images
+        env:
+          BUILD: ${{ inputs.build }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-collab-rooms)
+          digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
+          for image in "${images[@]}"; do
+            digest "$image:$BUILD" >/dev/null || { echo "::error::$image:$BUILD not found"; exit 1; }
+          done
+          {
+            echo "### Images"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for image in "${images[@]}"; do
+            source_digest="$(digest "$image:$BUILD")"
+            docker buildx imagetools create --prefer-index=false --tag "$image:$VERSION" "$image:$BUILD"
+            release_digest="$(digest "$image:$VERSION")"
+            if [ "$source_digest" != "$release_digest" ]; then
+              echo "::error::$image:$VERSION is $release_digest, not $BUILD's $source_digest"
+              exit 1
+            fi
+            echo "- \`$image:$VERSION\` = \`$BUILD\` ($source_digest)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Publish the chart
+        env:
+          COMMIT: ${{ steps.check.outputs.commit }}
+          VERSION: ${{ inputs.version }}
+          ACTOR: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git checkout --quiet --detach "$COMMIT"
+          helm package rust/deploy/helm/weldsuite --version "$VERSION" --app-version "$VERSION" --destination "$RUNNER_TEMP/chart"
+          echo "$REGISTRY_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm push "$RUNNER_TEMP/chart/weldsuite-$VERSION.tgz" oci://ghcr.io/weldsuite/releases
+          {
+            echo
+            echo "### Chart"
+            echo
+            echo "\`oci://ghcr.io/weldsuite/releases/weldsuite\` $VERSION (appVersion $VERSION), from $COMMIT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tag the commit
+        env:
+          COMMIT: ${{ steps.check.outputs.commit }}
+          TAG: ${{ steps.check.outputs.tag }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT" >/dev/null
+          {
+            echo
+            echo "### Release $VERSION"
+            echo
+            echo "Tagged \`$TAG\` at $COMMIT (previous release: $LATEST)."
+            echo
+            echo "To put it in production, set \`WELDSUITE_VERSION: \"$VERSION\"\` in"
+            echo "\`rust/deploy/flux/clusters/eu/cluster-settings.yaml\` and get it to \`main\`."
+          } >> "$GITHUB_STEP_SUMMARY"

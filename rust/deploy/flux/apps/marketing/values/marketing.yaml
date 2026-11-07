@@ -8,11 +8,11 @@ imagePullSecrets:
 
 replicaCount: 1
 
-# No MASTER_DATABASE_URL: the site reads plan prices over Neon's HTTP driver,
-# which the cluster's Postgres doesn't speak, so the pricing pages show the
-# site's fallback prices. No RESEND_API_KEY: the contact and support forms
-# are not delivered.
-existingSecret: ""
+# marketing-env (secrets example): MASTER_DATABASE_URL, this cluster's own
+# master database as the marketing role, so the pricing pages show the plan
+# prices in its `plans` table, not Global's. No RESEND_API_KEY: the contact
+# and support forms are not delivered.
+existingSecret: marketing-env
 
 # English on www.${DOMAIN}, Dutch on nl.${DOMAIN}: the hosts the image was
 # built for (its workflow's SITE_URL and NL_SITE_URL).

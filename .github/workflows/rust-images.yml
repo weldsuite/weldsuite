@@ -12,9 +12,10 @@ name: Rust images
 # The EU test cluster follows those charts: every develop build reaches it,
 # as every develop push reaches Global's test environment
 # (rust/deploy/hetzner/TEST-CLUSTER.md).
-# Releases for the EU edition come later from the EU registry (P5 5.4). The
-# build is the one "Rust · image and chart" in ci.yml runs, amd64 only (the
-# Hetzner servers), and reuses its layer cache.
+# Releases for the EU production cluster promote one of these builds
+# unchanged (.github/workflows/rust-release.yml). The build is the one
+# "Rust · image and chart" in ci.yml runs, amd64 only (the Hetzner servers),
+# and reuses its layer cache.
 
 on:
   workflow_dispatch:

@@ -56,11 +56,17 @@ differ.
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
   `sops`, `age` and `hcloud-upload-image`.
-- A read-only **deploy key** for this repository (Flux pulls; it never pushes).
-- Access to the `weldsuite` and `weldsuite-sign-portal` images (ghcr.io
-  today, the EU registry later). Both build from `rust/Dockerfile` at the repo
-  root: `docker build -f rust/Dockerfile .` (the server, with the platform SPA
-  in `/srv/spa`) and `--target sign-portal`.
+- **No GitHub credentials.** The repository is public and the organisation
+  doesn't allow deploy keys, so Flux reads it over anonymous HTTPS (step 6);
+  it never pushes.
+- **A release** to run: `WELDSUITE_VERSION` (step 4), made by the "Rust
+  release" workflow from a develop build the test cluster ran ("Releases"
+  below). Its images (`weldsuite`, `weldsuite-sign-portal`,
+  `weldsuite-collab-rooms`) and chart are public packages on ghcr.io today,
+  the EU registry later. All three images build from `rust/Dockerfile` at
+  the repo root: `docker build -f rust/Dockerfile .` (the server, with the
+  platform SPA in `/srv/spa`), `--target sign-portal` and
+  `--target collab-rooms`.
 
 ## 1. Talos image
 
@@ -126,8 +132,9 @@ a time.
 ## 4. Settings and secrets for Flux
 
 - `rust/deploy/flux/clusters/eu/cluster-settings.yaml`: domain, ACME email,
-  the backup and files endpoints and buckets, the release tag
-  (`WELDSUITE_GIT_TAG`) and image tag. Not secret; commit it.
+  the backup and files endpoints and buckets, and the release
+  (`WELDSUITE_VERSION`, "Releases" below; the drill's settings pin the same
+  one). Not secret; commit it.
 - Secrets: put your age public key in `rust/deploy/flux/.sops.yaml`, then
 
   ```bash
@@ -159,15 +166,16 @@ Media needs no record: LiveKit gives clients the nodes' addresses itself.
 
 ## 6. Flux
 
-Read only: the cluster pulls from the repository, nothing is pushed.
+Read only: the cluster pulls from the repository, nothing is pushed. The
+configuration comes from `main`; the chart and images come from the release
+`WELDSUITE_VERSION` names. The flux CLI must be the version it installs
+(v2.9.6; a newer CLI refuses).
 
 ```bash
 flux install --version=v2.9.6
 kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=eu.agekey
-flux create secret git flux-system \
-  --url=ssh://git@github.com/weldsuite/weldsuite --private-key-file=deploy-key
 flux create source git flux-system \
-  --url=ssh://git@github.com/weldsuite/weldsuite --branch=main --secret-ref=flux-system
+  --url=https://github.com/weldsuite/weldsuite --branch=main
 flux create kustomization flux-system \
   --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/eu --prune=true
 flux get kustomizations --watch
@@ -294,6 +302,50 @@ let Flux retry (`flux reconcile helmrelease weldsuite -n weldsuite`). To run
 it by hand against the live cluster, use a server pod, which has the same
 environment (the image has no shell):
 `kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --dry-run`.
+
+## Releases
+
+Production runs a release, never a develop build. A release is a develop
+build the test cluster ([TEST-CLUSTER.md](TEST-CLUSTER.md)) already ran,
+promoted unchanged: the same image digests under a version tag, and the chart
+of the same commit.
+
+1. **Pick the build.** The test cluster runs the newest develop build; its
+   tag (`sha-<12 characters>`) is in the "Rust images" run's summary, or
+   `kubectl -n weldsuite get deploy weldsuite -o jsonpath='{..image}'` on the
+   test cluster. Try what the customers use there first.
+2. **Release it** with the "Rust release" workflow
+   (`.github/workflows/rust-release.yml`), the build and the next version:
+
+   ```bash
+   gh workflow run rust-release.yml -f build=sha-0123456789ab -f version=0.2.0
+   ```
+
+   It checks that the commit is on `develop`, that its `Rust` check didn't
+   fail, and that the version is newer than the last release; copies the
+   three images to `:0.2.0` (same digests, nothing rebuilt); publishes the
+   chart as `oci://ghcr.io/weldsuite/releases/weldsuite` 0.2.0, whose
+   appVersion names those images; and tags the commit `weldsuite-v0.2.0`,
+   last. A release is never replaced: a fix is the next version. The first
+   release creates the chart package `releases/weldsuite` as private: make
+   it public in its package settings on GitHub, as the test cluster's
+   packages were.
+3. **Deploy it.** Set `WELDSUITE_VERSION: "0.2.0"` in
+   `rust/deploy/flux/clusters/eu/cluster-settings.yaml` and in
+   `clusters/drill/cluster-settings.yaml` (`validate.sh` fails when they
+   differ), in a pull request to `develop`. Production takes it when it
+   reaches `main`, with the next merge of `develop` into `main`, which also
+   deploys Global. Flux runs the release's migration Job first, then rolls
+   the pods (step 8): `flux get helmreleases -A`.
+4. **Roll back** by putting the previous version back the same way. Its
+   migrations stay applied, so the older release runs on the newer schema:
+   check that the release's migrations only add before rolling back.
+
+The rest of the configuration (`apps/eu/values/weldsuite.yaml`, the layers,
+the secrets) comes from `main`, not from the release. The chart ignores
+values it doesn't know, so a value for a newer release can land before it;
+but don't remove or rename a value until production runs a release that no
+longer reads it.
 
 ## Tenant databases
 
