@@ -21,6 +21,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { CycleFormDialog } from '../components/cycle-form-dialog';
 import { cycleState, fill, formatDateRange, todayIso } from '../lib/format';
+import { WELDMERGE_SETTINGS_PATH } from '../lib/settings-path';
 
 /** Cycles per team with progress; members who manage teams create, edit and delete them. */
 export default function WeldMergeCyclesPage() {
@@ -57,7 +58,7 @@ export default function WeldMergeCyclesPage() {
           description={tc.noTeamsDescription}
           action={
             <Button asChild>
-              <Link href="/weldmerge/settings">{tm.issues.openSettings}</Link>
+              <Link href={WELDMERGE_SETTINGS_PATH}>{tm.issues.openSettings}</Link>
             </Button>
           }
         />

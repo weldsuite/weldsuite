@@ -65,9 +65,13 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        // Membership-scoped, not gated on `projects:read`.
-        .route("/summary", get(summary))
-        .route("/projects/{project_id}/summary", get(project_summary))
+        // Membership-scoped, not gated on `projects:read`; the permissions are
+        // still resolved, since the flow `Caller` needs them.
+        .route("/summary", get(summary).route_layer(gate.resolve()))
+        .route(
+            "/projects/{project_id}/summary",
+            get(project_summary).route_layer(gate.resolve()),
+        )
         .route(
             "/reports",
             get(list_reports).route_layer(need("projects:read")),

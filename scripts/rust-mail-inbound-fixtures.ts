@@ -831,6 +831,28 @@ const STORE_STEPS: Array<{ name: string; raw: RawCase; rules?: boolean }> = [
     raw: mailMessage(['From: mallory@else.test', `To: ${ACCOUNT_EMAIL}`, 'Subject: Re: Project kickoff', 'Date: Mon, 26 Oct 2026 12:00:00 +0000', 'Message-ID: <s4@else.test>', '', 'Hi.']),
   },
   {
+    // A stranger's made-up threading headers and a known subject never join
+    // the conversation.
+    name: 'reply-by-subject-stranger-with-headers',
+    raw: mailMessage(['From: mallory@else.test', `To: ${ACCOUNT_EMAIL}`, 'Subject: Re: Project kickoff', 'Date: Mon, 26 Oct 2026 12:15:00 +0000', 'Message-ID: <s6@else.test>', 'In-Reply-To: <made-up@else.test>', '', 'Hi.']),
+  },
+  {
+    // A thread hijack spoofing a participant: it may join the thread, but a
+    // DMARC failure keeps its full spam score (no existing-thread cap).
+    name: 'reply-spoofing-participant',
+    raw: mailMessage([
+      'Authentication-Results: mx.test; spf=softfail smtp.mailfrom=billing@else.test; dkim=none; dmarc=fail header.from=partner.test',
+      'From: Alice <alice@partner.test>',
+      `To: ${ACCOUNT_EMAIL}`,
+      'Subject: Re: Project kickoff',
+      'Date: Mon, 26 Oct 2026 12:30:00 +0000',
+      'Message-ID: <s5@else.test>',
+      'In-Reply-To: <made-up@else.test>',
+      '',
+      'New bank details attached.',
+    ]),
+  },
+  {
     name: 'spam',
     raw: mailMessage([
       'Authentication-Results: mx.test; spf=fail; dkim=fail; dmarc=fail',

@@ -647,6 +647,41 @@ DATABASE_URL_PERSONAL=postgres://… weldsuite migrate --personal
 weldsuite migrate --tenants --only ws_123 --check-journal
 ```
 
+## Staff work
+
+`weldsuite admin` is what the admin console (`apps/web/admin`) does on Global,
+for the Kubernetes editions (ADR SEC-014): the console stays Global's, and on
+EU and self-hosted installs staff run commands in a server pod through the
+cluster's API. The rules and writes are in `crates/staff-domain`, the
+arguments and output in `bins/weldsuite/src/admin.rs`.
+
+- **`staff`**: the install's staff list, master `admin_users`. Every change
+  names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
+  an active row; a `viewer` only reads, and only a `superadmin` changes the
+  list. The first superadmin is added without `--as` while the list is empty.
+- **`access`**: workspaces' access to apps on request only, WeldReach
+  (ADR REACH-003): `list`, `show`, `approve`, `reject`, `suspend`, `unsuspend`,
+  `revoke` and `limits`, with the console's rules (the table is in
+  `crates/staff-domain/src/access.rs`). Approving also installs the app in the
+  workspace's database and emails the requester; rejecting emails the
+  reason (`SMTP_URL`, with `PLATFORM_URL` for the links). What can't be done
+  is printed as a warning.
+- Every change needs `--reason`, runs in one transaction with its row in
+  `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
+  `--dry-run` shows it without writing. `--json` prints JSON.
+
+```bash
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin staff add you@weldsuite.org --role superadmin --reason "first superadmin"
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access list --status requested
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access approve acme --as you@weldsuite.org --reason "B2B, own customer list"
+kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin access limits acme --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
+```
+
+The module's gate caches a workspace's status for 60 seconds per pod, so a
+decision reaches requests within a minute; WeldReach's sending reads the
+master database on every batch. Not there yet (SEC-014's other areas): feature
+flags, the app catalog's flags, workspaces and plans, which are still SQL.
+
 ## Running it
 
 ```bash

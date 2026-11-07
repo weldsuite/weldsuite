@@ -167,7 +167,16 @@ export async function addRepository(
     }
   }
 
-  const sync = await syncRepository(db, repository, ctx);
+  // The repository is tracked now (its webhook and index row are in place): a failed first sync
+  // answers it with nothing synced and leaves it unsynced, so a refresh or the next webhook loads
+  // its pull requests.
+  let sync: SyncSummary;
+  try {
+    sync = await syncRepository(db, repository, ctx);
+  } catch (err) {
+    console.error(`[merge-api] first sync of repository ${repository.id} failed:`, err);
+    return { ok: true, repository, sync: { pullRequestsSynced: 0, linksCreated: 0, events: [] } };
+  }
   repository = await touchSynced(db, repository.id);
   return { ok: true, repository, sync };
 }

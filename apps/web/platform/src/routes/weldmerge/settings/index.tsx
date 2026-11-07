@@ -1,18 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldmerge/settings/page';
-import '@/lib/breadcrumbs/types';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { validateWeldMergeSettingsSearch } from '@/app/weldmerge/lib/settings-path';
 
-/**
- * `?installed=1` is where the GitHub App installation returns to; the page then retries the connection.
- * `?tab=` opens a section (the OAuth callback returns to `providers` or `accounts`).
- * `?error=` is a refused GitHub installation (`state_expired`, `installation_unverified`, …).
- */
+// WeldMerge configuration lives with the other apps on the workspace settings
+// page. This path stays so existing links, and the GitHub install and OAuth
+// round trips merge-api still sends here, keep working.
 export const Route = createFileRoute('/weldmerge/settings/')({
-  staticData: { breadcrumb: { labelKey: 'settings' } },
-  validateSearch: (search: Record<string, unknown>): { installed?: string; tab?: string; error?: string } => ({
-    installed: typeof search.installed === 'string' || typeof search.installed === 'number' ? String(search.installed) : undefined,
-    tab: typeof search.tab === 'string' ? search.tab : undefined,
-    error: typeof search.error === 'string' ? search.error : undefined,
-  }),
-  component: PageComponent,
+  validateSearch: validateWeldMergeSettingsSearch,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/settings/apps/weldmerge', search, replace: true });
+  },
 });

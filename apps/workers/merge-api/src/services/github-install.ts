@@ -7,8 +7,10 @@
  */
 
 import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { MERGE_GITHUB_INSTALL_DEFAULT_RETURN } from '@weldsuite/app-api-client/schemas/weldmerge-sync';
 import { proveGithubInstallationAccess } from '@weldsuite/connect-domain/github/user-installations';
+import { releaseGithubInstallationIndex } from '@weldsuite/merge-domain/installations';
 import type { Env } from '../types';
 import type { Db } from './db';
 import { getMemberToken } from './credentials';
@@ -67,4 +69,18 @@ export function memberCanReachInstallation(
 /** After the App was uninstalled from GitHub: the providers tab, `disconnected=1`. */
 export function setupDisconnectedRedirect(appUrl: string | undefined, clerkOrgId: string | null | undefined): string {
   return workspaceAppUrl(appUrl || DEFAULT_APP_URL, clerkOrgId, '/weldmerge/settings?tab=providers&disconnected=1');
+}
+
+/** integration-webhook-worker's cache of `installation.id → Clerk org id` (24 h). */
+export const githubInstallRouteKey = (installationId: string | number) => `gh-install:${installationId}`;
+
+/**
+ * A member removed the workspace's GitHub connection: the installation leaves the master index
+ * (only when the row names this workspace, so a member never unroutes another workspace's
+ * installation) and the webhook route cache, so another workspace can install it and its events
+ * stop reaching this one.
+ */
+export async function releaseGithubInstallation(env: Env, installationId: string, workspaceId: string): Promise<void> {
+  await releaseGithubInstallationIndex(getMasterDb(env), installationId, workspaceId);
+  await env.WORKSPACE_CACHE?.delete(githubInstallRouteKey(installationId));
 }

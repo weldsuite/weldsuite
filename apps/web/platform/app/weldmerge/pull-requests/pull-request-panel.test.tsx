@@ -287,7 +287,7 @@ describe('WeldMerge pull request panel', () => {
     fireEvent.click(await screen.findByLabelText(new RegExp('^' + tr.review.approve)));
     fireEvent.click(screen.getByRole('button', { name: tr.review.submit }));
     const link = await screen.findByRole('link', { name: tr.errors.linkAccount });
-    expect(link.getAttribute('href')).toBe('/weldmerge/settings?tab=accounts');
+    expect(link.getAttribute('href')).toBe('/settings/apps/weldmerge?tab=accounts');
   });
 
   it('merges after a confirmation, and blocks a draft with a reason', async () => {

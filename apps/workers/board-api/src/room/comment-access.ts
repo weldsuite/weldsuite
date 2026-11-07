@@ -18,6 +18,17 @@
 
 import { unbatch, type Board, type BoardElement, type Op } from '@weldsuite/board-engine';
 
+/**
+ * Whether every vote in `op` is one `userId` may send, editor or commenter: their own, or, in a
+ * batch that starts or ends a round (it sets `voting`, as `startVotingOp` and `clearVotingOp`
+ * do), taking anyone's away. Nobody votes, or takes votes back, in another person's name.
+ */
+export function votesAreSenders(op: Op, userId: string): boolean {
+  const ops = unbatch(op);
+  const changesRound = ops.some((o) => o.type === 'setBoard' && 'voting' in o.patch);
+  return ops.every((o) => o.type !== 'vote' || o.user === userId || (changesRound && o.elements === null));
+}
+
 export function isCommentersOp(op: Op, userId: string, board: Board): boolean {
   const created = new Map<string, BoardElement>();
   const own = (id: string) => {

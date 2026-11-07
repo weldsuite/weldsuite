@@ -30,6 +30,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { ChecksIndicator, ProviderAvatar, PullRequestStateIcon } from '../components/primitives';
 import { fill, relativeTime } from '../lib/format';
+import { WELDMERGE_SETTINGS_PATH } from '../lib/settings-path';
 import { MERGE_PULL_REQUEST_PANEL_TYPE } from './pull-request-panel-type';
 
 /**
@@ -177,7 +178,7 @@ export default function WeldMergePullRequestsPage() {
           description={tm.pullRequests.noRepositoriesDescription}
           action={
             <Button asChild>
-              <Link href="/weldmerge/settings">{tm.pullRequests.openProviders}</Link>
+              <Link href={WELDMERGE_SETTINGS_PATH}>{tm.pullRequests.openProviders}</Link>
             </Button>
           }
         />

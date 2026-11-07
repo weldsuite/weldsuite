@@ -13,9 +13,6 @@ const nextConfig = {
     '@weldsuite/email',
     '@weldsuite/text',
   ],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     remotePatterns: [{ protocol: 'https', hostname: '**' }],
   },

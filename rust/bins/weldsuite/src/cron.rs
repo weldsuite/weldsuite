@@ -236,7 +236,7 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
     let state = weldsuite_merge::MergeState {
         events: infra.events.clone(),
         env: Arc::new(weldsuite_merge::env_from_process()),
-        http: crate::routes::shared_outbound(),
+        http: crate::routes::merge_http(),
         tenants: Some(tenants),
         master: Some(master.clone()),
         cache: infra.cache.clone(),

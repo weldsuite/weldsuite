@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start --port 3001",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.39.3",
@@ -45,6 +47,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@weldsuite/typescript-config": "workspace:*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.12"
   }
 }

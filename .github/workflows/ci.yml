@@ -716,6 +716,9 @@ jobs:
       - uses: ./.github/actions/setup-monorepo
       - name: Build everything except platform
         run: pnpm exec turbo run build --filter=!platform --concurrency=4
+      # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
+      - name: Admin console unit tests
+        run: pnpm --filter admin test
 
   build:
     name: Build

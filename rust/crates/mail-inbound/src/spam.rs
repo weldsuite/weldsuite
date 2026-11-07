@@ -490,7 +490,9 @@ pub fn score_inbound_spam(email: &SpamInput<'_>, options: &SpamOptions) -> SpamS
 
     let mut score: i64 = signals.iter().map(|(points, _)| points).sum();
     let mut reasons: Vec<String> = signals.iter().map(|(_, r)| (*r).to_owned()).collect();
-    if options.is_existing_ham_thread && score >= SPAM_SCORE_THRESHOLD {
+    // The thread cap is for real correspondents: a message that failed
+    // DMARC may be anyone claiming to be them (a thread hijack).
+    if options.is_existing_ham_thread && dmarc != Some("fail") && score >= SPAM_SCORE_THRESHOLD {
         reasons.push("capped_existing_ham_thread".to_owned());
         score = SPAM_SCORE_THRESHOLD - 1;
     }

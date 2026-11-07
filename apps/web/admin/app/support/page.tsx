@@ -1,11 +1,9 @@
-import { listEnterpriseWorkspaces } from '@/lib/support-data';
-import { requireAdmin } from '@/lib/auth';
-import { SupportInbox } from './support-inbox';
+import { loadSupportPage } from './data';
+import { SupportPage } from './view';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SupportPage() {
-  await requireAdmin();
-  const workspaces = await listEnterpriseWorkspaces();
-  return <SupportInbox workspaces={workspaces} />;
+export default async function Page() {
+  const data = await loadSupportPage();
+  return <SupportPage {...data} />;
 }

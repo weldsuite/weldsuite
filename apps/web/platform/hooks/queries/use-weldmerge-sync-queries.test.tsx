@@ -103,9 +103,9 @@ describe('connections and accounts', () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useMergeConnectionAuthorizeUrl(), { wrapper });
     await act(async () => {
-      await result.current.mutateAsync({ provider: 'gitlab', returnTo: '/weldmerge/settings?tab=providers' });
+      await result.current.mutateAsync({ provider: 'gitlab', returnTo: '/settings/apps/weldmerge?tab=providers' });
     });
-    expect(api.weldmerge.connections.authorizeUrl).toHaveBeenCalledWith('gitlab', '/weldmerge/settings?tab=providers');
+    expect(api.weldmerge.connections.authorizeUrl).toHaveBeenCalledWith('gitlab', '/settings/apps/weldmerge?tab=providers');
   });
 
   it('asks for the consent page of a member account link with its return path', async () => {
@@ -113,9 +113,9 @@ describe('connections and accounts', () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useMergeAccountAuthorizeUrl(), { wrapper });
     await act(async () => {
-      await result.current.mutateAsync({ provider: 'github', returnTo: '/weldmerge/settings?tab=accounts' });
+      await result.current.mutateAsync({ provider: 'github', returnTo: '/settings/apps/weldmerge?tab=accounts' });
     });
-    expect(api.weldmerge.accounts.authorizeUrl).toHaveBeenCalledWith('github', { returnTo: '/weldmerge/settings?tab=accounts' });
+    expect(api.weldmerge.accounts.authorizeUrl).toHaveBeenCalledWith('github', { returnTo: '/settings/apps/weldmerge?tab=accounts' });
   });
 
   it('unlinks an account, naming the self-managed host when there is one', async () => {

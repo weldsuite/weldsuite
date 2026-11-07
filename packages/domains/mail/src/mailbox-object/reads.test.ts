@@ -541,16 +541,30 @@ describe('resolveInbound', () => {
     expect(result.threadId).toBe('thread_provider');
   });
 
-  it('falls back to subject matching for a reply whose headers match nothing stored', () => {
+  it('falls back to subject matching for a reply whose headers match nothing stored, when the sender took part', () => {
     const { storage, ref } = makeMailbox();
     ingest(storage, ref, { subject: 'Project status', threadId: 'thread_subject' });
     const result = reads.resolveInbound(storage.sql, {
       rfcMessageId: '<reply@test.dev>',
       inReplyTo: '<never-stored@test.dev>',
       subject: 'Re: Project status',
+      fromEmail: 'alice@example.com',
       isReply: true,
     });
-    expect(result.threadId).toBe('thread_subject');
+    expect(result).toEqual({ duplicate: false, threadId: 'thread_subject', isExistingHamThread: true });
+  });
+
+  it('a stranger with made-up threading headers never joins a thread by subject (thread hijack)', () => {
+    const { storage, ref } = makeMailbox();
+    ingest(storage, ref, { subject: 'Invoice March', threadId: 'thread_invoice', from: { email: 'supplier@partner.test' }, to: [{ email: 'me@test.dev' }] });
+    const result = reads.resolveInbound(storage.sql, {
+      rfcMessageId: '<spoof@evil.test>',
+      inReplyTo: '<made-up@evil.test>',
+      subject: 'Re: Invoice March',
+      fromEmail: 'billing@evil.test',
+      isReply: true,
+    });
+    expect(result).toEqual({ duplicate: false, threadId: '<made-up@evil.test>', isExistingHamThread: false });
   });
 
   it('a reply matching neither ids nor subject starts its own thread via computeThreadId (first reference, else in-reply-to, else its own id)', () => {

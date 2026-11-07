@@ -163,8 +163,13 @@ export class BoardController {
 
   // ---------------------------------------------------------------- applying
 
-  /** Applies an op made here and records it for undo. Returns false when nothing happened. */
-  apply(op: Op, options: { gesture?: string; select?: Iterable<string>; comment?: boolean } = {}): boolean {
+  /**
+   * Applies an op made here and records it for undo. Returns false when nothing happened.
+   * `undoable: false` applies it without an undo step: the steps before it move past it, as past
+   * a collaborator's op, so undo never takes it back (a round change that took other people's
+   * votes away, which the room would not let anyone put back).
+   */
+  apply(op: Op, options: { gesture?: string; select?: Iterable<string>; comment?: boolean; undoable?: boolean } = {}): boolean {
     if (this.readOnly && !(options.comment && this.canComment)) return false;
     const n = normalize(op);
     if (isNoop(n)) return false;
@@ -172,7 +177,8 @@ export class BoardController {
     const inverse = this.run(n);
     if (options.select) this.selection = new Set(options.select);
     this.pruneSelection();
-    this.history.record(n, inverse, { gesture: options.gesture, before, after: [...this.selection] });
+    if (options.undoable === false) this.history.remote(n);
+    else this.history.record(n, inverse, { gesture: options.gesture, before, after: [...this.selection] });
     this.options.onOp?.(n);
     this.changed();
     return true;
