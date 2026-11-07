@@ -8,6 +8,7 @@ import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
 import { Sidebar } from '@/components/Sidebar'
 import { NotFound } from '@/components/NotFound'
+import { AnnouncementBanners } from '@/components/AnnouncementBanners'
 import appCss from '@/styles/tailwind.css?url'
 
 export const Route = createRootRoute({
@@ -86,7 +87,7 @@ function SiteLayout() {
   // renders this component, without loader data.
   if (!site) return <NotFound />
 
-  const { config, folders, portal } = site
+  const { config, folders, portal, announcements } = site
   const accent = accentColor(config.primaryColor)
 
   return (
@@ -95,6 +96,8 @@ function SiteLayout() {
       style={accent ? ({ '--hc-accent': accent } as React.CSSProperties) : undefined}
     >
       <Header config={config} portal={portal} />
+
+      {announcements?.length > 0 && <AnnouncementBanners announcements={announcements} />}
 
       <div className="mx-auto flex w-full max-w-7xl flex-auto px-4 sm:px-6 lg:px-8">
         {folders.length > 0 && (

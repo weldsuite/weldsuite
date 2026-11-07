@@ -499,6 +499,13 @@ export const common = {
     },
     helpcenter: {
       searchPlaceholder: 'Search articles...',
+      selfService: {
+        dismiss: 'Dismiss',
+        otherLanguages: 'Also available in',
+        defaultLanguage: 'Original language',
+        suggestionsTitle: 'These articles might help',
+        suggestionsHint: 'One of these may answer your question right away.',
+      },
       portal: {
         signIn: 'Sign in',
         signOut: 'Sign out',
