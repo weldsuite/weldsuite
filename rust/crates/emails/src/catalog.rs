@@ -62,6 +62,14 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/portal.sign-in.json"),
     ),
     (
+        "reach.access-approved",
+        include_str!("../../../catalogs/emails/templates/reach.access-approved.json"),
+    ),
+    (
+        "reach.access-rejected",
+        include_str!("../../../catalogs/emails/templates/reach.access-rejected.json"),
+    ),
+    (
         "sign.code",
         include_str!("../../../catalogs/emails/templates/sign.code.json"),
     ),

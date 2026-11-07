@@ -414,6 +414,31 @@ describe('WeldFlow project boards', () => {
     expect(Object.values(eves).every((v) => v === null)).toBe(true);
   });
 
+  it('stops paging a project at the 2000-board window', async () => {
+    const base = Date.now() - 3_600_000;
+    await db.insert(projectWhiteboards).values(
+      Array.from({ length: 2005 }, (_, i) => ({
+        id: `pwb_w${String(i).padStart(4, '0')}`,
+        projectId: 'prj_a',
+        name: `Board ${i}`,
+        elements: [],
+        createdAt: new Date(base),
+        updatedAt: new Date(base + i * 1000),
+      })),
+    );
+    type Page = { data: BoardSummary[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } };
+    const page = async (cursor: string) =>
+      (await (await app().request(`/api/boards?projectId=prj_a&limit=10&cursor=${cursor}`)).json()) as Page;
+
+    const last = await page('1995');
+    expect(last.data).toHaveLength(5);
+    expect(last.pagination).toEqual({ totalCount: 2000, hasMore: false, cursor: null });
+    // A cursor past the window: an empty page that says there is no more.
+    const beyond = await page('2000');
+    expect(beyond.data).toEqual([]);
+    expect(beyond.pagination).toEqual({ totalCount: 2000, hasMore: false, cursor: null });
+  });
+
   it('deletes an old whiteboard nobody opened, as WeldFlow did', async () => {
     await db.insert(projectWhiteboards).values({ id: 'pwb_gone', projectId: 'prj_a', name: 'Gone', elements: [], createdAt: new Date(), updatedAt: new Date() });
     expect((await app({ userId: BOB }).request('/api/boards/pwb_gone', { method: 'DELETE' })).status).toBe(403);

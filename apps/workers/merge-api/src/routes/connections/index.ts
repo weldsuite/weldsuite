@@ -30,7 +30,7 @@ import { adapterContextFor } from '../../services/providers/context';
 import { adapterFor } from '../../services/providers/registry';
 import { connectionEventData, repositoryEventData } from '../../services/repositories';
 import { releaseConnectionWebhooks } from '../../services/webhook-registration';
-import { githubInstallPage } from '../../services/github-install';
+import { githubInstallPage, releaseGithubInstallation } from '../../services/github-install';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -53,6 +53,12 @@ app.post('/github', requirePermission('merge_connections:manage'), async (c) => 
 app.delete('/:id', requirePermission('merge_connections:manage'), async (c) => {
   const id = c.req.param('id');
   const db = c.get('tenantDb');
+  const existing = await findConnection(db, id);
+  if (!existing) return error.notFound(c, 'Connection', id);
+  // A GitHub installation leaves the master index (when it names this workspace) and the webhook
+  // route cache, so another workspace can install it and its events stop reaching this one. First,
+  // so a failure leaves the connection in place to retry.
+  if (existing.provider === 'github') await releaseGithubInstallation(c.env, existing.externalAccountId, c.get('workspaceId'));
   const result = await deleteConnection(db, id);
   if (!result) return error.notFound(c, 'Connection', id);
   await releaseConnectionWebhooks(db, c.env, result.connection, result.repositories);

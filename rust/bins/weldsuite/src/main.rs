@@ -1,10 +1,11 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve`, `consume`, `cron <job>` and `migrate` today; the admin commands as
-//! they are ported.
+//! `serve`, `consume`, `cron <job>`, `migrate` and `admin` (staff work, ADR
+//! SEC-014); the other operator commands as they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
 
+mod admin;
 mod collab;
 mod config;
 #[cfg(feature = "conformance")]
@@ -65,7 +66,9 @@ commands:
              moneybird-push, merge-digest-sweep
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
-  version    print the version and exit
+  admin      staff work: access to apps on request only (WeldReach) and the
+             staff list (weldsuite admin --help)
+  version   print the version and exit
   help       print this message and exit";
 
 /// `weldsuite 0.0.0`, with ` (conformance)` on a test build; CI checks
@@ -86,6 +89,7 @@ fn main() -> ExitCode {
         Some("consume") => consume::run(),
         Some("cron") => cron::main(args.get(1).map(String::as_str)),
         Some("migrate") => migrate::run(&args[1..]),
+        Some("admin") => admin::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS

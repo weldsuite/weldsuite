@@ -252,8 +252,21 @@ pub(crate) async fn add(
             }
         }
     }
-    let sync = sync_repository(db, &repository, &ctx).await?;
-    let repository = touch_synced(db, text(&repository, "id")).await?;
+    // The repository is tracked now (its webhook and index row are in place):
+    // a failed first sync answers it with nothing synced and leaves it
+    // unsynced, so a refresh or the next webhook loads its pull requests.
+    let (sync, repository) = match sync_repository(db, &repository, &ctx).await {
+        Ok(sync) => (sync, touch_synced(db, text(&repository, "id")).await?),
+        Err(error) => {
+            tracing::warn!(?error, "merge: the first sync of a new repository failed");
+            let nothing = SyncSummary {
+                pull_requests_synced: 0,
+                links_created: 0,
+                events: Vec::new(),
+            };
+            (nothing, repository)
+        }
+    };
     let mut events = vec![repository_event(&repository, "created")];
     events.extend(sync.events);
     publish(&state, &caller.events, events);

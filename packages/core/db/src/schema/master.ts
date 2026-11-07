@@ -1251,7 +1251,9 @@ export const ADMIN_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'viewer
 // ADMIN AUDIT EVENTS
 // ============================================================================
 
-export type AdminAuditTargetType = 'workspace' | 'plan' | 'partner';
+// `admin_user`: a staff-list change, written by `weldsuite admin staff` on the
+// Kubernetes editions (ADR SEC-014).
+export type AdminAuditTargetType = 'workspace' | 'plan' | 'partner' | 'admin_user';
 export type AdminAuditOutcome = 'success' | 'failure';
 
 // Every change an admin makes from the internal console (plan changes, comps,
