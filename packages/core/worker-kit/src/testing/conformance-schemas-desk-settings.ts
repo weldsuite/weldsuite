@@ -1,6 +1,7 @@
 /** WeldDesk (desk-api) response schemas: helpdesk settings, help center settings, desk widget, desk assignment, helpdesk email, analytics. Spread into ROUTES by conformance-schemas.ts. */
 import { deskIdRefSchema } from '@weldsuite/core-api-client/schemas/desk-common';
 import { deskAssignmentStateSchema } from '@weldsuite/core-api-client/schemas/desk-assignment';
+import { deskPriorityMatrixSchema } from '@weldsuite/core-api-client/schemas/desk-priority-matrix';
 import { deskWidgetIdentitySchema, deskWidgetRefSchema, deskWidgetSettingsSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
 import {
   helpdeskPrimaryWidgetRefSchema,
@@ -41,6 +42,8 @@ export const DESK_SETTINGS_ROUTES: RouteSchema[] = [
   { method: 'PUT', route: '/api/helpdesk-settings/automation', envelope: 'single', data: helpdeskSettingsOkSchema },
   { method: 'PUT', route: '/api/helpdesk-settings/tickets', envelope: 'single', data: helpdeskSettingsOkSchema },
   { method: 'PUT', route: '/api/helpdesk-settings/satisfaction', envelope: 'single', data: helpdeskSettingsOkSchema },
+  { method: 'GET', route: '/api/helpdesk-settings/priority-matrix', envelope: 'single', data: deskPriorityMatrixSchema },
+  { method: 'PUT', route: '/api/helpdesk-settings/priority-matrix', envelope: 'single', data: deskPriorityMatrixSchema },
   { method: 'GET', route: '/api/helpdesk-settings/widget', envelope: 'single', data: helpdeskWidgetSettingsRowSchema },
   { method: 'PUT', route: '/api/helpdesk-settings/widget', envelope: 'single', data: helpdeskPrimaryWidgetRefSchema },
   { method: 'PATCH', route: '/api/helpdesk-settings/widget/enabled', envelope: 'single', data: helpdeskPrimaryWidgetRefSchema },

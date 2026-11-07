@@ -16,6 +16,7 @@ import { Avatar as UiAvatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/c
 import { formatFileSize } from './attachments';
 import { MessageTranslation } from './translation/message-translation';
 import { LinkifiedText } from './linkified-text';
+import { impactUrgencySentences, isLinkEvent, linkEventSentence } from './linked-timeline';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -122,6 +123,9 @@ function changeSentences(change: DeskAttributeChange, fill: Fill, t: ReturnType<
     }
     case 'tags':
       return tagSentences(change, fill, t);
+    case 'impact':
+    case 'urgency':
+      return impactUrgencySentences(change, fill);
     case 'customField': {
       const field = change.label ?? change.key;
       return [cleared ? fill(t.timeline.fieldCleared, undefined, field) : fill(t.timeline.fieldSet, change.to, field)];
@@ -163,6 +167,8 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
     if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
+  const linked = linkEventSentence(message, actor);
+  if (linked) return linked;
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
 }
 
@@ -194,6 +200,15 @@ function EventRow({
           </p>
         ))}
       </div>
+    );
+  }
+  if (isLinkEvent(message)) {
+    // Internal: links, merges and major incidents stay with the team.
+    return (
+      <p className="text-xs text-muted-foreground text-center py-2 px-4 flex items-center justify-center gap-1" data-testid="desk-inbox-link-event">
+        <Lock className="h-3 w-3 flex-shrink-0" />
+        {eventSentence(message, members, visitorLabel)} · {format(new Date(message.createdAt), 'HH:mm')}
+      </p>
     );
   }
   const slaEvent = message.metadata?.eventType;

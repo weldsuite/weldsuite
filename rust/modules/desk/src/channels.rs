@@ -14,6 +14,8 @@ mod helpcenter;
 mod inbox;
 #[path = "channels/integrations.rs"]
 mod integrations;
+#[path = "channels/links.rs"]
+mod links;
 #[path = "channels/oauth.rs"]
 mod oauth;
 #[path = "channels/providers.rs"]
@@ -49,7 +51,9 @@ where
     Router::new()
         .nest(
             "/desk/conversations",
-            inbox::routes(gate).merge(translation::routes(gate)),
+            inbox::routes(gate)
+                .merge(translation::routes(gate))
+                .merge(links::routes(gate)),
         )
         .nest("/helpdesk-integrations", integrations::routes(gate))
 }

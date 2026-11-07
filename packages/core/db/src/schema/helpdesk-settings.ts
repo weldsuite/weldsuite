@@ -4,6 +4,7 @@ import {
   timestamp,
   jsonb,
 } from 'drizzle-orm/pg-core';
+import type { DeskImpact, DeskPriority, DeskUrgency } from './desk-conversations';
 
 // Settings types
 export interface BusinessHours {
@@ -35,6 +36,15 @@ export interface TicketSettings {
   autoCloseAfterDays?: number;
   mergeThreshold?: number;
   assignmentStrategy?: 'round_robin' | 'least_busy' | 'manual';
+  /**
+   * WeldDesk's ITIL priority matrix (impact → urgency → priority). With it
+   * on, a conversation's priority follows its impact and urgency
+   * (lib/desk-priority-matrix). Off, with the default grid, when absent.
+   */
+  priorityMatrix?: {
+    enabled: boolean;
+    matrix: Record<DeskImpact, Record<DeskUrgency, DeskPriority>>;
+  };
 }
 
 export interface NotificationSettings {

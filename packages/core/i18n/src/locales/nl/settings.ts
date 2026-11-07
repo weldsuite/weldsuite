@@ -1553,6 +1553,8 @@ export const settings = {
       assignmentDescription: 'Hoe nieuwe gesprekken naar agents worden gerouteerd.',
       slaPoliciesTitle: 'SLA-beleid',
       slaPoliciesDescription: 'Reactie- en oplosdoelen voor uw gesprekken.',
+      priorityMatrixTitle: 'Prioriteitsmatrix',
+      priorityMatrixDescription: 'Bepaal de prioriteit van een ticket uit de impact en urgentie.',
     },
 
     weldmail: {

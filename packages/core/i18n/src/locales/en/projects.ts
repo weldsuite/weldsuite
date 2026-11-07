@@ -1,6 +1,11 @@
 export const projects = {
     title: 'Projects',
     description: 'Manage projects, tasks, and timelines',
+    // A task created from a WeldDesk ticket links back to it.
+    fromTicket: {
+      label: 'Ticket',
+      value: 'From ticket #{number}',
+    },
 
     dashboard: {
       title: 'Dashboard',

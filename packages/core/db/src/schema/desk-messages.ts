@@ -38,7 +38,17 @@ export type DeskEventType =
   | 'rated'
   | 'attributes_changed'
   | 'sla_warning'
-  | 'sla_breached';
+  | 'sla_breached'
+  // Linked tickets, internal like attributes_changed (lib/desk-links):
+  // metadata.linkedConversationId / linkedConversationNumber name the other
+  // conversation; on linked / unlinked, linkRole is its role ('parent' on the
+  // child, 'child' on the parent).
+  | 'linked'
+  | 'unlinked'
+  | 'merged_into'
+  | 'merged_from'
+  | 'incident_marked'
+  | 'incident_unmarked';
 
 /**
  * One ticket field an `attributes_changed` event changed. `from` / `to` are
@@ -46,7 +56,7 @@ export type DeskEventType =
  * priority, the tag list, or the custom field's value (`label` is its name).
  */
 export interface DeskAttributeChange {
-  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField' | 'impact' | 'urgency';
   /** The custom field's slug. */
   key?: string;
   label?: string;

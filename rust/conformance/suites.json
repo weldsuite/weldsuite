@@ -1247,7 +1247,8 @@
         "src/routes/desk-assignment/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
         "src/routes/helpdesk-analytics/routes.test.ts",
-        "src/routes/helpdesk-analytics/reports.integration.test.ts"
+        "src/routes/helpdesk-analytics/reports.integration.test.ts",
+        "src/routes/helpdesk-settings/priority-matrix.integration.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/helpdesk-settings/",
@@ -1258,6 +1259,7 @@
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
         "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
@@ -1287,6 +1289,8 @@
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/desk-conversations/reply-translation.integration.test.ts",
+        "src/routes/desk-conversations/priority-matrix.integration.test.ts",
+        "src/routes/desk-conversations/links.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts",
@@ -1300,8 +1304,11 @@
         "packages/core/db/src/lib/desk-articles.ts",
         "packages/core/db/src/lib/desk-portal-session.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
+        "packages/core/db/src/lib/desk-links.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
@@ -1333,6 +1340,7 @@
         "apps/workers/desk-api/src/cron/",
         "apps/workers/desk-api/src/lib/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/notifications/src/helpers/helpdesk.ts",
@@ -1355,13 +1363,15 @@
         "src/routes/attachments.integration.test.ts",
         "src/routes/visitor.integration.test.ts",
         "src/routes/conversations-sla.integration.test.ts",
-        "src/routes/knowledge.integration.test.ts"
+        "src/routes/knowledge.integration.test.ts",
+        "src/routes/conversations-merged.integration.test.ts"
       ],
       "paths": [
         "apps/workers/helpdesk-widget-api/src/",
         "packages/core/db/src/lib/desk-articles.ts",
         "packages/core/db/src/lib/desk-portal-session.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
@@ -1534,6 +1544,7 @@
         "src/routes/tasks/integration.test.ts",
         "src/routes/tasks/audit-fixes.integration.test.ts",
         "src/routes/tasks/web-contract.integration.test.ts",
+        "src/routes/tasks/source.integration.test.ts",
         "src/routes/my-tasks/integration.test.ts"
       ],
       "paths": [
@@ -1542,6 +1553,7 @@
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "packages/clients/app-api-client/src/schemas/tasks.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
@@ -2739,6 +2751,7 @@
         "apps/workers/call-api/src/routes/desk-phone/",
         "apps/workers/call-api/src/routes/webhooks-telnyx/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/domains/desk/src/",
         "rust/crates/desk-domain/",
         "apps/workers/call-api/src/lib/",

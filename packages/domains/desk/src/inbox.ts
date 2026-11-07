@@ -41,7 +41,7 @@ import {
   deskAssignmentRouterPicker,
   type FetcherLike,
 } from '@weldsuite/db/lib/desk-assignment';
-import type { DeskPriority } from '@weldsuite/db/schema/desk-conversations';
+import type { DeskImpact, DeskPriority, DeskUrgency } from '@weldsuite/db/schema/desk-conversations';
 import type { DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
@@ -61,6 +61,9 @@ export interface DeskTicketFields {
   departmentId?: string | null;
   /** By slug, against the conversation's type. Only on update, where a refusal writes nothing. */
   customFields?: Record<string, unknown>;
+  /** ITIL impact and urgency; with the priority matrix on they set the priority. */
+  impact?: DeskImpact | null;
+  urgency?: DeskUrgency | null;
 }
 
 function hasTicketFields(fields: DeskTicketFields | undefined): fields is DeskTicketFields {

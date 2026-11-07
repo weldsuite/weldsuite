@@ -1,5 +1,5 @@
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   Dialog,
@@ -38,14 +38,26 @@ import {
   type RepeatUnit,
 } from '@/components/tasks/repeat-config';
 
+import type { Priority as TaskPriority } from '@weldsuite/db/schema/tasks';
+
 type TaskStatus = 'todo' | 'in_progress' | 'done';
-type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+/** The tasks `Priority` values, most pressing first. */
+const TASK_PRIORITIES: TaskPriority[] = ['critical', 'high', 'medium', 'low', 'none'];
+
+/** The record a task is created from; it is stored on the task, which links back to it. */
+export interface CreateTaskSource {
+  type: 'desk_conversation';
+  id: string;
+}
 
 interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTitle?: string;
   defaultDescription?: string;
+  /** Where the task comes from (a WeldDesk ticket), stored as its source. */
+  source?: CreateTaskSource;
   onTaskCreated?: (task: unknown) => void;
 }
 
@@ -54,6 +66,7 @@ export function CreateTaskDialog({
   onOpenChange,
   defaultTitle = '',
   defaultDescription = '',
+  source,
   onTaskCreated,
 }: Readonly<CreateTaskDialogProps>) {
   const t = useTranslations();
@@ -71,9 +84,13 @@ export function CreateTaskDialog({
   const [repeatInterval, setRepeatInterval] = useState<number>(1);
   const [repeatUnit, setRepeatUnit] = useState<RepeatUnit>('days');
 
-  // Reset form when dialog opens with new defaults
-  const handleOpenChange = (newOpen: boolean) => {
-    if (newOpen) {
+  // Reset the form whenever the parent opens the dialog (it is controlled, so
+  // Radix never reports that opening), starting from the current defaults.
+  // Only on the closed → open step: defaults that change while it is open
+  // (a new message on the ticket) must not wipe what the user typed.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
       setTitle(defaultTitle);
       setDescription(defaultDescription);
       setStatus('todo');
@@ -86,6 +103,10 @@ export function CreateTaskDialog({
       setRepeatInterval(1);
       setRepeatUnit('days');
     }
+    wasOpen.current = open;
+  }, [open, defaultTitle, defaultDescription]);
+
+  const handleOpenChange = (newOpen: boolean) => {
     onOpenChange(newOpen);
   };
 
@@ -104,6 +125,7 @@ export function CreateTaskDialog({
         duration: durationMinutes,
         startDate: startDate?.toISOString(),
         repeat: buildRepeatPayload(repeat, repeatInterval, repeatUnit),
+        ...(source ? { sourceType: source.type, sourceId: source.id } : {}),
       });
 
       if (result.success && result.data) {
@@ -177,10 +199,11 @@ export function CreateTaskDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">{t('sweep.shared.taskPriority.low')}</SelectItem>
-                  <SelectItem value="medium">{t('sweep.shared.taskPriority.medium')}</SelectItem>
-                  <SelectItem value="high">{t('sweep.shared.taskPriority.high')}</SelectItem>
-                  <SelectItem value="urgent">{t('sweep.shared.taskPriority.urgent')}</SelectItem>
+                  {TASK_PRIORITIES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {t(`sweep.shared.taskPriority.${value}`)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

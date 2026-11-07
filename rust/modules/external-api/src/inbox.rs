@@ -243,6 +243,7 @@ fn open_fields(
         tags: tags(body),
         department_id: set(department),
         custom_fields: Vec::new(),
+        ..Update::default()
     }
 }
 
@@ -372,6 +373,7 @@ async fn update_conversation(
             tags: tags(body),
             department_id: nullable(body, "departmentId"),
             custom_fields,
+            ..Update::default()
         },
     };
     let master = crate::master_db_of(&state, &caller);

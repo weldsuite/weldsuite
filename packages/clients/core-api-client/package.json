@@ -31,6 +31,8 @@
     "./schemas/desk-common": "./src/schemas/desk-common.ts",
     "./schemas/desk-conversations": "./src/schemas/desk-conversations.ts",
     "./schemas/desk-translation": "./src/schemas/desk-translation.ts",
+    "./schemas/desk-conversation-links": "./src/schemas/desk-conversation-links.ts",
+    "./schemas/desk-priority-matrix": "./src/schemas/desk-priority-matrix.ts",
     "./schemas/desk-widget": "./src/schemas/desk-widget.ts",
     "./schemas/helpdesk-widget": "./src/schemas/helpdesk-widget.ts",
     "./schemas/desk-phone": "./src/schemas/desk-phone.ts",

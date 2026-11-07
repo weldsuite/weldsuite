@@ -8,6 +8,12 @@ import {
   deskUploadedAttachmentSchema,
 } from '@weldsuite/core-api-client/schemas/desk-conversations';
 import {
+  deskConversationLinkChangeSchema,
+  deskConversationLinksSchema,
+  deskConversationMergeSchema,
+  deskIncidentUpdateSchema,
+} from '@weldsuite/core-api-client/schemas/desk-conversation-links';
+import {
   helpdeskChannelIntegrationSchema,
   helpdeskConnectionTestSchema,
   helpdeskDisconnectedSchema,
@@ -45,6 +51,12 @@ export const DESK_CHANNEL_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/desk/conversations/:id/attachments', envelope: 'single', data: deskUploadedAttachmentSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/reply', envelope: 'single', data: deskConversationChangeSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/manage', envelope: 'single', data: deskConversationChangeSchema },
+  // linked tickets, merges and major incidents
+  { method: 'GET', route: '/api/desk/conversations/:id/links', envelope: 'single', data: deskConversationLinksSchema },
+  { method: 'PUT', route: '/api/desk/conversations/:id/parent', envelope: 'single', data: deskConversationLinkChangeSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/merge', envelope: 'single', data: deskConversationMergeSchema },
+  { method: 'PUT', route: '/api/desk/conversations/:id/major-incident', envelope: 'single', data: deskConversationLinkChangeSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/incident-update', envelope: 'single', data: deskIncidentUpdateSchema },
   // Discord / Slack channel integrations (the OAuth callbacks only redirect)
   { method: 'GET', route: HI, envelope: 'single', data: helpdeskIntegrationListSchema },
   { method: 'POST', route: `${HI}/token`, envelope: 'single', data: helpdeskTokenSavedSchema },

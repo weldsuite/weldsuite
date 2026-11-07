@@ -80,6 +80,7 @@ where
             "/widgets/{widget_id}",
             delete(delete_widget).route_layer(need("settings:delete")),
         )
+        .merge(super::priority_matrix::routes(gate))
 }
 
 // ── schemas ─────────────────────────────────────────────────────────────────
