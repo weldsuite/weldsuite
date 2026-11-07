@@ -17,9 +17,13 @@ export const admin = {
   },
 
   signIn: {
-    unavailableTitle: 'Staff sign-in is not set up yet',
-    unavailableBody:
-      'This install of the admin console has no sign-in yet, so it lets nobody in. Staff sign in with Zitadel once it is configured; until then, use the weldsuite admin commands on the server.',
+    title: 'Sign in to WeldSuite Admin',
+    description: "Use your staff account at this install's identity provider. Only people on its staff list get in.",
+    button: 'Sign in',
+    failed: "Signing in didn't work. Try again; if it keeps failing, the console's log says why.",
+    signedOut: 'You are signed out.',
+    notOnRoster:
+      "Your account isn't on this install's staff list. Ask a superadmin to add you with weldsuite admin staff add.",
   },
 
   common: {

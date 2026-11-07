@@ -20,6 +20,9 @@ import { Route as AdminPlanPricingRouteImport } from './routes/_admin/plan-prici
 import { Route as AdminSupportRouteImport } from './routes/_admin/support'
 import { Route as AdminWarmupRouteImport } from './routes/_admin/warmup'
 import { Route as AdminWeldmeetAiPricingRouteImport } from './routes/_admin/weldmeet-ai-pricing'
+import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
+import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
+import { Route as AuthSignOutRouteImport } from './routes/auth/sign-out'
 import { Route as SignInSplatRouteImport } from './routes/sign-in.$'
 import { Route as AdminAccessRequestsIndexRouteImport } from './routes/_admin/access-requests/index'
 import { Route as AdminAccessRequestsIdRouteImport } from './routes/_admin/access-requests/$id'
@@ -93,6 +96,21 @@ const AdminWeldmeetAiPricingRoute = AdminWeldmeetAiPricingRouteImport.update({
   id: '/weldmeet-ai-pricing',
   path: '/weldmeet-ai-pricing',
   getParentRoute: () => AdminRoute,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthSignInRoute = AuthSignInRouteImport.update({
+  id: '/auth/sign-in',
+  path: '/auth/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthSignOutRoute = AuthSignOutRouteImport.update({
+  id: '/auth/sign-out',
+  path: '/auth/sign-out',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SignInSplatRoute = SignInSplatRouteImport.update({
   id: '/sign-in/$',
@@ -203,6 +221,9 @@ export interface FileRoutesByFullPath {
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/sign-in': typeof AuthSignInRoute
+  '/auth/sign-out': typeof AuthSignOutRoute
   '/sign-in/$': typeof SignInSplatRoute
   '/access-requests/$id': typeof AdminAccessRequestsIdRoute
   '/apps/$id': typeof AdminAppsIdRoute
@@ -233,6 +254,9 @@ export interface FileRoutesByTo {
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/sign-in': typeof AuthSignInRoute
+  '/auth/sign-out': typeof AuthSignOutRoute
   '/sign-in/$': typeof SignInSplatRoute
   '/': typeof AdminIndexRoute
   '/access-requests/$id': typeof AdminAccessRequestsIdRoute
@@ -266,6 +290,9 @@ export interface FileRoutesById {
   '/_admin/support': typeof AdminSupportRoute
   '/_admin/warmup': typeof AdminWarmupRoute
   '/_admin/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/sign-in': typeof AuthSignInRoute
+  '/auth/sign-out': typeof AuthSignOutRoute
   '/sign-in/$': typeof SignInSplatRoute
   '/_admin/': typeof AdminIndexRoute
   '/_admin/access-requests/$id': typeof AdminAccessRequestsIdRoute
@@ -300,6 +327,9 @@ export interface FileRouteTypes {
     | '/support'
     | '/warmup'
     | '/weldmeet-ai-pricing'
+    | '/auth/callback'
+    | '/auth/sign-in'
+    | '/auth/sign-out'
     | '/sign-in/$'
     | '/access-requests/$id'
     | '/apps/$id'
@@ -330,6 +360,9 @@ export interface FileRouteTypes {
     | '/support'
     | '/warmup'
     | '/weldmeet-ai-pricing'
+    | '/auth/callback'
+    | '/auth/sign-in'
+    | '/auth/sign-out'
     | '/sign-in/$'
     | '/'
     | '/access-requests/$id'
@@ -362,6 +395,9 @@ export interface FileRouteTypes {
     | '/_admin/support'
     | '/_admin/warmup'
     | '/_admin/weldmeet-ai-pricing'
+    | '/auth/callback'
+    | '/auth/sign-in'
+    | '/auth/sign-out'
     | '/sign-in/$'
     | '/_admin/'
     | '/_admin/access-requests/$id'
@@ -387,6 +423,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   UnauthorizedRoute: typeof UnauthorizedRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
+  AuthSignInRoute: typeof AuthSignInRoute
+  AuthSignOutRoute: typeof AuthSignOutRoute
   SignInSplatRoute: typeof SignInSplatRoute
 }
 
@@ -468,6 +507,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldmeet-ai-pricing'
       preLoaderRoute: typeof AdminWeldmeetAiPricingRouteImport
       parentRoute: typeof AdminRoute
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/sign-in': {
+      id: '/auth/sign-in'
+      path: '/auth/sign-in'
+      fullPath: '/auth/sign-in'
+      preLoaderRoute: typeof AuthSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/sign-out': {
+      id: '/auth/sign-out'
+      path: '/auth/sign-out'
+      fullPath: '/auth/sign-out'
+      preLoaderRoute: typeof AuthSignOutRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/sign-in/$': {
       id: '/sign-in/$'
@@ -670,6 +730,9 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   UnauthorizedRoute: UnauthorizedRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
+  AuthSignInRoute: AuthSignInRoute,
+  AuthSignOutRoute: AuthSignOutRoute,
   SignInSplatRoute: SignInSplatRoute,
 }
 export const routeTree = rootRouteImport

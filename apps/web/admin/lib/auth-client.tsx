@@ -12,6 +12,11 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   return <ClerkProvider>{children}</ClerkProvider>;
 }
 
+/** Where the root route sends someone who isn't signed in: Clerk's sign-in, on this console. */
+export function signInRedirect(returnTo: string): { href: string; reloadDocument?: boolean } {
+  return { href: `/sign-in?redirect_url=${encodeURIComponent(returnTo)}` };
+}
+
 /** The sign-in page's body. Clerk returns to `redirect_url` afterwards. */
 export function SignInScreen() {
   return <SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/" />;

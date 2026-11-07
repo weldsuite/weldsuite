@@ -1,6 +1,7 @@
 import { createMiddleware, createStart } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
 import { authRequestMiddleware } from '@/lib/auth-middleware';
+import { isSameSiteRequest } from '@/lib/same-site';
 
 /**
  * Headers on every response the Worker renders (pages, server functions,
@@ -18,24 +19,6 @@ const securityHeaders = createMiddleware().server(async ({ next }) => {
   if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'private, no-store');
   return result;
 });
-
-/**
- * A browser that marks the request same-origin (`Sec-Fetch-Site`), or whose
- * `Origin` names this host. Requests with neither are refused.
- */
-function isSameSiteRequest(request: Request): boolean {
-  const site = request.headers.get('sec-fetch-site');
-  if (site) return site === 'same-origin';
-
-  const origin = request.headers.get('origin');
-  if (!origin) return false;
-  try {
-    const host = request.headers.get('host') ?? new URL(request.url).host;
-    return new URL(origin).host.toLowerCase() === host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Server functions that change something are POSTs from this console's own

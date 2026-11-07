@@ -3,6 +3,8 @@ import { ShieldAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useSignOut } from '@/lib/auth-client';
+import { GLOBAL } from '@/lib/edition';
+import { adminCopy } from '@/lib/i18n';
 import type { UnauthorizedPageData } from './data';
 
 export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
@@ -19,7 +21,9 @@ export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
             <p className="mt-1 text-sm text-muted-foreground">
               {isAdmin
                 ? 'This area is limited to superadmins. Ask a superadmin if you need access.'
-                : 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'}
+                : GLOBAL
+                  ? 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'
+                  : adminCopy().signIn.notOnRoster}
             </p>
           </div>
           <div className="flex items-center justify-center gap-2 pt-2">

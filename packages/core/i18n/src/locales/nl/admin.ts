@@ -17,9 +17,14 @@ export const admin = {
   },
 
   signIn: {
-    unavailableTitle: 'Inloggen voor medewerkers is nog niet ingesteld',
-    unavailableBody:
-      'Deze installatie van de beheerconsole heeft nog geen inlogmogelijkheid en laat dus niemand binnen. Medewerkers loggen in met Zitadel zodra dat is ingesteld; gebruik tot dan de weldsuite admin-opdrachten op de server.',
+    title: 'Inloggen bij WeldSuite Admin',
+    description:
+      'Gebruik je medewerkersaccount bij de identiteitsprovider van deze installatie. Alleen mensen op de medewerkerslijst komen binnen.',
+    button: 'Inloggen',
+    failed: 'Inloggen is niet gelukt. Probeer het opnieuw; lukt het steeds niet, dan staat in het logboek van de console waarom.',
+    signedOut: 'Je bent uitgelogd.',
+    notOnRoster:
+      'Je account staat niet op de medewerkerslijst van deze installatie. Vraag een superadmin om je toe te voegen met weldsuite admin staff add.',
   },
 
   common: {
