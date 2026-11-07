@@ -20,6 +20,7 @@ import type { FetchLike } from './http';
 import { createEnableBankingProvider, type EnableBankingConfig } from './enable-banking/provider';
 import { createPlaidProvider, type PlaidConfig } from './plaid/provider';
 import { createPontoProvider, type PontoConfig } from './ponto/provider';
+import type { PontoSignatureConfig } from './ponto/signature';
 import { createStripeFcProvider, type StripeFcConfig } from './stripe-fc/provider';
 import type { BankFeedProvider, KeyCache } from './types';
 
@@ -127,6 +128,10 @@ export interface BankFeedEnv {
   STRIPE_FC_API_VERSION?: string;
   PONTO_CLIENT_ID?: string;
   PONTO_CLIENT_SECRET?: string;
+  /** Id of the Ponto application's signature certificate (Isabel's developer portal); a live application signs every request. */
+  PONTO_SIGNATURE_CERT_ID?: string;
+  /** That certificate's private key, unencrypted PEM. Both unset: requests go unsigned (sandbox only). */
+  PONTO_SIGNATURE_KEY?: string;
   ENABLE_BANKING_APP_ID?: string;
   ENABLE_BANKING_PRIVATE_KEY?: string;
   BANK_FEED_PROVIDERS?: string;
@@ -140,6 +145,12 @@ export interface BankFeedConfigOptions {
   keyCache?: KeyCache;
   /** `env.PONTO_CERT.fetch` (Workers mTLS binding). */
   pontoFetch?: FetchLike;
+}
+
+/** Both set signs every Ponto request (a live application); either one missing leaves them unsigned (sandbox). */
+function pontoSignatureFromEnv(env: BankFeedEnv): PontoSignatureConfig | undefined {
+  if (!env.PONTO_SIGNATURE_CERT_ID || !env.PONTO_SIGNATURE_KEY) return undefined;
+  return { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY };
 }
 
 export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions = {}): BankFeedConfig {
@@ -166,6 +177,7 @@ export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigO
       clientId: env.PONTO_CLIENT_ID,
       clientSecret: env.PONTO_CLIENT_SECRET,
       fetch: options.pontoFetch ?? options.fetch,
+      signature: pontoSignatureFromEnv(env),
     };
   }
   if (env.ENABLE_BANKING_APP_ID && env.ENABLE_BANKING_PRIVATE_KEY) {
