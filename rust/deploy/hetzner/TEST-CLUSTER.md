@@ -174,7 +174,8 @@ like any other change.
 
 `flux/apps/marketing`: a HelmRelease of the site's chart in the `marketing`
 namespace, one pod, behind Traefik with a Let's Encrypt certificate for both
-hosts. It shares nothing with the platform.
+hosts. It shares nothing with the platform but the plan prices, which it reads
+from this cluster's master database ("Prices" below).
 
 Its chart and image stay private, like `weldsuite-eu-marketing`. The layer
 reads the chart through its own source (`source.yaml`) and the pods pull the
@@ -191,20 +192,71 @@ MARKETING_GHCR_USER=<account> MARKETING_GHCR_TOKEN=<token> SOPS_AGE_KEY_FILE=~/w
 When the token expires or is revoked, Flux reports a 401 on the chart and
 new pods can't pull the image (running ones keep running): replace it the
 same way, after deleting the old `.dockerconfigjson` in `sops
-secrets/test/secrets.sops.yaml`. Two things work differently from Global:
+secrets/test/secrets.sops.yaml`.
 
-- **Prices** are the site's fallback prices (`lib/pricing.ts` there): the site
-  reads plans over Neon's HTTP driver, which the cluster's Postgres doesn't
-  speak, so it gets no `MASTER_DATABASE_URL`.
-- **The contact and support forms** are not delivered: no `RESEND_API_KEY`.
-  Either goes in a Secret named by `existingSecret` in
-  `flux/apps/marketing/values/marketing.yaml`.
+The contact and support forms are not delivered, unlike on Global: no
+`RESEND_API_KEY`. It would go in `marketing/marketing-env`, the Secret
+`existingSecret` names in `flux/apps/marketing/values/marketing.yaml`.
 
 The site is built with noindex and without analytics. To add it to a cluster
 built before it: the `www.` and `nl.` records (step 6), a first run of the
 "EU test image" workflow in `weldsuite-eu-marketing` (a push to its `main`, or
-Run workflow) and the token above, then this change in `develop`.
+Run workflow), the token above (the same `--update` adds the price login
+below), then this change in `develop`, and the grant below.
 `flux get helmreleases -n marketing` shows the build it runs.
+
+### Prices
+
+The pricing pages show the plan prices in this cluster's own master database,
+not Global's. The site reads `plans` (every five minutes at most) as
+`marketing`, a login CloudNativePG keeps on `master`
+(`infrastructure/configs/base/postgres.yaml`), through the `master-r`
+Service. Its password is in `postgres/master-db-marketing` and, in
+`MASTER_DATABASE_URL`, in `marketing/marketing-env`; `fill-secrets.mjs`
+generates one password for both (`--update` adds them to a cluster that lacks
+them, as above).
+
+The login may read the price columns of `plans` and nothing else.
+CloudNativePG makes the login but grants no tables, so grant them once per
+cluster, after the first migration created `plans`. The grant lives in the
+database, so a restore or a move keeps it:
+
+```bash
+MASTER=$(kubectl -n postgres get pod -l cnpg.io/cluster=master,cnpg.io/instanceRole=primary -o name)
+kubectl -n postgres exec -i "$MASTER" -c postgres -- psql -d weldsuite_master -c \
+  'GRANT SELECT (slug, price_monthly, price_yearly, price_per_user, currency, is_active, deleted_at) ON plans TO marketing'
+```
+
+Without the grant the read fails (the pod logs `[pricing] master DB read
+failed`) and the site shows its fallback prices: Global's, in USD
+(`lib/pricing.ts` there). So it does for a plan `plans` has no row for.
+
+Nothing writes the prices here (there is no Stripe, which keeps Global's in
+step), so set them by hand, one row per plan slug the site shows. Run it the
+same way, with your prices:
+
+```bash
+kubectl -n postgres exec -i "$MASTER" -c postgres -- psql -d weldsuite_master <<'SQL'
+INSERT INTO plans (id, name, slug, price_monthly, price_yearly, currency, sort_order) VALUES
+  ('plan_free',       'Free',       'free',       0,                0,                 'EUR', 0),
+  ('plan_business',   'Business',   'business',   <business/month>, <business/year>,   'EUR', 1),
+  ('plan_scale',      'Scale',      'scale',      <scale/month>,    <scale/year>,      'EUR', 2),
+  ('plan_enterprise', 'Enterprise', 'enterprise', 0,                0,                 'EUR', 3)
+ON CONFLICT (slug) DO UPDATE SET price_monthly = EXCLUDED.price_monthly,
+  price_yearly = EXCLUDED.price_yearly, currency = EXCLUDED.currency, updated_at = now();
+SQL
+```
+
+- `price_monthly` is per user per month on monthly billing; `price_yearly`
+  per user per year, which the site shows divided by twelve as the annual
+  price (0: no annual discount). Enterprise at 0 reads as "talk to sales".
+- The `business` row's `currency` is the site's currency.
+- The platform reads `plans` too: a new workspace starts on `free`, whose
+  `max_users`, `included_users`, `monthly_credits` and `features` set its
+  seat cap, credits and features. Left at their defaults, the `free` row
+  behaves as having no plan does. A `max_users` on it caps every new
+  workspace, and this edition has no way to buy more seats. No workspace is
+  ever put on a paid row here (there is no checkout).
 
 ## Metrics in Lens
 
