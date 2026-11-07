@@ -161,12 +161,6 @@ export const reach = {
   },
 
   shell: {
-    usage: {
-      mailboxes: 'Mailboxen',
-      domains: 'Domeinen',
-      sendsToday: 'Vandaag verstuurd',
-    },
-    usageValue: '{used} van {limit}',
     sendingOff: {
       title: 'Versturen staat tijdelijk uit',
       description:

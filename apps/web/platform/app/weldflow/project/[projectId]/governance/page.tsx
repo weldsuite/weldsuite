@@ -121,7 +121,6 @@ export default function StatusReportsPage() {
       <div className="@container/reports flex flex-1 flex-col">
         <div className="flex flex-1 flex-col @4xl/reports:flex-row">
           <aside className="flex shrink-0 flex-col border-b border-border @4xl/reports:w-[18rem] @4xl/reports:border-r @4xl/reports:border-b-0">
-            <div className="flex h-[35px] items-center border-b border-border/70 px-4 text-xs font-medium text-muted-foreground">{copy.list.title}</div>
             {reports.isLoading ? <p className="px-4 py-3 text-sm text-muted-foreground">…</p> : null}
             {reports.isError ? <p className="px-4 py-3 text-sm text-destructive">{copy.report.failed}</p> : null}
             {rows.map((row) => (
@@ -491,7 +490,6 @@ type AreasPatch = { overall?: RagColour; areas?: Array<{ key: StatusReportArea['
 
 function OverallAndAreas({ report, editable, onPatch }: Readonly<{ report: StatusReport; editable: boolean; onPatch: (input: AreasPatch) => void }>) {
   const copy = useCopy();
-  const suggested = report.snapshot?.computed.overall ?? 'grey';
   return (
     <>
       <section className={cn(SECTION, 'flex flex-wrap items-center gap-3')}>
@@ -522,7 +520,6 @@ function OverallAndAreas({ report, editable, onPatch }: Readonly<{ report: Statu
         ) : (
           <Rag colour={report.overall ?? 'grey'} label={copy.colours[report.overall ?? 'grey']} />
         )}
-        {editable ? <span className="text-xs text-muted-foreground">{fill(copy.report.overallHint, { colour: copy.colours[suggested] })}</span> : null}
       </section>
       {/* The five areas as one ruled row of cells, wrapping on a narrow page. */}
       <div className={cn(GRID_LINES, '[grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]')}>

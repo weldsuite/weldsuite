@@ -2,7 +2,8 @@
 # etcd traffic, an EU DNS resolver, and the directory OpenEBS LocalPV
 # provisions volumes under (local NVMe, no Cloud Volumes). The LiveKit
 # workers also get node.weldsuite.org/livekit, which LiveKit's pods select
-# (rust/deploy/flux/infrastructure/video).
+# (rust/deploy/flux/infrastructure/video), and the mail nodes
+# weldsuite.org/mail-pool, which the MTA's DaemonSets select (mail.tf).
 #
 # Talos 1.14 keeps these settings in their own documents (HostnameConfig,
 # ResolverConfig, TimeSyncConfig, KubeNodeConfig, KubeNetworkConfig), which the
@@ -41,6 +42,9 @@ labels:
   node.weldsuite.org/pool: ${pool}
 %{ if livekit ~}
   node.weldsuite.org/livekit: "true"
+%{ endif ~}
+%{ if mail_pool != "" ~}
+  weldsuite.org/mail-pool: ${mail_pool}
 %{ endif ~}
 ---
 # The kubelet asks the cluster CA for its serving certificate instead of

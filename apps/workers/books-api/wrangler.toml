@@ -19,6 +19,9 @@
 #   STRIPE_FC_SECRET_KEY                           Stripe Financial Connections (secret key of
 #                                                  the account FC is registered on)
 #   PONTO_CLIENT_ID, PONTO_CLIENT_SECRET           Isabel Ponto Connect (needs PONTO_CERT below)
+#   PONTO_SIGNATURE_CERT_ID, PONTO_SIGNATURE_KEY   a live Ponto application's signature certificate
+#                                                  (its id, and its unencrypted PEM key); every Ponto
+#                                                  request is signed with it. Unset in the sandbox.
 #   ENABLE_BANKING_APP_ID, ENABLE_BANKING_PRIVATE_KEY   Enable Banking (PKCS#8 PEM)
 # Vars: BANK_FEED_PROVIDERS routes providers per country ("US:plaid,stripe_fc;NL:ponto;*:enable_banking",
 # unset = every configured provider where its regions allow), BANK_FEED_WEBHOOK_URL is the base of

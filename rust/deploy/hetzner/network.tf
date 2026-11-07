@@ -6,7 +6,10 @@ locals {
 
   # Every location the cluster uses: one spread placement group each, so no
   # two nodes of a location share a physical host (or, mostly, a rack).
-  locations = distinct(concat(var.control_plane_locations, var.worker_locations, var.postgres_locations))
+  locations = distinct(concat(
+    var.control_plane_locations, var.worker_locations, var.postgres_locations,
+    flatten([for pool in values(var.mail_pools) : pool.locations]),
+  ))
 }
 
 resource "hcloud_network" "cluster" {

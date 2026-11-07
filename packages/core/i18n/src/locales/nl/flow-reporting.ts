@@ -30,7 +30,7 @@ export const flowReporting = {
     unknown: 'Berekend uit de projectgegevens.',
   },
   status: { draft: 'Concept', published: 'Gepubliceerd' },
-  list: { title: 'Rapporten', new: 'Nieuw', empty: 'Nog geen rapporten. Maak het eerste aan.', superseded: 'Vervangen', corrects: 'Corrigeert een eerder rapport' },
+  list: { new: 'Nieuw', empty: 'Nog geen rapporten. Maak het eerste aan.', superseded: 'Vervangen', corrects: 'Corrigeert een eerder rapport' },
   report: {
     asOf: 'Gegevens van {date}',
     refresh: 'Gegevens verversen',
@@ -40,7 +40,6 @@ export const flowReporting = {
     publishTo: 'Publiceren naar {count} ontvanger(s)',
     discard: 'Concept verwijderen',
     overall: 'Totaalstatus',
-    overallHint: 'Voorgesteld: {colour}, uit de vijf onderdelen. U kunt dit aanpassen.',
     filledIn: 'Ingevuld',
     written: 'Geschreven',
     override: 'Aanpassen',

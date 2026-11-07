@@ -20,6 +20,8 @@
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
+//! | `NATS_MAIL_SENDING_EVENTS_STREAM`, `NATS_MAIL_SENDING_EVENTS_SUBJECT`, `NATS_MAIL_SENDING_EVENTS_DLQ_STREAM` | the delivery events the MTA publishes (default `MAIL_SENDING_EVENTS` on `mail.sending-events`) and their dead letters (`MAIL_SENDING_EVENTS_DLQ`, `mail-sending-events-dlq`); the `mail-sending-events` subscriber runs by default when WeldMail is served by Rust (MAIL-011) |
+//! | `VALKEY_LEDGER_PREFIX` | with `VALKEY_URL`: the outbound ledgers' keys (default `weldsuite:outbound:`, as for `serve`), where delivery events count bounces and complaints; without Valkey they only reach the tenant databases |
 //! | `REACH_SEND_QUEUE` | `nats`: the WeldReach send sweep publishes to NATS, and the `reach-send` subscriber runs by default (stream `REACH_SEND` on `reach.send`) |
 //! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
@@ -45,6 +47,10 @@ pub(crate) const PORTED: [&str; 5] = [
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
 pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
+
+/// The delivery events subscriber (MAIL-011): not on the hub but on the
+/// `MAIL_SENDING_EVENTS` stream, which the MTA publishes to.
+pub(crate) const MAIL_SENDING_EVENTS: &str = "mail-sending-events";
 
 /// The WeldReach send queue's subscriber: not on the hub but on the
 /// `REACH_SEND` stream, which `weldsuite cron reach-send-sweep` publishes to.
@@ -117,6 +123,36 @@ impl MailInboundConfig {
     }
 }
 
+/// Where the `mail-sending-events` subscriber reads (the stream is created
+/// by `consume`, so the MTA's publishes find it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MailSendingEventsConfig {
+    pub(crate) stream: String,
+    pub(crate) subject: String,
+    pub(crate) dead_letter_stream: String,
+}
+
+impl MailSendingEventsConfig {
+    fn from_lookup(lookup: &impl Fn(&str) -> Option<String>) -> Self {
+        Self {
+            stream: lookup("NATS_MAIL_SENDING_EVENTS_STREAM")
+                .unwrap_or_else(|| "MAIL_SENDING_EVENTS".to_owned()),
+            subject: lookup("NATS_MAIL_SENDING_EVENTS_SUBJECT")
+                .unwrap_or_else(|| "mail.sending-events".to_owned()),
+            dead_letter_stream: lookup("NATS_MAIL_SENDING_EVENTS_DLQ_STREAM")
+                .unwrap_or_else(|| "MAIL_SENDING_EVENTS_DLQ".to_owned()),
+        }
+    }
+}
+
+/// Whether the Rust backend serves WeldMail (`api-modules.json`), so its
+/// queue consumers run here.
+fn mail_served() -> bool {
+    weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "mail" && m.rust)
+}
+
 #[derive(Clone)]
 pub(crate) struct EmbeddingsConfig {
     pub(crate) url: String,
@@ -148,6 +184,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) subscribers: Vec<String>,
     pub(crate) valkey_url: Option<String>,
     pub(crate) valkey_realtime_prefix: String,
+    /// `VALKEY_LEDGER_PREFIX`: the outbound ledgers `serve` keeps.
+    pub(crate) valkey_ledger_prefix: String,
     pub(crate) embeddings: Option<EmbeddingsConfig>,
     pub(crate) webhook_allow_private: bool,
     pub(crate) webhook_retry_sweep: bool,
@@ -156,6 +194,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) drain: Duration,
     /// The `mail-inbound` subscriber's settings (`S3_BUCKET_MAIL` set).
     pub(crate) mail_inbound: Option<MailInboundConfig>,
+    /// The `mail-sending-events` subscriber's stream.
+    pub(crate) mail_sending_events: MailSendingEventsConfig,
     /// `FEATURE_FLAGS=master-db`: flags from the master database, refreshed
     /// this often; `None` keeps every flag at its default.
     pub(crate) master_db_flags: Option<Duration>,
@@ -315,6 +355,7 @@ impl ConsumeConfig {
                 .iter()
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
+                .chain(mail_served().then_some(MAIL_SENDING_EVENTS))
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
@@ -335,7 +376,11 @@ impl ConsumeConfig {
                 }
                 continue;
             }
-            if id == REACH_SEND || id == REACH_WARMUP_SEND || id == REACH_WARMUP_ENGAGE {
+            if id == MAIL_SENDING_EVENTS
+                || id == REACH_SEND
+                || id == REACH_WARMUP_SEND
+                || id == REACH_WARMUP_ENGAGE
+            {
                 continue;
             }
             if !PORTED.contains(&id.as_str()) {
@@ -416,12 +461,15 @@ impl ConsumeConfig {
             valkey_url: lookup("VALKEY_URL"),
             valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
                 .unwrap_or_else(|| "realtime:".to_owned()),
+            valkey_ledger_prefix: lookup("VALKEY_LEDGER_PREFIX")
+                .unwrap_or_else(|| "weldsuite:outbound:".to_owned()),
             embeddings,
             webhook_allow_private,
             webhook_retry_sweep,
             restate_ingress_url: lookup("RESTATE_INGRESS_URL").filter(|url| !url.is_empty()),
             drain: Duration::from_secs(drain),
             mail_inbound,
+            mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
         })
     }
@@ -507,7 +555,11 @@ mod tests {
             ("NATS_URL", "nats://nats:4222"),
         ])
         .expect("valid");
-        assert_eq!(config.subscribers, PORTED);
+        let mut expected: Vec<&str> = PORTED.to_vec();
+        if mail_served() {
+            expected.push(MAIL_SENDING_EVENTS);
+        }
+        assert_eq!(config.subscribers, expected);
         assert_eq!(config.stream, "ENTITY_EVENTS");
         assert_eq!(config.subject_prefix, "entity-events");
         assert_eq!(config.dead_letter_stream, "ENTITY_EVENTS_DLQ");
@@ -560,6 +612,37 @@ mod tests {
         })
         .expect_err("no mail bucket");
         assert_eq!(error.0.len(), 1, "{error}");
+    }
+
+    #[test]
+    fn delivery_events_have_their_own_stream() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let defaults = config(&base).expect("valid");
+        assert_eq!(
+            defaults.mail_sending_events,
+            MailSendingEventsConfig {
+                stream: "MAIL_SENDING_EVENTS".to_owned(),
+                subject: "mail.sending-events".to_owned(),
+                dead_letter_stream: "MAIL_SENDING_EVENTS_DLQ".to_owned(),
+            }
+        );
+        assert_eq!(defaults.valkey_ledger_prefix, "weldsuite:outbound:");
+        let listed = config(&[
+            base[0],
+            base[1],
+            ("CONSUME_SUBSCRIBERS", "audit,mail-sending-events"),
+            ("NATS_MAIL_SENDING_EVENTS_STREAM", "MTA_EVENTS"),
+            ("VALKEY_LEDGER_PREFIX", "eu:outbound:"),
+        ])
+        .expect("valid");
+        assert_eq!(listed.subscribers, ["audit", MAIL_SENDING_EVENTS]);
+        assert_eq!(listed.mail_sending_events.stream, "MTA_EVENTS");
+        assert_eq!(listed.valkey_ledger_prefix, "eu:outbound:");
+        let without = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "audit")]).expect("valid");
+        assert!(!without.subscribers.iter().any(|s| s == MAIL_SENDING_EVENTS));
     }
 
     #[test]

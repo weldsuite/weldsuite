@@ -23,8 +23,9 @@ them. Groups outside `/api` (`/internal/*`) have their own router.
 | `/api/mail-scheduled` | | not started (needs the SendScheduledEmail job) |
 | `/api/mail-subscriptions` | | not started |
 | `/api/mailboxes` | | not started (cross-workspace, org-less) |
-| `/api/mail-domains`, `/api/mail-weldmail`, `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (MAIL-010, the AI port, the object store) |
-| `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | handlers ported |
+| `/api/mail-domains`, `/api/mail-weldmail`, `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (MAIL-010, the AI port, the object store). `MailState::domains` holds the `MailDomains` adapter the domain routes would use (`RelayDomains` over the MTA's API with `MTA_API_URL`, else `ManualDomains`) |
+| `mail-sending-events` consumer | `consumers::SendingEventsSubscriber` | ported: the `mail-sending-events` subscriber of `consume`, on `MAIL_SENDING_EVENTS` (MAIL-011) |
+| `mail-outbound-review` consumer | `consumers` | handler ported |
 | inbound (mail-inbound-worker) | `crates/mail-inbound` (the `RCPT TO` check in `serve`, the `mail.inbound` subscriber in `consume`, Haraka in `deploy/haraka`) | ported (MAIL-010) |
 
 The routes run the `postgres` mailbox store only (MAIL-010); the shared

@@ -44,3 +44,4 @@ import './order';
 import './supplier';
 import './warehouse';
 import './pick-list';
+import './merge-pull-request';

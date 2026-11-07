@@ -7,7 +7,8 @@ data "hcloud_image" "talos" {
 }
 
 locals {
-  # Fixed private addresses: 10-19 control plane, 20-39 workers, 40-59 Postgres.
+  # Fixed private addresses: 10-19 control plane, 20-39 workers, 40-59 Postgres,
+  # 60-99 mail (mail.tf).
   control_planes = {
     for i, location in var.control_plane_locations : "cp-${i + 1}" => {
       location = location
@@ -16,6 +17,7 @@ locals {
       role     = "controlplane"
       pool     = "control-plane"
       livekit  = false
+      mail     = ""
     }
   }
   # The first livekit_worker_count workers also run LiveKit (round robin over
@@ -28,6 +30,7 @@ locals {
       role     = "worker"
       pool     = "general"
       livekit  = i < var.livekit_worker_count
+      mail     = ""
     }
   }
   postgres = {
@@ -38,9 +41,13 @@ locals {
       role     = "worker"
       pool     = "postgres"
       livekit  = false
+      mail     = ""
     }
   }
   nodes = merge(local.control_planes, local.workers, local.postgres)
+  # Every node with a machine config: these and the mail nodes (mail.tf),
+  # which are servers of their own.
+  all_nodes = merge(local.nodes, local.mail_nodes)
 }
 
 resource "hcloud_server" "node" {

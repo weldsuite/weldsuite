@@ -10,6 +10,7 @@ pub(crate) mod books;
 mod feature_flags;
 mod host;
 pub(crate) mod integrations;
+mod mail_domains;
 mod me;
 pub(crate) mod personal;
 
@@ -1160,6 +1161,7 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         doh: Some(weldsuite_mail::send::reqwest_doh()),
+        domains: mail_domains::mail_domains(),
         workspace_tenants: Some(mail_workspace_tenants(state)),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }

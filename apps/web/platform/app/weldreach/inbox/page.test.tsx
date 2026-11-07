@@ -24,7 +24,12 @@ const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), search: '' }
 vi.mock('@/lib/router', () => ({
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(router.search),
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  // The conversation rows pass their click handler and selection state through.
+  Link: ({ href, children, scroll: _scroll, ...rest }: { href: string; children: React.ReactNode; scroll?: boolean }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: () => true }),
@@ -83,16 +88,24 @@ beforeEach(() => {
   reach.updateMessage.mockResolvedValue({ data: messageFixture('msg_x') });
 });
 
+/** Opens the Filter panel, sets one of its selects and applies. */
+async function applyFilter(user: ReturnType<typeof userEvent.setup>, field: string, option: string) {
+  await user.click(screen.getByRole('button', { name: /^Filter/ }));
+  await user.click(await screen.findByRole('combobox', { name: field }));
+  await user.click(await screen.findByRole('option', { name: option }));
+  await user.click(screen.getByRole('button', { name: 'Apply' }));
+}
+
 describe('Reply inbox', () => {
-  it('lists conversations with who wrote, the label and the unread count', async () => {
+  it('lists conversations in the WeldMail list with who wrote, the label and the unread count', async () => {
     renderWithApp(<ReachInboxPage />);
 
     expect(await screen.findByText('Ana Jansen')).toBeInTheDocument();
     expect(screen.getByText('Bo Smit')).toBeInTheDocument();
     expect(screen.getByText('Can you send the price list?')).toBeInTheDocument();
     expect(screen.getByText('Meeting request')).toBeInTheDocument();
-    expect(screen.getByLabelText('Unread')).toBeInTheDocument();
-    expect(await screen.findByRole('tab', { name: /Unread\s*3/ })).toBeInTheDocument();
+    expect(await screen.findByText('3 unread replies')).toBeInTheDocument();
+    expect(screen.getByText('Select a conversation')).toBeInTheDocument();
   });
 
   it('starts on the open conversations and filters by state on the server', async () => {
@@ -101,9 +114,10 @@ describe('Reply inbox', () => {
     await screen.findByText('Ana Jansen');
 
     expect(lastThreadFilters()).toMatchObject({ state: 'open' });
-    await user.click(screen.getByRole('tab', { name: /Handled/ }));
+    await applyFilter(user, 'State', 'Handled');
 
     await waitFor(() => expect(lastThreadFilters()).toMatchObject({ state: 'handled' }));
+    expect(screen.getByRole('button', { name: /^Filter/ })).toHaveTextContent('1');
   });
 
   it('filters by label, campaign and mailbox on the server', async () => {
@@ -111,26 +125,38 @@ describe('Reply inbox', () => {
     renderWithApp(<ReachInboxPage />);
     await screen.findByText('Ana Jansen');
 
-    await user.click(screen.getByRole('combobox', { name: 'Filter by label' }));
-    await user.click(await screen.findByRole('option', { name: 'Interested' }));
+    await applyFilter(user, 'Filter by label', 'Interested');
     await waitFor(() => expect(lastThreadFilters()).toMatchObject({ label: 'interested' }));
 
-    await user.click(screen.getByRole('combobox', { name: 'Filter by campaign' }));
-    await user.click(await screen.findByRole('option', { name: 'Events' }));
+    await applyFilter(user, 'Filter by campaign', 'Events');
     await waitFor(() => expect(lastThreadFilters()).toMatchObject({ label: 'interested', campaignId: 'cmp_2' }));
 
-    await user.click(screen.getByRole('combobox', { name: 'Filter by mailbox' }));
-    await user.click(await screen.findByRole('option', { name: 'kim@outreach.example' }));
+    await applyFilter(user, 'Filter by mailbox', 'kim@outreach.example');
     await waitFor(() =>
       expect(lastThreadFilters()).toMatchObject({ label: 'interested', campaignId: 'cmp_2', mailboxId: 'mbx_2' }),
     );
+  });
+
+  it('clears every filter back to the open conversations', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ReachInboxPage />);
+    await screen.findByText('Ana Jansen');
+    await applyFilter(user, 'Filter by label', 'Interested');
+    await waitFor(() => expect(lastThreadFilters()).toMatchObject({ label: 'interested' }));
+
+    await user.click(screen.getByRole('button', { name: /^Filter/ }));
+    await user.click(await screen.findByRole('button', { name: 'Clear all filters' }));
+
+    await waitFor(() => expect(lastThreadFilters().label).toBeUndefined());
+    expect(lastThreadFilters()).toMatchObject({ state: 'open' });
+    expect(screen.getByRole('button', { name: /^Filter/ })).not.toHaveTextContent('1');
   });
 
   it('opens a conversation by putting its key in the address', async () => {
     const user = userEvent.setup();
     renderWithApp(<ReachInboxPage />);
 
-    await user.click(await screen.findByRole('button', { name: /Bo Smit/ }));
+    await user.click(await screen.findByRole('link', { name: /Bo Smit/ }));
 
     expect(router.replace).toHaveBeenCalledWith('/weldreach/inbox?thread=thr_read');
   });
@@ -146,7 +172,7 @@ describe('Reply inbox', () => {
     expect(within(article).getByText('Sounds interesting, tell me more.')).toBeInTheDocument();
     expect(reach.getThread).toHaveBeenCalledWith('thr_unread');
     // The opened thread is marked in the list.
-    expect(screen.getAllByRole('button', { name: /Ana Jansen/ })[0]).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('link', { name: /Ana Jansen/ })).toHaveAttribute('aria-current', 'true');
   });
 
   it('says so when there is nothing to handle', async () => {

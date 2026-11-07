@@ -59,6 +59,7 @@ spec:
               protocol: TCP
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- with include "weldsuite.mta.clientEnv" . }}{{ . | nindent 12 }}{{- end }}
             {{- with .Values.consume }}
             - name: NATS_STREAM_REPLICAS
               value: {{ .streamReplicas | quote }}
