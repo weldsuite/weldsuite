@@ -29,6 +29,10 @@ export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
 /**
  * sla_warning / sla_breached: an SLA clock came close to or passed its due
  * time (metadata.metric, metadata.dueAt). Internal, like attributes_changed.
+ *
+ * escalated: one of the team's escalation rules fired (metadata.teamId,
+ * metadata.ruleIndex, metadata.condition, metadata.escalateTo). Internal; the
+ * timeline is what tells the sweep a rule already fired in this episode.
  */
 export type DeskEventType =
   | 'closed'
@@ -38,7 +42,8 @@ export type DeskEventType =
   | 'rated'
   | 'attributes_changed'
   | 'sla_warning'
-  | 'sla_breached';
+  | 'sla_breached'
+  | 'escalated';
 
 /**
  * One ticket field an `attributes_changed` event changed. `from` / `to` are

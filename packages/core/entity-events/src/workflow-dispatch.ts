@@ -133,8 +133,9 @@ export function workflowInstanceIdForEvent(eventId: string, workflowId: string):
 
 /**
  * Derive the fine-grained event types an action produces. `updated` events fan
- * out into status_changed / assigned / tagged / priority_changed based on which
- * fields changed. Pure — exported for testing.
+ * out into status_changed / state_changed / assigned / tagged / priority_changed
+ * based on which fields changed (`state` is the WeldDesk inbox's open/closed,
+ * whose own action is `state_changed`). Pure — exported for testing.
  */
 export function deriveEventTypes(
   action: string,
@@ -143,6 +144,7 @@ export function deriveEventTypes(
   const eventTypes: string[] = [action];
   if (action === 'updated' && changes) {
     if ('status' in changes) eventTypes.push('status_changed');
+    if ('state' in changes) eventTypes.push('state_changed');
     if ('assigneeId' in changes || 'assigneeName' in changes) eventTypes.push('assigned');
     if ('tags' in changes) eventTypes.push('tagged');
     if ('priority' in changes) eventTypes.push('priority_changed');

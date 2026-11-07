@@ -41,8 +41,9 @@ import {
   deskAssignmentRouterPicker,
   type FetcherLike,
 } from '@weldsuite/db/lib/desk-assignment';
+import { deskChangeReroutes, routeDeskConversation } from '@weldsuite/db/lib/desk-routing';
 import type { DeskPriority } from '@weldsuite/db/schema/desk-conversations';
-import type { DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
+import type { DeskAttributeChange, DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { nextDeskSlaCheckAt } from '@weldsuite/db/lib/desk-sla';
@@ -355,7 +356,7 @@ function openedAction(result: IngestDeskApiResult, conversation: DeskConversatio
 async function autoAssignOpened(
   deps: DeskInboxDeps,
   conversation: DeskConversation,
-): Promise<{ conversation: DeskConversation; events: DeskInboxEvent[] }> {
+): Promise<{ conversation: DeskConversation; events: DeskInboxEvent[]; message?: DeskMessage }> {
   if (conversation.assigneeId || conversation.state !== 'open') return { conversation, events: [] };
   try {
     const assigned = await autoAssignDeskConversation(deps.db, {
@@ -367,6 +368,7 @@ async function autoAssignOpened(
     return {
       conversation: assigned.conversation,
       events: [conversationEvent('assigned', assigned.conversation), messageEvent(assigned.message)],
+      message: assigned.message,
     };
   } catch (err) {
     console.error(`[desk-inbox] auto-assignment failed for ${conversation.id}:`, err);
@@ -393,6 +395,35 @@ export async function autoAssignDeskConversationFromApi(
   await markDeskSlaDue(deps);
   await emitAll(deps, [conversationEvent('assigned', assigned.conversation), messageEvent(assigned.message)]);
   return assigned.conversation;
+}
+
+/**
+ * The workspace's routing rules (`@weldsuite/db/lib/desk-routing`): team,
+ * priority, tags and a named owner from the first rule that matches. A team
+ * or an owner the writer set itself stays.
+ */
+async function routeConversation(
+  deps: DeskInboxDeps,
+  conversation: DeskConversation,
+  keep: { team: boolean; assignee: boolean },
+): Promise<Applied & { routed: boolean }> {
+  const routed = await routeDeskConversation(deps.db, {
+    generateId: deps.generateId,
+    conversationId: conversation.id,
+    keepTeam: keep.team,
+    keepAssignee: keep.assignee,
+  });
+  return {
+    conversation: routed.conversation,
+    messages: routed.steps.map((step) => step.message),
+    events: routed.steps.flatMap((step) => [conversationEvent(step.action, step.conversation), messageEvent(step.message)]),
+    routed: routed.steps.length > 0,
+  };
+}
+
+/** Does this `attributes_changed` event re-route the conversation (a new type or tags)? */
+function reroutes(message: DeskMessage | null | undefined): boolean {
+  return deskChangeReroutes(message?.metadata?.changes as DeskAttributeChange[] | undefined).reroute;
 }
 
 /** The member the caller named, or else the workspace's assignment rules. */
@@ -447,11 +478,17 @@ export async function openDeskApiConversation(
   const opened = set?.conversation ?? result.conversation;
   const messages = set?.message ? [result.message, set.message] : [result.message];
 
-  const { conversation, events: assignEvents } = await assignOpened(deps, opened, assigneeId, actor);
+  // A new conversation is routed; a repeat whose type or tags changed is routed again.
+  const routing =
+    result.created || reroutes(set?.message)
+      ? await routeConversation(deps, opened, { team: fields?.departmentId !== undefined, assignee: Boolean(assigneeId) })
+      : { conversation: opened, events: [] };
+  const { conversation, events: assignEvents } = await assignOpened(deps, routing.conversation, assigneeId, actor);
   await markDeskSlaDue(deps);
   await emitAll(deps, [
     conversationEvent(openedAction(result, opened), opened),
     ...messages.map(messageEvent),
+    ...routing.events,
     ...assignEvents,
   ]);
 
@@ -524,6 +561,27 @@ async function applyTicketFields(
   };
 }
 
+/**
+ * After the API changed the type or tags: the routing rules (a team the call
+ * set stays), then auto-assignment when a rule applied and the call named no
+ * owner.
+ */
+async function rerouteUpdated(deps: DeskInboxDeps, fields: Applied, input: UpdateDeskConversationInput): Promise<Applied> {
+  const [change] = fields.messages;
+  if (!reroutes(change)) return { conversation: fields.conversation, messages: [], events: [] };
+  const routed = await routeConversation(deps, fields.conversation, {
+    team: input.fields?.departmentId !== undefined,
+    assignee: input.assigneeId !== undefined,
+  });
+  if (!routed.routed || input.assigneeId !== undefined) return routed;
+  const assigned = await autoAssignOpened(deps, routed.conversation);
+  return {
+    conversation: assigned.conversation,
+    messages: [...routed.messages, ...(assigned.message ? [assigned.message] : [])],
+    events: [...routed.events, ...assigned.events],
+  };
+}
+
 /** Assign or unassign, then close or reopen, each as the timeline event the inbox itself writes. */
 async function applyTransitions(
   deps: DeskInboxDeps,
@@ -570,13 +628,15 @@ export async function updateDeskConversationFromApi(
   }
   const fields = await applyTicketFields(deps, await loadConversation(deps.db, input.conversationId), input);
   const previousAssigneeId = fields.conversation.assigneeId;
-  const moves = await applyTransitions(deps, fields.conversation, input);
+  // A new type or tags runs the routing rules again; a rule that applied may hand it out.
+  const routing = await rerouteUpdated(deps, fields, input);
+  const moves = await applyTransitions(deps, routing.conversation, input);
   const { conversation } = moves;
-  const messages = [...fields.messages, ...moves.messages];
+  const messages = [...fields.messages, ...routing.messages, ...moves.messages];
   const { customFields } = fields;
 
   await markDeskSlaDue(deps);
-  await emitAll(deps, [...fields.events, ...moves.events]);
+  await emitAll(deps, [...fields.events, ...routing.events, ...moves.events]);
 
   if (conversation.assigneeId && conversation.assigneeId !== previousAssigneeId) {
     await inBackground(

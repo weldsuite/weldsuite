@@ -1,6 +1,7 @@
 /** WeldDesk (desk-api) response schemas: helpdesk settings, help center settings, desk widget, desk assignment, helpdesk email, analytics. Spread into ROUTES by conformance-schemas.ts. */
 import { deskIdRefSchema } from '@weldsuite/core-api-client/schemas/desk-common';
 import { deskAssignmentStateSchema } from '@weldsuite/core-api-client/schemas/desk-assignment';
+import { deskRoutingStateSchema } from '@weldsuite/core-api-client/schemas/desk-routing';
 import { deskWidgetIdentitySchema, deskWidgetRefSchema, deskWidgetSettingsSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
 import {
   helpdeskPrimaryWidgetRefSchema,
@@ -71,6 +72,9 @@ export const DESK_SETTINGS_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/desk/assignment', envelope: 'single', data: deskAssignmentStateSchema },
   { method: 'PUT', route: '/api/desk/assignment', envelope: 'single', data: deskAssignmentStateSchema },
   { method: 'POST', route: '/api/desk/assignment/away', envelope: 'single', data: deskAssignmentStateSchema },
+  // WeldDesk routing rules
+  { method: 'GET', route: '/api/desk/routing', envelope: 'single', data: deskRoutingStateSchema },
+  { method: 'PUT', route: '/api/desk/routing', envelope: 'single', data: deskRoutingStateSchema },
   // helpdesk email addresses
   { method: 'GET', route: '/api/helpdesk-email/addresses', envelope: 'array', data: helpdeskEmailAddressSchema },
   { method: 'GET', route: '/api/helpdesk-email/mail-accounts', envelope: 'array', data: helpdeskEmailMailAccountSchema },

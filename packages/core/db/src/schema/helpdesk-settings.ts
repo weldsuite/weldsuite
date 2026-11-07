@@ -69,12 +69,53 @@ export interface DeskAssignmentSettings {
   maxOpenPerMember: number | null;
 }
 
+/**
+ * What a WeldDesk routing rule matches on. Every list that is set must match
+ * (a list matches when it holds the conversation's value; `tags` when it holds
+ * any of the conversation's tags). A rule without conditions matches every
+ * conversation.
+ */
+export interface DeskRoutingConditions {
+  channels?: string[];
+  ticketTypeIds?: string[];
+  /** Any of these tags (case-insensitive). */
+  tags?: string[];
+  priorities?: string[];
+  departmentIds?: string[];
+}
+
+/** What a matching rule does. Unset actions leave the conversation alone. */
+export interface DeskRoutingActions {
+  /** The team (helpdesk_departments.id) to put it in. */
+  departmentId?: string | null;
+  /** The teammate (Clerk user id) to hand it to, when nobody owns it yet. */
+  assigneeId?: string | null;
+  priority?: 'low' | 'medium' | 'high' | 'urgent' | null;
+  /** Tags to add to the ones it has. */
+  addTags?: string[];
+}
+
+export interface DeskRoutingRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  conditions: DeskRoutingConditions;
+  actions: DeskRoutingActions;
+}
+
+/** Ordered: the first enabled rule whose conditions all hold applies. */
+export interface DeskRoutingSettings {
+  rules: DeskRoutingRule[];
+}
+
 export interface AutomationSettings {
   enabled: boolean;
   slaBreachAction?: 'escalate_and_notify' | 'notify_only' | 'none';
   priorityAlertThreshold?: ('urgent' | 'high')[];
   /** Kept beside the legacy keys: `PUT /automation` merges, never drops it. */
   deskAssignment?: DeskAssignmentSettings;
+  /** WeldDesk routing rules (`@weldsuite/db/lib/desk-routing`); merged the same way. */
+  deskRouting?: DeskRoutingSettings;
 }
 
 export interface IntegrationSettings {

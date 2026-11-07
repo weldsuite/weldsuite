@@ -43,6 +43,7 @@ import { sendDeskEmailReply } from '../../lib/desk-email';
 import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
 import { markDeskSlaDue } from '../../lib/sla-due';
+import { deskAttributeChanges, rerouteAfterAttributes } from '../../lib/desk-routing';
 import { getDeskAttributeOptions } from '../../services/desk-attributes';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -392,6 +393,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
+    const [before] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, id)).limit(1);
     const { conversation, message, customFields, slaCheckAt } = await updateDeskConversationAttributes(db, {
       generateId,
       conversationId: id,
@@ -408,6 +410,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
         action: 'updated',
         entityId: conversation.id,
         data: withFields as unknown as Record<string, unknown>,
+        changes: deskAttributeChanges(before, conversation),
       });
       publishEntityEvent({
         c,
@@ -418,6 +421,11 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
       });
       c.executionCtx.waitUntil(publishDeskChange(c, withFields, message, new Map()));
       markDeskSlaDue(c, slaCheckAt);
+      // A new type or tags can route it elsewhere (a team it set itself stays).
+      const routed = await rerouteAfterAttributes(c, message, async (next, event) =>
+        publishDeskChange(c, next, event, await loadAuthor(db, next.assigneeId)),
+      );
+      if (routed) return success(c, { conversation: { ...routed.conversation, customFields }, message });
     }
     return success(c, { conversation: withFields, message });
   } catch (err) {
