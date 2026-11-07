@@ -42,7 +42,8 @@ export const weldmergeKeys = {
   issues: () => [...weldmergeKeys.all, 'issues'] as const,
   issueLists: () => [...weldmergeKeys.issues(), 'list'] as const,
   issueList: (params: ListMergeIssuesQuery) => [...weldmergeKeys.issueLists(), params] as const,
-  issue: (idOrKey: string) => [...weldmergeKeys.issues(), 'detail', idOrKey] as const,
+  issueDetails: () => [...weldmergeKeys.issues(), 'detail'] as const,
+  issue: (idOrKey: string) => [...weldmergeKeys.issueDetails(), idOrKey] as const,
   comments: (issueId: string) => [...weldmergeKeys.issues(), 'comments', issueId] as const,
   pullRequests: () => [...weldmergeKeys.all, 'pull-requests'] as const,
   pullRequestList: (params: ListMergePullRequestsQuery) => [...weldmergeKeys.pullRequests(), 'list', params] as const,
@@ -206,23 +207,34 @@ export function useMyMergeAccounts() {
 // Cache helpers
 // ---------------------------------------------------------------------------
 
-type IssueListSnapshot = Array<[readonly unknown[], MergeIssueDto[] | undefined]>;
+/** Cached issue lists and issue details, as they were before an optimistic change. */
+type IssueListSnapshot = Array<[readonly unknown[], unknown]>;
+
+/** An issue detail as `useMergeIssue` caches it: the raw response. */
+type CachedIssueDetail = { data: MergeIssueDto };
 
 /** The fields of an issue an update can change, applied to a cached row. */
-export function applyIssueUpdate(issue: MergeIssueDto, input: UpdateMergeIssueInput): MergeIssueDto {
-  return { ...issue, ...stripUndefined(input) } as MergeIssueDto;
+export function applyIssueUpdate<T extends MergeIssueDto>(issue: T, input: UpdateMergeIssueInput): T {
+  return { ...issue, ...stripUndefined(input) } as T;
 }
 
 function stripUndefined<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
-/** Patches one issue in every cached issue list; returns what to restore on failure. */
+/**
+ * Patches issues in every cached issue list and issue detail; returns what to restore on failure.
+ * The detail matters as much as the lists: the issue page's pickers read it, so a second change
+ * made before the first one's refetch lands builds on the first (two quick label picks keep both).
+ */
 function patchCachedIssues(
   queryClient: QueryClient,
   patches: ReadonlyArray<{ id: string; input: UpdateMergeIssueInput }>,
 ): IssueListSnapshot {
-  const snapshot = queryClient.getQueriesData<MergeIssueDto[]>({ queryKey: weldmergeKeys.issueLists() });
+  const snapshot: IssueListSnapshot = [
+    ...queryClient.getQueriesData<MergeIssueDto[]>({ queryKey: weldmergeKeys.issueLists() }),
+    ...queryClient.getQueriesData<CachedIssueDetail>({ queryKey: weldmergeKeys.issueDetails() }),
+  ];
   const byId = new Map(patches.map((patch) => [patch.id, patch.input]));
   queryClient.setQueriesData<MergeIssueDto[]>({ queryKey: weldmergeKeys.issueLists() }, (old) =>
     old?.map((issue) => {
@@ -230,7 +242,19 @@ function patchCachedIssues(
       return input ? applyIssueUpdate(issue, input) : issue;
     }),
   );
+  queryClient.setQueriesData<CachedIssueDetail>({ queryKey: weldmergeKeys.issueDetails() }, (old) => {
+    const input = old?.data ? byId.get(old.data.id) : undefined;
+    return old && input ? { ...old, data: applyIssueUpdate(old.data, input) } : old;
+  });
   return snapshot;
+}
+
+/** Stops issue refetches in flight, so none lands over an optimistic change with older data. */
+function cancelIssueQueries(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.cancelQueries({ queryKey: weldmergeKeys.issueLists() }),
+    queryClient.cancelQueries({ queryKey: weldmergeKeys.issueDetails() }),
+  ]);
 }
 
 function restoreIssues(queryClient: QueryClient, snapshot: IssueListSnapshot | undefined) {
@@ -358,7 +382,7 @@ export function useUpdateMergeIssue() {
     mutationFn: ({ id, input }: { id: string; input: UpdateMergeIssueInput }) =>
       weldmerge.issues.update(id, input).then((res) => res.data),
     onMutate: async ({ id, input }) => {
-      await queryClient.cancelQueries({ queryKey: weldmergeKeys.issueLists() });
+      await cancelIssueQueries(queryClient);
       return { snapshot: patchCachedIssues(queryClient, [{ id, input }]) };
     },
     onError: (_error, _vars, context) => restoreIssues(queryClient, context?.snapshot),
@@ -384,7 +408,7 @@ export function useMoveMergeIssue() {
       ]);
     },
     onMutate: async (move) => {
-      await queryClient.cancelQueries({ queryKey: weldmergeKeys.issueLists() });
+      await cancelIssueQueries(queryClient);
       const patches = move.patches.map((patch, index) => ({
         id: patch.id,
         input: index === 0 ? { status: move.status, sortOrder: patch.sortOrder } : { sortOrder: patch.sortOrder },

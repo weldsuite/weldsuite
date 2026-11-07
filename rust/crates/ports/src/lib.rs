@@ -83,7 +83,7 @@ pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerS
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
-pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp};
+pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, is_public_ip};
 pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,

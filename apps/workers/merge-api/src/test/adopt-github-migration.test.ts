@@ -33,12 +33,21 @@ beforeEach(async () => {
   await resetTables(db);
 });
 
-async function runMigration() {
-  const statements = readFileSync(fileURLToPath(MIGRATION.href), 'utf8')
+const FOREIGN_KEYS = new URL(
+  '../../../../../packages/core/db/drizzle/tenant-migrations/0245_weldmerge_github_fk.sql',
+  import.meta.url,
+);
+
+async function runStatements(text: string) {
+  const statements = text
     .split('--> statement-breakpoint')
     .map((s) => s.trim())
     .filter(Boolean);
   for (const statement of statements) await db.execute(sql.raw(statement));
+}
+
+async function runMigration() {
+  await runStatements(readFileSync(fileURLToPath(MIGRATION.href), 'utf8'));
 }
 
 const githubRow = (id: string, installationId: number, extra: Partial<typeof schema.githubConnections.$inferInsert> = {}) => ({
@@ -90,5 +99,35 @@ describe('0244_weldmerge_adopt_github', () => {
 
     await runMigration();
     expect(await db.select().from(schema.mergeConnections)).toHaveLength(3);
+  });
+
+  it('repoints links on an adopted installation while their keys still name github_connections', async () => {
+    // As before 0245: the links' keys reference github_connections, not merge_connections.
+    await runStatements(`
+      ALTER TABLE "github_repo_links" DROP CONSTRAINT IF EXISTS "github_repo_links_connection_id_merge_connections_id_fk";--> statement-breakpoint
+      ALTER TABLE "github_project_links" DROP CONSTRAINT IF EXISTS "github_project_links_connection_id_merge_connections_id_fk";--> statement-breakpoint
+      ALTER TABLE "github_repo_links" ADD CONSTRAINT "github_repo_links_connection_id_github_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."github_connections"("id") ON DELETE cascade;--> statement-breakpoint
+      ALTER TABLE "github_project_links" ADD CONSTRAINT "github_project_links_connection_id_github_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."github_connections"("id") ON DELETE cascade;
+    `);
+    try {
+      await db.insert(schema.githubConnections).values(githubRow('ghc_adopted', 4242));
+      const adopted = await seedConnection(db, { externalAccountId: '4242' });
+      await db.insert(schema.githubRepoLinks).values({
+        id: 'grl_1',
+        connectionId: 'ghc_adopted',
+        workspaceId: 'org_alpha',
+        repoId: 501,
+        repoFullName: 'acme/api',
+      });
+
+      await runMigration();
+
+      const [link] = await db.select().from(schema.githubRepoLinks);
+      expect(link!.connectionId).toBe(adopted.id);
+    } finally {
+      await db.delete(schema.githubRepoLinks);
+      // 0245 puts the keys back on merge_connections, whichever are left.
+      await runStatements(readFileSync(fileURLToPath(FOREIGN_KEYS.href), 'utf8'));
+    }
   });
 });

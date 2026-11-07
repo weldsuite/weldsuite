@@ -3,6 +3,10 @@
 -- keeping its id, then point links at an installation WeldMerge adopted in
 -- phase 1 (with a different id) to that row. github_connections stays, unread.
 -- Idempotent: every statement guards on what already exists.
+-- The links' foreign keys to github_connections go first: a link repointed
+-- below names a merge_connections id (0245 adds the keys to that table).
+ALTER TABLE "github_repo_links" DROP CONSTRAINT IF EXISTS "github_repo_links_connection_id_github_connections_id_fk";--> statement-breakpoint
+ALTER TABLE "github_project_links" DROP CONSTRAINT IF EXISTS "github_project_links_connection_id_github_connections_id_fk";--> statement-breakpoint
 INSERT INTO "merge_connections" (
 	"id", "provider", "external_account_id", "account_login", "account_type", "status",
 	"webhook_secret", "app_slug", "scopes", "installed_at", "revoked_at",

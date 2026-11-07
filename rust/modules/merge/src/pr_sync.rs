@@ -310,6 +310,13 @@ pub(crate) async fn upsert_pull_request(
 /// mirrors a pull request already mapped to [`MirrorFields`] (every
 /// provider's mapper ends here). Webhook-driven syncs pass `hooks`: the area
 /// hooks run after the write; a backfill leaves it out.
+///
+/// Providers send several deliveries for one change (GitHub: `opened`,
+/// `review_requested` and `labeled` together): when another delivery
+/// inserted the pull request between the read and the insert,
+/// `(repository_id, number)` refuses the second insert, and the mirror is
+/// read again and takes the update path (or is stale) like any later
+/// delivery.
 pub(crate) async fn upsert_mirror(
     db: &PgPool,
     repository: &Row,
@@ -318,6 +325,43 @@ pub(crate) async fn upsert_mirror(
     skip_unchanged: bool,
     hooks: Option<&HookContext>,
 ) -> Result<UpsertOutcome, MergeError> {
+    let first = upsert_mirror_once(
+        db,
+        repository,
+        fields.clone(),
+        automate,
+        skip_unchanged,
+        hooks,
+        true,
+    )
+    .await?;
+    if let Some(outcome) = first {
+        return Ok(outcome);
+    }
+    upsert_mirror_once(
+        db,
+        repository,
+        fields,
+        automate,
+        skip_unchanged,
+        hooks,
+        false,
+    )
+    .await?
+    .ok_or_else(|| MergeError::Unexpected("the pull request mirror raced twice".to_owned()))
+}
+
+/// One pass of [`upsert_mirror`]: `None` when `retry_on_race` and another
+/// delivery inserted the pull request first.
+async fn upsert_mirror_once(
+    db: &PgPool,
+    repository: &Row,
+    fields: MirrorFields,
+    automate: bool,
+    skip_unchanged: bool,
+    hooks: Option<&HookContext>,
+    retry_on_race: bool,
+) -> Result<Option<UpsertOutcome>, MergeError> {
     let number = fields
         .number
         .as_i64()
@@ -337,11 +381,11 @@ pub(crate) async fn upsert_mirror(
             stored.get("providerUpdatedAt").and_then(Value::as_str),
         )
     {
-        return Ok(UpsertOutcome {
+        return Ok(Some(UpsertOutcome {
             status: UpsertStatus::Stale,
             links_created: 0,
             events: Vec::new(),
-        });
+        }));
     }
 
     let unchanged = skip_unchanged
@@ -446,7 +490,7 @@ pub(crate) async fn upsert_mirror(
             .await?;
             js_row(updated)
         } else {
-            let inserted: Value = sqlx::query_scalar(
+            let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
                 "insert into merge_pull_requests ( \
                    id, repository_id, provider, external_id, number, title, body, state, draft, url, \
                    author_login, author_avatar_url, author_user_id, head_ref, base_ref, head_sha, \
@@ -486,8 +530,14 @@ pub(crate) async fn upsert_mirror(
             .bind(&now)
             .bind(text(repository, "provider"))
             .fetch_one(db)
-            .await?;
-            js_row(inserted)
+            .await;
+            match inserted {
+                Ok(inserted) => js_row(inserted),
+                Err(error) if retry_on_race && crate::db::is_unique_violation(&error) => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
     };
 
@@ -518,7 +568,7 @@ pub(crate) async fn upsert_mirror(
             after_pull_request_synced(hooks, existing.as_ref(), &row, &events).await;
         }
     }
-    Ok(UpsertOutcome {
+    Ok(Some(UpsertOutcome {
         status: if unchanged {
             UpsertStatus::Unchanged
         } else if existing.is_some() {
@@ -528,5 +578,5 @@ pub(crate) async fn upsert_mirror(
         },
         links_created: created,
         events,
-    })
+    }))
 }
