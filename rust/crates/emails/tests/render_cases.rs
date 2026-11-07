@@ -9,9 +9,10 @@ use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::flow::{FlowPortalInvitation, FlowStatusReport, Overall};
 use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
+use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, hr, meet, portal, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, hr, meet, portal, reach, sign,
 };
 
 #[derive(Deserialize)]
@@ -213,6 +214,43 @@ fn render(case: &Case) -> RenderedEmail {
                 },
             )
         }
+        "reach.access-approved" => {
+            let limits = &p["limits"];
+            let count = |key: &str| limits[key].as_i64();
+            reach::access_approved(
+                locale,
+                &brand,
+                &AccessApproved {
+                    recipient_name: opt("recipientName"),
+                    workspace_name: s(p, "workspaceName"),
+                    url: s(p, "url"),
+                    limits: match (
+                        count("maxDomains"),
+                        count("maxMailboxes"),
+                        count("maxDailySends"),
+                    ) {
+                        (Some(max_domains), Some(max_mailboxes), Some(max_daily_sends)) => {
+                            Some(ApprovedLimits {
+                                max_domains,
+                                max_mailboxes,
+                                max_daily_sends,
+                            })
+                        }
+                        _ => None,
+                    },
+                },
+            )
+        }
+        "reach.access-rejected" => reach::access_rejected(
+            locale,
+            &brand,
+            &AccessRejected {
+                recipient_name: opt("recipientName"),
+                workspace_name: s(p, "workspaceName"),
+                reason: s(p, "reason"),
+                url: opt("url"),
+            },
+        ),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))

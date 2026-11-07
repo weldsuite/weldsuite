@@ -4033,10 +4033,12 @@ dependencies = [
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-reach",
+ "weldsuite-reach-domain",
  "weldsuite-realtime",
  "weldsuite-sheets",
  "weldsuite-sign",
  "weldsuite-social",
+ "weldsuite-staff-domain",
  "weldsuite-stash",
  "weldsuite-subscribers",
  "weldsuite-video-rooms",
@@ -5721,6 +5723,22 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-staff-domain"
+version = "0.0.0"
+dependencies = [
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-kit",
+ "weldsuite-ports",
+ "weldsuite-reach-domain",
 ]
 
 [[package]]
