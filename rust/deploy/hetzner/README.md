@@ -312,9 +312,10 @@ $A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
 Every change is a row in `admin_audit_events`. Approval installs WeldReach in
 the workspace and emails the requester through `SMTP_URL`, with links to
 `PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
-command warns and you tell them yourself. Feature flags, the app catalog's
-flags and plan rows are still SQL against `weldsuite_master` (flags:
-`feature_flag_overrides`; plans: TEST-CLUSTER.md, "Prices").
+command warns and you tell them yourself. Feature flags (`feature_flag_overrides`)
+and plan rows (TEST-CLUSTER.md, "Prices") are the console's **Feature flags**
+and **Plans** pages; the staff list is its **Staff** page too, for
+superadmins.
 
 ### The admin console
 

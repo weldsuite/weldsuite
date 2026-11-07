@@ -6,6 +6,7 @@ import {
   Coins,
   CreditCard,
   Database,
+  Flag,
   Flame,
   Globe,
   Handshake,
@@ -20,6 +21,7 @@ import {
   Receipt,
   ShieldCheck,
   Tags,
+  UserCog,
   Users,
   Video,
   type LucideIcon,
@@ -40,6 +42,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** A page only Global has (`lib/edition.ts`): left out on Kubernetes. */
   globalOnly?: boolean;
+  /** A page only the Kubernetes editions have: left out on Global. */
+  kubernetesOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -60,17 +64,19 @@ export interface NavArea {
   groups: NavGroup[];
   /** An area only Global has (`lib/edition.ts`): left out on Kubernetes. */
   globalOnly?: boolean;
+  /** An area only the Kubernetes editions have: left out on Global. */
+  kubernetesOnly?: boolean;
 }
 
 /** The areas, groups and items this build of the console has. */
 export function getNavAreas(): NavArea[] {
-  const areas = allNavAreas();
-  if (GLOBAL) return areas;
-  return areas
-    .filter((area) => !area.globalOnly)
+  const shown = (entry: { globalOnly?: boolean; kubernetesOnly?: boolean }) =>
+    GLOBAL ? !entry.kubernetesOnly : !entry.globalOnly;
+  return allNavAreas()
+    .filter(shown)
     .map((area) => ({
       ...area,
-      groups: area.groups.map((group) => ({ ...group, items: group.items.filter((item) => !item.globalOnly) })),
+      groups: area.groups.map((group) => ({ ...group, items: group.items.filter(shown) })),
     }));
 }
 
@@ -106,6 +112,8 @@ function allNavAreas(): NavArea[] {
           { title: billing.plans, href: '/plans', icon: CreditCard },
           { title: partners.jumpTo, href: '/partners', icon: Handshake, globalOnly: true },
           { title: billing.activity, href: '/activity', icon: History },
+          { title: billing.staff, href: '/staff', icon: UserCog, kubernetesOnly: true },
+          { title: billing.flags, href: '/flags', icon: Flag, kubernetesOnly: true },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins, globalOnly: true },
           { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags, globalOnly: true },
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe, globalOnly: true },
@@ -192,6 +200,22 @@ function allNavAreas(): NavArea[] {
     ],
   },
   {
+    key: 'staff',
+    kubernetesOnly: true,
+    name: billing.staff,
+    icon: UserCog,
+    href: '/staff',
+    groups: [{ group: billing.staffGroup, items: [{ title: billing.staffList, href: '/staff', icon: UserCog }] }],
+  },
+  {
+    key: 'flags',
+    kubernetesOnly: true,
+    name: billing.flags,
+    icon: Flag,
+    href: '/flags',
+    groups: [{ group: billing.flagsGroup, items: [{ title: billing.flagsList, href: '/flags', icon: Flag }] }],
+  },
+  {
     key: 'databases',
     globalOnly: true,
     name: databases.databases,
@@ -215,7 +239,7 @@ function allNavAreas(): NavArea[] {
         group: billing.catalogGroup,
         items: [
           { title: billing.plans, href: '/plans', icon: ListTree },
-          { title: billing.newPlan, href: '/plans/new', icon: PackagePlus, globalOnly: true },
+          { title: billing.newPlan, href: '/plans/new', icon: PackagePlus },
         ],
       },
       {

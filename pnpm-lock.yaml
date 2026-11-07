@@ -2733,6 +2733,9 @@ importers:
       '@weldsuite/emails':
         specifier: workspace:*
         version: link:../../../packages/core/emails
+      '@weldsuite/feature-flags':
+        specifier: workspace:*
+        version: link:../../../packages/core/feature-flags
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n

@@ -28,6 +28,16 @@ export function getMasterDb(): MasterDatabase {
   return openMasterDb(masterUrl());
 }
 
+/**
+ * A master-database transaction, for the Kubernetes editions' own screens
+ * (the staff list, feature flags, plans): postgres.js has transactions, Neon
+ * HTTP doesn't, so Global code never calls this.
+ */
+export function inMasterTransaction<T>(work: (tx: MasterDatabase) => Promise<T>): Promise<T> {
+  if (GLOBAL) throw new Error('inMasterTransaction is for the Kubernetes build only');
+  return getMasterDb().transaction((tx) => work(tx as unknown as MasterDatabase));
+}
+
 export interface WorkspaceDatabaseRow {
   /** `workspaces.id` of the row `databaseUrl` came from: the AAD of a v3 value. */
   id: string;

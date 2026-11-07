@@ -13,6 +13,7 @@ import {
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { formatCredits, formatDecimal } from '@/lib/billing-format';
 import { adminCopy } from '@/lib/i18n';
+import { GLOBAL } from '@/lib/edition';
 import type { PlansPageData } from './data';
 
 export function PlansPage({ plans, canWrite }: Readonly<PlansPageData>) {
@@ -36,6 +37,8 @@ export function PlansPage({ plans, canWrite }: Readonly<PlansPageData>) {
           }
         />
 
+        {!GLOBAL && <p className="text-sm text-muted-foreground">{t.plans.noStripe}</p>}
+
         <div className="overflow-hidden rounded-lg border">
           <Table>
             <TableHeader>
@@ -46,13 +49,13 @@ export function PlansPage({ plans, canWrite }: Readonly<PlansPageData>) {
                 <TableHead className="w-28 text-right">{t.plans.columns.credits}</TableHead>
                 <TableHead className="w-28 text-right">{t.plans.columns.users}</TableHead>
                 <TableHead className="w-28 text-right">{t.plans.columns.workspaces}</TableHead>
-                <TableHead className="w-36">{t.plans.columns.stripe}</TableHead>
+                {GLOBAL && <TableHead className="w-36">{t.plans.columns.stripe}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {plans.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-16 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={GLOBAL ? 7 : 6} className="py-16 text-center text-sm text-muted-foreground">
                     {t.plans.empty}
                   </TableCell>
                 </TableRow>
@@ -81,11 +84,13 @@ export function PlansPage({ plans, canWrite }: Readonly<PlansPageData>) {
                   <TableCell className="text-right tabular-nums">{formatCredits(plan.monthlyCredits)}</TableCell>
                   <TableCell className="text-right tabular-nums">{plan.maxUsers ?? t.common.unlimited}</TableCell>
                   <TableCell className="text-right tabular-nums">{plan.workspaceCount}</TableCell>
-                  <TableCell>
-                    <Badge variant={plan.stripeProductId && plan.hasMonthlyPrice ? 'success' : 'warning'}>
-                      {plan.stripeProductId && plan.hasMonthlyPrice ? t.plans.synced : t.plans.notSynced}
-                    </Badge>
-                  </TableCell>
+                  {GLOBAL && (
+                    <TableCell>
+                      <Badge variant={plan.stripeProductId && plan.hasMonthlyPrice ? 'success' : 'warning'}>
+                        {plan.stripeProductId && plan.hasMonthlyPrice ? t.plans.synced : t.plans.notSynced}
+                      </Badge>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

@@ -15,8 +15,10 @@ import { Route as AdminIndexRouteImport } from './routes/_admin/index'
 import { Route as AdminActivityRouteImport } from './routes/_admin/activity'
 import { Route as AdminAiCostsRouteImport } from './routes/_admin/ai-costs'
 import { Route as AdminDomainPricingRouteImport } from './routes/_admin/domain-pricing'
+import { Route as AdminFlagsRouteImport } from './routes/_admin/flags'
 import { Route as AdminPhonePricingRouteImport } from './routes/_admin/phone-pricing'
 import { Route as AdminPlanPricingRouteImport } from './routes/_admin/plan-pricing'
+import { Route as AdminStaffRouteImport } from './routes/_admin/staff'
 import { Route as AdminSupportRouteImport } from './routes/_admin/support'
 import { Route as AdminWarmupRouteImport } from './routes/_admin/warmup'
 import { Route as AdminWeldmeetAiPricingRouteImport } from './routes/_admin/weldmeet-ai-pricing'
@@ -72,6 +74,11 @@ const AdminDomainPricingRoute = AdminDomainPricingRouteImport.update({
   path: '/domain-pricing',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminFlagsRoute = AdminFlagsRouteImport.update({
+  id: '/flags',
+  path: '/flags',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminPhonePricingRoute = AdminPhonePricingRouteImport.update({
   id: '/phone-pricing',
   path: '/phone-pricing',
@@ -80,6 +87,11 @@ const AdminPhonePricingRoute = AdminPhonePricingRouteImport.update({
 const AdminPlanPricingRoute = AdminPlanPricingRouteImport.update({
   id: '/plan-pricing',
   path: '/plan-pricing',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminStaffRoute = AdminStaffRouteImport.update({
+  id: '/staff',
+  path: '/staff',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminSupportRoute = AdminSupportRouteImport.update({
@@ -216,8 +228,10 @@ export interface FileRoutesByFullPath {
   '/activity': typeof AdminActivityRoute
   '/ai-costs': typeof AdminAiCostsRoute
   '/domain-pricing': typeof AdminDomainPricingRoute
+  '/flags': typeof AdminFlagsRoute
   '/phone-pricing': typeof AdminPhonePricingRoute
   '/plan-pricing': typeof AdminPlanPricingRoute
+  '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
@@ -249,8 +263,10 @@ export interface FileRoutesByTo {
   '/activity': typeof AdminActivityRoute
   '/ai-costs': typeof AdminAiCostsRoute
   '/domain-pricing': typeof AdminDomainPricingRoute
+  '/flags': typeof AdminFlagsRoute
   '/phone-pricing': typeof AdminPhonePricingRoute
   '/plan-pricing': typeof AdminPlanPricingRoute
+  '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
@@ -285,8 +301,10 @@ export interface FileRoutesById {
   '/_admin/activity': typeof AdminActivityRoute
   '/_admin/ai-costs': typeof AdminAiCostsRoute
   '/_admin/domain-pricing': typeof AdminDomainPricingRoute
+  '/_admin/flags': typeof AdminFlagsRoute
   '/_admin/phone-pricing': typeof AdminPhonePricingRoute
   '/_admin/plan-pricing': typeof AdminPlanPricingRoute
+  '/_admin/staff': typeof AdminStaffRoute
   '/_admin/support': typeof AdminSupportRoute
   '/_admin/warmup': typeof AdminWarmupRoute
   '/_admin/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
@@ -322,8 +340,10 @@ export interface FileRouteTypes {
     | '/activity'
     | '/ai-costs'
     | '/domain-pricing'
+    | '/flags'
     | '/phone-pricing'
     | '/plan-pricing'
+    | '/staff'
     | '/support'
     | '/warmup'
     | '/weldmeet-ai-pricing'
@@ -355,8 +375,10 @@ export interface FileRouteTypes {
     | '/activity'
     | '/ai-costs'
     | '/domain-pricing'
+    | '/flags'
     | '/phone-pricing'
     | '/plan-pricing'
+    | '/staff'
     | '/support'
     | '/warmup'
     | '/weldmeet-ai-pricing'
@@ -390,8 +412,10 @@ export interface FileRouteTypes {
     | '/_admin/activity'
     | '/_admin/ai-costs'
     | '/_admin/domain-pricing'
+    | '/_admin/flags'
     | '/_admin/phone-pricing'
     | '/_admin/plan-pricing'
+    | '/_admin/staff'
     | '/_admin/support'
     | '/_admin/warmup'
     | '/_admin/weldmeet-ai-pricing'
@@ -473,6 +497,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDomainPricingRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/_admin/flags': {
+      id: '/_admin/flags'
+      path: '/flags'
+      fullPath: '/flags'
+      preLoaderRoute: typeof AdminFlagsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/_admin/phone-pricing': {
       id: '/_admin/phone-pricing'
       path: '/phone-pricing'
@@ -485,6 +516,13 @@ declare module '@tanstack/react-router' {
       path: '/plan-pricing'
       fullPath: '/plan-pricing'
       preLoaderRoute: typeof AdminPlanPricingRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/_admin/staff': {
+      id: '/_admin/staff'
+      path: '/staff'
+      fullPath: '/staff'
+      preLoaderRoute: typeof AdminStaffRouteImport
       parentRoute: typeof AdminRoute
     }
     '/_admin/support': {
@@ -669,8 +707,10 @@ interface AdminRouteChildren {
   AdminActivityRoute: typeof AdminActivityRoute
   AdminAiCostsRoute: typeof AdminAiCostsRoute
   AdminDomainPricingRoute: typeof AdminDomainPricingRoute
+  AdminFlagsRoute: typeof AdminFlagsRoute
   AdminPhonePricingRoute: typeof AdminPhonePricingRoute
   AdminPlanPricingRoute: typeof AdminPlanPricingRoute
+  AdminStaffRoute: typeof AdminStaffRoute
   AdminSupportRoute: typeof AdminSupportRoute
   AdminWarmupRoute: typeof AdminWarmupRoute
   AdminWeldmeetAiPricingRoute: typeof AdminWeldmeetAiPricingRoute
@@ -699,8 +739,10 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminActivityRoute: AdminActivityRoute,
   AdminAiCostsRoute: AdminAiCostsRoute,
   AdminDomainPricingRoute: AdminDomainPricingRoute,
+  AdminFlagsRoute: AdminFlagsRoute,
   AdminPhonePricingRoute: AdminPhonePricingRoute,
   AdminPlanPricingRoute: AdminPlanPricingRoute,
+  AdminStaffRoute: AdminStaffRoute,
   AdminSupportRoute: AdminSupportRoute,
   AdminWarmupRoute: AdminWarmupRoute,
   AdminWeldmeetAiPricingRoute: AdminWeldmeetAiPricingRoute,

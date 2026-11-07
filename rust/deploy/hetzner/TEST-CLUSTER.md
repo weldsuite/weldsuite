@@ -251,8 +251,10 @@ ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, price_monthly = EXCLUDED.
 SQL
 ```
 
-To change a price later, change it in the statement and run it again; the
-site shows it within five minutes.
+To change a price later, edit the plan on the admin console's **Plans** page
+(`admin.<domain>`; it writes the row and the activity log, with no Stripe
+here), or change it in the statement and run it again. The site shows it
+within five minutes.
 
 - `price_monthly` is per user per month on monthly billing; `price_yearly`
   per user per year, which the site shows divided by twelve as the annual

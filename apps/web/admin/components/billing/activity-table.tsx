@@ -12,6 +12,20 @@ import { adminCopy } from '@/lib/i18n';
 import { actionLabel, formatDateTime } from '@/lib/billing-format';
 import type { AuditEventRow } from '@/lib/billing-types';
 
+/** Where an entry's target lives in the console. */
+function targetHref(targetType: string, targetId: string): string {
+  switch (targetType) {
+    case 'plan':
+      return `/plans/${targetId}`;
+    case 'admin_user':
+      return '/staff';
+    case 'feature_flag':
+      return '/flags';
+    default:
+      return `/workspaces/${targetId}`;
+  }
+}
+
 /** Admin audit trail rows. `showTarget` adds a link to the workspace or plan. */
 export function ActivityTable({
   events,
@@ -48,7 +62,7 @@ export function ActivityTable({
                 <TableCell className="font-mono text-xs">
                   <Link
                     className="underline-offset-2 hover:underline"
-                    href={event.targetType === 'plan' ? `/plans/${event.targetId}` : `/workspaces/${event.targetId}`}
+                    href={targetHref(event.targetType, event.targetId)}
                   >
                     {event.targetId}
                   </Link>

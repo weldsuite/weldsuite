@@ -16,7 +16,6 @@ const GLOBAL_ONLY = [
   '/databases',
   '/partners',
   '/partners/new',
-  '/plans/new',
   '/ai-costs',
   '/plan-pricing',
   '/domain-pricing',
@@ -24,10 +23,14 @@ const GLOBAL_ONLY = [
   '/weldmeet-ai-pricing',
 ];
 
+/** Pages only the Kubernetes editions have: Global keeps staff in Clerk and flags in Flagship. */
+const KUBERNETES_ONLY = ['/staff', '/flags'];
+
 describe('getNavAreas', () => {
-  it('offers every page on Global', () => {
+  it('offers every Global page on Global, and none of the Kubernetes ones', () => {
     edition.GLOBAL = true;
     expect(hrefs()).toEqual(expect.arrayContaining(GLOBAL_ONLY));
+    for (const href of KUBERNETES_ONLY) expect(hrefs()).not.toContain(href);
   });
 
   it('leaves out Global-only pages on Kubernetes, and no area ends up empty', () => {
@@ -35,7 +38,7 @@ describe('getNavAreas', () => {
     const offered = hrefs();
     for (const href of GLOBAL_ONLY) expect(offered).not.toContain(href);
     expect(offered).toEqual(
-      expect.arrayContaining(['/', '/apps', '/access-requests', '/warmup', '/outbound-mail', '/workspaces', '/plans', '/activity']),
+      expect.arrayContaining(['/', '/apps', '/access-requests', '/warmup', '/outbound-mail', '/workspaces', '/plans', '/plans/new', '/activity', ...KUBERNETES_ONLY]),
     );
     for (const area of getNavAreas()) {
       expect(area.groups.flatMap((group) => group.items).length).toBeGreaterThan(0);

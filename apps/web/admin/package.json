@@ -28,6 +28,7 @@
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
+    "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",

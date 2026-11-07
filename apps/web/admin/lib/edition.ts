@@ -32,3 +32,17 @@ export const globalOnly = createMiddleware({ type: 'function' }).server(({ next 
   if (!GLOBAL) throw notFound();
   return next();
 });
+
+/**
+ * For a route only the Kubernetes editions have (the staff list and feature
+ * flags, which Global keeps in Clerk and Flagship): 404 on Global.
+ */
+export function kubernetesOnlyRoute(): void {
+  if (GLOBAL) throw notFound();
+}
+
+/** The server-function guard of {@link kubernetesOnlyRoute}. */
+export const kubernetesOnly = createMiddleware({ type: 'function' }).server(({ next }) => {
+  if (GLOBAL) throw notFound();
+  return next();
+});
