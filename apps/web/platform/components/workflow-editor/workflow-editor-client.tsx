@@ -617,6 +617,15 @@ function readWorkflowCompleteSettings(trigger: WorkflowTriggerBag): WorkflowComp
   };
 }
 
+/** The entity and event an entity-event trigger was saved with; both undefined for any other trigger. */
+function readEntityEventSettings(trigger: WorkflowTriggerBag | undefined): { entityType?: string; eventType?: string } {
+  if (trigger?.type !== 'entity_event') return {};
+  return {
+    entityType: trigger.entityType as string | undefined,
+    eventType: trigger.eventType as string | undefined,
+  };
+}
+
 interface ScheduleSettings {
   scheduleType: 'recurring' | 'one_time';
   timezone: string;
@@ -3380,8 +3389,7 @@ export function WorkflowEditorClient({
   // unknown-variable check and the Test dialog's sample all come from it.
   const firstTrigger = workflow.triggers?.[0];
   const isEntityEventTrigger = firstTrigger?.type === 'entity_event';
-  const savedEntityType = isEntityEventTrigger ? (firstTrigger?.entityType as string | undefined) : undefined;
-  const savedEventType = isEntityEventTrigger ? (firstTrigger?.eventType as string | undefined) : undefined;
+  const { entityType: savedEntityType, eventType: savedEventType } = readEntityEventSettings(firstTrigger);
   const recordFieldDefs = useMemo(
     () => (isEntityEventTrigger ? resolveRecordFields?.(savedEntityType, savedEventType) : undefined),
     [isEntityEventTrigger, resolveRecordFields, savedEntityType, savedEventType],
