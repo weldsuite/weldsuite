@@ -22,7 +22,7 @@ describe('WeldMerge module registration', () => {
       ['/weldmerge/issues', 'merge_issues:read'],
       ['/weldmerge/cycles', 'merge_issues:read'],
       ['/weldmerge/releases', 'merge_releases:read'],
-      ['/weldmerge/settings', 'merge_connections:read'],
+      ['/settings/apps/weldmerge', 'merge_connections:read'],
     ]);
   });
 

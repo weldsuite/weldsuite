@@ -30,6 +30,7 @@ import { IssueFormDialog } from '../components/issue-form-dialog';
 import { IssueList } from '../components/issue-list';
 import { BOARD_STATUSES, ALL_STATUSES } from '../lib/board';
 import { fill, formatDateRange } from '../lib/format';
+import { WELDMERGE_SETTINGS_PATH } from '../lib/settings-path';
 
 type IssuesView = 'list' | 'board';
 
@@ -224,7 +225,7 @@ export default function WeldMergeIssuesPage() {
           description={tm.issues.noTeamsDescription}
           action={
             <Button asChild>
-              <Link href="/weldmerge/settings">{tm.issues.openSettings}</Link>
+              <Link href={WELDMERGE_SETTINGS_PATH}>{tm.issues.openSettings}</Link>
             </Button>
           }
         />

@@ -20,7 +20,7 @@ describe('WeldReach module registration', () => {
       ['/weldreach/prospects', 'reach_prospects:read'],
       ['/weldreach/inbox', 'reach_inbox:read'],
       ['/weldreach/mailboxes', 'reach_mailboxes:read'],
-      ['/weldreach/settings', 'reach_settings:read'],
+      ['/settings/apps/weldreach', 'reach_settings:read'],
     ]);
   });
 

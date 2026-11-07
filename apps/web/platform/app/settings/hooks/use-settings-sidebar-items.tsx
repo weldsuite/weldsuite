@@ -55,6 +55,8 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
   { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+  { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));
 

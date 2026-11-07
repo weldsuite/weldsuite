@@ -296,6 +296,8 @@ import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/we
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
+import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
+import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
 import { Route as SettingsAppsWeldflowRouteImport } from './routes/settings/apps/weldflow'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
@@ -2047,6 +2049,16 @@ const SettingsCustomObjectsObjectIdRoute =
     path: '/custom-objects/$objectId',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsAppsWeldreachRoute = SettingsAppsWeldreachRouteImport.update({
+  id: '/apps/weldreach',
+  path: '/apps/weldreach',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAppsWeldmergeRoute = SettingsAppsWeldmergeRouteImport.update({
+  id: '/apps/weldmerge',
+  path: '/apps/weldmerge',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldhrRoute = SettingsAppsWeldhrRouteImport.update({
   id: '/apps/weldhr',
   path: '/apps/weldhr',
@@ -3792,6 +3804,8 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -4310,6 +4324,8 @@ export interface FileRoutesByTo {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -4871,6 +4887,8 @@ export interface FileRoutesById {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
+  '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
+  '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -5440,6 +5458,8 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -5958,6 +5978,8 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -6518,6 +6540,8 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
+    | '/settings/apps/weldmerge'
+    | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -9050,6 +9074,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/apps/weldreach': {
+      id: '/settings/apps/weldreach'
+      path: '/apps/weldreach'
+      fullPath: '/settings/apps/weldreach'
+      preLoaderRoute: typeof SettingsAppsWeldreachRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldmerge': {
+      id: '/settings/apps/weldmerge'
+      path: '/apps/weldmerge'
+      fullPath: '/settings/apps/weldmerge'
+      preLoaderRoute: typeof SettingsAppsWeldmergeRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldhr': {
       id: '/settings/apps/weldhr'
       path: '/apps/weldhr'
@@ -11098,6 +11136,8 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
   SettingsAppsWeldflowRoute: typeof SettingsAppsWeldflowRoute
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
+  SettingsAppsWeldmergeRoute: typeof SettingsAppsWeldmergeRoute
+  SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
@@ -11160,6 +11200,8 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldcrmRoute: SettingsAppsWeldcrmRoute,
   SettingsAppsWeldflowRoute: SettingsAppsWeldflowRoute,
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
+  SettingsAppsWeldmergeRoute: SettingsAppsWeldmergeRoute,
+  SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,

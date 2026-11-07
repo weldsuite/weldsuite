@@ -21,7 +21,7 @@ vi.mock('@/hooks/queries/use-weldmerge-sync-queries', () => ({
 const connected = {
   purpose: 'connection' as const,
   provider: 'gitlab' as const,
-  returnTo: '/weldmerge/settings?tab=providers',
+  returnTo: '/settings/apps/weldmerge?tab=providers',
   connectionId: 'mcn_1',
   accountId: null,
 };
@@ -29,15 +29,15 @@ const connected = {
 describe('resolveReturnTo', () => {
   it('keeps a same-app path and falls back to the tab for what was linked', () => {
     expect(resolveReturnTo({ purpose: 'connection', returnTo: '/weldmerge/issues' })).toBe('/weldmerge/issues');
-    expect(resolveReturnTo({ purpose: 'connection', returnTo: null })).toBe('/weldmerge/settings?tab=providers');
-    expect(resolveReturnTo({ purpose: 'account', returnTo: null })).toBe('/weldmerge/settings?tab=accounts');
+    expect(resolveReturnTo({ purpose: 'connection', returnTo: null })).toBe('/settings/apps/weldmerge?tab=providers');
+    expect(resolveReturnTo({ purpose: 'account', returnTo: null })).toBe('/settings/apps/weldmerge?tab=accounts');
   });
 
   it('ignores an address that leaves the app', () => {
     expect(resolveReturnTo({ purpose: 'connection', returnTo: 'https://evil.example/x' })).toBe(
-      '/weldmerge/settings?tab=providers',
+      '/settings/apps/weldmerge?tab=providers',
     );
-    expect(resolveReturnTo({ purpose: 'connection', returnTo: '//evil.example/x' })).toBe('/weldmerge/settings?tab=providers');
+    expect(resolveReturnTo({ purpose: 'connection', returnTo: '//evil.example/x' })).toBe('/settings/apps/weldmerge?tab=providers');
   });
 });
 
@@ -56,7 +56,7 @@ describe('WeldMerge OAuth callback page', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
-    expect(state.replace).toHaveBeenCalledWith('/weldmerge/settings?tab=providers');
+    expect(state.replace).toHaveBeenCalledWith('/settings/apps/weldmerge?tab=providers');
     vi.useRealTimers();
   });
 

@@ -282,7 +282,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
       {
         group: t.navigation.moduleSidebar.groups.settings,
-        items: [{ title: t.navigation.moduleSidebar.weldmerge.settings, href: '/weldmerge/settings', icon: Settings, permission: 'merge_connections:read' }],
+        items: [{ title: t.navigation.moduleSidebar.weldmerge.settings, href: '/settings/apps/weldmerge', icon: Settings, permission: 'merge_connections:read' }],
       },
     ],
   },
@@ -327,7 +327,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.reach.nav.prospects, href: '/weldreach/prospects', icon: Contact, permission: 'reach_prospects:read' },
           { title: t.reach.nav.inbox, href: '/weldreach/inbox', icon: Inbox, permission: 'reach_inbox:read' },
           { title: t.reach.nav.mailboxes, href: '/weldreach/mailboxes', icon: Mailbox, permission: 'reach_mailboxes:read' },
-          { title: t.reach.nav.settings, href: '/weldreach/settings', icon: Settings, permission: 'reach_settings:read' },
+          { title: t.reach.nav.settings, href: '/settings/apps/weldreach', icon: Settings, permission: 'reach_settings:read' },
         ],
       },
     ],

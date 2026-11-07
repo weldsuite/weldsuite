@@ -35,6 +35,7 @@ import {
   useMemberName,
 } from './components/primitives';
 import { fill, relativeTime } from './lib/format';
+import { WELDMERGE_SETTINGS_PATH } from './lib/settings-path';
 
 /** What an inbox row shows as its title and where it points. */
 function itemTitle(item: MergeInboxItem): string {
@@ -144,7 +145,7 @@ export default function WeldMergeInboxPage() {
             description={tm.inbox.noConnectionDescription}
             action={
               <Button asChild>
-                <Link href="/weldmerge/settings">{tm.inbox.openProviders}</Link>
+                <Link href={WELDMERGE_SETTINGS_PATH}>{tm.inbox.openProviders}</Link>
               </Button>
             }
           />

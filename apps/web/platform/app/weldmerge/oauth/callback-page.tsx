@@ -12,15 +12,15 @@ import { useMergeOauthCallback } from '@/hooks/queries/use-weldmerge-sync-querie
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { fill } from '../lib/format';
+import { weldmergeSettingsTab } from '../lib/settings-path';
 
-const SETTINGS_PATH = '/weldmerge/settings';
 const REDIRECT_DELAY_MS = 1200;
 
 /** Where to go afterwards: the state's `returnTo` when it is a same-app path, else the settings tab for what was linked. */
 export function resolveReturnTo(result: Pick<MergeOauthCallbackResult, 'returnTo' | 'purpose'>): string {
   const target = result.returnTo;
   if (target?.startsWith('/') && !target.startsWith('//')) return target;
-  return `${SETTINGS_PATH}?tab=${result.purpose === 'account' ? 'accounts' : 'providers'}`;
+  return weldmergeSettingsTab(result.purpose === 'account' ? 'accounts' : 'providers');
 }
 
 type Phase =
@@ -128,7 +128,7 @@ export default function WeldMergeOauthCallbackPage({
               </>
             }
           />
-          <Button onClick={() => router.replace(`${SETTINGS_PATH}?tab=providers`)}>{to.backToSettings}</Button>
+          <Button onClick={() => router.replace(weldmergeSettingsTab('providers'))}>{to.backToSettings}</Button>
         </div>
       )}
     </div>

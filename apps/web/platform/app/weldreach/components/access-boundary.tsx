@@ -26,7 +26,15 @@ import { appAccessRequiredStatus, isAppAccessRequiredError } from '@/lib/reach/e
 import { useReachFormat } from '@/lib/reach/format';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
-export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode }>) {
+/**
+ * `statusStrip={false}` leaves out the usage header and the kill-switch banner:
+ * the WeldReach settings page sits in workspace Settings, outside the module
+ * shell, and only needs the gate.
+ */
+export function ReachAccessBoundary({
+  children,
+  statusStrip = true,
+}: Readonly<{ children: ReactNode; statusStrip?: boolean }>) {
   const t = useTranslations();
   const qc = useQueryClient();
   const access = useReachAccess();
@@ -60,7 +68,7 @@ export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode
 
   return (
     <>
-      <ReachStatusStrip summary={access.data} />
+      {statusStrip && <ReachStatusStrip summary={access.data} />}
       <div className="relative flex min-h-0 flex-1 flex-col">{children}</div>
     </>
   );
