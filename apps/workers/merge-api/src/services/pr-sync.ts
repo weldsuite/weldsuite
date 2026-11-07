@@ -373,6 +373,25 @@ export function upsertMirror(
   return upsertMirrorOnce(db, repository, fields, options, true);
 }
 
+/**
+ * Writes the mirror; null when `retryOnRace` and another delivery inserted the pull request
+ * between the read and this insert (`(repository_id, number)` refused it).
+ */
+async function writeMirrorUnlessRaced(
+  db: Db,
+  repository: MergeRepositoryRow,
+  fields: MirrorFields,
+  existing: MergePullRequestRow | undefined,
+  retryOnRace: boolean,
+): Promise<MergePullRequestRow | null> {
+  try {
+    return await writeMirror(db, repository, fields, existing);
+  } catch (err) {
+    if (existing || !retryOnRace || !isUniqueViolation(err)) throw err;
+    return null;
+  }
+}
+
 async function upsertMirrorOnce(
   db: Db,
   repository: MergeRepositoryRow,
@@ -396,18 +415,9 @@ async function upsertMirrorOnce(
     existing.providerUpdatedAt.getTime() === fields.providerUpdatedAt.getTime() &&
     existing.state === fields.state;
 
-  let row: MergePullRequestRow;
   const previous: PullRequestPhase | null = existing ? pullRequestPhase(existing) : null;
-  if (unchanged) {
-    row = existing!;
-  } else {
-    try {
-      row = await writeMirror(db, repository, fields, existing);
-    } catch (err) {
-      if (existing || !retryOnRace || !isUniqueViolation(err)) throw err;
-      return upsertMirrorOnce(db, repository, fields, options, false);
-    }
-  }
+  const row = unchanged ? existing! : await writeMirrorUnlessRaced(db, repository, fields, existing, retryOnRace);
+  if (!row) return upsertMirrorOnce(db, repository, fields, options, false);
 
   const { links, created } = await syncAutoLinks(db, row);
   const events: PendingEvent[] = [];

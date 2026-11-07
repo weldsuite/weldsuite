@@ -206,6 +206,21 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     return [{ to: null, except: peer.clientId, msg: { type: 'presence', clientId: peer.clientId, presence } }];
   }
 
+  /**
+   * Why `peer` may not commit `op` (as it would be applied), or null: the document refuses it, or
+   * `mayComment` (a commenter's) or `mayCommit` (anyone's) does.
+   */
+  private refusalOf(
+    op: Op,
+    peer: Peer<Presence>,
+    mayComment: RoomOptions<Op, State, Presence>['mayComment'],
+  ): RejectReason | null {
+    if (this.adapter.validate(this.state, op) !== null) return 'invalid';
+    if (mayComment && !mayComment(op, peer, this.state)) return 'read-only';
+    if (this.options.mayCommit && !this.options.mayCommit(op, peer, this.state)) return 'invalid';
+    return null;
+  }
+
   private submit(peer: Peer<Presence>, batchId: string, baseRevision: number, submitted: Op): Outgoing<Op, Snapshot, Presence>[] {
     const already = this.log.find((c) => c.batchId === batchId);
     if (already) return [{ to: peer.clientId, msg: { type: 'ack', batchId, revision: already.revision } }];
@@ -221,9 +236,8 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     } catch {
       return this.reject(peer.clientId, batchId, 'invalid');
     }
-    if (this.adapter.validate(this.state, op) !== null) return this.reject(peer.clientId, batchId, 'invalid');
-    if (mayComment && !mayComment(op, peer, this.state)) return this.reject(peer.clientId, batchId, 'read-only');
-    if (this.options.mayCommit && !this.options.mayCommit(op, peer, this.state)) return this.reject(peer.clientId, batchId, 'invalid');
+    const refused = this.refusalOf(op, peer, mayComment);
+    if (refused) return this.reject(peer.clientId, batchId, refused);
     if (!this.applyAtomically(op)) {
       this.needsReload = true;
       // No resync: the document may be half-changed. The sender takes back its
