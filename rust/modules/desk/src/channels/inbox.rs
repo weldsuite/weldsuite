@@ -729,6 +729,8 @@ struct ReplyBody {
     kind: String,
     body: String,
     attachments: Option<Vec<Value>>,
+    /// `deskReplyTranslationSchema`: what the agent wrote before translating.
+    translation: Option<Map<String, Value>>,
 }
 
 /// `deskMessageAttachmentSchema`: Zod strips unknown keys.
@@ -801,6 +803,14 @@ fn reply_schema(issues: &mut Issues, body: &Map<String, Value>) -> ReplyBody {
             read_attachment,
         )
         .into_option();
+    let translation = issues
+        .nested(
+            body,
+            "translation",
+            Presence::Optional,
+            super::translation::read,
+        )
+        .into_option();
     // The refinement sees the parsed data even where an attachment failed a
     // string check, so it counts the items sent.
     let sent = body
@@ -814,6 +824,7 @@ fn reply_schema(issues: &mut Issues, body: &Map<String, Value>) -> ReplyBody {
         kind,
         body: text,
         attachments,
+        translation,
     }
 }
 
@@ -857,7 +868,12 @@ async fn reply(
             author_id: Some(&caller.user_id),
             body: (!data.body.is_empty()).then(|| data.body.clone()),
             attachments: data.attachments.clone(),
-            metadata: None,
+            // Internal only: the visitor's view of a message has no metadata.
+            metadata: data.translation.clone().map(|translation| {
+                let mut metadata = Map::new();
+                metadata.insert("translation".to_owned(), Value::Object(translation));
+                metadata
+            }),
             assignee_id: None,
         },
     )

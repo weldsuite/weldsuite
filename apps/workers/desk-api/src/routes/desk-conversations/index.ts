@@ -44,6 +44,7 @@ import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
 import { markDeskSlaDue } from '../../lib/sla-due';
 import { getDeskAttributeOptions } from '../../services/desk-attributes';
+import { deskTranslationRoutes } from './translation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -273,6 +274,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       authorId: userId,
       body: data.body || null,
       attachments: data.attachments,
+      metadata: data.translation ? { translation: data.translation } : undefined,
     });
     publishEntityEvent({
       c,
@@ -427,5 +429,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
     return error.internal(c, 'Failed to update conversation');
   }
 });
+
+app.route('/', deskTranslationRoutes);
 
 export { app as deskConversationsRoutes };
