@@ -49,7 +49,9 @@ export async function readDeskPortalSession(
   if (!store?.get || !/^[0-9a-f]{64}$/.test(token)) return null;
   const session = (await store.get(deskPortalSessionKey(await sha256Hex(token)), 'json')) as DeskPortalSession | null;
   if (!session || session.workspaceId !== workspaceId) return null;
-  if (!(Date.parse(session.expiresAt) > now)) return null;
+  // An unparseable expiry counts as expired.
+  const expiresAt = Date.parse(session.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
   return session;
 }
 

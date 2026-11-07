@@ -9,32 +9,35 @@ export type LinkifiedPart = { type: 'text'; text: string } | { type: 'link'; tex
 /** `https://…`, `http://…` or `www.…`, up to whitespace or a `<`. */
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
 /** Punctuation that usually ends a sentence rather than the URL. */
-const TRAILING = /[.,;:!?'"]+$/;
+const TRAILING = new Set(['.', ',', ';', ':', '!', '?', "'", '"']);
+/**
+ * Longest link made. Message bodies are written by customers, so the trimming
+ * below must stay cheap on any input; anything after this is left as text.
+ */
+const MAX_URL_LENGTH = 2048;
 
 const BRACKETS = [
   ['(', ')'],
   ['[', ']'],
 ] as const;
 
+function count(text: string, char: string): number {
+  let n = 0;
+  for (const c of text) if (c === char) n++;
+  return n;
+}
+
 /** Drop sentence punctuation and an unopened closing bracket off the end. */
 function trimUrl(raw: string): string {
-  let url = raw;
-  let trimmed = true;
-  while (trimmed) {
-    trimmed = false;
-    const punctuation = TRAILING.exec(url);
-    if (punctuation) {
-      url = url.slice(0, -punctuation[0].length);
-      trimmed = true;
-    }
-    for (const [open, close] of BRACKETS) {
-      if (url.endsWith(close) && url.split(open).length < url.split(close).length) {
-        url = url.slice(0, -1);
-        trimmed = true;
-      }
-    }
+  let url = raw.length > MAX_URL_LENGTH ? raw.slice(0, MAX_URL_LENGTH) : raw;
+  for (;;) {
+    let end = url.length;
+    while (end > 0 && TRAILING.has(url[end - 1]!)) end--;
+    url = url.slice(0, end);
+    const bracket = BRACKETS.find(([, close]) => url.endsWith(close));
+    if (!bracket || count(url, bracket[0]) >= count(url, bracket[1])) return url;
+    url = url.slice(0, -1);
   }
-  return url;
 }
 
 /**

@@ -64,7 +64,7 @@ export function ruleToValues(rule: DeskRoutingRule): RoutingFormValues {
 export function newRuleId(existing: Array<{ id: string }>): string {
   const taken = new Set(existing.map((r) => r.id));
   for (;;) {
-    const id = `rule_${Math.random().toString(36).slice(2, 10)}`;
+    const id = `rule_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
     if (!taken.has(id)) return id;
   }
 }
