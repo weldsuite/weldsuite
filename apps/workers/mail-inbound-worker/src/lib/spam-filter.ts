@@ -175,6 +175,7 @@ export interface SpamScoreOptions {
   /**
    * When the message continues an already-stored non-spam thread for this
    * account, cap the score at THRESHOLD − 1 so replies are not auto-spammed.
+   * Never applied when the message failed DMARC.
    */
   isExistingHamThread?: boolean;
   /** Recipient mailbox addresses (for display-name spoof checks). */
@@ -402,7 +403,10 @@ export function scoreInboundSpam(
   let score = signals.reduce((sum, signal) => sum + signal.points, 0);
   const reasons = signals.map((signal) => signal.reason);
 
-  if (options.isExistingHamThread && score >= SPAM_SCORE_THRESHOLD) {
+  // The thread cap is for real correspondents. A message whose From failed
+  // DMARC may be anyone claiming to be them, and replying into a known
+  // thread is exactly how a hijack works, so it keeps its full score.
+  if (options.isExistingHamThread && email.dmarcStatus !== 'fail' && score >= SPAM_SCORE_THRESHOLD) {
     const capped = SPAM_SCORE_THRESHOLD - 1;
     if (score > capped) {
       reasons.push('capped_existing_ham_thread');
