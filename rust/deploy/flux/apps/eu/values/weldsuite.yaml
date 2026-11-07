@@ -163,6 +163,37 @@ signPortal:
         hosts:
           - sign.${DOMAIN}
 
+# The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
+# workspaces, the app catalog, warmup and outbound mail. Its image is the
+# `admin` target of rust/Dockerfile, released with the server's. Staff sign in
+# with Zitadel's `WeldSuite Staff` project and get in only with an active
+# admin_users row (`weldsuite admin staff add`, Hetzner runbook "Staff work").
+# Only ADMIN_CIDRS (cluster settings) reach it; the console's keys
+# (ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET, ADMIN_SESSION_SECRET) and
+# OUTBOUND_ADMIN_SECRET are in weldsuite-env. Without them nobody gets in.
+admin:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-admin
+    tag: ${WELDSUITE_IMAGE_TAG}
+  publicUrl: https://admin.${DOMAIN}
+  platformUrl: https://app.${DOMAIN}
+  allowedSourceRanges: ${ADMIN_CIDRS}
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: admin.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-admin-tls
+        hosts:
+          - admin.${DOMAIN}
+
 # WeldDocs' and WeldSheets' live editing: the workers' rooms on Node beside
 # the server (rust/docs/collab-rooms.md), released with the server's image.
 # Without it /config.json lists `collab-rooms` as unavailable and the

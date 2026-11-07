@@ -101,7 +101,7 @@ like any other change.
    ```
 
 6. **DNS.** The records `tofu output dns_records` prints (`app.`, `api.`,
-   `auth.`, `sign.`, `livekit.`, `turn.` under `test.weldsuite.eu`, A and AAAA
+   `auth.`, `sign.`, `admin.`, `livekit.`, `turn.` under `test.weldsuite.eu`, A and AAAA
    to the ingress load balancer) go in the `weldsuite.eu` zone in Hetzner DNS,
    in the same project: the Cloud API's `/zones/weldsuite.eu/rrsets`, with the
    same token. Add `www.` and `nl.` (the marketing site) to the same load

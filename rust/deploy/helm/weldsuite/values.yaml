@@ -232,6 +232,11 @@ config:
 #                                the relay system mail goes through (optional; unset skips mail)
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   OUTBOUND_ADMIN_SECRET        shared by the server and the admin console: what the console sends
+#                                to /internal/outbound (optional; unset refuses those calls)
+#   ADMIN_OIDC_CLIENT_ID / ADMIN_OIDC_CLIENT_SECRET  the admin console's app at the OIDC provider
+#   ADMIN_SESSION_SECRET         seals the admin console's session cookies, at least 32 characters
+#                                (the three ADMIN_* with admin.enabled; without them nobody signs in)
 #   MAIL_INBOUND_SECRET          shared by the server and Haraka for the RCPT TO check
 #                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
@@ -375,6 +380,54 @@ signPortal:
     annotations: {}
     hosts:
       - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+# The staff admin console (ADR FE-018) at admin.<domain>: WeldReach access
+# requests, workspaces, the app catalog, warmup and outbound mail. Staff sign in
+# at the install's OIDC provider (Zitadel: a confidential web app with the
+# redirect URI <publicUrl>/auth/callback and the post-logout URI
+# <publicUrl>/sign-in?signed_out=1) and get in only with an active admin_users
+# row, the roster `weldsuite admin staff` manages (ADR SEC-014). Reads from the
+# Secret: DATABASE_URL_MASTER, DATABASE_ENCRYPTION_KEY(_V2) (the tenants'
+# stored URLs), SMTP_URL, OUTBOUND_ADMIN_SECRET, and its own
+# ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and ADMIN_SESSION_SECRET (at
+# least 32 characters); until those three are there, nobody gets in.
+admin:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-admin
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  # Where staff open the console (ADMIN_PUBLIC_URL), e.g. https://admin.example.org.
+  # Required: the sign-in's redirect URI is built from it, never from the Host header.
+  publicUrl: ""
+  # The issuer staff sign in at; empty: config.auth.oidc.issuer.
+  oidcIssuer: ""
+  # The platform's URL, for links in the emails the console sends.
+  platformUrl: ""
+  # Client addresses (CIDRs) that may reach the console, as a Traefik
+  # ipAllowList Middleware on its Ingress (traefik.io/v1alpha1, so Traefik
+  # only; the Ingress's own router.middlewares annotation is replaced). Empty:
+  # no allowlist. Traefik must see the client's address (PROXY protocol).
+  allowedSourceRanges: []
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: admin.example.org
         paths:
           - path: /
             pathType: Prefix
@@ -596,6 +649,9 @@ networkPolicy:
   # Who may call the sign portal (the ingress controller); empty allows any
   # peer. The portal's own pods may always call the server.
   signPortalFrom: []
+  # Who may call the admin console (the ingress controller); empty allows any
+  # peer. The console's own pods may always call the server.
+  adminFrom: []
 
 # Scheduled jobs (the workers' Cron Triggers), one CronJob each running
 # `weldsuite cron <name>` with the server's environment. A run that is still

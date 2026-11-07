@@ -7,6 +7,9 @@ secret:
     S3_ACCESS_KEY_ID: not-a-real-key
     S3_SECRET_ACCESS_KEY: not-a-real-secret
     SIGN_PORTAL_SECRET: not-a-real-secret
+    ADMIN_SESSION_SECRET: not-a-real-secret-not-a-real-secret
+    ADMIN_OIDC_CLIENT_ID: not-a-real-client
+    ADMIN_OIDC_CLIENT_SECRET: not-a-real-secret
     MAIL_INBOUND_SECRET: not-a-real-secret
     ZITADEL_SERVICE_TOKEN: not-a-real-token
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
@@ -43,6 +46,10 @@ networkPolicy:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: traefik
+  adminFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik
 clerkJwks:
   enabled: true
   json: '{"keys":[]}'
@@ -50,6 +57,16 @@ signPortal:
   enabled: true
   ingress:
     enabled: true
+admin:
+  enabled: true
+  publicUrl: https://admin.example.org
+  platformUrl: https://app.example.org
+  allowedSourceRanges: [203.0.113.7/32, 198.51.100.0/24]
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
 cron:
   jobs:
     identity-sync:

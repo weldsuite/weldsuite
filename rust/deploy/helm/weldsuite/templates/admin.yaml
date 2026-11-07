@@ -1,0 +1,195 @@
+{{- if .Values.admin.enabled }}
+{{- if not .Values.admin.publicUrl }}
+{{- fail "admin.enabled needs admin.publicUrl: where staff open the console (https://admin.<domain>); the sign-in's redirect URI is <publicUrl>/auth/callback" }}
+{{- end }}
+{{- $secret := include "weldsuite.secretName" . }}
+# The staff admin console (ADR FE-018): TanStack Start's Node build. Staff
+# sign in at the install's OIDC provider and get in only with an active
+# admin_users row, the roster `weldsuite admin staff` manages (ADR SEC-014).
+# Until ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and
+# ADMIN_SESSION_SECRET are in the Secret, its sign-in answers 503 and nobody
+# gets in.
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "weldsuite.admin.fullname" . }}
+  labels:
+    {{- include "weldsuite.admin.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weldsuite.admin.fullname" . }}
+  labels:
+    {{- include "weldsuite.admin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.admin.replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.admin.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if not .Values.secret.existingSecret }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- end }}
+      labels:
+        {{- include "weldsuite.admin.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if .Values.serviceAccount.create }}{{ include "weldsuite.admin.fullname" . }}{{ else }}{{ include "weldsuite.serviceAccountName" . }}{{ end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: admin
+          image: "{{ .Values.admin.image.repository }}:{{ .Values.admin.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.admin.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: ADMIN_PUBLIC_URL
+              value: {{ .Values.admin.publicUrl | quote }}
+            - name: ADMIN_OIDC_ISSUER
+              value: {{ .Values.admin.oidcIssuer | default .Values.config.auth.oidc.issuer | quote }}
+            {{- with .Values.admin.platformUrl }}
+            # Links in the emails the console sends (WeldReach access decisions).
+            - name: PLATFORM_APP_URL
+              value: {{ . | quote }}
+            {{- end }}
+            # The server's outbound-mail API (/internal/outbound, OUTBOUND_ADMIN_SECRET).
+            - name: MAIL_API_URL
+              value: {{ include "weldsuite.admin.serverUrl" . | quote }}
+            {{- with .Values.config.mail.from }}
+            - name: SYSTEM_EMAIL_FROM
+              value: {{ . | quote }}
+            {{- end }}
+            - name: DATABASE_URL_MASTER
+              valueFrom:
+                secretKeyRef: { name: {{ $secret }}, key: DATABASE_URL_MASTER }
+            {{- /* Optional: the console starts without them and says what is missing. */}}
+            {{- range list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "SMTP_URL" "OUTBOUND_ADMIN_SECRET" "ADMIN_SESSION_SECRET" "ADMIN_OIDC_CLIENT_ID" "ADMIN_OIDC_CLIENT_SECRET" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef: { name: {{ $secret }}, key: {{ . }}, optional: true }
+            {{- end }}
+            {{- with .Values.admin.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.admin.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.admin.fullname" . }}
+  labels:
+    {{- include "weldsuite.admin.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "weldsuite.admin.selectorLabels" . | nindent 4 }}
+{{- with .Values.admin.allowedSourceRanges }}
+---
+# Only these client addresses reach the console: a Traefik ipAllowList on its
+# Ingress. Traefik must see the client's own address (the PROXY protocol from
+# the load balancer, as on the Hetzner clusters); behind another proxy, set
+# admin.allowedSourceRanges to its egress addresses or use that proxy's rules.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "weldsuite.admin.fullname" $ }}-allowlist
+  labels:
+    {{- include "weldsuite.admin.labels" $ | nindent 4 }}
+spec:
+  ipAllowList:
+    sourceRange:
+      {{- toYaml . | nindent 6 }}
+{{- end }}
+{{- with .Values.admin.ingress }}
+{{- if .enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "weldsuite.admin.fullname" $ }}
+  labels:
+    {{- include "weldsuite.admin.labels" $ | nindent 4 }}
+  {{- $annotations := deepCopy (.annotations | default dict) }}
+  {{- if $.Values.admin.allowedSourceRanges }}
+  {{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.middlewares" (printf "%s-%s-allowlist@kubernetescrd" $.Release.Namespace (include "weldsuite.admin.fullname" $)) }}
+  {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "weldsuite.admin.fullname" $ }}
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
