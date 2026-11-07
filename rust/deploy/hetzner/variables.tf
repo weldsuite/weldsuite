@@ -121,6 +121,35 @@ variable "livekit_worker_count" {
   }
 }
 
+# The MTA's IP pools (docs/plans/eu-mail-service.md): `system` for the
+# platform's own mail, `customer` for what people write. Each pool is its own
+# servers, each with a primary IPv4 that outlives the server and its reverse
+# DNS, round robin over the pool's locations. Private addresses: 10 per pool
+# from .60, pools in name order, so a new pool whose name sorts before an
+# existing one moves that one's addresses; name it to sort last.
+variable "mail_pools" {
+  description = "Mail node pools: pool name => { count, type, locations }. Nodes are mail<n>-<pool>.<domain>, labelled weldsuite.org/mail-pool=<pool> and tainted weldsuite.org/mail. Empty: no mail nodes."
+  type = map(object({
+    count     = number
+    type      = optional(string, "cpx22")
+    locations = list(string)
+  }))
+  default = {}
+
+  validation {
+    condition     = length(var.mail_pools) <= 4
+    error_message = "mail_pools: at most 4 pools (private addresses .60-.99)."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, pool in var.mail_pools :
+      can(regex("^[a-z][a-z0-9]{0,15}$", name)) && pool.count >= 0 && pool.count <= 10 && length(pool.locations) > 0
+    ])
+    error_message = "mail_pools: names are lowercase letters and digits (they become MTA_SUBMISSION_PASSWORD_<POOL>), 0-10 nodes per pool, at least one location."
+  }
+}
+
 variable "postgres_locations" {
   description = "CloudNativePG nodes, one per entry: primary and synchronous replica in different locations."
   type        = list(string)
@@ -172,6 +201,17 @@ variable "ingress_node_ports" {
   default = {
     http  = 30080
     https = 30443
+  }
+}
+
+variable "mx_node_port" {
+  description = "NodePort of WeldMail's MX (Haraka, the chart's mailInbound with service type NodePort). Set: the ingress load balancer also forwards port 25 there, with the PROXY protocol, and mx.<domain> joins dns_records. 0: no MX."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.mx_node_port == 0 || (var.mx_node_port >= 30000 && var.mx_node_port <= 32767)
+    error_message = "mx_node_port: 0, or a NodePort (30000-32767)."
   }
 }
 

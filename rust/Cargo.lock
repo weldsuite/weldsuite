@@ -3973,6 +3973,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http 0.7.1",
  "tracing",
@@ -4026,6 +4027,7 @@ dependencies = [
  "weldsuite-meet",
  "weldsuite-merge",
  "weldsuite-migrations",
+ "weldsuite-mta",
  "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -5390,6 +5392,30 @@ dependencies = [
  "sqlx",
  "tokio",
  "weldsuite-db",
+]
+
+[[package]]
+name = "weldsuite-mta"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "flate2",
+ "futures-util",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

@@ -31,6 +31,12 @@
 //!   `reach-warmup-engage` subscribers send them over SMTP and engage them
 //!   over IMAP (the reach-warmup-send / -engage queues). Dead letters go to
 //!   `REACH_WARMUP_DLQ`.
+//! - **Delivery events** `MAIL_SENDING_EVENTS` (`mail.sending-events`), when
+//!   WeldMail is served: the EU edition's MTA publishes delivered, deferred,
+//!   bounced and complained events in Cloudflare Email Sending's shape; the
+//!   `mail-sending-events` subscriber applies them to the outbound ledgers
+//!   and the tenant databases (mail-api's `mail-sending-events` queue,
+//!   MAIL-011). Dead letters go to `MAIL_SENDING_EVENTS_DLQ`.
 //!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
@@ -65,7 +71,10 @@ use weldsuite_subscribers::{
 };
 
 pub(crate) use config::ConsumeConfig;
-use config::{MAIL_INBOUND, MailInboundConfig, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND};
+use config::{
+    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, REACH_SEND,
+    REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
+};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -226,6 +235,105 @@ fn mail_inbound_handler(
         }
         None => mail,
     })
+}
+
+/// How the `mail-sending-events` subscriber consumes its stream: mail-api's
+/// queue consumer (batches of 50 within ten seconds, three retries, then
+/// the dead letters), with the hub's backoff between retries.
+pub(crate) fn mail_sending_events_spec(events: &MailSendingEventsConfig) -> ConsumerSpec {
+    ConsumerSpec {
+        stream: events.stream.clone(),
+        durable: MAIL_SENDING_EVENTS.to_owned(),
+        description: "WeldSuite delivery events from the MTA (the mail-sending-events queue in Global, MAIL-011)".to_owned(),
+        filter_subject: events.subject.clone(),
+        deliver_new_only: false,
+        max_retries: 3,
+        max_deferrals: 0,
+        retry_backoff: RETRY_BACKOFF.to_vec(),
+        ack_wait: Duration::from_secs(120),
+        batch_size: 50,
+        batch_wait: Duration::from_secs(10),
+        workers: 2,
+        dead_letter_subject: "mail-sending-events-dlq".to_owned(),
+        dedupe_capacity: DEDUPE_CAPACITY,
+    }
+}
+
+/// The MTA's delivery events stream: a file stream, a week, a two-minute
+/// duplicate window on `Nats-Msg-Id` (the MTA's outbox row).
+fn mail_sending_events_stream_config(
+    events: &MailSendingEventsConfig,
+    replicas: usize,
+) -> async_nats::jetstream::stream::Config {
+    async_nats::jetstream::stream::Config {
+        name: events.stream.clone(),
+        description: Some("Delivery events published by the MTA (MAIL-011)".to_owned()),
+        subjects: vec![events.subject.clone()],
+        storage: async_nats::jetstream::stream::StorageType::File,
+        max_age: Duration::from_hours(7 * 24),
+        duplicate_window: Duration::from_secs(120),
+        num_replicas: replicas.max(1),
+        ..async_nats::jetstream::stream::Config::default()
+    }
+}
+
+/// The `mail-sending-events` subscriber: the master database, the tenant
+/// databases, and the outbound ledgers `serve` keeps on Valkey (without
+/// `VALKEY_URL` they live in each `serve` process, out of reach, and the
+/// events only reach the tenant databases).
+fn mail_sending_events_handler(
+    config: &ConsumeConfig,
+    master: &PgPool,
+    workspaces: &Arc<Workspaces>,
+) -> Result<Arc<dyn BatchHandler>, Error> {
+    use weldsuite_mail_domain::outbound::{LedgerDeps, OutboundLedger, StoreLedger, clock};
+    let ledger: Option<Arc<dyn OutboundLedger>> = if let Some(url) = &config.valkey_url {
+        let store = weldsuite_adapters_oss::ValkeyLedgerStore::from_url(
+            url,
+            config.valkey_ledger_prefix.clone(),
+        )?;
+        Some(Arc::new(StoreLedger::new(LedgerDeps {
+            store: Arc::new(store),
+            master: Some(master.clone()),
+            flags: Some(flag_source(config, master)),
+            reviews: None,
+            daily_quota: None,
+            clock: clock::system_clock(),
+        })))
+    } else {
+        tracing::warn!("VALKEY_URL is not set: delivery events do not reach the outbound ledgers");
+        None
+    };
+    let tenants = Arc::clone(workspaces);
+    let tenants: weldsuite_mail::scheduled::TenantDatabases = Arc::new(move |reference: String| {
+        let tenants = Arc::clone(&tenants);
+        Box::pin(async move {
+            tenants
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    Ok(Arc::new(
+        weldsuite_mail::consumers::SendingEventsSubscriber::new(
+            master.clone(),
+            ledger,
+            Arc::new(weldsuite_mail::consumers::ClosureTenants(tenants)),
+        ),
+    ))
+}
+
+/// Feature flags from the master database (`FEATURE_FLAGS=master-db`), or
+/// every flag at its default.
+fn flag_source(config: &ConsumeConfig, master: &PgPool) -> Arc<dyn weldsuite_ports::DynFlagSource> {
+    match config.master_db_flags {
+        Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
+            master.clone(),
+            refresh,
+        )),
+        None => Arc::new(weldsuite_ports::DefaultFlags),
+    }
 }
 
 /// WeldReach's reply path on `mail.inbound`: `reply+<token>@REACH_INBOUND_DOMAIN`
@@ -400,16 +508,29 @@ struct Services {
 /// Connects NATS (creating the streams when asked) and Valkey, and builds
 /// the embeddings and webhook clients. A configured service that can't be
 /// reached fails the start, so a broken pod crash-loops visibly.
-/// WeldReach's queue streams, which crons publish to: `REACH_SEND` (the
-/// send sweep) and `REACH_WARMUP` (the warmup dispatch), each with its dead
+/// The queue streams others publish to: WeldReach's, which crons publish to
+/// (`REACH_SEND`, the send sweep; `REACH_WARMUP`, the warmup dispatch), and
+/// the MTA's delivery events (`MAIL_SENDING_EVENTS`), each with its dead
 /// letters, when one of their subscribers runs. Created or updated with
 /// `ensure_streams`, otherwise only what is missing is created.
-async fn ensure_reach_streams(
+async fn ensure_queue_streams(
     bus: &JetStreamEventBus,
     config: &ConsumeConfig,
 ) -> Result<(), Error> {
     let runs = |ids: &[&str]| config.subscribers.iter().any(|s| ids.contains(&s.as_str()));
     let mut streams = Vec::new();
+    if runs(&[MAIL_SENDING_EVENTS]) {
+        let events = &config.mail_sending_events;
+        streams.push(mail_sending_events_stream_config(
+            events,
+            config.stream_replicas,
+        ));
+        streams.push(dead_letter_stream_config(
+            &events.dead_letter_stream,
+            "mail-sending-events-dlq",
+            config.stream_replicas,
+        ));
+    }
     if runs(&[REACH_SEND]) {
         streams.push(crate::reach::send_stream_config(config.stream_replicas));
         streams.push(dead_letter_stream_config(
@@ -483,7 +604,7 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
                 .await?;
         }
     }
-    ensure_reach_streams(&bus, config).await?;
+    ensure_queue_streams(&bus, config).await?;
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(
             connect_valkey(url).await?,
@@ -561,14 +682,16 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         )),
         _ => None,
     };
+    let mail_sending_events = if config.subscribers.iter().any(|s| s == MAIL_SENDING_EVENTS) {
+        Some((
+            mail_sending_events_spec(&config.mail_sending_events),
+            mail_sending_events_handler(&config, &master, &workspaces)?,
+        ))
+    } else {
+        None
+    };
     let reach_send = if config.subscribers.iter().any(|s| s == REACH_SEND) {
-        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
-            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
-                master.clone(),
-                refresh,
-            )),
-            None => Arc::new(weldsuite_ports::DefaultFlags),
-        };
+        let flags = flag_source(&config, &master);
         let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
         let events = weldsuite_events::EntityEventPublisher::new(
             Some(bus),
@@ -596,13 +719,7 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         .collect();
     let mut reach_warmup = Vec::new();
     if !warmup_subscribers.is_empty() {
-        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
-            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
-                master.clone(),
-                refresh,
-            )),
-            None => Arc::new(weldsuite_ports::DefaultFlags),
-        };
+        let flags = flag_source(&config, &master);
         let network = crate::reach::warmup_network(master.clone(), flags)?;
         for id in &warmup_subscribers {
             let kind = if *id == REACH_WARMUP_SEND {
@@ -652,6 +769,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(MAIL_INBOUND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = mail_sending_events {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(MAIL_SENDING_EVENTS.to_owned());
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,
@@ -809,6 +944,22 @@ mod tests {
         assert!(realtime.deliver_new_only);
         let search = consumer_spec(subscriber("search-index").expect("search"), &config);
         assert_eq!((search.batch_size, search.workers), (25, 4));
+    }
+
+    #[test]
+    fn delivery_events_follow_the_mail_api_queue() {
+        let config = config();
+        let spec = mail_sending_events_spec(&config.mail_sending_events);
+        assert_eq!(spec.stream, "MAIL_SENDING_EVENTS");
+        assert_eq!(spec.filter_subject, "mail.sending-events");
+        assert_eq!((spec.batch_size, spec.max_deliver()), (50, 4));
+        assert_eq!(
+            weldsuite_adapters_oss::dead_letter_subject(&spec, "mail.sending-events"),
+            "mail-sending-events-dlq.sending-events"
+        );
+        let stream = mail_sending_events_stream_config(&config.mail_sending_events, 3);
+        assert_eq!(stream.subjects, ["mail.sending-events"]);
+        assert_eq!(stream.num_replicas, 3);
     }
 
     #[test]
