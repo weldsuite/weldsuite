@@ -180,8 +180,8 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
     c.executionCtx.waitUntil(
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'created'),
-        // Assign first, so the notification goes to the new owner, not the whole team.
-        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+        // Route and assign first, so the notification goes to the new owner, not the whole team.
+        autoAssignConversation(c.env, db, orgId, conversation, true).then((current) =>
           notifyTeamOfVisitorMessage({
             env: c.env,
             db,

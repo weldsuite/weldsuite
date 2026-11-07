@@ -31,6 +31,10 @@
 //! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
 //!   outside it (workflows, the public API): `ingestDeskApi`, assignment,
 //!   notifications and the inbox events.
+//! - [`routing`] (`@weldsuite/db/lib/desk-routing`): the workspace's routing
+//!   rules, applied when a conversation opens or its type or tags change.
+//! - [`escalation`] (`@weldsuite/db/lib/desk-escalation*`): a team's
+//!   escalation rules, when they come due and what firing one does.
 //! - [`sla`] (`@weldsuite/db/lib/desk-sla`): the SLA engine. Clocks per
 //!   conversation, derived from the timeline and the matching policy on
 //!   [`sla_calendar`]'s business time (`desk-sla-calendar`); every write
@@ -52,6 +56,7 @@ pub mod assignment;
 pub mod assignment_router;
 pub mod attributes;
 pub mod email;
+pub mod escalation;
 pub mod http;
 pub mod inbox;
 pub mod links;
@@ -60,6 +65,7 @@ pub mod notify;
 pub mod phone;
 pub mod priority_matrix;
 pub mod realtime;
+pub mod routing;
 pub mod sla;
 pub mod sla_calendar;
 pub mod table;

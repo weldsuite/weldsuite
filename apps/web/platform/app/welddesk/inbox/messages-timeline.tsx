@@ -17,6 +17,7 @@ import { formatFileSize } from './attachments';
 import { MessageTranslation } from './translation/message-translation';
 import { LinkifiedText } from './linkified-text';
 import { impactUrgencySentences, isLinkEvent, linkEventSentence } from './linked-timeline';
+import { escalationSentence } from './escalation-label';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -157,6 +158,7 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
   if (eventType === 'closed') return t.timeline.closed.replace('{actor}', actor);
   if (eventType === 'reopened') return t.timeline.opened.replace('{actor}', actor);
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
+  if (eventType === 'escalated') return escalationSentence(message.metadata, (id) => memberLabel(members, id));
   if (eventType === 'sla_warning' || eventType === 'sla_breached') {
     const metric = message.metadata?.metric as DeskSlaMetric | undefined;
     const label = (metric && t.sla.metrics[metric]) || 'SLA';

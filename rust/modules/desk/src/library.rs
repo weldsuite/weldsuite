@@ -148,6 +148,44 @@ pub(crate) fn department_schema(issues: &mut Issues, body: &Map<String, Value>, 
     string(issues, body, "icon", OPT, None, Some(100));
     issues.boolean(body, "isActive", OPT);
     integer(issues, body, "sortOrder", OPT);
+    string(issues, body, "managerId", NULLISH, Some(1), Some(30));
+    string(issues, body, "managerName", NULLISH, None, Some(255));
+    issues.list(body, "agentIds", OPT, None, Some(500), |issues, item| {
+        issues.item_text(item, Text::length(Some(1), Some(255)))
+    });
+    issues.boolean(body, "autoAssignment", OPT);
+    issues.boolean(body, "roundRobinAssignment", OPT);
+    issues.list(
+        body,
+        "escalationRules",
+        OPT,
+        None,
+        Some(20),
+        escalation_rule_schema,
+    );
+}
+
+/// `deskEscalationRuleSchema`, in the schema's order.
+fn escalation_rule_schema(issues: &mut Issues, item: &Value) -> Option<()> {
+    const CONDITIONS: [&str; 4] = ["sla_breach", "no_response", "unassigned", "custom"];
+    const TARGETS: [&str; 3] = ["manager", "next_tier", "specific_agent"];
+    let rule = issues.object(item)?;
+    issues.choice(rule, "condition", Presence::Required, &CONDITIONS);
+    issues.number(
+        rule,
+        "afterMinutes",
+        Presence::Required,
+        Number {
+            int: true,
+            min: Some(0.0),
+            max: Some(525_600.0),
+            ..Number::default()
+        },
+    );
+    issues.choice(rule, "escalateTo", Presence::Required, &TARGETS);
+    string(issues, rule, "escalateToId", OPT, Some(1), Some(255));
+    issues.boolean(rule, "notifyCustomer", OPT);
+    Some(())
 }
 
 fn canned_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {

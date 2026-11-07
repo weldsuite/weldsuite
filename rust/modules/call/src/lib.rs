@@ -23,6 +23,7 @@ mod calls;
 mod credits;
 mod crm;
 mod desk_phone;
+mod desk_routing;
 mod intelligence;
 mod internal;
 mod js;

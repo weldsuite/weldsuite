@@ -220,6 +220,21 @@ describe('POST /desk/assign', () => {
     expect(await pick('org_1')).toBe('user_ann');
   });
 
+  it('keeps a rotation per team, apart from the roster', async () => {
+    const { env } = testEnv();
+    const pick = async (teamId?: string) =>
+      (
+        (await (
+          await worker.fetch(post('/desk/assign', { workspaceId: 'org_1', mode: 'round_robin', candidates, ...(teamId ? { teamId } : {}) }), env)
+        ).json()) as { userId: string | null }
+      ).userId;
+    expect(await pick('dep_a')).toBe('user_ann');
+    expect(await pick('dep_a')).toBe('user_bob');
+    expect(await pick('dep_b')).toBe('user_ann');
+    expect(await pick()).toBe('user_ann');
+    expect(await pick('dep_a')).toBe('user_cy');
+  });
+
   it('counts recent picks towards the cap', async () => {
     const { env } = testEnv();
     const pick = async () =>

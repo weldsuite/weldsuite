@@ -5,6 +5,7 @@
 //! - [`helpcenter`], `/api/helpcenter-settings` (`routes/helpcenter-settings`)
 //! - [`widget`], `/api/desk/widget` (`routes/desk-widget`)
 //! - [`assignment`], `/api/desk/assignment` (`routes/desk-assignment`)
+//! - [`routing`], `/api/desk/routing` (`routes/desk-routing`)
 //! - [`email`], `/api/helpdesk-email` (`routes/helpdesk-email`)
 //! - [`analytics`], `/api/helpdesk-analytics` (`routes/helpdesk-analytics`)
 
@@ -15,6 +16,7 @@ mod helpcenter;
 mod helpdesk;
 mod priority_matrix;
 mod reports;
+mod routing;
 #[rustfmt::skip]
 mod tables;
 mod widget;
@@ -39,6 +41,7 @@ where
         .nest("/helpcenter-settings", helpcenter::routes(gate))
         .nest("/desk/widget", widget::routes(gate))
         .nest("/desk/assignment", assignment::routes(gate))
+        .nest("/desk/routing", routing::routes(gate))
         .nest("/helpdesk-email", email::routes(gate))
         .nest("/helpdesk-analytics", analytics::routes(gate))
 }

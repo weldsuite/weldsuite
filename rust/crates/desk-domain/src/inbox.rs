@@ -25,6 +25,7 @@ use weldsuite_ports::{BoxFuture, DynRealtimePublisher, RealtimeMessage};
 use crate::assignment::{Picker, auto_assign_with};
 use crate::attributes::{self, Update, UpdateError, Updated};
 use crate::notify::{self, EntityKind, HelpdeskNotification, PREVIEW_MAX};
+use crate::routing::{self, Keep};
 use crate::table::WriteError;
 use crate::webchat::{
     self, Append, AppendError, Appended, DESK_CONVERSATIONS, VisitorInput, now, preview_of,
@@ -855,6 +856,36 @@ async fn auto_assign_opened(deps: &InboxDeps<'_>, conversation: Value) -> (Value
     }
 }
 
+/// What routing did for the inbox: the conversation after it, its timeline
+/// events, the entity events, and whether a rule applied.
+type RoutedForInbox = (Value, Vec<Value>, Vec<InboxEvent>, bool);
+
+/// `routeConversation(deps, conversation, keep)`: the workspace's routing
+/// rules ([`crate::routing`]); a team or an owner the writer set stays.
+async fn route_conversation(
+    deps: &InboxDeps<'_>,
+    id: &str,
+    keep: Keep,
+) -> Result<RoutedForInbox, InboxError> {
+    let routed = routing::route(deps.db, id, keep)
+        .await
+        .map_err(|error| InboxError::Failed(error.to_string()))?;
+    let mut events = Vec::new();
+    let mut messages = Vec::new();
+    for step in &routed.steps {
+        events.push(conversation_event(step.action, &step.conversation, None));
+        events.push(message_event(&step.message));
+        messages.push(step.message.clone());
+    }
+    let applied = !routed.steps.is_empty();
+    Ok((routed.conversation, messages, events, applied))
+}
+
+/// `reroutes(message)`: an `attributes_changed` event with a new type or tags.
+fn reroutes(message: Option<&Value>) -> bool {
+    message.is_some_and(|m| routing::change_reroutes(&m["metadata"]["changes"]).0)
+}
+
 /// `assignOpened(deps, conversation, assigneeId, actor)`: the member the
 /// caller named, or else the workspace's assignment rules.
 async fn assign_opened(
@@ -954,8 +985,20 @@ pub async fn open_desk_api_conversation(
         messages.push(message);
     }
 
+    // A new conversation is routed; a repeat whose type or tags changed is routed again.
+    let named_owner = input.assignee_id.as_deref().is_some_and(|a| !a.is_empty());
+    let (routed, routing_events) = if result.created || reroutes(set_message.as_ref()) {
+        let keep = Keep {
+            team: !matches!(input.fields.department_id, Field::Absent),
+            assignee: named_owner,
+        };
+        let (routed, _, events, _) = route_conversation(deps, &id, keep).await?;
+        (routed, events)
+    } else {
+        (opened.clone(), Vec::new())
+    };
     let (conversation, assign_events) =
-        assign_opened(deps, opened.clone(), input.assignee_id.as_deref(), actor).await?;
+        assign_opened(deps, routed, input.assignee_id.as_deref(), actor).await?;
     mark_sla_due(deps).await;
     let mut events = vec![conversation_event(
         opened_action(&result, &opened),
@@ -963,6 +1006,7 @@ pub async fn open_desk_api_conversation(
         None,
     )];
     events.extend(messages.into_iter().map(message_event));
+    events.extend(routing_events);
     events.extend(assign_events);
     emit_all(deps, &events).await;
 
@@ -1056,6 +1100,7 @@ async fn load_conversation(db: &PgPool, id: &str) -> Result<Value, InboxError> {
 /// refused one writes nothing at all), then assign or unassign, then close
 /// or reopen, each as the timeline event the inbox itself writes. A change
 /// to what already holds writes nothing.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn update_desk_conversation_from_api(
     deps: &InboxDeps<'_>,
     input: &UpdateConversation,
@@ -1070,6 +1115,7 @@ pub async fn update_desk_conversation_from_api(
     let mut messages: Vec<Value> = Vec::new();
     let mut events: Vec<InboxEvent> = Vec::new();
     let mut custom_fields = None;
+    let mut change: Option<Value> = None;
 
     // applyTicketFields
     if with_fields {
@@ -1090,11 +1136,36 @@ pub async fn update_desk_conversation_from_api(
                 Some(("customFields", Value::Object(set.custom_fields.clone()))),
             ));
             events.push(message_event(&message));
+            change = Some(message.clone());
             messages.push(message);
         }
         custom_fields = Some(set.custom_fields);
     }
     let previous_assignee = conversation["assigneeId"].clone();
+
+    // rerouteUpdated: a new type or tags runs the routing rules again; a
+    // rule that applied may hand it out when the call named no owner.
+    if reroutes(change.as_ref()) {
+        let keep = Keep {
+            team: !matches!(input.fields.department_id, Field::Absent),
+            assignee: !matches!(input.assignee_id, Field::Absent),
+        };
+        let (routed, routed_messages, routed_events, applied) =
+            route_conversation(deps, id, keep).await?;
+        conversation = routed;
+        messages.extend(routed_messages);
+        events.extend(routed_events);
+        if applied && matches!(input.assignee_id, Field::Absent) {
+            let (assigned, assign_events) = auto_assign_opened(deps, conversation).await;
+            conversation = assigned;
+            for event in &assign_events {
+                if event.entity_type == "desk_message" {
+                    messages.push(event.data.clone());
+                }
+            }
+            events.extend(assign_events);
+        }
+    }
 
     // applyTransitions
     let mut moves: Vec<(&'static str, Option<Option<String>>)> = Vec::new();

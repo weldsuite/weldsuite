@@ -19,6 +19,7 @@ export type DeskEventType =
   | 'attributes_changed'
   | 'sla_warning'
   | 'sla_breached'
+  | 'escalated'
   // Linked tickets (internal): parent/child links, merges, major incidents.
   | 'linked'
   | 'unlinked'

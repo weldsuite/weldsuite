@@ -638,6 +638,8 @@ export interface UpdateDeskConversationAttributesInput extends DeskMatrixInput {
   departmentId?: string | null;
   /** Slug → value for the type's fields; null or '' clears one. */
   customFields?: CustomFieldMap;
+  /** Extra keys for the `attributes_changed` event (a routing rule's id). */
+  metadata?: Record<string, unknown>;
 }
 
 export interface DeskConversationAttributesResult {
@@ -886,7 +888,7 @@ export async function updateDeskConversationAttributes(
     kind: 'event',
     authorType: input.authorType,
     authorId: input.authorId ?? null,
-    metadata: { eventType: 'attributes_changed', changes },
+    metadata: { ...input.metadata, eventType: 'attributes_changed', changes },
   });
   const customFields = await readDeskCustomFields(db, current.id, definitions);
   return { conversation, message, customFields, slaCheckAt };
@@ -1656,12 +1658,13 @@ export function deskAuthorFromMember(member: {
 
 /**
  * Events only the team sees: ticket-field changes, SLA warnings / breaches,
- * and linked-ticket changes (links, merges, major incidents).
+ * escalations, and linked-ticket changes (links, merges, major incidents).
  */
 const INTERNAL_DESK_EVENTS = new Set<string>([
   'attributes_changed',
   'sla_warning',
   'sla_breached',
+  'escalated',
   'linked',
   'unlinked',
   'merged_into',

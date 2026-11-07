@@ -345,6 +345,11 @@ async fn update_attributes(
         input.custom_fields.clone_from(entries);
     }
     let caller = &ctx.caller;
+    let before = weldsuite_desk_domain::webchat::get(&caller.db, &id, false)
+        .await
+        .ok()
+        .flatten()
+        .map(|(row, _)| row);
     let updated = match attributes::update(&caller.db, &id, &caller.user_id, &input).await {
         Ok(updated) => updated,
         Err(attributes::UpdateError::NotFound) => {
@@ -372,13 +377,21 @@ async fn update_attributes(
         );
     }
     if let Some(message) = &updated.message {
-        publish_events(
-            &ctx,
-            &state,
+        let id = conversation["id"].as_str().unwrap_or_default().to_owned();
+        let mut updated_event = weldsuite_events::EntityEvent::new(
             ev::DESK_CONVERSATION_UPDATED,
-            &conversation,
-            message,
+            id,
+            conversation.clone(),
         );
+        if let Some(diff) = crate::routing::attribute_changes(before.as_ref(), &conversation) {
+            updated_event = updated_event.with_changes(diff);
+        }
+        let message_event = weldsuite_events::EntityEvent::new(
+            ev::DESK_MESSAGE_CREATED,
+            message["id"].as_str().unwrap_or_default().to_owned(),
+            message.clone(),
+        );
+        crate::routing::publish_in_order(&state, caller, vec![updated_event, message_event]);
         publish_change(
             &state,
             &caller.clerk_org_id,
@@ -386,6 +399,27 @@ async fn update_attributes(
             message,
             &HashMap::new(),
         );
+        // A new type or tags can route it elsewhere (a team it set itself stays).
+        if let Some(routed) =
+            crate::routing::reroute_after_attributes(&state, caller, message).await
+        {
+            for step in &routed.steps {
+                let authors =
+                    load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
+                publish_change(
+                    &state,
+                    &caller.clerk_org_id,
+                    &step.conversation,
+                    &step.message,
+                    &authors,
+                );
+            }
+            let custom_fields = conversation["customFields"].clone();
+            conversation = routed.conversation;
+            if let Some(object) = conversation.as_object_mut() {
+                object.insert("customFields".to_owned(), custom_fields);
+            }
+        }
     }
     let message = updated.message.unwrap_or(Value::Null);
     Data(json!({ "conversation": conversation, "message": message })).into_response()

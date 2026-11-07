@@ -215,7 +215,8 @@ async function handleSyncAgents(request: Request, env: Env): Promise<Response> {
 /**
  * WeldDesk inbox pick — one AssignmentRouter per workspace (`desk:<id>`).
  * The caller (widget-api, mail-inbound-worker) owns the tenant DB side; see
- * `@weldsuite/db/lib/desk-assignment`.
+ * `@weldsuite/db/lib/desk-assignment`. `teamId` (optional) picks within a
+ * team, on that team's own rotation.
  */
 async function handleDeskAssign(request: Request, env: Env): Promise<Response> {
   const body = (await request.json()) as Partial<DeskPickRequest> & { workspaceId?: string };
@@ -231,6 +232,7 @@ async function handleDeskAssign(request: Request, env: Env): Promise<Response> {
     mode: body.mode,
     candidates: body.candidates,
     maxOpen: typeof body.maxOpen === 'number' ? body.maxOpen : null,
+    teamId: typeof body.teamId === 'string' && body.teamId ? body.teamId : null,
   });
   return Response.json(result);
 }

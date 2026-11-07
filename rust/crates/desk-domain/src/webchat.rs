@@ -1076,6 +1076,7 @@ pub fn is_public(message: &Value) -> bool {
             "attributes_changed"
                 | "sla_warning"
                 | "sla_breached"
+                | "escalated"
                 | "linked"
                 | "unlinked"
                 | "merged_into"
