@@ -79,7 +79,10 @@ describe('Ponto request signing', () => {
     const pkcs1 = pem('RSA PRIVATE KEY', pkcs8.slice(26)).replace(/\n/g, '\\n');
     const request = tokenRequest();
     const headers = await pontoSignatureHeaders(request, 'cert', await importPontoSigningKey(pkcs1), CREATED);
-    await verifySignature({ ...request, headers: { ...request.headers, ...headers } }, publicKey);
+    expect(await verifySignature({ ...request, headers: { ...request.headers, ...headers } }, publicKey)).toEqual({
+      keyId: 'cert',
+      created: CREATED,
+    });
   });
 
   it('refuses an encrypted or unreadable key as an auth error', async () => {

@@ -20,6 +20,7 @@ import type { FetchLike } from './http';
 import { createEnableBankingProvider, type EnableBankingConfig } from './enable-banking/provider';
 import { createPlaidProvider, type PlaidConfig } from './plaid/provider';
 import { createPontoProvider, type PontoConfig } from './ponto/provider';
+import type { PontoSignatureConfig } from './ponto/signature';
 import { createStripeFcProvider, type StripeFcConfig } from './stripe-fc/provider';
 import type { BankFeedProvider, KeyCache } from './types';
 
@@ -146,6 +147,12 @@ export interface BankFeedConfigOptions {
   pontoFetch?: FetchLike;
 }
 
+/** Both set signs every Ponto request (a live application); either one missing leaves them unsigned (sandbox). */
+function pontoSignatureFromEnv(env: BankFeedEnv): PontoSignatureConfig | undefined {
+  if (!env.PONTO_SIGNATURE_CERT_ID || !env.PONTO_SIGNATURE_KEY) return undefined;
+  return { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY };
+}
+
 export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions = {}): BankFeedConfig {
   const config: BankFeedConfig = { routing: env.BANK_FEED_PROVIDERS ?? null };
   const webhookBase = env.BANK_FEED_WEBHOOK_URL?.replace(/\/+$/, '');
@@ -170,10 +177,7 @@ export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigO
       clientId: env.PONTO_CLIENT_ID,
       clientSecret: env.PONTO_CLIENT_SECRET,
       fetch: options.pontoFetch ?? options.fetch,
-      signature:
-        env.PONTO_SIGNATURE_CERT_ID && env.PONTO_SIGNATURE_KEY
-          ? { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY }
-          : undefined,
+      signature: pontoSignatureFromEnv(env),
     };
   }
   if (env.ENABLE_BANKING_APP_ID && env.ENABLE_BANKING_PRIVATE_KEY) {
