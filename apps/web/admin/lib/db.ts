@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { neon } from '@neondatabase/serverless';
-import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
@@ -14,12 +15,20 @@ function masterUrl(): string {
   return url;
 }
 
-export function getMasterDb(): NeonHttpDatabase<typeof masterSchema> {
+/**
+ * The driver-neutral Drizzle types every caller uses, so the Kubernetes build
+ * can open the same databases over TCP (postgres.js) instead of Neon HTTP.
+ * No caller may use `.transaction()` or `.batch()`: Neon HTTP has neither.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
+export type MasterDatabase = PgDatabase<PgQueryResultHKT, typeof masterSchema>;
+
+export function getMasterDb(): MasterDatabase {
   const sql = neon(masterUrl());
   return drizzleNeonHttp({ client: sql, schema: masterSchema });
 }
 
-function createNeonTenantDb(connectionUrl: string): NeonHttpDatabase<typeof schema> {
+function createNeonTenantDb(connectionUrl: string): Database {
   const sql = neon(connectionUrl);
   return drizzleNeonHttp({ client: sql, schema });
 }
@@ -70,11 +79,9 @@ type NeonConnectionInput = {
 
 export async function getTenantDbForWorkspace(
   clerkOrgId: string,
-): Promise<NeonHttpDatabase<typeof schema>> {
+): Promise<Database> {
   const workspace = await lookupWorkspace(clerkOrgId);
   return createNeonTenantDb(workspace.databaseUrl);
 }
 
-export type Database = NeonHttpDatabase<typeof schema>;
-export type MasterDatabase = NeonHttpDatabase<typeof masterSchema>;
 export { schema, masterSchema };

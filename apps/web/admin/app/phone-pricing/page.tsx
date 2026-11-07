@@ -1,15 +1,9 @@
-import { requireAdmin } from '@/lib/auth';
-import { listPhonePricing } from '@/lib/phone-pricing-data';
-import { PhonePricingList } from './phone-pricing-list';
+import { loadPhonePricingPage } from './data';
+import { PhonePricingPage } from './view';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PhonePricingPage() {
-  await requireAdmin();
-  const { rows, defaultMarkup } = await listPhonePricing();
-  const stats = {
-    total: rows.length,
-    active: rows.filter((r) => r.isActive).length,
-  };
-  return <PhonePricingList rows={rows} stats={stats} defaultMarkup={defaultMarkup} />;
+export default async function Page() {
+  const data = await loadPhonePricingPage();
+  return <PhonePricingPage {...data} />;
 }
