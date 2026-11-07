@@ -89,7 +89,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
+      {{- /* The chart's ServiceAccount exists only in the release's namespace;
+      apart from it the MTA uses that namespace's default one (it needs no
+      API access: no token is mounted). */}}
+      serviceAccountName: {{ if eq (include "weldsuite.mta.namespace" $) $.Release.Namespace }}{{ include "weldsuite.serviceAccountName" $ }}{{ else }}default{{ end }}
       automountServiceAccountToken: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
