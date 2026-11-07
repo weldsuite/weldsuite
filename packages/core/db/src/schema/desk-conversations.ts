@@ -37,6 +37,15 @@ import type { DeskSlaMetric } from './desk-sla-clocks';
  * sla*: a summary of the conversation's SLA clocks (desk_sla_clocks) for the
  * inbox list, written only by refreshDeskSla. slaDueAt / slaMetric are the
  * running clock that comes due first; slaStatus is what the badge shows.
+ *
+ * firstResponse* / resolved* / resolutionSeconds: the reporting times, in
+ * calendar time, written by appendDeskMessage (ADR DESK-011).
+ *   - firstResponseAt: the first agent reply. firstResponseSeconds: from the
+ *     visitor's first message to that reply; null when the team spoke first
+ *     (a conversation the team started has no first response time).
+ *   - resolvedAt: the close that ended the conversation as it stands.
+ *     resolutionSeconds: from the first message to that close. Both are
+ *     cleared when the conversation reopens and set again at the next close.
  */
 
 export type DeskConversationState = 'open' | 'closed';
@@ -93,6 +102,11 @@ export const deskConversations = pgTable(
     slaStatus: varchar('sla_status', { length: 10 }).$type<DeskSlaStatus>(),
     slaDueAt: timestamp('sla_due_at'),
     slaMetric: varchar('sla_metric', { length: 20 }).$type<DeskSlaMetric>(),
+
+    firstResponseAt: timestamp('first_response_at'),
+    firstResponseSeconds: integer('first_response_seconds'),
+    resolvedAt: timestamp('resolved_at'),
+    resolutionSeconds: integer('resolution_seconds'),
   },
   (table) => [
     uniqueIndex('desk_conversations_number_uidx').on(table.conversationNumber),
@@ -109,6 +123,10 @@ export const deskConversations = pgTable(
     index('desk_conversations_department_idx').on(table.departmentId, table.state),
     index('desk_conversations_tags_gin').using('gin', table.tags),
     index('desk_conversations_state_sla_due_idx').on(table.state, table.slaDueAt),
+    // Reports: conversations created, first answered and resolved in a period.
+    index('desk_conversations_created_at_idx').on(table.createdAt),
+    index('desk_conversations_first_response_at_idx').on(table.firstResponseAt),
+    index('desk_conversations_resolved_at_idx').on(table.resolvedAt),
   ],
 );
 

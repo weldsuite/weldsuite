@@ -3,17 +3,17 @@
 //! (`helpdesk_analytics_charts`) and chart data.
 //! Permissions `settings:read|create|update|delete`.
 //!
-//! Chart data: the worker reads it from Cloudflare's R2 SQL API
-//! (`@weldsuite/core-domain/analytics-query`), which answers an empty series
-//! whenever `R2_SQL_API_TOKEN`, `CF_ACCOUNT_ID` or `R2_ANALYTICS_BUCKET` is
-//! missing. A Kubernetes deployment has no R2 Data Catalog, so these routes
-//! answer what the worker answers without them: an empty series per chart.
+//! The overview (`GET /overview`) and the chart data are aggregated from the
+//! live inbox in the tenant database (`services/desk-reports.ts`, ADR
+//! DESK-011), by [`reports`], which runs the worker's statements. An unknown
+//! metric answers an empty series. "Now" is the request's clock
+//! (`CONFORMANCE_NOW` in conformance builds only).
 
 use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
@@ -25,7 +25,9 @@ use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::lenient_json;
+use super::reports::{self, ChartQuery};
 use crate::crud::write_failed;
+use crate::js::query_param;
 use crate::tables::{HELPDESK_ANALYTICS_CHARTS as CHARTS, HELPDESK_ANALYTICS_REPORTS as REPORTS};
 use crate::{Caller, DeskState, Refusal, now, validate};
 
@@ -79,6 +81,10 @@ where
         .route(
             "/charts/{chart_id}",
             delete(delete_chart).route_layer(need("settings:delete")),
+        )
+        .route(
+            "/overview",
+            get(overview).route_layer(need("settings:read")),
         )
         .route(
             "/charts/data",
@@ -677,7 +683,16 @@ async fn delete_chart(caller: Caller, Path(chart_id): Path<String>) -> Response 
 
 // ── chart data ──────────────────────────────────────────────────────────────
 
-async fn chart_data(headers: HeaderMap, body: Bytes) -> Response {
+/// `GET /overview?range=`: anything but a known range is the last 30 days.
+async fn overview(caller: Caller, RawQuery(query): RawQuery) -> Response {
+    let range = query_param(query.as_deref(), "range");
+    match reports::overview(&caller.db, range.as_deref(), reports::clock_ms(&caller)).await {
+        Ok(data) => Data(data).into_response(),
+        Err(error) => Refusal::Database(error).respond("Failed to fetch the reports overview"),
+    }
+}
+
+async fn chart_data(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     let message = "Failed to fetch chart data";
     let read = validate(&headers, &body, |issues, fields| {
         for key in ["entity", "metric", "timeRange", "groupBy", "aggregation"] {
@@ -685,12 +700,16 @@ async fn chart_data(headers: HeaderMap, body: Bytes) -> Response {
         }
         issues.text(fields, "sortOrder", Presence::Optional, None, None);
         issues.number(fields, "limit", Presence::Optional, Number::default());
+        ChartQuery::from_fields(fields)
     });
-    if let Err(refusal) = read {
-        return refusal.respond(message);
+    let query = match read {
+        Ok(query) => query,
+        Err(refusal) => return refusal.respond(message),
+    };
+    match reports::chart_data(&caller.db, &query, reports::clock_ms(&caller)).await {
+        Ok(points) => Data(Value::Array(points)).into_response(),
+        Err(error) => Refusal::Database(error).respond(message),
     }
-    // No R2 SQL credentials: `queryAnalytics` answers an empty series.
-    Data(json!([])).into_response()
 }
 
 /// `String(value)` of a chart id used as an object key.
@@ -703,7 +722,7 @@ fn js_key(value: Option<&Value>) -> String {
     }
 }
 
-async fn batch_data(body: Bytes) -> Response {
+async fn batch_data(caller: Caller, body: Bytes) -> Response {
     let message = "Failed to fetch batch chart data";
     // `c.req.json().catch(() => ({ charts: [] }))`, then `body.charts.map`.
     let charts = match lenient_json(&body) {
@@ -714,6 +733,7 @@ async fn batch_data(body: Bytes) -> Response {
         },
         Some(_) => return ApiError::internal().with_message(message).into_response(),
     };
+    let now = reports::clock_ms(&caller);
     let mut data = Map::new();
     for chart in &charts {
         // `chart.chartId` throws only on null; other values have no such key.
@@ -722,8 +742,17 @@ async fn batch_data(body: Bytes) -> Response {
             Value::Object(chart) => chart.get("chartId"),
             _ => None,
         };
-        // No R2 SQL credentials: every series is empty.
-        data.insert(js_key(chart_id), json!([]));
+        // Anything but an object reads as a chart with no metric: empty.
+        let query = match chart {
+            Value::Object(fields) => ChartQuery::from_fields(fields),
+            _ => ChartQuery::default(),
+        };
+        match reports::chart_data(&caller.db, &query, now).await {
+            Ok(points) => {
+                data.insert(js_key(chart_id), Value::Array(points));
+            }
+            Err(error) => return Refusal::Database(error).respond(message),
+        }
     }
     Data(Value::Object(data)).into_response()
 }

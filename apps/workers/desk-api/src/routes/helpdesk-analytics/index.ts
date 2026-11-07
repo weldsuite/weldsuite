@@ -3,6 +3,10 @@
  * Backed by `helpdeskAnalyticsReports` + `helpdeskAnalyticsCharts` tables
  * (distinct from crm-analytics which uses the generic `analyticsReports` table).
  *
+ * The overview and the chart data are aggregated from the live inbox in the
+ * tenant database (`services/desk-reports.ts`, ADR DESK-011), not from the
+ * analytics pipeline.
+ *
  * Permissions: settings:read | settings:create | settings:update | settings:delete.
  */
 
@@ -17,6 +21,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { ChartLayout } from '@weldsuite/db/schema/helpdesk-analytics-charts';
+import { deskChartData, deskReportsOverview } from '../../services/desk-reports';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -90,6 +95,19 @@ app.get('/', requirePermission('settings:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/helpdesk-analytics] list reports failed:', err);
     return error.internal(c, 'Failed to fetch analytics reports');
+  }
+});
+
+// The team lead's overview: KPIs against the previous period, the backlog,
+// a series, and per channel, priority, agent and team. `?range=` takes the
+// builder's time ranges; anything else is the last 30 days.
+app.get('/overview', requirePermission('settings:read'), async (c) => {
+  try {
+    const data = await deskReportsOverview(c.get('tenantDb'), c.req.query('range'), new Date());
+    return success(c, data);
+  } catch (err) {
+    console.error('[desk-api/helpdesk-analytics] overview failed:', err);
+    return error.internal(c, 'Failed to fetch the reports overview');
   }
 });
 
@@ -430,8 +448,7 @@ app.delete('/charts/:chartId', requirePermission('settings:delete'), async (c) =
 app.post('/charts/data', requirePermission('settings:read'), zValidator('json', chartDataSchema), async (c) => {
   const config = c.req.valid('json');
   try {
-    const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const data = await queryAnalytics(c.env, [c.get('workspaceId'), c.get('clerkOrgId')], config);
+    const data = await deskChartData(c.get('tenantDb'), config, new Date());
     return success(c, data);
   } catch (err) {
     console.error('[app-api/helpdesk-analytics] chart data failed:', err);
@@ -451,15 +468,15 @@ app.post('/charts/batch-data', requirePermission('settings:read'), async (c) => 
     limit?: number;
   }> };
   try {
-    const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const workspaceRefs = [c.get('workspaceId'), c.get('clerkOrgId')];
+    const db = c.get('tenantDb');
+    const now = new Date();
     const entries = await Promise.all(
       body.charts.map(async (chart) => {
-        const data = await queryAnalytics(c.env, workspaceRefs, chart);
+        const data = await deskChartData(db, chart, now);
         return [chart.chartId, data] as const;
       }),
     );
-    const data: Record<string, Array<{ label: string; value: number; date?: string }>> = Object.fromEntries(entries);
+    const data: Record<string, Array<{ label: string; value: number }>> = Object.fromEntries(entries);
     return success(c, data);
   } catch (err) {
     console.error('[app-api/helpdesk-analytics] batch chart data failed:', err);

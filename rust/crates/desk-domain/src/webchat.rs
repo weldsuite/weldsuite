@@ -21,7 +21,7 @@ use time::OffsetDateTime;
 use weldsuite_db::PgPool;
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
-use weldsuite_kit::validation::js_trim;
+use weldsuite_kit::validation::{js_date_parse, js_trim};
 
 use crate::table::WriteError;
 pub use tables::{DESK_CONVERSATIONS, DESK_MESSAGES, DESK_VISITORS};
@@ -185,6 +185,86 @@ async fn refresh_sla_quietly(db: &PgPool, conversation: &Value) -> Option<crate:
     }
 }
 
+/// `deskSecondsBetween(from, to)`: whole seconds between two time values,
+/// never negative.
+pub fn seconds_between(from_ms: f64, to_ms: f64) -> i64 {
+    #[allow(clippy::cast_possible_truncation)] // a span of time values fits
+    let seconds = ((to_ms - from_ms).max(0.0) / 1000.0).floor() as i64;
+    seconds
+}
+
+/// A `timestamp` column of a `to_jsonb` row as a time value.
+fn row_ms(value: &Value) -> Option<f64> {
+    value
+        .as_str()
+        .and_then(|text| js_date_parse(&crate::table::js_date(text)))
+}
+
+/// `firstResponseOf(db, conversationId)`: the first agent reply as the
+/// timeline has it, and its seconds from the visitor's first message (none
+/// when the team spoke first).
+async fn first_response_of(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Map<String, Value>, sqlx::Error> {
+    let (first_visitor, first_agent): (Option<i64>, Option<i64>) = sqlx::query_as(
+        "select floor(extract(epoch from min(created_at) filter (where author_type = 'visitor')) * 1000)::int8,
+                floor(extract(epoch from min(created_at) filter (where author_type = 'agent')) * 1000)::int8
+         from desk_messages where conversation_id = $1 and kind = 'message'",
+    )
+    .bind(conversation_id)
+    .fetch_one(db)
+    .await?;
+    let mut times = Map::new();
+    let Some(first_agent) = first_agent else {
+        return Ok(times);
+    };
+    let seconds = first_visitor
+        .filter(|visitor| *visitor <= first_agent)
+        .map_or(Value::Null, |visitor| {
+            #[allow(clippy::cast_precision_loss)] // time values are exact in f64
+            let seconds = seconds_between(visitor as f64, first_agent as f64);
+            json!(seconds)
+        });
+    times.insert(
+        "first_response_at".to_owned(),
+        json!(crate::sla_calendar::iso(first_agent)),
+    );
+    times.insert("first_response_seconds".to_owned(), seconds);
+    Ok(times)
+}
+
+/// `reportingTimesAfter(...)` (ADR DESK-011): the first agent reply sets the
+/// first response; a close sets the resolution, a reopen clears it.
+async fn reporting_times(
+    db: &PgPool,
+    current: &Value,
+    prior_state: &Value,
+    next_state: &Value,
+    (kind, author_type): (&str, &str),
+    now: &str,
+) -> Result<Map<String, Value>, sqlx::Error> {
+    let mut times = Map::new();
+    if kind == "message" && author_type == "agent" && current["first_response_at"].is_null() {
+        let id = current["id"].as_str().unwrap_or_default();
+        times.extend(first_response_of(db, id).await?);
+    }
+    let was_closed = *prior_state == "closed";
+    let is_closed = *next_state == "closed";
+    if !was_closed && is_closed {
+        let seconds = match (row_ms(&current["created_at"]), js_date_parse(now)) {
+            (Some(created), Some(now_ms)) => json!(seconds_between(created, now_ms)),
+            _ => Value::Null,
+        };
+        times.insert("resolved_at".to_owned(), json!(now));
+        times.insert("resolution_seconds".to_owned(), seconds);
+    } else if was_closed && !is_closed {
+        times.insert("resolved_at".to_owned(), Value::Null);
+        times.insert("resolution_seconds".to_owned(), Value::Null);
+    }
+    Ok(times)
+}
+
 /// `appendDeskMessage(db, input)`: append to the timeline and move the
 /// conversation's state with it. Also re-derives the SLA clocks
 /// ([`crate::sla::refresh`]) when the append can move one.
@@ -199,6 +279,7 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
         return Err(AppendError::NotFound);
     };
     let now = now();
+    let prior_state = current["state"].clone();
     let mut state = current["state"].clone();
     let mut waiting_since = current["waiting_since"].clone();
     let mut assignee = current["assignee_id"].clone();
@@ -292,6 +373,16 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     message.insert("metadata".to_owned(), metadata);
     let message = DESK_MESSAGES.insert(db, message, &["createdAt"]).await?;
 
+    let times = reporting_times(
+        db,
+        &current,
+        &prior_state,
+        &state,
+        (input.kind, input.author_type),
+        &now,
+    )
+    .await?;
+
     let mut changes = Map::new();
     changes.insert("updated_at".to_owned(), json!(now));
     changes.insert("state".to_owned(), state);
@@ -301,7 +392,14 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     }
     changes.insert("last_message_at".to_owned(), last_message_at);
     changes.insert("last_message_preview".to_owned(), last_preview);
-    let trusted = ["updatedAt", "waitingSince", "lastMessageAt"];
+    changes.extend(times);
+    let trusted = [
+        "updatedAt",
+        "waitingSince",
+        "lastMessageAt",
+        "firstResponseAt",
+        "resolvedAt",
+    ];
     let conversation = DESK_CONVERSATIONS
         .patch(db, input.conversation_id, changes, false, &trusted)
         .await?
