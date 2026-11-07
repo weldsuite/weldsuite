@@ -184,7 +184,7 @@ async fn call(action: Action, body: Value, label: &str, ctx: &ActionCtx<'_>) -> 
 }
 
 /// `workflowActor(ctx)`: who the action acts as.
-fn workflow_actor(ctx: &ActionCtx<'_>) -> Result<Map<String, Value>, ActionError> {
+pub(super) fn workflow_actor(ctx: &ActionCtx<'_>) -> Result<Map<String, Value>, ActionError> {
     let owner = ctx
         .info
         .owner_user_id

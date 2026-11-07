@@ -48,7 +48,7 @@ use weldsuite_auth::{AuthContext, ClerkVerifier, SessionVerifier};
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::ApiError;
-use weldsuite_permissions::{AppContext, Permissions, ResolvedPermissions};
+use weldsuite_permissions::{AppContext, Permissions, PresetPermissions, ResolvedPermissions};
 use weldsuite_pipeline::Flags;
 use weldsuite_ports::{
     DefaultFlags, FlagContext, Mailbox, MemoryCache, MemoryFileStore, OutgoingMail,
@@ -370,11 +370,19 @@ impl Pools {
         ));
         // WeldCommerce's portal rate limits: the test's namespace, or none.
         extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
-        // WeldDocs' and WeldSheets' rooms and engines: the test's own fakes,
-        // served by the ledger bridge in the collab-rooms service's wire format.
-        if let Some(bridge) = ["DOC_ROOM", "SHEET_ROOM", "DOC_ENGINE", "SHEET_ENGINE"]
-            .iter()
-            .find_map(|binding| context.ledgers.get(*binding))
+        // WeldDocs', WeldSheets' and WeldBoard's rooms and engines: the test's
+        // own fakes, served by the ledger bridge in the collab-rooms service's
+        // wire format.
+        if let Some(bridge) = [
+            "DOC_ROOM",
+            "SHEET_ROOM",
+            "BOARD_ROOM",
+            "DOC_ENGINE",
+            "SHEET_ENGINE",
+            "BOARD_ENGINE",
+        ]
+        .iter()
+        .find_map(|binding| context.ledgers.get(*binding))
         {
             extensions.insert(weldsuite_ports::RequestCollab(Arc::new(
                 weldsuite_adapters_oss::collab::HttpCollabRooms::new(vec![bridge.clone()], None),
@@ -535,9 +543,12 @@ pub(crate) async fn auth(
     }
     extensions.insert(weldsuite_mail::RequestTenantDatabases(Arc::new(tenants)));
     pools.insert_shared(extensions, &context);
+    // A preset, not the request's `Permissions`: only a route's permission
+    // layer turns it into them, so a route that forgot its layer fails here
+    // as it would on a real server instead of passing on the test's grant.
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
-        extensions.insert(Permissions::new(
+        extensions.insert(PresetPermissions(Permissions::new(
             ResolvedPermissions {
                 permissions: permissions.permissions,
                 denies: permissions.denies,
@@ -548,7 +559,7 @@ pub(crate) async fn auth(
             app,
             app_enforced.unwrap_or(false),
             context.user_id.clone(),
-        ));
+        )));
     }
     if let Some(values) = context.flags {
         let source = values

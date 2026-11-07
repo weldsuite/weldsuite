@@ -123,8 +123,8 @@ describe('runSlotReconciliation', () => {
 
     expect(mailpool.decreaseSlots).toHaveBeenCalledExactlyOnceWith('google', 7);
     expect(report).toMatchObject({ need: { google: 3 }, decreased: { google: 7 }, failed: [] });
-    // $4 x 3 at Mailpool against $5 x 3 from customers.
-    expect(report).toMatchObject({ monthlyCostCents: 1200, monthlyRevenueCents: 1500 });
+    // $4 x 3 at Mailpool against $8 x 3 from customers.
+    expect(report).toMatchObject({ monthlyCostCents: 1200, monthlyRevenueCents: 2400 });
     log.mockRestore();
   });
 

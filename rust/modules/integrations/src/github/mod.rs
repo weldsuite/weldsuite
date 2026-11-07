@@ -110,6 +110,12 @@ pub(crate) fn millis_of_iso(iso: &str) -> Option<i64> {
     i64::try_from(at.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
+/// A GitHub connection's installation id: `Number(externalAccountId)` (0
+/// for a value that is not one, which GitHub refuses as `NaN` would be).
+pub(crate) fn installation_of(external_account_id: &str) -> i64 {
+    external_account_id.trim().parse().unwrap_or_default()
+}
+
 /// `Date.now()`.
 pub(crate) fn now_millis() -> i64 {
     i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)

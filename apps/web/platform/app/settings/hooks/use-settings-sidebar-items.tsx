@@ -27,6 +27,7 @@ import {
   Bot,
   Tags,
   Shuffle,
+  Timer,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
@@ -55,6 +56,8 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
   { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+  { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));
 
@@ -71,6 +74,7 @@ function welddeskSettingsSubItems(td: TranslationsType['settings']['welddesk']):
     { title: td.voiceAgentsTitle, href: '/settings/apps/welddesk/voice-agents', icon: Bot },
     { title: td.ticketTypesTitle, href: '/settings/apps/welddesk/ticket-types', icon: Tags },
     { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
+    { title: td.slaPoliciesTitle, href: '/settings/apps/welddesk/sla-policies', icon: Timer },
   ];
 }
 

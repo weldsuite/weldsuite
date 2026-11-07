@@ -347,6 +347,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
             ..weldsuite_mail_domain::outbound::OutboundBindings::default()
         },
         assignment: None,
+        merge: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),

@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./agent-access": "./src/agent-access.ts",
     "./ai-billing": "./src/ai-billing.ts",
     "./analytics-query": "./src/analytics-query.ts",
     "./custom-field-query": "./src/custom-field-query.ts",

@@ -321,6 +321,18 @@ export const FORWARDED_ENV = [
   // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
   'PANEL_COLLECTOR_URL',
   'PANEL_SDK_FILE',
+  // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
+  // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
+  // (APP_URL, the keyring and the App's id, slug and key are forwarded above).
+  'GITHUB_APP_CLIENT_ID',
+  'GITHUB_APP_CLIENT_SECRET',
+  'GITLAB_OAUTH_CLIENT_ID',
+  'GITLAB_OAUTH_CLIENT_SECRET',
+  'BITBUCKET_OAUTH_CLIENT_ID',
+  'BITBUCKET_OAUTH_CLIENT_SECRET',
+  'AZURE_DEVOPS_CLIENT_ID',
+  'AZURE_DEVOPS_CLIENT_SECRET',
+  'WEBHOOK_BASE_URL',
 ] as const;
 
 /**
@@ -382,6 +394,16 @@ const WRITING_READS: RegExp[] = [
   // the per-meeting alias that also mints stream tokens into KV.
   /^\/api\/meeting-sessions\/[^/?]+\/recording(\?|$)/,
   /^\/api\/meetings\/[^/?]+\/recording(\?|$)/,
+  // WeldMerge: an OAuth consent URL stores its single-use state in KV, and the
+  // GitHub App's setup redirect records the installation (tenant and master).
+  /^\/api\/merge\/(connections|accounts)\/[^/?]+\/authorize-url(\?|$)/,
+  /^\/public\/merge\/github\/setup(\?|$)/,
+  // The GitHub App's install URL stores its state's single-use nonce in KV
+  // (WeldMerge's and WeldConnect's), and WeldConnect's install callback takes
+  // it and records the installation.
+  /^\/api\/merge\/connections\/github\/install-url(\?|$)/,
+  /^\/api\/workflow-github\/install-url(\?|$)/,
+  /^\/api\/weldconnect\/github\/callback(\?|$)/,
 ];
 
 interface ConformanceContext {

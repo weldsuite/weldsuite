@@ -2,6 +2,11 @@
 # Postgres pooler, Valkey, NATS and object storage. Its secrets come from
 # the weldsuite-env Secret (secrets/examples/weldsuite-env.yaml), whose keys
 # are the server's environment variables (rust/bins/weldsuite/src/config.rs).
+#
+# The chart is a release (infrastructure/sources/weldsuite.yaml), pinned by
+# WELDSUITE_VERSION in the cluster's settings; its appVersion is the same
+# version, so it installs that release's images. The test cluster swaps the
+# source for the newest develop build (clusters/test/layers.yaml).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -14,10 +19,10 @@ spec:
   timeout: 30m
   chart:
     spec:
-      chart: ./rust/deploy/helm/weldsuite
-      reconcileStrategy: Revision
+      chart: weldsuite
+      version: "${WELDSUITE_VERSION}"
       sourceRef:
-        kind: GitRepository
+        kind: HelmRepository
         name: weldsuite
         namespace: flux-system
   install:

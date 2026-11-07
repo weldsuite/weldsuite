@@ -180,59 +180,57 @@ export default function HelpdeskAnalyticsBuilderPage() {
     { id: 'radial-text', name: ta.chartTypeRadialText, icon: chartTypeIcons['radial-text'], description: ta.chartTypeRadialTextDesc },
   ];
 
+  // The live-inbox catalogue of desk-api's services/desk-reports.ts (ADR
+  // DESK-011). A conversation is the ticket, so there is no separate
+  // "conversations" entity; saved charts that use one keep working.
   const entities = [
     { id: 'tickets', name: ta.entityTickets, icon: entityIcons.tickets },
-    { id: 'conversations', name: ta.entityConversations, icon: entityIcons.conversations },
     { id: 'customers', name: ta.entityCustomers, icon: entityIcons.customers },
     { id: 'agents', name: ta.entityAgents, icon: entityIcons.agents },
     { id: 'response_time', name: ta.entityResponseTime, icon: entityIcons.response_time },
     { id: 'satisfaction', name: ta.entitySatisfaction, icon: entityIcons.satisfaction },
   ];
 
+  const tm = t.helpdesk.reports.metrics;
   const metrics: Record<string, Array<{ id: string; name: string; description: string }>> = {
     tickets: [
-      { id: 'total_tickets', name: ta.metricTotalTickets, description: ta.metricTotalTicketsDesc },
-      { id: 'open_tickets', name: ta.metricOpenTickets, description: ta.metricOpenTicketsDesc },
-      { id: 'closed_tickets', name: ta.metricClosedTickets, description: ta.metricClosedTicketsDesc },
-      { id: 'tickets_by_status', name: ta.metricTicketsByStatus, description: ta.metricTicketsByStatusDesc },
-      { id: 'tickets_by_priority', name: ta.metricTicketsByPriority, description: ta.metricTicketsByPriorityDesc },
-      { id: 'tickets_by_day', name: ta.metricTicketsByDay, description: ta.metricTicketsByDayDesc },
-      { id: 'escalated_tickets', name: ta.metricEscalatedTickets, description: ta.metricEscalatedTicketsDesc },
-    ],
-    conversations: [
-      { id: 'total_conversations', name: ta.metricTotalConversations, description: ta.metricTotalConversationsDesc },
-      { id: 'active_conversations', name: ta.metricActiveConversations, description: ta.metricActiveConversationsDesc },
-      { id: 'conversations_by_channel', name: ta.metricConversationsByChannel, description: ta.metricConversationsByChannelDesc },
-      { id: 'avg_messages', name: ta.metricAvgMessages, description: ta.metricAvgMessagesDesc },
-      { id: 'conversations_by_day', name: ta.metricConversationsByDay, description: ta.metricConversationsByDayDesc },
+      { id: 'tickets_created', name: tm.ticketsCreated, description: tm.ticketsCreatedDesc },
+      { id: 'tickets_resolved', name: tm.ticketsResolved, description: tm.ticketsResolvedDesc },
+      { id: 'tickets_open', name: tm.ticketsOpen, description: tm.ticketsOpenDesc },
+      { id: 'tickets_by_status', name: tm.ticketsByStatus, description: tm.ticketsByStatusDesc },
+      { id: 'tickets_by_priority', name: tm.ticketsByPriority, description: tm.ticketsByPriorityDesc },
+      { id: 'tickets_by_channel', name: tm.ticketsByChannel, description: tm.ticketsByChannelDesc },
+      { id: 'tickets_by_type', name: tm.ticketsByType, description: tm.ticketsByTypeDesc },
+      { id: 'tickets_by_team', name: tm.ticketsByTeam, description: tm.ticketsByTeamDesc },
+      { id: 'sla_breached_tickets', name: tm.slaBreachedTickets, description: tm.slaBreachedTicketsDesc },
+      { id: 'avg_messages', name: tm.avgMessages, description: tm.avgMessagesDesc },
     ],
     customers: [
-      { id: 'total_customers', name: ta.metricTotalCustomers, description: ta.metricTotalCustomersDesc },
-      { id: 'new_customers', name: ta.metricNewCustomers, description: ta.metricNewCustomersDesc },
-      { id: 'returning_customers', name: ta.metricReturningCustomers, description: ta.metricReturningCustomersDesc },
-      { id: 'customers_by_tickets', name: ta.metricCustomersByTickets, description: ta.metricCustomersByTicketsDesc },
-      { id: 'top_customers', name: ta.metricTopCustomers, description: ta.metricTopCustomersDesc },
+      { id: 'total_customers', name: tm.totalCustomers, description: tm.totalCustomersDesc },
+      { id: 'new_customers', name: tm.newCustomers, description: tm.newCustomersDesc },
+      { id: 'returning_customers', name: tm.returningCustomers, description: tm.returningCustomersDesc },
+      { id: 'top_customers', name: tm.topCustomers, description: tm.topCustomersDesc },
     ],
     agents: [
-      { id: 'total_agents', name: ta.metricTotalAgents, description: ta.metricTotalAgentsDesc },
-      { id: 'active_agents', name: ta.metricActiveAgents, description: ta.metricActiveAgentsDesc },
-      { id: 'tickets_per_agent', name: ta.metricTicketsPerAgent, description: ta.metricTicketsPerAgentDesc },
-      { id: 'agent_performance', name: ta.metricAgentPerformance, description: ta.metricAgentPerformanceDesc },
-      { id: 'agent_response_time', name: ta.metricAgentResponseTime, description: ta.metricAgentResponseTimeDesc },
+      { id: 'agents_replying', name: tm.agentsReplying, description: tm.agentsReplyingDesc },
+      { id: 'tickets_per_agent', name: tm.ticketsPerAgent, description: tm.ticketsPerAgentDesc },
+      { id: 'resolved_per_agent', name: tm.resolvedPerAgent, description: tm.resolvedPerAgentDesc },
+      { id: 'replies_per_agent', name: tm.repliesPerAgent, description: tm.repliesPerAgentDesc },
+      { id: 'agent_response_time', name: tm.agentResponseTime, description: tm.agentResponseTimeDesc },
     ],
     response_time: [
-      { id: 'avg_first_response', name: ta.metricAvgFirstResponse, description: ta.metricAvgFirstResponseDesc },
-      { id: 'avg_resolution_time', name: ta.metricAvgResolutionTime, description: ta.metricAvgResolutionTimeDesc },
-      { id: 'response_time_trend', name: ta.metricResponseTimeTrend, description: ta.metricResponseTimeTrendDesc },
-      { id: 'sla_compliance', name: ta.metricSlaCompliance, description: ta.metricSlaComplianceDesc },
-      { id: 'response_by_priority', name: ta.metricResponseByPriority, description: ta.metricResponseByPriorityDesc },
+      { id: 'avg_first_response', name: tm.avgFirstResponse, description: tm.avgFirstResponseDesc },
+      { id: 'avg_resolution_time', name: tm.avgResolutionTime, description: tm.avgResolutionTimeDesc },
+      { id: 'response_by_priority', name: tm.responseByPriority, description: tm.responseByPriorityDesc },
+      { id: 'resolution_by_priority', name: tm.resolutionByPriority, description: tm.resolutionByPriorityDesc },
+      { id: 'sla_compliance', name: tm.slaCompliance, description: tm.slaComplianceDesc },
+      { id: 'sla_compliance_by_metric', name: tm.slaComplianceByMetric, description: tm.slaComplianceByMetricDesc },
     ],
     satisfaction: [
-      { id: 'csat_score', name: ta.metricCsatScore, description: ta.metricCsatScoreDesc },
-      { id: 'nps_score', name: ta.metricNpsScore, description: ta.metricNpsScoreDesc },
-      { id: 'satisfaction_trend', name: ta.metricSatisfactionTrend, description: ta.metricSatisfactionTrendDesc },
-      { id: 'ratings_distribution', name: ta.metricRatingsDistribution, description: ta.metricRatingsDistributionDesc },
-      { id: 'satisfaction_by_agent', name: ta.metricSatisfactionByAgent, description: ta.metricSatisfactionByAgentDesc },
+      { id: 'csat_score', name: tm.csatScore, description: tm.csatScoreDesc },
+      { id: 'avg_rating', name: tm.avgRating, description: tm.avgRatingDesc },
+      { id: 'ratings_distribution', name: tm.ratingsDistribution, description: tm.ratingsDistributionDesc },
+      { id: 'satisfaction_by_agent', name: tm.satisfactionByAgent, description: tm.satisfactionByAgentDesc },
     ],
   };
 
@@ -291,7 +289,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
 
   const handleSave = () => {
     if (!reportId) {
-      router.push('/welddesk/analytics');
+      router.push('/welddesk/reports/custom');
       return;
     }
 
@@ -318,7 +316,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
       {
         onSuccess: (result) => {
           if (result.success) {
-            router.push(`/welddesk/analytics/${reportId}`);
+            router.push(`/welddesk/reports/custom/${reportId}`);
           }
         },
       }
@@ -692,7 +690,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-foreground">{t.helpdesk.analyticsReports.chartConfiguration}</h2>
             <div className="flex items-center gap-2">
               <Button
-                onClick={() => router.push('/welddesk/analytics')}
+                onClick={() => router.push('/welddesk/reports/custom')}
                 variant="outline"
                 size="sm"
               >

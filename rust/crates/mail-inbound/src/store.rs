@@ -76,13 +76,13 @@ async fn find_thread_by_reply_ids(
 /// A thread candidate as read: thread, spam flag, from, to, cc.
 type SubjectRow = (Option<String>, Option<bool>, Value, Value, Option<Value>);
 
-/// `findThreadBySubject`; `require_participant` keeps two strangers'
-/// `Re: Hello` apart.
+/// `findThreadBySubject`: the sender must already take part in the thread,
+/// so two strangers' `Re: Hello` stay apart and a spoofer's `Re: Invoice`
+/// never joins (or inherits the spam cap of) a real conversation.
 async fn find_thread_by_subject(
     db: &PgPool,
     account_id: &str,
     email: &ParsedEmail,
-    require_participant: bool,
 ) -> Result<Option<(String, bool)>, sqlx::Error> {
     let subjects = conversation_subjects(Some(&email.subject));
     if subjects.is_empty() {
@@ -99,13 +99,12 @@ async fn find_thread_by_subject(
     .await?;
     let found = rows.into_iter().find(|(thread, _, from, to, cc)| {
         thread.as_deref().is_some_and(|t| !t.is_empty())
-            && (!require_participant
-                || involves_address(
-                    from,
-                    to,
-                    cc.as_ref().unwrap_or(&Value::Null),
-                    Some(&email.from.email),
-                ))
+            && involves_address(
+                from,
+                to,
+                cc.as_ref().unwrap_or(&Value::Null),
+                Some(&email.from.email),
+            )
     });
     Ok(found.and_then(|(thread, is_spam, ..)| thread.map(|t| (t, is_spam == Some(false)))))
 }
@@ -143,7 +142,7 @@ pub async fn resolve_inbound(
     if !email.is_reply() {
         if has_reply_prefix(Some(&email.subject))
             && !bare_subject(Some(&email.subject)).is_empty()
-            && let Some(hit) = find_thread_by_subject(db, account_id, email, true).await?
+            && let Some(hit) = find_thread_by_subject(db, account_id, email).await?
         {
             return Ok(found(hit));
         }
@@ -156,7 +155,7 @@ pub async fn resolve_inbound(
     if let Some(hit) = find_thread_by_reply_ids(db, account_id, email).await? {
         return Ok(found(hit));
     }
-    if let Some(hit) = find_thread_by_subject(db, account_id, email, false).await? {
+    if let Some(hit) = find_thread_by_subject(db, account_id, email).await? {
         return Ok(found(hit));
     }
     // `computeThreadId`: the root reference, else `inReplyTo`, else itself.

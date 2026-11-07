@@ -3,9 +3,9 @@ doc-valid-idents = [
   "WeldSuite", "WeldPass", "WeldCRM", "WeldDesk", "WeldMail", "WeldFlow",
   "WeldConnect", "WeldStash", "WeldHost", "WeldBooks", "WeldMeet", "WeldChat",
   "WeldAgent", "WeldApps", "WeldSign", "WeldSheets", "WeldDocs", "WeldHR", "WeldReach",
-  "WeldObjects", "WeldCalendar", "WeldDrive", "WeldData", "WeldKnow",
+  "WeldObjects", "WeldCalendar", "WeldDrive", "WeldData", "WeldKnow", "WeldBoard",
   "WeldCommerce", "PrintNode", "WooCommerce", "WhatsApp",
-  "WeldAds", "WeldSocial", "WeldPanel", "PostPeer", "WeldCall", "WebRTC",
+  "WeldAds", "WeldSocial", "WeldPanel", "WeldMerge", "PostPeer", "WeldCall", "WebRTC",
   "CloudNativePG", "WebCrypto", "PostgreSQL", "MinIO", "RustFS", "SigV4",
   "RustSec", "WinAnsi", "XObject", "..",
 ]

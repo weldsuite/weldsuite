@@ -95,6 +95,9 @@ import {
   LayoutTemplate,
   UserX,
   ChartSpline,
+  GitPullRequest,
+  CircleDot,
+  Repeat,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -260,6 +263,26 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  // WeldMerge (pull requests and issues across git providers). Teams are picked
+  // on the Issues page; the sidebar is a static list per module. Its settings
+  // live in workspace Settings (Settings → Apps → WeldMerge).
+  weldmerge: {
+    appName: 'WeldMerge',
+    appIcon: GitPullRequest,
+    appLogo: getAppLogoConfig('weldmerge'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldmerge.inbox, href: '/weldmerge', icon: Inbox, permission: 'merge_pull_requests:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.pullRequests, href: '/weldmerge/pull-requests', icon: GitPullRequest, permission: 'merge_pull_requests:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.issues, href: '/weldmerge/issues', icon: CircleDot, permission: 'merge_issues:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.cycles, href: '/weldmerge/cycles', icon: Repeat, permission: 'merge_issues:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.releases, href: '/weldmerge/releases', icon: Rocket, permission: 'merge_releases:read' },
+        ],
+      },
+    ],
+  },
   welddocs: {
     appName: 'WeldDocs',
     appIcon: FileText,
@@ -286,8 +309,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     ],
   },
   // WeldReach (cold email outreach, on request only). Section pages are built
-  // by the campaign/prospect/inbox pages and the mailbox/settings pages; each is
-  // gated on its own object so a VIEWER only sees what they can read.
+  // by the campaign/prospect/inbox pages and the mailbox page; each is gated on
+  // its own object so a VIEWER only sees what they can read. Its settings live
+  // in workspace Settings (Settings → Apps → WeldReach).
   weldreach: {
     appName: 'WeldReach',
     appIcon: Send,
@@ -301,7 +325,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.reach.nav.prospects, href: '/weldreach/prospects', icon: Contact, permission: 'reach_prospects:read' },
           { title: t.reach.nav.inbox, href: '/weldreach/inbox', icon: Inbox, permission: 'reach_inbox:read' },
           { title: t.reach.nav.mailboxes, href: '/weldreach/mailboxes', icon: Mailbox, permission: 'reach_mailboxes:read' },
-          { title: t.reach.nav.settings, href: '/weldreach/settings', icon: Settings, permission: 'reach_settings:read' },
         ],
       },
     ],
@@ -424,6 +447,14 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
           { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/saved-replies', icon: MessageSquareText },
+        ],
+      },
+      {
+        // Read from the live inbox (ADR DESK-011); the report routes require settings:read.
+        group: t.navigation.moduleSidebar.welddesk.groups.reports,
+        items: [
+          { title: t.navigation.moduleSidebar.welddesk.reportsOverview, href: '/welddesk/reports', icon: LayoutDashboard, permission: 'settings:read' },
+          { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
         ],
       },
       {

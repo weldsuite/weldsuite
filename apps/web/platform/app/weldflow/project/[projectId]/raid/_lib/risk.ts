@@ -157,44 +157,6 @@ export function reviewIntervalLabel(days: number): ReviewInterval {
   }
 }
 
-// ── Summary tiles ───────────────────────────────────────────────────────────
-
-export interface RiskStats {
-  open: number;
-  critical: number;
-  high: number;
-  reviewsOverdue: number;
-  tasksDone: number;
-  tasksTotal: number;
-  /** Whole percent of linked tasks that are done; null when no task is linked. */
-  tasksPercent: number | null;
-}
-
-/** The tiles above the register, from the open risks. */
-export function riskStats(openRisks: readonly RaidItem[], now: Date): RiskStats {
-  let critical = 0;
-  let high = 0;
-  let reviewsOverdue = 0;
-  let tasksDone = 0;
-  let tasksTotal = 0;
-  for (const risk of openRisks) {
-    if (risk.band === 'critical') critical += 1;
-    if (risk.band === 'high') high += 1;
-    if (isOverdue(risk.dueAt, now)) reviewsOverdue += 1;
-    tasksDone += risk.taskProgress.done;
-    tasksTotal += risk.taskProgress.total;
-  }
-  return {
-    open: openRisks.length,
-    critical,
-    high,
-    reviewsOverdue,
-    tasksDone,
-    tasksTotal,
-    tasksPercent: tasksTotal === 0 ? null : Math.round((tasksDone / tasksTotal) * 100),
-  };
-}
-
 // ── Score over time ─────────────────────────────────────────────────────────
 
 export type Trend = 'up' | 'down' | 'flat' | 'none';

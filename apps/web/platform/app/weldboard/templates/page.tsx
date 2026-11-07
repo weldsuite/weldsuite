@@ -48,7 +48,7 @@ export default function WeldBoardTemplates() {
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-muted-foreground">{tt.workspace}</h2>
           {workspace.data?.length ? (
-            <BoardList boards={workspace.data} onOpen={(b) => void fromWorkspace(b)} />
+            <BoardList boards={workspace.data} onOpen={(b) => void fromWorkspace(b)} hideTopBar />
           ) : (
             <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{tt.workspaceEmpty}</p>
           )}

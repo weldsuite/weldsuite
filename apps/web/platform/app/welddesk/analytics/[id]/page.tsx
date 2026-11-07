@@ -20,7 +20,7 @@ export default function HelpdeskAnalyticsReportPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   if (!reportResult?.success || !reportResult?.data) {
-    router.push('/welddesk/analytics');
+    router.push('/welddesk/reports/custom');
     return null;
   }
 

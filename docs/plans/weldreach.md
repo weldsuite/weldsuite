@@ -1,9 +1,13 @@
 # WeldReach: cold email outreach on Mailpool
 
-Status (2026-10-12): built on branch `claude/weldsuite-cold-email-platform-72f54d`
-(phases 1–4 and the code parts of phase 5); not deployed. Phase 0 checks with
-real Mailpool mailboxes are still open, and the "Rollout checklist" below lists
-the ops steps. Migrations were generated with the owner's go-ahead.
+Status (2026-11-06): phases 1–4 and the code parts of phase 5 are merged
+(PR #1115; the public API and MCP tools in PR #1131) and deployed: `reach-api`
+answers on its test and production hosts. Not open to customers yet: no
+workspace uses it, Phase 0 checks with real Mailpool mailboxes are not
+recorded, and the ops steps in the "Rollout checklist" below are not confirmed
+done. The warmup network is switched off until the first workspace is approved
+([weldreach-warmup.md](weldreach-warmup.md)). Migrations were generated with
+the owner's go-ahead. Inbox price raised from $5 to $8 per month on 2026-11-06.
 
 WeldReach is a new `weld*` module for cold email outreach. Mailpool provides the
 sending infrastructure (mailboxes, warmup; domains come from WeldHost and are
@@ -22,14 +26,14 @@ the module be installed.
 | Reply detection | Mailpool mailboxes **forward incoming mail** (`forwardTo`) to a per-mailbox subaddress `reply+<token>@reply.weldreach.com` (test: `reply-test.weldreach.com`), received by Cloudflare Email Routing → the module worker's `email()` handler. Changed from `reply.weldsuite.org` (2026-10-12): every WeldSuite zone's catch-all already goes to WeldMail's inbound worker, catch-all rules are apex-only, so one literal rule per subdomain for `reply@…` plus subaddressing carries all tokens. No IMAP in v1; IMAP credentials are stored for a later fallback. |
 | Where it lives | New module **WeldReach**: app code `weldreach`, worker `apps/workers/reach-api`, host `reach-api(-test).weldsuite.org`, paths `/api/reach/*`, dev port 8821. |
 | Prospects | Separate prospect store in WeldReach (CSV import, CRM lists, WeldData leads). A CRM person (+ company) is created or linked **only when a prospect replies**, or when a user marks them interested. |
-| Billing | **Stripe add-on per inbox: $5 per inbox per month**, all inbox types. A separate WeldReach subscription per workspace with one price, quantity = active inboxes (same pattern as `billing-worker/src/routes/phone-billing.ts`). Mailpool's cost is $3 (shared) / $4 (Google) per month. Domains are not billed by WeldReach (see below). |
+| Billing | **Stripe add-on per inbox: $8 per inbox per month** (was $5 until 2026-11-06), all inbox types. A separate WeldReach subscription per workspace with one price, quantity = active inboxes (same pattern as `billing-worker/src/routes/phone-billing.ts`). Mailpool's cost is $3 (shared) / $4 (Google) per month. Domains are not billed by WeldReach (see below). |
 | Domains | **Domains are normal WeldHost domains.** The customer buys them in WeldHost (WeldHost's prices, purchase and renewal billing), or brings an existing domain into WeldHost by transfer or by pointing its nameservers at WeldHost. WeldReach then **connects** a WeldHost domain to Mailpool through Mailpool's Cloudflare integration: DNS stays on Cloudflare, and Mailpool writes the mail records with its Cloudflare token. Nobody logs in to Mailpool. |
 | Cloudflare account | **WeldSuite's main Cloudflare account** (the one WeldHost registers in), which Mailpool already has a token for. Owner's decision (2026-10-12), with the risk accepted (see Risks). |
 | Access | **In-app request + admin approval.** Owner/admin submits a request form from the app store; staff approve, reject or suspend in the admin console. New requests are emailed to a configured address. |
 | Limits | Per workspace, **editable in the admin console**. Defaults on approval: **10 mailboxes, 3 domains, 300 sends/day**. |
 | Recipients | **B2B only.** Free-mail and consumer domains (gmail.com, outlook.com, hotmail.com, yahoo.com, icloud.com, …) are rejected at import and at send. Staff can lift this per workspace in the admin console. |
 | v1 scope | Core (WeldHost domains connected to Mailpool, inboxes via Mailpool, campaigns with steps, rotation and limits, stop on reply, opt-out + suppression) **plus the unified reply inbox and AI reply classification**. |
-| Inbox types in v1 | Mailpool `google` and `shared` (both return SMTP/IMAP credentials). **No `private`** in v1: it needs a dedicated-IP server ($200/month at Mailpool) that $5 per inbox doesn't cover. **No `outlook`**: Mailpool returns only email + password for those, so they need a Microsoft OAuth (Graph) integration first. |
+| Inbox types in v1 | Mailpool `google` and `shared` (both return SMTP/IMAP credentials). **No `private`** in v1: it needs a dedicated-IP server ($200/month at Mailpool) that $8 per inbox doesn't cover. **No `outlook`**: Mailpool returns only email + password for those, so they need a Microsoft OAuth (Graph) integration first. |
 | Tracking | No open-tracking pixel and no link tracking in v1. Nothing in an outbound email references a WeldSuite domain. |
 
 Defaults (from the plan, confirmed by the owner):
@@ -178,7 +182,7 @@ Indexes that matter:
    - On approve: insert `workspace_installed_apps` (`weldreach`) in the tenant DB and bust the workspace KV context.
    - Approved and rejected emails use new `@weldsuite/emails` templates (`weldreach-access-approved`, `weldreach-access-rejected`, en + nl).
 4. **Enforcement in reach-api.**
-   - `reachAccessGate` middleware after `apiAuth()` reads `approvedApps` from the KV workspace context. Extend `getWorkspaceContextForOrg` the same way `licensedApps` is carried. Not approved → 404 (same as the payroll flag pattern).
+   - `appAccessGate('weldreach')` (`@weldsuite/worker-kit`, `packages/core/worker-kit/src/app-access.ts`) runs after `apiAuth()` on every `/api/reach/*` route. It reads `workspace_app_access` from the master DB, cached in KV for 60 s under `appaccess:<org>:<app>`. Not approved → 403 `APP_ACCESS_REQUIRED` with `{ appCode, status }`, so the platform can show "requested", "rejected" or "suspended" instead of a broken screen.
    - The send consumer re-checks `workspace_app_access.status` in the master DB on every batch, so a suspension stops sending within a minute regardless of the KV TTL.
 5. **Kill switch.** Flagship boolean `weldreach-sending` (default `true`). Off = no SMTP sends anywhere; campaigns stay as they are.
 
@@ -299,7 +303,7 @@ Limitation (v1): an answer sent directly from the mailbox in Gmail, outside Weld
 
 New billing-worker routes `routes/reach-billing.ts`, modelled on `phone-billing.ts`:
 
-- **One WeldReach subscription per workspace.** One price, **$5 per inbox per month**, quantity = active inboxes. Created on the first inbox.
+- **One WeldReach subscription per workspace.** One price, **$8 per inbox per month**, quantity = active inboxes. Created on the first inbox.
 - **Domains are not billed here.** WeldHost bills purchase and renewal with its existing pricing and renewal billing (`apps/workers/host-api/src/services/domain-renewal-billing.ts`). Connecting a domain to Mailpool is free.
 - **Endpoints for reach-api** (service binding `BILLING_WORKER`):
   - `ensure-customer` (setup-mode checkout for a payment method)
@@ -307,8 +311,8 @@ New billing-worker routes `routes/reach-billing.ts`, modelled on `phone-billing.
   - `status`
 - **Order of operations**: Stripe first, then Mailpool. If Mailpool fails, the quantity is rolled back.
 - **Payment failure** (`invoice.payment_failed` webhook): mark WeldReach billing `past_due` and notify. After a grace period (7 days, configurable), campaigns pause. Mailboxes are never deleted automatically.
-- **Price**: $5.00 USD per inbox per month, a Stripe price created once per environment (ID in config).
-- **Margin check**: $5 against Mailpool's $3 (shared) / $4 (Google) per inbox. The daily slot reconciliation also reports monthly Mailpool cost against Stripe revenue.
+- **Price**: $8.00 USD per inbox per month (`WELDREACH_INBOX_PRICE_CENTS`), a Stripe price created once per environment and found again by its lookup key (`weldreach_inbox_monthly_v2`). Changing the amount means bumping the key's suffix: Stripe prices can't be edited, so a new key makes billing-worker create a new price. Subscriptions started on an older price keep it.
+- **Margin check**: $8 against Mailpool's $3 (shared) / $4 (Google) per inbox. The daily slot reconciliation also reports monthly Mailpool cost against Stripe revenue.
 
 ## Permissions
 
@@ -385,7 +389,7 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 - host-api: "Used by WeldReach" badge, read-only Mailpool records, blocks on delete / transfer-out / nameserver change, mailbox pause on domain expiry.
 - Mailbox flow: create with `forwardTo`, warmup, pause, delete.
 - Due-index kind `reach_warmup`; slot reconciliation cron.
-- billing-worker `reach-billing` routes ($5 inbox price), webhook handling.
+- billing-worker `reach-billing` routes ($8 inbox price), webhook handling.
 - Onboarding wizard + Mailboxes & domains pages (linking to WeldHost's purchase and transfer flows).
 
 ### Phase 3: sending engine (PRs 4–5)
@@ -448,12 +452,12 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 
 ## Owner answers (2026-10-12)
 
-1. **Price**: $5 per inbox per month. Domains go through WeldHost at WeldHost's prices; this replaces the earlier "Mailpool price + 10%", which no longer applies now that Mailpool doesn't register the domains.
+1. **Price**: $5 per inbox per month (raised to $8 on 2026-11-06). Domains go through WeldHost at WeldHost's prices; this replaces the earlier "Mailpool price + 10%", which no longer applies now that Mailpool doesn't register the domains.
 2. **Limits**: 10 mailboxes, 3 domains, 300 sends/day by default, editable per workspace in the admin console.
 3. **Terms and countries**: as recommended in "Access and gating" (B2B only, terms ticked one by one, no countries refused outright, lawyer review before the first approval).
 4. **Existing domains**: allowed. They come into WeldHost (transfer or nameservers) and are then connected like any WeldHost domain.
 5. **Access-request notification**: `gert@weldsuite.org`, set in the app-api var `ACCESS_REQUEST_NOTIFY_EMAIL`.
-6. **Currency**: the inbox price is charged in USD ($5.00).
+6. **Currency**: the inbox price is charged in USD ($5.00 then, $8.00 since 2026-11-06).
 
 ## Rollout checklist (ops, per environment)
 
@@ -466,7 +470,7 @@ Code can't do these; run them before the first approval.
 5. **Mailpool**: webhook URL `https://reach-api[-test].weldsuite.org/public/reach/webhooks/mailpool` with the same secret as `MAILPOOL_WEBHOOK_SECRET`; confirm the public Cloudflare connect endpoint is live and matches `src/lib/mailpool` (Phase 0 list).
 6. **Cloudflare token for Mailpool**: limit it to Zone Read + DNS Edit; set up an alert on DNS changes by that token to zones not connected to WeldReach (accepted risk, see Risks).
 7. **Flagship**: create the boolean flag `weldreach-sending` (default on) in test and production.
-8. **Stripe**: nothing to create up front; billing-worker creates the $5.00/month inbox price on first use (or set `STRIPE_PRICE_WELDREACH_INBOX`).
+8. **Stripe**: nothing to create up front; billing-worker creates the $8.00/month inbox price (lookup key `weldreach_inbox_monthly_v2`) on first use, or set `STRIPE_PRICE_WELDREACH_INBOX` to pin one. A pinned price wins over the lookup key, so a pin to the old $5 price must be changed or removed.
 9. **App catalog**: in the admin console → App Catalog, create `weldreach` (name WeldReach, path `/weldreach`), published, with **Requires approval** on.
 10. **app-api**: deploy after reach-api so the `REACH_API` service binding resolves; `ACCESS_REQUEST_NOTIFY_EMAIL` is gert@weldsuite.org.
 11. **Help docs**: take screenshots for `apps/web/docs/src/app/weldreach` once the screens are live (`pnpm --filter docs capture-screenshots:all`).

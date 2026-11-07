@@ -2,7 +2,8 @@
  * WeldDesk conversation + message helpers.
  *
  * appendDeskMessage is the only writer for desk_messages and for
- * desk_conversations.state / waitingSince / lastMessage*.
+ * desk_conversations.state / waitingSince / lastMessage*, and for the
+ * reporting times (firstResponse*, resolvedAt, resolutionSeconds).
  * updateDeskConversationAttributes is the only writer of the ticket fields
  * (type, priority, tags, team, custom fields). The SLA clocks and the sla*
  * summary columns are written by refreshDeskSla (./desk-sla), which
@@ -412,6 +413,8 @@ export async function appendDeskMessage(
     })
     .returning();
 
+  const times = await reportingTimesAfter(db, current, next, input, now);
+
   const [updated] = await db
     .update(conversations)
     .set({
@@ -421,6 +424,7 @@ export async function appendDeskMessage(
       ...ownerPatch,
       lastMessageAt: next.lastMessageAt,
       lastMessagePreview: next.lastMessagePreview,
+      ...times,
     })
     .where(eq(conversations.id, input.conversationId))
     .returning();
@@ -428,6 +432,75 @@ export async function appendDeskMessage(
   if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
   const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
   return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Reporting times (ADR DESK-011)
+//
+// Calendar time, measured where the timeline moves:
+//   - first response: the first agent reply. Its seconds run from the
+//     visitor's first message; a conversation the team started has none
+//     (the same rule as the first_response SLA clock).
+//   - resolution: the close that ends the conversation as it stands, counted
+//     from its first message. Reopening clears it; the next close sets it.
+// Bot and system messages never count as a response.
+// ---------------------------------------------------------------------------
+
+type DeskReportingTimes = Partial<
+  Pick<DeskConversation, 'firstResponseAt' | 'firstResponseSeconds' | 'resolvedAt' | 'resolutionSeconds'>
+>;
+
+/** Whole seconds from `from` to `to`, never negative. */
+export function deskSecondsBetween(from: Date, to: Date): number {
+  return Math.floor(Math.max(0, to.getTime() - from.getTime()) / 1000);
+}
+
+/**
+ * The first response as the timeline has it. Read from the messages rather
+ * than assumed to be this append, so a conversation answered before the
+ * columns existed gets its real first reply, not the latest one.
+ */
+async function firstResponseOf(db: AnyDb, conversationId: string): Promise<DeskReportingTimes> {
+  const [row] = await db
+    .select({
+      firstVisitor: sql`min(${messages.createdAt}) filter (where ${messages.authorType} = 'visitor')`.mapWith(
+        messages.createdAt,
+      ),
+      firstAgent: sql`min(${messages.createdAt}) filter (where ${messages.authorType} = 'agent')`.mapWith(
+        messages.createdAt,
+      ),
+    })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.kind, 'message')));
+  const firstAgent = row?.firstAgent ?? null;
+  if (!firstAgent) return {};
+  const firstVisitor = row?.firstVisitor ?? null;
+  const visitorSpokeFirst = firstVisitor !== null && firstVisitor.getTime() <= firstAgent.getTime();
+  return {
+    firstResponseAt: firstAgent,
+    firstResponseSeconds: visitorSpokeFirst ? deskSecondsBetween(firstVisitor, firstAgent) : null,
+  };
+}
+
+async function reportingTimesAfter(
+  db: AnyDb,
+  current: DeskConversation,
+  next: DeskConversationProgress,
+  input: AppendDeskMessageInput,
+  now: Date,
+): Promise<DeskReportingTimes> {
+  const times: DeskReportingTimes = {};
+  if (input.kind === 'message' && input.authorType === 'agent' && !current.firstResponseAt) {
+    Object.assign(times, await firstResponseOf(db, current.id));
+  }
+  if (current.state !== 'closed' && next.state === 'closed') {
+    times.resolvedAt = now;
+    times.resolutionSeconds = deskSecondsBetween(current.createdAt, now);
+  } else if (current.state === 'closed' && next.state !== 'closed') {
+    times.resolvedAt = null;
+    times.resolutionSeconds = null;
+  }
+  return times;
 }
 
 /**

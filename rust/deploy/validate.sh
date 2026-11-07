@@ -7,7 +7,9 @@
 #      CloudNativePG and cert-manager CRDs from the community catalog);
 #   3. every HelmRelease's chart rendered at its pinned version with its own
 #      values file and schema-checked, after checking the pin in the
-#      HelmRelease matches the one here.
+#      HelmRelease matches the one here;
+#   4. the weldsuite release production pins (WELDSUITE_VERSION) is X.Y.Z,
+#      and the drill pins the same one.
 # Needs tofu, kubectl (kustomize), helm, kubeconform.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -49,6 +51,7 @@ for dir in \
   flux/infrastructure/video \
   flux/infrastructure/monitoring \
   flux/apps/eu \
+  flux/apps/marketing \
   flux/secrets/eu \
   flux/secrets/drill \
   flux/secrets/test; do
@@ -99,5 +102,20 @@ echo "-- weldsuite (rust/deploy/helm/weldsuite)"
 substitute <flux/apps/eu/values/weldsuite.yaml >"$work/values.yaml"
 helm template weldsuite helm/weldsuite --namespace weldsuite -f "$work/values.yaml" >"$work/rendered.yaml"
 kc "$work/rendered.yaml"
+
+echo "== weldsuite release"
+# A release from the "Rust release" workflow (.github/workflows/rust-release.yml).
+release_of() { awk '$1 == "WELDSUITE_VERSION:" { v = $2; gsub(/"/, "", v); print v }' "$1"; }
+production="$(release_of flux/clusters/eu/cluster-settings.yaml)"
+drill="$(release_of flux/clusters/drill/cluster-settings.yaml)"
+if ! [[ "$production" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "FAIL clusters/eu: WELDSUITE_VERSION '$production' is not X.Y.Z" >&2
+  exit 1
+fi
+if [ "$drill" != "$production" ]; then
+  echo "FAIL clusters/drill: WELDSUITE_VERSION '$drill' is not production's '$production'" >&2
+  exit 1
+fi
+echo "production and drill: $production"
 
 echo "deploy config: ok"

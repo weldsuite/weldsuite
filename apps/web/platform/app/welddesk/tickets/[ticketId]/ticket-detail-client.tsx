@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Hash,
   CalendarDays,
+  GitPullRequestArrow,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
@@ -47,6 +48,7 @@ import { useTicketTypes } from '@/hooks/queries/use-helpdesk-queries';
 import { useRouter } from '@/lib/router';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { CreateTicketDialog } from '../create-ticket-dialog';
+import { TicketWeldMergeSection, useWeldMergeTicketAccess } from './ticket-weldmerge-section';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { asText } from '@weldsuite/text';
@@ -941,6 +943,7 @@ function TicketSidebar({
 }>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
+  const showWeldMerge = useWeldMergeTicketAccess();
   const { fields: visFields, fieldVisibility, isFieldVisible, toggleField, resetToDefaults } = useDrawerFieldVisibility('ticket-sidebar');
 
   let panelFallbackTitle = tp.noCustomer;
@@ -1235,6 +1238,13 @@ function TicketSidebar({
                 className="text-[13px] min-h-[60px] border-transparent bg-transparent shadow-none hover:border-gray-200 dark:hover:border-gray-700 focus-visible:ring-0 focus-visible:border-blue-500 dark:focus-visible:border-blue-500 focus-visible:bg-white dark:focus-visible:bg-gray-900 px-2 -mx-2 rounded-md placeholder:text-muted-foreground"
                 rows={3}
               />
+            </SidebarSection>
+          )}
+
+          {/* WeldMerge: issues linked to this ticket, escalate to a new one */}
+          {showWeldMerge && (
+            <SidebarSection title={t.weldmerge.across.desk.title} icon={GitPullRequestArrow}>
+              <TicketWeldMergeSection ticketId={ticket.ticketId} subject={ticket.subject} description={ticket.bodyText} />
             </SidebarSection>
           )}
         </div>

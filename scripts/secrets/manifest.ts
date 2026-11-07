@@ -747,6 +747,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
     "GITHUB_APP_PRIVATE_KEY",
+    // The App's user authorization client (the same values merge-api has): the
+    // install callback exchanges GitHub's `code` for a user token to prove the
+    // installer can reach the installation it records.
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
     // Verifier side of the X-Internal-Secret handshake (routes/integrations/
     // internal.ts fails closed (401) when this is unset) and of the
     // /api/internal/workflow-actions bearer; also the WooCommerce connect HMAC
@@ -894,6 +899,41 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+  ],
+
+  // merge-api: the merge module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "merge-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Same GitHub App as connect-api and workflow-worker: merge-api mints an
+    // installation token per call to list and read repositories.
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+    // The App's slug (the install page URL) and its user authorization client
+    // (members link their own GitHub account to review and merge).
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
+    // OAuth apps: GitLab.com, Bitbucket Cloud, Microsoft Entra ID (Azure
+    // DevOps). Redirect URI {APP_URL}/weldmerge/oauth/callback on each.
+    "GITLAB_OAUTH_CLIENT_ID",
+    "GITLAB_OAUTH_CLIENT_SECRET",
+    "BITBUCKET_OAUTH_CLIENT_ID",
+    "BITBUCKET_OAUTH_CLIENT_SECRET",
+    "AZURE_DEVOPS_CLIENT_ID",
+    "AZURE_DEVOPS_CLIENT_SECRET",
+    // Release notes (@weldsuite/ai uses AI_GATEWAY_API_TOKEN, else
+    // CLOUDFLARE_API_TOKEN). CF_ACCOUNT_ID, APP_URL and WEBHOOK_BASE_URL are
+    // [vars] in wrangler.toml.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 };
 

@@ -11,7 +11,9 @@
     "./transports/rest": "./src/transports/rest.ts",
     "./transports/resend": "./src/transports/resend.ts",
     "./transports/memory": "./src/transports/memory.ts",
-    "./transports/env": "./src/transports/env.ts"
+    "./transports/env": "./src/transports/env.ts",
+    "./transports/smtp": "./src/transports/smtp.ts",
+    "./transports/node-env": "./src/transports/node-env.ts"
   },
   "scripts": {
     "previews": "tsx scripts/generate-previews.ts",
@@ -40,6 +42,7 @@
     "@weldsuite/i18n": "workspace:*",
     "cloudflare": "^7.0.0",
     "html-to-text": "^9.0.5",
+    "nodemailer": "10.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

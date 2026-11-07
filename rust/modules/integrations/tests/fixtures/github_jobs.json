@@ -7,7 +7,7 @@
       "projectLinkId": "ghpl_a"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_a', 'org_gh', 1001, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_a', 'github', '1001', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_a', 'org_gh', 'ghc_a', 'prj_a', 'PVT_ghpl_a', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_a_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_a_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_a_done', 'prj_a', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_a_todo', 'prj_a', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_a_doing', 'prj_a', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_mapped', 'Task tsk_mapped', 'About tsk_mapped', 'todo', null, 'prj_a', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
@@ -900,23 +900,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1001",
+          "host": null,
           "id": "ghc_a",
-          "installation_id": 1001,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -930,7 +934,7 @@
       "inboundOnly": true
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_c', 'org_gh', 1002, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_c', 'github', '1002', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_c', 'org_gh', 'ghc_c', 'prj_c', 'PVT_ghpl_c', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_c_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_c_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_c_done', 'prj_c', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_c_todo', 'prj_c', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_c_doing', 'prj_c', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_task_newer', 'Task tsk_task_newer', 'About tsk_task_newer', 'todo', null, 'prj_c', null, null, '2026-10-01 09:00:00', '2026-10-06 12:00:00')",
@@ -1315,23 +1319,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1002",
+          "host": null,
           "id": "ghc_c",
-          "installation_id": 1002,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1344,7 +1352,7 @@
       "projectLinkId": "ghpl_off"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_off', 'org_gh', 1003, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_off', 'github', '1003', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_off', 'org_gh', 'ghc_off', 'prj_off', 'PVT_ghpl_off', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_off_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_off_done\"}]'::jsonb,\n      false, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
     "steps": [
@@ -1391,23 +1399,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1003",
+          "host": null,
           "id": "ghc_off",
-          "installation_id": 1003,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1420,7 +1432,7 @@
       "projectLinkId": "ghpl_norepo"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_nr', 'org_gh', 1004, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_nr', 'github', '1004', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_norepo', 'org_gh', 'ghc_nr', 'prj_nr', 'PVT_ghpl_norepo', 1, 'Organization', 'acme', null, 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_nr_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_nr_done\"}]'::jsonb,\n      true, 'outbound', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_nr', 'Task tsk_nr', 'About tsk_nr', 'todo', null, 'prj_nr', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
@@ -1532,23 +1544,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1004",
+          "host": null,
           "id": "ghc_nr",
-          "installation_id": 1004,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1561,7 +1577,7 @@
       "projectLinkId": "ghpl_null"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_null', 'org_gh', 1005, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_null', 'github', '1005', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_null', 'org_gh', 'ghc_null', 'prj_null', 'PVT_ghpl_null', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_null_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_null_done\"}]'::jsonb,\n      true, 'inbound', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
     "steps": [
@@ -1640,23 +1656,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1005",
+          "host": null,
           "id": "ghc_null",
-          "installation_id": 1005,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1669,7 +1689,7 @@
       "projectLinkId": "ghpl_missing"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_m', 'org_gh', 1006, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_m', 'github', '1006', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
     "steps": [
       "load-link"
@@ -1680,23 +1700,27 @@
       "tasks": [],
       "github_issue_sync_map": [],
       "github_project_links": [],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1006",
+          "host": null,
           "id": "ghc_m",
-          "installation_id": 1006,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1709,7 +1733,7 @@
       "projectLinkId": "ghpl_s"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_s', 'org_gh', 1007, 'weldsuite', 'Organization', 'acme', 'suspended', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_s', 'github', '1007', 'weldsuite', 'organization', 'acme', 'suspended', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_s', 'org_gh', 'ghc_s', 'prj_s', 'PVT_ghpl_s', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_s_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_s_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
     "steps": [
@@ -1756,23 +1780,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "1007",
+          "host": null,
           "id": "ghc_s",
-          "installation_id": 1007,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "suspended",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -1786,7 +1814,7 @@
       "kind": "create"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_o', 'org_gh', 2001, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_o', 'github', '2001', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_o', 'org_gh', 'ghc_o', 'prj_o', 'PVT_ghpl_o', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_o_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_o_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_o_done', 'prj_o', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_o_todo', 'prj_o', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_o_doing', 'prj_o', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_create', 'Task tsk_create', 'About tsk_create', 'done', null, 'prj_o', null, '[\"ops\"]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
@@ -1980,23 +2008,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2001",
+          "host": null,
           "id": "ghc_o",
-          "installation_id": 2001,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2010,7 +2042,7 @@
       "kind": "update"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_u', 'org_gh', 2002, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_u', 'github', '2002', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_u', 'org_gh', 'ghc_u', 'prj_u', 'PVT_ghpl_u', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_u_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_u_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_u_done', 'prj_u', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_u_todo', 'prj_u', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_u_doing', 'prj_u', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_upd', 'Task tsk_upd', 'About tsk_upd', 'todo', 'stg_prj_u_done', 'prj_u', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
@@ -2162,23 +2194,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2002",
+          "host": null,
           "id": "ghc_u",
-          "installation_id": 2002,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2192,7 +2228,7 @@
       "kind": "status"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_st', 'org_gh', 2003, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_st', 'github', '2003', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_st', 'org_gh', 'ghc_st', 'prj_st', 'PVT_ghpl_st', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_st_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_st_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_st_done', 'prj_st', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_st_todo', 'prj_st', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_st_doing', 'prj_st', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_st', 'Task tsk_st', 'About tsk_st', 'done', null, 'prj_st', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
@@ -2366,23 +2402,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2003",
+          "host": null,
           "id": "ghc_st",
-          "installation_id": 2003,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2396,7 +2436,7 @@
       "kind": "status"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_re', 'org_gh', 2004, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_re', 'github', '2004', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_re', 'org_gh', 'ghc_re', 'prj_re', 'PVT_ghpl_re', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_re_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_re_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into project_pipeline_stages (id, project_id, name, position, system_status, created_at, updated_at) values\n    ('stg_prj_re_done', 'prj_re', 'Done', 2, 'done', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_re_todo', 'prj_re', 'Todo', 0, 'todo', '2026-10-01 09:00:00', '2026-10-01 09:00:00'),\n    ('stg_prj_re_doing', 'prj_re', 'Doing', 1, 'in_progress', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_re', 'Task tsk_re', 'About tsk_re', 'in_progress', null, 'prj_re', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
@@ -2544,23 +2584,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2004",
+          "host": null,
           "id": "ghc_re",
-          "installation_id": 2004,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2574,7 +2618,7 @@
       "kind": "delete"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_d', 'org_gh', 2005, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_d', 'github', '2005', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_d', 'org_gh', 'ghc_d', 'prj_d', 'PVT_ghpl_d', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_d_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_d_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_del', 'Task tsk_del', 'About tsk_del', 'todo', null, 'prj_d', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_issue_sync_map (id, workspace_id, project_link_id, task_id, project_item_node_id, issue_node_id, issue_number, repo_id,\n      last_synced_task_updated_at, last_synced_issue_updated_at, last_writer_side, created_at, updated_at)\n    values ('ghsm_d', 'org_gh', 'ghpl_d', 'tsk_del', 'PVTI_d', 'I_PVTI_d', 44, 99,\n      '2026-10-01 09:00:00', '2026-10-01 09:00:00', 'issue', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
@@ -2724,23 +2768,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2005",
+          "host": null,
           "id": "ghc_d",
-          "installation_id": 2005,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2754,7 +2802,7 @@
       "kind": "update"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_un', 'org_gh', 2006, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_un', 'github', '2006', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_un', 'org_gh', 'ghc_un', 'prj_un', 'PVT_ghpl_un', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_un_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_un_done\"}]'::jsonb,\n      true, 'bidirectional', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_un', 'Task tsk_un', 'About tsk_un', 'todo', null, 'prj_un', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
@@ -2853,23 +2901,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2006",
+          "host": null,
           "id": "ghc_un",
-          "installation_id": 2006,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -2884,7 +2936,7 @@
       "projectLinkId": "ghpl_in"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_in', 'org_gh', 2007, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_in', 'github', '2007', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into github_project_links (id, workspace_id, connection_id, project_id, project_v2_node_id, project_v2_number, owner_type, owner_login,\n      repo_full_name, status_field_id, status_option_map, sync_issues, sync_direction, created_at, updated_at)\n    values ('ghpl_in', 'org_gh', 'ghc_in', 'prj_in', 'PVT_ghpl_in', 1, 'Organization', 'acme', 'acme/app', 'PVTSSF_status', '[{\"githubOptionId\":\"opt_todo\",\"githubOptionName\":\"Todo\",\"stageId\":\"stg_prj_in_todo\"},{\"githubOptionId\":\"opt_done\",\"githubOptionName\":\"Done\",\"stageId\":\"stg_prj_in_done\"}]'::jsonb,\n      true, 'inbound', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
       "insert into tasks (id, title, description, status, stage_id, project_id, github_issue_number, labels, created_at, updated_at)\n    values ('tsk_in', 'Task tsk_in', 'About tsk_in', 'todo', null, 'prj_in', null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
@@ -2983,23 +3035,27 @@
           "workspace_id": "org_gh"
         }
       ],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2007",
+          "host": null,
           "id": "ghc_in",
-          "installation_id": 2007,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }
@@ -3013,7 +3069,7 @@
       "kind": "status"
     },
     "seed": [
-      "insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)\n    values ('ghc_none', 'org_gh', 2008, 'weldsuite', 'Organization', 'acme', 'active', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+      "insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)\n    values ('ghc_none', 'github', '2008', 'weldsuite', 'organization', 'acme', 'active', 'user_installer', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
     ],
     "steps": [
       "load-task"
@@ -3024,23 +3080,27 @@
       "tasks": [],
       "github_issue_sync_map": [],
       "github_project_links": [],
-      "github_connections": [
+      "merge_connections": [
         {
+          "account_login": "acme",
+          "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00",
-          "created_by": null,
+          "created_at": "2026-10-01T09:00:00+00:00",
+          "created_by_user_id": "user_installer",
+          "credentials": null,
+          "credentials_expire_at": null,
           "deleted_at": null,
+          "external_account_id": "2008",
+          "host": null,
           "id": "ghc_none",
-          "installation_id": 2008,
           "installed_at": null,
-          "owner_login": "acme",
-          "owner_type": "Organization",
+          "oauth_user_login": null,
+          "provider": "github",
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00",
-          "webhook_secret": null,
-          "workspace_id": "org_gh"
+          "updated_at": "2026-10-01T09:00:00+00:00",
+          "webhook_secret": null
         }
       ]
     }

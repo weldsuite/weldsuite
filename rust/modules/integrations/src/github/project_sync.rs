@@ -94,19 +94,22 @@ pub async fn load_link_data(
     else {
         return Err(format!("Project link {project_link_id} not found"));
     };
-    let connection: Option<(String, i64, String)> = sqlx::query_as(
-        "select id, installation_id, status from github_connections \
+    // The link's connection is a WeldMerge connection; its installation id
+    // is `external_account_id` (`Number(conn.externalAccountId)`).
+    let connection: Option<(String, String, String)> = sqlx::query_as(
+        "select id, external_account_id, status from merge_connections \
          where id = $1 and deleted_at is null limit 1",
     )
     .bind(&connection_id)
     .fetch_optional(db)
     .await
     .map_err(|e| e.to_string())?;
-    let Some((id, installation_id, status)) = connection else {
+    let Some((id, external_account_id, status)) = connection else {
         return Err(format!(
             "Connection for project link {project_link_id} not found"
         ));
     };
+    let installation_id = super::installation_of(&external_account_id);
     if status != "active" {
         return Err(format!("Connection {id} is not active (status: {status})"));
     }

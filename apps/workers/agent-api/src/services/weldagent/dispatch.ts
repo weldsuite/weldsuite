@@ -10,7 +10,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
-import { findAgentsForEvent, createAgentRun } from '@weldsuite/agent-domain/agents';
+import { findAgentsForEvent, createAgentRun, getAgent } from '@weldsuite/agent-domain/agents';
 import {
   findEventRoutines,
   createRoutineRun,
@@ -18,6 +18,7 @@ import {
   hasRoutineRunForTrigger,
 } from '@weldsuite/agent-domain/parity';
 import { enqueueWeldAgentJob, type WeldAgentJob } from '@weldsuite/agent-domain/jobs';
+import { memberCanUseAgent } from '@weldsuite/agent-domain/access';
 
 type AgentDb = Variables['tenantDb'];
 
@@ -92,7 +93,17 @@ async function findEventSubscribers(
   }
 }
 
-async function dispatchToAgent(ctx: EventDispatchContext, agent: MatchedAgent): Promise<void> {
+/** What an assignment (instead of a subscription) tells the agent to do. */
+interface AgentTask {
+  userMessage: string;
+  extraSystem: string;
+}
+
+async function dispatchToAgent(
+  ctx: EventDispatchContext,
+  agent: Pick<MatchedAgent, 'id' | 'createdBy'>,
+  task?: AgentTask,
+): Promise<void> {
   const { db, schedule, message, eventKey, eventPrompt, baseTrigger } = ctx;
   try {
     if (message.eventId) {
@@ -119,8 +130,8 @@ async function dispatchToAgent(ctx: EventDispatchContext, agent: MatchedAgent): 
       agentId: agent.id,
       triggerType: 'event',
       triggerData: baseTrigger,
-      userMessage: `${eventPrompt}Follow your instructions and use tools if needed.`,
-      extraSystem: `Triggered by entity event ${eventKey}.`,
+      userMessage: task?.userMessage ?? `${eventPrompt}Follow your instructions and use tools if needed.`,
+      extraSystem: task?.extraSystem ?? `Triggered by entity event ${eventKey}.`,
       runId,
     });
   } catch (err) {
@@ -160,6 +171,46 @@ async function dispatchToRoutine(ctx: EventDispatchContext, routine: MatchedRout
   }
 }
 
+/** The event a member assigns a WeldMerge issue to an agent with (merge-api `PATCH /issues/:id {agentId}`). */
+export const MERGE_AGENT_ASSIGNED = { entityType: 'merge_issue', action: 'agent_assigned' } as const;
+
+/**
+ * An issue assigned to an agent (AGENT-009): that agent, whether or not it
+ * subscribes to the event, runs with the issue as its task. The agent works
+ * through the `merge_*` tools, so it can only do what its grants and the
+ * member who assigned it allow. The member who assigned it must be able to
+ * use that agent themselves, as in the chat (`weldagent:use` and access to the
+ * agent, checked now): otherwise the run is dropped, so assigning an issue
+ * never runs an agent the assigner could not.
+ */
+async function dispatchAssignedIssue(ctx: EventDispatchContext): Promise<void> {
+  const { db, message } = ctx;
+  const agentId = typeof message.data.agentId === 'string' ? message.data.agentId : null;
+  if (!agentId) return;
+  const agent = await getAgent(db, agentId).catch(() => null);
+  if (!agent || agent.status !== 'active') return;
+  const allowed = await memberCanUseAgent(db, agent, message.userId).catch((err: unknown) => {
+    console.error('[weldagent/dispatch] could not check the member who assigned the issue:', err);
+    return false;
+  });
+  if (!allowed) {
+    console.warn(
+      `[weldagent/dispatch] Dropped the assignment of ${message.entityId} to agent ${agent.id}: the member who assigned it cannot use that agent`,
+    );
+    return;
+  }
+  const key = typeof message.data.key === 'string' ? message.data.key : message.entityId;
+  const title = typeof message.data.title === 'string' && message.data.title ? ` "${message.data.title}"` : '';
+  const userMessage =
+    `A WeldMerge issue has been assigned to you: ${key}${title} (issue id ${message.entityId}).\n` +
+    'Read it with merge_get_issue, do the work it asks for with your tools, and report what you did with ' +
+    'merge_comment_on_issue. Move it to in_review or done with merge_update_issue when you are finished.';
+  await dispatchToAgent(ctx, agent, {
+    userMessage,
+    extraSystem: `You were assigned WeldMerge issue ${key}. Triggered by entity event merge_issue.agent_assigned.`,
+  });
+}
+
 /**
  * Match active agents (and event routines) for an entity event, queue a run
  * row for each and hand the run to the durable job workflow.
@@ -177,10 +228,11 @@ export async function dispatchWeldAgentsForEvent(
   const altKey = `${message.entityType}:${message.action}`;
 
   const subscribers = await findEventSubscribers(db, eventKey, altKey);
-  if (!subscribers) return;
-  const { agents, routines } = subscribers;
+  const { agents, routines } = subscribers ?? { agents: [], routines: [] };
+  const assigned =
+    message.entityType === MERGE_AGENT_ASSIGNED.entityType && message.action === MERGE_AGENT_ASSIGNED.action;
 
-  if (agents.length === 0 && routines.length === 0) return;
+  if (agents.length === 0 && routines.length === 0 && !assigned) return;
 
   const payload = JSON.stringify(message.data, null, 2);
   const shownPayload = payload.length > 8000 ? `${payload.slice(0, 8000)}…` : payload;
@@ -196,6 +248,7 @@ export async function dispatchWeldAgentsForEvent(
   };
   const ctx: EventDispatchContext = { db, schedule, message, eventKey, eventPrompt, baseTrigger };
 
+  if (assigned) await dispatchAssignedIssue(ctx);
   for (const agent of agents) {
     await dispatchToAgent(ctx, agent);
   }

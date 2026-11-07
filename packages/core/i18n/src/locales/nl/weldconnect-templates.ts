@@ -128,4 +128,18 @@ export const weldconnectTemplates = {
       body: '<p>Hoi {firstName},</p><p>Bedankt voor je bericht. Fijn dat je er bent, we nemen snel contact met je op.</p><p>Met vriendelijke groet</p>',
     },
   },
+  weldmergeReleaseShipped: {
+    name: 'Support op de hoogte brengen bij een release',
+    description:
+      'Als een WeldMerge-release live gaat, meld je dat in een WeldChat-kanaal en mail je je supportteam de release en de supporttickets die ermee opgelost zijn, zodat ze die klanten kunnen antwoorden.',
+    steps: {
+      announce: 'Aankondigen in WeldChat',
+      email: 'Supportteam mailen',
+    },
+    text: {
+      message: 'Release live: {release} {version}. Supporttickets die hiermee opgelost zijn: {tickets}.',
+      subject: 'Release live: {release} {version}',
+      body: '<p>{release} {version} is live.</p><p>Supporttickets die aan de issues in deze release gekoppeld zijn: {tickets}.</p><p>Laat die klanten weten dat de oplossing live staat.</p>',
+    },
+  },
 };

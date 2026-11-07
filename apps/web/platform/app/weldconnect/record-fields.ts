@@ -16,6 +16,8 @@ export interface RecordFieldDef {
   /** Path below the record, e.g. `firstName` or `address.city`. Also the key of its label in `weldconnect.recordFields`. */
   path: string;
   type?: 'string' | 'number' | 'boolean';
+  /** Key of the label in `weldconnect.recordFields`, when it is not `path` (a `title` that is not a job title). */
+  labelKey?: string;
   /** Events whose payload carries the field. Omitted = every event of the entity. */
   events?: readonly string[];
   /** Value pre-filled in the Test dialog. */
@@ -84,6 +86,38 @@ const RECORD_FIELDS: Record<string, readonly RecordFieldDef[]> = {
     { path: 'currency', sample: 'EUR', events: ['created'] },
     { path: 'pipelineId', events: ['created'] },
     { path: 'stageId', events: OPPORTUNITY_CHANGE_EVENTS },
+  ],
+  // WeldMerge: the payloads of services/mappers.ts (issues), services/pr-sync.ts (pull requests)
+  // and services/releases.ts (releases) in merge-api. `merge_release.shipped` carries the shipped-event data.
+  merge_issue: [
+    { path: 'id', sample: 'mis_test' },
+    { path: 'key', sample: 'PLAT-209' },
+    { path: 'title', labelKey: 'merge.title', sample: 'Login is slow' },
+    { path: 'status', sample: 'todo' },
+    { path: 'priority', sample: '2' },
+    { path: 'teamId' },
+    { path: 'assigneeUserId' },
+  ],
+  merge_pull_request: [
+    { path: 'id', sample: 'mpr_test' },
+    { path: 'number', sample: '42', type: 'number' },
+    { path: 'title', labelKey: 'merge.title', sample: 'Fix the login' },
+    { path: 'state', sample: 'open' },
+    { path: 'url', sample: 'https://github.com/acme/api/pull/42' },
+    { path: 'authorLogin', sample: 'octocat' },
+    { path: 'repositoryId' },
+  ],
+  merge_release: [
+    { path: 'id', sample: 'mrl_test', events: ['created', 'updated', 'deleted'] },
+    { path: 'releaseId', sample: 'mrl_test', events: ['shipped'] },
+    { path: 'pullRequestIds', labelKey: 'merge.pullRequestIds', events: ['shipped'] },
+    { path: 'issueIds', labelKey: 'merge.issueIds', events: ['shipped'] },
+    { path: 'deskTicketIds', labelKey: 'merge.deskTicketIds', events: ['shipped'] },
+    { path: 'name', sample: 'Spring release' },
+    { path: 'version', sample: 'v1.4.0' },
+    { path: 'status', events: ['created', 'updated', 'deleted'] },
+    { path: 'repositoryId' },
+    { path: 'teamId', events: ['created', 'updated', 'deleted'] },
   ],
 };
 

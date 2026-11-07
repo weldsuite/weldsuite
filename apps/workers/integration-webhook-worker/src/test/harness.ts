@@ -33,6 +33,7 @@ import worker, { type Env } from '../index';
 /** Every route the worker serves (src/index.ts and the routers it mounts). */
 export const WORKER_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
   { method: 'POST', path: '/webhooks/github' },
+  { method: 'POST', path: '/webhooks/merge/:provider/:key' },
   { method: 'POST', path: '/webhooks/bank-feeds/:provider' },
   { method: 'POST', path: '/webhooks/woocommerce/auth' },
   { method: 'POST', path: '/webhooks/connectors/:connectionId' },

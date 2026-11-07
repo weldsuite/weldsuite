@@ -431,6 +431,42 @@ const opportunityLoader = defineLoader({
   },
 });
 
+const mergeIssueLoader = defineLoader({
+  type: 'merge_issue',
+  select: (db) => {
+    const { mergeIssues, mergeTeams } = schema;
+    const base = () =>
+      db
+        .select({
+          id: mergeIssues.id,
+          title: mergeIssues.title,
+          number: mergeIssues.number,
+          description: mergeIssues.description,
+          teamKey: mergeTeams.key,
+        })
+        .from(mergeIssues)
+        .innerJoin(mergeTeams, eq(mergeTeams.id, mergeIssues.teamId));
+    const visible = and(isNull(mergeIssues.deletedAt), isNull(mergeTeams.deletedAt));
+
+    return {
+      byId: (id) => base().where(and(visible, eq(mergeIssues.id, id))),
+      after: (afterId, limit) =>
+        base()
+          .where(afterId ? and(visible, gt(mergeIssues.id, afterId)) : visible)
+          .orderBy(asc(mergeIssues.id))
+          .limit(limit),
+    };
+  },
+  toDocument: (r) => ({
+    title: r.title || `${r.teamKey}-${r.number}`,
+    subtitle: `${r.teamKey}-${r.number}`,
+    content: compose([`${r.teamKey}-${r.number}`, r.title, r.description]),
+  }),
+});
+
+// Pull requests stay out of the semantic index: a repository backfill brings
+// ~300 at once, and the lexical ⌘K search (title, #number, branch) covers them.
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -445,6 +481,7 @@ export const DOCUMENT_LOADERS: DocumentLoader[] = [
   customerLoader,
   leadLoader,
   opportunityLoader,
+  mergeIssueLoader,
 ];
 
 const LOADERS_BY_TYPE = new Map<SearchEntityType, DocumentLoader>(

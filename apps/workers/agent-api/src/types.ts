@@ -1,4 +1,5 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { MergeInternalBinding } from '@weldsuite/app-api-client/schemas/weldmerge-across';
 import type { WeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
@@ -64,6 +65,8 @@ export interface Env extends KitEnv {
   SHEETS_INTERNAL?: Fetcher;
   /** board-api BoardsInternal entrypoint: the WeldAgent board tools. */
   BOARDS_INTERNAL?: Fetcher;
+  /** merge-api MergeInternal entrypoint: the WeldAgent WeldMerge tools (RPC `agentTool`). */
+  MERGE_INTERNAL?: MergeInternalBinding;
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Fallback path only. Example: http://localhost:8795 or

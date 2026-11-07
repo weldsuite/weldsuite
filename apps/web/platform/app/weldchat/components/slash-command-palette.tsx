@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { ListTodo } from 'lucide-react';
+import { GitPullRequest, ListTodo, SquareCheckBig } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -16,9 +16,11 @@ interface SlashCommandPaletteProps {
   onSelect: (command: string) => void;
   /** Escape closes the palette (and is consumed while it is showing). */
   onDismiss?: () => void;
+  /** WeldMerge is installed and readable: offer `/issue` and `/merge`. */
+  mergeEnabled?: boolean;
 }
 
-export function SlashCommandPalette({ query, onSelect, onDismiss }: Readonly<SlashCommandPaletteProps>) {
+export function SlashCommandPalette({ query, onSelect, onDismiss, mergeEnabled = false }: Readonly<SlashCommandPaletteProps>) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -28,7 +30,13 @@ export function SlashCommandPalette({ query, onSelect, onDismiss }: Readonly<Sla
   // members panel; agents are no longer added to channels from anywhere.
   const COMMANDS: SlashCommand[] = useMemo(() => [
     { name: '/createtask', description: t.weldchat.slashCommandPalette.commands.createtask, icon: ListTodo },
-  ], [t]);
+    ...(mergeEnabled
+      ? [
+          { name: '/issue', description: t.weldmerge.across.chat.slash.issue, icon: SquareCheckBig },
+          { name: '/merge', description: t.weldmerge.across.chat.slash.merge, icon: GitPullRequest },
+        ]
+      : []),
+  ], [t, mergeEnabled]);
 
   const filteredCommands = useMemo(() => {
     if (!query) return COMMANDS;

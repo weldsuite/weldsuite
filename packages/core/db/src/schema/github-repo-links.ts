@@ -8,7 +8,7 @@ import {
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { githubConnections } from './github-connections';
+import { mergeConnections } from './weldmerge';
 
 /**
  * Sync direction for a linked repository
@@ -35,10 +35,10 @@ export const githubRepoLinks = pgTable(
     // Tenant scope (belt-and-suspenders). Holds the Clerk org id (org_… ≈ 31-32 chars).
     workspaceId: varchar('workspace_id', { length: 255 }).notNull(),
 
-    // FK to GitHub App installation
+    // FK to the WeldMerge connection (adopted GitHub App installation)
     connectionId: varchar('connection_id', { length: 30 })
       .notNull()
-      .references(() => githubConnections.id, { onDelete: 'cascade' }),
+      .references(() => mergeConnections.id, { onDelete: 'cascade' }),
 
     // FK to WeldFlow project (varchar(255) to match projects.id)
     projectId: varchar('project_id', { length: 255 }),

@@ -116,6 +116,55 @@ export async function getGithubInstallationToken(
 }
 
 // ============================================================================
+// Installation metadata
+// ============================================================================
+
+export interface GithubInstallationMeta {
+  id: number;
+  appSlug: string;
+  accountType: 'User' | 'Organization';
+  accountLogin: string;
+  repositorySelection: string;
+}
+
+/**
+ * The installation's account and App slug, read with the App JWT. Shared by
+ * every install flow that records an installation (connect-api's callback and
+ * merge-api's setup route). Throws when GitHub refuses.
+ */
+export async function fetchGithubInstallationMeta(
+  appId: string,
+  privateKeyPem: string,
+  installationId: number,
+): Promise<GithubInstallationMeta> {
+  const appJwt = await mintGithubAppJwt(appId, privateKeyPem);
+  const resp = await fetch(installationUrl(installationId), {
+    headers: {
+      Authorization: `Bearer ${appJwt}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'WeldSuite-WeldConnect',
+    },
+  });
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch installation metadata (${resp.status}): ${await resp.text()}`);
+  }
+  const data = (await resp.json()) as {
+    id: number;
+    app_slug: string;
+    account: { login: string; type: string };
+    repository_selection: string;
+  };
+  return {
+    id: data.id,
+    appSlug: data.app_slug,
+    accountType: data.account.type === 'Organization' ? 'Organization' : 'User',
+    accountLogin: data.account.login,
+    repositorySelection: data.repository_selection,
+  };
+}
+
+// ============================================================================
 // Web Crypto Helpers
 // ============================================================================
 

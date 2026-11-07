@@ -2455,6 +2455,9 @@ importers:
       '@types/ws':
         specifier: ^8.0.0
         version: 8.18.1
+      '@weldsuite/board-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/board-engine
       '@weldsuite/collab':
         specifier: workspace:*
         version: link:../../../packages/core/collab
@@ -2794,6 +2797,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@24.10.6)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   apps/web/api-docs:
     dependencies:
@@ -3315,7 +3321,7 @@ importers:
         version: 5.9.2
       vite:
         specifier: ^8.3.5
-        version: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+        version: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
       wrangler:
         specifier: ^4.152.0
         version: 4.152.0(@types/node@24.10.6)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -5351,6 +5357,9 @@ importers:
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
+      '@weldsuite/merge-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/merge
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications
@@ -6169,6 +6178,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/bank-feeds':
         specifier: workspace:*
         version: link:../../../packages/core/bank-feeds
@@ -6181,6 +6193,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/merge-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/merge
       '@weldsuite/meta-ads':
         specifier: workspace:*
         version: link:../../../packages/core/meta-ads
@@ -6601,6 +6616,79 @@ importers:
       wrangler:
         specifier: ^4.95.0
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+
+  apps/workers/merge-api:
+    dependencies:
+      '@hono/zod-validator':
+        specifier: ^0.4.0
+        version: 0.4.3(hono@4.13.13)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
+      '@weldsuite/chat-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/chat
+      '@weldsuite/connect-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/connect
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
+      '@weldsuite/db':
+        specifier: workspace:*
+        version: link:../../../packages/core/db
+      '@weldsuite/entity-events':
+        specifier: workspace:*
+        version: link:../../../packages/core/entity-events
+      '@weldsuite/know-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/know
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
+      '@weldsuite/merge-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/merge
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
+      '@weldsuite/permissions':
+        specifier: workspace:*
+        version: link:../../../packages/core/permissions
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      typescript:
+        specifier: ^5.7
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      wrangler:
+        specifier: ^4.95.0
+        version: 4.152.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
   apps/workers/panel-api:
     dependencies:
@@ -7246,6 +7334,9 @@ importers:
       '@weldsuite/ai':
         specifier: workspace:*
         version: link:../../../packages/core/ai
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/connect-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/connect
@@ -7552,7 +7643,7 @@ importers:
         version: 5.9.2
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@26.2.0)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   packages/core/cloudflare-deploy:
     dependencies:
@@ -7863,6 +7954,9 @@ importers:
       html-to-text:
         specifier: ^9.0.5
         version: 9.0.5
+      nodemailer:
+        specifier: 10.2.1
+        version: 10.2.1
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -9411,6 +9505,34 @@ importers:
         version: link:../../config/typescript-config
       typescript:
         specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+
+  packages/domains/merge:
+    dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../clients/app-api-client
+      '@weldsuite/db':
+        specifier: workspace:*
+        version: link:../../core/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      typescript:
+        specifier: ^5.7
         version: 5.9.2
       vitest:
         specifier: ^4.1.12
@@ -22736,6 +22858,10 @@ packages:
     resolution: {integrity: sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ==}
     engines: {node: '>=18'}
 
+  nodemailer@10.2.1:
+    resolution: {integrity: sha512-ZrDNsPFoDMwefNs7sJwrYiEJ/CG4ClJWDZv05iNJsEBWa8GRDry1QJHTJxsuTAY9eDDKjX4k+q3SxslXJOao7w==}
+    engines: {node: '>=20.0.0'}
+
   nopt@5.0.0:
     resolution: {integrity: sha512-Tbj67rffqceeLpcRXrT7vKAN8CwfPeIBgM7E6iBkmKLV7bEMwpGgYLGv0jACUsECaa/vuxP0IjEont6umdMgtQ==}
     engines: {node: '>=6'}
@@ -28782,7 +28908,7 @@ snapshots:
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261019.1)
       miniflare: 5.20261019.2-beta(@types/node@24.10.6)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       unenv: 2.0.0-rc.24
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
       wrangler: 4.152.0(@types/node@24.10.6)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       ws: 8.21.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
@@ -36475,7 +36601,7 @@ snapshots:
       '@tailwindcss/node': 4.3.3
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
   '@tanstack/history@1.154.14': {}
 
@@ -36635,7 +36761,7 @@ snapshots:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
     optionalDependencies:
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -36785,7 +36911,7 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       '@tanstack/react-router': 1.170.46(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
       webpack: 5.105.4(lightningcss@1.33.0)
     transitivePeerDependencies:
       - '@farmfe/core'
@@ -36895,7 +37021,7 @@ snapshots:
       xmlbuilder2: 4.0.3
       zod: 4.6.7
     optionalDependencies:
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -38406,7 +38532,7 @@ snapshots:
   '@vitejs/plugin-react@6.1.2(babel-plugin-react-compiler@1.0.0)(vite@8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
     optionalDependencies:
       babel-plugin-react-compiler: 1.0.0
 
@@ -38422,7 +38548,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      vitest: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@24.10.6)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   '@vitest/expect@2.0.5':
     dependencies:
@@ -38487,6 +38613,14 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+
+  '@vitest/mocker@4.1.12(vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
+    dependencies:
+      '@vitest/spy': 4.1.12
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
   '@vitest/mocker@4.1.12(vite@8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
     dependencies:
@@ -47673,6 +47807,8 @@ snapshots:
 
   node-releases@2.0.54: {}
 
+  nodemailer@10.2.1: {}
+
   nopt@5.0.0:
     dependencies:
       abbrev: 1.1.1
@@ -51383,7 +51519,7 @@ snapshots:
     optionalDependencies:
       rolldown: 1.2.15
       rollup: 4.64.12
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
       webpack: 5.105.4(lightningcss@1.33.0)
 
   unrs-resolver@1.11.1:
@@ -51772,7 +51908,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.9.1
 
-  vite@8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1):
+  vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -51781,6 +51917,7 @@ snapshots:
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 24.10.6
+      esbuild: 0.28.2
       fsevents: 2.3.3
       jiti: 2.7.0
       sass: 1.51.0
@@ -51828,7 +51965,7 @@ snapshots:
 
   vitefu@1.1.3(vite@8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)):
     optionalDependencies:
-      vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
   vitest@4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)):
     dependencies:
@@ -51975,6 +52112,36 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 20.19.43
+      '@vitest/coverage-v8': 4.1.12(vitest@4.1.12)
+      jsdom: 25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.12(@opentelemetry/api@1.9.0)(@types/node@24.10.6)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)):
+    dependencies:
+      '@vitest/expect': 4.1.12
+      '@vitest/mocker': 4.1.12(vite@8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      '@vitest/pretty-format': 4.1.12
+      '@vitest/runner': 4.1.12
+      '@vitest/snapshot': 4.1.12
+      '@vitest/spy': 4.1.12
+      '@vitest/utils': 4.1.12
+      es-module-lexer: 2.3.2
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.2.1
+      pathe: 2.0.3
+      picomatch: 4.0.7
+      std-env: 4.3.0
+      tinybench: 2.9.0
+      tinyexec: 1.3.1
+      tinyglobby: 0.2.17
+      tinyrainbow: 3.2.0
+      vite: 8.3.5(@types/node@24.10.6)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.0
+      '@types/node': 24.10.6
       '@vitest/coverage-v8': 4.1.12(vitest@4.1.12)
       jsdom: 25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:

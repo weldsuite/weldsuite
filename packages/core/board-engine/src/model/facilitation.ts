@@ -2,7 +2,10 @@
  * Facilitation, as board state everyone in the room shares: a timer, a
  * voting round and private mode. Each change is an op (`setBoard` for the
  * board's properties, `vote` for one person's votes), so it orders, undoes
- * and survives a reload like any edit.
+ * and survives a reload like any edit. One exception: starting or clearing a
+ * round that takes away other people's votes cannot be undone, because putting
+ * their votes back would be voting in their name, which the room refuses
+ * (`takesOthersVotes`).
  *
  *   - Timer: running (`endsAt`) or paused (`remaining`). Every client counts
  *     down from the same `endsAt`, so they agree without ticking the room.
@@ -134,6 +137,16 @@ export function closeVotingOp(board: Board): Op | null {
 /** Ends the round and takes every vote away. */
 export function clearVotingOp(board: Board): Op {
   return { type: 'batch', ops: [...clearVoteOps(board), { type: 'setBoard', patch: { voting: null } }] };
+}
+
+/**
+ * Whether starting or clearing a round now takes away the votes of someone other than `userId`.
+ * Such a change is no undo step: its undo would put their votes back, voting in their name, and
+ * the room refuses that (a round change may take anyone's votes away, never cast them).
+ */
+export function takesOthersVotes(board: Board, userId: string): boolean {
+  for (const [user, ids] of board.votes) if (user !== userId && ids.length > 0) return true;
+  return false;
 }
 
 function clearVoteOps(board: Board): Op[] {

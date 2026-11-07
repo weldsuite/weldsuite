@@ -634,7 +634,7 @@ pub const SLOT_SURPLUS_TOLERANCE: i64 = 2;
 const SLOT_TYPES: [&str; 4] = ["google", "shared", "private", "outlook"];
 /// What a mailbox costs WeldSuite per month at Mailpool, by type.
 const MAILPOOL_COST_CENTS: [(&str, i64); 2] = [("shared", 300), ("google", 400)];
-const INBOX_PRICE_CENTS: i64 = 500;
+const INBOX_PRICE_CENTS: i64 = 800;
 
 /// `SlotAdjustment`.
 #[derive(Debug, Clone, PartialEq, Eq)]

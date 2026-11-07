@@ -34,6 +34,8 @@ pub(crate) enum SearchType {
     Bill,
     Project,
     Task,
+    MergeIssue,
+    MergePullRequest,
     Sheet,
     Board,
     Domain,
@@ -41,7 +43,7 @@ pub(crate) enum SearchType {
 
 /// Every type with the permission that lets a caller search it
 /// (`ENTITY_REGISTRY`), in canonical order.
-const REGISTRY: [(SearchType, &str, &str); 16] = [
+const REGISTRY: [(SearchType, &str, &str); 18] = [
     (SearchType::Contact, "contact", "contacts:read"),
     (SearchType::Customer, "customer", "contacts:read"),
     (SearchType::Lead, "lead", "leads:read"),
@@ -59,9 +61,38 @@ const REGISTRY: [(SearchType, &str, &str); 16] = [
     (SearchType::Bill, "bill", "bills:read"),
     (SearchType::Project, "project", "projects:read"),
     (SearchType::Task, "task", "tasks:read"),
+    (SearchType::MergeIssue, "merge_issue", "merge_issues:read"),
+    (
+        SearchType::MergePullRequest,
+        "merge_pull_request",
+        "merge_pull_requests:read",
+    ),
     (SearchType::Sheet, "sheet", "sheets:read"),
     (SearchType::Board, "board", "boards:read"),
     (SearchType::Domain, "domain", "domains:read"),
+];
+
+/// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
+/// order (the enum's message lists them so), which is not the canonical one.
+const ENTITY_TYPES: [&str; 18] = [
+    "contact",
+    "customer",
+    "lead",
+    "opportunity",
+    "ticket",
+    "article",
+    "knowledge_page",
+    "product",
+    "order",
+    "invoice",
+    "bill",
+    "project",
+    "task",
+    "sheet",
+    "board",
+    "domain",
+    "merge_issue",
+    "merge_pull_request",
 ];
 
 impl SearchType {
@@ -123,6 +154,8 @@ pub(crate) fn build_result_url(
         SearchType::Sheet => format!("/weldsheets/{id}"),
         SearchType::Board => format!("/weldboard/{id}"),
         SearchType::Domain => format!("/weldhost/domains/{id}"),
+        SearchType::MergeIssue => format!("/weldmerge/issues/{encoded}"),
+        SearchType::MergePullRequest => format!("/weldmerge/pull-requests/{encoded}"),
     }
 }
 
@@ -356,6 +389,40 @@ const DOMAINS: &str = "select jsonb_build_object('row', row, 'score', score) fro
       and (lower(full_domain) like $3 or lower(name) like $3 or lower(tld) like $3)) s
   order by score desc, updated_at desc, id desc limit $4";
 
+/// WeldMerge issues by title or key (`PLAT-209`, or a part of it); `$5` is
+/// the escaped substring pattern (`escapeLike`), the scores use the raw term.
+const MERGE_ISSUES: &str = "select jsonb_build_object('row', row, 'score', score) from (
+    select i.id, i.updated_at, greatest(
+        case when lower(i.title) = $1 then 1.0 when lower(i.title) like $2 then 0.9
+             when lower(i.title) like $3 then 0.6 else 0 end,
+        case when lower(t.key || '-' || i.number::text) = $1 then 1.0
+             when lower(t.key || '-' || i.number::text) like $2 then 0.9
+             when lower(t.key || '-' || i.number::text) like $3 then 0.6 else 0 end) as score,
+      jsonb_build_object('id', i.id, 'title', i.title, 'key', t.key || '-' || i.number::text,
+        'status', i.status) as row
+    from merge_issues i
+    join merge_teams t on t.id = i.team_id
+    where i.deleted_at is null and t.deleted_at is null
+      and (lower(i.title) like $5 or lower(t.key || '-' || i.number::text) like $5)) s
+  order by score desc, updated_at desc, id desc limit $4";
+
+/// WeldMerge pull requests of repositories still connected, by title, branch
+/// or number (`#123`, `123`: `$6`); `$5` as for issues.
+const MERGE_PULL_REQUESTS: &str = "select jsonb_build_object('row', row, 'score', score) from (
+    select p.id, p.provider_updated_at, greatest(
+        case when lower(p.title) = $1 then 1.0 when lower(p.title) like $2 then 0.9
+             when lower(p.title) like $3 then 0.6 else 0 end,
+        case when lower(p.head_ref) = $1 then 1.0 when lower(p.head_ref) like $2 then 0.9
+             when lower(p.head_ref) like $3 then 0.6 else 0 end) as score,
+      jsonb_build_object('id', p.id, 'title', p.title, 'number', p.number, 'state', p.state,
+        'repository', r.full_name) as row
+    from merge_pull_requests p
+    join merge_repositories r on r.id = p.repository_id
+    where r.deleted_at is null
+      and (lower(p.title) like $5 or lower(p.head_ref) like $5
+        or ($6::int is not null and p.number = $6))) s
+  order by score desc, provider_updated_at desc, id desc limit $4";
+
 /// `a || b || …`: the first non-empty string, else `None`.
 fn first<'a>(values: &[Option<&'a str>]) -> Option<&'a str> {
     values.iter().flatten().copied().find(|v| !v.is_empty())
@@ -510,6 +577,24 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
             None,
         ),
         SearchType::Board => (first(&[s("name")]).unwrap_or("Board").to_owned(), None),
+        SearchType::MergeIssue => {
+            let key = s("key").unwrap_or("null");
+            (
+                first(&[s("title"), Some(key)])
+                    .unwrap_or_default()
+                    .to_owned(),
+                Some(with_suffix(key, s("status"))),
+            )
+        }
+        SearchType::MergePullRequest => {
+            let number = match &row["number"] {
+                Value::Number(number) => number.to_string(),
+                _ => "null".to_owned(),
+            };
+            let title = first(&[s("title")]).map_or_else(|| format!("#{number}"), str::to_owned);
+            let head = format!("{}#{number}", s("repository").unwrap_or("null"));
+            (title, Some(with_suffix(&head, s("state"))))
+        }
         SearchType::Domain => {
             let title = first(&[s("fullDomain")]).map_or_else(
                 || {
@@ -595,6 +680,9 @@ async fn search_rows(
         SearchType::Project => PROJECTS,
         SearchType::Domain => DOMAINS,
         SearchType::Task => return search_tasks(db, q, &term).await,
+        SearchType::MergeIssue | SearchType::MergePullRequest => {
+            return search_merge(db, kind, q, &term).await;
+        }
         SearchType::Sheet => return search_files(db, FileKind::Sheet, q, limit, user_id).await,
         SearchType::Board => return search_files(db, FileKind::Board, q, limit, user_id).await,
     };
@@ -622,6 +710,41 @@ async fn search_tasks(db: &PgPool, q: &str, term: &Term) -> Result<Vec<Value>, s
         .bind(number)
         .fetch_all(db)
         .await
+}
+
+/// WeldMerge issues and pull requests (`searchMergeIssues`,
+/// `searchMergePullRequests`): the `WHERE` matches the escaped term, the
+/// score the raw one, as in TypeScript.
+async fn search_merge(
+    db: &PgPool,
+    kind: SearchType,
+    q: &str,
+    term: &Term,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let contains = format!("%{}%", escape_like(&q.to_lowercase()));
+    let query = sqlx::query_scalar(if kind == SearchType::MergeIssue {
+        MERGE_ISSUES
+    } else {
+        MERGE_PULL_REQUESTS
+    })
+    .bind(&term.lower)
+    .bind(&term.prefix)
+    .bind(&term.contains)
+    .bind(term.limit)
+    .bind(&contains);
+    if kind == SearchType::MergeIssue {
+        return query.fetch_all(db).await;
+    }
+    query.bind(pull_request_number(q)).fetch_all(db).await
+}
+
+/// `/^#?(\d{1,9})$/.exec(q.trim())`: the number a query names.
+fn pull_request_number(q: &str) -> Option<i32> {
+    let trimmed = q.trim();
+    let digits = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    (!digits.is_empty() && digits.len() <= 9 && digits.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 /// `escapeLike`: `\`, `%` and `_` match themselves.
@@ -798,7 +921,7 @@ fn read_input(issues: &mut Issues, body: &Map<String, Value>) -> SearchInput {
         )
         .into_option()
         .unwrap_or_default();
-    let names: Vec<&str> = REGISTRY.iter().map(|(_, name, _)| *name).collect();
+    let names: Vec<&str> = ENTITY_TYPES.to_vec();
     let types = issues
         .list(
             body,
@@ -960,5 +1083,42 @@ mod tests {
         );
         assert_eq!(subtitle.as_deref(), Some("WeldSuite · active"));
         assert_eq!(escape_like("50%_a\\"), "50\\%\\_a\\\\");
+    }
+
+    #[test]
+    fn the_schema_names_every_registered_type() {
+        assert_eq!(ENTITY_TYPES.len(), REGISTRY.len());
+        for (_, name, _) in REGISTRY {
+            assert!(ENTITY_TYPES.contains(&name), "{name}");
+        }
+    }
+
+    #[test]
+    fn weldmerge_results() {
+        assert_eq!(
+            build_result_url(SearchType::MergeIssue, "mis_1", None),
+            "/weldmerge/issues/mis_1"
+        );
+        assert_eq!(
+            build_result_url(SearchType::MergePullRequest, "mpr 1", None),
+            "/weldmerge/pull-requests/mpr%201"
+        );
+        let (title, subtitle) = describe(
+            SearchType::MergeIssue,
+            &json!({ "title": "", "key": "PLAT-209", "status": "in_progress" }),
+        );
+        assert_eq!(title, "PLAT-209");
+        assert_eq!(subtitle.as_deref(), Some("PLAT-209 · in_progress"));
+        let (title, subtitle) = describe(
+            SearchType::MergePullRequest,
+            &json!({ "title": "Bump deps", "number": 124, "repository": "acme/web", "state": "open" }),
+        );
+        assert_eq!(title, "Bump deps");
+        assert_eq!(subtitle.as_deref(), Some("acme/web#124 · open"));
+        assert_eq!(pull_request_number(" #124 "), Some(124));
+        assert_eq!(pull_request_number("123"), Some(123));
+        assert_eq!(pull_request_number("1234567890"), None);
+        assert_eq!(pull_request_number("#"), None);
+        assert_eq!(pull_request_number("chore/"), None);
     }
 }

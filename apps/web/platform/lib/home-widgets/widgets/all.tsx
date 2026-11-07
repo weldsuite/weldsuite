@@ -38,6 +38,7 @@ import { weldchatChannelsWidget } from './weldchat-channels';
 import { weldcallHistoryWidget } from './weldcall-history';
 import { welddriveRecentWidget } from './welddrive-recent';
 import { weldhostDomainsWidget } from './weldhost-domains';
+import { weldmergeInboxWidget } from './weldmerge-inbox';
 
 const emptySchema = z.object({});
 type Empty = z.infer<typeof emptySchema>;
@@ -75,6 +76,7 @@ export const allWidgets: HomeWidgetDefinition[] = [
   weldcallHistoryWidget as unknown as HomeWidgetDefinition,
   welddriveRecentWidget as unknown as HomeWidgetDefinition,
   weldhostDomainsWidget as unknown as HomeWidgetDefinition,
+  weldmergeInboxWidget as unknown as HomeWidgetDefinition,
 
   // Demo widgets — still render their hardcoded fixture with a "Demo" badge.
   // Wiring these needs custom backend work (analytics aggregator, slack/discord

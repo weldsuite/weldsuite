@@ -1551,6 +1551,8 @@ export const settings = {
       ticketTypesDescription: 'De soorten tickets waar uw team aan werkt, en hun velden.',
       assignmentTitle: 'Toewijzing',
       assignmentDescription: 'Hoe nieuwe gesprekken naar agents worden gerouteerd.',
+      slaPoliciesTitle: 'SLA-beleid',
+      slaPoliciesDescription: 'Reactie- en oplosdoelen voor uw gesprekken.',
     },
 
     weldmail: {

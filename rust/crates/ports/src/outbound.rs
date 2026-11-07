@@ -7,9 +7,46 @@
 //! Reach it through the request's [`OutboundHttp`] extension when there is
 //! one (conformance), else the app's.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use crate::{BoxFuture, PortError};
+
+/// A globally routable address: not loopback, private, link-local, shared
+/// (100.64/10), benchmarking, documentation, multicast, unspecified, reserved
+/// or unique-local. What an outbound client that takes a user's URL (a
+/// webhook, a self-managed GitLab host) may connect to, since the pod sits
+/// next to the cluster's own services.
+pub fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_documentation()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 198 && (b == 18 || b == 19))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let first = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+                || first == 0x2001 && v6.segments()[1] == 0x0db8)
+        }
+    }
+}
 
 /// One request.
 #[derive(Debug, Clone, PartialEq, Eq)]

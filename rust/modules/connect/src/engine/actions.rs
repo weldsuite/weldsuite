@@ -18,6 +18,7 @@ mod comms;
 mod data;
 mod desk;
 mod helpdesk;
+pub(super) mod merge;
 mod providers;
 mod records;
 
@@ -122,6 +123,9 @@ pub(crate) async fn execute_action(
         "log_activity" => records::log_activity(inputs, ctx).await,
         "post_chat_message" => records::post_chat_message(inputs, ctx).await,
         "create_task" => records::create_task(inputs, ctx).await,
+        "merge.create_issue" | "merge.update_issue" | "merge.comment_on_issue" => {
+            merge::run(kind, inputs, ctx).await
+        }
         "send_email" => comms::send_email(inputs, ctx).await,
         "create_record" => data::create_record(inputs, ctx).await,
         "update_record" => data::update_record(inputs, ctx).await,

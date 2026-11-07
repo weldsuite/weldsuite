@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import type {
@@ -31,6 +32,7 @@ export const reportKeys = {
 export const stakeholderKeys = {
   all: ['project-stakeholders'] as const,
   list: (projectId: string) => [...stakeholderKeys.all, 'list', projectId] as const,
+  detail: (id: string) => [...stakeholderKeys.all, 'detail', id] as const,
   raci: (projectId: string) => [...stakeholderKeys.all, 'raci', projectId] as const,
   plan: (projectId: string) => [...stakeholderKeys.all, 'plan', projectId] as const,
 };
@@ -114,6 +116,18 @@ export function useStakeholders(projectId: string) {
     queryKey: stakeholderKeys.list(projectId),
     queryFn: async (): Promise<Stakeholder[]> => (await projectReporting.listStakeholders({ projectId, limit: 200 })).data,
     enabled: !!projectId,
+  });
+}
+
+/** One stakeholder, for its object panel (the panel knows the id, not the project). */
+export function useStakeholder(id: string | null) {
+  const { projectReporting } = useAppApi();
+  return useQuery({
+    queryKey: stakeholderKeys.detail(id ?? ''),
+    queryFn: async (): Promise<Stakeholder> => (await projectReporting.getStakeholder(id as string)).data,
+    enabled: !!id,
+    // A 4xx (gone, no access) will not heal by retrying.
+    retry: (failureCount, error) => !(isApiError(error) && error.status >= 400 && error.status < 500) && failureCount < 3,
   });
 }
 

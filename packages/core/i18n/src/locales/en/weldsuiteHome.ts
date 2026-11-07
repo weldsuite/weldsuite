@@ -92,6 +92,7 @@ export const weldsuiteHome = {
     weldcall: 'WeldCall',
     welddrive: 'WeldDrive',
     weldhost: 'WeldHost',
+    weldmerge: 'WeldMerge',
   },
   widgets: {
     'analytics-activity': { title: 'Activity across WeldSuite', description: 'Multi-series chart of orders, revenue, tickets, leads and more.' },
@@ -124,6 +125,7 @@ export const weldsuiteHome = {
     'weldcall-history': { title: 'Call history', description: 'Inbound and outbound calls with recordings.' },
     'welddrive-recent': { title: 'Recent files', description: 'Recently modified files in WeldDrive.' },
     'weldhost-domains': { title: 'Domains', description: 'Domain status, expiry dates and registrar.' },
+    'weldmerge-inbox': { title: 'WeldMerge inbox', description: 'The pull requests and issues that need you.' },
   },
   fields: {
     maxRows: 'Max rows',

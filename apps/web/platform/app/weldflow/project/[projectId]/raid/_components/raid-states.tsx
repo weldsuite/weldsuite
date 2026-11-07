@@ -5,16 +5,11 @@ import type { RaidKind } from '@weldsuite/app-api-client/domains/project-control
 import { useI18n } from '@/lib/i18n/provider';
 import { useRaid } from './raid-context';
 
-/** Placeholders while the register loads: the tiles and a table. */
-export function RaidLoadingState({ tiles = 4 }: Readonly<{ tiles?: number }>) {
+/** Placeholders while the register loads: a table. */
+export function RaidLoadingState() {
   const { t } = useI18n();
   return (
-    <div role="status" aria-busy="true" aria-label={t.projects.raid.title} className="flex flex-col gap-4">
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))]">
-        {Array.from({ length: tiles }, (_, index) => (
-          <Skeleton key={index} className="h-[5.5rem] rounded-lg" />
-        ))}
-      </div>
+    <div role="status" aria-busy="true" aria-label={t.projects.raid.title} className="flex flex-col gap-4 p-3 md:p-4">
       <div className="overflow-hidden rounded-lg border">
         <Skeleton className="h-10 rounded-none" />
         {Array.from({ length: 5 }, (_, index) => (
@@ -31,7 +26,7 @@ export function RaidErrorState() {
   const { retry } = useRaid();
   const copy = t.projects.raid.states;
   return (
-    <div role="alert" className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
+    <div role="alert" className="m-3 flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center md:m-4">
       <div className="rounded-full bg-muted p-3">
         <AlertCircle aria-hidden className="size-6 text-muted-foreground" />
       </div>
@@ -50,7 +45,7 @@ export function RaidEmptyState({ kind }: Readonly<{ kind: RaidKind }>) {
   const { abilities, openCreate } = useRaid();
   const copy = t.projects.raid;
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
+    <div className="m-3 flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center md:m-4">
       <div className="rounded-full bg-muted p-3">
         <ShieldAlert aria-hidden className="size-6 text-muted-foreground" />
       </div>

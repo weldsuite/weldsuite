@@ -1,7 +1,7 @@
 /**
  * WeldReach billing, through billing-worker (`/api/billing/reach/*`).
  *
- * One Stripe subscription per workspace, $5 per inbox per month, quantity =
+ * One Stripe subscription per workspace, $8 per inbox per month, quantity =
  * inboxes. billing-worker owns Stripe; this is only the caller. The caller's
  * Clerk Authorization header is forwarded (`callBillingWorker`), so billing-worker
  * re-verifies the member and resolves the workspace itself. Background code

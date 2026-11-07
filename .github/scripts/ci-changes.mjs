@@ -109,7 +109,7 @@ const API_PACKAGES = [
 
 /**
  * What the Rust jobs read besides rust/: the migrations, the realtime parity
- * test, and the collab-rooms image, which bundles the docs and sheets rooms
+ * test, and the collab-rooms image, which bundles the docs, sheets and board rooms
  * by relative path (so those folders are listed here, not found in the graph).
  */
 const RUST_PATHS = [
@@ -120,6 +120,9 @@ const RUST_PATHS = [
   'apps/workers/docs-api/src/engine-ops',
   'apps/workers/sheets-api/src/room/',
   'apps/workers/sheets-api/src/engine-ops',
+  'apps/workers/board-api/src/room/',
+  'apps/workers/board-api/src/engine-ops',
+  'apps/workers/board-api/src/services/',
 ];
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
 

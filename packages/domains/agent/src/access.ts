@@ -7,14 +7,28 @@
  * `weldagent:use` to chat, `weldagent:update` to edit); this module adds the
  * per-agent layer on top. Holders of `weldagent:manage` see and fix every
  * agent, the way an admin can fix any teammate's setup.
+ *
+ * The visibility rule itself (`canAccessAgent`, `agentVisibleTo`) lives in
+ * `@weldsuite/core-domain/agent-access`, so a module that assigns work to an
+ * agent (merge-api) applies the same one; it is re-exported here.
  */
 
-import { and, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
-import type { PermissionSubject } from '@weldsuite/permissions';
+import { hasAppPermission, type PermissionSubject } from '@weldsuite/permissions';
+import { createDrizzlePermissionQueries, resolveEffectivePermissions } from '@weldsuite/permissions/server';
+import {
+  agentVisibleTo,
+  canAccessAgent,
+  SYSTEM_VIEWER,
+  type AgentAccessFields,
+  type AgentViewer,
+} from '@weldsuite/core-domain/agent-access';
 import { granterHolds } from './grants';
+
+export { agentVisibleTo, canAccessAgent, SYSTEM_VIEWER, type AgentAccessFields, type AgentViewer };
 
 export const AGENT_VISIBILITIES = ['private', 'members', 'workspace'] as const;
 export type AgentVisibility = (typeof AGENT_VISIBILITIES)[number];
@@ -22,16 +36,6 @@ export type AgentVisibility = (typeof AGENT_VISIBILITIES)[number];
 export function isAgentVisibility(value: unknown): value is AgentVisibility {
   return typeof value === 'string' && (AGENT_VISIBILITIES as readonly string[]).includes(value);
 }
-
-/** The person looking at an agent, and whether they manage every agent. */
-export interface AgentViewer {
-  userId: string;
-  /** Holds `weldagent:manage`. */
-  canManageAll: boolean;
-}
-
-/** An unattended caller (event runs, routines, jobs): sees every agent. */
-export const SYSTEM_VIEWER: AgentViewer = { userId: '', canManageAll: true };
 
 /** The viewer for a person with these resolved permissions. */
 export function agentViewerFor(userId: string, permissions: PermissionSubject | null | undefined): AgentViewer {
@@ -51,45 +55,24 @@ export async function inaccessibleAgentIds(db: Database, agentIds: string[], vie
   return agentIds.filter((id) => !ok.has(id));
 }
 
-interface AgentAccessFields {
-  id: string;
-  ownerId: string | null;
-  visibility: string;
-}
-
 /**
- * SQL condition: agents the viewer can see. Ownerless agents (from before
- * ownership existed) are workspace-visible unless someone changed that.
+ * Whether a member, with their permissions as they are now, may run the agent
+ * the way the chat does: an active member of the workspace holding
+ * `weldagent:use` (their denies apply) who can access the agent. What an event
+ * that hands an agent work on someone's behalf (an issue assigned to it) is
+ * checked against before the run starts.
  */
-export function agentVisibleTo(viewer: AgentViewer): SQL | undefined {
-  if (viewer.canManageAll) return undefined;
-  const { weldagentAgents: a, weldagentAgentMembers: m } = schema;
-  return or(
-    eq(a.ownerId, viewer.userId),
-    eq(a.visibility, 'workspace'),
-    and(
-      eq(a.visibility, 'members'),
-      sql`exists (select 1 from ${m} where ${m.agentId} = ${a.id} and ${m.userId} = ${viewer.userId})`,
-    ),
-  );
-}
-
-/** Whether the viewer may see and chat with the agent. */
-export async function canAccessAgent(
+export async function memberCanUseAgent(
   db: Database,
   agent: AgentAccessFields,
-  viewer: AgentViewer,
+  userId: string | null | undefined,
 ): Promise<boolean> {
-  if (viewer.canManageAll || agent.visibility === 'workspace') return true;
-  if (agent.ownerId && agent.ownerId === viewer.userId) return true;
-  if (agent.visibility !== 'members') return false;
-  const { weldagentAgentMembers: m } = schema;
-  const [row] = await db
-    .select({ id: m.id })
-    .from(m)
-    .where(and(eq(m.agentId, agent.id), eq(m.userId, viewer.userId)))
-    .limit(1);
-  return Boolean(row);
+  if (!userId || userId === 'system') return false;
+  const queries = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
+  const resolved = await resolveEffectivePermissions(queries, userId);
+  if (!resolved.role) return false;
+  if (!hasAppPermission(resolved, 'weldagent:use', null)) return false;
+  return canAccessAgent(db, agent, agentViewerFor(userId, resolved));
 }
 
 /**

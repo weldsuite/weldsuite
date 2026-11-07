@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -9,13 +9,19 @@ import { emptySnapshot, makeSticky, type BoardElement, type BoardSnapshot } from
 import type { Env, Variables } from '../../types';
 import { readSnapshot } from '../../room/snapshot';
 import { FakeBucket, fakeRoomNamespace, liveRoomNamespace } from '../../test-support/fakes';
+import { boardEngineNamespace } from '../../engine-ops';
+import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import boardRoutes from './index';
 
 let db: Database;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
+  // The rooms' database: in conformance mode, the TypeScript run's copy while it runs.
+  getTenantDbForWorkspace: async () => conformanceTenantDb(db),
 }));
+
+/** The board engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */
+const engineBinding = { BOARD_ENGINE: boardEngineNamespace() };
 
 const ALL = ['boards:read', 'boards:create', 'boards:update', 'boards:delete', 'boards:comment'];
 const ALICE = 'user_alice';
@@ -28,7 +34,7 @@ let sessions: ReturnType<typeof fakeRoomNamespace>;
 let useLiveRooms = true;
 
 function env(): Env {
-  return { PRIVATE_STORAGE: bucket.asBinding(), BOARD_ROOM: useLiveRooms ? live.binding : sessions.binding } as unknown as Env;
+  return { PRIVATE_STORAGE: bucket.asBinding(), BOARD_ROOM: useLiveRooms ? live.binding : sessions.binding, ...engineBinding } as unknown as Env;
 }
 
 function app(options: { userId?: string; keys?: string[] } = {}) {
@@ -229,6 +235,77 @@ describe('/api/boards', () => {
   });
 });
 
+describe('/api/boards/:id/thumbnail', () => {
+  it('serves the thumbnail the room drew at its last checkpoint, and only to people who may see the board', async () => {
+    const board = await create({ name: 'Drawn' });
+    expect((await app().request(`/api/boards/${board.id}/thumbnail`)).status).toBe(404);
+    await bucket.put(`workspaces/${ORG}/boards/${board.id}/thumbnail.svg`, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const res = await app().request(`/api/boards/${board.id}/thumbnail`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, max-age=60');
+    expect(((await res.json()) as { data: unknown }).data).toEqual({ svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', revision: 0 });
+    await db.update(files).set({ generalAccess: 'restricted' }).where(eq(files.id, board.fileId!));
+    expect((await app({ userId: BOB }).request(`/api/boards/${board.id}/thumbnail`)).status).toBe(404);
+  });
+});
+
+describe('/api/boards/unfurl', () => {
+  // The pages a link card asks for, answered by address (both backends' calls in conformance mode).
+  const page = (html: string) => new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const web = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    switch (url) {
+      case 'https://example.com/short':
+        return new Response(null, { status: 301, headers: { location: '/post' } });
+      case 'https://example.com/post':
+        return page(
+          '<html><head><title>Fallback</title><meta property="og:title" content="A post &amp; more">' +
+            '<meta name="description" content="What it is   about"><meta property="og:image" content="/card.png"></head><body></body></html>',
+        );
+      case 'https://example.com/to-private':
+        return new Response(null, { status: 302, headers: { location: 'http://10.0.0.1/admin' } });
+      case 'https://example.com/report.pdf':
+        return new Response('%PDF-1.7', { headers: { 'content-type': 'application/pdf' } });
+      default:
+        return new Response('Not found', { status: 404, headers: { 'content-type': 'text/html' } });
+    }
+  });
+
+  beforeEach(() => {
+    web.mockClear();
+    vi.stubGlobal('fetch', web);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const unfurl = async (url: string) => {
+    const res = await app().request('/api/boards/unfurl', json('POST', { url }));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { data: Record<string, unknown> }).data;
+  };
+  const empty = (url: string) => ({ url, title: null, description: null, image: null, siteName: null });
+
+  it('reads a page preview through a checked redirect', async () => {
+    expect(await unfurl('https://example.com/short')).toEqual({
+      url: 'https://example.com/short',
+      title: 'A post & more',
+      description: 'What it is about',
+      image: 'https://example.com/card.png',
+      siteName: 'example.com',
+    });
+  });
+
+  it('never fetches a private address, not even through a redirect, and shows just the address for what it cannot read', async () => {
+    expect(await unfurl('http://169.254.169.254/latest/meta-data')).toEqual(empty('http://169.254.169.254/latest/meta-data'));
+    expect(await unfurl('https://example.com/to-private')).toEqual(empty('https://example.com/to-private'));
+    expect(await unfurl('https://example.com/report.pdf')).toEqual(empty('https://example.com/report.pdf'));
+    expect(await unfurl('https://example.com/gone')).toEqual(empty('https://example.com/gone'));
+    expect(web.mock.calls.map(([input]) => String(input))).not.toContain('http://10.0.0.1/admin');
+    expect((await app().request('/api/boards/unfurl', json('POST', { url: 'not a link' }))).status).toBe(400);
+  });
+});
+
 describe('WeldFlow project boards', () => {
   beforeEach(async () => {
     await seedProject('prj_a', { [ALICE]: 'member', [BOB]: 'viewer' });
@@ -335,6 +412,31 @@ describe('WeldFlow project boards', () => {
     // Not on the project: the cards show nothing of it.
     const eves = ((await (await app({ userId: 'user_eve', keys: withTasks }).request('/api/boards/records', json('POST', refs))).json()) as { data: { views: Record<string, unknown> } }).data.views;
     expect(Object.values(eves).every((v) => v === null)).toBe(true);
+  });
+
+  it('stops paging a project at the 2000-board window', async () => {
+    const base = Date.now() - 3_600_000;
+    await db.insert(projectWhiteboards).values(
+      Array.from({ length: 2005 }, (_, i) => ({
+        id: `pwb_w${String(i).padStart(4, '0')}`,
+        projectId: 'prj_a',
+        name: `Board ${i}`,
+        elements: [],
+        createdAt: new Date(base),
+        updatedAt: new Date(base + i * 1000),
+      })),
+    );
+    type Page = { data: BoardSummary[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } };
+    const page = async (cursor: string) =>
+      (await (await app().request(`/api/boards?projectId=prj_a&limit=10&cursor=${cursor}`)).json()) as Page;
+
+    const last = await page('1995');
+    expect(last.data).toHaveLength(5);
+    expect(last.pagination).toEqual({ totalCount: 2000, hasMore: false, cursor: null });
+    // A cursor past the window: an empty page that says there is no more.
+    const beyond = await page('2000');
+    expect(beyond.data).toEqual([]);
+    expect(beyond.pagination).toEqual({ totalCount: 2000, hasMore: false, cursor: null });
   });
 
   it('deletes an old whiteboard nobody opened, as WeldFlow did', async () => {

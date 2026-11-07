@@ -8,6 +8,7 @@
  * - `DetailPage` + `DetailHeader`: a record page; the header holds an
  *   optional back button, avatar/icon, title, badges, subtitle and actions.
  * - `TabBody`: padded content for a tab section that is not a full-bleed list.
+ * - `PageColumn`: the centred column of a chart page (dashboard, report).
  */
 
 import type { ReactNode } from 'react';
@@ -111,4 +112,13 @@ export function DetailHeader({
 /** Padded content for a tab section that is not a full-bleed list. */
 export function TabBody({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   return <div className={cn('space-y-6 p-6', className)}>{children}</div>;
+}
+
+/**
+ * The centred column of a chart page, up to 1280px wide with 24px sides: the
+ * WeldBooks dashboard and the WeldFlow analytics reports share it, so they
+ * stay the same width. Vertical spacing is the page's, via `className`.
+ */
+export function PageColumn({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
+  return <div className={cn('mx-auto w-full max-w-7xl px-6', className)}>{children}</div>;
 }

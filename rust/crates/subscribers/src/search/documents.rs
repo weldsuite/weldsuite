@@ -25,8 +25,9 @@ pub struct IndexableDocument {
 }
 
 /// The entity types with a static loader, in registry order
-/// (`INDEXED_ENTITY_TYPES`).
-pub const INDEXED_ENTITY_TYPES: [&str; 9] = [
+/// (`INDEXED_ENTITY_TYPES`). WeldMerge pull requests stay out: a repository
+/// backfill brings ~300 at once, and the lexical search covers them.
+pub const INDEXED_ENTITY_TYPES: [&str; 10] = [
     "knowledge_page",
     "article",
     "ticket",
@@ -36,6 +37,7 @@ pub const INDEXED_ENTITY_TYPES: [&str; 9] = [
     "customer",
     "lead",
     "opportunity",
+    "merge_issue",
 ];
 
 /// `resolveIndexedType(eventEntityType)`: the search type an event indexes
@@ -86,6 +88,7 @@ pub fn result_url(entity_type: &str, id: &str) -> String {
         "knowledge_page" => format!("/weldknow/page/{id}"),
         "project" => format!("/weldflow/project/{id}"),
         "task" => format!("/weldflow/task/{id}"),
+        "merge_issue" => format!("/weldmerge/issues/{encoded}"),
         _ => String::new(),
     }
 }
@@ -327,6 +330,27 @@ async fn map_static(
                 Some((name, subtitle, content))
             })
         }
+        "merge_issue" => {
+            // Visible while neither the issue nor its team is deleted.
+            let row: Option<(Text, i32, Text, String)> = sqlx::query_as(
+                "select i.title, i.number, i.description, t.key from merge_issues i \
+                 inner join merge_teams t on t.id = i.team_id \
+                 where i.deleted_at is null and t.deleted_at is null and i.id = $1",
+            )
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+            row.map(|(title, number, description, team_key)| {
+                let key = format!("{team_key}-{number}");
+                Some((
+                    or(title.as_deref(), Some(&key))
+                        .unwrap_or_default()
+                        .to_owned(),
+                    Some(key.clone()),
+                    compose(&[Some(&key), title.as_deref(), description.as_deref()]),
+                ))
+            })
+        }
         _ => return Ok(None),
     };
     Ok(Some(mapped.flatten()))
@@ -546,6 +570,12 @@ mod tests {
             Some("co_machine")
         );
         assert_eq!(resolve_indexed_type("invoice"), None);
+        assert_eq!(
+            resolve_indexed_type("merge_issue").as_deref(),
+            Some("merge_issue")
+        );
+        assert_eq!(resolve_indexed_type("merge_pull_request"), None);
+        assert_eq!(resolve_indexed_type("merge_comment"), None);
     }
 
     #[test]
@@ -555,5 +585,9 @@ mod tests {
             "/weldcrm/people?stack=person:a%20b"
         );
         assert_eq!(result_url("task", "t1"), "/weldflow/task/t1");
+        assert_eq!(
+            result_url("merge_issue", "mis_1"),
+            "/weldmerge/issues/mis_1"
+        );
     }
 }

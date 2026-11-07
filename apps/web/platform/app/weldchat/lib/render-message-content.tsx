@@ -424,3 +424,14 @@ export function messagePreviewText(text: string, members?: Map<string, string>):
   const toks = tokenize(text, members);
   return (toks ? plainToks(toks) : text).replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * The message as plain text for somewhere outside WeldChat (a pull request
+ * comment on the provider): like `messagePreviewText`, mentions read `@Name`
+ * and internal tokens (`<@user:…>`, `<@file:…>`) never leak, but line breaks and
+ * Markdown markers stay, since the provider renders Markdown itself.
+ */
+export function messagePlainText(text: string, members?: Map<string, string>): string {
+  const toks = tokenize(text, members);
+  return (toks ? plainToks(toks) : text).trim();
+}

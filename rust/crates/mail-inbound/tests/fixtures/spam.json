@@ -264,17 +264,16 @@
       "isExistingHamThread": true
     },
     "result": {
-      "score": 4,
+      "score": 12,
       "reasons": [
         "dmarc_fail",
         "spf_fail",
         "dkim_fail",
         "auth_all_fail",
         "subject_spam_lexicon",
-        "subject_shouting",
-        "capped_existing_ham_thread"
+        "subject_shouting"
       ],
-      "isSpam": false
+      "isSpam": true
     }
   },
   {

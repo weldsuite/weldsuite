@@ -13,7 +13,8 @@ export default function GovernanceLayout({ children }: Readonly<{ children: Reac
     { id: 'stakeholders', label: copy.stakeholders, path: '/stakeholders' },
   ];
   return (
-    <ProjectSubNavLayout section="governance" label={copy.label} items={items}>
+    // Every sub-page lays out edge to edge: lists and the report column meet the borders.
+    <ProjectSubNavLayout section="governance" label={copy.label} items={items} flushIds={['status', 'decisions', 'changes', 'stakeholders']}>
       {children}
     </ProjectSubNavLayout>
   );

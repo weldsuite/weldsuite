@@ -824,8 +824,8 @@ function findThreadByReplyIds(sql: SqlStorage, q: InboundThreadQuery): ThreadMat
   return { threadId: row.thread_key, isExistingHamThread: row.in_spam === 0 };
 }
 
-/** Ported from `findThreadBySubject`: the most recent of up to 20 same-subject candidates, optionally requiring the sender to have taken part in it already. */
-function findThreadBySubject(sql: SqlStorage, q: InboundThreadQuery, opts: { requireParticipant: boolean } = { requireParticipant: false }): ThreadMatch | null {
+/** Ported from `findThreadBySubject`: the most recent of up to 20 same-subject candidates the sender has already taken part in (so a spoofer's "Re: Invoice" never joins a real conversation). */
+function findThreadBySubject(sql: SqlStorage, q: InboundThreadQuery): ThreadMatch | null {
   const subjects = conversationSubjects(q.subject);
   if (subjects.length === 0) return null;
 
@@ -839,12 +839,10 @@ function findThreadBySubject(sql: SqlStorage, q: InboundThreadQuery, opts: { req
     .toArray();
 
   for (const row of rows) {
-    if (opts.requireParticipant) {
-      const from = parseJsonOrNull<MailEmailAddress>(row.from_json);
-      const to = parseJsonArray<MailEmailAddress>(row.to_json);
-      const cc = parseJsonOrNull<MailEmailAddress[]>(row.cc_json) ?? [];
-      if (!involvesAddress({ from, to, cc }, q.fromEmail ?? undefined)) continue;
-    }
+    const from = parseJsonOrNull<MailEmailAddress>(row.from_json);
+    const to = parseJsonArray<MailEmailAddress>(row.to_json);
+    const cc = parseJsonOrNull<MailEmailAddress[]>(row.cc_json) ?? [];
+    if (!involvesAddress({ from, to, cc }, q.fromEmail ?? undefined)) continue;
     return { threadId: row.thread_key, isExistingHamThread: row.in_spam === 0 };
   }
   return null;
@@ -872,7 +870,7 @@ export function resolveInbound(sql: SqlStorage, q: InboundThreadQuery): { duplic
 
   if (!q.isReply) {
     if (hasReplyPrefix(q.subject) && bareSubject(q.subject)) {
-      const bySubject = findThreadBySubject(sql, q, { requireParticipant: true });
+      const bySubject = findThreadBySubject(sql, q);
       if (bySubject) return { duplicate: false, ...bySubject };
     }
     return { duplicate: false, threadId: q.rfcMessageId, isExistingHamThread: false };
@@ -881,6 +879,10 @@ export function resolveInbound(sql: SqlStorage, q: InboundThreadQuery): { duplic
   const byIds = findThreadByReplyIds(sql, q);
   if (byIds) return { duplicate: false, ...byIds };
 
+  // Threading headers that match nothing we hold say nothing about who the
+  // sender is: anyone can set `In-Reply-To`. Falling back on the subject
+  // alone would let a stranger's "Re: Invoice" join (and inherit the trust
+  // of) a real conversation, so the sender must already be part of it.
   const bySubject = findThreadBySubject(sql, q);
   if (bySubject) return { duplicate: false, ...bySubject };
 

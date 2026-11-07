@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowDown, ArrowUp, Grid3x3, Map as MapIcon, Maximize, Minus, Plus, Presentation, Scan } from 'lucide-react';
+import { ArrowDown, ArrowUp, Minus, Plus, Presentation } from 'lucide-react';
 import { selectionBounds, type BoardElement, type Rect } from '@weldsuite/board-engine';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Kbd } from '@weldsuite/ui/components/kbd';
@@ -7,40 +7,22 @@ import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
 import { nextZoom } from './model/camera';
-import { BarButton, Divider } from './ui';
+import { BarButton } from './ui';
 
-export function ZoomControls({ controller: c, minimap, onToggleMinimap }: { controller: BoardController; minimap: boolean; onToggleMinimap: () => void }) {
+export function ZoomControls({ controller: c }: { controller: BoardController }) {
   const { t } = useI18n();
   const tz = t.weldboard.editor.zoom;
   return (
-    <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border bg-background p-1 shadow-md">
-      <BarButton label={tz.grid} active={c.showGrid} onClick={() => {
-        c.showGrid = !c.showGrid;
-        c.changed();
-      }}>
-        <Grid3x3 />
-      </BarButton>
-      <BarButton label={tz.minimap} active={minimap} onClick={onToggleMinimap}>
-        <MapIcon />
-      </BarButton>
-      <Divider />
-      <BarButton label={tz.out} onClick={() => c.zoomTo(nextZoom(c.camera.zoom, -1))}>
+    <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-2" role="toolbar" aria-orientation="horizontal">
+      <BarButton label={tz.out} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, -1))}>
         <Minus />
       </BarButton>
-      <BarButton label={tz.reset} onClick={() => c.zoomTo(1)} className="h-8 min-w-14 rounded-md px-1 text-xs tabular-nums hover:bg-accent">
+      <BarButton label={tz.reset} side="bottom" onClick={() => c.zoomTo(1)} className="h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-accent">
         {Math.round(c.camera.zoom * 100)}%
       </BarButton>
-      <BarButton label={tz.in} onClick={() => c.zoomTo(nextZoom(c.camera.zoom, 1))}>
+      <BarButton label={tz.in} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, 1))}>
         <Plus />
       </BarButton>
-      <BarButton label={tz.fit} onClick={() => c.zoomToFit()}>
-        <Maximize />
-      </BarButton>
-      {c.selection.size > 0 && (
-        <BarButton label={tz.selection} onClick={() => c.zoomToSelection()}>
-          <Scan />
-        </BarButton>
-      )}
     </div>
   );
 }

@@ -209,6 +209,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # A build that misses the layer cache (a changed Cargo.lock or
+      # pnpm-lock.yaml) compiles every crate and installs the SPA's
+      # node_modules from scratch, for four images; that outgrows the
+      # runner's free disk. Toolchains this job never uses make room.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h /
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Build the image
@@ -229,7 +239,7 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
-      # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md).
+      # WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md).
       - name: Build the collab-rooms image
         uses: docker/build-push-action@v6
         with:
@@ -706,6 +716,9 @@ jobs:
       - uses: ./.github/actions/setup-monorepo
       - name: Build everything except platform
         run: pnpm exec turbo run build --filter=!platform --concurrency=4
+      # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
+      - name: Admin console unit tests
+        run: pnpm --filter admin test
 
   build:
     name: Build

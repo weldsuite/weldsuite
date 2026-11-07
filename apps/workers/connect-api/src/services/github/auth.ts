@@ -188,85 +188,12 @@ export async function fetchInstallationMeta(
 // State JWT helpers (for install flow)
 // ============================================================================
 
-export interface InstallStatePayload {
-  workspaceId: string;
-  userId: string;
-  projectId?: string;
-  returnTo?: string;
-  nonce: string;
-}
-
-/**
- * Sign a state JWT for the GitHub install redirect using HMAC-SHA256.
- * Not RS256 — we use a simpler symmetric token since this is short-lived
- * and used entirely within our own infrastructure.
- *
- * We do NOT use jose here because it is not in core-api package.json.
- * Instead we build a minimal HS256 JWT via Web Crypto.
- */
-export async function signInstallStateJwt(
-  payload: InstallStatePayload,
-  secret: string,
-  expirySeconds = 600,
-): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const claims = { ...payload, iat: now, exp: now + expirySeconds };
-
-  const encodedHeader = base64urlEncode(JSON.stringify(header));
-  const encodedPayload = base64urlEncode(JSON.stringify(claims));
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
-
-  const key = await importHmacKey(secret);
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    new TextEncoder().encode(signingInput),
-  );
-
-  return `${signingInput}.${base64urlFromBuffer(signature)}`;
-}
-
-/**
- * Verify and decode a state JWT.
- * Returns null if expired or signature invalid — callers should treat null as a rejected request.
- */
-export async function verifyInstallStateJwt(
-  token: string,
-  secret: string,
-): Promise<(InstallStatePayload & { iat: number; exp: number }) | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [encodedHeader, encodedPayload, encodedSignature] = parts;
-    const signingInput = `${encodedHeader}.${encodedPayload}`;
-
-    const key = await importHmacKey(secret);
-    const signatureBytes = base64urlToBuffer(encodedSignature);
-
-    const valid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      signatureBytes,
-      new TextEncoder().encode(signingInput),
-    );
-
-    if (!valid) return null;
-
-    const claims = JSON.parse(base64urlDecode(encodedPayload)) as InstallStatePayload & {
-      iat: number;
-      exp: number;
-    };
-
-    const now = Math.floor(Date.now() / 1000);
-    if (claims.exp < now) return null;
-
-    return claims;
-  } catch {
-    return null;
-  }
-}
+// The state JWT is shared with merge-api's install flow: one implementation in connect-domain.
+export {
+  signInstallStateJwt,
+  verifyInstallStateJwt,
+  type InstallStatePayload,
+} from '@weldsuite/connect-domain/github/install-state';
 
 // ============================================================================
 // Web Crypto Helpers
@@ -333,16 +260,6 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
   return new Uint8Array(seq);
 }
 
-function importHmacKey(secret: string): Promise<CryptoKey> {
-  const keyBytes = new TextEncoder().encode(secret);
-  return crypto.subtle.importKey(
-    'raw',
-    keyBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign', 'verify'],
-  );
-}
 
 function base64urlEncode(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -358,20 +275,7 @@ function base64urlFromBuffer(buffer: ArrayBuffer): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
-function base64urlDecode(input: string): string {
-  const base64 = input.replaceAll('-', '+').replaceAll('_', '/');
-  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-  return atob(padded);
-}
 
-function base64urlToBuffer(input: string): ArrayBuffer {
-  const binary = base64urlDecode(input);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.codePointAt(i)!;
-  }
-  return bytes.buffer;
-}
 
 function base64ToBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);

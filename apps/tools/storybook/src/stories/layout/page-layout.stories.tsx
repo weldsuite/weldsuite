@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Clock, Download, Palmtree, Users } from 'lucide-react';
 
-import { DashboardPage, DetailHeader, DetailPage, TabBody } from '@weldsuite/ui/components/page-layout';
+import { DashboardPage, DetailHeader, DetailPage, PageColumn, TabBody } from '@weldsuite/ui/components/page-layout';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -112,6 +112,25 @@ export const TabSection: Story = {
           <p className="text-sm">Prefers to be contacted by email.</p>
         </SectionCard>
       </TabBody>
+    </div>
+  ),
+};
+
+/** `PageColumn` centres a chart page (WeldBooks dashboard, WeldFlow reports) at up to 1280px. */
+export const ChartPageColumn: Story = {
+  render: () => (
+    <div className="bg-muted/30">
+      <PageColumn className="space-y-6 py-6">
+        <h1 className="text-2xl font-semibold">Revenue report</h1>
+        <div className="grid gap-4 md:grid-cols-2">
+          <SectionCard title="Revenue by month">
+            <div className="h-[200px] rounded-md bg-muted" />
+          </SectionCard>
+          <SectionCard title="Open invoices">
+            <div className="h-[200px] rounded-md bg-muted" />
+          </SectionCard>
+        </div>
+      </PageColumn>
     </div>
   ),
 };

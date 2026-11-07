@@ -63,6 +63,9 @@ export function createProjectReportingApi(api: ClientApi) {
     listStakeholders(params: { projectId: string; cursor?: string; limit?: number }): Promise<ListResponse<Stakeholder>> {
       return api.get(`${stakeholdersBase}${buildQueryString({ ...params })}`);
     },
+    getStakeholder(id: string): Promise<DataResponse<Stakeholder>> {
+      return api.get(`${stakeholdersBase}/${id}`);
+    },
     createStakeholder(input: CreateStakeholderInput): Promise<DataResponse<Stakeholder>> {
       return api.post(stakeholdersBase, input);
     },

@@ -383,6 +383,32 @@
       ]
     },
     {
+      "name": "board",
+      "module": "board",
+      "workspace": "apps/workers/board-api",
+      "tests": [
+        "src/routes/boards/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/board-api/src/",
+        "packages/clients/app-api-client/src/schemas/boards.ts",
+        "packages/core/board-engine/src/",
+        "packages/core/worker-kit/src/testing/conformance-schemas-board.ts",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "packages/core/worker-kit/src/testing/outbound-bridge.ts",
+        "packages/core/worker-kit/src/testing/write-isolation.ts",
+        "rust/modules/board/",
+        "rust/crates/adapters-oss/src/collab.rs",
+        "rust/bins/weldsuite/src/collab.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/boards/:id/ai",
+          "reason": "The AI actions run on @weldsuite/ai (Workers AI and the Cloudflare AI Gateway), which the Kubernetes editions do not have. Rust answers the refusals before the model as TypeScript does (validation, 403, 404, a missing prompt) and then 503 AI_NOT_CONFIGURED, as the worker does without a gateway; /config.json lists agent-ai as unavailable and the board editor hides its AI menu there (useBoardExtensions). Tested on TypeScript in src/routes/boards/ai.test.ts."
+        }
+      ]
+    },
+    {
       "name": "core: files, folders and drive",
       "module": "core",
       "workspace": "apps/workers/app-api",
@@ -1211,7 +1237,8 @@
         "src/routes/desk-widget/routes.test.ts",
         "src/routes/desk-assignment/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
-        "src/routes/helpdesk-analytics/routes.test.ts"
+        "src/routes/helpdesk-analytics/routes.test.ts",
+        "src/routes/helpdesk-analytics/reports.integration.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/helpdesk-settings/",
@@ -1220,6 +1247,7 @@
         "apps/workers/desk-api/src/routes/desk-assignment/",
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
+        "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
@@ -1248,6 +1276,7 @@
         "src/routes/desk-conversations/routes.test.ts",
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
+        "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1498,6 +1527,7 @@
       "tests": [
         "src/routes/time-entries/integration.test.ts",
         "src/routes/time-entries/guards.integration.test.ts",
+        "src/routes/time-entries/merge-issue.integration.test.ts",
         "src/routes/task-comments/integration.test.ts"
       ],
       "paths": [
@@ -2343,7 +2373,8 @@
         "packages/core/workflow-integrations/src/",
         "packages/domains/connect/src/github/",
         "packages/core/db/src/lib/crypto.ts",
-        "rust/modules/connect/"
+        "rust/modules/connect/",
+        "rust/crates/connect-domain/src/github_app.rs"
       ]
     },
     {
@@ -2367,7 +2398,15 @@
         "packages/clients/core-api-client/src/schemas/github-connections.ts",
         "packages/clients/core-api-client/src/schemas/github-repo-links.ts",
         "packages/core/db/src/lib/crypto.ts",
-        "rust/modules/connect/"
+        "packages/domains/connect/src/github/",
+        "packages/domains/merge/src/installations.ts",
+        "packages/domains/merge/src/member-token.ts",
+        "rust/modules/connect/",
+        "rust/modules/merge/src/installations.rs",
+        "rust/crates/merge-domain/src/",
+        "rust/crates/connect-domain/src/github_app.rs",
+        "rust/crates/connect-domain/src/github_user.rs",
+        "rust/crates/connect-domain/src/install_state.rs"
       ]
     },
     {
@@ -3122,6 +3161,7 @@
       ],
       "paths": [
         "apps/workers/integration-webhook-worker/src/",
+        "packages/domains/merge/src/installations.ts",
         "rust/modules/integrations/"
       ]
     },
@@ -3268,6 +3308,57 @@
         "packages/sdk/panel-sdk/src/install.ts",
         "packages/sdk/panel-sdk/src/host.ts",
         "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "merge",
+      "module": "merge",
+      "workspace": "apps/workers/merge-api",
+      "tests": [
+        "src/routes/teams/teams.test.ts",
+        "src/routes/issues/issues.test.ts",
+        "src/routes/pull-requests/pull-requests.test.ts",
+        "src/routes/repositories/repositories.test.ts",
+        "src/routes/internal/github-event.test.ts",
+        "src/routes/pull-requests/review.test.ts",
+        "src/routes/pull-requests/review-providers.test.ts",
+        "src/routes/releases/releases.test.ts",
+        "src/routes/issues/links.test.ts",
+        "src/routes/chat-subscriptions/chat-subscriptions.test.ts",
+        "src/routes/internal/across.test.ts",
+        "src/routes/connections/github-install.test.ts",
+        "src/routes/public/github-setup.test.ts",
+        "src/routes/internal/issue-sync-inbound.test.ts",
+        "src/routes/internal/github-installation.test.ts",
+        "src/routes/internal/provider-event.test.ts",
+        "src/routes/issues/issue-sync-outbound.test.ts",
+        "src/routes/repositories/import.test.ts",
+        "src/routes/repositories/provider-repositories.test.ts",
+        "src/routes/oauth/oauth.test.ts",
+        "src/routes/inbox/state.test.ts"
+      ],
+      "paths": [
+        "apps/workers/merge-api/src/",
+        "packages/domains/merge/src/",
+        "packages/domains/connect/src/github/app-auth.ts",
+        "packages/domains/connect/src/github/install-state.ts",
+        "packages/domains/connect/src/github/user-installations.ts",
+        "packages/domains/core/src/agent-access.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge-sync.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge-providers.ts",
+        "rust/crates/connect-domain/src/install_state.rs",
+        "rust/crates/connect-domain/src/github_user.rs",
+        "rust/crates/merge-domain/src/",
+        "rust/crates/chat-domain/src/agents.rs",
+        "packages/domains/chat/src/post-system-message.ts",
+        "packages/domains/know/src/pages.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge-review.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge-across.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-merge.ts",
+        "rust/modules/merge/",
+        "rust/crates/connect-domain/src/github_app.rs",
+        "rust/crates/chat-domain/src/system_message.rs"
       ]
     },
     {
