@@ -62,14 +62,13 @@ export const deskPublicArticleHitSchema = z.object({
   url: z.string().nullable(),
 });
 export type DeskPublicArticleHit = z.infer<typeof deskPublicArticleHitSchema>;
+export const deskPublicArticleHitsSchema = z.array(deskPublicArticleHitSchema);
 
-/** helpdesk-widget-api `GET /api/articles/search` query. */
-export const deskWidgetArticleSearchQuerySchema = z.object({
-  q: z.string().trim().max(200).optional(),
-  /** The visitor's language (`nl`); a version in it is preferred. */
-  locale: z.string().max(10).optional(),
-  limit: z.coerce.number().int().min(1).max(5).optional(),
-});
+/**
+ * helpdesk-widget-api `GET /api/articles/search?q=&locale=&limit=` answers these.
+ * It reads its query leniently and never refuses one: `q` is cut at 200
+ * characters, `limit` is 1–5 (default 3), `locale` is the visitor's language.
+ */
 
 // ============================================================================
 // Readers: announcements (status banners)
@@ -90,6 +89,7 @@ export const deskPublicAnnouncementSchema = z.object({
   expiresAt: z.string().nullable(),
 });
 export type DeskPublicAnnouncement = z.infer<typeof deskPublicAnnouncementSchema>;
+export const deskPublicAnnouncementsSchema = z.array(deskPublicAnnouncementSchema);
 
 // ============================================================================
 // Help center: an article's language versions
