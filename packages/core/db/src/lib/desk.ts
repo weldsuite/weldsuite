@@ -46,7 +46,7 @@ import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
 import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
 import { deskMatrixChanges, type DeskMatrixInput } from './desk-priority-matrix';
-import { deskMergeTarget } from './desk-merge-target';
+import { deskMergeFollowUpTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -385,9 +385,10 @@ export async function appendDeskMessage(
     throw new DeskConversationNotFoundError(input.conversationId);
   }
   // A customer's message on a merged duplicate lands on the conversation it
-  // was merged into (reopening it like any customer message would).
+  // was merged into (reopening it like any customer message would), when that
+  // customer can see the kept one; otherwise it stays on the duplicate.
   const isCustomerMessage = input.kind === 'message' && input.authorType === 'visitor';
-  const current = isCustomerMessage && found.mergedIntoId ? await deskMergeTarget(db, found) : found;
+  const current = isCustomerMessage && found.mergedIntoId ? await deskMergeFollowUpTarget(db, found) : found;
 
   const now = new Date();
   const next = nextConversationProgress(current, input, now);

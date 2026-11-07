@@ -16,7 +16,9 @@
  *     visitor, same email or verified email, or same CRM person). It can't
  *     have children, be a major incident or be merged already, and the kept
  *     one can't be merged away itself. The duplicate is closed; a later
- *     customer message on it lands on the kept one (appendDeskMessage).
+ *     customer message on it lands on the kept one when that customer can see
+ *     it (same visitor or a matching verified email), else it reopens the
+ *     duplicate (appendDeskMessage, deskMergeFollowUpTarget).
  *
  * Callers publish the realtime and entity events for each change, in order.
  * The Rust twin is `weldsuite_desk_domain::links`.

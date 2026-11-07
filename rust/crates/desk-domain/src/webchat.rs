@@ -279,10 +279,11 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
         return Err(AppendError::NotFound);
     };
     // A customer's message on a merged duplicate lands on the conversation it
-    // was merged into (reopening it like any customer message would).
+    // was merged into (reopening it like any customer message would), when that
+    // customer can see the kept one; otherwise it stays on the duplicate.
     let customer_message = input.kind == "message" && input.author_type == "visitor";
     let current = if customer_message && current["merged_into_id"].is_string() {
-        crate::links::merge_target(db, current).await?
+        crate::links::merge_follow_up_target(db, current).await?
     } else {
         current
     };

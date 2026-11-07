@@ -95,6 +95,9 @@ beforeAll(async () => {
   await seed('dconv_keep', 322, { channel: 'email', email: 'MO@example.test', name: 'Mo', state: 'closed' });
   await seed('dconv_dup2', 323, { channel: 'email', email: 'mo@example.test', name: 'Mo' });
   await seed('dconv_other', 324, { visitorId: 'vis_zed', name: 'Zed' });
+  // One CRM person writing from two unverified identities.
+  await seed('dconv_crm_a', 325, { visitorId: 'vis_ca', name: 'Noor', contactId: 'per_noor' });
+  await seed('dconv_crm_b', 326, { visitorId: 'vis_cb', name: 'Noor', contactId: 'per_noor' });
 }, 60_000);
 
 describe('GET /api/desk/conversations/:id/links', () => {
@@ -253,5 +256,24 @@ describe('POST /api/desk/conversations/:id/merge', () => {
     // An agent's note on the duplicate stays on the duplicate.
     const note = await appendDeskMessage(db, { generateId, conversationId: 'dconv_dup', kind: 'note', authorType: 'agent', authorId: USER, body: 'merged' });
     expect(note.conversation.id).toBe('dconv_dup');
+  });
+
+  it('keeps the message on the duplicate when the customer could not see the kept ticket', async () => {
+    // Same CRM person, so the merge is allowed, but the visitor writing on the
+    // duplicate is neither the kept ticket's visitor nor verified for its email.
+    const merged = await writer().request(`${BASE}/dconv_crm_a/merge`, send({ targetId: 'dconv_crm_b' }));
+    expect(merged.status).toBe(200);
+
+    const result = await appendDeskMessage(db, {
+      generateId,
+      conversationId: 'dconv_crm_a',
+      kind: 'message',
+      authorType: 'visitor',
+      authorId: 'vis_ca',
+      body: 'Hello again',
+    });
+    expect(result.conversation.id).toBe('dconv_crm_a');
+    expect(result.conversation.state).toBe('open');
+    expect((await row('dconv_crm_a')).mergedIntoId).toBe('dconv_crm_b');
   });
 });

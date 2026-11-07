@@ -10,8 +10,9 @@
 //! parent, no self-links; a major incident can't be a child and a child
 //! can't be one); unmarking an incident unlinks its children; a duplicate
 //! merges into a kept conversation of the same customer, is closed, and a
-//! later customer message on it lands on the kept one ([`merge_target`],
-//! which [`webchat::append`] follows). Callers publish each change, in order.
+//! later customer message on it lands on the kept one when that customer can
+//! see it ([`merge_follow_up_target`], which [`webchat::append`] follows).
+//! Callers publish each change, in order.
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
@@ -75,6 +76,62 @@ pub struct MergeResult {
 }
 
 // ── the merge target ──────────────────────────────────────────────────────────
+
+/// `deskMergeFollowUpTarget(db, conversation)`: where a customer message
+/// written on `conversation` lands. The conversation it was (finally) merged
+/// into when the customer who writes on the duplicate can see that one (the
+/// same visitor, or a verified email that matches, as `canAccessDeskConversation`
+/// rules), else the duplicate itself.
+pub async fn merge_follow_up_target(
+    db: &PgPool,
+    conversation: Value,
+) -> Result<Value, sqlx::Error> {
+    let target = merge_target(db, conversation.clone()).await?;
+    if target["id"] == conversation["id"] {
+        return Ok(conversation);
+    }
+    let visitor = conversation["visitor_id"]
+        .as_str()
+        .filter(|v| !v.is_empty());
+    if visitor.is_some() && target["visitor_id"].as_str() == visitor {
+        return Ok(target);
+    }
+    let writer = verified_emails(db, &conversation).await?;
+    if writer.is_empty() {
+        return Ok(conversation);
+    }
+    let kept = verified_emails(db, &target).await?;
+    if writer.iter().any(|email| kept.contains(email)) {
+        Ok(target)
+    } else {
+        Ok(conversation)
+    }
+}
+
+/// The verified addresses a conversation's customer writes from: the sender of
+/// an email conversation, and its visitor's verified email.
+async fn verified_emails(db: &PgPool, conversation: &Value) -> Result<Vec<String>, sqlx::Error> {
+    let mut emails = Vec::new();
+    if conversation["channel"].as_str() == Some("email")
+        && let Some(email) = conversation["email"].as_str()
+    {
+        emails.push(email.trim().to_lowercase());
+    }
+    if let Some(visitor) = conversation["visitor_id"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+    {
+        let verified: Option<Option<String>> =
+            sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
+                .bind(visitor)
+                .fetch_optional(db)
+                .await?;
+        if let Some(Some(email)) = verified {
+            emails.push(email.trim().to_lowercase());
+        }
+    }
+    Ok(emails)
+}
 
 /// `deskMergeTarget(db, conversation)`, on a raw `to_jsonb` row as
 /// [`webchat::append`] reads it: the conversation it was (finally) merged
