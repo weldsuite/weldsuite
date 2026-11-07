@@ -45,7 +45,9 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/", get(list))
+        // Membership-scoped, not gated on `projects:read`; the handler still
+        // reads `projects:scope:all`, so the permissions are resolved first.
+        .route("/", get(list).route_layer(gate.resolve()))
         .route("/", post(create).route_layer(need(PROJECTS_CREATE)))
         .route(
             "/workload/overview",

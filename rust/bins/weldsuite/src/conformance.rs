@@ -48,7 +48,7 @@ use weldsuite_auth::{AuthContext, ClerkVerifier, SessionVerifier};
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::ApiError;
-use weldsuite_permissions::{AppContext, Permissions, ResolvedPermissions};
+use weldsuite_permissions::{AppContext, Permissions, PresetPermissions, ResolvedPermissions};
 use weldsuite_pipeline::Flags;
 use weldsuite_ports::{
     DefaultFlags, FlagContext, Mailbox, MemoryCache, MemoryFileStore, OutgoingMail,
@@ -543,9 +543,12 @@ pub(crate) async fn auth(
     }
     extensions.insert(weldsuite_mail::RequestTenantDatabases(Arc::new(tenants)));
     pools.insert_shared(extensions, &context);
+    // A preset, not the request's `Permissions`: only a route's permission
+    // layer turns it into them, so a route that forgot its layer fails here
+    // as it would on a real server instead of passing on the test's grant.
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
-        extensions.insert(Permissions::new(
+        extensions.insert(PresetPermissions(Permissions::new(
             ResolvedPermissions {
                 permissions: permissions.permissions,
                 denies: permissions.denies,
@@ -556,7 +559,7 @@ pub(crate) async fn auth(
             app,
             app_enforced.unwrap_or(false),
             context.user_id.clone(),
-        ));
+        )));
     }
     if let Some(values) = context.flags {
         let source = values
