@@ -41,6 +41,7 @@ describe('WeldDesk settings page', () => {
       '/settings/apps/welddesk/ticket-types',
       '/settings/apps/welddesk/assignment',
       '/settings/apps/welddesk/sla-policies',
+      '/settings/apps/welddesk/priority-matrix',
     ]);
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DESK_IMPACTS, DESK_URGENCIES, deskPriorityMatrixSchema } from './desk-priority-matrix';
 
 export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 'api', 'portal'] as const;
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
@@ -165,6 +166,8 @@ export const deskConversationAttributeOptionsSchema = z.object({
     }),
   ),
   tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
+  /** The workspace's impact × urgency grid (priority matrix). */
+  priorityMatrix: deskPriorityMatrixSchema,
 });
 
 /** PATCH /api/desk/conversations/:id: the conversation with its custom fields, and the `attributes_changed` event (null when nothing changed). */
@@ -199,6 +202,9 @@ export const updateConversationAttributesSchema = z
     tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
     departmentId: z.string().max(30).nullable().optional(),
     customFields: z.record(z.string().max(100), z.unknown()).optional(),
+    /** ITIL impact and urgency; with the priority matrix on they set the priority. */
+    impact: z.enum(DESK_IMPACTS).nullable().optional(),
+    urgency: z.enum(DESK_URGENCIES).nullable().optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: 'Nothing to update',

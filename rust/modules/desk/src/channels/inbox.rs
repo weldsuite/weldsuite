@@ -265,12 +265,14 @@ async fn attribute_options(ctx: Ctx) -> Response {
 
 /// `updateConversationAttributesSchema`.
 fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attributes::Update {
-    const KEYS: [&str; 5] = [
+    const KEYS: [&str; 7] = [
         "ticketTypeId",
         "priority",
         "tags",
         "departmentId",
         "customFields",
+        "impact",
+        "urgency",
     ];
     let ticket_type_id = issues.text(body, "ticketTypeId", Presence::Nullish, None, Some(30));
     let priority = issues.choice(body, "priority", Presence::Nullish, attributes::PRIORITIES);
@@ -303,6 +305,9 @@ fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attribut
             }
         },
     );
+    let levels = weldsuite_desk_domain::priority_matrix::LEVELS;
+    let impact = issues.choice(body, "impact", Presence::Nullish, levels);
+    let urgency = issues.choice(body, "urgency", Presence::Nullish, levels);
     // `.refine(data => Object.values(data).some(v => v !== undefined))`.
     if KEYS.iter().all(|key| !body.contains_key(*key)) {
         issues.custom_root("Nothing to update");
@@ -313,6 +318,8 @@ fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attribut
         tags,
         department_id,
         custom_fields: Vec::new(),
+        impact,
+        urgency,
     }
 }
 

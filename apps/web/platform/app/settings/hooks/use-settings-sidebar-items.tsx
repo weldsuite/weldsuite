@@ -28,6 +28,7 @@ import {
   Tags,
   Shuffle,
   Timer,
+  Grid3x3,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
@@ -75,6 +76,7 @@ function welddeskSettingsSubItems(td: TranslationsType['settings']['welddesk']):
     { title: td.ticketTypesTitle, href: '/settings/apps/welddesk/ticket-types', icon: Tags },
     { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
     { title: td.slaPoliciesTitle, href: '/settings/apps/welddesk/sla-policies', icon: Timer },
+    { title: td.priorityMatrixTitle, href: '/settings/apps/welddesk/priority-matrix', icon: Grid3x3 },
   ];
 }
 

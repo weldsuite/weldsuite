@@ -46,7 +46,7 @@ export type DeskEventType =
  * priority, the tag list, or the custom field's value (`label` is its name).
  */
 export interface DeskAttributeChange {
-  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField' | 'impact' | 'urgency';
   /** The custom field's slug. */
   key?: string;
   label?: string;

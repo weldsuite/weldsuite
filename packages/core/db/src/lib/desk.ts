@@ -45,6 +45,7 @@ import type {
 import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
 import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
+import { deskMatrixChanges, type DeskMatrixInput } from './desk-priority-matrix';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -615,7 +616,11 @@ export class DeskAttributeRejectedError extends Error {
   }
 }
 
-export interface UpdateDeskConversationAttributesInput {
+/**
+ * `impact` / `urgency` (DeskMatrixInput): with the priority matrix on they set
+ * the priority when either changes; a `priority` sent with them wins.
+ */
+export interface UpdateDeskConversationAttributesInput extends DeskMatrixInput {
   generateId: IdGenerator;
   conversationId: string;
   authorType: DeskAuthorType;
@@ -745,9 +750,14 @@ async function columnChanges(
     patch.departmentId = input.departmentId;
     changes.push(team);
   }
-  if (input.priority !== undefined && input.priority !== current.priority) {
-    patch.priority = input.priority;
-    changes.push({ field: 'priority', from: current.priority, to: input.priority });
+  // Impact and urgency, and the priority the matrix derives from them.
+  const matrix = await deskMatrixChanges(db, current, input);
+  Object.assign(patch, matrix.patch);
+  changes.push(...matrix.changes);
+  const priority = input.priority === undefined ? matrix.priority : input.priority;
+  if (priority !== undefined && priority !== current.priority) {
+    patch.priority = priority;
+    changes.push({ field: 'priority', from: current.priority, to: priority });
   }
   const tags = input.tags === undefined ? null : normalizeDeskTags(input.tags);
   if (tags && !sameTags(current.tags ?? [], tags)) {

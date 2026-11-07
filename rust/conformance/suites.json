@@ -1238,7 +1238,8 @@
         "src/routes/desk-assignment/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
         "src/routes/helpdesk-analytics/routes.test.ts",
-        "src/routes/helpdesk-analytics/reports.integration.test.ts"
+        "src/routes/helpdesk-analytics/reports.integration.test.ts",
+        "src/routes/helpdesk-settings/priority-matrix.integration.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/helpdesk-settings/",
@@ -1249,6 +1250,7 @@
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
         "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
@@ -1277,6 +1279,7 @@
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
+        "src/routes/desk-conversations/priority-matrix.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1289,6 +1292,7 @@
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",

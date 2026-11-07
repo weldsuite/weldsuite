@@ -76,6 +76,7 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
     '/settings/apps/welddesk/ticket-types': ts.welddesk.ticketTypesTitle,
     '/settings/apps/welddesk/assignment': ts.welddesk.assignmentTitle,
     '/settings/apps/welddesk/sla-policies': ts.welddesk.slaPoliciesTitle,
+    '/settings/apps/welddesk/priority-matrix': ts.welddesk.priorityMatrixTitle,
   });
   const memberPanelWidth = useMemberPanelWidth();
 

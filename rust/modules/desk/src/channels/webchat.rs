@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 
 pub(crate) use weldsuite_desk_domain::webchat::{
-    Append, AppendError, Author, append, author_from_member, collapse_whitespace, get, is_public,
+    Append, AppendError, Author, append, author_from_member, get, is_public,
     public_conversation, public_message,
 };
 

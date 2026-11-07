@@ -1558,6 +1558,8 @@ export const settings = {
       assignmentDescription: 'How new conversations are routed to agents.',
       slaPoliciesTitle: 'SLA policies',
       slaPoliciesDescription: 'Reply and resolution targets for your conversations.',
+      priorityMatrixTitle: 'Priority matrix',
+      priorityMatrixDescription: "Set a ticket's priority from its impact and urgency.",
     },
 
     weldmail: {

@@ -24,6 +24,8 @@
 //!   and what to notify on an assignment or a customer reply.
 //! - [`attributes`] (`updateDeskConversationAttributes` of
 //!   `@weldsuite/db/lib/desk`): a conversation's ticket fields, as any author.
+//! - [`priority_matrix`] (`@weldsuite/db/lib/desk-priority-matrix`): ITIL
+//!   impact × urgency → priority, which [`attributes`] applies.
 //! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
 //!   outside it (workflows, the public API): `ingestDeskApi`, assignment,
 //!   notifications and the inbox events.
@@ -48,6 +50,7 @@ pub mod inbox;
 pub mod list;
 pub mod notify;
 pub mod phone;
+pub mod priority_matrix;
 pub mod realtime;
 pub mod sla;
 pub mod sla_calendar;
