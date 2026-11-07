@@ -1,0 +1,313 @@
+{{- if .Values.mta.enabled }}
+{{- include "weldsuite.mta.check" . }}
+{{- $secret := include "weldsuite.mta.secretName" . }}
+{{- with .Values.mta }}
+{{- if and .inbound.enabled .inbound.tls.enabled (not .inbound.tls.existingSecret) }}
+{{- if not .inbound.tls.issuerRef }}
+# Senders of DSNs and complaint reports use STARTTLS opportunistically and
+# don't check the certificate, and HTTP-01 can't reach the mail nodes (no web
+# server there): without an issuerRef the bounce MX gets a self-signed one.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ printf "%s-selfsigned" (include "weldsuite.mta.fullname" $) }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ printf "%s-inbound" (include "weldsuite.mta.fullname" $) }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+spec:
+  secretName: {{ include "weldsuite.mta.inboundTlsSecret" $ }}
+  dnsNames:
+    {{- range (.inbound.tls.dnsNames | default (list .bounceDomain)) }}
+    - {{ . | quote }}
+    {{- end }}
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    {{- if .inbound.tls.issuerRef }}
+    {{- toYaml .inbound.tls.issuerRef | nindent 4 }}
+    {{- else }}
+    name: {{ printf "%s-selfsigned" (include "weldsuite.mta.fullname" $) }}
+    kind: Issuer
+    {{- end }}
+---
+{{- end }}
+{{- range $pool := .pools }}
+# The MTA for pool {{ $pool.name }}: one pod on each node labelled
+# weldsuite.org/mail-pool={{ $pool.name }} (OpenTofu's mail_pools), on the host
+# network so it sends from the node's public IPv4. Submission and the API
+# listen on the node's private address only; the bounce MX on port 25 of
+# every address.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ printf "%s-%s" (include "weldsuite.mta.fullname" $) $pool.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+    weldsuite.org/mail-pool: {{ $pool.name }}
+spec:
+  revisionHistoryLimit: 5
+  # The host ports are the node's: the old pod goes before the new one
+  # starts. Mail it held stays queued in the database.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      {{- include "weldsuite.mta.selectorLabels" $ | nindent 6 }}
+      weldsuite.org/mail-pool: {{ $pool.name }}
+  template:
+    metadata:
+      annotations:
+        {{- if not (or $.Values.secret.existingSecret $.Values.mta.existingSecret) }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") $ | sha256sum }}
+        {{- end }}
+        {{- with $.Values.mta.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "weldsuite.mta.labels" $ | nindent 8 }}
+        weldsuite.org/mail-pool: {{ $pool.name }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # SMTP sessions and deliveries in flight get this long after SIGTERM.
+      terminationGracePeriodSeconds: {{ $.Values.mta.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      nodeSelector:
+        weldsuite.org/mail-pool: {{ $pool.name }}
+      tolerations:
+        - key: weldsuite.org/mail
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: mta
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["mta"]
+          ports:
+            - name: submission
+              containerPort: 2587
+              protocol: TCP
+            - name: api
+              containerPort: 8025
+              protocol: TCP
+            {{- if $.Values.mta.inbound.enabled }}
+            - name: smtp
+              containerPort: 25
+              protocol: TCP
+            {{- end }}
+          env:
+            # The node's private address (Talos' nodeIP is on the private
+            # subnet): submission and the API listen there only.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: LOG_FORMAT
+              value: {{ $.Values.config.logFormat | quote }}
+            - name: RUST_LOG
+              value: {{ $.Values.config.logLevel | quote }}
+            - name: MTA_POOLS
+              value: {{ $pool.name | quote }}
+            - name: MTA_SUBMISSION_ADDR
+              value: "$(HOST_IP):2587"
+            - name: MTA_API_ADDR
+              value: "$(HOST_IP):8025"
+            {{- with $.Values.mta }}
+            {{- if .inbound.enabled }}
+            - name: MTA_INBOUND_ADDR
+              value: "0.0.0.0:25"
+            {{- if .inbound.tls.enabled }}
+            - name: MTA_INBOUND_TLS_CERT
+              value: /etc/weldsuite/mta/inbound-tls/tls.crt
+            - name: MTA_INBOUND_TLS_KEY
+              value: /etc/weldsuite/mta/inbound-tls/tls.key
+            {{- end }}
+            {{- end }}
+            {{- if .submission.tls.enabled }}
+            - name: MTA_SUBMISSION_TLS_CERT
+              value: /etc/weldsuite/mta/submission-tls/tls.crt
+            - name: MTA_SUBMISSION_TLS_KEY
+              value: /etc/weldsuite/mta/submission-tls/tls.key
+            {{- end }}
+            {{- with .bounceDomain }}
+            - name: MTA_BOUNCE_DOMAIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $pool.hostname }}
+            - name: MTA_HOSTNAME
+              value: {{ . | quote }}
+            {{- end }}
+            - name: MTA_MAX_MESSAGE_BYTES
+              value: {{ .maxMessageBytes | int64 | toString | quote }}
+            - name: MTA_MAX_QUEUE_AGE
+              value: {{ .maxQueueAge | quote }}
+            - name: MTA_CONCURRENCY
+              value: {{ .concurrency | toString | quote }}
+            - name: MTA_SUPPRESS_DAYS
+              value: {{ .suppressDays | toString | quote }}
+            {{- with .warmupSchedule }}
+            - name: MTA_WARMUP_SCHEDULE
+              value: {{ . | toString | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range list "MTA_DATABASE_URL" "MTA_KEY" "MTA_API_SECRET" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ . }}
+            {{- end }}
+            # Every pool's password: any node takes submissions for any pool
+            # and queues them for that pool's nodes.
+            {{- range $.Values.mta.pools }}
+            - name: MTA_SUBMISSION_PASSWORD_{{ upper .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: MTA_SUBMISSION_PASSWORD_{{ upper .name }}
+            {{- end }}
+            # Delivery events for `weldsuite consume`; without NATS_URL they
+            # wait in the MTA's outbox table.
+            {{- range list "NATS_URL" "NATS_USER" "NATS_PASSWORD" "NATS_TOKEN" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+            {{- with $.Values.mta.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Migrations run first, under an advisory lock, before the API
+          # listens: the startup probe allows five minutes.
+          startupProbe:
+            httpGet: { path: /healthz, port: api }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz, port: api }
+            periodSeconds: 20
+            failureThreshold: 3
+          # The database answers.
+          readinessProbe:
+            httpGet: { path: /readyz, port: api }
+            periodSeconds: 10
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              {{- if $.Values.mta.inbound.enabled }}
+              # Port 25. A runtime that passes it on as an ambient capability
+              # needs only this; on Talos the mail nodes make port 25
+              # unprivileged instead (rust/deploy/hetzner/talos/mail.yaml).
+              add: ["NET_BIND_SERVICE"]
+              {{- end }}
+          resources:
+            {{- toYaml $.Values.mta.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if and $.Values.mta.inbound.enabled $.Values.mta.inbound.tls.enabled }}
+            - name: inbound-tls
+              mountPath: /etc/weldsuite/mta/inbound-tls
+              readOnly: true
+            {{- end }}
+            {{- if $.Values.mta.submission.tls.enabled }}
+            - name: submission-tls
+              mountPath: /etc/weldsuite/mta/submission-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and $.Values.mta.inbound.enabled $.Values.mta.inbound.tls.enabled }}
+        - name: inbound-tls
+          secret:
+            secretName: {{ include "weldsuite.mta.inboundTlsSecret" $ }}
+        {{- end }}
+        {{- if $.Values.mta.submission.tls.enabled }}
+        - name: submission-tls
+          secret:
+            secretName: {{ include "weldsuite.mta.submissionTlsSecret" $ }}
+        {{- end }}
+---
+{{- end }}
+# Submission for the server, consume and the cron jobs (SMTP_URL,
+# MAIL_SMTP_URL): every MTA pod, whatever its pool; the username picks the
+# pool the message is delivered from.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.mta.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: submission
+      port: {{ .submission.service.port }}
+      targetPort: 2587
+      protocol: TCP
+  selector:
+    {{- include "weldsuite.mta.selectorLabels" $ | nindent 4 }}
+---
+# The MTA's HTTP API (sending domains and their DKIM keys, the queue), for
+# the server's mail domain routes (MTA_API_URL).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.mta.apiName" $ }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 8025
+      targetPort: 8025
+      protocol: TCP
+  selector:
+    {{- include "weldsuite.mta.selectorLabels" $ | nindent 4 }}
+{{- if .podDisruptionBudget.enabled }}
+---
+# One mail node drained at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weldsuite.mta.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mta.labels" $ | nindent 4 }}
+spec:
+  maxUnavailable: {{ .podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "weldsuite.mta.selectorLabels" $ | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

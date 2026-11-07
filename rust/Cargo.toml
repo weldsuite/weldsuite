@@ -73,6 +73,7 @@ weldsuite-board = { path = "modules/board" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
+weldsuite-mta = { path = "crates/mta" }
 weldsuite-meet = { path = "modules/meet" }
 weldsuite-merge = { path = "modules/merge" }
 weldsuite-merge-domain = { path = "crates/merge-domain" }

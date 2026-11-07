@@ -4,7 +4,8 @@
 # second EU provider (barman-cloud plugin), and a transaction-mode PgBouncer
 # Pooler in front.
 #
-#   master     the master database (workspaces, link registry, flags, …)
+#   master     the master database (workspaces, link registry, flags, …);
+#              on eu also the MTA's weldsuite_mta (configs/eu/mta-database.yaml)
 #   tenants-1  the first tenant shard: one database per workspace (DATA-016)
 #   zitadel-db Zitadel's own database (namespace zitadel, next to Zitadel,
 #              which reads its superuser secret)

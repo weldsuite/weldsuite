@@ -60,6 +60,7 @@ spec:
             {{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- with include "weldsuite.mta.clientEnv" . }}{{ . | nindent 12 }}{{- end }}
             {{- with .Values.config.realtime }}
             {{- if .publicUrl }}
             - name: REALTIME_PUBLIC_URL

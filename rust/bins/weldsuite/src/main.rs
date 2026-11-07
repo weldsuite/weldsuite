@@ -1,5 +1,5 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve`, `consume`, `cron <job>`, `migrate` and `admin` (staff work, ADR
+//! `serve`, `consume`, `cron <job>`, `migrate`, `mta` (ADR MAIL-011) and `admin` (staff work, ADR
 //! SEC-014); the other operator commands as they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
@@ -32,6 +32,7 @@ mod desk_http;
 mod edition;
 mod infra;
 mod migrate;
+mod mta;
 mod reach;
 mod realtime;
 mod routes;
@@ -66,6 +67,8 @@ commands:
              moneybird-push, merge-digest-sweep
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
+  mta        WeldSuite's own MTA on the mail nodes, and its domain and queue
+             tools (weldsuite mta --help)
   admin      staff work: access to apps on request only (WeldReach) and the
              staff list (weldsuite admin --help)
   version   print the version and exit
@@ -90,6 +93,7 @@ fn main() -> ExitCode {
         Some("cron") => cron::main(args.get(1).map(String::as_str)),
         Some("migrate") => migrate::run(&args[1..]),
         Some("admin") => admin::run(&args[1..]),
+        Some("mta") => mta::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
