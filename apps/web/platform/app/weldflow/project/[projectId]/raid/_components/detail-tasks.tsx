@@ -6,6 +6,7 @@
 import { Link2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import type { LinkedObject, RaidItem } from '@weldsuite/app-api-client/domains/project-control';
 import { useObjectPanel } from '@/components/object-panel';
@@ -57,13 +58,11 @@ function TaskRow({ link }: Readonly<{ link: LinkedObject }>) {
 
   return (
     <li className="flex items-center gap-2.5 border-b px-3 py-2.5 last:border-b-0">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={done}
         disabled={!abilities.updateTasks || cancelled || setDone.isPending}
-        onChange={() => void toggle()}
+        onCheckedChange={() => void toggle()}
         aria-label={format(done ? copy.tasks.markNotDone : copy.tasks.markDone, { title: task.title })}
-        className="size-4 shrink-0 accent-foreground"
       />
       <button
         type="button"
