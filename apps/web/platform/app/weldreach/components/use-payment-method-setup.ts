@@ -13,7 +13,15 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { reachKeys, useReachBillingSetup } from '@/hooks/queries/use-reach-queries';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
-type ReturnPath = '/weldreach/setup' | '/weldreach/mailboxes' | '/weldreach/settings';
+/** WeldReach's settings page, in workspace Settings (`/weldreach/settings` redirects here). */
+export const REACH_SETTINGS_PATH = '/settings/apps/weldreach';
+
+type ReturnPath = '/weldreach/setup' | '/weldreach/mailboxes' | typeof REACH_SETTINGS_PATH;
+
+/** The search of a page Stripe returns to: `?billing=done` once the payment method is added. */
+export const validateReachSettingsSearch = (search: Record<string, unknown>): { billing?: string } => ({
+  billing: typeof search.billing === 'string' ? search.billing : undefined,
+});
 
 export function usePaymentMethodSetup(returnPath: ReturnPath, extraQuery: Record<string, string> = {}) {
   const t = useTranslations();

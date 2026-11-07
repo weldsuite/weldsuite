@@ -1,12 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldreach/settings/page';
-import '@/lib/breadcrumbs/types';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { validateReachSettingsSearch } from '@/app/weldreach/components/use-payment-method-setup';
 
-/** `?billing=done` marks the return from Stripe Checkout after updating the payment method. */
+// WeldReach configuration lives with the other apps on the workspace settings
+// page. This path stays so existing links, and a Stripe Checkout started
+// before the move, keep working.
 export const Route = createFileRoute('/weldreach/settings/')({
-  validateSearch: (search: Record<string, unknown>): { billing?: string } => ({
-    billing: typeof search.billing === 'string' ? search.billing : undefined,
-  }),
-  staticData: { breadcrumb: { labelKey: 'settings' } },
-  component: PageComponent,
+  validateSearch: validateReachSettingsSearch,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/settings/apps/weldreach', search, replace: true });
+  },
 });

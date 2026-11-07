@@ -24,8 +24,9 @@ import { GithubUsernameForm } from '../components/github-username-form';
 import { GitlabTokenDialog } from '../components/gitlab-token-dialog';
 import { ProviderLogo } from '../components/provider-logo';
 import { fill } from '../lib/format';
+import { weldmergeSettingsTab } from '../lib/settings-path';
 
-const ACCOUNTS_RETURN_PATH = '/weldmerge/settings?tab=accounts';
+const ACCOUNTS_RETURN_PATH = weldmergeSettingsTab('accounts');
 
 function AccountRow({
   account,

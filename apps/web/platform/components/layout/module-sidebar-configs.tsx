@@ -264,7 +264,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     ],
   },
   // WeldMerge (pull requests and issues across git providers). Teams are picked
-  // on the Issues page; the sidebar is a static list per module.
+  // on the Issues page; the sidebar is a static list per module. Its settings
+  // live in workspace Settings (Settings → Apps → WeldMerge).
   weldmerge: {
     appName: 'WeldMerge',
     appIcon: GitPullRequest,
@@ -279,10 +280,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldmerge.cycles, href: '/weldmerge/cycles', icon: Repeat, permission: 'merge_issues:read' },
           { title: t.navigation.moduleSidebar.weldmerge.releases, href: '/weldmerge/releases', icon: Rocket, permission: 'merge_releases:read' },
         ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [{ title: t.navigation.moduleSidebar.weldmerge.settings, href: '/weldmerge/settings', icon: Settings, permission: 'merge_connections:read' }],
       },
     ],
   },
@@ -312,8 +309,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     ],
   },
   // WeldReach (cold email outreach, on request only). Section pages are built
-  // by the campaign/prospect/inbox pages and the mailbox/settings pages; each is
-  // gated on its own object so a VIEWER only sees what they can read.
+  // by the campaign/prospect/inbox pages and the mailbox page; each is gated on
+  // its own object so a VIEWER only sees what they can read. Its settings live
+  // in workspace Settings (Settings → Apps → WeldReach).
   weldreach: {
     appName: 'WeldReach',
     appIcon: Send,
@@ -327,7 +325,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.reach.nav.prospects, href: '/weldreach/prospects', icon: Contact, permission: 'reach_prospects:read' },
           { title: t.reach.nav.inbox, href: '/weldreach/inbox', icon: Inbox, permission: 'reach_inbox:read' },
           { title: t.reach.nav.mailboxes, href: '/weldreach/mailboxes', icon: Mailbox, permission: 'reach_mailboxes:read' },
-          { title: t.reach.nav.settings, href: '/weldreach/settings', icon: Settings, permission: 'reach_settings:read' },
         ],
       },
     ],

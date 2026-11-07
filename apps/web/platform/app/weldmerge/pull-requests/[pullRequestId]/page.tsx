@@ -42,6 +42,7 @@ import {
   ReviewDecisionBadge,
 } from '../../components/primitives';
 import { fill, relativeTime } from '../../lib/format';
+import { weldmergeSettingsTab } from '../../lib/settings-path';
 
 /**
  * A pull request: description, state, branches, checks, review decision,
@@ -210,7 +211,7 @@ export default function WeldMergePullRequestPage() {
       {notLinked && (
         <InfoBanner variant="warning">
           {fill(tr.errors.accountNotLinked, { provider })}{' '}
-          <Link href="/weldmerge/settings?tab=accounts" className="font-medium underline">
+          <Link href={weldmergeSettingsTab('accounts')} className="font-medium underline">
             {tr.errors.linkAccount}
           </Link>
         </InfoBanner>

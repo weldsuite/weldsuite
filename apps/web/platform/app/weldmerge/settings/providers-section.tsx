@@ -38,9 +38,9 @@ import { AddRepositoriesDialog } from './add-repositories-dialog';
 import { GitlabTokenDialog } from '../components/gitlab-token-dialog';
 import { ProviderCard } from './provider-card';
 import { useProviderConnect } from './use-provider-connect';
+import { weldmergeSettingsTab } from '../lib/settings-path';
 
 const NO_TEAM = '__none__';
-const SETTINGS_PATH = '/weldmerge/settings';
 
 /** The message for a refused GitHub installation (`?error=` from the setup route). */
 export function installErrorMessage(
@@ -129,7 +129,7 @@ export function ProvidersSection({
       } catch {
         toast.error(fill(ts.startFailed, { provider: tm.provider.github }));
       } finally {
-        router.replace(`${SETTINGS_PATH}?tab=providers`);
+        router.replace(weldmergeSettingsTab('providers'));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one retry per arrival

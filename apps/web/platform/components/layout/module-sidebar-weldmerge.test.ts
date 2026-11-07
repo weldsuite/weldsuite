@@ -14,7 +14,7 @@ describe('WeldMerge module registration', () => {
     expect(getModuleKey('/weldmerge/issues/PLAT-209')).toBe('weldmerge');
   });
 
-  it('lists inbox, pull requests, issues, cycles, releases and settings, each gated on its permission', () => {
+  it('lists inbox, pull requests, issues, cycles and releases, each gated on its permission, with settings left to workspace Settings', () => {
     const items = config.getMenuItems(en).flatMap((group) => group.items);
     expect(items.map((item) => [item.href, item.permission])).toEqual([
       ['/weldmerge', 'merge_pull_requests:read'],
@@ -22,14 +22,13 @@ describe('WeldMerge module registration', () => {
       ['/weldmerge/issues', 'merge_issues:read'],
       ['/weldmerge/cycles', 'merge_issues:read'],
       ['/weldmerge/releases', 'merge_releases:read'],
-      ['/weldmerge/settings', 'merge_connections:read'],
     ]);
   });
 
   it('translates the section names', () => {
     const titles = (language: typeof en) => config.getMenuItems(language).flatMap((group) => group.items.map((item) => item.title));
-    expect(titles(en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycles', 'Releases', 'Settings']);
-    expect(titles(nl as unknown as typeof en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycli', 'Releases', 'Instellingen']);
+    expect(titles(en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycles', 'Releases']);
+    expect(titles(nl as unknown as typeof en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycli', 'Releases']);
   });
 
   it('has an icon and its permission objects', () => {

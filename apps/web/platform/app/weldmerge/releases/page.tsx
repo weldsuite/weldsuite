@@ -14,6 +14,7 @@ import { useMergeRepositories, useMergeTeams } from '@/hooks/queries/use-weldmer
 import { useI18n } from '@/lib/i18n/provider';
 import { Link, useRouter } from '@/lib/router';
 import { fill, relativeTime } from '../lib/format';
+import { WELDMERGE_SETTINGS_PATH } from '../lib/settings-path';
 import { ReleaseFormDialog } from './release-form-dialog';
 
 type View = 'all' | MergeReleaseStatus;
@@ -111,7 +112,7 @@ export default function WeldMergeReleasesPage() {
           description={tr.noRepositories}
           action={
             <Button asChild>
-              <Link href="/weldmerge/settings">{tm.pullRequests.openProviders}</Link>
+              <Link href={WELDMERGE_SETTINGS_PATH}>{tm.pullRequests.openProviders}</Link>
             </Button>
           }
         />
