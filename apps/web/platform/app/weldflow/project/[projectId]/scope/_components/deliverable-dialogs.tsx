@@ -27,7 +27,7 @@ import {
   useRequestSignoff,
   useUpdateDeliverable,
 } from '@/hooks/queries/use-project-governance-queries';
-import { CheckboxField, SelectField, TextAreaField, TextField, type SelectOption } from '../../raid/_components/form-fields';
+import { CheckboxField, DateField, SelectField, TextAreaField, TextField, type SelectOption } from '../../raid/_components/form-fields';
 import { fromDateInput, toDateInput, useFormatters, type GovernanceAbilities } from '../../governance/_lib/use-governance';
 import { ConfirmDelete, FormDialog, Pill } from '../../governance/_components/parts';
 
@@ -200,8 +200,8 @@ function DeliverableForm({
                   { value: 'in_progress', label: copy.deliverables.statuses.in_progress },
                 ]}
               />
-              <TextField control={form.control} name="plannedStart" label={f.plannedStart} type="date" />
-              <TextField control={form.control} name="plannedEnd" label={f.plannedEnd} type="date" />
+              <DateField control={form.control} name="plannedStart" label={f.plannedStart} />
+              <DateField control={form.control} name="plannedEnd" label={f.plannedEnd} />
             </div>
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-sm font-medium">{f.criteria}</legend>
@@ -484,7 +484,7 @@ function RequestSignoffDialog({ id, onDone }: Readonly<{ id: string; onDone: () 
           />
           <p className="text-sm text-muted-foreground">{d.contactHelp}</p>
         </div>
-        <TextField control={form.control} name="dueAt" label={d.dueAt} type="date" />
+        <DateField control={form.control} name="dueAt" label={d.dueAt} />
       </Form>
     </FormDialog>
   );
