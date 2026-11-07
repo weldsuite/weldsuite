@@ -580,6 +580,33 @@ async fn refuse(
     StaffError::Refused(message)
 }
 
+/// Why a decision is refused before the rules are asked: a deleted
+/// workspace; without an access row, any action but approval
+/// (`refuseWithoutRow`), or approval of an app the catalog doesn't have.
+async fn refusal_before_planning(
+    master: &PgPool,
+    workspace: &WorkspaceRef,
+    current: Option<&AccessDetail>,
+    action: AccessAction,
+    app_code: &str,
+) -> StaffResult<Option<String>> {
+    if workspace.deleted {
+        return Ok(Some("This workspace has been deleted.".to_owned()));
+    }
+    if current.is_some() {
+        return Ok(None);
+    }
+    if action != AccessAction::Approve {
+        return Ok(Some(NOT_FOUND.to_owned()));
+    }
+    let known: bool =
+        sqlx::query_scalar("select exists (select 1 from app_catalog where code = $1)")
+            .bind(app_code)
+            .fetch_one(master)
+            .await?;
+    Ok((!known).then(|| format!("Unknown app \"{app_code}\".")))
+}
+
 /// Approve, reject, suspend, unsuspend or revoke, as the console's
 /// `changeStatus` does.
 pub async fn decide(
@@ -606,31 +633,11 @@ pub async fn decide(
         reason: Some(reason).filter(|r| !r.is_empty()),
         details: Some(json!({ "appCode": app_code })),
     };
-    if workspace.deleted {
-        return Err(refuse(
-            master,
-            &entry,
-            dry_run,
-            "This workspace has been deleted.".to_owned(),
-        )
-        .await);
-    }
-
     let current = get(master, &workspace.id, app_code).await?;
-    if current.is_none() {
-        let refusal = if action == AccessAction::Approve {
-            let known: bool =
-                sqlx::query_scalar("select exists (select 1 from app_catalog where code = $1)")
-                    .bind(app_code)
-                    .fetch_one(master)
-                    .await?;
-            (!known).then(|| format!("Unknown app \"{app_code}\"."))
-        } else {
-            Some(NOT_FOUND.to_owned())
-        };
-        if let Some(message) = refusal {
-            return Err(refuse(master, &entry, dry_run, message).await);
-        }
+    if let Some(message) =
+        refusal_before_planning(master, &workspace, current.as_ref(), action, app_code).await?
+    {
+        return Err(refuse(master, &entry, dry_run, message).await);
     }
 
     let from = current

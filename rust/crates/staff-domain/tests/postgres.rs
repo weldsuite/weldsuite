@@ -275,7 +275,7 @@ async fn staff_decide_access_with_an_audit_row_each() {
     .await;
     match refused {
         Err(StaffError::Refused(message)) => {
-            assert_eq!(message, "Cannot reject access that is approved.")
+            assert_eq!(message, "Cannot reject access that is approved.");
         }
         other => panic!("expected a refusal, got {other:?}"),
     }

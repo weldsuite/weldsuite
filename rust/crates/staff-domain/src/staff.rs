@@ -185,6 +185,44 @@ pub fn may_change_roster(actor: Option<&Actor>, active_rows: i64) -> Result<(), 
     }
 }
 
+/// Whether a change leaves at least one active superadmin, without whom
+/// nobody could change the list again. `before` is the row being changed,
+/// `stays_superadmin` whether it is an active superadmin afterwards, and
+/// `active_superadmins` how many there are now.
+pub fn keeps_a_superadmin(
+    before: Option<&StaffMember>,
+    stays_superadmin: bool,
+    active_superadmins: i64,
+) -> Result<(), String> {
+    if takes_a_superadmin_away(before, stays_superadmin) && active_superadmins <= 1 {
+        return Err("That is the last superadmin; add another one first.".to_owned());
+    }
+    Ok(())
+}
+
+/// The change turns an active superadmin into something else.
+fn takes_a_superadmin_away(before: Option<&StaffMember>, stays_superadmin: bool) -> bool {
+    !stays_superadmin && before.is_some_and(|b| b.is_active && b.role == StaffRole::Superadmin)
+}
+
+/// [`keeps_a_superadmin`], counting the active superadmins only when the
+/// change takes one away.
+async fn check_keeps_a_superadmin(
+    master: &PgPool,
+    before: Option<&StaffMember>,
+    stays_superadmin: bool,
+) -> StaffResult<()> {
+    if !takes_a_superadmin_away(before, stays_superadmin) {
+        return Ok(());
+    }
+    let superadmins: i64 = sqlx::query_scalar(
+        "select count(*) from admin_users where is_active and role = 'superadmin'",
+    )
+    .fetch_one(master)
+    .await?;
+    keeps_a_superadmin(before, stays_superadmin, superadmins).map_err(StaffError::Refused)
+}
+
 async fn active_rows(master: &PgPool) -> StaffResult<i64> {
     Ok(
         sqlx::query_scalar("select count(*) from admin_users where is_active")
@@ -231,6 +269,8 @@ pub async fn add(
     }
     let actor_email = actor.map_or(email.as_str(), |a| a.email.as_str());
     let before = find(master, &email).await?;
+    // Changing a superadmin's role is a demotion too.
+    check_keeps_a_superadmin(master, before.as_ref(), staff.role == StaffRole::Superadmin).await?;
     let name = staff.name.map(str::trim).filter(|n| !n.is_empty());
 
     if dry_run {
@@ -319,18 +359,7 @@ pub async fn remove(
             "{email} is not on the staff list."
         )));
     };
-    if before.role == StaffRole::Superadmin {
-        let superadmins: i64 = sqlx::query_scalar(
-            "select count(*) from admin_users where is_active and role = 'superadmin'",
-        )
-        .fetch_one(master)
-        .await?;
-        if superadmins <= 1 {
-            return Err(StaffError::refused(
-                "That is the last superadmin; add another one first.",
-            ));
-        }
-    }
+    check_keeps_a_superadmin(master, Some(&before), false).await?;
     let mut after = before.clone();
     after.is_active = false;
     if dry_run {
@@ -426,6 +455,29 @@ mod tests {
         assert!(may_change_roster(Some(&actor(StaffRole::Superadmin)), 3).is_ok());
         assert!(may_change_roster(Some(&actor(StaffRole::Admin)), 3).is_err());
         assert!(may_change_roster(Some(&actor(StaffRole::Viewer)), 3).is_err());
+    }
+
+    #[test]
+    fn the_last_superadmin_is_neither_removed_nor_demoted() {
+        let member = |role, is_active| StaffMember {
+            id: "adm_1".to_owned(),
+            email: "a@weldsuite.org".to_owned(),
+            name: None,
+            role,
+            is_active,
+            user_id: None,
+            invited_by: None,
+            invited_at: None,
+        };
+        let superadmin = member(StaffRole::Superadmin, true);
+        // Removing or demoting the only one is refused; with another one left it is fine.
+        assert!(keeps_a_superadmin(Some(&superadmin), false, 1).is_err());
+        assert!(keeps_a_superadmin(Some(&superadmin), false, 2).is_ok());
+        // Staying a superadmin, or changing someone who isn't an active one, never is.
+        assert!(keeps_a_superadmin(Some(&superadmin), true, 1).is_ok());
+        assert!(keeps_a_superadmin(Some(&member(StaffRole::Admin, true)), false, 1).is_ok());
+        assert!(keeps_a_superadmin(Some(&member(StaffRole::Superadmin, false)), false, 1).is_ok());
+        assert!(keeps_a_superadmin(None, false, 0).is_ok());
     }
 
     #[test]
