@@ -8,12 +8,11 @@
 #   HCLOUD_TOKEN            the drill's Hetzner project token
 #   DRILL_TFVARS            a tfvars file (domain, admin_cidrs, ...)
 #   DRILL_AGE_KEY           the drill's age private key file (SOPS)
-#   DEPLOY_KEY              read-only deploy key file for the repository
 #   DRILL_BRANCH            branch to test (default: main)
 # KEEP=1 leaves the cluster up for inspection (destroy it yourself).
 set -euo pipefail
 
-: "${HCLOUD_TOKEN:?}" "${DRILL_TFVARS:?}" "${DRILL_AGE_KEY:?}" "${DEPLOY_KEY:?}"
+: "${HCLOUD_TOKEN:?}" "${DRILL_TFVARS:?}" "${DRILL_AGE_KEY:?}"
 branch="${DRILL_BRANCH:-main}"
 here="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
@@ -50,10 +49,10 @@ kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool
 log "Flux (read only: the cluster pulls, nothing is pushed)"
 flux install --version=v2.9.6
 kubectl -n flux-system create secret generic sops-age --from-file=age.agekey="$DRILL_AGE_KEY"
-flux create secret git flux-system \
-  --url=ssh://git@github.com/weldsuite/weldsuite --private-key-file="$DEPLOY_KEY"
+# The repository is public and the organisation allows no deploy keys:
+# anonymous HTTPS, as on the test cluster.
 flux create source git flux-system \
-  --url=ssh://git@github.com/weldsuite/weldsuite --branch="$branch" --secret-ref=flux-system
+  --url=https://github.com/weldsuite/weldsuite --branch="$branch"
 flux create kustomization flux-system \
   --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/drill --prune=true
 
