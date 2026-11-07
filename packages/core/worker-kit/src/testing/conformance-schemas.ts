@@ -102,6 +102,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/custom-fields';
 import {
   customObjectDeleteImpactSchema,
+  customObjectImportResultSchema,
   customObjectLinkPanelSchema,
   customObjectLinkSchema,
   customObjectLinkTargetSchema,
@@ -109,6 +110,7 @@ import {
   customObjectRelatedRecordSchema,
   customObjectReversePanelSchema,
   customObjectSchema,
+  customObjectTemplateSchema,
   reorderResultSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import {
@@ -962,6 +964,8 @@ const ROUTES: RouteSchema[] = [
   { method: 'PUT', route: '/api/custom-objects/reorder', envelope: 'single', data: reorderResultSchema },
   { method: 'POST', route: '/api/custom-objects', envelope: 'single', data: customObjectSchema },
   { method: 'PUT', route: '/api/custom-objects/:id', envelope: 'single', data: customObjectSchema },
+  { method: 'GET', route: '/api/custom-objects/templates', envelope: 'list', data: customObjectTemplateSchema },
+  { method: 'POST', route: '/api/custom-objects/templates/:key', envelope: 'single', data: customObjectSchema },
   { method: 'GET', route: '/api/custom-objects/link-targets', envelope: 'array', data: customObjectLinkTargetSchema },
   { method: 'GET', route: '/api/custom-objects/:id/links', envelope: 'array', data: customObjectLinkSchema },
   { method: 'POST', route: '/api/custom-objects/:id/links', envelope: 'single', data: customObjectLinkSchema },
@@ -970,6 +974,7 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/objects/:slug/records', envelope: 'list', data: customObjectRecordSchema },
   { method: 'GET', route: '/api/objects/:slug/records/:id', envelope: 'single', data: customObjectRecordSchema },
   { method: 'POST', route: '/api/objects/:slug/records', envelope: 'single', data: customObjectRecordSchema },
+  { method: 'POST', route: '/api/objects/:slug/records/import', envelope: 'single', data: customObjectImportResultSchema },
   { method: 'PATCH', route: '/api/objects/:slug/records/:id', envelope: 'single', data: customObjectRecordSchema },
   { method: 'GET', route: '/api/objects/:slug/records/:id/links', envelope: 'array', data: customObjectLinkPanelSchema },
   { method: 'GET', route: '/api/objects/:slug/records/:id/links/:linkSlug', envelope: 'array', data: customObjectRelatedRecordSchema },
