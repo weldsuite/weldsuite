@@ -553,4 +553,26 @@ mod tests {
         assert_eq!(pick("ws_2").await.as_deref(), Some("user_a"));
         assert_eq!(pick("ws_1").await.as_deref(), Some("user_a"));
     }
+
+    #[tokio::test]
+    async fn teams_rotate_apart_from_the_roster() {
+        let router = AssignmentRouter::new(Arc::new(MemoryLedgerStore::new()));
+        let pick = |team: Option<&'static str>| {
+            let router = router.clone();
+            let mut ask = request(PickMode::RoundRobin, &[("user_b", 0), ("user_a", 0)], None);
+            ask.team_id = team.map(str::to_owned);
+            async move {
+                router
+                    .pick_desk_assignee("ws_1", &ask)
+                    .await
+                    .expect("a pick")
+            }
+        };
+        assert_eq!(pick(Some("dep_a")).await.as_deref(), Some("user_a"));
+        assert_eq!(pick(Some("dep_a")).await.as_deref(), Some("user_b"));
+        assert_eq!(pick(Some("dep_b")).await.as_deref(), Some("user_a"));
+        assert_eq!(pick(None).await.as_deref(), Some("user_a"));
+        assert_eq!(picker_state_key(Some("dep_a")), "desk:team:dep_a");
+        assert_eq!(picker_state_key(Some("")), "desk");
+    }
 }
