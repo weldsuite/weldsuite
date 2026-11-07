@@ -77,7 +77,8 @@ export const replyToConversationSchema = z
   });
 
 export const manageConversationSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('close') }),
+  /** `closeChildren`: on a major incident, also close its open linked tickets. */
+  z.object({ action: z.literal('close'), closeChildren: z.boolean().optional() }),
   z.object({ action: z.literal('open') }),
   z.object({
     action: z.literal('assign'),

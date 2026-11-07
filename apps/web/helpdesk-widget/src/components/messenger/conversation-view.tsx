@@ -251,12 +251,13 @@ export function ConversationView({
     setPending([]);
     stickRef.current = true;
     const id = await messenger.send(conversationId, body, { attachments });
-    if (isDraft && id) onCreated(id);
+    // A new conversation, or one the team merged: the message landed elsewhere.
+    if (id && (isDraft || id !== conversationId)) onCreated(id);
   };
 
   const retry = async (message: ThreadMessage) => {
     const id = await messenger.retry(conversationId, message);
-    if (isDraft && id) onCreated(id);
+    if (id && (isDraft || id !== conversationId)) onCreated(id);
   };
 
   const hasVisitorMessage = messages.some((m) => m.authorType === 'visitor' && m.status !== 'failed');

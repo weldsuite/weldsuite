@@ -45,6 +45,7 @@ export const helpdesk = {
       parent: 'Parent ticket',
       children: 'Child tickets',
       affectedCustomers: 'Affected customers',
+      mergedFrom: 'Merged duplicates',
       none: 'No linked tickets.',
       linkParent: 'Link to a parent',
       addChild: 'Link a ticket',

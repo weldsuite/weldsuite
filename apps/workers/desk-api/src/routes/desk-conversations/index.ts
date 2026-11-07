@@ -34,6 +34,7 @@ import {
   type DeskConversation,
   type DeskMessage,
 } from '@weldsuite/db/lib/desk';
+import { closeDeskIncidentChildren } from '@weldsuite/db/lib/desk-links';
 import * as schema from '@weldsuite/db/schema';
 import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
@@ -47,7 +48,7 @@ import { getDeskAttributeOptions } from '../../services/desk-attributes';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
+export async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
   const authors = new Map<string, DeskAuthorInfo>();
   if (!userId) return authors;
   try {
@@ -72,7 +73,7 @@ async function loadAuthor(db: Variables['tenantDb'], userId: string | null | und
  *     and open thread, including notes. Published directly (not only via the
  *     entity-event queue) so the inbox updates in the same second.
  */
-async function publishDeskChange(
+export async function publishDeskChange(
   c: { env: Env; get: (key: 'clerkOrgId') => string },
   conversation: DeskConversation,
   message: DeskMessage,
@@ -372,6 +373,20 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
         reference: `#${conversation.conversationNumber}`,
         assignedByUserId: userId,
       });
+    }
+    if (data.action === 'close' && data.closeChildren) {
+      // A major incident's open linked tickets close with it, each with its own close event.
+      const children = await closeDeskIncidentChildren(db, { generateId, incidentId: id, authorId: userId }).catch((err) => {
+        console.error('[app-api/desk-conversations] closing linked tickets failed:', err);
+        return [];
+      });
+      for (const child of children) {
+        publishEntityEvent({ c, entityType: 'desk_conversation', action: 'state_changed', entityId: child.conversation.id, data: child.conversation as unknown as Record<string, unknown> });
+        publishEntityEvent({ c, entityType: 'desk_message', action: 'created', entityId: child.message.id, data: child.message as unknown as Record<string, unknown> });
+        markDeskSlaDue(c, child.slaCheckAt);
+        const childAuthors = await loadAuthor(db, child.conversation.assigneeId);
+        c.executionCtx.waitUntil(publishDeskChange(c, child.conversation, child.message, childAuthors));
+      }
     }
     return success(c, { conversation, message });
   } catch (err) {

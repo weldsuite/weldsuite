@@ -278,6 +278,18 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     let Some(current) = current else {
         return Err(AppendError::NotFound);
     };
+    // A customer's message on a merged duplicate lands on the conversation it
+    // was merged into (reopening it like any customer message would).
+    let customer_message = input.kind == "message" && input.author_type == "visitor";
+    let current = if customer_message && current["merged_into_id"].is_string() {
+        crate::links::merge_target(db, current).await?
+    } else {
+        current
+    };
+    let conversation_id = current["id"]
+        .as_str()
+        .unwrap_or(input.conversation_id)
+        .to_owned();
     let now = now();
     let prior_state = current["state"].clone();
     let mut state = current["state"].clone();
@@ -355,7 +367,7 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     let mut message = Map::new();
     message.insert("id".to_owned(), json!(generate_id("dmsg")));
     message.insert("created_at".to_owned(), json!(now));
-    message.insert("conversation_id".to_owned(), json!(input.conversation_id));
+    message.insert("conversation_id".to_owned(), json!(conversation_id));
     message.insert("kind".to_owned(), json!(input.kind));
     message.insert(
         "body".to_owned(),
@@ -401,7 +413,7 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
         "resolvedAt",
     ];
     let conversation = DESK_CONVERSATIONS
-        .patch(db, input.conversation_id, changes, false, &trusted)
+        .patch(db, &conversation_id, changes, false, &trusted)
         .await?
         .ok_or(AppendError::NotFound)?;
     let sla = if moves_sla {
@@ -1052,14 +1064,25 @@ pub async fn resolve_authors(
     Ok(authors)
 }
 
-/// `isPublicDeskMessage`: notes, ticket-field changes and SLA events stay with the team.
+/// `isPublicDeskMessage`: notes, ticket-field changes, SLA events and
+/// linked-ticket changes (links, merges, major incidents) stay with the team.
 pub fn is_public(message: &Value) -> bool {
     if message["kind"] == "note" {
         return false;
     }
     let internal = matches!(
         message["metadata"]["eventType"].as_str(),
-        Some("attributes_changed" | "sla_warning" | "sla_breached")
+        Some(
+            "attributes_changed"
+                | "sla_warning"
+                | "sla_breached"
+                | "linked"
+                | "unlinked"
+                | "merged_into"
+                | "merged_from"
+                | "incident_marked"
+                | "incident_unmarked"
+        )
     );
     !(message["kind"] == "event" && internal)
 }

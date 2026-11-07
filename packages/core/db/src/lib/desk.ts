@@ -46,6 +46,7 @@ import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
 import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
 import { deskMatrixChanges, type DeskMatrixInput } from './desk-priority-matrix';
+import { deskMergeTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -56,7 +57,7 @@ const messages = schema.deskMessages;
 const visitors = schema.deskVisitors;
 
 export class DeskConversationNotFoundError extends Error {
-  constructor(conversationId: string) {
+  constructor(readonly conversationId: string) {
     super(`Conversation '${conversationId}' not found`);
     this.name = 'DeskConversationNotFoundError';
   }
@@ -374,15 +375,19 @@ export async function appendDeskMessage(
   db: AnyDb,
   input: AppendDeskMessageInput,
 ): Promise<AppendDeskMessageResult> {
-  const [current] = await db
+  const [found] = await db
     .select()
     .from(conversations)
     .where(eq(conversations.id, input.conversationId))
     .limit(1);
 
-  if (!current) {
+  if (!found) {
     throw new DeskConversationNotFoundError(input.conversationId);
   }
+  // A customer's message on a merged duplicate lands on the conversation it
+  // was merged into (reopening it like any customer message would).
+  const isCustomerMessage = input.kind === 'message' && input.authorType === 'visitor';
+  const current = isCustomerMessage && found.mergedIntoId ? await deskMergeTarget(db, found) : found;
 
   const now = new Date();
   const next = nextConversationProgress(current, input, now);
@@ -404,7 +409,7 @@ export async function appendDeskMessage(
     .values({
       id: messageId,
       createdAt: now,
-      conversationId: input.conversationId,
+      conversationId: current.id,
       kind: input.kind,
       body: input.body ?? null,
       authorType: input.authorType,
@@ -427,10 +432,10 @@ export async function appendDeskMessage(
       lastMessagePreview: next.lastMessagePreview,
       ...times,
     })
-    .where(eq(conversations.id, input.conversationId))
+    .where(eq(conversations.id, current.id))
     .returning();
 
-  if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
+  if (!message || !updated) throw new DeskConversationNotFoundError(current.id);
   const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
   return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
 }
@@ -1649,8 +1654,21 @@ export function deskAuthorFromMember(member: {
   return { name: firstName || 'Support', avatar: member.picture ?? null };
 }
 
-/** Events only the team sees: ticket-field changes and SLA warnings / breaches. */
-const INTERNAL_DESK_EVENTS = new Set<string>(['attributes_changed', 'sla_warning', 'sla_breached']);
+/**
+ * Events only the team sees: ticket-field changes, SLA warnings / breaches,
+ * and linked-ticket changes (links, merges, major incidents).
+ */
+const INTERNAL_DESK_EVENTS = new Set<string>([
+  'attributes_changed',
+  'sla_warning',
+  'sla_breached',
+  'linked',
+  'unlinked',
+  'merged_into',
+  'merged_from',
+  'incident_marked',
+  'incident_unmarked',
+]);
 
 /** Notes, ticket-field changes and SLA events stay with the team. */
 export function isPublicDeskMessage(message: DeskMessage): boolean {

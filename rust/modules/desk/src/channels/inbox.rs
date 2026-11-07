@@ -609,7 +609,7 @@ async fn upload(
 // ── realtime ──────────────────────────────────────────────────────────────────
 
 /// `loadAuthor(db, userId)`: the member's first name and picture.
-async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
+pub(super) async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
     let mut authors = HashMap::new();
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
@@ -635,16 +635,24 @@ async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Auth
 
 /// `publishDeskChange`: the workspace hub (agents' inboxes, notes
 /// included) and, for public entries, the visitor's conversation room.
-fn publish_change(
+pub(super) fn publish_change(
     state: &DeskState,
     org: &str,
     conversation: &Value,
     message: &Value,
     authors: &HashMap<String, Author>,
 ) {
-    let Some(realtime) = state.realtime.clone() else {
-        return;
-    };
+    spawn_realtime(state, change_messages(org, conversation, message, authors));
+}
+
+/// The realtime messages of one change: the hub's conversation and message,
+/// and the visitor's room for a public entry.
+pub(super) fn change_messages(
+    org: &str,
+    conversation: &Value,
+    message: &Value,
+    authors: &HashMap<String, Author>,
+) -> Vec<RealtimeMessage> {
     let user = message["authorId"].as_str().unwrap_or("system");
     let mut messages = vec![
         RealtimeMessage::workspace(
@@ -696,6 +704,14 @@ fn publish_change(
         };
         messages.push(conversation_publish(id, payload));
     }
+    messages
+}
+
+/// Publish `messages` in order, in the background.
+pub(super) fn spawn_realtime(state: &DeskState, messages: Vec<RealtimeMessage>) {
+    let Some(realtime) = state.realtime.clone() else {
+        return;
+    };
     state.events.tracker().spawn(async move {
         for message in messages {
             if let Err(error) = realtime.publish_boxed(&message).await {
@@ -1021,7 +1037,12 @@ fn email_text_body(body: Option<&str>, attached: &[MimeAttachment], linked: &[Va
 
 /// `sendDeskEmailReply`: a failure is logged, the reply stands.
 #[allow(clippy::too_many_lines)] // the TypeScript function, step by step
-async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, message: &Value) {
+pub(super) async fn send_email_reply(
+    ctx: &Ctx,
+    state: &DeskState,
+    conversation: &Value,
+    message: &Value,
+) {
     let Some(recipient) = conversation["email"].as_str().filter(|e| !e.is_empty()) else {
         return;
     };
@@ -1158,7 +1179,8 @@ fn outbound(ctx: &Ctx, state: &DeskState) -> crate::dispatch::Outbound {
 // ── POST /:id/manage ──────────────────────────────────────────────────────────
 
 enum Action {
-    Close,
+    /// `closeChildren`: a major incident's open linked tickets close too.
+    Close(bool),
     Open,
     Assign(Option<String>),
 }
@@ -1166,7 +1188,10 @@ enum Action {
 fn manage_schema(issues: &mut Issues, body: &Map<String, Value>) -> Option<Action> {
     let options = ["close", "open", "assign"];
     match body.get("action").and_then(Value::as_str) {
-        Some("close") => Some(Action::Close),
+        Some("close") => {
+            let children = issues.boolean(body, "closeChildren", Presence::Optional);
+            Some(Action::Close(children.into_option().unwrap_or(false)))
+        }
         Some("open") => Some(Action::Open),
         Some("assign") => {
             let assignee = issues.text(body, "assigneeId", Presence::Nullish, None, Some(255));
@@ -1203,7 +1228,7 @@ async fn manage(
         Err(error) => return Refusal::Database(error).respond("Failed to update conversation"),
     };
     let (event_type, assignee, is_assign) = match &action {
-        Action::Close => ("closed", None, false),
+        Action::Close(_) => ("closed", None, false),
         Action::Open => ("reopened", None, false),
         Action::Assign(Some(assignee)) if !assignee.is_empty() => {
             ("assigned", Some(Some(assignee.clone())), true)
@@ -1253,15 +1278,33 @@ async fn manage(
     } else {
         ev::DESK_CONVERSATION_STATE_CHANGED
     };
-    publish_events(&ctx, &state, event, &conversation, &message);
-    let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
-    publish_change(
-        &state,
-        &caller.clerk_org_id,
-        &conversation,
-        &message,
-        &authors,
-    );
+    // A major incident's open linked tickets close with it; their events
+    // follow the incident's, in one ordered batch.
+    let children = if matches!(action, Action::Close(true)) {
+        weldsuite_desk_domain::links::close_incident_children(
+            &caller.db,
+            Some(&caller.user_id),
+            &id,
+        )
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "[app-api/desk-conversations] closing linked tickets failed");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+    if children.is_empty() {
+        publish_events(&ctx, &state, event, &conversation, &message);
+        let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
+        publish_change(
+            &state,
+            &caller.clerk_org_id,
+            &conversation,
+            &message,
+            &authors,
+        );
+    }
     if event_type == "assigned" {
         let subject = [
             &conversation["title"],
@@ -1285,6 +1328,16 @@ async fn manage(
                 by: Some(caller.user_id.clone()),
             },
         );
+    }
+    if !children.is_empty() {
+        // The incident's close first (its SLA due time is marked already).
+        let mut all = vec![weldsuite_desk_domain::webchat::Appended {
+            conversation: conversation.clone(),
+            message: message.clone(),
+            sla_check_at: None,
+        }];
+        all.extend(children);
+        super::links::publish_changes(&ctx, &state, &all).await;
     }
     Data(json!({ "conversation": conversation, "message": message })).into_response()
 }
