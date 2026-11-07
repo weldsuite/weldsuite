@@ -27,7 +27,7 @@ Migration plan and status: `docs/plans/system-email-cloudflare.md`.
 | `src/format.ts` | Locale- and timezone-aware dates (`formatWhen`, `formatDate`, `formatTimeRange`). |
 | `src/ics.ts` | `buildIcs` / `icsAttachment` for calendar attachments. |
 | `src/send.ts` | `sendSystemEmail(transport, { template, props, to, locale, brand, replyTo, attachments })`. |
-| `src/transports/` | `binding` (`workerTransport(env)` for Workers), `env` (`transportFromEnv(process.env)` for Next.js / scripts, uses `rest`), `memory` (tests), `resend` (migration fallback only). |
+| `src/transports/` | `binding` (`workerTransport(env)` for Workers), `env` (`transportFromEnv(process.env)` for Next.js / scripts, uses `rest`), `smtp` + `node-env` (`transportFromNodeEnv(process.env)`, Node only: an SMTP relay on the Kubernetes editions), `memory` (tests), `resend` (migration fallback only). |
 | Template ids | `calendar.event`, `meet.invitation`, `booking`, `workspace.invitation`, `notification`, `task.assigned`, `flow.digest`, `portal.sign-in`, `hr.portal-invite`, `admin.workspace-deletion`, `internal.enterprise-inquiry`. Reuse one before adding a near-duplicate. |
 | Migration switches | `EMAIL_TRANSPORT=resend` (worker var / env) keeps a sender on Resend; `SYSTEM_EMAIL_FROM` overrides the sender address. Both go away in Phase 5 of the plan. |
 
@@ -154,4 +154,16 @@ if (transport) {
   `@weldsuite/emails/transports/env`. List `@weldsuite/emails` and
   `@weldsuite/email` in `transpilePackages`. A static import works in Server
   Actions and route handlers; this was verified with a running Next 16 build.
+- Node code that also runs on the Kubernetes editions (EU, self-hosted), where
+  there is no Cloudflare and the only mail path is an SMTP relay, uses
+  `transportFromNodeEnv(process.env)` from `@weldsuite/emails/transports/node-env`:
+  SMTP when `SMTP_URL` is set, else exactly what `transportFromEnv` picks, and
+  `SYSTEM_EMAIL_FROM` still overrides the sender. `SMTP_URL` takes the forms
+  the Rust server reads (`smtp://user:pass@relay:587?tls=required`,
+  `smtps://user:pass@relay:465`, `smtp://mailpit:1025`; `rust/README.md`), so
+  one value serves both. The transport (`smtpTransport({ url })`,
+  `@weldsuite/emails/transports/smtp`) is nodemailer, Node only: never import
+  `smtp` or `node-env` from a Worker or from `transports/env`, which Workers
+  import too (`src/transports/smtp.test.ts` checks that `env`, `binding` and the
+  package root never reach them).
 - Tests use `memoryTransport()` and assert on `transport.sent`.

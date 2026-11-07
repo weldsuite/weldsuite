@@ -1,7 +1,8 @@
 /**
  * Transport for code without a Workers binding (the Next.js apps, scripts),
  * picked from plain environment variables. Safe to import anywhere: it never
- * touches `cloudflare:email`.
+ * touches `cloudflare:email`, and never imports Node-only code (the SMTP
+ * transport lives in `./node-env`, which Node callers use instead).
  */
 
 import { withFromAddress, type EmailTransport } from '../transport';
