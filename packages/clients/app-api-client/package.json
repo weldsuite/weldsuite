@@ -114,6 +114,7 @@
     "./schemas/commerce-responses": "./src/schemas/commerce-responses.ts",
     "./schemas/commerce-shipping-responses": "./src/schemas/commerce-shipping-responses.ts",
     "./schemas/desk-portal": "./src/schemas/desk-portal.ts",
+    "./schemas/desk-knowledge": "./src/schemas/desk-knowledge.ts",
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
     "./schemas/weldhr-responses": "./src/schemas/weldhr-responses.ts",
