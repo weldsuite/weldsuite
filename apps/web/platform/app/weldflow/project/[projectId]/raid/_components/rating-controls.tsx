@@ -32,6 +32,7 @@ export function RatingField<T extends FieldValues>({ control, name, label, kind,
   const copy = t.projects.raid;
   const nameOf = kind === 'probability' ? probabilityName : impactName;
   const id = useId();
+  const emptyValue = nullable ? NONE : '';
   return (
     <Controller
       control={control}
@@ -40,7 +41,7 @@ export function RatingField<T extends FieldValues>({ control, name, label, kind,
         <FieldFrame id={id} label={label} error={fieldState.error} inline>
           <Select
             name={field.name}
-            value={field.value == null ? (nullable ? NONE : '') : String(field.value)}
+            value={field.value == null ? emptyValue : String(field.value)}
             onValueChange={(value) => field.onChange(value === NONE ? null : Number(value))}
           >
             <SelectTrigger id={id} ref={field.ref} onBlur={field.onBlur} className={ROW_CONTROL} aria-invalid={fieldState.invalid}>
