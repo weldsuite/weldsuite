@@ -9,6 +9,7 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
+import { useWeldboardColors } from '@/hooks/queries/use-ui-preference';
 import { useUser } from '@/lib/auth';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getApiOriginForPath } from '@/lib/api/public-env';
@@ -195,6 +196,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
   const projectId = record.data?.projectId ?? null;
   const extension = useMemo(() => (controller && extend ? extend(controller, { boardId, projectId, mode, name, peers }) : {}), [controller, extend, boardId, projectId, mode, name, peers]);
   const records = useRecordViews(controller, boardId);
+  const savedColors = useWeldboardColors();
 
   const missing = gone || (isApiError(record.error) && (record.error.status === 404 || record.error.status === 403));
   if (missing) return <MissingBoard message={controller ? tw.editor.removed : tw.home.notFound} backTo={backTo} />;
@@ -238,6 +240,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
         back={<BackLink to={backTo} label={backLabel ?? tw.home.backHome} />}
         record={records.record}
         recordVersion={records.version}
+        savedColors={savedColors}
         {...extension}
         context={{
           onCopyLink: (id) => {

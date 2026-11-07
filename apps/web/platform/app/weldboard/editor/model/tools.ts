@@ -24,6 +24,14 @@ export interface ToolOptions {
   connectorRoute: ConnectorRoute;
   endCap: Cap;
   shapeFill: string;
+  /** The drawing tool used last, which the drawing button picks. */
+  drawingTool: DrawingTool;
+}
+
+export type DrawingTool = 'pen' | 'highlighter' | 'eraser';
+
+export function isDrawingTool(tool: ToolKind): tool is DrawingTool {
+  return tool === 'pen' || tool === 'highlighter' || tool === 'eraser';
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
@@ -35,6 +43,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   connectorRoute: 'elbow',
   endCap: 'arrow',
   shapeFill: '#ffffff',
+  drawingTool: 'pen',
 };
 
 /** Tools that can be dragged from the toolbar onto the board; a drop makes what a click there makes. */

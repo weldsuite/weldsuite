@@ -26,14 +26,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
-import { DROPPABLE_TOOLS, type ToolKind } from './model/tools';
-import { BarButton, BarPopover, Divider, Swatches, TOOL_BUTTON, WithTooltip } from './ui';
+import { DROPPABLE_TOOLS, isDrawingTool, type DrawingTool, type ToolKind } from './model/tools';
+import { Swatches } from './swatches';
+import { BarButton, BarPopover, Divider, TOOL_BUTTON, WithTooltip } from './ui';
 
 const BASIC: ShapeKind[] = ['rectangle', 'rounded', 'ellipse', 'triangle', 'diamond', 'pentagon', 'hexagon', 'octagon', 'star', 'cross', 'parallelogram', 'trapezoid', 'cloud', 'callout', 'arrow-right', 'arrow-left', 'chevron', 'cylinder'];
 const FLOW: ShapeKind[] = ['terminator', 'rectangle', 'diamond', 'data', 'document', 'predefined', 'delay', 'manual-input', 'cylinder'];
 
-/** The drawing button shows the drawing tool in use (the pen otherwise). */
-function drawingIcon(tool: ToolKind): ReactNode {
+/** The drawing button shows the drawing tool it picks. */
+function drawingIcon(tool: DrawingTool): ReactNode {
   if (tool === 'highlighter') return <Highlighter />;
   if (tool === 'eraser') return <Eraser />;
   return <Pencil />;
@@ -62,6 +63,7 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
   const tt = t.weldboard.editor.tools;
   const ts = t.weldboard.editor.shapes;
   const tool = c.tool;
+  const drawing = c.toolOptions.drawingTool;
   const ro = c.readOnly;
 
   const pick = (next: ToolKind) => () => c.setTool(next);
@@ -80,19 +82,14 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
         <>
           <Divider />
           <BarPopover label={tt.sticky} side="bottom" className={TOOL_BUTTON} active={tool === 'sticky'} dragTool="sticky" trigger={<StickyNote style={{ color: tool === 'sticky' ? undefined : '#ca8a04' }} />}>
-            <div className="flex w-64 flex-col gap-2">
-              <button type="button" className="rounded-md bg-primary px-2 py-1.5 text-sm text-primary-foreground" onClick={pick('sticky')}>
-                {tt.sticky}
-              </button>
-              <Swatches
-                colors={STICKY_COLORS}
-                value={c.toolOptions.stickyColor}
-                onPick={(color) => {
-                  if (color) c.setToolOptions({ stickyColor: color });
-                  c.setTool('sticky');
-                }}
-              />
-            </div>
+            <Swatches
+              colors={STICKY_COLORS}
+              value={c.toolOptions.stickyColor}
+              onPick={(color) => {
+                if (color) c.setToolOptions({ stickyColor: color });
+                c.setTool('sticky');
+              }}
+            />
           </BarPopover>
           <BarPopover label={tt.shape} side="bottom" className={TOOL_BUTTON} active={tool === 'shape'} dragTool="shape" trigger={<Shapes />}>
             <div className="flex w-72 flex-col gap-2">
@@ -110,45 +107,56 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
           </BarPopover>
           {button('text', tt.text, <Type />)}
           <ConnectorMenu controller={c} label={tt.connector} />
-          <BarPopover label={tt.drawing} side="bottom" className={TOOL_BUTTON} active={tool === 'pen' || tool === 'highlighter' || tool === 'eraser'} trigger={drawingIcon(tool)}>
+          {/* Drawing: opening it picks the drawing tool used last; the others and its options are inside */}
+          <BarPopover label={tt.drawing} side="bottom" className={TOOL_BUTTON} active={isDrawingTool(tool)} trigger={drawingIcon(drawing)} onOpenChange={(open) => open && c.setTool(drawing)}>
             <div className="flex w-64 flex-col gap-2">
               <div className="flex gap-1">
-                <BarButton label={tt.pen} active={tool === 'pen'} onClick={pick('pen')}>
+                <BarButton label={tt.pen} active={drawing === 'pen'} onClick={pick('pen')}>
                   <Pencil />
                 </BarButton>
-                <BarButton label={tt.highlighter} active={tool === 'highlighter'} onClick={pick('highlighter')}>
+                <BarButton label={tt.highlighter} active={drawing === 'highlighter'} onClick={pick('highlighter')}>
                   <Highlighter />
                 </BarButton>
-                <BarButton label={tt.eraser} active={tool === 'eraser'} onClick={pick('eraser')}>
+                <BarButton label={tt.eraser} active={drawing === 'eraser'} onClick={pick('eraser')}>
                   <Eraser />
                 </BarButton>
               </div>
-              <Swatches
-                colors={tool === 'highlighter' ? ['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#fdba74', '#c4b5fd'] : PALETTE}
-                value={tool === 'highlighter' ? c.toolOptions.highlighterColor : c.toolOptions.penColor}
-                onPick={(color) => {
-                  if (!color) return;
-                  if (tool === 'highlighter') c.setToolOptions({ highlighterColor: color });
-                  else {
-                    c.setToolOptions({ penColor: color });
-                    if (tool !== 'pen') c.setTool('pen');
-                  }
-                }}
-              />
-              {tool !== 'highlighter' && (
-                <div className="flex items-center gap-2">
-                  {[2, 3, 5, 8, 12].map((w) => (
-                    <button
-                      key={w}
-                      type="button"
-                      aria-label={`${w}`}
-                      className={cn('flex size-8 items-center justify-center rounded-md hover:bg-accent', c.toolOptions.penWidth === w && 'bg-accent')}
-                      onClick={() => c.setToolOptions({ penWidth: w })}
-                    >
-                      <span className="rounded-full bg-foreground" style={{ width: w + 2, height: w + 2 }} />
-                    </button>
-                  ))}
-                </div>
+              {drawing === 'pen' && (
+                <>
+                  <Swatches
+                    colors={PALETTE}
+                    value={c.toolOptions.penColor}
+                    onPick={(color) => {
+                      if (!color) return;
+                      c.setToolOptions({ penColor: color });
+                      c.setTool('pen');
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    {[2, 3, 5, 8, 12].map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        aria-label={`${w}`}
+                        className={cn('flex size-8 items-center justify-center rounded-md hover:bg-accent', c.toolOptions.penWidth === w && 'bg-accent')}
+                        onClick={() => c.setToolOptions({ penWidth: w })}
+                      >
+                        <span className="rounded-full bg-foreground" style={{ width: w + 2, height: w + 2 }} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {drawing === 'highlighter' && (
+                <Swatches
+                  colors={['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#fdba74', '#c4b5fd']}
+                  value={c.toolOptions.highlighterColor}
+                  onPick={(color) => {
+                    if (!color) return;
+                    c.setToolOptions({ highlighterColor: color });
+                    c.setTool('highlighter');
+                  }}
+                />
               )}
             </div>
           </BarPopover>

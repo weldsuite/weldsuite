@@ -1,8 +1,8 @@
 import { Fragment } from 'react';
 import type { RaidMatrix } from '@weldsuite/app-api-client/domains/project-control';
 import { Button } from '@weldsuite/ui/components/button';
+import { CountBadge } from '@weldsuite/ui/components/count-badge';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { RAIL_BADGE_CLASS, formatRailBadgeCount, railBadgeSizeClass } from '@/components/layout/app-rail-badge';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { impactName, probabilityName } from '../_lib/copy';
@@ -112,10 +112,8 @@ export function RiskMatrix({
                   <span>{copy.bands[band]}</span>
                   {isLoading ? <Skeleton className="h-4 w-4 rounded-full opacity-40" /> : null}
                   {!isLoading && count > 0 ? (
-                    // The app rail's unread pill without its ring; the cell's label already says how many risks it holds.
-                    <span aria-hidden className={cn(RAIL_BADGE_CLASS, railBadgeSizeClass(count), 'ring-0')}>
-                      {formatRailBadgeCount(count)}
-                    </span>
+                    // The app rail's count badge; the cell's label already says how many risks it holds.
+                    <CountBadge aria-hidden count={count} />
                   ) : null}
                 </button>
               );

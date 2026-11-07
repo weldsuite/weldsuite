@@ -56,7 +56,7 @@ export function defaultWorld(): StubWorld {
       '/status': {
         status: 200,
         body: {
-          data: { status: 'active', hasPaymentMethod: true, inboxCount: 1, unitAmountCents: 500, currency: 'usd', currentPeriodEnd: null },
+          data: { status: 'active', hasPaymentMethod: true, inboxCount: 1, unitAmountCents: 800, currency: 'usd', currentPeriodEnd: null },
         },
       },
       '/setup': { status: 200, body: { data: { url: 'https://checkout.stripe.test/s/1' } } },

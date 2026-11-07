@@ -57,9 +57,7 @@ use crate::reporting_store::{
     reports_of_period, risk_appetite_of, schedule_of, stakeholders_of_project, superseded_by_map,
     targets_of,
 };
-use crate::{
-    Caller, FlowState, Refusal, Reply, keyset_cursor, now_ms, outside, page, paged, reply,
-};
+use crate::{Caller, FlowState, Refusal, Reply, keyset_cursor, outside, page, paged, reply};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_MANAGE_DENIED: &str = "You do not have manage access to this project";
@@ -237,7 +235,7 @@ async fn get_settings(caller: Caller, Path(project_id): Path<String>) -> Respons
         let Some(project) = load_report_project(&caller.db, &project_id).await? else {
             return Err(Refusal::not_found("Project", &project_id));
         };
-        Ok(Data(settings_response(&project, now_ms())).into_response())
+        Ok(Data(settings_response(&project, caller.now_ms())).into_response())
     }
     .await;
     reply(result, "Failed to load the status report settings")
@@ -301,7 +299,7 @@ async fn write_settings(
         merged = format!("({merged} || $3::jsonb)");
     }
     let touched = status_report.is_some() || input.contains_key("riskAppetite");
-    let now = now_ms();
+    let now = caller.now_ms();
     if touched {
         let query = sqlx::query(sqlx::AssertSqlSafe(format!(
             "update projects set settings = {merged}, updated_at = $2::timestamptz
@@ -327,7 +325,8 @@ async fn write_settings(
                 &master,
                 "status_report_due",
                 &caller.workspace_id,
-                OffsetDateTime::now_utc(),
+                OffsetDateTime::from_unix_timestamp_nanos(i128::from(now) * 1_000_000)
+                    .unwrap_or_else(|_| OffsetDateTime::now_utc()),
             )
             .await;
         }
@@ -471,7 +470,7 @@ async fn create_report(
     project: &ReportProject,
     input: &Map<String, Value>,
 ) -> Reply {
-    let now = now_ms();
+    let now = caller.now_ms();
     let schedule = schedule_of(project);
     let period = match input.get("period").and_then(Value::as_str) {
         Some(period) => period.to_owned(),
@@ -640,7 +639,7 @@ async fn update_report(
         sets.join(", ")
     )))
     .bind(id.to_owned())
-    .bind(iso(now_ms()));
+    .bind(iso(caller.now_ms()));
     for arg in args {
         query = match arg {
             Arg::Text(value) => query.bind(value),
@@ -699,7 +698,7 @@ async fn refresh_report(
     existing: &Value,
     project: &ReportProject,
 ) -> Reply {
-    let now = now_ms();
+    let now = caller.now_ms();
     let period = text(existing, "period").unwrap_or_default();
     let cadence = schedule_of(project).map(|s| s.cadence);
     let computed = compute_report(
@@ -822,7 +821,7 @@ async fn publish_report_now(
     project: &ReportProject,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso(now_ms());
+    let now = iso(caller.now_ms());
     let targets = targets_of(db, project, existing.get("recipients")).await?;
     let overall = text(existing, "overall").unwrap_or_default().to_owned();
     let health = health_for_colour(&overall);
@@ -902,7 +901,7 @@ async fn remove(
              where id = $1 and deleted_at is null and status = 'draft'",
         )
         .bind(id.clone())
-        .bind(iso(now_ms()))
+        .bind(iso(caller.now_ms()))
         .execute(&caller.db)
         .await?;
         publish_report(&state, &caller, PROJECT_STATUS_REPORT_DELETED, &existing);

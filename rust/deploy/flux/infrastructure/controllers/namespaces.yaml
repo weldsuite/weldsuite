@@ -19,6 +19,16 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
+# The marketing site (apps/marketing, test only so far). Here rather than in
+# its layer because the secrets layer, which runs first, puts its registry
+# Secret in it. It shares nothing with the platform.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marketing
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -232,6 +232,7 @@ export const weldboard = {
     style: {
       fill: 'Fill',
       noFill: 'No fill',
+      noStroke: 'No border',
       stroke: 'Border',
       lineColor: 'Line colour',
       strokeWidth: 'Thickness',
@@ -339,11 +340,11 @@ export const weldboard = {
     zoom: {
       in: 'Zoom in (Ctrl +)',
       out: 'Zoom out (Ctrl -)',
-      fit: 'Fit board (Shift+1)',
-      selection: 'Zoom to selection (Shift+2)',
+      fit: 'Fit board',
+      selection: 'Zoom to selection',
       reset: 'Zoom to 100% (Ctrl+0)',
-      minimap: 'Map',
-      grid: 'Grid',
+      minimap: 'Show board map',
+      grid: 'Show grid',
     },
     undo: 'Undo (Ctrl+Z)',
     redo: 'Redo (Ctrl+Shift+Z)',
@@ -483,6 +484,14 @@ export const weldboard = {
       reveal: 'Reveal sticky notes',
     },
     facilitation: 'Facilitate',
+    customColors: {
+      title: 'Your colours',
+      add: 'Add a colour',
+      save: 'Save colour',
+      remove: 'Remove colour',
+      hex: 'Hex code',
+      eyedropper: 'Pick a colour from the screen',
+    },
     comments: {
       title: 'Comments',
       empty: 'No comments yet. Pick the comment tool (C) and click anywhere on the board.',

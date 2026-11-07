@@ -2,13 +2,15 @@
 
 WeldReach (cold email outreach, [weldreach.md](weldreach.md)) gets a public API on `external-api` (`api.weldsuite.org`, `wsk_` keys) and the same actions as tools in `mcp-server`. Precedent and checklist: [weldmail-external-api.md](weldmail-external-api.md).
 
+Status (2026-11-06): built, merged (PR #1131) and deployed with external-api and mcp-server. Every call answers 403 `APP_ACCESS_REQUIRED` until staff approve the workspace, and nobody uses WeldReach yet.
+
 ## Decisions (owner, 2026-10-13)
 
 - **What the API does:**
   - Prospects and campaigns, read and write. This covers creating, launching, pausing and resuming campaigns and adding prospects to them.
   - Reading the reply inbox.
   - Sending replies.
-  - Reading mailboxes and domains. Creating or deleting a mailbox or domain stays in the app, because each inbox is billed at $5 a month.
+  - Reading mailboxes and domains. Creating or deleting a mailbox or domain stays in the app, because each inbox is billed at $8 a month ($5 when this was decided).
 - **MCP:** the same actions as tools, except reply sending. The mcp-server guard test refuses any send or reply route or tool, on purpose.
 - **Paths** live under `/v1/reach/…`. `findModuleForExternalPath` maps them to the `reach` module, so the partner licence gate applies with no extra entry in `EXTERNAL_OBJECT_MODULES`.
 - **Scopes** are the permission-catalog objects, so mcp-server needs no alias:

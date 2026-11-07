@@ -1,5 +1,5 @@
 /**
- * Billing helpers for the account surface (the $5 per inbox subscription lives
+ * Billing helpers for the account surface (the $8 per inbox subscription lives
  * in billing-worker; see lib/billing.ts for the contract).
  */
 
