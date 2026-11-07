@@ -355,8 +355,18 @@ function targetsPayload(cells: Record<SlaPriority, SlaTargetCell>, stored: DeskS
   return [...edited, ...kept];
 }
 
+/**
+ * A condition as stored. A list value (`['vip', 'enterprise']`) is shown
+ * comma-separated (`policyToValues`), so it goes back as a list: the engine
+ * (`conditionHolds` in desk-sla.ts) matches any entry of a list, but a joined
+ * string never matches. greater_than / less_than compare one rank, so their
+ * value stays one string.
+ */
 function conditionPayload(c: SlaConditionValues): DeskSlaCondition {
-  return { field: c.field, operator: c.operator, value: c.value.trim() };
+  const value = c.value.trim();
+  if (c.operator === 'greater_than' || c.operator === 'less_than') return { field: c.field, operator: c.operator, value };
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+  return { field: c.field, operator: c.operator, value: parts.length > 1 ? parts : value };
 }
 
 function remindersPayload(warn: SlaTargetCell, stored: DeskSlaReminder[]): DeskSlaReminder[] {

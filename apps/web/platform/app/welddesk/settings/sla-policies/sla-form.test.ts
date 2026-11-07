@@ -76,6 +76,27 @@ describe('SLA policy form', () => {
     expect(payload.businessHours).toBeNull();
   });
 
+  it('saves a list condition back as a list, so editing the policy keeps it matching', () => {
+    const listed: DeskSlaPolicy = {
+      ...stored,
+      conditions: [
+        { field: 'tags', operator: 'contains', value: ['vip', 'enterprise'] },
+        { field: 'channel', operator: 'equals', value: 'email' },
+        { field: 'priority', operator: 'greater_than', value: 'medium' },
+      ],
+    };
+    const values = policyToValues(listed);
+    expect(values.conditions[0]?.value).toBe('vip, enterprise');
+    values.name = 'Gold (renamed)';
+    const payload = valuesToPayload(values, listed);
+    expect(payload.conditions).toEqual([
+      { field: 'tags', operator: 'contains', value: ['vip', 'enterprise'] },
+      { field: 'channel', operator: 'equals', value: 'email' },
+      { field: 'priority', operator: 'greater_than', value: 'medium' },
+    ]);
+    expect(createSlaSchema.safeParse(payload).success).toBe(true);
+  });
+
   it('sends the policy calendar only for custom hours, and no conditions for the default', () => {
     const values = policyToValues(stored);
     values.operationalHours = 'custom';
