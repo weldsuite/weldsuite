@@ -115,9 +115,9 @@ describe('scoreInboundSpam', () => {
   it('caps score for existing ham thread continuations', () => {
     const result = scoreInboundSpam(
       baseEmail({
-        spfStatus: 'fail',
+        spfStatus: 'softfail',
         dkimStatus: 'fail',
-        dmarcStatus: 'fail',
+        dmarcStatus: 'none',
         subject: 'URGENT WIRE TRANSFER!!!',
       }),
       { isExistingHamThread: true },
@@ -125,6 +125,21 @@ describe('scoreInboundSpam', () => {
     expect(result.score).toBe(SPAM_SCORE_THRESHOLD - 1);
     expect(result.isSpam).toBe(false);
     expect(result.reasons).toContain('capped_existing_ham_thread');
+  });
+
+  it('does not cap a DMARC-failing reply into an existing thread (thread hijack)', () => {
+    const result = scoreInboundSpam(
+      baseEmail({
+        spfStatus: 'fail',
+        dkimStatus: 'fail',
+        dmarcStatus: 'fail',
+        subject: 'URGENT WIRE TRANSFER!!!',
+      }),
+      { isExistingHamThread: true },
+    );
+    expect(result.isSpam).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(SPAM_SCORE_THRESHOLD);
+    expect(result.reasons).not.toContain('capped_existing_ham_thread');
   });
 
   it('does not cap when already below threshold', () => {
