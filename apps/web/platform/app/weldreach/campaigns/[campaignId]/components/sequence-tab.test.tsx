@@ -16,6 +16,34 @@ const reach = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => ({ reach }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+// React Flow needs a laid-out browser; this stand-in draws each canvas node as a
+// button and the add control only when the tab passes `onAddStep`, as the canvas does.
+vi.mock('@weldsuite/ui/components/workflow-canvas', () => ({
+  WorkflowCanvas: ({
+    steps,
+    onSelectStep,
+    onAddStep,
+    labels,
+  }: {
+    steps: Array<{ id: string; name: string; summary?: string }>;
+    onSelectStep: (index: number) => void;
+    onAddStep?: (nodeId?: string) => void;
+    labels?: { addStep?: string };
+  }) => (
+    <div data-testid="canvas">
+      {steps.map((step, index) => (
+        <button key={step.id} type="button" onClick={() => onSelectStep(index)}>
+          {`node: ${step.name}${step.summary ? ` (${step.summary})` : ''}`}
+        </button>
+      ))}
+      {onAddStep && (
+        <button type="button" onClick={() => onAddStep(steps.at(-1)?.id)}>
+          {labels?.addStep}
+        </button>
+      )}
+    </div>
+  ),
+}));
 
 import { SequenceTab } from './sequence-tab';
 
@@ -50,9 +78,11 @@ beforeEach(() => {
 });
 
 describe('SequenceTab', () => {
-  it('shows the stored steps and keeps Save disabled until something changes', () => {
+  it('draws the steps on the canvas, opens the first one and keeps Save disabled until something changes', () => {
     renderWithApp(<SequenceTab campaign={campaignFixture()} canEdit />);
 
+    expect(within(screen.getByTestId('canvas')).getByRole('button', { name: 'node: First email' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'First email' })).toBeInTheDocument();
     expect(screen.getByLabelText('Subject')).toHaveValue('Quick question');
     expect(screen.getByLabelText('Email')).toHaveValue('Hi {{firstName|there}}');
     expect(screen.getByRole('button', { name: 'Save sequence' })).toBeDisabled();
@@ -67,11 +97,11 @@ describe('SequenceTab', () => {
     renderWithApp(<SequenceTab campaign={campaign} canEdit />);
 
     await user.click(screen.getByRole('button', { name: 'Add follow-up' }));
-    const subjects = screen.getAllByLabelText('Subject');
-    const bodies = screen.getAllByLabelText('Email');
-    expect(subjects).toHaveLength(2);
-    await user.type(subjects[1] as HTMLElement, 'Following up');
-    await user.type(bodies[1] as HTMLElement, 'Any thoughts?');
+    // The new follow-up opens in the panel, and its wait shows on the canvas.
+    expect(await screen.findByRole('heading', { name: 'Follow-up 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'node: Wait (3 days)' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Subject'), 'Following up');
+    await user.type(screen.getByLabelText('Email'), 'Any thoughts?');
     await user.click(screen.getByRole('button', { name: 'Save sequence' }));
 
     await waitFor(() => expect(reach.replaceSteps).toHaveBeenCalledTimes(1));
@@ -114,8 +144,46 @@ describe('SequenceTab', () => {
 
     expect(screen.getByText('Pause the campaign to edit the sequence')).toBeInTheDocument();
     expect(screen.getByLabelText('Subject')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Add follow-up' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add follow-up' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove step' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save sequence' })).toBeDisabled();
+  });
+
+  it('opens the step clicked on the canvas, and shows a hint once the panel is closed', async () => {
+    const user = userEvent.setup();
+    const campaign = campaignFixture({
+      steps: [
+        ...campaignFixture().steps,
+        { id: 'stp_2', order: 1, delayDays: 2, delayHours: 4, subject: 'Bump', body: 'Any news?', replyInThread: true },
+      ],
+    });
+    renderWithApp(<SequenceTab campaign={campaign} canEdit />);
+
+    await user.click(screen.getByRole('button', { name: 'node: Wait (2 days, 4 hours)' }));
+    expect(screen.getByRole('heading', { name: 'Follow-up 1' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Subject')).toHaveValue('Bump');
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText('Click an email on the canvas to edit it.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Subject')).not.toBeInTheDocument();
+  });
+
+  it('removes a step from the panel and keeps a neighbour open', async () => {
+    const user = userEvent.setup();
+    const campaign = campaignFixture({
+      steps: [
+        ...campaignFixture().steps,
+        { id: 'stp_2', order: 1, delayDays: 2, delayHours: 0, subject: 'Bump', body: 'Any news?', replyInThread: true },
+      ],
+    });
+    renderWithApp(<SequenceTab campaign={campaign} canEdit />);
+
+    await user.click(screen.getByRole('button', { name: 'node: Follow-up 1' }));
+    await user.click(screen.getByRole('button', { name: 'Remove step' }));
+
+    expect(screen.queryByRole('button', { name: 'node: Follow-up 1' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'First email' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save sequence' })).toBeEnabled();
   });
 
   it('inserts a variable at the cursor', async () => {

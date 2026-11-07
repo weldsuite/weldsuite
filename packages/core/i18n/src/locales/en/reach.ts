@@ -167,14 +167,8 @@ export const reach = {
     localPart: 'Use letters, digits, dots, dashes and underscores only.',
   },
 
-  // The module shell: header strip, banners and what a blocked workspace sees.
+  // The module shell: banners and what a blocked workspace sees.
   shell: {
-    usage: {
-      mailboxes: 'Mailboxes',
-      domains: 'Domains',
-      sendsToday: 'Sent today',
-    },
-    usageValue: '{used} of {limit}',
     sendingOff: {
       title: 'Sending is temporarily switched off',
       description:

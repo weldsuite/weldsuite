@@ -67,15 +67,20 @@ beforeEach(() => {
 });
 
 describe('ThreadView', () => {
-  it('shows the sent step and the reply in order, and marks the reply read once', async () => {
+  it('shows the newest message in full and the earlier one folded, and marks the reply read once', async () => {
+    const user = userEvent.setup();
     reach.getThread.mockResolvedValue({ data: threadFixture([messageFixture('msg_in'), ourStep]) });
     mount();
 
     const articles = await screen.findAllByRole('article');
     expect(articles).toHaveLength(2);
-    // Oldest first, whichever side sent it.
-    expect(articles[0]).toHaveTextContent('Hi Ana, do you have a minute?');
-    expect(articles[1]).toHaveTextContent('Sounds interesting, tell me more.');
+    // Newest first, as in WeldMail, whichever side sent it.
+    expect(articles[0]).toHaveTextContent('Sounds interesting, tell me more.');
+    expect(articles[1]).toHaveTextContent('sam@outreach.example');
+    expect(articles[1]).not.toHaveTextContent('Hi Ana, do you have a minute?');
+
+    await user.click(within(articles[1] as HTMLElement).getByRole('button', { expanded: false }));
+    expect(articles[1]).toHaveTextContent('Hi Ana, do you have a minute?');
 
     await waitFor(() => expect(reach.updateMessage).toHaveBeenCalledTimes(1));
     expect(reach.updateMessage).toHaveBeenCalledWith('msg_in', { read: true });
@@ -89,23 +94,39 @@ describe('ThreadView', () => {
     await screen.findAllByRole('article');
     expect(reach.updateMessage).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Mark as handled' })).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('Write your reply…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument();
   });
 
-  it('sends the reply with Ctrl+Enter and clears the composer', async () => {
+  it('opens the composer from Reply, sends with Ctrl+Enter and closes it again', async () => {
     const user = userEvent.setup();
     reach.getThread.mockResolvedValue({
       data: threadFixture([messageFixture('msg_in', { readAt: '2026-10-12T10:01:00Z' }), ourStep]),
     });
     mount();
 
+    expect(screen.queryByPlaceholderText('Write your reply…')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Reply' }));
     const composer = await screen.findByPlaceholderText('Write your reply…');
     await user.type(composer, 'Happy to talk. Tuesday?');
     await user.keyboard('{Control>}{Enter}{/Control}');
 
     await waitFor(() => expect(reach.reply).toHaveBeenCalledWith('thr_1', 'Happy to talk. Tuesday?'));
-    await waitFor(() => expect(composer).toHaveValue(''));
+    await waitFor(() => expect(screen.queryByPlaceholderText('Write your reply…')).not.toBeInTheDocument());
     expect(toast.success).toHaveBeenCalledWith('Reply sent.');
+  });
+
+  it('closes the composer on Cancel', async () => {
+    const user = userEvent.setup();
+    reach.getThread.mockResolvedValue({
+      data: threadFixture([messageFixture('msg_in', { readAt: '2026-10-12T10:01:00Z' })]),
+    });
+    mount();
+
+    await user.click(await screen.findByRole('button', { name: 'Reply' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByPlaceholderText('Write your reply…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeInTheDocument();
   });
 
   it('keeps the draft and shows the reason when sending fails', async () => {
@@ -116,6 +137,7 @@ describe('ThreadView', () => {
     reach.reply.mockRejectedValue(new Error('Mailbox is paused.'));
     mount();
 
+    await user.click(await screen.findByRole('button', { name: 'Reply' }));
     const composer = await screen.findByPlaceholderText('Write your reply…');
     await user.type(composer, 'Hello again');
     await user.click(screen.getByRole('button', { name: /Send reply/ }));
@@ -134,7 +156,7 @@ describe('ThreadView', () => {
     mount();
 
     expect(await screen.findByText('This email bounced, so there is nobody to answer.')).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('Write your reply…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument();
   });
 
   it('changes the label of the latest reply', async () => {

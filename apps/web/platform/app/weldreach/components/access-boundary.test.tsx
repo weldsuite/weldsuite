@@ -53,14 +53,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ReachAccessBoundary', () => {
-  it('shows the page with usage against the limits once access is approved', async () => {
+  it('shows just the page once access is approved, without a usage strip', async () => {
     api.reach.access.mockResolvedValue({ data: summary });
     renderBoundary();
 
     expect(await screen.findByText('the page')).toBeInTheDocument();
-    expect(screen.getByText('4 of 10')).toBeInTheDocument();
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
-    expect(screen.getByText('120 of 300')).toBeInTheDocument();
+    expect(screen.queryByText('Mailboxes')).not.toBeInTheDocument();
+    expect(screen.queryByText('4 of 10')).not.toBeInTheDocument();
     expect(screen.queryByText('Sending is temporarily switched off')).not.toBeInTheDocument();
   });
 

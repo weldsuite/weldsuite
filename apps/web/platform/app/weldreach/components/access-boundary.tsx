@@ -5,8 +5,8 @@
  * approve the workspace, and again after a suspension. This boundary asks
  * `GET /api/reach/access` first: while that is refused it renders the
  * explanation (pending, rejected, suspended, revoked) instead of the page, and
- * once it succeeds it shows a slim header with usage against the limits plus a
- * banner when sending is switched off. A suspension that lands while the module
+ * once it succeeds it shows the page, with a banner above it while sending is
+ * switched off. A suspension that lands while the module
  * is open is picked up on the next refetch, or immediately when any other
  * reach query is refused with the same code.
  */
@@ -17,13 +17,12 @@ import { ShieldAlert, Clock, XCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import type { AppAccessStatus, ReachAccessSummary } from '@weldsuite/app-api-client/schemas/reach';
+import type { AppAccessStatus } from '@weldsuite/app-api-client/schemas/reach';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link } from '@/lib/router';
 import { useAppAccessRequest } from '@/hooks/queries/use-app-access-queries';
 import { reachKeys, useReachAccess } from '@/hooks/queries/use-reach-queries';
 import { appAccessRequiredStatus, isAppAccessRequiredError } from '@/lib/reach/errors';
-import { useReachFormat } from '@/lib/reach/format';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
 export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode }>) {
@@ -60,50 +59,22 @@ export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode
 
   return (
     <>
-      <ReachStatusStrip summary={access.data} />
+      {!access.data.sendingEnabled && <SendingOffBanner />}
       <div className="relative flex min-h-0 flex-1 flex-col">{children}</div>
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Usage header and kill-switch banner
+// Kill-switch banner
 // ---------------------------------------------------------------------------
 
-function UsageItem({ label, used, limit }: Readonly<{ label: string; used: number; limit: number }>) {
+function SendingOffBanner() {
   const t = useTranslations();
-  const format = useReachFormat();
-  const full = limit > 0 && used >= limit;
   return (
-    <span className="inline-flex items-baseline gap-1.5">
-      <span>{label}</span>
-      <span className={full ? 'font-medium text-amber-600 dark:text-amber-400' : 'font-medium text-foreground'}>
-        {t('reach.shell.usageValue', { used: format.number(used), limit: format.number(limit) })}
-      </span>
-    </span>
-  );
-}
-
-export function ReachStatusStrip({ summary }: Readonly<{ summary: ReachAccessSummary }>) {
-  const t = useTranslations();
-  const { usage, limits } = summary;
-
-  return (
-    <>
-      {!summary.sendingEnabled && (
-        <InfoBanner variant="warning" title={t('reach.shell.sendingOff.title')} className="rounded-none border-x-0 border-t-0">
-          {t('reach.shell.sendingOff.description')}
-        </InfoBanner>
-      )}
-      <div
-        className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b px-4 py-2 text-xs text-muted-foreground"
-        aria-label={t('reach.title')}
-      >
-        <UsageItem label={t('reach.shell.usage.mailboxes')} used={usage.mailboxes} limit={limits.maxMailboxes} />
-        <UsageItem label={t('reach.shell.usage.domains')} used={usage.domains} limit={limits.maxDomains} />
-        <UsageItem label={t('reach.shell.usage.sendsToday')} used={usage.sendsToday} limit={limits.maxDailySends} />
-      </div>
-    </>
+    <InfoBanner variant="warning" title={t('reach.shell.sendingOff.title')} className="rounded-none border-x-0 border-t-0">
+      {t('reach.shell.sendingOff.description')}
+    </InfoBanner>
   );
 }
 
