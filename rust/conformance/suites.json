@@ -1237,7 +1237,8 @@
         "src/routes/desk-widget/routes.test.ts",
         "src/routes/desk-assignment/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
-        "src/routes/helpdesk-analytics/routes.test.ts"
+        "src/routes/helpdesk-analytics/routes.test.ts",
+        "src/routes/helpdesk-analytics/reports.integration.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/helpdesk-settings/",
@@ -1246,6 +1247,7 @@
         "apps/workers/desk-api/src/routes/desk-assignment/",
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
+        "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
@@ -1274,6 +1276,7 @@
         "src/routes/desk-conversations/routes.test.ts",
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
+        "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"

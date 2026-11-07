@@ -13,6 +13,7 @@ mod assignment;
 mod email;
 mod helpcenter;
 mod helpdesk;
+mod reports;
 #[rustfmt::skip]
 mod tables;
 mod widget;

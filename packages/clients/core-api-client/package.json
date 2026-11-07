@@ -50,6 +50,7 @@
     "./schemas/helpdesk-news": "./src/schemas/helpdesk-news.ts",
     "./schemas/helpdesk-reviews": "./src/schemas/helpdesk-reviews.ts",
     "./schemas/slas": "./src/schemas/slas.ts",
+    "./domains/slas": "./src/domains/slas.ts",
     "./schemas/helpdesk-faqs": "./src/schemas/helpdesk-faqs.ts",
     "./schemas/helpdesk-announcements": "./src/schemas/helpdesk-announcements.ts",
     "./schemas/helpdesk-feedback": "./src/schemas/helpdesk-feedback.ts",

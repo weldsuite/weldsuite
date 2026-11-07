@@ -1,4 +1,4 @@
-import { BookOpen, Bot, ChevronRight, Mail, MessagesSquare, Phone, Shuffle, Tags, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, Mail, MessagesSquare, Phone, Shuffle, Tags, Timer, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 
@@ -48,6 +48,7 @@ export default function HelpdeskSettingsPage() {
       links: [
         deskLink('ticket-types', Tags, td.ticketTypesTitle, td.ticketTypesDescription),
         deskLink('assignment', Shuffle, td.assignmentTitle, td.assignmentDescription),
+        deskLink('sla-policies', Timer, td.slaPoliciesTitle, td.slaPoliciesDescription),
       ],
     },
   ];
