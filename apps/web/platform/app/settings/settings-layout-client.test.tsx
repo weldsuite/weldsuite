@@ -5,7 +5,12 @@ import { SettingsLayoutClient } from './settings-layout-client';
 
 vi.mock('@/lib/router', () => ({ usePathname: () => '/settings/team' }));
 vi.mock('@/lib/i18n/provider', () => ({
-  useI18n: () => ({ t: { settings: { title: 'Settings', menu: {}, welddesk: {} } } }),
+  useI18n: () => ({
+    t: {
+      settings: { title: 'Settings', menu: {}, welddesk: {} },
+      helpdesk: { teamsSettings: { title: 'Teams' }, routing: { title: 'Routing' } },
+    },
+  }),
 }));
 vi.mock('./breadcrumbs', () => ({ buildBreadcrumbSegments: () => [] }));
 vi.mock('@/components/breadcrumb-header', () => ({ BreadcrumbHeader: () => null }));

@@ -11,6 +11,10 @@ vi.mock('@/lib/router', () => ({
   ),
 }));
 
+// The asset register card loads the custom-object templates; it has its own
+// behaviour and isn't one of the settings links this test is about.
+vi.mock('./asset-register-card', () => ({ AssetRegisterCard: () => null }));
+
 vi.mock('@/lib/i18n', async () => {
   const { en: english } = await import('@weldsuite/i18n/locales/en');
   return { getTranslations: (ns: keyof typeof english) => english[ns] };
