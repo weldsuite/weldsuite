@@ -1,0 +1,56 @@
+name: Deploy D1 migrations
+description: >-
+  Applies the Cloudflare D1 schema (connector sync index, schedule index).
+  Idempotent via wrangler's d1_migrations table. D1 occasionally returns
+  transient 7429 / 504 on apply, so each apply retries with backoff. Expects
+  this repo checked out at the workspace root.
+
+inputs:
+  environment:
+    description: test or production.
+    required: true
+  connector:
+    description: '"true" applies the connector sync index migrations (deploy plan d1_connector).'
+    required: true
+  schedule:
+    description: '"true" applies the schedule index migrations (deploy plan d1_schedule).'
+    required: true
+  cloudflare-api-token:
+    description: CLOUDFLARE_API_TOKEN secret.
+    required: true
+  cloudflare-account-id:
+    description: CLOUDFLARE_ACCOUNT_ID secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-monorepo
+
+    - name: Apply connector sync index migrations
+      if: inputs.connector == 'true'
+      shell: bash
+      working-directory: apps/workers/integration-sync-worker
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        source ../../../.github/scripts/d1-migrate-retry.sh
+        d1_migrate_with_retry "CONNECTOR_SYNC_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
+
+    - name: Apply schedule index migrations
+      if: inputs.schedule == 'true'
+      shell: bash
+      working-directory: apps/workers/workflow-worker
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        source ../../../.github/scripts/d1-migrate-retry.sh
+        d1_migrate_with_retry "SCHEDULE_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"

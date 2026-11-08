@@ -32,7 +32,7 @@ pnpm --filter admin build:node && pnpm --filter admin start:node
 
 ## Global: moving the console from Vercel to the Worker
 
-`deploy.yml`'s `frontend-admin` job deploys the Worker only to the
+`deploy.yml`'s `start-workers` job deploys the Worker only to the
 environments named in the repository variable `ADMIN_WORKER_ENVS`. Until then
 that environment's console stays on Vercel. Per environment, test first:
 

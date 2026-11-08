@@ -1,0 +1,108 @@
+name: Deploy mobile OTA
+description: >-
+  Publishes an OTA update for one Expo app (apps/mobile/<app>-app): the
+  `preview` channel for test, `production` for production. Each app's public
+  build env (API URLs, Clerk publishable key, EAS project) is set here, so a
+  new app changes only this repo: add it below and to MOBILE_APPS in
+  .github/scripts/deploy-plan.mjs. Expects this repo checked out at the
+  workspace root.
+
+inputs:
+  app:
+    description: App key, e.g. weldmail for apps/mobile/weldmail-app.
+    required: true
+  environment:
+    description: test or production.
+    required: true
+  sha:
+    description: The deployed commit, recorded in the update message.
+    required: true
+  expo-token:
+    description: EXPO_TOKEN secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # WeldHR: app.config.js refuses a CI build while app.json still has the
+    # scaffold project id, so until `eas init` has been run and committed the
+    # release skips with a warning instead of failing every deploy.
+    - name: Check EAS project
+      id: eas
+      if: inputs.app == 'weldhr'
+      shell: bash
+      run: |
+        set -euo pipefail
+        id="$(jq -r '.expo.extra.eas.projectId // ""' apps/mobile/weldhr-app/app.json)"
+        if [ -z "$id" ] || [ "$id" = "00000000-0000-0000-0000-000000000000" ]; then
+          echo "::warning title=WeldHR OTA skipped::apps/mobile/weldhr-app has no EAS project yet. Run 'eas init' there and commit the project id."
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: ./.github/actions/setup-monorepo
+      if: steps.eas.outputs.ready != 'false'
+
+    - uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e # 8.2.1
+      if: steps.eas.outputs.ready != 'false'
+      with:
+        eas-version: latest
+        token: ${{ inputs.expo-token }}
+
+    # Only the variables an app reads are set: an empty EXPO_PUBLIC_* is not
+    # the same as an unset one in app.config.js.
+    - name: Set build env
+      if: steps.eas.outputs.ready != 'false'
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        TARGET: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [ "$TARGET" = "test" ]; then
+          APP_API_URL=https://app-api-test.weldsuite.org
+          PERSONAL_API_URL=https://personal-api-test.weldsuite.org
+          CLERK_KEY=pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk
+        elif [ "$TARGET" = "production" ]; then
+          APP_API_URL=https://app-api.weldsuite.org
+          PERSONAL_API_URL=https://personal-api.weldsuite.org
+          CLERK_KEY=pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ
+        else
+          echo "::error::environment must be test or production (got '$TARGET')"
+          exit 1
+        fi
+        case "$APP" in
+          weldmail | weldchat | weldbooks | weldflow | weldhr | weldagent | weldcalendar) ;;
+          *)
+            echo "::error::unknown mobile app '$APP' (add it to deploy-mobile and deploy-plan.mjs)"
+            exit 1 ;;
+        esac
+        {
+          echo "EXPO_PUBLIC_APP_API_URL=$APP_API_URL"
+          echo "EXPO_PUBLIC_API_MODULES=all"
+          case "$APP" in
+            weldmail)
+              echo "EXPO_PUBLIC_PERSONAL_API_URL=$PERSONAL_API_URL" ;;
+            weldchat) ;;
+            weldbooks | weldflow | weldhr)
+              echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_KEY" ;;
+            weldagent)
+              echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_KEY"
+              echo "EXPO_PUBLIC_EAS_PROJECT_ID=cc1b21b9-17f3-490b-8088-3c62761d1d00"
+              echo "EAS_PROJECT_ID=cc1b21b9-17f3-490b-8088-3c62761d1d00" ;;
+            weldcalendar)
+              echo "EXPO_PUBLIC_PERSONAL_API_URL=$PERSONAL_API_URL"
+              echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_KEY"
+              echo "EXPO_PUBLIC_EAS_PROJECT_ID=65953f2a-f287-47d0-9ad2-a48dc8206991"
+              echo "EAS_PROJECT_ID=65953f2a-f287-47d0-9ad2-a48dc8206991" ;;
+          esac
+        } >> "$GITHUB_ENV"
+
+    - name: Release
+      if: steps.eas.outputs.ready != 'false'
+      uses: ./.github/actions/mobile-release
+      with:
+        app-dir: apps/mobile/${{ inputs.app }}-app
+        channel: ${{ inputs.environment == 'test' && 'preview' || 'production' }}
+        message: deploy ${{ inputs.sha }} (${{ inputs.environment == 'test' && 'preview' || 'production' }})

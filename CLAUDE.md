@@ -473,12 +473,21 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 
 `deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
-(path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
+(path-gated) → **Pages** (the platform always; WeldMail, WeldCalendar, developer
+portal when changed) + **Vercel** (only changed
 apps: api-docs, booking-portal, docs, helpdesk-widget, meeting-portal,
 partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
-for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`,
-`frontend-admin`; the admin console deploys only to the environments the
+for the TanStack Start apps (`start-workers`: help center, sign portal, project
+portal, admin console; the admin console deploys only to the environments the
 repository variable `ADMIN_WORKER_ENVS` names).
+
+`deploy.yml` is only the job graph: the logic is in composite actions
+(`.github/actions/deploy-*`) and scripts (`.github/scripts/deploy-*.mjs`), and
+every target is named in `.github/scripts/deploy-plan.mjs` (path filters in
+`.github/actions/deploy-prepare/filters.yml`). A new core worker, mobile app,
+Pages app or TanStack Start app goes there, never into a workflow: the private
+deploy repo planned in `docs/plans/main-only-private-deploys.md` (ADR OPS-018)
+runs the same actions.
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git

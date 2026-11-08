@@ -40,7 +40,7 @@ builds off for every branch, so Vercel makes no automatic preview deployments.
 Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
 cannot read those, so the runner would build without them.
 
-The admin console (`apps/web/admin`) is a Worker now (`frontend-admin`). It
+The admin console (`apps/web/admin`) is a Worker now (`start-workers` job in `deploy.yml`). It
 deploys only to the environments named in the repository **variable**
 `ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
 from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.

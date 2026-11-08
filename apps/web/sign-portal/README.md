@@ -70,7 +70,7 @@ codes with it; the portal checks them and signs the sessions).
 
 Workers `weldsuite-sign-portal-test` (route `sign-test.weldsuite.org/*`) and
 `weldsuite-sign-portal` (route `sign.weldsuite.org/*`), released only by
-`deploy.yml` (`frontend-sign-portal`): a push to `develop` that touches this
+`deploy.yml` (`start-workers`): a push to `develop` that touches this
 app or a package it runs deploys test, a push to `main` production. The build
 picks the wrangler environment (`CLOUDFLARE_ENV=test pnpm build`); the deploy
 is a plain `wrangler deploy`. It runs after the workers job, because it binds

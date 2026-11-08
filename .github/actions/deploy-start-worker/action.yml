@@ -1,0 +1,50 @@
+name: Deploy TanStack Start Worker
+description: >-
+  Builds one TanStack Start app (apps/web/<app>) and deploys it as a
+  Cloudflare Worker. The Cloudflare Vite plugin picks the wrangler.toml
+  environment at build time (CLOUDFLARE_ENV) and writes the resolved config
+  next to the output, so the deploy step is a plain `wrangler deploy`. A new
+  app needs only an entry in START_APPS in .github/scripts/deploy-plan.mjs.
+  Expects this repo checked out at the workspace root.
+
+inputs:
+  app:
+    description: Folder name under apps/web, e.g. helpcenter.
+    required: true
+  environment:
+    description: test or production.
+    required: true
+  cloudflare-api-token:
+    description: CLOUDFLARE_API_TOKEN secret.
+    required: true
+  cloudflare-account-id:
+    description: CLOUDFLARE_ACCOUNT_ID secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check inputs
+      shell: bash
+      env:
+        TARGET: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        case "$TARGET" in test|production) ;; *) echo "::error::environment must be test or production (got '$TARGET')"; exit 1 ;; esac
+
+    - uses: ./.github/actions/setup-monorepo
+
+    - name: Build ${{ inputs.app }}
+      shell: bash
+      working-directory: apps/web/${{ inputs.app }}
+      env:
+        CLOUDFLARE_ENV: ${{ inputs.environment }}
+      run: pnpm build
+
+    - name: Deploy ${{ inputs.app }} Worker
+      shell: bash
+      working-directory: apps/web/${{ inputs.app }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+      run: pnpm exec wrangler deploy
