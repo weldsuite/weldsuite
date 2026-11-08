@@ -178,6 +178,6 @@ jobs:
             echo
             echo "Tagged \`$TAG\` at $COMMIT (previous release: $LATEST)."
             echo
-            echo "To put it in production, set \`WELDSUITE_VERSION: \"$VERSION\"\` in"
-            echo "\`rust/deploy/flux/clusters/eu/cluster-settings.yaml\` and get it to \`main\`."
+            echo "To put it in production, run **Promote** in weldsuite-deploy with target \`eu\`"
+            echo "and version \`$VERSION\`: it sets WELDSUITE_VERSION and the base-layer tag there."
           } >> "$GITHUB_STEP_SUMMARY"
