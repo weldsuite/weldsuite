@@ -85,53 +85,69 @@ export interface DeskEscalationEpisode {
   fired: Array<{ teamId: string | null; ruleIndex: number | null; at: Date }>;
 }
 
+/** The replay state behind {@link deskEscalationEpisode}. */
+interface EpisodeReplay {
+  open: boolean;
+  owned: boolean;
+  episode: DeskEscalationEpisode;
+}
+
+function replayReopen(state: EpisodeReplay, at: Date): void {
+  if (state.open) return;
+  state.open = true;
+  if (!state.owned) state.episode.unassignedSince = at;
+}
+
+/** A customer message reopens and starts the wait; a team reply ends it. */
+function replayMessage(state: EpisodeReplay, entry: DeskEscalationTimelineEntry): void {
+  if (entry.authorType === 'visitor') {
+    replayReopen(state, entry.at);
+    state.episode.waitingSince ??= entry.at;
+  } else if (entry.authorType === 'agent' || entry.authorType === 'bot') {
+    state.episode.waitingSince = null;
+  }
+}
+
+function replayEvent(state: EpisodeReplay, entry: DeskEscalationTimelineEntry): void {
+  const { episode } = state;
+  switch (entry.eventType) {
+    case 'closed':
+      state.open = false;
+      episode.waitingSince = null;
+      episode.unassignedSince = null;
+      break;
+    case 'reopened':
+      replayReopen(state, entry.at);
+      break;
+    case 'assigned':
+      state.owned = true;
+      episode.unassignedSince = null;
+      break;
+    case 'unassigned':
+      state.owned = false;
+      if (state.open) episode.unassignedSince = entry.at;
+      break;
+    case 'attributes_changed':
+      if (entry.teamChanged) episode.teamEnteredAt = entry.at;
+      break;
+    case 'escalated':
+      episode.fired.push({ teamId: entry.teamId, ruleIndex: entry.ruleIndex, at: entry.at });
+      break;
+  }
+}
+
 /** Replay the timeline (oldest first) from the conversation's start. Pure. */
 export function deskEscalationEpisode(createdAt: Date, timeline: DeskEscalationTimelineEntry[]): DeskEscalationEpisode {
-  let open = true;
-  let owned = false;
-  const episode: DeskEscalationEpisode = { teamEnteredAt: createdAt, unassignedSince: createdAt, waitingSince: null, fired: [] };
-  const reopen = (at: Date) => {
-    if (open) return;
-    open = true;
-    if (!owned) episode.unassignedSince = at;
+  const state: EpisodeReplay = {
+    open: true,
+    owned: false,
+    episode: { teamEnteredAt: createdAt, unassignedSince: createdAt, waitingSince: null, fired: [] },
   };
   for (const entry of timeline) {
-    if (entry.kind === 'message') {
-      if (entry.authorType === 'visitor') {
-        reopen(entry.at);
-        if (!episode.waitingSince) episode.waitingSince = entry.at;
-      } else if (entry.authorType === 'agent' || entry.authorType === 'bot') {
-        episode.waitingSince = null;
-      }
-      continue;
-    }
-    if (entry.kind !== 'event') continue;
-    switch (entry.eventType) {
-      case 'closed':
-        open = false;
-        episode.waitingSince = null;
-        episode.unassignedSince = null;
-        break;
-      case 'reopened':
-        reopen(entry.at);
-        break;
-      case 'assigned':
-        owned = true;
-        episode.unassignedSince = null;
-        break;
-      case 'unassigned':
-        owned = false;
-        if (open) episode.unassignedSince = entry.at;
-        break;
-      case 'attributes_changed':
-        if (entry.teamChanged) episode.teamEnteredAt = entry.at;
-        break;
-      case 'escalated':
-        episode.fired.push({ teamId: entry.teamId, ruleIndex: entry.ruleIndex, at: entry.at });
-        break;
-    }
+    if (entry.kind === 'message') replayMessage(state, entry);
+    else if (entry.kind === 'event') replayEvent(state, entry);
   }
-  return episode;
+  return state.episode;
 }
 
 export interface DeskEscalationDue extends DeskEscalationRuleAt {

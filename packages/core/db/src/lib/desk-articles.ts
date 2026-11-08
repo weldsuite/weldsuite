@@ -87,15 +87,19 @@ function audienceMatches(column: string, reader: DeskReader): SQL {
   return sql`exists (select 1 from ${jsonbTextArray(column)} as aud(v) where aud.v in (${ids}))`;
 }
 
+/** Joins alternative conditions. */
+const SQL_OR = sql` or `;
+
 /** The SQL condition "the reader may read article row `alias`" (status and deletion aside). */
 export function deskArticleVisibleTo(alias: string, reader: DeskReader): SQL {
   const a = sql.raw(alias);
   const parts: SQL[] = [sql`${a}.visibility = 'public'`];
   if (reader.verifiedEmail) parts.push(sql`${a}.visibility = 'logged_in'`);
   if (reader.companyIds.length > 0) {
-    parts.push(sql`(${a}.visibility = 'groups' and ${audienceMatches(`${alias}.audience_company_ids`, reader)})`);
+    const audienceColumn = `${alias}.audience_company_ids`;
+    parts.push(sql`(${a}.visibility = 'groups' and ${audienceMatches(audienceColumn, reader)})`);
   }
-  return sql`(${sql.join(parts, sql` or `)})`;
+  return sql`(${sql.join(parts, SQL_OR)})`;
 }
 
 /** Published, not deleted and readable: article row `alias`. */
@@ -408,7 +412,7 @@ export async function listDeskAnnouncementsFor(db: AnyDb, reader: DeskReader): P
         eq(a.status, 'published'),
         sql`(${a.publishedAt} is null or ${a.publishedAt} <= now())`,
         sql`(${a.expiresAt} is null or ${a.expiresAt} > now())`,
-        sql`(${sql.join(audience, sql` or `)})`,
+        sql`(${sql.join(audience, SQL_OR)})`,
       ),
     )
     .orderBy(

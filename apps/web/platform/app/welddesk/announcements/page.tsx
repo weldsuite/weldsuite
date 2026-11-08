@@ -22,6 +22,80 @@ import { ANNOUNCEMENT_STATUS_TONE, ANNOUNCEMENT_TYPE_TONE, isExpired } from './a
 
 const BASE = '/welddesk/help-center/announcements';
 
+interface WindowLabels {
+  expired: string;
+  fromUntil: string;
+  until: string;
+  from: string;
+  always: string;
+}
+
+function formatDateTime(iso: string, language: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? iso
+    : new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+/** When an announcement is shown: expired, a window, from, until, or always. */
+function shownWindow(row: DeskAnnouncement, labels: WindowLabels, language: string): string {
+  if (row.status === 'published' && isExpired(row)) return labels.expired;
+  const from = row.publishedAt ? formatDateTime(row.publishedAt, language) : null;
+  const until = row.expiresAt ? formatDateTime(row.expiresAt, language) : null;
+  if (from && until) return labels.fromUntil.replace('{from}', from).replace('{until}', until);
+  if (until) return labels.until.replace('{date}', until);
+  if (from) return labels.from.replace('{date}', from);
+  return labels.always;
+}
+
+interface ActionLabels {
+  edit: string;
+  delete: string;
+}
+
+/** The row menu: edit and delete, each when the user may. */
+function rowActions(opts: {
+  labels: ActionLabels;
+  canUpdate: boolean;
+  canDelete: boolean;
+  onEdit: (row: DeskAnnouncement) => void;
+  onDelete: (row: DeskAnnouncement) => void;
+}) {
+  const actions = [];
+  if (opts.canUpdate) actions.push({ id: 'edit', label: opts.labels.edit, icon: Pencil, onClick: opts.onEdit });
+  if (opts.canDelete) {
+    actions.push({
+      id: 'delete',
+      label: opts.labels.delete,
+      icon: Trash,
+      variant: 'destructive' as const,
+      separatorAbove: opts.canUpdate,
+      onClick: opts.onDelete,
+    });
+  }
+  return actions;
+}
+
+interface EmptyLabels {
+  noResults: string;
+  clearSearch: string;
+  emptyTitle: string;
+  emptyDescription: string;
+  newAnnouncement: string;
+}
+
+/** No results for a search, or no announcements yet (with "New" when the user may create). */
+function emptyState(opts: { labels: EmptyLabels; searching: boolean; onClearSearch: () => void; onCreate?: () => void }) {
+  const { labels } = opts;
+  if (opts.searching) return { title: labels.noResults, action: { label: labels.clearSearch, onClick: opts.onClearSearch } };
+  return {
+    icon: <Megaphone className="h-8 w-8 text-muted-foreground/60" />,
+    title: labels.emptyTitle,
+    description: labels.emptyDescription,
+    ...(opts.onCreate ? { action: { label: labels.newAnnouncement, onClick: opts.onCreate } } : {}),
+  };
+}
+
 /** WeldDesk → Knowledge → Announcements: the status banners on the help center and in the widget. */
 export default function AnnouncementsPage() {
   const { t, language } = useI18n();
@@ -37,24 +111,7 @@ export default function AnnouncementsPage() {
   const [deleting, setDeleting] = useState<DeskAnnouncement | null>(null);
 
   const rows = query.data?.data ?? [];
-  const dateTime = (iso: string) => {
-    const date = new Date(iso);
-    return Number.isNaN(date.getTime())
-      ? iso
-      : new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-  };
-
-  const shown = (row: DeskAnnouncement): string => {
-    if (row.status === 'published' && isExpired(row)) return a.window.expired;
-    if (row.publishedAt && row.expiresAt) {
-      return a.window.fromUntil
-        .replace('{from}', dateTime(row.publishedAt))
-        .replace('{until}', dateTime(row.expiresAt));
-    }
-    if (row.expiresAt) return a.window.until.replace('{date}', dateTime(row.expiresAt));
-    if (row.publishedAt) return a.window.from.replace('{date}', dateTime(row.publishedAt));
-    return a.window.always;
-  };
+  const shown = (row: DeskAnnouncement) => shownWindow(row, a.window, language);
 
   const columns: ListTableColumn<DeskAnnouncement>[] = [
     {
@@ -132,33 +189,19 @@ export default function AnnouncementsPage() {
         rowKey={(row) => row.id}
         onRowClick={canUpdate ? (row) => router.push(`${BASE}/${row.id}`) : undefined}
         rowLabel={(row) => row.title}
-        actions={[
-          ...(canUpdate
-            ? [{ id: 'edit', label: a.edit, icon: Pencil, onClick: (row: DeskAnnouncement) => router.push(`${BASE}/${row.id}`) }]
-            : []),
-          ...(canDelete
-            ? [
-                {
-                  id: 'delete',
-                  label: a.delete,
-                  icon: Trash,
-                  variant: 'destructive' as const,
-                  separatorAbove: canUpdate,
-                  onClick: (row: DeskAnnouncement) => setDeleting(row),
-                },
-              ]
-            : []),
-        ]}
-        emptyState={
-          debounced
-            ? { title: a.noResults, action: { label: a.clearSearch, onClick: () => setSearch('') } }
-            : {
-                icon: <Megaphone className="h-8 w-8 text-muted-foreground/60" />,
-                title: a.emptyTitle,
-                description: a.emptyDescription,
-                ...(canCreate ? { action: { label: a.newAnnouncement, onClick: () => router.push(`${BASE}/new`) } } : {}),
-              }
-        }
+        actions={rowActions({
+          labels: a,
+          canUpdate,
+          canDelete,
+          onEdit: (row) => router.push(`${BASE}/${row.id}`),
+          onDelete: setDeleting,
+        })}
+        emptyState={emptyState({
+          labels: a,
+          searching: Boolean(debounced),
+          onClearSearch: () => setSearch(''),
+          onCreate: canCreate ? () => router.push(`${BASE}/new`) : undefined,
+        })}
       />
     );
   }

@@ -200,6 +200,25 @@ app.post('/', requirePermission('articles:create'), zValidator('json', createArt
   }
 });
 
+/**
+ * The publish lifecycle of a status change: stamp publishedAt / unpublishedAt
+ * and the isDraft flag when the status crosses the published boundary.
+ */
+function statusTransition(from: string, to: string, now: Date): Record<string, unknown> {
+  const update: Record<string, unknown> = { status: to };
+  const becomingPublished = to === 'published';
+  const wasPublished = from === 'published';
+  if (becomingPublished && !wasPublished) {
+    update.publishedAt = now;
+    update.unpublishedAt = null;
+    update.isDraft = false;
+  } else if (!becomingPublished && wasPublished) {
+    update.unpublishedAt = now;
+    update.isDraft = true;
+  }
+  return update;
+}
+
 app.patch('/:id', requirePermission('articles:update'), zValidator('json', updateArticleSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -233,20 +252,8 @@ app.patch('/:id', requirePermission('articles:update'), zValidator('json', updat
     const folder = await resolveFolder(db, data);
     if (folder) Object.assign(update, folder);
 
-    // Publish lifecycle: stamp publishedAt / unpublishedAt and the isDraft flag
-    // when the status actually transitions across the published boundary.
     if (data.status !== undefined && data.status !== existing.status) {
-      update.status = data.status;
-      const becomingPublished = data.status === 'published';
-      const wasPublished = existing.status === 'published';
-      if (becomingPublished && !wasPublished) {
-        update.publishedAt = now;
-        update.unpublishedAt = null;
-        update.isDraft = false;
-      } else if (!becomingPublished && wasPublished) {
-        update.unpublishedAt = now;
-        update.isDraft = true;
-      }
+      Object.assign(update, statusTransition(existing.status, data.status as string, now));
     }
 
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
