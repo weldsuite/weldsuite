@@ -78,7 +78,7 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
     ) => {
       room.stopTyping();
       reply.mutate(
-        { id: conversationId, data: { kind, body, attachments, ...takeTranslation(kind) }, authorId: user?.id, clientId },
+        { id: conversationId, data: { kind, body, attachments, ...takeTranslation(kind, body) }, authorId: user?.id, clientId },
         { onError: () => toast.error(t.composer.replyError) },
       );
     },

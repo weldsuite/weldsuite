@@ -251,4 +251,23 @@ describe(`${BASE} · department specifics`, () => {
     });
     expect(passthrough.status).toBe(200);
   });
+
+  it('re-checks the open conversations of a team whose escalation rules change', async () => {
+    const at = new Date(Date.UTC(2026, 1, 2, 9));
+    await db.insert(schema.helpdeskDepartments).values({ id: 'hdep_esc', name: 'Escalating', createdAt: at, updatedAt: at });
+    await db.insert(schema.deskConversations).values([
+      { id: 'dconv_esc_open', conversationNumber: 9101, departmentId: 'hdep_esc', createdAt: at, updatedAt: at },
+      { id: 'dconv_esc_closed', conversationNumber: 9102, departmentId: 'hdep_esc', state: 'closed', createdAt: at, updatedAt: at },
+    ]);
+    const res = await app('departments:update').request(`${BASE}/hdep_esc`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ escalationRules: [{ condition: 'unassigned', afterMinutes: 30, escalateTo: 'manager' }] }),
+    });
+    expect(res.status).toBe(200);
+    const rows = await db.select().from(schema.deskConversations);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get('dconv_esc_open')?.escalationCheckAt).toBeInstanceOf(Date);
+    expect(byId.get('dconv_esc_closed')?.escalationCheckAt).toBeNull();
+  });
 });

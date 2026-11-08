@@ -218,6 +218,30 @@ export interface RouteDeskConversationInput {
   keepTeam?: boolean;
   /** The writer named an owner: a rule never hands the conversation to someone else. */
   keepAssignee?: boolean;
+  /**
+   * Set when an edit of the type or tags triggered routing. The rule that
+   * applied last on this conversation is not applied again (so an agent's
+   * own edits since then stay), and a tag the edit removed is never put back.
+   */
+  change?: DeskRoutingChange;
+}
+
+/** What the `attributes_changed` edit behind a `changed` trigger did. */
+export interface DeskRoutingChange {
+  /** Tags the edit removed (any case). */
+  removedTags: string[];
+}
+
+/** The rule that last applied on the conversation (its latest `routingRuleId` on the timeline). */
+async function lastRoutingRuleId(db: AnyDb, conversationId: string): Promise<string | null> {
+  const m = schema.deskMessages;
+  const [row] = await db
+    .select({ ruleId: sql<string | null>`${m.metadata}->>'routingRuleId'` })
+    .from(m)
+    .where(and(eq(m.conversationId, conversationId), sql`${m.metadata} ? 'routingRuleId'`))
+    .orderBy(sql`${m.createdAt} desc`, sql`${m.id} desc`)
+    .limit(1);
+  return row?.ruleId ?? null;
 }
 
 function earliest(a: Date | null, b: Date | null): Date | null {
@@ -256,6 +280,34 @@ async function usableAssignee(db: AnyDb, userId: string): Promise<boolean> {
 }
 
 /**
+ * The ticket fields a rule's actions change on `current`: the team (unless
+ * the write set it itself, or the team is gone or inactive), the priority,
+ * and the tags with the rule's added. Empty when the rule changes nothing.
+ */
+async function routingAttributePatch(
+  db: AnyDb,
+  actions: DeskRoutingRule['actions'],
+  current: DeskConversation,
+  keepTeam: boolean,
+  removedTags: string[],
+): Promise<{ departmentId?: string; priority?: DeskPriority; tags?: string[] }> {
+  const patch: { departmentId?: string; priority?: DeskPriority; tags?: string[] } = {};
+  const team = actions.departmentId;
+  if (team && !keepTeam && team !== current.departmentId && (await usableTeam(db, team))) {
+    patch.departmentId = team;
+  }
+  if (actions.priority && actions.priority !== current.priority) patch.priority = actions.priority;
+  const removed = new Set(removedTags.map((tag) => tag.toLowerCase()));
+  const added = (actions.addTags ?? []).filter((tag) => !removed.has(tag.toLowerCase()));
+  if (added.length > 0) {
+    const before = current.tags ?? [];
+    const tags = normalizeDeskTags([...before, ...added]);
+    if (tags.length !== before.length || tags.some((tag, i) => tag !== before[i])) patch.tags = tags;
+  }
+  return patch;
+}
+
+/**
  * Apply the first matching routing rule to a conversation. Writes nothing
  * when no rule matches or the rule changes nothing; a rule naming a team that
  * is gone or inactive, or a teammate who left, skips that action.
@@ -271,27 +323,22 @@ export async function routeDeskConversation(
   const { settings } = await getDeskRoutingSettings(db);
   const rule = selectDeskRoutingRule(settings.rules, current);
   if (!rule) return none;
+  // An edit re-routes only to a rule other than the one that placed the
+  // conversation; re-running that one would undo the agent's own changes.
+  if (input.change && (await lastRoutingRuleId(db, current.id)) === rule.id) return none;
 
   const { actions } = rule;
   const steps: DeskRoutingStep[] = [];
   let conversation = current;
   let slaCheckAt: Date | null = null;
 
-  const patch: { departmentId?: string; priority?: DeskPriority; tags?: string[] } = {};
-  if (
-    actions.departmentId &&
-    !input.keepTeam &&
-    actions.departmentId !== current.departmentId &&
-    (await usableTeam(db, actions.departmentId))
-  ) {
-    patch.departmentId = actions.departmentId;
-  }
-  if (actions.priority && actions.priority !== current.priority) patch.priority = actions.priority;
-  if (actions.addTags && actions.addTags.length > 0) {
-    const tags = normalizeDeskTags([...(current.tags ?? []), ...actions.addTags]);
-    const before = current.tags ?? [];
-    if (tags.length !== before.length || tags.some((tag, i) => tag !== before[i])) patch.tags = tags;
-  }
+  const patch = await routingAttributePatch(
+    db,
+    actions,
+    current,
+    input.keepTeam === true,
+    input.change?.removedTags ?? [],
+  );
   if (Object.keys(patch).length > 0) {
     const set = await updateDeskConversationAttributes(db, {
       generateId: input.generateId,
@@ -370,8 +417,17 @@ export async function routeAndAssignDeskConversation(
 
 /** Did an `attributes_changed` event change what routing matches on (type or tags), without setting the team? */
 export function deskChangeReroutes(
-  changes: Array<{ field: string }> | null | undefined,
-): { reroute: boolean; keepTeam: boolean } {
-  const fields = new Set((changes ?? []).map((c) => c.field));
-  return { reroute: fields.has('ticketType') || fields.has('tags'), keepTeam: fields.has('team') };
+  changes: Array<{ field: string; from?: unknown; to?: unknown }> | null | undefined,
+): { reroute: boolean; keepTeam: boolean; change: DeskRoutingChange } {
+  const list = changes ?? [];
+  const fields = new Set(list.map((c) => c.field));
+  const tagChange = list.find((c) => c.field === 'tags');
+  const asTags = (value: unknown) => (Array.isArray(value) ? value.filter((t): t is string => typeof t === 'string') : []);
+  const after = new Set(asTags(tagChange?.to).map((tag) => tag.toLowerCase()));
+  const removedTags = asTags(tagChange?.from).filter((tag) => !after.has(tag.toLowerCase()));
+  return {
+    reroute: fields.has('ticketType') || fields.has('tags'),
+    keepTeam: fields.has('team'),
+    change: { removedTags },
+  };
 }

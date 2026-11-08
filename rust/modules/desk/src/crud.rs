@@ -132,6 +132,9 @@ pub(crate) enum Hook {
     /// ticket-types: `syncTicketTypeDefinitions` with the body's `fields`
     /// (after a create; after an update only when the body has them).
     TicketTypeFields,
+    /// helpdesk-departments: `recheckEscalations` after an update that
+    /// changes the team's `escalationRules` or `isActive`.
+    DepartmentEscalations,
 }
 
 type Handler = &'static Crud;
@@ -554,6 +557,12 @@ async fn update(
         && let Some(fields) = data.get("fields")
     {
         crate::ticket_types::sync_definitions(&caller.db, &id, Some(fields)).await;
+    }
+    if crud.hook == Hook::DepartmentEscalations
+        && (data.contains_key("escalationRules") || data.contains_key("isActive"))
+        && let Err(error) = crate::departments::recheck_escalations(&state, &caller, &id).await
+    {
+        return write_failed(&WriteError::from(error), crud.messages.update);
     }
     let mut event = Map::new();
     event.insert("id".to_owned(), json!(id));

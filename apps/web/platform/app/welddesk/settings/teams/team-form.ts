@@ -88,8 +88,16 @@ export function validateTeamValues(values: TeamFormValues): TeamFormError | null
   return null;
 }
 
-export function valuesToTeamInput(values: TeamFormValues, members: DeskTeamMember[]): DeskTeamInput {
+export function valuesToTeamInput(
+  values: TeamFormValues,
+  members: DeskTeamMember[],
+  current?: Pick<DeskTeam, 'managerId' | 'managerName'> | null,
+): DeskTeamInput {
   const manager = members.find((m) => m.memberId === values.managerMemberId);
+  // An unchanged manager the member list doesn't have (still loading, or the
+  // member left) keeps the stored name instead of losing it.
+  const unchanged = Boolean(current?.managerId) && values.managerMemberId === current?.managerId;
+  const managerName = manager?.name ?? (unchanged ? (current?.managerName ?? null) : null);
   const escalationRules: DeskEscalationRule[] = values.escalationRules.map((rule) => ({
     condition: rule.condition,
     afterMinutes: Number(rule.afterMinutes.trim()),
@@ -102,7 +110,7 @@ export function valuesToTeamInput(values: TeamFormValues, members: DeskTeamMembe
     description: values.description.trim(),
     agentIds: Array.from(new Set(values.agentIds)),
     managerId: values.managerMemberId,
-    managerName: values.managerMemberId ? (manager?.name ?? null) : null,
+    managerName: values.managerMemberId ? managerName : null,
     isActive: values.isActive,
     sortOrder: Number(values.sortOrder.trim()),
     escalationRules,

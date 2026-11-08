@@ -26,6 +26,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
+import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { appendDeskMessage, createDeskConversation } from '@weldsuite/db/lib/desk';
 
 const dbs = vi.hoisted(() => ({ tenant: null as unknown, master: null as unknown }));
@@ -218,8 +219,11 @@ describe('desk escalation rules on the SLA sweep', () => {
     expect(rows[3]!.body).toMatch(/escalated/);
     expect(published.map((e) => [e.entityType, e.action])).toEqual([
       ['desk_conversation', 'updated'],
+      ['desk_message', 'created'],
       ['desk_conversation', 'assigned'],
+      ['desk_message', 'created'],
       ['desk_conversation', 'updated'],
+      ['desk_message', 'created'],
     ]);
     const notes = await db.select().from(schema.notifications);
     expect(notes.map((n) => [n.userId, n.notificationType])).toEqual([['user_esc_mgr', 'ticket_assigned']]);
@@ -272,10 +276,44 @@ describe('desk escalation rules on the SLA sweep', () => {
     expect(events.map((m) => m?.eventType)).toEqual(['assigned', 'escalated', 'attributes_changed', 'unassigned', 'assigned']);
     expect(events[1]).toMatchObject({ teamId: 'dep_esc_t1', ruleIndex: 0, escalateTo: 'next_tier', toTeamId: 'dep_esc_t2' });
     expect(events[4]).toMatchObject({ assigneeId: 'user_esc_bob', auto: true, teamId: 'dep_esc_t2' });
-    expect(published.map((e) => e.action)).toEqual(['updated', 'updated', 'assigned', 'assigned']);
+    expect(published.filter((e) => e.entityType === 'desk_conversation').map((e) => e.action)).toEqual([
+      'updated',
+      'updated',
+      'assigned',
+      'assigned',
+    ]);
+    expect(published.filter((e) => e.entityType === 'desk_message')).toHaveLength(4);
     const notes = await db.select().from(schema.notifications);
     expect(notes.map((n) => n.userId)).toEqual(['user_esc_bob']);
     expect(await dueAt(env)).toBeNull();
+  });
+
+  it('emails the notice to the customer of an email ticket', async () => {
+    await db.insert(schema.helpdeskDepartments).values({
+      id: 'dep_esc_mail',
+      name: 'Mail desk',
+      managerId: 'wm_esc_mgr',
+      escalationRules: [{ condition: 'unassigned', afterMinutes: 15, escalateTo: 'manager', notifyCustomer: true }],
+      createdAt: at,
+      updatedAt: at,
+    });
+    const mail = createSendEmailStub();
+    const env = { ...makeEnv(), SEND_EMAIL: mail };
+    const { conversation, slaCheckAt } = await createDeskConversation(db, {
+      generateId,
+      channel: 'email',
+      visitorId: null,
+      email: 'eve@shop.test',
+      title: 'Refund',
+      body: 'Where is my refund?',
+      departmentId: 'dep_esc_mail',
+      metadata: { helpdeskAddress: 'support@acme.test', emailMessageId: 'in-eve@shop.test' },
+    });
+    await markDue(env, slaCheckAt!);
+    const start = conversation.createdAt.getTime();
+    expect(await sweep(env, new Date(start + 16 * MINUTE))).toMatchObject({ processed: 1, failed: 0 });
+    expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0]).toMatchObject({ from: 'support@acme.test', to: 'eve@shop.test' });
   });
 
   it('stops counting once the team answers', async () => {

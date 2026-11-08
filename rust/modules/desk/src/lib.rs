@@ -145,6 +145,9 @@ pub struct DeskState {
     /// The master database (the outbound guard's sender ownership). A
     /// request's `MasterDb` (conformance) wins.
     pub master: Option<PgPool>,
+    /// WeldDesk's `AssignmentRouter` (round robin, a rotation per team) for
+    /// re-routes; without it the pick is the local balanced one.
+    pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 impl std::fmt::Debug for DeskState {

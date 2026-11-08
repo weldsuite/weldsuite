@@ -66,7 +66,22 @@ pub(crate) async fn announce_call(
         )
         .await;
 
-    let picker = Picker::Local;
+    // The workspace's AssignmentRouter (round robin, a rotation per team),
+    // keyed by `workspaces.id` like the widget and email paths.
+    let router_workspace = match &state.assignment {
+        Some(_) => crate::credits::resolve_workspace(master, org)
+            .await
+            .ok()
+            .flatten(),
+        None => None,
+    };
+    let picker = match (&state.assignment, router_workspace.as_deref()) {
+        (Some(router), Some(workspace_id)) => Picker::Router {
+            router,
+            workspace_id,
+        },
+        _ => Picker::Local,
+    };
     let done: Result<(Vec<Step>, Option<i64>), String> = if created {
         routing::route_and_assign(
             db,

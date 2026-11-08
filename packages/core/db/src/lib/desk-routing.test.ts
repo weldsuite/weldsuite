@@ -88,9 +88,15 @@ describe('selectDeskRoutingRule', () => {
 
 describe('deskChangeReroutes', () => {
   it('re-routes on a new type or tags, and keeps a team the change set', () => {
-    expect(deskChangeReroutes([{ field: 'tags' }])).toEqual({ reroute: true, keepTeam: false });
-    expect(deskChangeReroutes([{ field: 'ticketType' }, { field: 'team' }])).toEqual({ reroute: true, keepTeam: true });
-    expect(deskChangeReroutes([{ field: 'priority' }])).toEqual({ reroute: false, keepTeam: false });
-    expect(deskChangeReroutes(undefined)).toEqual({ reroute: false, keepTeam: false });
+    const none = { removedTags: [] };
+    expect(deskChangeReroutes([{ field: 'tags' }])).toEqual({ reroute: true, keepTeam: false, change: none });
+    expect(deskChangeReroutes([{ field: 'ticketType' }, { field: 'team' }])).toEqual({ reroute: true, keepTeam: true, change: none });
+    expect(deskChangeReroutes([{ field: 'priority' }])).toEqual({ reroute: false, keepTeam: false, change: none });
+    expect(deskChangeReroutes(undefined)).toEqual({ reroute: false, keepTeam: false, change: none });
+  });
+
+  it('lists the tags the change removed, in any case', () => {
+    const { change } = deskChangeReroutes([{ field: 'tags', from: ['Email', 'vip', 'billing'], to: ['VIP'] }]);
+    expect(change.removedTags).toEqual(['Email', 'billing']);
   });
 });

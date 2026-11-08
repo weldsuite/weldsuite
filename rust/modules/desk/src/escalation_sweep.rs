@@ -7,9 +7,10 @@
 //! For each conversation whose check came due,
 //! [`weldsuite_desk_domain::escalation::run`] fires the rules that are due.
 //! Every timeline event it wrote goes out as a `desk_conversation` entity
-//! event (`assigned` when the owner changed, else `updated`) and live to the
-//! inbox; a public notice to the customer also reaches their conversation
-//! room; whoever now owns the conversation is told.
+//! event (`assigned` when the owner changed, else `updated`) plus
+//! `desk_message created`, and live to the inbox; a public notice to the
+//! customer also reaches their conversation room, or their inbox as an email
+//! on an email ticket; whoever now owns the conversation is told.
 
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events as ev;
@@ -51,6 +52,35 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
                 EntityEvent::new(event, id, step.conversation.clone()),
             )
             .await;
+        let message_id = step.message["id"].as_str().unwrap_or_default().to_owned();
+        services
+            .events
+            .publish_and_wait(
+                &context,
+                EntityEvent::new(ev::DESK_MESSAGE_CREATED, message_id, step.message.clone()),
+            )
+            .await;
+        // The notice to the customer, on an email ticket, is an email like any reply.
+        if step.conversation["channel"] == "email"
+            && step.message["kind"] == "message"
+            && webchat::is_public(&step.message)
+        {
+            let outbound = crate::dispatch::Outbound {
+                guard: services
+                    .outbound
+                    .guard(services.master.clone(), services.cache.clone()),
+                transport: services.outbound.transport.clone(),
+            };
+            crate::channels::deliver_email_reply(
+                db,
+                org_id,
+                &outbound,
+                &step.conversation,
+                &step.message,
+                crate::channels::ReplyFiles::None,
+            )
+            .await;
+        }
     }
     if let Some(realtime) = &services.realtime {
         for step in &result.steps {
@@ -142,12 +172,21 @@ pub(crate) async fn sweep_workspace(
     services: &SweepServices,
     db: &PgPool,
     org_id: &str,
+    workspace_id: &str,
     now: i64,
 ) -> Result<usize, sqlx::Error> {
     let mut escalated = 0;
     let retry_at = now + CONVERSATION_RETRY_MS;
+    // The workspace's AssignmentRouter (a rotation per team), keyed by `workspaces.id`.
+    let picker = match &services.assignment {
+        Some(router) => Picker::Router {
+            router,
+            workspace_id,
+        },
+        None => Picker::Local,
+    };
     for id in escalation::list_due(db, now, CONVERSATIONS_PER_TICK).await? {
-        match escalation::run(db, &id, now, &Picker::Local).await {
+        match escalation::run(db, &id, now, &picker).await {
             Ok(result) => {
                 if !result.steps.is_empty() {
                     escalated += 1;

@@ -23,6 +23,10 @@ use crate::webchat::{self, Append, AppendError, Appended, DESK_CONVERSATIONS};
 /// A merge chain longer than this is a data error; the last one reached is used.
 const MAX_MERGE_HOPS: usize = 10;
 
+/// `MAX_DESK_CHILDREN`: most tickets one parent (a major incident) links, so
+/// an incident update or close stays within what one request can do.
+pub const MAX_CHILDREN: i64 = 200;
+
 /// Why a link change stopped.
 #[derive(Debug)]
 pub enum LinkError {
@@ -409,6 +413,18 @@ async fn assert_linkable(db: &PgPool, child: &Value, parent: &Value) -> Result<(
         return Err(rejected(
             "has_children",
             "This ticket has child tickets, so it can't become a child ticket",
+        ));
+    }
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from desk_conversations where parent_conversation_id = $1",
+    )
+    .bind(parent["id"].as_str().unwrap_or_default())
+    .fetch_one(db)
+    .await?;
+    if count >= MAX_CHILDREN {
+        return Err(rejected(
+            "too_many_children",
+            format!("Ticket #{number} already has {MAX_CHILDREN} linked tickets"),
         ));
     }
     Ok(())

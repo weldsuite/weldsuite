@@ -115,7 +115,7 @@ function TeamForm({
     const problem = validateTeamValues(values);
     setError(problem);
     if (problem) return;
-    const payload = valuesToTeamInput(values, members);
+    const payload = valuesToTeamInput(values, members, team);
     try {
       if (team) {
         await updateTeam.mutateAsync({ id: team.id, ...payload });

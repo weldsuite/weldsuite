@@ -866,8 +866,9 @@ async fn route_conversation(
     deps: &InboxDeps<'_>,
     id: &str,
     keep: Keep,
+    change: Option<&routing::Change>,
 ) -> Result<RoutedForInbox, InboxError> {
-    let routed = routing::route(deps.db, id, keep)
+    let routed = routing::route_with(deps.db, id, keep, change)
         .await
         .map_err(|error| InboxError::Failed(error.to_string()))?;
     let mut events = Vec::new();
@@ -992,7 +993,13 @@ pub async fn open_desk_api_conversation(
             team: !matches!(input.fields.department_id, Field::Absent),
             assignee: named_owner,
         };
-        let (routed, _, events, _) = route_conversation(deps, &id, keep).await?;
+        // A repeat is the `changed` trigger: what its field change did.
+        let repeat_change = (!result.created)
+            .then_some(set_message.as_ref())
+            .flatten()
+            .map(|m| routing::change_of(&m["metadata"]["changes"]));
+        let (routed, _, events, _) =
+            route_conversation(deps, &id, keep, repeat_change.as_ref()).await?;
         (routed, events)
     } else {
         (opened.clone(), Vec::new())
@@ -1150,8 +1157,11 @@ pub async fn update_desk_conversation_from_api(
             team: !matches!(input.fields.department_id, Field::Absent),
             assignee: !matches!(input.assignee_id, Field::Absent),
         };
+        let edit = change
+            .as_ref()
+            .map(|m| routing::change_of(&m["metadata"]["changes"]));
         let (routed, routed_messages, routed_events, applied) =
-            route_conversation(deps, id, keep).await?;
+            route_conversation(deps, id, keep, edit.as_ref()).await?;
         conversation = routed;
         messages.extend(routed_messages);
         events.extend(routed_events);

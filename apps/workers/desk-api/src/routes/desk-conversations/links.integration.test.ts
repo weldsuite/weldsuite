@@ -78,7 +78,16 @@ beforeAll(async () => {
   // A major incident and the customers it affects.
   await seed('dconv_inc', 311, { visitorId: 'vis_ops', name: 'Status page', title: 'Checkout is down' });
   await seed('dconv_c1', 312, { visitorId: 'vis_c1', name: 'Cleo' });
-  await seed('dconv_c2', 313, { channel: 'email', email: 'bob@shop.test', name: 'Bob', title: 'Cannot pay' });
+  // Already answered once, so the incident update doesn't set its first
+  // response time from the wall clock (TypeScript and Rust run a moment apart).
+  await seed('dconv_c2', 313, {
+    channel: 'email',
+    email: 'bob@shop.test',
+    name: 'Bob',
+    title: 'Cannot pay',
+    firstResponseAt: at(14),
+    firstResponseSeconds: 1,
+  });
   await db.insert(schema.deskMessages).values({
     id: 'dmsg_c2_1',
     conversationId: 'dconv_c2',
@@ -87,6 +96,15 @@ beforeAll(async () => {
     authorType: 'visitor',
     body: 'Payment fails',
     metadata: { helpdeskAddress: 'support@acme.test', emailMessageId: 'in-c2@shop.test' },
+  });
+  await db.insert(schema.deskMessages).values({
+    id: 'dmsg_c2_2',
+    conversationId: 'dconv_c2',
+    createdAt: at(14),
+    kind: 'message',
+    authorType: 'agent',
+    authorId: USER,
+    body: 'Looking into it',
   });
   await seed('dconv_c3', 314, { visitorId: 'vis_c3', name: 'Cas', state: 'closed' });
   // Duplicates of one customer (same email, one verified on the visitor), and someone else.
@@ -145,6 +163,23 @@ describe('PUT /api/desk/conversations/:id/parent', () => {
     expect(eventTypes(data.messages)).toEqual(['unlinked']);
     const again = (await (await writer().request(`${BASE}/dconv_child/parent`, send({ parentId: null }, 'PUT'))).json()) as Change;
     expect(again.data.messages).toEqual([]);
+  });
+
+  it('caps a parent at 200 linked tickets', async () => {
+    await seed('dconv_full', 4999, { visitorId: 'vis_full', name: 'Full' });
+    await db.insert(schema.deskConversations).values(
+      Array.from({ length: 200 }, (_, i) => ({
+        id: `dconv_full_${i}`,
+        conversationNumber: 5000 + i,
+        parentConversationId: 'dconv_full',
+        createdAt: at(0),
+        updatedAt: at(0),
+      })),
+    );
+    await seed('dconv_extra', 5300, { visitorId: 'vis_extra', name: 'Extra' });
+    const res = await writer().request(`${BASE}/dconv_extra/parent`, send({ parentId: 'dconv_full' }, 'PUT'));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { details: { reason: string } } }).error.details.reason).toBe('too_many_children');
   });
 
   it('validates the body and needs conversations:update', async () => {

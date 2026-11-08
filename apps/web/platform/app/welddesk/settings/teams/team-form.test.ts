@@ -59,6 +59,14 @@ describe('team form', () => {
     });
   });
 
+  it("keeps the stored manager name when the manager isn't in the member list", () => {
+    const values = { ...emptyTeamValues(1), name: 'Tier 2', managerMemberId: 'mbr_gone' };
+    const current = { managerId: 'mbr_gone', managerName: 'Gone Person' };
+    expect(valuesToTeamInput(values, [], current).managerName).toBe('Gone Person');
+    // A different manager the list doesn't know has no name to keep.
+    expect(valuesToTeamInput({ ...values, managerMemberId: 'mbr_new' }, [], current).managerName).toBeNull();
+  });
+
   it('checks the name, the order and each rule', () => {
     expect(validateTeamValues(emptyTeamValues(1))).toEqual({ field: 'name' });
     expect(validateTeamValues({ ...emptyTeamValues(1), name: 'x', sortOrder: '1.5' })).toEqual({ field: 'sortOrder' });

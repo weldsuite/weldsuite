@@ -53,16 +53,17 @@ export function useDraftTranslation(conversationId: string) {
 
 /**
  * For the send path: the `translation` to send with a reply, taken (and
- * cleared) from the composer's translated draft. Nothing for a note.
+ * cleared) from the composer's translated draft. Nothing for a note, and
+ * nothing when the reply is no longer the translation (the agent typed over it).
  */
 export function useTakeDraftTranslation(conversationId: string) {
   const store = useStore();
   return useCallback(
-    (kind: 'message' | 'note'): { translation?: DeskReplyTranslation } => {
+    (kind: 'message' | 'note', body: string): { translation?: DeskReplyTranslation } => {
       const draft = store.get(draftTranslationAtom)[conversationId];
       if (!draft) return {};
       store.set(draftTranslationAtom, (prev) => ({ ...prev, [conversationId]: undefined }));
-      if (kind !== 'message') return {};
+      if (kind !== 'message' || body.trim() !== draft.translated.trim()) return {};
       return {
         translation: { original: draft.original, sourceLocale: draft.sourceLocale, targetLocale: draft.targetLocale },
       };

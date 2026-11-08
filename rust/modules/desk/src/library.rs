@@ -378,5 +378,5 @@ pub(crate) static DEPARTMENTS_CRUD: Crud = Crud {
         Changed::UpdateOrExisting("email"),
     ],
     deleted: ev::DEPARTMENT_DELETED,
-    hook: Hook::None,
+    hook: Hook::DepartmentEscalations,
 };

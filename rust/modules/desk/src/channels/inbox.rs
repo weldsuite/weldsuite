@@ -1086,12 +1086,41 @@ fn email_text_body(body: Option<&str>, attached: &[MimeAttachment], linked: &[Va
 }
 
 /// `sendDeskEmailReply`: a failure is logged, the reply stands.
-#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub(super) async fn send_email_reply(
     ctx: &Ctx,
     state: &DeskState,
     conversation: &Value,
     message: &Value,
+) {
+    let outbound = outbound(ctx, state);
+    deliver_email_reply(
+        &ctx.caller.db,
+        &ctx.caller.clerk_org_id,
+        &outbound,
+        conversation,
+        message,
+        ReplyFiles::Load(ctx, state),
+    )
+    .await;
+}
+
+/// Where a reply's files come from: the request's file stores, or none (a
+/// notice the sweep writes has no attachments).
+pub(crate) enum ReplyFiles<'a> {
+    Load(&'a Ctx, &'a DeskState),
+    None,
+}
+
+/// `sendDeskEmailReply`'s send, outside a request: the thread's headers, the
+/// outbound guard, the transport. A failure is logged, the reply stands.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+pub(crate) async fn deliver_email_reply(
+    db: &PgPool,
+    clerk_org_id: &str,
+    outbound: &crate::dispatch::Outbound,
+    conversation: &Value,
+    message: &Value,
+    files_from: ReplyFiles<'_>,
 ) {
     let Some(recipient) = conversation["email"].as_str().filter(|e| !e.is_empty()) else {
         return;
@@ -1106,7 +1135,6 @@ pub(super) async fn send_email_reply(
     if !has_text && files.is_empty() {
         return;
     }
-    let db = &ctx.caller.db;
     let id = conversation["id"].as_str().unwrap_or_default();
     let thread = match webchat::email_thread(db, id).await {
         Ok(thread) => thread,
@@ -1128,7 +1156,10 @@ pub(super) async fn send_email_reply(
             .as_deref()
             .or_else(|| conversation["title"].as_str()),
     );
-    let (attached, linked) = email_attachments(ctx, state, &files).await;
+    let (attached, linked) = match files_from {
+        ReplyFiles::Load(ctx, state) => email_attachments(ctx, state, &files).await,
+        ReplyFiles::None => (Vec::new(), Vec::new()),
+    };
     let text = email_text_body(message["body"].as_str(), &attached, &linked);
     let mut headers = Vec::new();
     if let Some(last) = &thread.last_email_message_id {
@@ -1139,7 +1170,7 @@ pub(super) async fn send_email_reply(
     }
     let mut input = CheckOutboundInput::new(
         SubjectInput::Workspace {
-            clerk_org_id: ctx.caller.clerk_org_id.clone(),
+            clerk_org_id: clerk_org_id.to_owned(),
             workspace_id: None,
         },
         "desk",
@@ -1168,7 +1199,6 @@ pub(super) async fn send_email_reply(
         headers,
         attachments: attached,
     };
-    let outbound = outbound(ctx, state);
     let transport = outbound.transport.clone();
     let sent = guarded_send(&outbound.guard, Some(db), &input, || async {
         match &transport {

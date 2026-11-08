@@ -24,7 +24,7 @@
  * The Rust twin is `weldsuite_desk_domain::links`.
  */
 
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
@@ -47,7 +47,15 @@ export type DeskLinkRefusal =
   | 'merged'
   | 'target_merged'
   | 'different_customer'
-  | 'not_incident';
+  | 'not_incident'
+  | 'too_many_children';
+
+/**
+ * Most tickets one parent (a major incident) links. An incident update and
+ * closing an incident with its children work through every child in one
+ * request, so the number stays within what a request can do.
+ */
+export const MAX_DESK_CHILDREN = 200;
 
 export class DeskLinkRejectedError extends Error {
   constructor(
@@ -265,6 +273,16 @@ async function assertLinkable(db: AnyDb, child: DeskConversation, parent: DeskCo
   }
   if (await hasChildren(db, child.id)) {
     throw new DeskLinkRejectedError('has_children', "This ticket has child tickets, so it can't become a child ticket");
+  }
+  const [{ count } = { count: 0 }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(eq(conversations.parentConversationId, parent.id));
+  if (count >= MAX_DESK_CHILDREN) {
+    throw new DeskLinkRejectedError(
+      'too_many_children',
+      `Ticket #${parent.conversationNumber} already has ${MAX_DESK_CHILDREN} linked tickets`,
+    );
   }
 }
 

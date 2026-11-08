@@ -50,13 +50,14 @@ export async function rerouteAfterAttributes(
   message: DeskMessage,
   publishChange: (conversation: DeskConversation, message: DeskMessage) => Promise<void>,
 ): Promise<DeskRoutingResult | null> {
-  const { reroute, keepTeam } = deskChangeReroutes(message.metadata?.changes as DeskAttributeChange[] | undefined);
+  const { reroute, keepTeam, change } = deskChangeReroutes(message.metadata?.changes as DeskAttributeChange[] | undefined);
   if (!reroute) return null;
   const routed = await routeAndAssignDeskConversation(c.get('tenantDb'), {
     generateId,
     conversationId: message.conversationId,
     trigger: 'changed',
     keepTeam,
+    change,
     pick: deskAssignmentRouterPicker(c.env.HELPDESK_WORKFLOW, c.get('clerkOrgId')),
   });
   if (routed.steps.length === 0) return null;

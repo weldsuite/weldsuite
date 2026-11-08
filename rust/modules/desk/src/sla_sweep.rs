@@ -60,6 +60,16 @@ pub struct SweepServices {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// Notification email.
     pub mail: Option<Arc<dyn DynSystemMail>>,
+    /// Customer mail (a notice on an email ticket): the relay and the
+    /// outbound guard's ledgers, as the desk API sends replies with.
+    pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
+    /// For the outbound guard (workspace suspension, review state).
+    pub master: Option<PgPool>,
+    /// For the outbound guard's per-workspace counters.
+    pub cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
+    /// WeldDesk's `AssignmentRouter`, for escalations that hand a conversation
+    /// to the next team; without it the pick is the local balanced one.
+    pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 /// One tick (`runSlaSweep`'s result).
@@ -265,6 +275,7 @@ pub async fn run_sla_sweep(
             let tenants = Arc::clone(tenants);
             let announced = &announced;
             async move {
+                let reference = workspace_id.clone();
                 let tenant = tenants(workspace_id).await?;
                 let at = i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
                 let sent = sweep_workspace(services, &tenant.db, &tenant.clerk_org_id, at)
@@ -275,6 +286,7 @@ pub async fn run_sla_sweep(
                     services,
                     &tenant.db,
                     &tenant.clerk_org_id,
+                    &reference,
                     at,
                 )
                 .await

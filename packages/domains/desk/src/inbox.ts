@@ -41,7 +41,7 @@ import {
   deskAssignmentRouterPicker,
   type FetcherLike,
 } from '@weldsuite/db/lib/desk-assignment';
-import { deskChangeReroutes, routeDeskConversation } from '@weldsuite/db/lib/desk-routing';
+import { deskChangeReroutes, routeDeskConversation, type DeskRoutingChange } from '@weldsuite/db/lib/desk-routing';
 import type { DeskImpact, DeskPriority, DeskUrgency } from '@weldsuite/db/schema/desk-conversations';
 import type { DeskAttributeChange, DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -409,12 +409,14 @@ async function routeConversation(
   deps: DeskInboxDeps,
   conversation: DeskConversation,
   keep: { team: boolean; assignee: boolean },
+  change?: DeskRoutingChange,
 ): Promise<Applied & { routed: boolean }> {
   const routed = await routeDeskConversation(deps.db, {
     generateId: deps.generateId,
     conversationId: conversation.id,
     keepTeam: keep.team,
     keepAssignee: keep.assignee,
+    change,
   });
   return {
     conversation: routed.conversation,
@@ -424,9 +426,10 @@ async function routeConversation(
   };
 }
 
-/** Does this `attributes_changed` event re-route the conversation (a new type or tags)? */
-function reroutes(message: DeskMessage | null | undefined): boolean {
-  return deskChangeReroutes(message?.metadata?.changes as DeskAttributeChange[] | undefined).reroute;
+/** What an `attributes_changed` event changed, when it re-routes the conversation (a new type or tags). */
+function reroutes(message: DeskMessage | null | undefined): DeskRoutingChange | null {
+  const { reroute, change } = deskChangeReroutes(message?.metadata?.changes as DeskAttributeChange[] | undefined);
+  return reroute ? change : null;
 }
 
 /** The member the caller named, or else the workspace's assignment rules. */
@@ -482,9 +485,15 @@ export async function openDeskApiConversation(
   const messages = set?.message ? [result.message, set.message] : [result.message];
 
   // A new conversation is routed; a repeat whose type or tags changed is routed again.
+  const repeatChange = result.created ? null : reroutes(set?.message);
   const routing =
-    result.created || reroutes(set?.message)
-      ? await routeConversation(deps, opened, { team: fields?.departmentId !== undefined, assignee: Boolean(assigneeId) })
+    result.created || repeatChange
+      ? await routeConversation(
+          deps,
+          opened,
+          { team: fields?.departmentId !== undefined, assignee: Boolean(assigneeId) },
+          repeatChange ?? undefined,
+        )
       : { conversation: opened, events: [] };
   const { conversation, events: assignEvents } = await assignOpened(deps, routing.conversation, assigneeId, actor);
   await markDeskSlaDue(deps);
@@ -570,12 +579,14 @@ async function applyTicketFields(
  * owner.
  */
 async function rerouteUpdated(deps: DeskInboxDeps, fields: Applied, input: UpdateDeskConversationInput): Promise<Applied> {
-  const [change] = fields.messages;
-  if (!reroutes(change)) return { conversation: fields.conversation, messages: [], events: [] };
-  const routed = await routeConversation(deps, fields.conversation, {
-    team: input.fields?.departmentId !== undefined,
-    assignee: input.assigneeId !== undefined,
-  });
+  const change = reroutes(fields.messages[0]);
+  if (!change) return { conversation: fields.conversation, messages: [], events: [] };
+  const routed = await routeConversation(
+    deps,
+    fields.conversation,
+    { team: input.fields?.departmentId !== undefined, assignee: input.assigneeId !== undefined },
+    change,
+  );
   if (!routed.routed || input.assigneeId !== undefined) return routed;
   const assigned = await autoAssignOpened(deps, routed.conversation);
   return {

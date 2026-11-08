@@ -7,9 +7,10 @@
  * For each conversation whose check came due, `runDeskEscalations` fires the
  * rules that are due (`@weldsuite/db/lib/desk-escalation`). Every timeline
  * event it wrote goes out as a `desk_conversation` entity event (`assigned`
- * when the owner changed, else `updated`) and live to the inbox; a public
- * notice to the customer also reaches their conversation room; whoever now
- * owns the conversation is told.
+ * when the owner changed, else `updated`) plus `desk_message created`, and
+ * live to the inbox; a public notice to the customer also reaches their
+ * conversation room, or their inbox as an email on an email ticket; whoever
+ * now owns the conversation is told.
  */
 
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
@@ -24,6 +25,7 @@ import {
   type DeskEscalationResult,
 } from '@weldsuite/db/lib/desk-escalation';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { sendDeskEmailReply } from '../lib/desk-email';
 import type { Env, Variables } from '../types';
 
 type TenantDb = Variables['tenantDb'];
@@ -33,10 +35,15 @@ const CONVERSATION_RETRY_MS = 30 * 60_000;
 /** Conversations per workspace per tick; the rest stay due for the next tick. */
 const CONVERSATIONS_PER_TICK = 100;
 
-/** Publish what one conversation's escalation wrote. Best-effort. */
-async function publishEscalation(env: Env, db: TenantDb, orgId: string, result: DeskEscalationResult): Promise<void> {
+type EscalationStep = DeskEscalationResult['steps'][number];
+
+/** A public message written to the customer (the escalation notice). */
+const isCustomerNotice = (step: EscalationStep) => step.message.kind === 'message' && isPublicDeskMessage(step.message);
+
+/** The hub events of each step, and the email of a notice on an email ticket. */
+function stepJobs(env: Env, db: TenantDb, orgId: string, steps: EscalationStep[]): Promise<unknown>[] {
   const jobs: Promise<unknown>[] = [];
-  for (const step of result.steps) {
+  for (const step of steps) {
     jobs.push(
       publishEntityEventRaw({
         env,
@@ -47,47 +54,76 @@ async function publishEscalation(env: Env, db: TenantDb, orgId: string, result: 
         entityId: step.conversation.id,
         data: step.conversation as unknown as Record<string, unknown>,
       }),
+      publishEntityEventRaw({
+        env,
+        workspaceId: orgId,
+        userId: 'system',
+        entityType: 'desk_message',
+        action: 'created',
+        entityId: step.message.id,
+        data: step.message as unknown as Record<string, unknown>,
+      }),
     );
-  }
-  if (env.REALTIME && result.steps.length > 0) {
-    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
-    for (const step of result.steps) {
-      jobs.push(rt.publish(orgId, 'desk_conversation', 'updated', step.conversation, 'system'));
-      jobs.push(rt.publish(orgId, 'desk_message', 'created', step.message, 'system'));
-      if (isPublicDeskMessage(step.message) && step.message.kind === 'message') {
-        jobs.push(
-          rt.conversationPublish(step.conversation.id, {
-            type: 'message',
-            id: step.message.id,
-            content: step.message.body ?? '',
-            senderId: 'system',
-            senderName: 'Support',
-            senderType: 'system',
-            ts: Date.now(),
-            record: toPublicDeskMessage(step.message, new Map()),
-          }),
-        );
-      }
+    // The notice to the customer, on an email ticket, is an email like any reply.
+    if (step.conversation.channel === 'email' && isCustomerNotice(step)) {
+      jobs.push(sendDeskEmailReply(env, db, step.conversation, step.message, { clerkOrgId: orgId }));
     }
   }
-  const conversation = result.conversation;
-  if (conversation) {
-    for (const userId of result.newOwners) {
+  return jobs;
+}
+
+/** Live to the inbox, and a notice to the customer's conversation room. */
+function realtimeJobs(env: Env, orgId: string, steps: EscalationStep[]): Promise<unknown>[] {
+  if (!env.REALTIME || steps.length === 0) return [];
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
+  const jobs: Promise<unknown>[] = [];
+  for (const step of steps) {
+    jobs.push(rt.publish(orgId, 'desk_conversation', 'updated', step.conversation, 'system'));
+    jobs.push(rt.publish(orgId, 'desk_message', 'created', step.message, 'system'));
+    if (isCustomerNotice(step)) {
       jobs.push(
-        sendTicketAssignedNotification({
-          db,
-          env,
-          workspaceId: orgId,
-          assigneeId: userId,
-          assignedByUserId: null,
-          kind: 'conversation',
-          entityId: conversation.id,
-          subject: conversation.title || conversation.name || conversation.email,
-          reference: `#${conversation.conversationNumber}`,
+        rt.conversationPublish(step.conversation.id, {
+          type: 'message',
+          id: step.message.id,
+          content: step.message.body ?? '',
+          senderId: 'system',
+          senderName: 'Support',
+          senderType: 'system',
+          ts: Date.now(),
+          record: toPublicDeskMessage(step.message, new Map()),
         }),
       );
     }
   }
+  return jobs;
+}
+
+/** Tell whoever now owns the conversation. */
+function ownerJobs(env: Env, db: TenantDb, orgId: string, result: DeskEscalationResult): Promise<unknown>[] {
+  const conversation = result.conversation;
+  if (!conversation) return [];
+  return result.newOwners.map((userId) =>
+    sendTicketAssignedNotification({
+      db,
+      env,
+      workspaceId: orgId,
+      assigneeId: userId,
+      assignedByUserId: null,
+      kind: 'conversation',
+      entityId: conversation.id,
+      subject: conversation.title || conversation.name || conversation.email,
+      reference: `#${conversation.conversationNumber}`,
+    }),
+  );
+}
+
+/** Publish what one conversation's escalation wrote. Best-effort. */
+async function publishEscalation(env: Env, db: TenantDb, orgId: string, result: DeskEscalationResult): Promise<void> {
+  const jobs = [
+    ...stepJobs(env, db, orgId, result.steps),
+    ...realtimeJobs(env, orgId, result.steps),
+    ...ownerJobs(env, db, orgId, result),
+  ];
   for (const outcome of await Promise.allSettled(jobs)) {
     if (outcome.status === 'rejected') console.error('[DeskEscalation] publishing failed:', outcome.reason);
   }

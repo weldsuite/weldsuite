@@ -4,13 +4,14 @@
  * Permissions: departments:read | departments:create | departments:update | departments:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createHelpdeskDepartmentSchema, updateHelpdeskDepartmentSchema } from '@weldsuite/core-api-client/schemas/helpdesk-departments';
 import type { Env, Variables } from '../../types';
+import { markDeskSlaDue } from '../../lib/sla-due';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -155,6 +156,24 @@ app.post('/', requirePermission('departments:create'), zValidator('json', create
   }
 });
 
+/**
+ * A team's escalation rules or active flag changed: its open conversations
+ * are looked at by the next SLA sweep (cron/escalation-sweep.ts), which
+ * re-derives when each rule can fire. Without this, a quiet conversation
+ * (nothing written on it since) would never pick up a new rule.
+ */
+async function recheckEscalations(c: Context<{ Bindings: Env; Variables: Variables }>, departmentId: string): Promise<void> {
+  const now = new Date();
+  const dc = schema.deskConversations;
+  const touched = await c
+    .get('tenantDb')
+    .update(dc)
+    .set({ escalationCheckAt: now })
+    .where(and(eq(dc.departmentId, departmentId), eq(dc.state, 'open')))
+    .returning({ id: dc.id });
+  if (touched.length > 0) markDeskSlaDue(c, now);
+}
+
 app.patch('/:id', requirePermission('departments:update'), zValidator('json', updateHelpdeskDepartmentSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -165,6 +184,7 @@ app.patch('/:id', requirePermission('departments:update'), zValidator('json', up
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+    if (data.escalationRules !== undefined || data.isActive !== undefined) await recheckEscalations(c, id);
     publishEntityEvent({ c, entityType: 'department', entityId: id, action: 'updated', data: { id, name: (update.name as string | undefined) ?? existing.name, email: (update.email as string | undefined) ?? existing.email } });
     return success(c, { id });
   } catch (err) {

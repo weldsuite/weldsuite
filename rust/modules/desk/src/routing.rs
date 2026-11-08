@@ -63,16 +63,30 @@ pub(crate) async fn reroute_after_attributes(
         team: keep_team,
         assignee: false,
     };
-    let routed =
-        match routing::route_and_assign(&caller.db, id, keep, Trigger::Changed, &Picker::Local)
-            .await
-        {
-            Ok(routed) => routed,
-            Err(error) => {
-                tracing::error!(%error, "[desk-api/desk-conversations] routing failed");
-                return None;
-            }
-        };
+    let change = routing::change_of(&message["metadata"]["changes"]);
+    let picker = match &state.assignment {
+        Some(router) => Picker::Router {
+            router,
+            workspace_id: &caller.workspace_id,
+        },
+        None => Picker::Local,
+    };
+    let routed = match routing::route_and_assign_with(
+        &caller.db,
+        id,
+        keep,
+        Trigger::Changed,
+        Some(&change),
+        &picker,
+    )
+    .await
+    {
+        Ok(routed) => routed,
+        Err(error) => {
+            tracing::error!(%error, "[desk-api/desk-conversations] routing failed");
+            return None;
+        }
+    };
     if routed.steps.is_empty() {
         return None;
     }

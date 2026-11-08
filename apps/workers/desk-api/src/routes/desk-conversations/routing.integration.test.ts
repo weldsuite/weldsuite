@@ -146,6 +146,20 @@ describe('PATCH /api/desk/conversations/:id · routing', () => {
     expect((await timeline(conversation.id)).map((e) => e.metadata?.eventType)).toEqual(['attributes_changed']);
   });
 
+  it("doesn't run the rule that placed it again: the agent's later edits stay", async () => {
+    const conversation = await start('vis_route_again');
+    await patch(conversation.id, { tags: ['vip'] }); // rule_vip: Tier 2, high, +escalated
+    await patch(conversation.id, { priority: 'low' });
+
+    // Removing the tag the rule added edits the tags, but rule_vip already applied.
+    const res = await patch(conversation.id, { tags: ['vip'] });
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as PatchBody;
+    expect(data.conversation).toMatchObject({ tags: ['vip'], priority: 'low', departmentId: 'dep_r_tier2' });
+    const routed = (await timeline(conversation.id)).filter((e) => e.metadata?.routingRuleId);
+    expect(routed).toHaveLength(1);
+  });
+
   it('never takes a conversation away from its owner', async () => {
     const conversation = await start('vis_route_owned');
     await db.update(schema.deskConversations).set({ assigneeId: 'user_r_ann' }).where(eq(schema.deskConversations.id, conversation.id));

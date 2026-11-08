@@ -312,6 +312,32 @@ pub struct Keep {
     pub assignee: bool,
 }
 
+/// `DeskRoutingChange`: what the `attributes_changed` edit behind a `changed`
+/// trigger did. The rule that applied last isn't applied again, and a tag the
+/// edit removed is never put back.
+#[derive(Debug, Clone, Default)]
+pub struct Change {
+    /// Tags the edit removed (any case).
+    pub removed_tags: Vec<String>,
+}
+
+/// `lastRoutingRuleId(db, conversationId)`: the rule that last applied on
+/// the conversation (its latest `routingRuleId` on the timeline).
+async fn last_routing_rule_id(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<Option<String>> = sqlx::query_scalar(
+        "select metadata->>'routingRuleId' from desk_messages
+         where conversation_id = $1 and metadata ? 'routingRuleId'
+         order by created_at desc, id desc limit 1",
+    )
+    .bind(conversation_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.flatten())
+}
+
 fn earliest(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     [a, b].into_iter().flatten().min()
 }
@@ -343,22 +369,49 @@ async fn usable_assignee(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error
 /// apply the first matching rule. Writes nothing when no rule matches or
 /// it changes nothing; a team that is gone or inactive, or a teammate who
 /// left, skips that action.
-#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Routed, RoutingError> {
+    route_with(db, conversation_id, keep, None).await
+}
+
+/// [`route`] for the `changed` trigger: `change` is what the edit did.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+pub async fn route_with(
+    db: &PgPool,
+    conversation_id: &str,
+    keep: Keep,
+    change: Option<&Change>,
+) -> Result<Routed, RoutingError> {
     let Some((current, _)) = webchat::get(db, conversation_id, false).await? else {
         return Err(RoutingError(format!(
             "Desk conversation '{conversation_id}' not found"
         )));
     };
+    let unrouted = |conversation: Value| Routed {
+        conversation,
+        steps: Vec::new(),
+        rule_id: None,
+        sla_check_at: None,
+    };
     let (_, rules) = settings(db).await?;
     let Some(rule) = select(&rules, &current) else {
-        return Ok(Routed {
-            conversation: current,
-            steps: Vec::new(),
-            rule_id: None,
-            sla_check_at: None,
-        });
+        return Ok(unrouted(current));
     };
+    // An edit re-routes only to a rule other than the one that placed the
+    // conversation; re-running that one would undo the agent's own changes.
+    if change.is_some()
+        && last_routing_rule_id(db, conversation_id).await?.as_deref() == Some(rule.id.as_str())
+    {
+        return Ok(unrouted(current));
+    }
+    let removed: Vec<String> = change
+        .map(|c| c.removed_tags.iter().map(|t| t.to_lowercase()).collect())
+        .unwrap_or_default();
+    let added: Vec<String> = rule
+        .add_tags
+        .iter()
+        .filter(|tag| !removed.contains(&tag.to_lowercase()))
+        .cloned()
+        .collect();
 
     let mut steps = Vec::new();
     let mut sla_check_at = None;
@@ -380,7 +433,7 @@ pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Rou
         input.priority = Field::Set(priority.clone());
         changed = true;
     }
-    if !rule.add_tags.is_empty() {
+    if !added.is_empty() {
         let before: Vec<String> = current["tags"]
             .as_array()
             .into_iter()
@@ -389,7 +442,7 @@ pub async fn route(db: &PgPool, conversation_id: &str, keep: Keep) -> Result<Rou
             .map(str::to_owned)
             .collect();
         let mut all = before.clone();
-        all.extend(rule.add_tags.iter().cloned());
+        all.extend(added.iter().cloned());
         let tags = normalize_tags(&all);
         if tags != before {
             input.tags = Some(tags);
@@ -494,7 +547,19 @@ pub async fn route_and_assign(
     trigger: Trigger,
     picker: &Picker<'_>,
 ) -> Result<Routed, RoutingError> {
-    let mut routed = route(db, conversation_id, keep).await?;
+    route_and_assign_with(db, conversation_id, keep, trigger, None, picker).await
+}
+
+/// [`route_and_assign`] with what the triggering edit did (the `changed` trigger).
+pub async fn route_and_assign_with(
+    db: &PgPool,
+    conversation_id: &str,
+    keep: Keep,
+    trigger: Trigger,
+    change: Option<&Change>,
+    picker: &Picker<'_>,
+) -> Result<Routed, RoutingError> {
+    let mut routed = route_with(db, conversation_id, keep, change).await?;
     if keep.assignee || (trigger == Trigger::Changed && routed.steps.is_empty()) {
         return Ok(routed);
     }
@@ -509,6 +574,38 @@ pub async fn route_and_assign(
         });
     }
     Ok(routed)
+}
+
+/// `deskChangeReroutes(changes).change`: the tags an `attributes_changed`
+/// event's tag change removed (compared in any case).
+pub fn change_of(changes: &Value) -> Change {
+    let tags = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    let tag_change = changes
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|change| change["field"] == "tags");
+    let Some(tag_change) = tag_change else {
+        return Change::default();
+    };
+    let after: Vec<String> = tags(&tag_change["to"])
+        .iter()
+        .map(|t| t.to_lowercase())
+        .collect();
+    Change {
+        removed_tags: tags(&tag_change["from"])
+            .into_iter()
+            .filter(|t| !after.contains(&t.to_lowercase()))
+            .collect(),
+    }
 }
 
 /// `deskChangeReroutes(changes)`: whether an `attributes_changed` event's

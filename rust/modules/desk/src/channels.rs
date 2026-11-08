@@ -12,6 +12,8 @@ mod attributes;
 mod helpcenter;
 #[path = "channels/inbox.rs"]
 mod inbox;
+/// The email send of a reply, for writers outside a request (the escalation sweep).
+pub(crate) use inbox::{ReplyFiles, deliver_email_reply};
 #[path = "channels/integrations.rs"]
 mod integrations;
 #[path = "channels/links.rs"]
