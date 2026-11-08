@@ -1903,6 +1903,10 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_core_team::workspace_settings(team.clone(), gate),
         )
         .nest(
+            "/legal-entities",
+            weldsuite_core_team::legal_entities(team.clone(), gate),
+        )
+        .nest(
             "/settings/profile",
             weldsuite_core_team::settings_profile(team.clone(), gate),
         )

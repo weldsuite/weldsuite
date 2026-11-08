@@ -16,10 +16,11 @@ use axum::routing::{get, post, put};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::compliance::get_contact_vat_number;
 use weldsuite_books_domain::document_posting::load_tax_rates;
-use weldsuite_books_domain::entity_context::resolve_entity_id;
+use weldsuite_books_domain::entity_context::{records_in_entity, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, created, now, now_ms, ok, paged, reply, validate,
@@ -38,6 +39,7 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_db::Keyring;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, generate_id};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::OutboundHttp;
 
@@ -78,6 +80,12 @@ where
         .route(
             "/{id}/correction",
             post(correction).route_layer(need("invoices:update")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("fiscal_documents"), "Fiscal document")
+                .layer(),
         )
         .with_state(state)
 }
@@ -431,6 +439,16 @@ async fn update_settings(
     .bind(&entity_id)
     .execute(db)
     .await?;
+    // Release 1 mirror: the WeldBooks extension holds the same values.
+    let mut mirror = Map::new();
+    mirror.insert("jurisdictionSettings".into(), Value::Object(next.clone()));
+    if changed {
+        mirror.insert(
+            "fiscalCredentialsEncrypted".into(),
+            json!(sealed.clone().flatten()),
+        );
+    }
+    upsert_accounting_entity_settings(db, &entity_id, &mirror).await?;
 
     let mut changes = Map::new();
     changes.insert(
@@ -1317,6 +1335,9 @@ async fn issue(
         async {
             let entity = require_entity(&caller).await?;
             let entity_id = entity["id"].as_str().unwrap_or_default();
+            if !records_in_entity(&caller, &EntityTable::new("invoices"), &[&invoice_id]).await? {
+                return Err(Refusal::not_found("Invoice", &invoice_id).into());
+            }
             let document = issue_document(&caller, &state, entity_id, &invoice_id).await?;
             let mut changes = Map::new();
             changes.insert(

@@ -58,6 +58,8 @@ export async function listCoachingLogs(
   filters: {
     employeeId?: string;
     employeeIds?: string[];
+    /** Condition on the employees' legal entity (the request's entity scope). */
+    entity?: SQL;
     companyId?: string;
     status?: string;
     category?: string;
@@ -68,6 +70,7 @@ export async function listCoachingLogs(
   },
 ) {
   const conditions: SQL[] = [isNull(co.deletedAt), isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(co.employeeId, filters.employeeId));
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return [];
@@ -306,6 +309,8 @@ export async function listEvaluations(
   filters: {
     employeeId?: string;
     employeeIds?: string[];
+    /** Condition on the employees' legal entity (the request's entity scope). */
+    entity?: SQL;
     companyId?: string;
     status?: string;
     formId?: string;
@@ -315,6 +320,7 @@ export async function listEvaluations(
   },
 ) {
   const conditions: SQL[] = [isNull(ev.deletedAt), isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(ev.employeeId, filters.employeeId));
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return [];
@@ -533,6 +539,8 @@ export async function listKpiValues(
   filters: {
     employeeId?: string;
     employeeIds?: string[];
+    /** Condition on the employees' legal entity (the request's entity scope). */
+    entity?: SQL;
     kpiId?: string;
     companyId?: string;
     from?: string;
@@ -541,6 +549,7 @@ export async function listKpiValues(
   },
 ) {
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(kv.employeeId, filters.employeeId));
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return [];
@@ -632,12 +641,14 @@ export async function importKpiValues(
     periodEnd: string;
     sharedWithClient?: boolean;
     rows: Array<{ employee: string; value: number; companyId?: string | null }>;
+    /** Condition on the employees' legal entity: employees outside it do not match. */
+    entity?: SQL;
   },
   createdBy: string,
 ) {
   assertDateOrder(input.periodStart, input.periodEnd, 'KPI period');
   await requireKpiDefinition(db, input.kpiId);
-  const refs = await resolveEmployeeRefs(db, input.rows.map((r) => r.employee));
+  const refs = await resolveEmployeeRefs(db, input.rows.map((r) => r.employee), input.entity);
   const result = { created: 0, updated: 0, errors: [] as Array<{ row: number; reason: string }> };
   for (const [index, row] of input.rows.entries()) {
     const employeeId = refs.get(row.employee.trim().toLowerCase()) ?? refs.get(row.employee.trim());
@@ -700,9 +711,10 @@ export async function requireMilestone(db: Database, id: string) {
 
 export async function listMilestones(
   db: Database,
-  filters: { employeeId?: string; employeeIds?: string[]; companyId?: string; status?: string; sharedWithClient?: boolean },
+  filters: { employeeId?: string; employeeIds?: string[]; entity?: SQL; companyId?: string; status?: string; sharedWithClient?: boolean },
 ) {
   const conditions: SQL[] = [isNull(ms.deletedAt), isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(ms.employeeId, filters.employeeId));
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return [];

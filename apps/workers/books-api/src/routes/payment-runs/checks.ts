@@ -11,11 +11,16 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, list, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
+import { schema } from '@weldsuite/worker-kit/db';
 import { checkRegister, voidCheck } from '../../services/payment-runs/checks';
 import { auditRun, bankAccountIdQuery, day, pageLimit, requireEntity, respondError, runEventData, voidCheckSchema } from './shared';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 
 export const checksRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(checksRoutes, schema.payments, { param: 'paymentId', label: 'Payment' });
 
 // POST /:paymentId/void — void a check (the ledger entry is reversed, the bills are open again)
 checksRoutes.post('/:paymentId/void', requirePermission('banking:manage'), zValidator('json', voidCheckSchema), async (c) => {

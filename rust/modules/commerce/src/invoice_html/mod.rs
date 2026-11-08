@@ -4,13 +4,14 @@
 //! invoice or one whose entity is gone is not found.
 
 use serde_json::Value;
+use weldsuite_books_domain::accounting_entity::{InvoiceEntityError, load_invoice_entity};
 use weldsuite_books_domain::books_row;
 use weldsuite_books_domain::compliance::{
     build_compliance_notices, collect_invoice_tax_categories, get_contact_vat_number,
     invoice_uses_reverse_charge,
 };
 use weldsuite_books_domain::invoice_html::{InvoiceRenderData, RenderItem, generate_invoice_html};
-use weldsuite_books_domain::tables::{ENTITIES, INVOICE_ITEMS};
+use weldsuite_books_domain::tables::INVOICE_ITEMS;
 use weldsuite_db::PgPool;
 
 /// What the portal hands out for an invoice.
@@ -81,15 +82,16 @@ pub(crate) async fn portal_invoice_document(
     .fetch_all(db)
     .await?;
     let items = INVOICE_ITEMS.js_rows(items);
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(text(&invoice, "entityId").unwrap_or_default())
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = entity.map(|e| ENTITIES.js(e)) else {
+    // Extension values merged in, and the bank account chosen for invoices
+    // when there is one (`loadInvoiceEntity(db, entityId)`: no keys, so no
+    // account number).
+    let entity = load_invoice_entity(db, text(&invoice, "entityId").unwrap_or_default(), None)
+        .await
+        .map_err(|error| match error {
+            InvoiceEntityError::Database(error) => InvoiceDocumentError::Database(error),
+            InvoiceEntityError::Decrypt(message) => InvoiceDocumentError::Render(message),
+        })?;
+    let Some(entity) = entity else {
         return Ok(InvoiceDocument::NotFound);
     };
 

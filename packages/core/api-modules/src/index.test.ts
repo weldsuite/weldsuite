@@ -278,7 +278,7 @@ describe('licence gate lookups', () => {
     // Objects external-api serves that genuinely belong to the core platform.
     // Anything else falling through to core would silently escape the gate.
     const coreObjects = new Set([
-      'app-storage', 'custom-objects', 'drive', 'files', 'folders', 'settings', 'user-apps', 'webhooks',
+      'app-storage', 'custom-objects', 'drive', 'files', 'folders', 'legal-entities', 'settings', 'user-apps', 'webhooks',
     ]);
     const source = readFileSync(path.resolve(WORKERS_DIR, 'external-api/src/routes/v1/index.ts'), 'utf8');
     const objects = [...source.matchAll(/v1\.route\(\s*'\/([^'/]+)'/g)].map((m) => m[1]!);

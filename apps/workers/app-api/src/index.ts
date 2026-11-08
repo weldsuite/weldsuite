@@ -27,6 +27,7 @@ import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { meRoutes } from './routes/me';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
+import { legalEntitiesRoutes } from './routes/legal-entities';
 import { rolesRoutes } from './routes/roles';
 import { settingsProfileRoutes } from './routes/settings-profile';
 import { customFieldsRoutes } from './routes/custom-fields';
@@ -241,6 +242,7 @@ app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
 app.route('/api/roles', rolesRoutes);
+app.route('/api/legal-entities', legalEntitiesRoutes);
 // WeldCRM (companies, people, leads, opportunities, pipelines, activities,
 // lists, sequences, …) moved to crm-api; the kit's forwarder hands those paths
 // to it over the CRM_API binding (API_FORWARD_MODULES in wrangler.toml).

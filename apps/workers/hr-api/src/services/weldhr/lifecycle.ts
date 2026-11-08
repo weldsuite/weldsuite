@@ -10,7 +10,7 @@
  * assignments ended. The workspace seat is removed in Settings → Team.
  */
 
-import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import type { HrChecklistTemplateItem, HrEmployee } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -89,7 +89,10 @@ export async function requireTask(db: Database, id: string) {
 }
 
 /** Checklists with their tasks, newest first. `employeeId` omitted → every open checklist. */
-export async function listChecklists(db: Database, filters: { employeeId?: string; status?: string; kind?: string }) {
+export async function listChecklists(
+  db: Database,
+  filters: { employeeId?: string; status?: string; kind?: string; entity?: SQL },
+) {
   const conditions = [];
   if (filters.employeeId) conditions.push(eq(chk.employeeId, filters.employeeId));
   if (filters.status) conditions.push(eq(chk.status, filters.status));
@@ -105,7 +108,7 @@ export async function listChecklists(db: Database, filters: { employeeId?: strin
     })
     .from(chk)
     .innerJoin(schema.hrEmployees, eq(schema.hrEmployees.id, chk.employeeId))
-    .where(and(isNull(schema.hrEmployees.deletedAt), ...conditions))
+    .where(and(isNull(schema.hrEmployees.deletedAt), filters.entity, ...conditions))
     .orderBy(desc(chk.startedAt));
   if (checklists.length === 0) return [];
 

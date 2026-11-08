@@ -31,6 +31,7 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import { Form1099Error } from '../../services/form-1099/errors';
 import {
@@ -51,6 +52,9 @@ import { buildCopies, buildIrisFiles, parseCopies, parseTemplateHeaders } from '
 import { VendorTaxKeyError } from '../../services/vendor-tax-data';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.form1099Filings, { label: '1099 filing' });
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 

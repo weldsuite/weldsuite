@@ -52,6 +52,7 @@ export interface BreadcrumbMenuLabels {
   integrations: string;
   phoneNumbers: string;
   entities: string;
+  legalEntities: string;
   newEntity: string;
   editEntity: string;
   invoiceTemplates: string;
@@ -85,6 +86,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     integrations: menu.integrations,
     'phone-numbers': menu.phoneNumbers,
     entities: menu.entities,
+    'legal-entities': menu.legalEntities,
     activity: menu.activityLog,
     export: menu.dataExport,
     advanced: menu.advanced,
@@ -114,6 +116,8 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
 function isIdSegment(pathParts: string[], i: number): boolean {
   // An entity's: Settings > Entities > Edit entity.
   if (pathParts[1] === 'entities') return i === 2 && pathParts[3] === 'edit';
+  // A legal entity's: Settings > Legal entities (the page names the entity).
+  if (pathParts[1] === 'legal-entities') return i === 2;
   // A chat widget's: Settings > Apps > WeldDesk > Chat widget.
   return pathParts[2] === 'welddesk' && pathParts[3] === 'chat-widget' && i === 4;
 }

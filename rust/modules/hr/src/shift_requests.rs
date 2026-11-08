@@ -21,6 +21,7 @@ use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::text_max;
 use crate::open_shifts::{assert_can_sign_up, assert_open_shift_has_spot, settle_open_shift};
 use crate::timekeeping::{
@@ -46,6 +47,11 @@ where
             "/shift-requests/{id}/review",
             post(review).route_layer(gate.require([ATTENDANCE_CREATE])),
         )
+        .route_layer(guard(
+            "/shift-requests",
+            "Shift request",
+            via_employee!("hr_shift_requests"),
+        ))
 }
 
 /// `requireShiftRequest(db, id)`.
@@ -59,7 +65,7 @@ pub(crate) async fn require_shift_request(db: &PgPool, id: &str) -> Result<Value
         .ok_or_else(|| HrError::not_found("Shift request", id))
 }
 
-/// `listShiftRequests(db, filters)`.
+/// `listShiftRequests(db, filters)`; `scope` is the request's entity scope.
 pub(crate) async fn list_shift_requests(
     db: &PgPool,
     id: Option<&str>,
@@ -67,6 +73,7 @@ pub(crate) async fn list_shift_requests(
     status: Option<&str>,
     from: Option<&str>,
     to: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let statuses: Option<Vec<String>> = status
         .filter(|s| !s.is_empty())
@@ -81,6 +88,8 @@ pub(crate) async fn list_shift_requests(
            and ($3::text[] is null or r.status = any($3))
            and ($4::text is null or r.starts_at >= $4::timestamptz)
            and ($5::text is null or r.starts_at <= $5::timestamptz)
+           and ($6::text[] is null or e.legal_entity_id = any($6)
+                or ($7::boolean and e.legal_entity_id is null))
          order by r.starts_at desc limit 1000",
     )
     .bind(id)
@@ -88,6 +97,8 @@ pub(crate) async fn list_shift_requests(
     .bind(&statuses)
     .bind(from.map(|f| format!("{f}T00:00:00Z")))
     .bind(to.map(|t| format!("{t}T23:59:59Z")))
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let reviewers: Vec<Option<&str>> = rows
@@ -114,7 +125,7 @@ pub(crate) async fn list_shift_requests(
 
 /// `shiftRequestWithNames(db, id)`.
 async fn shift_request_with_names(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    list_shift_requests(db, Some(id), None, None, None, None)
+    list_shift_requests(db, Some(id), None, None, None, None, &Scope::ALL)
         .await?
         .into_iter()
         .next()
@@ -388,6 +399,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         query_text(&q, "status").as_deref(),
         query_date(&q, "from").as_deref(),
         query_date(&q, "to").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())

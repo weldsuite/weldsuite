@@ -37,13 +37,23 @@ import {
 } from '../../services/weldhr/employees';
 import { startChecklist } from '../../services/weldhr/lifecycle';
 import { recordHrAudit } from '../../services/weldhr/shared';
+import {
+  assertEntityUsable,
+  employeeEntityCondition,
+  employeeRecord,
+  guardRecord,
+  resolveNewEmployeeEntity,
+} from './entity-scope';
 import { actor, hrJson, clientIp, db, emit, linkInvitedEmployees, param } from './helpers';
 
 export const employeesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// An employee of a legal entity the request may not touch is a 404 on every by-id route.
+guardRecord(employeesRoutes, 'employeeId', 'Employee', employeeRecord);
+
 employeesRoutes.get('/', requirePermission('employees:read'), zValidator('query', listHrEmployeesQuerySchema), async (c) => {
   await linkInvitedEmployees(c);
-  const result = await listEmployees(db(c), c.req.valid('query'));
+  const result = await listEmployees(db(c), { ...c.req.valid('query'), entity: await employeeEntityCondition(c) });
   return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
@@ -62,8 +72,9 @@ employeesRoutes.get('/:employeeId', requirePermission('employees:read'), async (
 });
 
 employeesRoutes.post('/', requirePermission('employees:create'), hrJson(createHrEmployeeSchema), async (c) => {
-  const { sensitive, onboardingTemplateId, ...input } = c.req.valid('json');
+  const { sensitive, onboardingTemplateId, legalEntityId: requestedEntityId, ...rest } = c.req.valid('json');
   const database = db(c);
+  const input = { ...rest, legalEntityId: await resolveNewEmployeeEntity(c, requestedEntityId) };
 
   if (sensitive) {
     if (!(await hasContextPermission(c, 'employees:sensitive'))) {
@@ -99,8 +110,9 @@ employeesRoutes.post(
   requirePermission('employees:create'),
   hrJson(createHrEmployeeFromMemberSchema),
   async (c) => {
-    const { sensitive, onboardingTemplateId, ...input } = c.req.valid('json');
+    const { sensitive, onboardingTemplateId, legalEntityId: requestedEntityId, ...rest } = c.req.valid('json');
     const database = db(c);
+    const input = { ...rest, legalEntityId: await resolveNewEmployeeEntity(c, requestedEntityId) };
 
     if (sensitive) {
       if (!(await hasContextPermission(c, 'employees:sensitive'))) {
@@ -137,6 +149,8 @@ employeesRoutes.patch('/:employeeId', requirePermission('employees:update'), hrJ
   if (sensitive) {
     return error.badRequest(c, 'Update sensitive data through PUT /employees/:employeeId/sensitive');
   }
+  // Moving an employee needs the same standing in the target entity as creating one there.
+  if (input.legalEntityId) await assertEntityUsable(c, input.legalEntityId);
   const employee = await updateEmployee(db(c), param(c, 'employeeId'), input);
   emit(c, 'hr_employee', 'updated', employee.id, { status: employee.status });
   return success(c, toPublicEmployee(employee));
@@ -185,7 +199,7 @@ employeesRoutes.put(
 
 export const orgChartRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-orgChartRoutes.get('/', requirePermission('employees:read'), async (c) => success(c, await orgChart(db(c))));
+orgChartRoutes.get('/', requirePermission('employees:read'), async (c) => success(c, await orgChart(db(c), await employeeEntityCondition(c))));
 
 export const departmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 

@@ -20,8 +20,9 @@ use weldsuite_payroll_domain::us::forms::{
 use super::Deps;
 use super::common::{address_lines, annual_statement_file_name, engine_error, mask_ssn};
 use super::employees::decrypt_sensitive;
+use super::employer_context::find_employer_for_payroll;
 use super::notifier::language_of;
-use super::payslips::{employee_by_id, employer_by_id};
+use super::payslips::employee_by_id;
 use super::runs::{payslip_sql, s};
 use super::ytd::{compare_number_order, ytd_of};
 use crate::employees::display_name_of;
@@ -135,7 +136,9 @@ pub(crate) async fn annual_statement_pdf(
     employer_id: &str,
     deps: &Deps,
 ) -> Result<(Vec<u8>, String), HrError> {
-    let employer = employer_by_id(db, employer_id).await?;
+    let employer = find_employer_for_payroll(db, employer_id, &deps.keyring)
+        .await?
+        .map(|employer| employer.row);
     let employee = employee_by_id(db, employee_id).await?;
     let not_found = || HrError::not_found("Annual statement", &format!("{employer_id}/{year}"));
     let (Some(employer), Some(employee)) = (employer, employee) else {

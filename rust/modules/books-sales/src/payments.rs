@@ -14,7 +14,7 @@ use axum::routing::{get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::books_row;
-use weldsuite_books_domain::entity_context::resolve_entity_id;
+use weldsuite_books_domain::entity_context::{records_in_entity, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, ok, paged, reply, validate,
@@ -26,7 +26,9 @@ use weldsuite_books_domain::payments::{
 use weldsuite_books_domain::posting::PostError;
 use weldsuite_books_domain::tables::{PAYMENT_ALLOCATIONS, PAYMENTS};
 use weldsuite_catalogs::entity_events::{PAYMENT_CREATED, PAYMENT_DELETED};
+use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::body::read_currency;
@@ -45,6 +47,9 @@ where
             "/{id}",
             axum::routing::delete(remove).route_layer(need("banking:delete")),
         )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(EntityRecordGuard::table(EntityTable::new("payments"), "Payment").layer())
         .with_state(state)
 }
 
@@ -283,11 +288,37 @@ async fn create(
     )
 }
 
+/// The documents, bank account and bank line the body names must be in an
+/// entity this request may touch (`recordsInEntity` for each table; the
+/// invoice and bill tables are each asked for every document id named).
+async fn named_records_in_entity(caller: &Caller, data: &CreateInput) -> Result<bool, Refusal> {
+    let mut named: Vec<&str> = Vec::new();
+    named.extend(data.invoice_id.as_deref());
+    named.extend(data.bill_id.as_deref());
+    for (invoice, bill, _) in data.allocations.iter().flatten() {
+        named.extend(invoice.as_deref());
+        named.extend(bill.as_deref());
+    }
+    let bank_account: Vec<&str> = data.bank_account_id.as_deref().into_iter().collect();
+    let bank_line: Vec<&str> = data.bank_transaction_id.as_deref().into_iter().collect();
+    Ok(
+        records_in_entity(caller, &EntityTable::new("invoices"), &named).await?
+            && records_in_entity(caller, &EntityTable::new("bills"), &named).await?
+            && records_in_entity(caller, &EntityTable::new("bank_accounts"), &bank_account).await?
+            && records_in_entity(caller, &EntityTable::new("bank_transactions"), &bank_line)
+                .await?,
+    )
+}
+
+#[allow(clippy::too_many_lines)] // mirrors the TypeScript route step by step
 async fn create_payment(caller: &Caller, state: &BooksState, data: CreateInput) -> Reply {
     let db = &caller.db;
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
+    if !named_records_in_entity(caller, &data).await? {
+        return Err(ApiError::not_found("Record", None).into());
+    }
     let amount = js::parse_float(&data.amount);
     let allocations: Vec<AllocationInput> = match &data.allocations {
         Some(list) => list

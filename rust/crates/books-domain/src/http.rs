@@ -26,6 +26,7 @@ use weldsuite_db::{Keyring, PgPool, Tenant};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, iso_timestamp};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
+use weldsuite_legal_entities::{EntityAccess, RequestEntity};
 use weldsuite_permissions::Permissions;
 use weldsuite_ports::{
     DynCache, DynJobs, DynRealtimePublisher, FileStores, OutboundHttp, RequestCache, StorageBuckets,
@@ -128,6 +129,12 @@ pub struct Caller {
     /// `resolveEntityId(c, db)`, once per request (books-api keeps it in a
     /// `WeakMap` keyed by the context).
     pub(crate) entity: OnceCell<Option<String>>,
+    /// What `legal_entity_context` settled for this request, when the
+    /// request went through it.
+    pub(crate) legal_entity: Option<RequestEntity>,
+    /// `getEntityAccess(c)` for a request the layer did not settle, loaded
+    /// on first use.
+    pub(crate) entity_access: OnceCell<Arc<EntityAccess>>,
     /// This request's events, sent in order.
     outbox: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<EntityEvent>>>,
 }
@@ -147,6 +154,16 @@ impl Caller {
     /// `c.req.header(name)`.
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).and_then(|value| value.to_str().ok())
+    }
+
+    /// The request's headers.
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    /// What `legal_entity_context` settled for this request, when it ran.
+    pub fn legal_entity(&self) -> Option<&RequestEntity> {
+        self.legal_entity.as_ref()
     }
 
     /// The raw query string.
@@ -370,6 +387,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     http: parts.extensions.get::<OutboundHttp>().cloned(),
                     cache: parts.extensions.get::<RequestCache>().cloned(),
                     entity: OnceCell::new(),
+                    legal_entity: RequestEntity::of(&parts.extensions).cloned(),
+                    entity_access: OnceCell::new(),
                     outbox: std::sync::Mutex::default(),
                 })
             } else {

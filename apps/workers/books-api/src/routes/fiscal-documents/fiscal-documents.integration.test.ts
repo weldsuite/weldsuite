@@ -102,6 +102,7 @@ describe('settings', () => {
 
   it('refuses an entity outside Brazil', async () => {
     await db.insert(schema.entities).values({ id: 'ent_nl', name: 'Bedrijf', jurisdictionCode: 'NL' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_nl' });
     const { request } = createTestApp('/api/fiscal-documents', fiscalDocumentsRoutes, {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       env: env as any,

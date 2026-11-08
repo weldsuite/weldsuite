@@ -15,9 +15,11 @@ use super::common::{
     normalize_bic, normalize_bsn, normalize_iban, normalize_ssn, ranges_overlap, sort_issues,
     truthy_str,
 };
+use super::employer_context::{find_employer_for_payroll, resolve_employers};
 use super::employers::{employer_issues, read_employer_bank, work_states_of};
 use super::schema::{has, str_of};
 use crate::employees::{display_name_of, encrypt_sensitive, require_employee};
+use crate::entity_scope::Scope;
 use crate::{HrError, add_days, assert_date_order, locale_compare, now, today_iso};
 
 /// What a payslip needs to know about one employee
@@ -138,15 +140,20 @@ pub(crate) async fn load_employee_payroll_data(
         .iter()
         .filter_map(|p| p["employerId"].as_str().map(str::to_owned))
         .collect();
-    let employers = if employer_ids.is_empty() {
+    let employers: Vec<Value> = if employer_ids.is_empty() {
         vec![]
     } else {
-        rows(
+        let raw = rows(
             db,
             "select to_jsonb(t) from hr_payroll_employers t where t.id = any($1)",
             &employer_ids,
         )
-        .await?
+        .await?;
+        resolve_employers(db, raw, keyring)
+            .await?
+            .into_iter()
+            .map(|employer| employer.row)
+            .collect()
     };
     let mut out = vec![];
     for employee in employees {
@@ -467,23 +474,33 @@ async fn employer_issue_map(
     Ok(out)
 }
 
-/// `listPayrollEmployees(db, filters, keyring, today)`, by name.
+/// `listPayrollEmployees(db, filters, keyring, today)`, by name; `scope` is
+/// the request's entity scope on the employees.
 pub(crate) async fn list_payroll_employees(
     db: &PgPool,
     employer_id: Option<&str>,
     on_payroll: Option<bool>,
+    scope: &Scope,
     keyring: &Keyring,
     today: &str,
 ) -> Result<Vec<Value>, HrError> {
     let mut ids: Vec<String> = sqlx::query_scalar(
-        "select id from hr_employees where deleted_at is null and status <> 'terminated'",
+        "select id from hr_employees where deleted_at is null and status <> 'terminated'
+           and ($1::text[] is null or legal_entity_id = any($1)
+                or ($2::boolean and legal_entity_id is null))",
     )
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let still_paid: Vec<String> = sqlx::query_scalar(
         "select e.id from hr_employees e join hr_payroll_profiles p on p.employee_id = e.id
-         where e.deleted_at is null and e.status = 'terminated' and p.status <> 'ended'",
+         where e.deleted_at is null and e.status = 'terminated' and p.status <> 'ended'
+           and ($1::text[] is null or e.legal_entity_id = any($1)
+                or ($2::boolean and e.legal_entity_id is null))",
     )
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     for id in still_paid {
@@ -688,17 +705,25 @@ pub(crate) async fn upsert_profile(
 ) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let employer_id = str_of(input, "employerId").unwrap_or("");
-    let employer: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(employer_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(employer) = employer.map(js_row) else {
+    let employer = find_employer_for_payroll(db, employer_id, &Keyring::default())
+        .await?
+        .map(|employer| employer.row)
+        .filter(|employer| employer["deletedAt"].is_null());
+    let Some(employer) = employer else {
         return Err(HrError::not_found("Payroll employer", employer_id));
     };
     if employer["isActive"] != true {
         return Err(HrError::validation("This employer is not active"));
+    }
+    // The employer is a payroll registration of the company that employs the employee.
+    if let (Some(employee_entity), Some(employer_entity)) = (
+        truthy_str(&employee, "legalEntityId"),
+        truthy_str(&employer, "legalEntityId"),
+    ) && employee_entity != employer_entity
+    {
+        return Err(HrError::validation(
+            "This employer belongs to another legal entity than the employee. Move the employee to that entity first.",
+        ));
     }
     if let Some(schedule_id) = truthy_str(input, "payScheduleId") {
         let schedule: Option<Value> = sqlx::query_scalar(
@@ -902,13 +927,18 @@ pub(crate) async fn create_compensation(
     created_by: &str,
 ) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
-    let currency_of_employer: Option<String> = sqlx::query_scalar(
-        "select e.currency from hr_payroll_profiles p join hr_payroll_employers e on e.id = p.employer_id
-         where p.employee_id = $1 limit 1",
+    let profile_employer: Option<String> = sqlx::query_scalar(
+        "select employer_id from hr_payroll_profiles where employee_id = $1 limit 1",
     )
     .bind(employee_id)
     .fetch_optional(db)
     .await?;
+    let currency_of_employer: Option<String> = match profile_employer {
+        Some(employer_id) => find_employer_for_payroll(db, &employer_id, &Keyring::default())
+            .await?
+            .and_then(|employer| employer.row["currency"].as_str().map(str::to_owned)),
+        None => None,
+    };
     let pay_type = str_of(input, "payType").unwrap_or("");
     let period = str_of(input, "period").unwrap_or("");
     if pay_type == "hourly" && period != "hour" {
@@ -1038,12 +1068,10 @@ async fn employer_country_of(db: &PgPool, employee_id: &str) -> Result<String, H
     let Some(employer_id) = profile else {
         return Err(HrError::validation("Put the employee on payroll first"));
     };
-    let country: Option<String> =
-        sqlx::query_scalar("select country from hr_payroll_employers where id = $1 limit 1")
-            .bind(employer_id)
-            .fetch_optional(db)
-            .await?;
-    country.ok_or_else(|| HrError::validation("The employee's employer no longer exists"))
+    let employer = find_employer_for_payroll(db, &employer_id, &Keyring::default()).await?;
+    employer
+        .and_then(|employer| employer.row["country"].as_str().map(str::to_owned))
+        .ok_or_else(|| HrError::validation("The employee's employer no longer exists"))
 }
 
 fn validate_component(
@@ -1368,14 +1396,18 @@ pub(crate) async fn set_payment_details(
     self_service: bool,
 ) -> Result<PaymentDetailsResult, HrError> {
     require_employee(db, employee_id).await?;
-    let country: Option<String> = sqlx::query_scalar(
-        "select e.country from hr_payroll_profiles p left join hr_payroll_employers e on e.id = p.employer_id
-         where p.employee_id = $1 limit 1",
+    let profile_employer: Option<String> = sqlx::query_scalar(
+        "select employer_id from hr_payroll_profiles where employee_id = $1 limit 1",
     )
     .bind(employee_id)
     .fetch_optional(db)
-    .await?
-    .flatten();
+    .await?;
+    let country: Option<String> = match profile_employer {
+        Some(employer_id) => find_employer_for_payroll(db, &employer_id, &Keyring::default())
+            .await?
+            .and_then(|employer| employer.row["country"].as_str().map(str::to_owned)),
+        None => None,
+    };
     let today = today_iso();
     let mut patch: Vec<(String, Value)> = vec![];
     let mut set = |key: &str, value: Value| patch.push((key.to_owned(), value));

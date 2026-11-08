@@ -188,6 +188,12 @@ export const hrEmployees = pgTable('hr_employees', {
   managerId: varchar('manager_id', { length: 30 }),
   /** Clerk user id when the employee is also a workspace member. */
   userId: varchar('user_id', { length: 255 }),
+  /**
+   * The employing legal entity (`entities.id`). Every employee has one once a
+   * workspace has a legal entity; per-entity access filters WeldHR on it. A
+   * payroll profile must use an employer registration of this entity.
+   */
+  legalEntityId: varchar('legal_entity_id', { length: 30 }),
 
   employmentType: varchar('employment_type', { length: 20 }).notNull().default('full_time'),
   status: varchar('status', { length: 20 }).notNull().default('onboarding'),
@@ -217,6 +223,7 @@ export const hrEmployees = pgTable('hr_employees', {
   index('hr_employees_manager_idx').on(table.managerId),
   index('hr_employees_email_idx').on(table.email),
   index('hr_employees_user_idx').on(table.userId),
+  index('hr_employees_legal_entity_idx').on(table.legalEntityId),
   index('hr_employees_created_idx').on(table.createdAt, table.id),
 ]);
 

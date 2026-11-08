@@ -30,6 +30,8 @@ export async function seedBrEntity(db: Database, id = 'ent_br'): Promise<BrFixtu
     taxIdentifiers: { vatNumber: ENTITY_CNPJ, registrationNumber: '123.456.789.110' },
     jurisdictionSettings: { uf: 'SP', municipalityCode: '3550308', inscricaoMunicipal: '12345', issRate: 5 },
   });
+  // WeldBooks is enabled for the entity (its accounting_entity_settings row).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: id });
 
   const rates: Record<string, string> = {};
   for (const template of BR_TAX_PROFILES) {

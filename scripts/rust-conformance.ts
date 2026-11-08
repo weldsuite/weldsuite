@@ -3,7 +3,7 @@
  * backend (phase P2, ADR API-014) and write the coverage report.
  *
  *   pnpm rust:conformance                 build, run every suite, report
- *   pnpm rust:conformance --no-build      reuse rust/target/debug/weldsuite
+ *   pnpm rust:conformance --no-build      reuse rust/target/debug/weldsuite (or CONFORMANCE_BIN)
  *   pnpm rust:conformance --changed BASE  only suites whose paths (or rust/) changed since BASE
  *   pnpm rust:conformance --shard 2/4     every fourth of the selected suites, from the second (CI)
  *   pnpm rust:conformance --suite merge   only the suites named (repeatable; a name or a `prefix:` like `connect:`)
@@ -80,7 +80,10 @@ interface InventoryLine {
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rustDir = path.join(repo, 'rust');
-const reportDir = path.join(rustDir, 'target', 'conformance');
+// CONFORMANCE_REPORT_DIR and CONFORMANCE_BIN let parallel runs (one per worktree
+// session or agent) keep their own report and their own copy of the server:
+// Windows locks a running .exe, so a shared one blocks the next cargo build.
+const reportDir = process.env.CONFORMANCE_REPORT_DIR ?? path.join(rustDir, 'target', 'conformance');
 const port = Number(process.env.CONFORMANCE_PORT ?? 18089);
 const rustUrl = `http://127.0.0.1:${port}`;
 
@@ -172,7 +175,8 @@ async function waitForServer(server: ChildProcess): Promise<void> {
 }
 
 function startServer(): ChildProcess {
-  const binary = path.join(rustDir, 'target', 'debug', process.platform === 'win32' ? 'weldsuite.exe' : 'weldsuite');
+  const binary =
+    process.env.CONFORMANCE_BIN ?? path.join(rustDir, 'target', 'debug', process.platform === 'win32' ? 'weldsuite.exe' : 'weldsuite');
   if (!existsSync(binary)) throw new Error(`${binary} is missing; run without --no-build`);
   const version = spawnSync(binary, ['version'], { encoding: 'utf8' }).stdout.trim();
   if (!version.includes('(conformance)')) {

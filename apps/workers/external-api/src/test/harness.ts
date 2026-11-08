@@ -123,6 +123,7 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'app-storage',
   'user-apps',
   'settings',
+  'legal-entities',
   // CRM
   'people',
   'companies',

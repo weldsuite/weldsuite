@@ -37,6 +37,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import {
   completeLink,
@@ -63,6 +64,9 @@ import type { ConnectionView } from '../../services/bank-feeds/types';
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.bankConnections, { label: 'Bank connection' });
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const accountTypes = ['checking', 'savings', 'credit_card', 'money_market', 'line_of_credit'] as const;

@@ -23,6 +23,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, string_or_number_issue};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::text;
@@ -40,6 +41,15 @@ where
         .route("/{id}", put(update).route_layer(need("banking:update")))
         .route("/{id}", patch(update).route_layer(need("banking:update")))
         .route("/{id}", delete(remove).route_layer(need("banking:delete")))
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(
+                EntityTable::new("reconciliation_rules"),
+                "Reconciliation rule",
+            )
+            .layer(),
+        )
         .with_state(state)
 }
 

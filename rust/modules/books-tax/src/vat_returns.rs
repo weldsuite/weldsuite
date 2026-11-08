@@ -29,6 +29,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::filing::{
@@ -72,6 +73,11 @@ where
             get(status).route_layer(need("reports:read")),
         )
         .route("/{id}/xml", get(xml).route_layer(need("reports:read")))
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("vat_returns"), "VAT return").layer(),
+        )
         .with_state(state)
 }
 

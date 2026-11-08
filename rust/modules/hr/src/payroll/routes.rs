@@ -31,6 +31,7 @@ use super::{
     Deps, approve, calculate, file_response, files, filings, journal, overview, payslips, runs,
     schemas,
 };
+use crate::entity_scope::{guard, via_employee, via_employer};
 use crate::{Caller, HrResult, HrState, query_param, query_values, today_iso};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -108,12 +109,22 @@ where
             "/filings/{id}/mark-filed",
             post(mark_filed).route_layer(manage()),
         )
+        .route_layer(guard("/runs", "Pay run", via_employer!("hr_pay_runs")))
+        .route_layer(guard("/payslips", "Payslip", via_employee!("hr_payslips")))
+        .route_layer(guard(
+            "/filings",
+            "Filing",
+            via_employer!("hr_payroll_filings"),
+        ))
 }
 
 async fn overview_route(caller: Caller) -> HrResult {
+    let scope = caller.scope().await?;
     Ok(
-        Data(overview::payroll_overview(&caller.db, &caller.keyring(), &today_iso()).await?)
-            .into_response(),
+        Data(
+            overview::payroll_overview(&caller.db, &caller.keyring(), &today_iso(), &scope).await?,
+        )
+        .into_response(),
     )
 }
 
@@ -132,6 +143,7 @@ async fn list_runs(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
         str_of(&q, "employerId"),
         str_of(&q, "status"),
         q["year"].as_f64(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(Value::Array(list)).into_response())
@@ -153,6 +165,9 @@ async fn create_run(
         &schemas::create_run(),
         schemas::create_run_refine,
     )?;
+    caller
+        .assert_employer_visible(str_of(&input, "employerId"))
+        .await?;
     let run = runs::create_run(&caller.db, &input, &caller.user_id).await?;
     let id = run["id"].as_str().unwrap_or("").to_owned();
     caller.emit(&state, HR_PAY_RUN_CREATED, &id, &status_of(&run));
@@ -190,6 +205,9 @@ async fn set_run_employee(
     body: Bytes,
 ) -> HrResult {
     let input = json_body(&headers, &body, &schemas::set_run_employee())?;
+    caller
+        .assert_employee_visible(str_of(&input, "employeeId"))
+        .await?;
     let run = runs::set_run_employee(
         &caller.db,
         &id,
@@ -222,6 +240,9 @@ async fn create_input(
     body: Bytes,
 ) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_run_input())?;
+    caller
+        .assert_employee_visible(str_of(&input, "employeeId"))
+        .await?;
     Ok(
         Created(runs::create_run_input(&caller.db, &id, &input, &caller.user_id).await?)
             .into_response(),
@@ -396,6 +417,7 @@ async fn list_filings(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
         q["year"].as_f64(),
         str_of(&q, "status"),
         str_of(&q, "kind"),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(Value::Array(list)).into_response())

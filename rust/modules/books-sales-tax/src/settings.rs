@@ -12,6 +12,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, ok, reply, validate};
@@ -340,6 +341,12 @@ async fn update_settings(caller: &Caller, state: &BooksState, data: SettingsBody
     .bind(&entity_id)
     .execute(&caller.db)
     .await?;
+    // Release 1 mirror: the WeldBooks extension holds the same values.
+    let mut mirror = Map::new();
+    mirror.insert("salesTaxEngine".into(), json!(data.engine));
+    mirror.insert("salesTaxEngineConfig".into(), Value::Object(next.clone()));
+    mirror.insert("salesTaxCredentialsEncrypted".into(), json!(blob));
+    upsert_accounting_entity_settings(&caller.db, &entity_id, &mirror).await?;
     let mut audit = Map::new();
     audit.insert(
         "salesTaxEngine".into(),

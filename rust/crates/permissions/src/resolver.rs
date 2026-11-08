@@ -79,6 +79,57 @@ impl PermissionSubject for ResolvedPermissions {
     }
 }
 
+/// The lookups of `queries` with the member acting as if their workspace role
+/// were `role_id` (`resolvePermissionsWithRole`'s `getMember` override in
+/// `@weldsuite/core-domain/legal-entities`): an OWNER reads as ADMIN, so a
+/// role swap never makes anyone owner. Teams, extras and denies are the
+/// member's own.
+struct WithRole<'a, Q: ?Sized> {
+    queries: &'a Q,
+    role_id: &'a str,
+}
+
+impl<Q: PermissionQueries + ?Sized> PermissionQueries for WithRole<'_, Q> {
+    type Error = Q::Error;
+
+    async fn get_member(&self, user_id: &str) -> Result<Option<MemberRow>, Self::Error> {
+        let member = self.queries.get_member(user_id).await?;
+        Ok(member.map(|member| MemberRow {
+            role: if member.role == "OWNER" {
+                "ADMIN".to_owned()
+            } else {
+                member.role
+            },
+            role_id: Some(self.role_id.to_owned()),
+            ..member
+        }))
+    }
+
+    async fn get_role_permissions(
+        &self,
+        role_id: &str,
+    ) -> Result<Option<Vec<String>>, Self::Error> {
+        self.queries.get_role_permissions(role_id).await
+    }
+
+    async fn get_team_permissions(&self, member_id: &str) -> Result<Vec<Vec<String>>, Self::Error> {
+        self.queries.get_team_permissions(member_id).await
+    }
+}
+
+/// A member's permissions resolved as if their workspace role were the role
+/// `role_id` (a `roles.id`): that role's permissions ∪ team permissions ∪
+/// personal extras, personal denies still applied. An EMPLOYEE member keeps
+/// the fixed set, as the resolver ignores roles for them. Used for a legal
+/// entity's per-entity role (`resolvePermissionsWithRole`); never cached.
+pub async fn resolve_permissions_with_role<Q: PermissionQueries + ?Sized>(
+    queries: &Q,
+    user_id: &str,
+    role_id: &str,
+) -> Result<ResolvedPermissions, Q::Error> {
+    resolve_effective_permissions(&WithRole { queries, role_id }, user_id).await
+}
+
 /// Resolve a user's effective permissions (`resolveEffectivePermissions`).
 pub async fn resolve_effective_permissions<Q: PermissionQueries + ?Sized>(
     queries: &Q,

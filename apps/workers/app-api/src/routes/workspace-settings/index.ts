@@ -47,6 +47,8 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { cancelSubscriptionImmediately } from '@weldsuite/stripe';
 import { getMasterDb, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import * as settingsService from '../../services/workspace-settings';
+import * as businessProfile from '../../services/business-profile';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { sealedWorkspaceCacheKey } from '@weldsuite/db/lib/workspace-url-cache';
 
@@ -303,8 +305,10 @@ app.get('/', requirePermission('general:read'), async (c) => {
   if (!orgId) return error.orgRequired(c);
 
   try {
-    const row = await settingsService.getWorkspaceSettings(c.get('tenantDb'));
-    return success(c, row);
+    const db = c.get('tenantDb');
+    const row = await settingsService.getWorkspaceSettings(db);
+    // The business fields live on the default legal entity (docs/plans/legal-entities.md).
+    return success(c, row ? await businessProfile.overlayDefaultEntity(db, row) : row);
   } catch (err) {
     console.error('[app-api/workspace-settings] get blob failed:', err);
     return error.internal(c, 'Failed to fetch workspace settings');
@@ -327,14 +331,60 @@ app.put('/', requirePermission('general:update'), zValidator('json', updateWorks
   const data = c.req.valid('json');
 
   try {
-    const { row, created } = await settingsService.upsertWorkspaceSettings(c.get('tenantDb'), data);
+    const db = c.get('tenantDb');
+    const locked = await businessProfile.lockedBusinessProfileChange(db, data);
+    if (locked) return error.conflict(c, locked);
+    const { row, created } = await settingsService.upsertWorkspaceSettings(db, data);
+
+    // The business profile is the default legal entity: write the legal
+    // fields through to it. The settings row keeps its copy while old workers
+    // may still read it, and a failure here never loses the settings save.
+    let written: businessProfile.WriteThroughResult | null = null;
+    try {
+      written = await businessProfile.writeThroughToDefaultEntity(db, data, row, async () => {
+        try {
+          const [workspace] = await getMasterDb(c.env)
+            .select({ name: masterSchema.workspaces.name })
+            .from(masterSchema.workspaces)
+            .where(matchWorkspaceRef(orgId))
+            .limit(1);
+          return workspace?.name ?? null;
+        } catch {
+          return null;
+        }
+      });
+    } catch (err) {
+      console.error('[app-api/workspace-settings] write-through to the default legal entity failed:', err);
+    }
 
     if (settingsService.touchesBillingMirror(data)) {
+      const masterDb = getMasterDb(c.env);
+      // With a default entity the Stripe customer follows the entity (the same
+      // mirror as /api/legal-entities); the digest timezone still syncs here.
       await settingsService.syncBillingMirror({
-        masterDb: getMasterDb(c.env),
+        masterDb,
         clerkOrgId: orgId,
         data,
         stripeSecretKey: c.env.STRIPE_SECRET_KEY,
+        skipStripe: written !== null,
+      });
+      if (written) {
+        await settingsService.mirrorStripeCustomer({
+          masterDb,
+          workspaceRef: orgId,
+          profile: businessProfile.stripeProfileFromEntity(written.entity),
+          stripeSecretKey: c.env.STRIPE_SECRET_KEY,
+        });
+      }
+    }
+
+    if (written) {
+      publishEntityEvent({
+        c,
+        entityType: 'legal_entity',
+        entityId: written.entity.id,
+        action: written.created ? 'created' : 'updated',
+        data: written.entity as unknown as Record<string, unknown>,
       });
     }
 
@@ -349,7 +399,7 @@ app.put('/', requirePermission('general:update'), zValidator('json', updateWorks
       data: row as unknown as Record<string, unknown>,
     });
 
-    return success(c, row, created ? 201 : 200);
+    return success(c, await businessProfile.overlayDefaultEntity(db, row), created ? 201 : 200);
   } catch (err) {
     console.error('[app-api/workspace-settings] update blob failed:', err);
     return error.internal(c, 'Failed to update workspace settings');

@@ -664,6 +664,22 @@
     "converted",
     "qualified"
   ],
+  "legal_entity": [
+    "created",
+    "updated",
+    "archived",
+    "deleted"
+  ],
+  "legal_entity_bank_account": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "legal_entity_member": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "mail_account": [
     "created",
     "updated",

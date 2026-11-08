@@ -57,6 +57,9 @@ export const weldhrPeople = {
       phoneInvalid: 'Enter a phone number with digits only, such as +31 20 123 4567',
     },
     create: {
+      employer: 'Employer',
+      employerHint: 'The legal entity that employs this person. Their HR records belong to it.',
+      employerLockedHint: 'New employees join the entity selected in the sidebar. Switch entity there to create the employee elsewhere.',
       title: 'New employee',
       member: 'Workspace member',
       memberPlaceholder: 'Select a workspace member…',

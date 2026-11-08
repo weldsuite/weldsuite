@@ -31,6 +31,15 @@ vi.mock('@/lib/i18n/provider', () => ({
   }),
 }));
 
+vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
+  useLegalEntities: () => ({ data: [], isLoading: false }),
+  useMyLegalEntityAccess: () => ({ data: undefined, isLoading: false }),
+}));
+
+vi.mock('@/components/legal-entity/entity-permission-scope', () => ({
+  EntityPermissionScope: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('./weldbooks-header', () => ({
   WeldbooksHeader: () => <div data-testid="weldbooks-header">Header</div>,
 }));
@@ -65,7 +74,7 @@ describe('AccountingLayoutClient', () => {
   beforeEach(() => {
     getMock.mockReset();
     setEntityIdMirror.mockReset();
-    localStorage.removeItem('weldsuite.currentAccountingEntityId');
+    localStorage.removeItem('weldsuite.currentLegalEntityId:ws_test');
   });
 
   it('shows EntityEmptyState when there are no accounting entities', async () => {
@@ -125,7 +134,7 @@ describe('AccountingLayoutClient', () => {
 
   it('replaces a selected entity this workspace does not have with its default entity', async () => {
     // Left behind by another workspace (one localStorage key for all of them).
-    localStorage.setItem('weldsuite.currentAccountingEntityId', JSON.stringify('ent_other_workspace'));
+    localStorage.setItem('weldsuite.currentLegalEntityId:ws_test', JSON.stringify('ent_other_workspace'));
     getMock.mockResolvedValue({
       data: [
         { id: 'ent_a', isDefault: false },
@@ -142,13 +151,13 @@ describe('AccountingLayoutClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
-    expect(localStorage.getItem('weldsuite.currentAccountingEntityId')).toBe(JSON.stringify('ent_b'));
+    expect(localStorage.getItem('weldsuite.currentLegalEntityId:ws_test')).toBe(JSON.stringify('ent_b'));
     expect(setEntityIdMirror).toHaveBeenCalledWith('ent_b');
     expect(setEntityIdMirror).not.toHaveBeenLastCalledWith('ent_other_workspace');
   });
 
   it('keeps a selected entity that belongs to this workspace', async () => {
-    localStorage.setItem('weldsuite.currentAccountingEntityId', JSON.stringify('ent_a'));
+    localStorage.setItem('weldsuite.currentLegalEntityId:ws_test', JSON.stringify('ent_a'));
     getMock.mockResolvedValue({
       data: [
         { id: 'ent_a', isDefault: false },
@@ -165,7 +174,7 @@ describe('AccountingLayoutClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
-    expect(localStorage.getItem('weldsuite.currentAccountingEntityId')).toBe(JSON.stringify('ent_a'));
+    expect(localStorage.getItem('weldsuite.currentLegalEntityId:ws_test')).toBe(JSON.stringify('ent_a'));
   });
 
   it('keeps cached content when a background refetch fails', async () => {

@@ -22,7 +22,7 @@ beforeAll(async () => {
 describe('/api/accounting-entities · pglite integration', () => {
   it('POST / writes an entity and maps jurisdiction → jurisdictionCode', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-      context: { permissions: permissions('entities:create'), tenantDb: db },
+      context: { permissions: permissions('entities:create', 'legal_entities:create'), tenantDb: db },
     });
 
     const res = await request('/api/accounting-entities', {
@@ -53,7 +53,7 @@ describe('/api/accounting-entities · pglite integration', () => {
 
   it('POST / creates an India entity, seeds GST CoA + rates, and stores stateCode from GSTIN', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-      context: { permissions: permissions('entities:create'), tenantDb: db },
+      context: { permissions: permissions('entities:create', 'legal_entities:create'), tenantDb: db },
     });
 
     const res = await request('/api/accounting-entities', {
@@ -103,7 +103,7 @@ describe('/api/accounting-entities · pglite integration', () => {
 
   it('POST / rejects invalid GSTIN for India', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-      context: { permissions: permissions('entities:create'), tenantDb: db },
+      context: { permissions: permissions('entities:create', 'legal_entities:create'), tenantDb: db },
     });
     const res = await request('/api/accounting-entities', {
       method: 'POST',
@@ -121,7 +121,7 @@ describe('/api/accounting-entities · pglite integration', () => {
   it('PATCH / validates GSTIN and refreshes stateCode', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
       context: {
-        permissions: permissions('entities:create', 'entities:update'),
+        permissions: permissions('entities:create', 'legal_entities:create', 'entities:update'),
         tenantDb: db,
       },
     });
@@ -177,7 +177,7 @@ describe('/api/accounting-entities · pglite integration', () => {
 
   it('POST / defaults baseCurrency to INR for India when omitted', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-      context: { permissions: permissions('entities:create'), tenantDb: db },
+      context: { permissions: permissions('entities:create', 'legal_entities:create'), tenantDb: db },
     });
 
     const res = await request('/api/accounting-entities', {
@@ -214,7 +214,7 @@ describe('/api/accounting-entities · pglite integration', () => {
 
   it('POST / rejects empty name', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-      context: { permissions: permissions('entities:create'), tenantDb: db },
+      context: { permissions: permissions('entities:create', 'legal_entities:create'), tenantDb: db },
     });
     const res = await request('/api/accounting-entities', {
       method: 'POST',

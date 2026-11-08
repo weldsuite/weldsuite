@@ -104,4 +104,11 @@ describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
       { label: 'Chat widget', href: '/settings/apps/welddesk/chat-widget' },
     ]);
   });
+
+  it('labels the legal entities pages and leaves the entity id out', () => {
+    expect(labels('/settings/legal-entities')).toEqual([en.settings.title, 'Legal entities']);
+    expect(labels('/settings/legal-entities/lent_123')).toEqual([en.settings.title, 'Legal entities']);
+    const segments = buildBreadcrumbSegments('/settings/legal-entities', nl.settings.title, nl.settings.menu);
+    expect(segments.at(-1)?.label).toBe('Juridische entiteiten');
+  });
 });

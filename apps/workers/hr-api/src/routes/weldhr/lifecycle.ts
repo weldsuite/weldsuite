@@ -13,6 +13,7 @@ import {
   updateHrChecklistTemplateSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { Env, Variables } from '../../types';
+import { schema } from '@weldsuite/worker-kit/db';
 import { noContent, success } from '@weldsuite/worker-kit/response';
 import {
   addTask,
@@ -30,6 +31,12 @@ import {
   updateTemplate,
   type ChecklistOutcome,
 } from '../../services/weldhr/lifecycle';
+import {
+  assertEmployeeVisible,
+  employeeEntityCondition,
+  guardRecord,
+  viaEmployee,
+} from './entity-scope';
 import { actor, hrJson, db, emit, param, type HrContext } from './helpers';
 
 export const checklistTemplatesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -52,6 +59,19 @@ checklistTemplatesRoutes.delete('/:templateId', requirePermission('employees:man
 });
 
 export const checklistsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  checklistsRoutes,
+  'checklistId',
+  'Checklist',
+  viaEmployee(schema.hrChecklists, schema.hrChecklists.id, schema.hrChecklists.employeeId),
+);
+guardRecord(
+  checklistsRoutes,
+  'taskId',
+  'Checklist task',
+  viaEmployee(schema.hrChecklistTasks, schema.hrChecklistTasks.id, schema.hrChecklistTasks.employeeId),
+  '/tasks',
+);
 
 /** Publish the knock-on events of a task change (checklist done, employee on/offboarded). */
 function emitOutcome(c: HrContext, checklistId: string, outcome: ChecklistOutcome) {
@@ -72,6 +92,7 @@ checklistsRoutes.get('/', requirePermission('employees:read'), async (c) => {
       employeeId: q.employeeId || undefined,
       status: q.status || undefined,
       kind: q.kind || undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
@@ -83,6 +104,7 @@ checklistsRoutes.post(
   hrJson(startHrChecklistSchema.extend({ employeeId: z.string().min(1).max(30) })),
   async (c) => {
     const { employeeId, ...input } = c.req.valid('json');
+    await assertEmployeeVisible(c, employeeId);
     const checklist = await startChecklist(db(c), employeeId, input, actor(c));
     emit(c, 'hr_checklist', 'created', checklist.id, { employeeId, status: checklist.status });
     return success(c, checklist, 201);

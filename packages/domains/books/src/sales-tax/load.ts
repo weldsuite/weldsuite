@@ -15,6 +15,7 @@ import type {
   SalesTaxZone,
 } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { loadSalesTaxEngineSettings } from '../accounting-entity';
 import { createSalesTaxEngine } from './index';
 import {
   SalesTaxEngineError,
@@ -163,15 +164,7 @@ export async function loadSalesTaxContext(
   entityId: string,
   opts: LoadOptions,
 ): Promise<LoadedSalesTaxContext> {
-  const [entity] = await db
-    .select({
-      engine: schema.entities.salesTaxEngine,
-      config: schema.entities.salesTaxEngineConfig,
-      credentials: schema.entities.salesTaxCredentialsEncrypted,
-    })
-    .from(schema.entities)
-    .where(eq(schema.entities.id, entityId))
-    .limit(1);
+  const entity = await loadSalesTaxEngineSettings(db, entityId);
   if (!entity) throw new SalesTaxEngineError(`Accounting entity ${entityId} was not found`, 'not_configured');
 
   const requested = entity.engine ?? 'manual';

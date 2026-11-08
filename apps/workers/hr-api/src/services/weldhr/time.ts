@@ -11,6 +11,7 @@ import { and, asc, desc, eq, gt, gte, inArray, isNull, lt as lessThan, lte, ne, 
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { displayNameOf, requireEmployee } from './employees';
+import { employeeIdIn } from './entity-scope';
 import {
   HrConflictError,
   HrNotFoundError,
@@ -48,12 +49,16 @@ function employeeName(row: { employeeFirstName: string; employeeLastName: string
 // Shifts
 // ---------------------------------------------------------------------------
 
-export async function listShifts(db: Database, filters: { from: string; to: string; employeeId?: string; companyId?: string }) {
+export async function listShifts(
+  db: Database,
+  filters: { from: string; to: string; employeeId?: string; companyId?: string; entity?: SQL },
+) {
   const conditions: SQL[] = [
     gte(sh.startsAt, new Date(`${filters.from}T00:00:00Z`)),
     lte(sh.startsAt, new Date(`${filters.to}T23:59:59Z`)),
     isNull(emp.deletedAt),
   ];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(sh.employeeId, filters.employeeId));
   if (filters.companyId) conditions.push(eq(sh.companyId, filters.companyId));
   const rows = await db
@@ -297,6 +302,8 @@ export async function requireAttendance(db: Database, id: string) {
 }
 
 export interface AttendanceFilters {
+  /** Condition on the employees' legal entity (the request's entity scope). */
+  entity?: SQL;
   employeeId?: string;
   companyId?: string;
   from?: string;
@@ -310,6 +317,7 @@ export interface AttendanceFilters {
 export async function listAttendance(db: Database, filters: AttendanceFilters) {
   const limit = Math.min(filters.limit ?? 100, 500);
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(att.employeeId, filters.employeeId));
   if (filters.companyId) conditions.push(eq(att.companyId, filters.companyId));
   if (filters.from) conditions.push(gte(att.date, filters.from));
@@ -479,7 +487,7 @@ export function approveAttendance(
 }
 
 /** Resolve imported employee references: email (case-insensitive) or employee number. */
-export async function resolveEmployeeRefs(db: Database, refs: string[]) {
+export async function resolveEmployeeRefs(db: Database, refs: string[], entity?: SQL) {
   const unique = [...new Set(refs.map((r) => r.trim()).filter(Boolean))];
   const out = new Map<string, string>();
   if (unique.length === 0) return out;
@@ -490,6 +498,7 @@ export async function resolveEmployeeRefs(db: Database, refs: string[]) {
     .where(
       and(
         isNull(emp.deletedAt),
+        entity,
         or(inArray(sql<string>`lower(${emp.email})`, lowered), inArray(emp.employeeNumber, unique)),
       ),
     );
@@ -551,9 +560,9 @@ export async function importAttendance(
   rows: AttendanceImportRow[],
   createdBy: string,
   /** Validate every row (and count what would be created / updated) without writing. */
-  opts: { dryRun?: boolean } = {},
+  opts: { dryRun?: boolean; entity?: SQL } = {},
 ) {
-  const refs = await resolveEmployeeRefs(db, rows.map((r) => r.employee));
+  const refs = await resolveEmployeeRefs(db, rows.map((r) => r.employee), opts.entity);
   const result = { created: 0, updated: 0, errors: [] as Array<{ row: number; reason: string }> };
 
   for (const [index, row] of rows.entries()) {
@@ -673,9 +682,11 @@ export async function openClockRecord(db: Database, employeeId: string) {
 /** Status counts and totals over a date range, optionally narrowed to employees or a client. */
 export async function attendanceSummary(
   db: Database,
-  filters: { from: string; to: string; employeeIds?: string[]; companyId?: string },
+  filters: { from: string; to: string; employeeIds?: string[]; companyId?: string; entity?: SQL },
 ) {
   const conditions: SQL[] = [gte(att.date, filters.from), lte(att.date, filters.to)];
+  const inEntity = employeeIdIn(att.employeeId, filters.entity);
+  if (inEntity) conditions.push(inEntity);
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return emptySummary();
     conditions.push(inArray(att.employeeId, filters.employeeIds));
@@ -889,9 +900,10 @@ export async function requireLeaveRequest(db: Database, id: string) {
 
 export async function listLeaveRequests(
   db: Database,
-  filters: { employeeId?: string; status?: string; from?: string; to?: string; employeeIds?: string[] },
+  filters: { employeeId?: string; status?: string; from?: string; to?: string; employeeIds?: string[]; entity?: SQL },
 ) {
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(lr.employeeId, filters.employeeId));
   if (filters.employeeIds) {
     if (filters.employeeIds.length === 0) return [];
@@ -1016,12 +1028,12 @@ export async function deleteLeaveRequest(db: Database, id: string) {
 }
 
 /** Who is off on a given day (approved leave covering it). */
-export async function onLeaveOn(db: Database, date: string) {
+export async function onLeaveOn(db: Database, date: string, entity?: SQL) {
   const rows = await db
     .select({ employeeId: lr.employeeId, ...employeeNameColumns, leaveTypeName: lt.name, endDate: lr.endDate })
     .from(lr)
     .innerJoin(emp, eq(emp.id, lr.employeeId))
     .leftJoin(lt, eq(lt.id, lr.leaveTypeId))
-    .where(and(eq(lr.status, 'approved'), lte(lr.startDate, date), gte(lr.endDate, date), isNull(emp.deletedAt), ne(emp.status, 'terminated')));
+    .where(and(eq(lr.status, 'approved'), lte(lr.startDate, date), gte(lr.endDate, date), isNull(emp.deletedAt), ne(emp.status, 'terminated'), entity));
   return rows.map((r) => ({ employeeId: r.employeeId, employeeName: employeeName(r), leaveTypeName: r.leaveTypeName, endDate: r.endDate }));
 }

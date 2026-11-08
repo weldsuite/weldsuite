@@ -153,6 +153,7 @@ beforeAll(async () => {
   simples = await createEntity('Pequena', 'ltda', 'simples_nacional', '11.444.777/0001-61');
   mei = await createEntity('Micro', 'mei', 'mei', '45.723.174/0001-10');
   await db.insert(schema.entities).values({ id: 'ent_nl', name: 'Bedrijf', jurisdictionCode: 'NL' });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_nl' });
   nl = 'ent_nl';
   await db.insert(schema.companies).values([
     { id: 'cmp_cliente', name: 'Cliente SA', displayName: 'Cliente SA', vatNumber: '99.887.766/0001-55' },

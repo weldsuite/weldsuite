@@ -48,6 +48,7 @@ mod host;
 mod inbox;
 mod index;
 mod know;
+mod legal_entities;
 mod list;
 mod oauth;
 mod project_sheets;
@@ -285,9 +286,10 @@ fn weldapps(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
         )
 }
 
-/// The core platform's own objects: `/v1/settings`, and the drive (files, folders).
+/// The core platform's own objects: `/v1/settings`, the legal entities, and
+/// the drive (files, folders).
 fn core(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
-    drive::routes(router)
+    legal_entities::routes(drive::routes(router))
         .route(
             "/settings/workspace",
             get(settings::workspace).route_layer(scope!("settings:read")),

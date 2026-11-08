@@ -12,6 +12,11 @@ const navigate = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigate,
   useSearch: () => ({ tab }),
+  Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({
@@ -54,6 +59,16 @@ describe('Settings → Entities page', () => {
     expect(screen.getByRole('tab', { name: en.settings.entities.tabs.employers })).toBeTruthy();
     expect(screen.getByText('accounting panel')).toBeTruthy();
     expect(screen.queryByText('employers panel')).toBeNull();
+  });
+
+  it('points to Settings → Legal entities only for members who may read them', () => {
+    const { unmount } = render(<EntitiesSettingsPage />);
+    expect(screen.queryByRole('link', { name: en.settings.menu.legalEntities })).toBeNull();
+    unmount();
+
+    permissions = [...permissions, 'legal_entities:read'];
+    render(<EntitiesSettingsPage />);
+    expect(screen.getByRole('link', { name: en.settings.menu.legalEntities }).getAttribute('href')).toBe('/settings/legal-entities');
   });
 
   it('opens the payroll employers from the query string', () => {

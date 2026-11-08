@@ -3392,6 +3392,29 @@ export const accounting = {
       weldbooksSwitched: "WeldBooks werkt nu in {name}, dus deze instellingen en de pagina's die ze openen gelden voor deze entiteit.",
     },
 
+    // Juridische entiteiten zoals WeldBooks en WeldHR ze gebruiken (wisselaar, kiezer, alleen-lezen meldingen)
+    legalEntities: {
+      label: 'Juridische entiteit',
+      placeholder: 'Kies entiteit',
+      addEntity: 'Juridische entiteit toevoegen…',
+      default: 'standaard',
+      restricted: 'Beperkte toegang',
+      yourRole: 'Jouw rol: {role}',
+      pickerPlaceholder: 'Kies een juridische entiteit',
+      pickerEmpty: 'Nog geen juridische entiteiten.',
+      pickerCreate: 'Maak er een aan in Instellingen → Juridische entiteiten',
+      useExisting: 'Een bestaande juridische entiteit gebruiken',
+      useExistingHint: 'Begin met een juridische entiteit die je al hebt. Naam, adres en belastingnummers komen daaruit.',
+      createNew: 'Een nieuwe entiteit maken',
+      noExisting: 'Elke juridische entiteit heeft al WeldBooks.',
+      existingRequired: 'Kies een juridische entiteit.',
+      coreFieldsTitle: 'Beheer je in Juridische entiteiten',
+      coreFieldsDescription:
+        'Naam, adres, land, valuta, belastingnummers en bankgegevens van deze entiteit beheer je in Instellingen → Juridische entiteiten. De WeldBooks-instellingen hieronder blijven hier.',
+      openLegalEntities: 'Juridische entiteiten openen',
+    },
+
+
     // Afsluitdatums + uitzonderingen (entiteit bewerken)
     numbering: {
       title: 'Nummering',

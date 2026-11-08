@@ -24,6 +24,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -40,6 +41,9 @@ import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { salesTaxRuntimeFromEnv } from '../../services/sales-tax/runtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.recurringInvoices, { label: 'Recurring invoice' });
 
 const createRecurringSchema = z.object({
   name: z.string().max(255).optional(),

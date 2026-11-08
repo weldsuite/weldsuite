@@ -11,6 +11,7 @@
 import type { Context } from 'hono';
 import { and, eq, gt, gte, isNull, lte } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { loadEntityLockDates } from './accounting-entity';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { scrubSensitiveKeys } from '@weldsuite/db/lib/sensitive-columns';
 
@@ -121,17 +122,7 @@ export async function assertPostingAllowed(
   await assertPeriodOpen(db, args.entityId, args.date);
 
   const iso = toIsoDate(args.date);
-  const [entity] = await db
-    .select({
-      salesLockDate: schema.entities.salesLockDate,
-      purchaseLockDate: schema.entities.purchaseLockDate,
-      taxLockDate: schema.entities.taxLockDate,
-      periodLockDate: schema.entities.periodLockDate,
-      hardLockDate: schema.entities.hardLockDate,
-    })
-    .from(schema.entities)
-    .where(eq(schema.entities.id, args.entityId))
-    .limit(1);
+  const entity = await loadEntityLockDates(db, args.entityId);
   if (!entity) return;
 
   if (entity.hardLockDate && iso <= entity.hardLockDate) {

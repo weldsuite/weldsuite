@@ -59,7 +59,8 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type AnyColumn } from 'drizzle-orm';
+import { entityScopeCondition, requestEntityScope } from '@weldsuite/core-domain/legal-entities';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -1347,6 +1348,15 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
   }
 });
 
+/**
+ * Contacts belong to the workspace, their documents to entities: a member who
+ * is not allowed everywhere only sees the documents of the entity the request
+ * is scoped to (per-entity access). Undefined = no filter.
+ */
+async function entityScope(c: AppContext, column: AnyColumn) {
+  return entityScopeCondition(column, await requestEntityScope(c), null);
+}
+
 // GET /:id/invoices
 app.get('/:id/invoices', requirePermission('invoices:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -1355,7 +1365,7 @@ app.get('/:id/invoices', requirePermission('invoices:read'), async (c) => {
     const contactInvoices = await db
       .select()
       .from(invoices)
-      .where(and(eq(invoices.contactId, c.req.param('id')), isNull(invoices.deletedAt)))
+      .where(and(eq(invoices.contactId, c.req.param('id')), isNull(invoices.deletedAt), await entityScope(c, invoices.entityId)))
       .orderBy(desc(invoices.issueDate));
 
     return success(c, contactInvoices);
@@ -1373,7 +1383,7 @@ app.get('/:id/bills', requirePermission('invoices:read'), async (c) => {
     const contactBills = await db
       .select()
       .from(bills)
-      .where(and(eq(bills.contactId, c.req.param('id')), isNull(bills.deletedAt)))
+      .where(and(eq(bills.contactId, c.req.param('id')), isNull(bills.deletedAt), await entityScope(c, bills.entityId)))
       .orderBy(desc(bills.issueDate));
 
     return success(c, contactBills);
@@ -1396,7 +1406,7 @@ app.get('/:id/balance', requirePermission('invoices:read'), async (c) => {
         totalOverdue: sql<string>`coalesce(sum(case when ${invoices.dueDate} < now() and ${invoices.balanceDue}::numeric > 0 then ${invoices.balanceDue}::numeric else 0 end), 0)`,
       })
       .from(invoices)
-      .where(and(eq(invoices.contactId, contactId), isNull(invoices.deletedAt)));
+      .where(and(eq(invoices.contactId, contactId), isNull(invoices.deletedAt), await entityScope(c, invoices.entityId)));
 
     const [billBalance] = await db
       .select({
@@ -1404,7 +1414,7 @@ app.get('/:id/balance', requirePermission('invoices:read'), async (c) => {
         totalOverdue: sql<string>`coalesce(sum(case when ${bills.dueDate} < now() and ${bills.balanceDue}::numeric > 0 then ${bills.balanceDue}::numeric else 0 end), 0)`,
       })
       .from(bills)
-      .where(and(eq(bills.contactId, contactId), isNull(bills.deletedAt)));
+      .where(and(eq(bills.contactId, contactId), isNull(bills.deletedAt), await entityScope(c, bills.entityId)));
 
     return success(c, {
       receivable: invoiceBalance,

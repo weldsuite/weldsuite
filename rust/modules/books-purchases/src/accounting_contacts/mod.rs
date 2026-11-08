@@ -21,7 +21,7 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::load_billing_contacts;
-use weldsuite_books_domain::entity_context::resolve_entity_id;
+use weldsuite_books_domain::entity_context::{request_entity, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, json_of, no_content, now, ok, paged, reply,
@@ -43,6 +43,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_kit::ApiError;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
+use weldsuite_legal_entities::{
+    EntityScopeCondition, entity_scope_condition, request_entity_scope,
+};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 pub(crate) use body::hook_message;
@@ -410,14 +413,46 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(result, "Failed to fetch contact")
 }
 
+/// Contacts belong to the workspace, their documents to entities: a member
+/// who is not allowed everywhere only sees the documents of the entity the
+/// request is scoped to (per-entity access; `entityScopeCondition(column,
+/// await requestEntityScope(c), null)`). Bound as `$2` and `$3` of
+/// `scoped_documents!()` / `scoped_rows!()`.
+async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Error> {
+    let request = request_entity(caller).await?;
+    Ok(entity_scope_condition(
+        request_entity_scope(&request).as_deref(),
+        None,
+    ))
+}
+
+/// `EntityScopeCondition::sql("t.entity_id", 2, 3)`, for the document lists.
+macro_rules! scoped_documents {
+    () => {
+        "($2::text[] is null or t.entity_id = any($2) or ($3::boolean and t.entity_id is null))"
+    };
+}
+
+/// `EntityScopeCondition::sql("entity_id", 2, 3)`, for the balance sums.
+macro_rules! scoped_rows {
+    () => {
+        "($2::text[] is null or entity_id = any($2) or ($3::boolean and entity_id is null))"
+    };
+}
+
 async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
+        let scope = entity_scope(&caller).await?;
         let rows: Vec<Value> = sqlx::query_scalar(concat!(
             "select ",
             weldsuite_books_domain::books_row!(invoices),
-            " from invoices t where t.contact_id = $1 and t.deleted_at is null order by t.issue_date desc"
+            " from invoices t where t.contact_id = $1 and t.deleted_at is null and ",
+            scoped_documents!(),
+            " order by t.issue_date desc"
         ))
         .bind(&id)
+        .bind(scope.ids_bind())
+        .bind(scope.unassigned_bind())
         .fetch_all(&caller.db)
         .await?;
         Ok(ok(Value::Array(INVOICES.js_rows(rows))))
@@ -428,12 +463,17 @@ async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
 
 async fn bills(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
+        let scope = entity_scope(&caller).await?;
         let rows: Vec<Value> = sqlx::query_scalar(concat!(
             "select ",
             weldsuite_books_domain::books_row!(bills),
-            " from bills t where t.contact_id = $1 and t.deleted_at is null order by t.issue_date desc"
+            " from bills t where t.contact_id = $1 and t.deleted_at is null and ",
+            scoped_documents!(),
+            " order by t.issue_date desc"
         ))
         .bind(&id)
+        .bind(scope.ids_bind())
+        .bind(scope.unassigned_bind())
         .fetch_all(&caller.db)
         .await?;
         Ok(ok(Value::Array(BILLS.js_rows(rows))))
@@ -451,20 +491,27 @@ macro_rules! balance_sums {
 
 async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
+        let scope = entity_scope(&caller).await?;
         let (inv_out, inv_due): (String, String) = sqlx::query_as(concat!(
             "select ",
             balance_sums!(),
-            " from invoices where contact_id = $1 and deleted_at is null"
+            " from invoices where contact_id = $1 and deleted_at is null and ",
+            scoped_rows!()
         ))
         .bind(&id)
+        .bind(scope.ids_bind())
+        .bind(scope.unassigned_bind())
         .fetch_one(&caller.db)
         .await?;
         let (bill_out, bill_due): (String, String) = sqlx::query_as(concat!(
             "select ",
             balance_sums!(),
-            " from bills where contact_id = $1 and deleted_at is null"
+            " from bills where contact_id = $1 and deleted_at is null and ",
+            scoped_rows!()
         ))
         .bind(&id)
+        .bind(scope.ids_bind())
+        .bind(scope.unassigned_bind())
         .fetch_one(&caller.db)
         .await?;
         Ok(ok(json!({
@@ -1460,6 +1507,15 @@ async fn verify_bank_details(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_document_scope_is_the_shared_condition() {
+        assert_eq!(
+            scoped_documents!(),
+            EntityScopeCondition::sql("t.entity_id", 2, 3)
+        );
+        assert_eq!(scoped_rows!(), EntityScopeCondition::sql("entity_id", 2, 3));
+    }
 
     #[test]
     fn payment_terms() {

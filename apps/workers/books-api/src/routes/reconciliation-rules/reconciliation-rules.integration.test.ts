@@ -44,6 +44,7 @@ const feeRule = {
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   await db.insert(schema.entities).values({ id: ENTITY, name: 'Rules BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', locale: 'nl-NL' });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: ENTITY });
 }, 60_000);
 
 describe('reconciliation rules', () => {

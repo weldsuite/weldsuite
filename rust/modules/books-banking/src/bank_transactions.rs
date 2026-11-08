@@ -22,7 +22,7 @@ use weldsuite_books_domain::bank_matching::{
     auto_reconcile_batch, find_matches, reconcile_to_deposit, reconcile_to_document,
     reconcile_to_payment, unreconcile,
 };
-use weldsuite_books_domain::entity_context::resolve_entity_id;
+use weldsuite_books_domain::entity_context::{records_in_entity, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
@@ -40,6 +40,7 @@ use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{
     Field, Issues, Number, Presence, js_number, string_or_number_issue,
 };
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
@@ -103,6 +104,17 @@ where
             delete(undo_import).route_layer(need("banking:delete")),
         )
         .route("/{id}", delete(remove).route_layer(need("banking:delete")))
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_transactions"), "Bank transaction")
+                .layer(),
+        )
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_import_batches"), "Import batch")
+                .prefix("/import-batches")
+                .layer(),
+        )
         .with_state(state)
 }
 
@@ -1147,6 +1159,9 @@ async fn match_deposit(
         let Some(txn) = find_line(&caller, &id).await? else {
             return Err(Refusal::not_found("Transaction", &id));
         };
+        if !records_in_entity(&caller, &EntityTable::new("bank_deposits"), &[&deposit_id]).await? {
+            return Err(Refusal::not_found("Deposit", &deposit_id));
+        }
         let linked = reconcile_to_deposit(&caller.db, &txn, &deposit_id)
             .await
             .map_err(posting_refusal)?;
@@ -1179,6 +1194,9 @@ async fn match_payment(
         let Some(txn) = find_line(&caller, &id).await? else {
             return Err(Refusal::not_found("Transaction", &id));
         };
+        if !records_in_entity(&caller, &EntityTable::new("payments"), &[&payment_id]).await? {
+            return Err(Refusal::not_found("Payment", &payment_id));
+        }
         let linked = reconcile_to_payment(&caller.db, &txn, &payment_id)
             .await
             .map_err(posting_refusal)?;

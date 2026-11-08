@@ -11,7 +11,8 @@ use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 
 use super::Deps;
-use super::payslips::employer_by_id;
+use super::common::BOOKS_NOT_ENABLED;
+use super::employer_context::load_employer_for_payroll;
 use super::runs::{require_run, s};
 use crate::{BooksRequest, HrError, HrState, now};
 
@@ -140,19 +141,23 @@ pub(crate) async fn post_run_journal(
             409,
         ));
     }
-    let Some(employer) = employer_by_id(db, s(&run, "employerId")).await? else {
-        return Err(HrError::not_found(
-            "Payroll employer",
-            s(&run, "employerId"),
-        ));
-    };
-    let outcome = match employer["accountingEntityId"]
+    let employer = load_employer_for_payroll(db, s(&run, "employerId"), &deps.keyring).await?;
+    // The journal belongs to the employer's legal entity. An employer from before the entities
+    // keeps its WeldBooks link.
+    let legal_entity = employer.row["legalEntityId"]
         .as_str()
-        .filter(|v| !v.is_empty())
-    {
+        .filter(|v| !v.is_empty());
+    let entity_id = match legal_entity {
+        Some(entity) => employer.links.books_enabled.then_some(entity),
+        None => employer.row["accountingEntityId"]
+            .as_str()
+            .filter(|v| !v.is_empty()),
+    };
+    let employer = &employer.row;
+    let outcome = match entity_id {
         None => JournalOutcome {
             status: "skipped",
-            error: None,
+            error: legal_entity.map(|_| BOOKS_NOT_ENABLED.to_owned()),
             journal_entry_id: None,
         },
         Some(_) if deps.books.is_none() => post_payroll(state, db, deps, Value::Null).await,
@@ -169,7 +174,7 @@ pub(crate) async fn post_run_journal(
                 "payDate": run["payDate"],
                 "periodStart": run["periodStart"],
                 "periodEnd": run["periodEnd"],
-                "description": format!("{label} {} {} - {}", s(&employer, "name"), s(&run, "periodStart"), s(&run, "periodEnd")),
+                "description": format!("{label} {} {} - {}", s(employer, "name"), s(&run, "periodStart"), s(&run, "periodEnd")),
                 "country": run["country"],
                 "totals": journal_totals_for(&run["totals"]),
                 "postedBy": user_id,

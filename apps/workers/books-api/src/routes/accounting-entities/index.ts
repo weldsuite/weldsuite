@@ -31,14 +31,38 @@
  * service enforces them.
  *
  * Permissions: entities:read | entities:create | entities:update | entities:delete,
- * accounts:update (apply-tax-lines), tax_ids:reveal (reveal-ssn).
+ * accounts:update (apply-tax-lines), tax_ids:reveal (reveal-ssn). Enabling
+ * WeldBooks for an existing legal entity (`POST /` with `legalEntityId`) takes
+ * `entities:create` inside that entity (the member's entity role, when they
+ * have one there), and making it the workspace default takes
+ * `legal_entities:update`.
  */
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import {
+  canSeeEntity,
+  createLegalEntity,
+  getEntityAccess,
+  getLegalEntityExtension,
+  LegalEntityError,
+  listLegalEntities,
+  permissionsInEntity,
+  recordInRequestEntity,
+  setDefaultLegalEntity,
+  updateLegalEntity,
+  type EntityAccess,
+} from '@weldsuite/core-domain/legal-entities';
+import type { CreateLegalEntityInput, UpdateLegalEntityInput } from '@weldsuite/app-api-client/schemas/legal-entities';
+import {
+  loadAccountingEntities,
+  loadAccountingEntity,
+  upsertAccountingEntitySettings,
+  type AccountingEntity,
+} from '@weldsuite/books-domain/accounting-entity';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
@@ -70,7 +94,7 @@ import {
   resolveEntityKind,
   taxYearOf,
 } from '../../services/accounting-entity-setup';
-import { getEntityLockState } from '../../services/accounting-entity-lock';
+import { entityHasPostings, getEntityLockState } from '../../services/accounting-entity-lock';
 import {
   NumberSequenceError,
   SEQUENCE_TYPES,
@@ -80,7 +104,8 @@ import {
   type SequenceChanges,
 } from '../../services/accounting-number-sequences';
 import { normalizeBrAddress, normalizeBrSettings, syncBrTaxProfiles } from '../../services/br-entity-setup';
-import type { StoredPostalAddress } from '@weldsuite/db/schema';
+import { syncRegistrationsFromTaxIdentifiers } from '../../services/accounting-entity-registrations';
+import type { AccountingDocumentTexts, StoredPostalAddress } from '@weldsuite/db/schema';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -305,7 +330,8 @@ const fiscalYearConfigSchema = z.object({
 });
 
 const createEntitySchema = z.object({
-  name: z.string().min(1).max(255),
+  /** Required unless `legalEntityId` names an existing company. */
+  name: z.string().min(1).max(255).optional(),
   legalName: z.string().max(255).optional(),
   /** US: sole_proprietorship | single_member_llc | multi_member_llc | partnership | s_corp | c_corp | nonprofit. */
   entityType: z.string().max(20).optional(),
@@ -338,17 +364,31 @@ const createEntitySchema = z.object({
   jurisdictionSettings: z.record(z.unknown()).optional(),
   /** When true (default), seed chart-of-accounts and tax rates from the jurisdiction adapter. */
   seedDefaults: z.boolean().default(true),
+  /**
+   * Enable WeldBooks for this existing legal entity (Settings → Legal entities)
+   * instead of creating a company: its identity stays as it is, WeldBooks adds
+   * its extension, numbering, chart of accounts and tax rates.
+   */
+  legalEntityId: z.string().min(1).max(30).optional(),
 });
 
-const updateEntitySchema = createEntitySchema.partial().omit({ seedDefaults: true });
+const updateEntitySchema = createEntitySchema
+  .partial()
+  .omit({ seedDefaults: true, legalEntityId: true })
+  .extend({
+    /** The core bank account invoices print; null prints `bankDetails` again. */
+    invoiceBankAccountId: z.string().min(1).max(30).nullable().optional(),
+  });
 
 /**
  * An entity as the API returns it: the encrypted SSN and sales tax credentials
  * never leave the database (`hasSsn` / `ssnLast4` say one is stored), and an
  * SSN that was typed into the EIN field before it was checked is masked.
  */
-function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; fiscalCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null }>(row: T) {
+function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; fiscalCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null; weldbooksEnabled?: boolean }>(row: T) {
   const { ssnEncrypted, salesTaxCredentialsEncrypted, fiscalCredentialsEncrypted, ...rest } = row;
+  // The loader's flag is internal: never part of the response.
+  delete (rest as { weldbooksEnabled?: boolean }).weldbooksEnabled;
   const ids = rest.taxIdentifiers;
   return {
     ...rest,
@@ -384,18 +424,21 @@ async function readOptionalJson(c: AppContext): Promise<unknown> {
   }
 }
 
-// GET /
+// GET / — the entities the member sees that WeldBooks is enabled for (archived ones with ?includeArchived=true)
 app.get('/', requirePermission('entities:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
-    const results = await db
-      .select()
-      .from(schema.entities)
-      .where(isNull(schema.entities.deletedAt))
-      .orderBy(schema.entities.name);
+    const access = await getEntityAccess(c);
+    const visible = await listLegalEntities(db, {
+      access,
+      app: 'weldbooks',
+      includeArchived: c.req.query('includeArchived') === 'true',
+    });
+    const results = await loadAccountingEntities(db, visible.map((e) => e.id));
+    results.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
     return success(c, results.map(serializeEntity));
   } catch (err) {
-    console.error('[app-api/accounting-entities] list failed:', err);
+    console.error('[books-api/accounting-entities] list failed:', err);
     return error.internal(c, 'Failed to fetch entities');
   }
 });
@@ -433,11 +476,7 @@ app.get('/jurisdictions', requirePermission('entities:read'), (c) => {
 app.get('/:id', requirePermission('entities:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
-    const [entity] = await db
-      .select()
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, c.req.param('id')), isNull(schema.entities.deletedAt)))
-      .limit(1);
+    const entity = await findActiveEntity(c, db, c.req.param('id'));
     if (!entity) return error.notFound(c, 'Entity', c.req.param('id'));
     return success(c, { ...serializeEntity(entity), ...(await getEntityLockState(db, entity.id)) });
   } catch (err) {
@@ -497,7 +536,11 @@ async function seedEntityDefaults(
   let accountsCreated = 0;
   let taxRatesCreated = 0;
 
-  const seedAccounts = buildSeedAccounts({
+  // WeldBooks switched off and on again keeps the chart and the rates it had.
+  const [hasAccounts] = await db.select({ id: schema.accounts.id }).from(schema.accounts).where(eq(schema.accounts.entityId, entityId)).limit(1);
+  const [hasRates] = await db.select({ id: schema.taxRates.id }).from(schema.taxRates).where(eq(schema.taxRates.entityId, entityId)).limit(1);
+
+  const seedAccounts = hasAccounts ? [] : buildSeedAccounts({
     adapter,
     entityId,
     jurisdictionCode,
@@ -517,7 +560,7 @@ async function seedEntityDefaults(
     entityType: kind.entityType,
     taxClassification: kind.taxClassification,
   });
-  const seedTaxRates = taxCategories.map((t) => ({
+  const seedTaxRates = (hasRates ? [] : taxCategories).map((t) => ({
     id: generateId('txr'),
     entityId,
     jurisdictionCode,
@@ -557,12 +600,153 @@ async function makeDefaultEntity(db: Database, entityId: string, now: Date): Pro
   }
 }
 
-// POST / — create entity + seed sequences/CoA/tax rates from the jurisdiction adapter
+/** The core fields of a legal entity in a PATCH patch (everything else stays WeldBooks' own or a mirror). */
+const CORE_PATCH_KEYS = [
+  'name',
+  'legalName',
+  'dba',
+  'entityType',
+  'jurisdictionCode',
+  'baseCurrency',
+  'locale',
+  'timezone',
+  'address',
+  'contact',
+  'fiscalYearStart',
+  'fiscalYearConfig',
+  'taxClassification',
+] as const;
+
+/** The document texts WeldBooks prints (they live in `accounting_entity_settings.document_texts`). */
+function documentTextsOf(branding: z.infer<typeof brandingSchema> | null | undefined): AccountingDocumentTexts | undefined {
+  if (!branding) return undefined;
+  const { footerText, paymentInstructions, termsAndConditions } = branding;
+  return {
+    ...(footerText !== undefined && { footerText }),
+    ...(paymentInstructions !== undefined && { paymentInstructions }),
+    ...(termsAndConditions !== undefined && { termsAndConditions }),
+  };
+}
+
+/** Logo and colors of a branding object: the core part, shared with the other apps. */
+function coreBrandingOf(branding: z.infer<typeof brandingSchema> | null | undefined) {
+  if (!branding) return undefined;
+  const { logoUrl, primaryColor, accentColor } = branding;
+  return {
+    ...(logoUrl !== undefined && { logoUrl }),
+    ...(primaryColor !== undefined && { primaryColor }),
+    ...(accentColor !== undefined && { accentColor }),
+  };
+}
+
+/**
+ * What `POST /` takes from the body when it enables WeldBooks for an existing
+ * legal entity: only what WeldBooks adds (accounting method, jurisdiction
+ * settings, the owner's SSN, seeding, the default). The company's identity
+ * (name, legal form, address, contact, tax identifiers, branding, bank details,
+ * currency, locale, time zone, fiscal year) is edited in Settings → Legal
+ * entities and stays as it is. The document texts are WeldBooks' too; the route
+ * reads them from the body itself.
+ */
+function weldbooksPartOf(data: Omit<CreateEntityData, 'legalEntityId'>): Omit<CreateEntityData, 'legalEntityId'> {
+  const { accountingMethod, jurisdictionSettings, ssn, isDefault, seedDefaults } = data;
+  return { accountingMethod, jurisdictionSettings, ssn, isDefault, seedDefaults };
+}
+
+/** The 403 `requirePermission` answers. */
+function permissionRefused(c: AppContext) {
+  return c.json(
+    { success: false, error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' } },
+    403,
+  );
+}
+
+/**
+ * Whether the member holds `key` inside one entity: with their role there (an
+ * entity role is swapped in, as `legalEntityContext` does for the scoped
+ * routes), checked the way `requirePermission` checks it.
+ */
+async function canInEntity(c: AppContext, access: EntityAccess, entityId: string, key: string): Promise<boolean> {
+  const workspace = c.get('userPermissions');
+  c.set('userPermissions', await permissionsInEntity(c.get('tenantDb'), access, entityId));
+  try {
+    return await hasContextPermission(c, key);
+  } finally {
+    c.set('userPermissions', workspace);
+  }
+}
+
+/**
+ * Seeds sequences, chart of accounts and tax rates once per entity: enabling
+ * WeldBooks again after it was switched off keeps what is already there.
+ */
+async function seedWeldbooksDefaults(
+  db: Database,
+  args: {
+    adapter: ReturnType<typeof getAdapter>;
+    entityId: string;
+    jurisdictionCode: string;
+    baseCurrency: string;
+    locale: string;
+    kind: ReturnType<typeof resolveEntityKind>;
+    timezone: Parameters<typeof taxYearOf>[0];
+    seedDefaults: boolean;
+    now: Date;
+  },
+): Promise<{ accountsCreated: number; taxRatesCreated: number }> {
+  const { adapter, entityId, locale, now } = args;
+  // Numbering sequences (invoice, bill, credit note, journal)
+  const sequences = [
+    { type: 'invoice', prefix: 'INV-' },
+    { type: 'bill', prefix: 'BILL-' },
+    { type: 'creditNote', prefix: 'CN-' },
+    { type: 'journal', prefix: 'JE-' },
+  ];
+  await db
+    .insert(schema.entityNumberSequences)
+    .values(
+      sequences.map((s) => ({
+        id: generateId('seq'),
+        entityId,
+        sequenceType: s.type,
+        prefix: s.prefix,
+        nextValue: 1,
+        padding: adapter.getInvoiceRequirements(locale).defaultPadding,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .onConflictDoNothing();
+
+  if (!args.seedDefaults) return { accountsCreated: 0, taxRatesCreated: 0 };
+  return seedEntityDefaults(db, args);
+}
+
+// POST / — enable WeldBooks for an existing legal entity (`legalEntityId`), or create the company
+// and enable WeldBooks for it; either way seed sequences/CoA/tax rates from the jurisdiction adapter.
 app.post('/', requirePermission('entities:create'), zValidator('json', createEntitySchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json');
+  const { legalEntityId, ...body } = c.req.valid('json');
 
-  const jurisdictionCode = data.jurisdictionCode ?? data.jurisdiction;
+  // The company: an existing legal entity the member sees, or a new one (which also needs legal_entities:create).
+  let core: AccountingEntity | null = null;
+  if (legalEntityId) {
+    const access = await getEntityAccess(c);
+    core = canSeeEntity(access, legalEntityId) ? await loadAccountingEntity(db, legalEntityId) : null;
+    if (!core) return error.notFound(c, 'Legal entity', legalEntityId);
+    // legalEntityContext skips this route, so the member's role inside that entity is checked here.
+    if (!(await canInEntity(c, access, legalEntityId, 'entities:create'))) return permissionRefused(c);
+    if (core.weldbooksEnabled) return error.conflict(c, 'WeldBooks is already enabled for this legal entity');
+  } else if (!(await hasContextPermission(c, 'legal_entities:create'))) {
+    return error.forbidden(c, 'Creating a company needs the legal_entities:create permission');
+  }
+
+  // An existing company keeps its identity: only what WeldBooks adds is read from the body.
+  const data = core ? weldbooksPartOf(body) : body;
+  const documentTexts = documentTextsOf(body.branding);
+
+  if (!core && !data.name) return error.badRequest(c, 'name is required');
+  const jurisdictionCode = core?.jurisdictionCode ?? data.jurisdictionCode ?? data.jurisdiction;
   if (!jurisdictionCode) {
     return error.badRequest(c, 'jurisdictionCode is required');
   }
@@ -582,95 +766,130 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     jurisdictionCode,
     taxIdentifiers: mergedTaxIdentifiers,
     jurisdictionSettings: data.jurisdictionSettings,
-    timezone: data.timezone,
+    timezone: data.timezone ?? core?.timezone,
   });
   if (india.error) {
     return error.badRequest(c, india.error);
   }
 
-  const checked = validateTaxIdentifiersWithAdapter(
-    jurisdictionCode,
-    india.taxIdentifiers,
-    touchedTaxIdentifiers(data.taxIdentifiers, data.vatNumber),
-  );
+  const touchedIds = touchedTaxIdentifiers(data.taxIdentifiers, data.vatNumber);
+  const checked = validateTaxIdentifiersWithAdapter(jurisdictionCode, india.taxIdentifiers, touchedIds);
   if (checked.error) {
     return error.badRequest(c, checked.error);
   }
 
   try {
-    const kind = resolveEntityKind(code, { entityType: data.entityType, taxClassification: data.taxClassification });
-    const { address, jurisdictionSettings, timezone } = newEntityLocation(code, data, india);
+    // An existing company keeps its own identity; the body only supplies what WeldBooks adds.
+    const kind = resolveEntityKind(code, {
+      entityType: core?.entityType ?? data.entityType,
+      taxClassification: core?.taxClassification ?? data.taxClassification,
+    });
+    const { address, jurisdictionSettings, timezone } = newEntityLocation(
+      code,
+      core ? { ...data, address: core.address ?? data.address, timezone: core.timezone ?? data.timezone } : data,
+      india,
+    );
 
     const ssnColumns = await newEntitySsn(c, data.ssn, isUs);
     if (ssnColumns instanceof Response) return ssnColumns;
     const { ssnEncrypted, ssnLast4 } = ssnColumns;
 
     const taxIdentifiers = checked.taxIdentifiers;
-    const locale = data.locale ?? adapter.defaultLocale;
-    const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
+    const locale = core?.locale ?? data.locale ?? adapter.defaultLocale;
+    const baseCurrency = core?.baseCurrency ?? data.baseCurrency ?? adapter.defaultCurrency;
 
-    const fiscalYearConfig = data.fiscalYearConfig ?? null;
-    const fiscalYearStart = data.fiscalYearStart ?? (fiscalYearConfig ? (fiscalYearConfig.endMonth % 12) + 1 : 1);
+    const fiscalYearConfig = core ? (core.fiscalYearConfig ?? null) : (data.fiscalYearConfig ?? null);
+    const startFromConfig = fiscalYearConfig ? (fiscalYearConfig.endMonth % 12) + 1 : 1;
+    const fiscalYearStart = core ? (core.fiscalYearStart ?? 1) : (data.fiscalYearStart ?? startFromConfig);
 
     const now = new Date();
-    const entityId = generateId('ent');
+    const accountingMethod = data.accountingMethod ?? (isUs ? 'accrual' : null);
 
-    const newEntity = {
-      id: entityId,
-      name: data.name,
-      legalName: data.legalName,
-      entityType: kind.entityType ?? undefined,
-      taxClassification: kind.taxClassification,
-      dba: data.dba ?? null,
-      accountingMethod: data.accountingMethod ?? (isUs ? 'accrual' : null),
+    // 1. The company: core's, created here only when none was named.
+    let entityId: string;
+    let isDefault: boolean;
+    let entityName: string;
+    if (core) {
+      entityId = core.id;
+      isDefault = core.isDefault ?? false;
+      entityName = core.name;
+    } else {
+      const created = await createLegalEntity(db, {
+        name: data.name as string,
+        legalName: data.legalName,
+        dba: data.dba ?? null,
+        entityType: kind.entityType ?? undefined,
+        jurisdictionCode: code,
+        baseCurrency,
+        locale,
+        timezone,
+        address: address as CreateLegalEntityInput['address'],
+        contact: data.contact,
+        branding: coreBrandingOf(data.branding),
+        fiscalYearStart,
+        fiscalYearConfig,
+        taxClassification: kind.taxClassification,
+        isDefault: data.isDefault,
+      });
+      entityId = created.id;
+      isDefault = created.isDefault ?? false;
+      entityName = created.name;
+      publishEntityEvent({
+        c,
+        entityType: 'legal_entity',
+        entityId,
+        action: 'created',
+        data: { id: entityId, name: created.name, jurisdictionCode: created.jurisdictionCode },
+      });
+    }
+
+    // 2. The tax identifiers are the company's registrations.
+    await syncRegistrationsFromTaxIdentifiers(db, { id: entityId, jurisdictionCode: code }, taxIdentifiers, touchedIds);
+
+    // 3. WeldBooks' extension, and (release 1 mirror) the same values on the old entity columns.
+    await upsertAccountingEntitySettings(db, entityId, {
+      accountingMethod,
+      jurisdictionSettings: jurisdictionSettings ?? null,
+      ssnEncrypted,
+      ssnLast4,
+      ...(documentTexts && Object.keys(documentTexts).length > 0 ? { documentTexts } : {}),
+    });
+    await db
+      .update(schema.entities)
+      .set({
+        accountingMethod,
+        ...(taxIdentifiers !== undefined && { taxIdentifiers }),
+        ...(jurisdictionSettings !== undefined && { jurisdictionSettings }),
+        ssnEncrypted,
+        ssnLast4,
+        ...(data.bankDetails !== undefined && { bankDetails: data.bankDetails }),
+        ...(data.branding !== undefined && { branding: data.branding }),
+        updatedAt: now,
+      })
+      .where(eq(schema.entities.id, entityId));
+
+    // 4. Numbering, chart of accounts and tax rates.
+    const { accountsCreated, taxRatesCreated } = await seedWeldbooksDefaults(db, {
+      adapter,
+      entityId,
       jurisdictionCode: code,
       baseCurrency,
       locale,
+      kind,
       timezone,
-      taxIdentifiers,
-      address,
-      contact: data.contact,
-      bankDetails: data.bankDetails,
-      branding: data.branding,
-      jurisdictionSettings,
-      fiscalYearStart,
-      fiscalYearConfig,
-      ssnEncrypted,
-      ssnLast4,
-      isDefault: data.isDefault ?? false,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
+      seedDefaults: data.seedDefaults,
+      now,
+    });
 
-    await db.insert(schema.entities).values(newEntity);
-
-    // Seed numbering sequences (invoice, bill, credit note, journal)
-    const sequences = [
-      { type: 'invoice', prefix: 'INV-' },
-      { type: 'bill', prefix: 'BILL-' },
-      { type: 'creditNote', prefix: 'CN-' },
-      { type: 'journal', prefix: 'JE-' },
-    ];
-    await db.insert(schema.entityNumberSequences).values(
-      sequences.map((s) => ({
-        id: generateId('seq'),
-        entityId,
-        sequenceType: s.type,
-        prefix: s.prefix,
-        nextValue: 1,
-        padding: adapter.getInvoiceRequirements(newEntity.locale).defaultPadding,
-        createdAt: now,
-        updatedAt: now,
-      })),
-    );
-
-    const { accountsCreated, taxRatesCreated } = data.seedDefaults
-      ? await seedEntityDefaults(db, { adapter, entityId, jurisdictionCode: code, baseCurrency, kind, timezone, now })
-      : { accountsCreated: 0, taxRatesCreated: 0 };
-
-    // If this is the first / default entity, update settings.defaultEntityId
-    if (newEntity.isDefault) await makeDefaultEntity(db, entityId, now);
+    // The default entity: the first company, or the one asked for. Making an existing company the
+    // workspace default is a company change (legal_entities:update); without it only WeldBooks' own
+    // default moves (settings.default_entity_id, which defaultEntityIdFor('weldbooks') falls back to).
+    const defaultAsked = core !== null && data.isDefault === true && !isDefault;
+    if (defaultAsked && (await hasContextPermission(c, 'legal_entities:update'))) {
+      await setDefaultLegalEntity(db, entityId);
+    } else if (defaultAsked || isDefault) {
+      await makeDefaultEntity(db, entityId, now);
+    }
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,
@@ -683,20 +902,23 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       entityType: 'accounting_entity',
       entityId,
       action: 'created',
-      data: { id: entityId, name: newEntity.name, jurisdictionCode: newEntity.jurisdictionCode, entityType: kind.entityType, taxClassification: kind.taxClassification },
+      data: { id: entityId, name: entityName, jurisdictionCode: code, entityType: kind.entityType, taxClassification: kind.taxClassification },
     });
 
-    return success(c, { ...serializeEntity(newEntity), accountsCreated, taxRatesCreated }, 201);
+    const entity = await loadAccountingEntity(db, entityId);
+    if (!entity) return error.internal(c, 'Failed to create entity');
+    return success(c, { ...serializeEntity(entity), accountsCreated, taxRatesCreated }, 201);
   } catch (err) {
     if (err instanceof EntitySetupError) return error.badRequest(c, err.message);
-    console.error('[app-api/accounting-entities] create failed:', err);
+    if (err instanceof LegalEntityError) return error.badRequest(c, err.message);
+    console.error('[books-api/accounting-entities] create failed:', err);
     return error.internal(c, 'Failed to create entity');
   }
 });
 
 type EntityRow = typeof schema.entities.$inferSelect;
-/** The PATCH body without the request-shape aliases (`jurisdiction`, `vatNumber`) and the write-only `ssn`. */
-type EntityUpdateData = Omit<z.infer<typeof updateEntitySchema>, 'jurisdiction' | 'vatNumber' | 'ssn'>;
+/** The PATCH body without the request-shape aliases (`jurisdiction`, `vatNumber`), the write-only `ssn` and the fields with their own write path. */
+type EntityUpdateData = Omit<z.infer<typeof updateEntitySchema>, 'jurisdiction' | 'vatNumber' | 'ssn' | 'isDefault' | 'invoiceBankAccountId'>;
 type IndiaTaxResult = ReturnType<typeof applyIndiaTaxIdentifiers>;
 
 /** Whether a PATCH moves the fiscal year (month start or 52–53-week config). */
@@ -902,14 +1124,11 @@ async function applySsnToPatch(
 app.patch('/:id', requirePermission('entities:update'), zValidator('json', updateEntitySchema), async (c) => {
   const db = c.get('tenantDb');
   // `jurisdiction`/`vatNumber` are request-shape aliases, not columns; `ssn` is encrypted before it is stored.
-  const { jurisdiction: jurisdictionAlias, vatNumber: vatAlias, ssn, ...data } = c.req.valid('json');
+  // `isDefault` goes through core (setDefaultLegalEntity), `invoiceBankAccountId` to the WeldBooks extension.
+  const { jurisdiction: jurisdictionAlias, vatNumber: vatAlias, ssn, isDefault, invoiceBankAccountId, ...data } = c.req.valid('json');
   const id = c.req.param('id');
   try {
-    const [existing] = await db
-      .select()
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)))
-      .limit(1);
+    const existing = await findActiveEntity(c, db, id);
     if (!existing) return error.notFound(c, 'Entity', id);
 
     const nextJurisdiction = (
@@ -938,22 +1157,65 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     const ssnFailure = await applySsnToPatch(c, patch, ssn, isUs);
     if (ssnFailure) return ssnFailure;
 
+    if (invoiceBankAccountId) {
+      const [account] = await db
+        .select({ id: schema.bankAccounts.id })
+        .from(schema.bankAccounts)
+        .where(and(eq(schema.bankAccounts.id, invoiceBankAccountId), eq(schema.bankAccounts.entityId, id), isNull(schema.bankAccounts.deletedAt)))
+        .limit(1);
+      if (!account) return error.badRequest(c, 'That bank account does not belong to this entity');
+    }
+
+    // 1. The company's own fields go through core.
+    const corePatch: Record<string, unknown> = {};
+    for (const key of CORE_PATCH_KEYS) if (patch[key] !== undefined) corePatch[key] = patch[key];
+    const coreBranding = coreBrandingOf(data.branding);
+    if (coreBranding) corePatch.branding = coreBranding;
+    if (Object.keys(corePatch).length > 0) await updateLegalEntity(db, id, corePatch as UpdateLegalEntityInput);
+
+    // 2. The tax identifiers are the company's registrations.
+    if (patch.taxIdentifiers !== undefined) {
+      await syncRegistrationsFromTaxIdentifiers(
+        db,
+        { id, jurisdictionCode: nextJurisdiction },
+        tax.taxIdentifiers,
+        touchedTaxIdentifiers(data.taxIdentifiers, vatAlias),
+      );
+    }
+
+    // 3. What WeldBooks adds on top: the extension row.
+    const documentTexts = data.branding !== undefined ? (documentTextsOf(data.branding) ?? {}) : undefined;
+    const extension: Parameters<typeof upsertAccountingEntitySettings>[2] = {};
+    if ('accountingMethod' in patch) extension.accountingMethod = patch.accountingMethod as string | null;
+    if ('jurisdictionSettings' in patch) extension.jurisdictionSettings = (patch.jurisdictionSettings as Record<string, unknown> | null) ?? null;
+    if ('ssnEncrypted' in patch) extension.ssnEncrypted = patch.ssnEncrypted as string | null;
+    if ('ssnLast4' in patch) extension.ssnLast4 = patch.ssnLast4 as string | null;
+    if (documentTexts) extension.documentTexts = documentTexts;
+    if (invoiceBankAccountId !== undefined) extension.invoiceBankAccountId = invoiceBankAccountId;
+    await upsertAccountingEntitySettings(db, id, extension);
+
+    // 4. Release 1 mirror: the old entity columns keep every value too (readers outside the loader, old workers).
     await db
       .update(schema.entities)
       .set(patch)
       .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)));
-    const [updated] = await db
-      .select()
-      .from(schema.entities)
-      .where(eq(schema.entities.id, id))
-      .limit(1);
+
+    // 5. Making it the workspace default is core's call (it also keeps settings.default_entity_id in step).
+    if (isDefault === true && !existing.isDefault) await setDefaultLegalEntity(db, id);
+
+    const updated = await loadAccountingEntity(db, id);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: id,
       entityType: 'accounting_entity',
       entityId: id,
       action: 'updated',
-      changes: auditChanges(patch, existing as Record<string, unknown>),
+      changes: {
+        ...auditChanges(patch, existing as Record<string, unknown>),
+        ...(invoiceBankAccountId !== undefined && {
+          invoiceBankAccountId: { old: existing.invoiceBankAccountId, new: invoiceBankAccountId },
+        }),
+      },
     });
     publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'updated', data: { id, name: updated?.name } });
 
@@ -963,10 +1225,11 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     }
 
     // After a classification change the accounts still point at the old return's lines.
-    return success(c, { ...serializeEntity(updated), ...(await getEntityLockState(db, id)), taxLineRemapNeeded: formChanged });
+    return success(c, { ...serializeEntity(updated ?? existing), ...(await getEntityLockState(db, id)), taxLineRemapNeeded: formChanged });
   } catch (err) {
     if (err instanceof EntitySetupError) return error.badRequest(c, err.message);
-    console.error('[app-api/accounting-entities] update failed:', err);
+    if (err instanceof LegalEntityError) return error.conflict(c, err.message);
+    console.error('[books-api/accounting-entities] update failed:', err);
     return error.internal(c, 'Failed to update entity');
   }
 });
@@ -984,7 +1247,7 @@ app.post('/:id/apply-tax-lines', requirePermission('accounts:update'), async (c)
   if (!body.success) return error.badRequest(c, 'Invalid request body', body.error.flatten());
 
   try {
-    const entity = await findActiveEntity(db, id);
+    const entity = await findActiveEntity(c, db, id);
     if (!entity) return error.notFound(c, 'Entity', id);
     if (entity.jurisdictionCode !== 'US') return error.badRequest(c, 'Tax lines are only available for US entities');
 
@@ -1025,7 +1288,7 @@ app.post('/:id/reveal-ssn', requirePermission('tax_ids:reveal'), async (c) => {
   if (!body.success) return error.badRequest(c, 'Invalid request body', body.error.flatten());
 
   try {
-    const entity = await findActiveEntity(db, id);
+    const entity = await findActiveEntity(c, db, id);
     if (!entity) return error.notFound(c, 'Entity', id);
     if (!entity.ssnEncrypted) return error.notFound(c, 'SSN of entity', id);
 
@@ -1058,22 +1321,26 @@ app.post('/:id/reveal-ssn', requirePermission('tax_ids:reveal'), async (c) => {
   }
 });
 
-// DELETE /:id — soft delete
+// DELETE /:id — switch WeldBooks off for the entity: removes only the WeldBooks extension row, and is
+// refused once WeldBooks holds documents or postings for it. Archiving or deleting the company itself
+// happens in Settings → Legal entities.
 app.delete('/:id', requirePermission('entities:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
-    const [existing] = await db
-      .select()
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)))
-      .limit(1);
-    if (!existing) return error.notFound(c, 'Entity', id);
+    const existing = await findActiveEntity(c, db, id);
+    if (!existing?.weldbooksEnabled) return error.notFound(c, 'Entity', id);
 
-    await db
-      .update(schema.entities)
-      .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
-      .where(eq(schema.entities.id, id));
+    const hasData = await getLegalEntityExtension('weldbooks').hasData(db, id);
+    if (hasData || (await entityHasPostings(db, id))) {
+      return error.conflict(
+        c,
+        'WeldBooks already holds invoices, bills or journal entries for this entity. Archive or delete the company in Settings → Legal entities instead.',
+        { code: 'ENTITY_HAS_POSTINGS' },
+      );
+    }
+
+    await db.delete(schema.accountingEntitySettings).where(eq(schema.accountingEntitySettings.entityId, id));
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: id,
@@ -1084,7 +1351,7 @@ app.delete('/:id', requirePermission('entities:delete'), async (c) => {
     publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'deleted', data: { id } });
     return noContent(c);
   } catch (err) {
-    console.error('[app-api/accounting-entities] delete failed:', err);
+    console.error('[books-api/accounting-entities] delete failed:', err);
     return error.internal(c, 'Failed to delete entity');
   }
 });
@@ -1142,13 +1409,16 @@ function todayInTimeZone(timeZone: string | null | undefined): string {
   }
 }
 
-async function findActiveEntity(db: Database, id: string) {
-  const [entity] = await db
-    .select()
-    .from(schema.entities)
-    .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)))
-    .limit(1);
-  return entity ?? null;
+/**
+ * A live entity as the API returns it (extension values merged in), or null
+ * when it is unknown, deleted, or not one this request may touch: a member
+ * who is not allowed everywhere only reaches the entity the request is
+ * scoped to, and a restricted entity they have no row on does not exist.
+ */
+async function findActiveEntity(c: AppContext, db: Database, id: string): Promise<AccountingEntity | null> {
+  const access = await getEntityAccess(c);
+  if (!canSeeEntity(access, id) || !(await recordInRequestEntity(c, id))) return null;
+  return loadAccountingEntity(db, id);
 }
 
 // PATCH /:id/lock-dates
@@ -1162,7 +1432,7 @@ app.patch(
     const body = c.req.valid('json');
 
     try {
-      const existing = await findActiveEntity(db, id);
+      const existing = await findActiveEntity(c, db, id);
       if (!existing) return error.notFound(c, 'Entity', id);
 
       const hardLockDate = body.hardLockDate;
@@ -1211,6 +1481,8 @@ app.patch(
         .where(and(...conditions))
         .returning();
       if (!updated) return error.badRequest(c, HARD_LOCK_FORWARD_ONLY);
+      // The extension holds the lock dates too (release 1 writes both).
+      await upsertAccountingEntitySettings(db, id, patch);
 
       await writeAccountingAudit(c, db, {
         accountingEntityId: id,
@@ -1272,7 +1544,7 @@ app.get('/:id/number-sequences', requirePermission('entities:read'), async (c) =
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
-    const entity = await findActiveEntity(db, id);
+    const entity = await findActiveEntity(c, db, id);
     if (!entity) return error.notFound(c, 'Entity', id);
     return success(c, await listNumberSequences(db, id));
   } catch (err) {
@@ -1292,7 +1564,7 @@ app.patch(
     const body = c.req.valid('json');
 
     try {
-      const entity = await findActiveEntity(db, id);
+      const entity = await findActiveEntity(c, db, id);
       if (!entity) return error.notFound(c, 'Entity', id);
 
       const recordChanges = async (changes: SequenceChanges, sequences: NumberSequence[]) => {
@@ -1350,7 +1622,7 @@ app.get('/:id/lock-exceptions', requirePermission('entities:read'), async (c) =>
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
-    const entity = await findActiveEntity(db, id);
+    const entity = await findActiveEntity(c, db, id);
     if (!entity) return error.notFound(c, 'Entity', id);
 
     const rows = await db
@@ -1385,7 +1657,7 @@ app.post(
     }
 
     try {
-      const entity = await findActiveEntity(db, id);
+      const entity = await findActiveEntity(c, db, id);
       if (!entity) return error.notFound(c, 'Entity', id);
 
       const [exception] = await db

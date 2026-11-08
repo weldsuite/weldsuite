@@ -34,8 +34,15 @@ const snapshot = JSON.parse(readFileSync(path.join(snapshotDir, latest), 'utf8')
   tables: Record<string, { columns: Record<string, { type: string; default?: unknown }> }>;
 };
 
-/** Tables outside the accounting-*.ts files that books reads or writes. */
+/**
+ * Tables outside the accounting-*.ts files that books reads or writes. The
+ * legal entity (`entities`), its registrations and its bank accounts are core
+ * (legal-entities.ts); WeldBooks' extensions of them are accounting files.
+ */
 const EXTRA = [
+  'legalEntities',
+  'legalEntityRegistrations',
+  'bankAccounts',
   'parties',
   'companies',
   'people',

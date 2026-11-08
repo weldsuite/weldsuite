@@ -20,6 +20,7 @@ import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -39,6 +40,9 @@ import {
 } from '../../services/sales-tax/route-helpers';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.salesTaxAgencies, { label: 'Sales tax agency' });
 
 const statusSchema = z.enum(['registered', 'pending', 'monitoring', 'closed']);
 const frequencySchema = z.enum(['monthly', 'quarterly', 'semiannual', 'annual']);

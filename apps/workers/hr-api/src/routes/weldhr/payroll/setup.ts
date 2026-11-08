@@ -44,6 +44,18 @@ import { createEmployer, deleteEmployer, getEmployer, listEmployers, setEmployer
 import { listEmployeePayslips } from '../../../services/weldhr/payroll/payslips';
 import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from '../../../services/weldhr/payroll/schedules';
 import { HrValidationError, recordHrAudit } from '../../../services/weldhr/shared';
+import { schema } from '@weldsuite/worker-kit/db';
+import {
+  assertEmployerVisible,
+  assertEntityUsable,
+  employeeEntityCondition,
+  employeeRecord,
+  employerEntityCondition,
+  employerRecord,
+  guardRecord,
+  viaEmployee,
+  viaEmployer,
+} from '../entity-scope';
 import { actor, clientIp, db, emit, param } from '../helpers';
 import { payrollDeps } from './deps';
 import { pdfResponse } from './responses';
@@ -57,20 +69,28 @@ const newApp = (): App => new Hono<{ Bindings: Env; Variables: Variables }>();
 // ---------------------------------------------------------------------------
 
 export const employersRoutes = newApp();
+guardRecord(employersRoutes, 'employerId', 'Payroll employer', employerRecord);
 
-employersRoutes.get('/', requirePermission('payroll:read'), async (c) => success(c, await listEmployers(db(c), payrollDeps(c).keyring)));
+employersRoutes.get('/', requirePermission('payroll:read'), async (c) =>
+  success(c, await listEmployers(db(c), payrollDeps(c).keyring, await employerEntityCondition(c))),
+);
 
 employersRoutes.get('/:employerId', requirePermission('payroll:read'), async (c) =>
   success(c, await getEmployer(db(c), param(c, 'employerId'), payrollDeps(c).keyring)),
 );
 
-employersRoutes.post('/', requirePermission('payroll:manage'), zValidator('json', createHrPayrollEmployerSchema), async (c) =>
-  success(c, await createEmployer(db(c), c.req.valid('json'), { createdBy: actor(c), keyring: payrollDeps(c).keyring }), 201),
-);
+employersRoutes.post('/', requirePermission('payroll:manage'), zValidator('json', createHrPayrollEmployerSchema), async (c) => {
+  const body = c.req.valid('json');
+  // A payroll registration of an entity needs the same standing in that entity as anything else there.
+  if (body.legalEntityId) await assertEntityUsable(c, body.legalEntityId);
+  return success(c, await createEmployer(db(c), body, { createdBy: actor(c), keyring: payrollDeps(c).keyring }), 201);
+});
 
-employersRoutes.patch('/:employerId', requirePermission('payroll:manage'), zValidator('json', updateHrPayrollEmployerSchema), async (c) =>
-  success(c, await updateEmployer(db(c), param(c, 'employerId'), c.req.valid('json'), payrollDeps(c).keyring)),
-);
+employersRoutes.patch('/:employerId', requirePermission('payroll:manage'), zValidator('json', updateHrPayrollEmployerSchema), async (c) => {
+  const body = c.req.valid('json');
+  if (body.legalEntityId) await assertEntityUsable(c, body.legalEntityId);
+  return success(c, await updateEmployer(db(c), param(c, 'employerId'), body, payrollDeps(c).keyring));
+});
 
 employersRoutes.delete('/:employerId', requirePermission('payroll:manage'), async (c) => {
   await deleteEmployer(db(c), param(c, 'employerId'));
@@ -96,14 +116,21 @@ employersRoutes.put('/:employerId/bank', requirePermission('payroll:manage'), zV
 // ---------------------------------------------------------------------------
 
 export const schedulesRoutes = newApp();
+guardRecord(
+  schedulesRoutes,
+  'scheduleId',
+  'Pay schedule',
+  viaEmployer(schema.hrPaySchedules, schema.hrPaySchedules.id, schema.hrPaySchedules.employerId),
+);
 
 schedulesRoutes.get('/', requirePermission('payroll:read'), zValidator('query', z.object({ employerId: z.string().optional() })), async (c) =>
-  success(c, await listSchedules(db(c), c.req.valid('query'))),
+  success(c, await listSchedules(db(c), { ...c.req.valid('query'), entity: await employerEntityCondition(c) })),
 );
 
-schedulesRoutes.post('/', requirePermission('payroll:manage'), zValidator('json', createHrPayScheduleSchema), async (c) =>
-  success(c, await createSchedule(db(c), c.req.valid('json')), 201),
-);
+schedulesRoutes.post('/', requirePermission('payroll:manage'), zValidator('json', createHrPayScheduleSchema), async (c) => {
+  await assertEmployerVisible(c, c.req.valid('json').employerId);
+  return success(c, await createSchedule(db(c), c.req.valid('json')), 201);
+});
 
 schedulesRoutes.patch('/:scheduleId', requirePermission('payroll:manage'), zValidator('json', updateHrPayScheduleSchema), async (c) =>
   success(c, await updateSchedule(db(c), param(c, 'scheduleId'), c.req.valid('json'))),
@@ -119,6 +146,7 @@ schedulesRoutes.delete('/:scheduleId', requirePermission('payroll:manage'), asyn
 // ---------------------------------------------------------------------------
 
 export const employeesRoutes = newApp();
+guardRecord(employeesRoutes, 'employeeId', 'Employee', employeeRecord);
 
 const listEmployeesQuery = z.object({
   employerId: z.string().optional(),
@@ -127,16 +155,24 @@ const listEmployeesQuery = z.object({
 
 employeesRoutes.get('/', requirePermission('payroll:read'), zValidator('query', listEmployeesQuery), async (c) => {
   const q = c.req.valid('query');
-  return success(c, await listPayrollEmployees(db(c), { employerId: q.employerId, onPayroll: q.onPayroll === undefined ? undefined : q.onPayroll === 'true' }, payrollDeps(c).keyring));
+  return success(
+    c,
+    await listPayrollEmployees(
+      db(c),
+      { employerId: q.employerId, onPayroll: q.onPayroll === undefined ? undefined : q.onPayroll === 'true', entity: await employeeEntityCondition(c) },
+      payrollDeps(c).keyring,
+    ),
+  );
 });
 
 employeesRoutes.get('/:employeeId', requirePermission('payroll:read'), async (c) =>
   success(c, await getPayrollEmployee(db(c), param(c, 'employeeId'), payrollDeps(c).keyring)),
 );
 
-employeesRoutes.put('/:employeeId/profile', requirePermission('payroll:prepare'), zValidator('json', upsertHrPayrollProfileSchema), async (c) =>
-  success(c, await upsertProfile(db(c), param(c, 'employeeId'), c.req.valid('json'))),
-);
+employeesRoutes.put('/:employeeId/profile', requirePermission('payroll:prepare'), zValidator('json', upsertHrPayrollProfileSchema), async (c) => {
+  await assertEmployerVisible(c, c.req.valid('json').employerId);
+  return success(c, await upsertProfile(db(c), param(c, 'employeeId'), c.req.valid('json')));
+});
 
 employeesRoutes.put('/:employeeId/payment-details', requirePermission('payroll:prepare'), zValidator('json', hrPayrollPaymentDetailsSchema), async (c) => {
   const employeeId = param(c, 'employeeId');
@@ -221,6 +257,12 @@ employeesRoutes.get('/:employeeId/annual-statements/:year', requirePermission('p
 // ---------------------------------------------------------------------------
 
 export const compensationsRoutes = newApp();
+guardRecord(
+  compensationsRoutes,
+  'compensationId',
+  'Compensation',
+  viaEmployee(schema.hrCompensations, schema.hrCompensations.id, schema.hrCompensations.employeeId),
+);
 
 compensationsRoutes.delete('/:compensationId', requirePermission('payroll:prepare'), async (c) => {
   await deleteCompensation(db(c), param(c, 'compensationId'));
@@ -228,6 +270,12 @@ compensationsRoutes.delete('/:compensationId', requirePermission('payroll:prepar
 });
 
 export const componentsRoutes = newApp();
+guardRecord(
+  componentsRoutes,
+  'componentId',
+  'Pay component',
+  viaEmployee(schema.hrPayComponents, schema.hrPayComponents.id, schema.hrPayComponents.employeeId),
+);
 
 componentsRoutes.patch('/:componentId', requirePermission('payroll:prepare'), zValidator('json', updateHrPayComponentSchema), async (c) =>
   success(c, await updateComponent(db(c), param(c, 'componentId'), c.req.valid('json'))),

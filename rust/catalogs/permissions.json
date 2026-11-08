@@ -489,6 +489,39 @@
       ]
     },
     {
+      "key": "legal_entities",
+      "label": "Legal Entities",
+      "permissions": [
+        {
+          "key": "legal_entities:read",
+          "label": "View legal entities"
+        },
+        {
+          "key": "legal_entities:create",
+          "label": "Create legal entities"
+        },
+        {
+          "description": "Change company details, registrations and bank accounts, and make an entity the default.",
+          "key": "legal_entities:update",
+          "label": "Edit legal entities"
+        },
+        {
+          "key": "legal_entities:delete",
+          "label": "Archive and delete legal entities"
+        },
+        {
+          "description": "Show the full account number of a bank account of a legal entity. Every reveal is logged.",
+          "key": "legal_entities:reveal",
+          "label": "Reveal full bank account numbers"
+        },
+        {
+          "description": "Restrict a legal entity and choose who sees it, and with which role. Holders always see every legal entity.",
+          "key": "legal_entities:manage",
+          "label": "Manage access per legal entity"
+        }
+      ]
+    },
+    {
       "key": "sso",
       "label": "Single Sign-On",
       "permissions": [
@@ -3079,6 +3112,12 @@
         "working-hours:edit-self",
         "sso:read",
         "sso:manage",
+        "legal_entities:read",
+        "legal_entities:create",
+        "legal_entities:update",
+        "legal_entities:delete",
+        "legal_entities:reveal",
+        "legal_entities:manage",
         "leads:read",
         "leads:create",
         "leads:update",
@@ -3525,6 +3564,7 @@
         "general:read",
         "team:read",
         "teams:read",
+        "legal_entities:read",
         "working-hours:edit-self",
         "leads:read",
         "leads:create",
@@ -3760,6 +3800,7 @@
         "general:read",
         "team:read",
         "teams:read",
+        "legal_entities:read",
         "leads:read",
         "contacts:read",
         "opportunities:read",

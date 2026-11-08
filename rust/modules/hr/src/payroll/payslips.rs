@@ -16,6 +16,7 @@ use super::Deps;
 use super::common::{address_lines, mask_iban, mask_national_id, sort_issues, truthy_str};
 use super::corrections::{Totals, row_totals};
 use super::employees::decrypt_sensitive;
+use super::employer_context::find_employer_for_payroll;
 use super::notifier::language_of;
 use super::runs::{int_of, payslip_sql, s};
 use super::ytd::approved_before;
@@ -212,7 +213,9 @@ pub(crate) async fn build_payslip_view(
     row: &Value,
     keyring: &Keyring,
 ) -> Result<(PayslipView, Lang), HrError> {
-    let employer = employer_by_id(db, s(row, "employerId")).await?;
+    let employer = find_employer_for_payroll(db, s(row, "employerId"), keyring)
+        .await?
+        .map(|employer| employer.row);
     let employee = employee_by_id(db, s(row, "employeeId")).await?;
     let (Some(employer), Some(employee)) = (employer, employee) else {
         return Err(HrError::not_found("Payslip", s(row, "id")));

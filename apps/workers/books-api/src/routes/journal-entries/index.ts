@@ -20,6 +20,7 @@ import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -44,6 +45,9 @@ function isUserFixable(err: unknown): err is Error {
 }
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.journalEntries, { label: 'Journal entry' });
 
 const journalLineSchema = z.object({
   accountId: z.string().min(1),

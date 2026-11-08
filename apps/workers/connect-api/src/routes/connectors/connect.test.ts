@@ -135,6 +135,8 @@ beforeAll(async () => {
   db = (await createPgliteDb()).db;
   holder.tenant = db;
   await db.insert(schema.entities).values({ id: 'ent_books0000001', name: 'Acme BV', legalName: 'Acme BV', entityType: 'company', jurisdictionCode: 'NL', baseCurrency: 'EUR' } as typeof schema.entities.$inferInsert);
+  // WeldBooks is enabled for an entity by its extension row; connections only take such an entity.
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_books0000001' });
   await db.insert(schema.connectorConnections).values([
     { id: 'ccn_patchwoo00001', provider: 'woocommerce', displayName: 'Shop', status: 'active', credentials: { storeUrl: 'https://good-shop.example', consumerKey: 'ck_1', consumerSecret: 'cs_1' }, externalAccountId: 'https://good-shop.example', enabledSyncs: ['products'], webhookRegistrations: [{ id: '17', topic: 'product.updated', deliveryUrl: 'https://hooks.example/x' }], createdAt: at, updatedAt: at },
     { id: 'ccn_patchmb000001', provider: 'moneybird', displayName: 'Moneybird (Alpha BV)', status: 'active', credentials: { accessToken: 'mb-at-two', administrationId: '211' }, externalAccountId: '211', createdAt: at, updatedAt: at },

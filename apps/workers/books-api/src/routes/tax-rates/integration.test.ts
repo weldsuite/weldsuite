@@ -19,6 +19,8 @@ beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
   await db.insert(schema.entities).values({ id: 'ent_test', name: 'Tax Rate Co', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_test' });
 }, 60_000);
 
 describe('/api/tax-rates · pglite integration', () => {

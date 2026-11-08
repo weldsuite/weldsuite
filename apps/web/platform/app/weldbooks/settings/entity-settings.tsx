@@ -12,7 +12,9 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { Link as HrefLink } from '@/lib/router';
 import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
 import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbooks';
@@ -227,6 +229,7 @@ export function WeldbooksEntitySettings({
   const { t } = useI18n();
   const te = t.accounting.entityEdit;
   const tu = t.weldbooksUs.setup;
+  const tle = t.accounting.legalEntities;
   const tit = t.accounting.invoiceTemplates.settingsCard;
   const selected = useSelectWeldbooksEntity(entity.id);
   const { data: entities } = useAccountingEntities();
@@ -238,6 +241,18 @@ export function WeldbooksEntitySettings({
 
   return (
     <div className="space-y-6">
+      <InfoBanner
+        variant="neutral"
+        title={tle.coreFieldsTitle}
+        action={
+          <Button variant="outline" size="sm" asChild>
+            <HrefLink href={`/settings/legal-entities/${entity.id}`}>{tle.openLegalEntities}</HrefLink>
+          </Button>
+        }
+      >
+        {tle.coreFieldsDescription}
+      </InfoBanner>
+
       {(entities?.length ?? 0) > 1 && (
         <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           {te.weldbooksSwitched.replace('{name}', entity.name)}

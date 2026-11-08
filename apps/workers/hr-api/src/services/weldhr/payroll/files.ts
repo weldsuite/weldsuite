@@ -16,8 +16,9 @@ import { fromCents, toCents } from '@weldsuite/payroll-domain/money';
 import type { GeneratedFile } from '@weldsuite/payroll-domain/documents';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { displayNameOf } from '../employees';
-import { HrNotFoundError, HrPayrollError } from '../shared';
+import { HrPayrollError } from '../shared';
 import { csvRow, num, type EmployerRow, type PayslipRow, type RunRow } from './common';
+import { findEmployerForPayroll, loadEmployerForPayroll } from './employer-context';
 import type { PayrollDeps } from './deps';
 import { maxDate } from './dates';
 import { bankOf, decryptSensitive, openBank, sameBank, type PayrollBank } from './employees';
@@ -54,8 +55,7 @@ export type PaymentFile = GeneratedFile & { warnings: HrPayrollIssue[] };
 export async function buildPaymentFile(db: Database, runId: string, deps: PayrollDeps): Promise<PaymentFile> {
   const run = await requireRun(db, runId);
   assertPayable(run);
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
-  if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
+  const employer = await loadEmployerForPayroll(db, run.employerId, deps.keyring);
   const bank = await readEmployerBank(employer, deps.keyring);
 
   // What can be paid: positive net pay. (A correction can come out negative: that is recovered another way.)
@@ -253,7 +253,7 @@ async function buildNacha(
 /** One CSV row per payslip line of the run. */
 export async function buildRunReport(db: Database, runId: string): Promise<GeneratedFile> {
   const run = await requireRun(db, runId);
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
+  const employer = await findEmployerForPayroll(db, run.employerId);
   const lang = employer ? languageOf(employer) : 'en';
   const slips = await db.select().from(s).where(eq(s.runId, runId));
   const people = slips.length
