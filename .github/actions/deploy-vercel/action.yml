@@ -28,6 +28,11 @@ inputs:
 runs:
   using: composite
   steps:
+    # 7 GB private runners: see deploy-pages.
+    - name: Give Node a larger heap
+      shell: bash
+      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
+
     - uses: ./.github/actions/setup-monorepo
 
     - name: Install Vercel CLI
