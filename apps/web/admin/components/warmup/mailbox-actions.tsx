@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from '@/lib/navigation';
 import { Button } from '@weldsuite/ui/components/button';
 import { ActionDialog } from '@/components/billing/action-dialog';
 import { pauseWarmupMailbox, resumeWarmupMailbox } from '@/actions/warmup-network';
@@ -23,7 +22,6 @@ export function MailboxWarmupActions({
   mailbox: { id: string; email: string; status: PoolStatus; pausedReason: string | null };
   canWrite: boolean;
 }>) {
-  const router = useRouter();
   const [dialog, setDialog] = useState<Action | null>(null);
 
   const action = actionFor(mailbox.status);
@@ -48,11 +46,7 @@ export function MailboxWarmupActions({
           submitLabel="Pause warmup"
           destructive
           onClose={() => setDialog(null)}
-          onSubmit={async (reason) => {
-            const result = await pauseWarmupMailbox(mailbox.id, reason);
-            if (result.ok) router.refresh();
-            return result;
-          }}
+          onSubmit={(reason) => pauseWarmupMailbox(mailbox.id, reason)}
           successMessage="Warmup paused"
         />
       )}
@@ -67,11 +61,7 @@ export function MailboxWarmupActions({
           }
           submitLabel="Resume warmup"
           onClose={() => setDialog(null)}
-          onSubmit={async (reason) => {
-            const result = await resumeWarmupMailbox(mailbox.id, reason);
-            if (result.ok) router.refresh();
-            return result;
-          }}
+          onSubmit={(reason) => resumeWarmupMailbox(mailbox.id, reason)}
           successMessage="Warmup resumed"
         />
       )}

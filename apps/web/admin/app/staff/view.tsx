@@ -10,7 +10,6 @@ import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-she
 import { addStaff, removeStaff } from '@/actions/staff';
 import { formatDateTime } from '@/lib/billing-format';
 import { adminCopy, fill } from '@/lib/i18n';
-import { useRouter } from '@/lib/navigation';
 import { ADMIN_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type AdminRole } from '@/lib/roles';
 import { normalizeStaffEmail } from '@/lib/staff';
 import type { StaffPageData, StaffRow } from './data';
@@ -144,7 +143,6 @@ function AddStaffDialog({
   onClose,
 }: Readonly<{ email?: string; role?: AdminRole; onClose: () => void }>) {
   const t = adminCopy().staff;
-  const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
   const [name, setName] = useState('');
   const [role, setRole] = useState<AdminRole>(initialRole);
@@ -159,9 +157,7 @@ function AddStaffDialog({
       onClose={onClose}
       onSubmit={async (reason) => {
         if (!valid) return { ok: false as const, error: t.errors.invalidEmail };
-        const result = await addStaff({ email, role, name: name || null, reason });
-        if (result.ok) router.refresh();
-        return result;
+        return addStaff({ email, role, name: name || null, reason });
       }}
       successMessage={(data) => fill(t.added, { email: data.email, role: ROLE_LABELS[data.role] })}
     >
@@ -180,7 +176,6 @@ function AddStaffDialog({
 
 function ChangeRoleDialog({ row, onClose }: Readonly<{ row: StaffRow; onClose: () => void }>) {
   const t = adminCopy().staff;
-  const router = useRouter();
   const [role, setRole] = useState<AdminRole>(row.role);
 
   return (
@@ -189,11 +184,7 @@ function ChangeRoleDialog({ row, onClose }: Readonly<{ row: StaffRow; onClose: (
       submitLabel={t.changeRole}
       invalidMessage={null}
       onClose={onClose}
-      onSubmit={async (reason) => {
-        const result = await addStaff({ email: row.email, role, reason });
-        if (result.ok) router.refresh();
-        return result;
-      }}
+      onSubmit={(reason) => addStaff({ email: row.email, role, reason })}
       successMessage={(data) => fill(t.roleChanged, { email: data.email, role: ROLE_LABELS[data.role] })}
     >
       <Field label={t.role} htmlFor="staff-change-role">
@@ -205,7 +196,6 @@ function ChangeRoleDialog({ row, onClose }: Readonly<{ row: StaffRow; onClose: (
 
 function RemoveStaffDialog({ row, onClose }: Readonly<{ row: StaffRow; onClose: () => void }>) {
   const t = adminCopy().staff;
-  const router = useRouter();
 
   return (
     <ActionDialog
@@ -214,11 +204,7 @@ function RemoveStaffDialog({ row, onClose }: Readonly<{ row: StaffRow; onClose: 
       submitLabel={t.remove}
       destructive
       onClose={onClose}
-      onSubmit={async (reason) => {
-        const result = await removeStaff({ email: row.email, reason });
-        if (result.ok) router.refresh();
-        return result;
-      }}
+      onSubmit={(reason) => removeStaff({ email: row.email, reason })}
       successMessage={(data) => fill(t.removedToast, { email: data.email })}
     />
   );

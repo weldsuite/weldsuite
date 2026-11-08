@@ -134,6 +134,10 @@ export function safeReturnTo(value: string | null | undefined): string {
     // Resolved against a placeholder origin, only to see whether it stays on it.
     const url = new URL(value, RETURN_BASE);
     if (url.origin !== RETURN_BASE) return '/';
+    // The returned path is the normalised one, and dot segments can collapse
+    // into a leading `//` (`/.//evil.example`), which a browser reads as another
+    // host: check the output, not only the input.
+    if (url.pathname.startsWith('//')) return '/';
     if (url.pathname.startsWith('/auth/')) return '/';
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {

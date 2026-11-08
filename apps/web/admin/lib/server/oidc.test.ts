@@ -147,6 +147,13 @@ describe('safeReturnTo', () => {
       expect(safeReturnTo(value)).toBe('/');
     }
   });
+
+  it('checks the path after dot segments collapse, not only as given', () => {
+    for (const value of ['/.//evil.example', '/a/..//evil.example', '/..//evil.example', '/./\\evil.example', '/x/../auth/callback']) {
+      expect(safeReturnTo(value)).toBe('/');
+    }
+    expect(safeReturnTo('/a/../workspaces')).toBe('/workspaces');
+  });
 });
 
 describe('oidcConfig', () => {

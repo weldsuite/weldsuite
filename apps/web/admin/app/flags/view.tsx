@@ -12,7 +12,6 @@ import { clearFlag, setFlag } from '@/actions/flags';
 import { formatDateTime } from '@/lib/billing-format';
 import { parseFlagValue, type FlagType } from '@/lib/flags';
 import { adminCopy, fill } from '@/lib/i18n';
-import { useRouter } from '@/lib/navigation';
 import type { FlagRow, FlagsPageData } from './data';
 
 type Dialog =
@@ -176,7 +175,6 @@ function ValueEditor({
 
 function SetFlagDialog({ flag, forWorkspace, onClose }: Readonly<{ flag: FlagRow; forWorkspace: boolean; onClose: () => void }>) {
   const t = adminCopy().flags;
-  const router = useRouter();
   const [workspace, setWorkspace] = useState('');
   const [value, setValue] = useState(flag.everyone?.value ?? flag.default);
   const parsed = parseFlagValue(flag.type, value);
@@ -189,11 +187,7 @@ function SetFlagDialog({ flag, forWorkspace, onClose }: Readonly<{ flag: FlagRow
       submitLabel={forWorkspace ? t.setForWorkspace : t.setForEveryone}
       invalidMessage={invalid}
       onClose={onClose}
-      onSubmit={async (reason) => {
-        const result = await setFlag({ flag: flag.key, workspace: forWorkspace ? workspace : null, value, reason });
-        if (result.ok) router.refresh();
-        return result;
-      }}
+      onSubmit={(reason) => setFlag({ flag: flag.key, workspace: forWorkspace ? workspace : null, value, reason })}
       successMessage={(data) => fill(t.saved, { flag: data.flag })}
     >
       {forWorkspace && (
@@ -214,7 +208,6 @@ function ClearFlagDialog({
   onClose,
 }: Readonly<{ flag: FlagRow; workspace: { ref: string; label: string } | null; onClose: () => void }>) {
   const t = adminCopy().flags;
-  const router = useRouter();
 
   return (
     <ActionDialog
@@ -223,11 +216,7 @@ function ClearFlagDialog({
       submitLabel={workspace ? t.remove : t.backToDefault}
       destructive
       onClose={onClose}
-      onSubmit={async (reason) => {
-        const result = await clearFlag({ flag: flag.key, workspace: workspace?.ref ?? null, reason });
-        if (result.ok) router.refresh();
-        return result;
-      }}
+      onSubmit={(reason) => clearFlag({ flag: flag.key, workspace: workspace?.ref ?? null, reason })}
       successMessage={(data) => fill(t.cleared, { flag: data.flag })}
     />
   );

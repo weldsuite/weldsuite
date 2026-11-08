@@ -16,12 +16,16 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { cn } from '@/lib/utils';
 import { adminCopy } from '@/lib/i18n';
 import { keepsRequestId, newRequestId } from '@/lib/billing-format';
+import { useRouter } from '@/lib/navigation';
 import type { ActionResult } from '@/actions/workspaces';
 
 /**
  * Dialog shell for every billing change: the dialog's own fields, a required
  * reason (saved in the activity log), and a submit button. Mount it only while
  * open so its state starts fresh each time.
+ *
+ * After a successful submit it re-runs the page's loaders before closing, so
+ * the page shows the change (on Next.js the server action revalidated it).
  *
  * One request id per submission becomes the Stripe idempotency key. It is
  * renewed after a definite rejection, so a corrected retry is not mistaken for
@@ -53,6 +57,7 @@ export function ActionDialog<T>({
   children?: React.ReactNode;
 }>) {
   const t = adminCopy();
+  const router = useRouter();
   const [reason, setReason] = useState('');
   const [requestId, setRequestId] = useState(newRequestId);
   const [isPending, startTransition] = useTransition();
@@ -73,6 +78,8 @@ export function ActionDialog<T>({
       if (Array.isArray(warnings)) {
         for (const warning of warnings) if (typeof warning === 'string') toast.warning(warning);
       }
+      // A failed reload leaves the old values on screen; the change itself is saved.
+      await router.refresh().catch(() => undefined);
       onClose();
     });
 

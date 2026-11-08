@@ -207,7 +207,8 @@ export function PlanForm({ plan, canWrite }: Readonly<{ plan: PlanDetail | null;
       toast.success(plan ? f.saved : f.created);
       if (result.data.stripeError) toast.warning(fill(f.stripeFailed, { message: result.data.stripeError }));
       setReason('');
-      if (!plan) router.push(`/plans/${result.data.plan.id}`);
+      if (plan) await router.refresh().catch(() => undefined);
+      else router.push(`/plans/${result.data.plan.id}`);
     });
   };
 

@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { AdminIdentity } from './auth';
 import { consoleAuditRow } from './audit';
@@ -79,7 +79,8 @@ export async function updatePlanDirect(
         ...(patch.features ? { features: patch.features as PlanFeatures } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(plans.id, planId))
+      // A soft-deleted plan is not found, as in the billing worker's updatePlan.
+      .where(and(eq(plans.id, planId), isNull(plans.deletedAt)))
       .returning({ id: plans.id });
     if (updated.length === 0) return { ok: false as const, error: adminCopy().plans.errors.notFound };
     if (patch.isDefault) await clearOtherDefaults(tx, planId);

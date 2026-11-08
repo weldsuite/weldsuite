@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from '@/lib/navigation';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -84,7 +83,6 @@ export function PolicyForm({
   computedTrust: OutboundTrustLevel;
   canWrite: boolean;
 }>) {
-  const router = useRouter();
   const saved = useMemo(() => toForm(policy), [policy]);
   const [values, setValues] = useState<FormValues>(saved);
   const [confirming, setConfirming] = useState(false);
@@ -259,11 +257,7 @@ export function PolicyForm({
           submitLabel="Save policy"
           destructive={values.state === 'suspended' && policy.state !== 'suspended'}
           onClose={() => setConfirming(false)}
-          onSubmit={async (reason) => {
-            const result = await updateOutboundPolicy(workspaceId, update, reason);
-            if (result.ok) router.refresh();
-            return result;
-          }}
+          onSubmit={(reason) => updateOutboundPolicy(workspaceId, update, reason)}
           successMessage="Policy saved"
         />
       )}

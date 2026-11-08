@@ -120,8 +120,7 @@ MAIL_SMTP_URL.
 {{- define "weldsuite.mta.clientEnv" -}}
 {{- if and .Values.mta.enabled .Values.mta.wireServer }}
 {{- $secret := include "weldsuite.mta.clientSecretName" . }}
-{{- $namespace := include "weldsuite.mta.namespace" . }}
-{{- $submission := printf "%s.%s.svc:%v" (include "weldsuite.mta.fullname" .) $namespace .Values.mta.submission.service.port -}}
+{{- $namespace := include "weldsuite.mta.namespace" . -}}
 - name: MTA_API_URL
   value: {{ printf "http://%s.%s.svc:8025" (include "weldsuite.mta.apiName" .) $namespace | quote }}
 - name: MTA_API_SECRET
@@ -138,17 +137,31 @@ MAIL_SMTP_URL.
 - name: MAIL_SPF_INCLUDE
   value: {{ . | quote }}
 {{- end }}
-{{- $pools := splitList "," (include "weldsuite.mta.poolNames" .) }}
 {{- range $pool, $url := dict "system" "SMTP_URL" "customer" "MAIL_SMTP_URL" }}
-{{- if and (has $pool $pools) (not (hasKey $.Values.secret.values $url)) }}
-- name: MTA_SUBMISSION_PASSWORD_{{ upper $pool }}
+{{- include "weldsuite.mta.poolSmtpEnv" (dict "root" $ "pool" $pool "url" $url) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+One pool's submission URL for a pod that sends through the MTA: the pool's
+password from the client Secret, then the URL built from it. Empty unless the
+MTA is on and wired (mta.wireServer), has the pool, and the Secret's values
+don't set the URL themselves. The server, consume and the cron jobs take both
+pools (clientEnv); the admin console takes the system pool's SMTP_URL.
+Called with (dict "root" $ "pool" "system" "url" "SMTP_URL").
+*/}}
+{{- define "weldsuite.mta.poolSmtpEnv" -}}
+{{- $root := .root }}
+{{- $values := $root.Values }}
+{{- if and $values.mta.enabled $values.mta.wireServer (has .pool (splitList "," (include "weldsuite.mta.poolNames" $root))) (not (hasKey $values.secret.values .url)) }}
+{{- $submission := printf "%s.%s.svc:%v" (include "weldsuite.mta.fullname" $root) (include "weldsuite.mta.namespace" $root) $values.mta.submission.service.port }}
+- name: MTA_SUBMISSION_PASSWORD_{{ upper .pool }}
   valueFrom:
     secretKeyRef:
-      name: {{ $secret }}
-      key: MTA_SUBMISSION_PASSWORD_{{ upper $pool }}
-- name: {{ $url }}
-  value: {{ printf "smtp://%s:$(MTA_SUBMISSION_PASSWORD_%s)@%s" $pool (upper $pool) $submission | quote }}
-{{- end }}
-{{- end }}
+      name: {{ include "weldsuite.mta.clientSecretName" $root }}
+      key: MTA_SUBMISSION_PASSWORD_{{ upper .pool }}
+- name: {{ .url }}
+  value: {{ printf "smtp://%s:$(MTA_SUBMISSION_PASSWORD_%s)@%s" .pool (upper .pool) $submission | quote }}
 {{- end }}
 {{- end }}
