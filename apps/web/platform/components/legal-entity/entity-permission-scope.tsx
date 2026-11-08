@@ -21,9 +21,10 @@ export function EntityPermissionScope({
   const parent = usePermissionsMaybe();
   const { data: access, isLoading } = useMyLegalEntityAccess(entityId);
 
-  const permissions = useMemo(
-    () => (access ? (access.isOwner ? ['*', ...access.permissions] : access.permissions) : []),
-    [access],
+  const permissions = useMemo(() => {
+    if (!access) return [];
+    return access.isOwner ? ['*', ...access.permissions] : access.permissions;
+  }, [access],
   );
   const denies = useMemo(() => access?.denies ?? [], [access]);
 

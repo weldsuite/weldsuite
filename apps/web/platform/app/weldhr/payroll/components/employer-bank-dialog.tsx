@@ -20,7 +20,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { hrPayrollEmployerBankSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useSetHrPayrollEmployerBank, useUpdateHrPayrollEmployer } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { useLegalEntityBankAccounts } from '@/hooks/queries/use-legal-entities-queries';
+import { useLegalEntityBankAccounts, useSaveBankAccount } from '@/hooks/queries/use-legal-entities-queries';
 import { errorMessage } from '../../components/shared';
 import { SelectField, TextField } from './form-fields';
 import { InfoLine } from './payroll-ui';
@@ -35,12 +35,14 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
   const t = useTranslations();
   const setBank = useSetHrPayrollEmployerBank();
   const updateEmployer = useUpdateHrPayrollEmployer();
+  // An entity-linked employer's accounts live on the entity, so a new one is created there.
+  const saveEntityAccount = useSaveBankAccount(employer.legalEntityId ?? '');
   // One of the entity's accounts, or a new one typed below.
   const { data: entityAccounts } = useLegalEntityBankAccounts(employer.legalEntityId);
   const accountOptions = (entityAccounts ?? []).filter((a) => a.isActive);
   const [accountChoice, setAccountChoice] = useState<string>(employer.bankAccountId ?? NEW_ACCOUNT);
   const usingExisting = accountChoice !== NEW_ACCOUNT;
-  const busy = setBank.isPending || updateEmployer.isPending;
+  const busy = setBank.isPending || updateEmployer.isPending || saveEntityAccount.isPending;
   const bank = employer.bank;
   const isNl = employer.country === 'NL';
 
@@ -69,9 +71,37 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
     }
   }
 
+  /** Never touch the linked account (shared with WeldBooks and other employers): create a new one and link it. */
+  async function saveNewEntityAccount(values: Parsed) {
+    try {
+      const account = await saveEntityAccount.mutateAsync({
+        create: {
+          name: values.bankName?.trim() || values.accountHolder?.trim() || employer.legalName,
+          accountHolderName: values.accountHolder || null,
+          iban: values.iban || null,
+          bic: values.bic || null,
+          bankName: values.bankName || null,
+          accountType: values.accountType ?? null,
+          routingNumber: values.routingNumber || null,
+          accountNumber: values.accountNumber || null,
+          achSettings: values.nachaCompanyId ? { companyIdentification: values.nachaCompanyId } : null,
+        },
+      });
+      await updateEmployer.mutateAsync({ id: employer.id, bankAccountId: account.id });
+      toast.success(t('weldhr.payroll.settings.bank.saved'));
+      onClose();
+    } catch (err) {
+      form.setError('root', { message: errorMessage(err, t('weldhr.payroll.settings.bank.saveFailed')) });
+    }
+  }
+
   async function onSubmit(values: Parsed) {
     if (usingExisting) {
       await saveExisting();
+      return;
+    }
+    if (employer.legalEntityId) {
+      await saveNewEntityAccount(values);
       return;
     }
     // A blank secret keeps the stored one (undefined); other blank fields clear (null).

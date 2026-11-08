@@ -23,7 +23,9 @@
 //! ```
 //!
 //! An entity the member does not see answers 404 on every route; owners and
-//! `legal_entities:manage` holders see all. Writes answer the entity as the
+//! `legal_entities:manage` holders see all. Giving someone an entity role is
+//! held to the grant ceiling, as assigning a workspace role is: the caller
+//! must hold every permission the role carries. Writes answer the entity as the
 //! caller sees it after the write (a fresh access snapshot). Registrations,
 //! make-default, unarchive and the Restricted switch publish `legal_entity`
 //! `updated`; a reveal publishes no event (it is logged in `tax_id_reveals`).
@@ -61,7 +63,10 @@ use weldsuite_legal_entities::service::{
     self as le, EntityRow, RevealBankAccount, SetEntityMember,
 };
 use weldsuite_legal_entities::{EntityAccess, LegalEntityError, can_see_entity, schemas};
-use weldsuite_permissions::{PermissionGate, PermissionQueries, ResolvedPermissions};
+use weldsuite_permissions::{
+    PermissionGate, PermissionQueries, ResolvedPermissions, check_permission_grants,
+    role_row_permissions,
+};
 
 use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer};
 
@@ -742,6 +747,54 @@ async fn run_set_restricted(
     Ok(ok(to_json(&list)))
 }
 
+/// `refuseUngrantableRole`: the grant ceiling for an entity role (as
+/// team-members' `refuseUngrantable`). The role replaces the member's
+/// permissions inside the entity, so whoever gives it must hold every
+/// permission it carries. No role (the workspace role) needs no check; an
+/// unknown role and the Owner role are left to `set_entity_member`, which
+/// refuses both with a 400.
+async fn refuse_ungrantable_role(caller: &Caller, role_id: Option<&str>) -> TeamResult<()> {
+    let Some(role_id) = role_id.filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    let role: Option<(String, bool, Option<Value>)> = sqlx::query_as(
+        "select name, is_system, permissions from roles where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(role_id)
+    .fetch_optional(&caller.db)
+    .await?;
+    let Some((name, is_system, stored)) = role else {
+        return Ok(());
+    };
+    if is_system && name.to_uppercase() == "OWNER" {
+        return Ok(());
+    }
+    let Some(grantor) = caller.permissions.as_ref() else {
+        return Err(TeamError::api(ApiError::unauthorized()));
+    };
+    let stored: Option<Vec<String>> = stored.as_ref().map(|value| {
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    let keys = role_row_permissions(is_system, &name, stored.as_deref());
+    let none: &[&str] = &[];
+    if check_permission_grants(grantor.resolved(), keys.as_slice(), none).ok {
+        Ok(())
+    } else {
+        Err(TeamError::api(ApiError::forbidden().with_message(
+            "You cannot grant permissions you do not hold yourself",
+        )))
+    }
+}
+
 async fn set_member(
     State(state): State<CoreTeamState>,
     caller: Caller,
@@ -762,6 +815,7 @@ async fn run_set_member(
 ) -> TeamResult<Response> {
     let role_id = schemas::parse_set_entity_member(&body_json(headers, body)?).map_err(invalid)?;
     require_visible(caller, id).await?;
+    refuse_ungrantable_role(caller, role_id.as_deref()).await?;
     let set = le::set_entity_member(
         &caller.db,
         SetEntityMember {

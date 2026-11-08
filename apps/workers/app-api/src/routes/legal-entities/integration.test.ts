@@ -17,6 +17,9 @@ beforeAll(async () => {
 }, 120_000);
 
 const READ = 'legal_entities:read';
+const INVOICES_READ = 'weldbooks:invoices:read';
+const INVOICES_CREATE = 'weldbooks:invoices:create';
+// Also holds what CUSTOM_ROLE carries, so it may give that role (the grant ceiling).
 const ADMIN_KEYS = [
   READ,
   'legal_entities:create',
@@ -24,9 +27,12 @@ const ADMIN_KEYS = [
   'legal_entities:delete',
   'legal_entities:reveal',
   'legal_entities:manage',
+  INVOICES_READ,
 ];
 
 const CUSTOM_ROLE = 'role_le_books';
+const CREATOR_ROLE = 'role_le_creator';
+const ADMIN_ROLE = 'role_le_admin';
 const OWNER_ROLE = 'role_le_owner';
 
 async function seed(): Promise<void> {
@@ -38,7 +44,10 @@ async function seed(): Promise<void> {
   await db.delete(schema.roles);
   const now = new Date();
   await db.insert(schema.roles).values([
-    { id: CUSTOM_ROLE, name: 'Books reader', isSystem: false, permissions: [READ, 'weldbooks:invoices:read'], apps: [] },
+    { id: CUSTOM_ROLE, name: 'Books reader', isSystem: false, permissions: [READ, INVOICES_READ], apps: [] },
+    { id: CREATOR_ROLE, name: 'Books clerk', isSystem: false, permissions: [READ, INVOICES_READ, INVOICES_CREATE], apps: [] },
+    // A system role row resolves to the catalog's permissions, not the stored ones.
+    { id: ADMIN_ROLE, name: 'Admin', isSystem: true, permissions: [], apps: [] },
     { id: OWNER_ROLE, name: 'Owner', isSystem: true, permissions: ['*'], apps: [] },
   ] as (typeof schema.roles.$inferInsert)[]);
   const member = (userId: string, role: string, memberType?: string) => ({
@@ -162,6 +171,34 @@ describe('per-entity access', () => {
     });
     // Changing the role is an update (200).
     expect((await put('user_member', null)).status).toBe(200);
+  });
+
+  it('only lets the caller give an entity role whose permissions they hold themselves', async () => {
+    const entity = await createEntity('Acme BV');
+    const put = (t: ReturnType<typeof app>, roleId: string | null) =>
+      send(t, `/${entity.id}/access/members/user_member`, 'PUT', { roleId });
+    const members = async () => {
+      const res = await asAdmin().request(`/api/legal-entities/${entity.id}/access`);
+      return ((await res.json()) as { data: { members: { userId: string; roleId: string | null }[] } }).data.members;
+    };
+
+    // A manager without invoices:create cannot give a role that has it, nor the Admin role.
+    const refused = await put(asAdmin(), CREATOR_ROLE);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: { code: 'FORBIDDEN', message: 'You cannot grant permissions you do not hold yourself' },
+    });
+    expect((await put(asAdmin(), ADMIN_ROLE)).status).toBe(403);
+    expect(await members()).toEqual([]);
+
+    // A manager who holds every key of the role can give it.
+    const holder = app('user_admin', [...ADMIN_KEYS, INVOICES_CREATE]);
+    expect((await put(holder, CREATOR_ROLE)).status).toBe(201);
+    expect((await members()).map((m) => [m.userId, m.roleId])).toEqual([['user_member', CREATOR_ROLE]]);
+    // The owner holds them all, the Admin role's included.
+    expect((await put(app('user_owner', ['*']), ADMIN_ROLE)).status).toBe(200);
+    // Acting with their workspace role takes no check.
+    expect((await put(asAdmin(), null)).status).toBe(200);
   });
 
   it('needs legal_entities:manage to manage access', async () => {

@@ -298,11 +298,9 @@ function AddMemberDialog({ entityId, open, onOpenChange, listed, roles, rolesLoa
             aria-label={ta.searchMembers}
           />
           <div className="max-h-64 overflow-y-auto rounded-md border" role="listbox" aria-label={ta.member}>
-            {isLoading ? (
-              <PageLoader fullScreen={false} className="min-h-[80px] pb-0" />
-            ) : candidates.length === 0 ? (
-              <EmptyText>{ta.noMembersToAdd}</EmptyText>
-            ) : (
+            {isLoading && <PageLoader fullScreen={false} className="min-h-[80px] pb-0" />}
+            {!isLoading && candidates.length === 0 && <EmptyText>{ta.noMembersToAdd}</EmptyText>}
+            {!isLoading &&
               candidates.map((member) => (
                 <button
                   key={member.userId}
@@ -325,8 +323,7 @@ function AddMemberDialog({ entityId, open, onOpenChange, listed, roles, rolesLoa
                     )}
                   </div>
                 </button>
-              ))
-            )}
+              ))}
           </div>
           <div className="space-y-2">
             <Label>{ta.entityRole}</Label>

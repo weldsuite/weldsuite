@@ -20,15 +20,19 @@
  *   GET    /:id/my-access                          the caller's role here     [authenticated]
  *
  * An entity the member does not see answers 404 on every route. Owners and
- * `legal_entities:manage` holders see all. Registrations, make-default,
+ * `legal_entities:manage` holders see all. Giving someone an entity role is
+ * held to the grant ceiling, as assigning a workspace role is: the caller
+ * must hold every permission the role carries. Registrations, make-default,
  * unarchive and the restricted switch publish `legal_entity` `updated`.
  * A reveal publishes no event: it is logged in `tax_id_reveals`.
  */
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { and, eq, isNull } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { checkPermissionGrants, getRoleRowPermissions } from '@weldsuite/permissions';
+import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
 import {
   createBankAccountSchema,
   createLegalEntitySchema,
@@ -70,7 +74,7 @@ import {
   updateLegalEntity,
   updateRegistration,
 } from '@weldsuite/core-domain/legal-entities';
-import { getMasterDb } from '@weldsuite/worker-kit/db';
+import { getMasterDb, schema } from '@weldsuite/worker-kit/db';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
 import { mirrorStripeCustomer } from '../../services/workspace-settings';
@@ -115,6 +119,29 @@ async function entityView(c: Ctx, id: string) {
 async function publishEntityUpdated(c: Ctx, id: string, action: 'updated' | 'archived' = 'updated') {
   const entity = await getLegalEntity(c.get('tenantDb'), id);
   publishEntityEvent({ c, entityType: 'legal_entity', action, entityId: id, data: asData(entity ?? { id }) });
+}
+
+/**
+ * Grant ceiling for an entity role (`refuseUngrantable` in team-members): the
+ * role replaces the member's permissions inside the entity
+ * (`legalEntityContext({ scoped: true })`), so whoever gives it must hold every
+ * permission it carries. No role (the workspace role) needs no check; an
+ * unknown role and the Owner role are left to `setEntityMember`, which refuses
+ * both with a 400.
+ */
+async function refuseUngrantableRole(c: Ctx, roleId: string | null): Promise<Response | null> {
+  if (!roleId) return null;
+  const [role] = await c
+    .get('tenantDb')
+    .select({ name: schema.roles.name, isSystem: schema.roles.isSystem, permissions: schema.roles.permissions })
+    .from(schema.roles)
+    .where(and(eq(schema.roles.id, roleId), isNull(schema.roles.deletedAt)))
+    .limit(1);
+  if (!role || (role.isSystem && role.name.toUpperCase() === 'OWNER')) return null;
+  const grantor = await ensurePermissionsResolved(c);
+  if (!grantor) return error.unauthorized(c);
+  if (checkPermissionGrants(grantor, getRoleRowPermissions(role)).ok) return null;
+  return error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
 }
 
 /** The default entity is the workspace business profile: keep the Stripe customer in step with it. */
@@ -405,6 +432,8 @@ app.put(
     if (!(await seesEntity(c, id))) return error.notFound(c, 'Legal entity');
     const userId = c.req.param('userId');
     const { roleId } = c.req.valid('json');
+    const refusal = await refuseUngrantableRole(c, roleId);
+    if (refusal) return refusal;
     try {
       const { created, member } = await setEntityMember(c.get('tenantDb'), {
         entityId: id,

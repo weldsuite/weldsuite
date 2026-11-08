@@ -908,6 +908,7 @@ function planDefaultFromSettings(ctx: PlanContext, ws: WorkspaceSettingsRow): st
   }
   const address = workspaceAddress(ws);
   const timezone = text(ws.timezone);
+  const fallbackTimezone = country === 'NL' ? 'Europe/Amsterdam' : null;
   const row: NewEntityRow = {
     id,
     name: (tradingName || legalName).slice(0, 255),
@@ -916,7 +917,7 @@ function planDefaultFromSettings(ctx: PlanContext, ws: WorkspaceSettingsRow): st
     jurisdictionCode: country,
     baseCurrency: currency,
     locale: defaultLocale(country),
-    timezone: timezone && timezone.length <= 50 ? timezone : country === 'NL' ? 'Europe/Amsterdam' : null,
+    timezone: timezone && timezone.length <= 50 ? timezone : fallbackTimezone,
     address: compactObject<LegalEntityAddress>({ ...address }),
     contact: compactObject<LegalEntityContact>({
       email: text(ws.email),
@@ -1272,7 +1273,8 @@ const COUNT_LABELS: Array<[keyof BackfillCounts, string]> = [
 export function formatWorkspaceReport(label: string, report: WorkspaceBackfillReport): string[] {
   if (report.status === 'skipped') return [`  ${label}: skipped, ${report.skippedReason ?? ''}`];
   const verb = report.mode === 'execute' ? 'changed' : 'to change';
-  const lines = [`  ${label}: ${report.changes === 0 ? 'nothing to change' : `${report.changes} ${verb}`}`];
+  const summary = report.changes === 0 ? 'nothing to change' : `${report.changes} ${verb}`;
+  const lines = [`  ${label}: ${summary}`];
   const counts = COUNT_LABELS.filter(([key]) => report.counts[key] > 0).map(([key, l]) => `${l} ${report.counts[key]}`);
   if (counts.length > 0) lines.push(`    ${counts.join('; ')}`);
   for (const a of report.createdBankAccounts) {

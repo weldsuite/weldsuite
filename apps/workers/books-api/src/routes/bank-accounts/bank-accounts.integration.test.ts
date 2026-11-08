@@ -3,8 +3,10 @@
  * chart's own Checking reused, a new asset or card account made), routing and
  * account numbers sealed with only the last four shown, the remembered CSV
  * layout, list filters, update (number changed or cleared, settings merged),
- * the logged reveal, delete, and the refusals: permissions, validation, the
- * ABA check, a ledger account of the wrong kind, no entity, no encryption key.
+ * the logged reveal, delete (an account WeldHR pays salaries from only leaves
+ * WeldBooks; a core account WeldBooks never had is a 404), and the refusals:
+ * permissions, validation, the ABA check, a ledger account of the wrong kind,
+ * no entity, no encryption key.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -277,6 +279,27 @@ describe('POST /api/bank-accounts/:id/reveal-account-number', () => {
 });
 
 describe('DELETE /api/bank-accounts/:id', () => {
+  /** A WeldHR employer of ENTITY that pays salaries from `bankAccountId`. */
+  async function payrollEmployer(id: string, bankAccountId: string, deleted = false) {
+    await db.insert(schema.hrPayrollEmployers).values({
+      id,
+      name: 'Bank US payroll',
+      legalName: 'Bank US Inc.',
+      country: 'US',
+      currency: 'USD',
+      legalEntityId: ENTITY,
+      bankAccountId,
+      ...(deleted ? { deletedAt: new Date() } : {}),
+    });
+  }
+
+  async function settingsRow(bankAccountId: string) {
+    return db
+      .select()
+      .from(schema.accountingBankAccountSettings)
+      .where(eq(schema.accountingBankAccountSettings.bankAccountId, bankAccountId));
+  }
+
   it('soft-deletes and 404s afterwards', async () => {
     const all = await call('');
     const petty = all.data.find((a: { name: string }) => a.name === 'Petty cash');
@@ -284,5 +307,47 @@ describe('DELETE /api/bank-accounts/:id', () => {
     expect((await call(`/${petty.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await call(`/${petty.id}`, { method: 'DELETE' })).status).toBe(404);
     expect((await call(`/${petty.id}`)).status).toBe(404);
+  });
+
+  it('keeps the core account WeldHR pays salaries from, and only takes it out of WeldBooks', async () => {
+    const created = await call('', { method: 'POST', body: { name: 'Salaries', createLedgerAccount: false } });
+    expect(created.status).toBe(201);
+    const id = created.data.id as string;
+    await db
+      .update(schema.accountingEntitySettings)
+      .set({ invoiceBankAccountId: id })
+      .where(eq(schema.accountingEntitySettings.entityId, ENTITY));
+    await payrollEmployer('hpe_ba_live', id);
+
+    expect((await call(`/${id}`, { method: 'DELETE' })).status).toBe(204);
+    const [core] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, id));
+    expect(core?.deletedAt).toBeNull();
+    expect(await settingsRow(id)).toHaveLength(0);
+    const [ext] = await db
+      .select({ invoiceBankAccountId: schema.accountingEntitySettings.invoiceBankAccountId })
+      .from(schema.accountingEntitySettings)
+      .where(eq(schema.accountingEntitySettings.entityId, ENTITY));
+    expect(ext?.invoiceBankAccountId).toBeNull();
+    // It is no longer WeldBooks', so a second delete finds nothing to delete.
+    expect((await call(`/${id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('deletes the core account when only a deleted employer pointed at it', async () => {
+    const created = await call('', { method: 'POST', body: { name: 'Old salaries', createLedgerAccount: false } });
+    const id = created.data.id as string;
+    await payrollEmployer('hpe_ba_gone', id, true);
+    expect((await call(`/${id}`, { method: 'DELETE' })).status).toBe(204);
+    const [core] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, id));
+    expect(core?.deletedAt).not.toBeNull();
+    expect(await settingsRow(id)).toHaveLength(0);
+  });
+
+  it('404s a core account WeldBooks never had, and leaves it alone', async () => {
+    await db.insert(schema.bankAccounts).values({ id: 'ba_core_only', entityId: ENTITY, name: 'HR only' });
+    const res = await call('/ba_core_only', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(res.error).toMatchObject({ code: 'NOT_FOUND', message: "Bank account with ID 'ba_core_only' not found" });
+    const [core] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, 'ba_core_only'));
+    expect(core?.deletedAt).toBeNull();
   });
 });

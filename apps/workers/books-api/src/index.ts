@@ -83,7 +83,8 @@ app.use(
     app: 'weldbooks',
     scoped: true,
     skip: (c) => {
-      const path = c.req.path.replace(/\/+$/, '');
+      let path = c.req.path;
+      while (path.endsWith('/')) path = path.slice(0, -1);
       return path === '/api/accounting-entities' && (c.req.method === 'GET' || c.req.method === 'POST');
     },
   }),

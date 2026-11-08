@@ -16,7 +16,7 @@ import { fromCents, toCents } from '@weldsuite/payroll-domain/money';
 import type { GeneratedFile } from '@weldsuite/payroll-domain/documents';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { displayNameOf } from '../employees';
-import { HrNotFoundError, HrPayrollError } from '../shared';
+import { HrPayrollError } from '../shared';
 import { csvRow, num, type EmployerRow, type PayslipRow, type RunRow } from './common';
 import { findEmployerForPayroll, loadEmployerForPayroll } from './employer-context';
 import type { PayrollDeps } from './deps';

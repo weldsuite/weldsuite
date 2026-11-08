@@ -252,8 +252,8 @@ export function CreateEmployeeDialog({
       startDate: values.startDate || null,
       departmentId: values.departmentId || null,
       managerId: values.managerId || null,
-      // Omitted without an entity: hr-api then uses the one the request is scoped to.
-      ...((values.legalEntityId || currentEntityId) ? { legalEntityId: values.legalEntityId || currentEntityId } : {}),
+      // The request is scoped to the current entity (X-Legal-Entity-Id) and hr-api refuses another one, so send that id or none.
+      ...((currentEntityId || values.legalEntityId) ? { legalEntityId: currentEntityId || values.legalEntityId } : {}),
       ...(workLocationIds.length > 0 ? { workLocationIds } : {}),
     };
   }
@@ -536,7 +536,7 @@ export function CreateEmployeeDialog({
                   name="legalEntityId"
                   render={({ field }) => (
                     <FormItem>
-                      <EmployerField value={field.value} onChange={field.onChange} disabled={isSubmitting} />
+                      <EmployerField value={field.value} onChange={field.onChange} disabled={isSubmitting} lockToCurrent />
                     </FormItem>
                   )}
                 />

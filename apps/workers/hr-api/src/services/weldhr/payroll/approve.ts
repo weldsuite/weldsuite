@@ -26,7 +26,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { displayNameOf } from '../employees';
-import { HrConflictError, HrNotFoundError, HrPayrollError } from '../shared';
+import { HrConflictError, HrPayrollError } from '../shared';
 import { hasError, type EmployerRow, type PayslipRow, type RunRow } from './common';
 import { loadEmployerForPayroll } from './employer-context';
 import { dataVersion, runInputsStamp } from './calculate';

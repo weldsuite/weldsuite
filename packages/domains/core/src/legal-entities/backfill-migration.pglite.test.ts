@@ -88,7 +88,8 @@ beforeAll(async () => {
       ('emp_deleted_link', 'Beta', 'Beta B.V.', 'nl', 'eur', 'ent_gone', '{"loonheffingennummer":"111222333L01"}', '{}', '2024-04-01'),
       ('emp_us_1', 'Gamma East', 'Gamma LLC', 'US', 'USD', null, '{}',
         '{"ein":"98-7654321","states":{"ca":{"withholdingAccountNumber":"123-4567-8","suiAccountNumber":"SUI-9"}}}', '2024-05-01'),
-      ('emp_us_2', 'Gamma West', 'gamma llc ', 'US', 'USD', null, '{}', '{"ein":"98-7654321"}', '2024-06-01'),
+      -- The same EIN without its dash: still one registration.
+      ('emp_us_2', 'Gamma West', 'gamma llc ', 'US', 'USD', null, '{}', '{"ein":"987654321"}', '2024-06-01'),
       ('emp_us_ein_clash', 'Acme US payroll', 'Acme Inc.', 'US', 'USD', 'ent_b', '{}', '{"ein":"55-5555555"}', '2024-07-01');
 
     INSERT INTO hr_employees (id, first_name, last_name, email) VALUES
@@ -197,6 +198,8 @@ describe('0249 backfill', () => {
     expect(regOf('emp_us_2')?.id).toBe(regOf('emp_us_1')?.id);
 
     const gammaEntity = employers.find((e) => e.id === 'emp_us_1')!.legal_entity_id;
+    // 98-7654321 and 987654321 are one number: one EIN registration.
+    expect(regs.filter((r) => r.entity_id === gammaEntity && r.type === 'ein')).toHaveLength(1);
     const state = regs.filter((r) => r.entity_id === gammaEntity && r.type.startsWith('us_state_'));
     expect(state.map((r) => [r.type, r.region, r.number]).sort()).toEqual([
       ['us_state_unemployment', 'CA', 'SUI-9'],

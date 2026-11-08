@@ -177,10 +177,8 @@ export const entities = legalEntities;
 
 export type LegalEntity = typeof legalEntities.$inferSelect;
 export type NewLegalEntity = typeof legalEntities.$inferInsert;
-/** @deprecated use `LegalEntity`. */
-export type Entity = LegalEntity;
-/** @deprecated use `NewLegalEntity`. */
-export type NewEntity = NewLegalEntity;
+// Older names, kept for the code that still uses them: prefer LegalEntity / NewLegalEntity.
+export type { LegalEntity as Entity, NewLegalEntity as NewEntity };
 
 /**
  * Every number an authority gave the company. Types in v1: vat,

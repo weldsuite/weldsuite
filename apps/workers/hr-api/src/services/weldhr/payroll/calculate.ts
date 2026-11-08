@@ -34,7 +34,7 @@ import type {
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
-import { HrConflictError, HrNotFoundError } from '../shared';
+import { HrConflictError } from '../shared';
 import {
   num,
   pushIssue,

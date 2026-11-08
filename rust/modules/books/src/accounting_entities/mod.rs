@@ -9,7 +9,9 @@
 //! The company itself is a core legal entity (docs/plans/legal-entities.md):
 //! the list shows the entities the member sees that WeldBooks is enabled for
 //! (an `accounting_entity_settings` row), `POST` with `legalEntityId` enables
-//! WeldBooks for an existing one (else it creates the company through core),
+//! WeldBooks for an existing one (with `entities:create` in the member's role
+//! inside it, leaving the company's identity as it is; else it creates the
+//! company through core),
 //! `PATCH` splits the write between core, the registrations and the
 //! extension (and, release 1, mirrors everything to the old columns), and
 //! `DELETE` only switches WeldBooks off, until it holds documents.
@@ -50,7 +52,9 @@ use weldsuite_legal_entities::service::{
     CreateLegalEntityInput, ListLegalEntitiesOptions, UpdateLegalEntityInput, create_legal_entity,
     list_legal_entities, set_default_legal_entity, update_legal_entity,
 };
-use weldsuite_legal_entities::{LegalEntityApp, LegalEntityError, can_see_entity};
+use weldsuite_legal_entities::{
+    EntityAccess, LegalEntityApp, LegalEntityError, can_see_entity, permissions_in_entity,
+};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use self::body::EntityBody;
@@ -489,8 +493,9 @@ async fn create(
 }
 
 /// The company a `POST /` is about: an existing legal entity the member sees
-/// (`legalEntityId`, WeldBooks not yet enabled), or none, when the route
-/// creates one (which also needs `legal_entities:create`).
+/// and holds `entities:create` in (`legalEntityId`, WeldBooks not yet
+/// enabled), or none, when the route creates one (which also needs
+/// `legal_entities:create`).
 async fn existing_company(
     caller: &Caller,
     data: &EntityBody,
@@ -514,12 +519,70 @@ async fn existing_company(
     let Some(core) = core else {
         return Err(Refusal::not_found("Legal entity", legal_entity_id));
     };
+    // The entity layer skips this route, so the member's role inside that
+    // entity is checked here.
+    if !can_in_entity(caller, &access, legal_entity_id, "entities:create").await? {
+        return Err(permission_refused());
+    }
     if core.get("weldbooksEnabled") == Some(&Value::Bool(true)) {
         return Err(Refusal::conflict(
             "WeldBooks is already enabled for this legal entity",
         ));
     }
     Ok(Some(core))
+}
+
+/// `canInEntity(c, access, entityId, key)`: whether the member holds `key`
+/// inside one entity, with their role there (an entity role swapped in, as the
+/// entity layer does for the scoped routes), checked the way the permission
+/// gate checks it.
+async fn can_in_entity(
+    caller: &Caller,
+    access: &EntityAccess,
+    entity_id: &str,
+    key: &str,
+) -> Result<bool, sqlx::Error> {
+    let resolved = permissions_in_entity(&caller.db, access, entity_id).await?;
+    Ok(caller.permissions.with_resolved(resolved).has_any(&[key]))
+}
+
+/// The 403 the permission gate answers (`requirePermission`), `success: false`
+/// included.
+fn permission_refused() -> Refusal {
+    let body = json!({
+        "success": false,
+        "error": {
+            "code": "FORBIDDEN",
+            "message": "You do not have permission to perform this action",
+        },
+    });
+    Refusal::Response(Box::new(
+        (http::StatusCode::FORBIDDEN, axum::Json(body)).into_response(),
+    ))
+}
+
+/// `weldbooksPartOf(data)`: what `POST /` takes from the body when it enables
+/// WeldBooks for an existing legal entity, only what WeldBooks adds
+/// (accounting method, jurisdiction settings, the owner's SSN, seeding, the
+/// default). The company's identity (name, legal form, address, contact, tax
+/// identifiers, branding, bank details, currency, locale, time zone, fiscal
+/// year) is edited in Settings → Legal entities and stays as it is. The
+/// document texts are WeldBooks' too; the route reads them from the body
+/// itself.
+fn weldbooks_part_of(body: &EntityBody) -> EntityBody {
+    let data = [
+        "accountingMethod",
+        "jurisdictionSettings",
+        "ssn",
+        "isDefault",
+    ]
+    .into_iter()
+    .filter_map(|key| Some((key.to_owned(), body.get(key)?.clone())))
+    .collect();
+    EntityBody {
+        data,
+        seed_defaults: body.seed_defaults,
+    }
 }
 
 /// A text column of an existing company (`core?.x`), `None` when null.
@@ -570,11 +633,20 @@ fn text_field_of(value: Option<&Value>) -> Field<String> {
 }
 
 #[allow(clippy::too_many_lines)] // the worker's handler, step by step
-async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -> Reply {
+async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -> Reply {
     let db = &caller.db;
     // The company: an existing legal entity the member sees, or a new one.
-    let company = existing_company(caller, data).await?;
+    let company = existing_company(caller, body).await?;
     let company = company.as_ref();
+    // An existing company keeps its identity: only what WeldBooks adds is read from the body.
+    let weldbooks_part;
+    let data = if company.is_some() {
+        weldbooks_part = weldbooks_part_of(body);
+        &weldbooks_part
+    } else {
+        body
+    };
+    let document_texts = document_texts_of(body.get("branding"));
     if company.is_none() && data.text("name").is_none() {
         return Err(Refusal::bad_request("name is required"));
     }
@@ -792,7 +864,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
     );
     extension.insert("ssnEncrypted".to_owned(), ssn_encrypted.clone());
     extension.insert("ssnLast4".to_owned(), ssn_last4.clone());
-    if let Some(texts) = document_texts_of(data.get("branding")).filter(|t| !t.is_empty()) {
+    if let Some(texts) = document_texts.filter(|t| !t.is_empty()) {
         extension.insert("documentTexts".to_owned(), Value::Object(texts));
     }
     upsert_accounting_entity_settings(db, &entity_id, &extension).await?;
@@ -835,15 +907,19 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
     )
     .await?;
 
-    // The default entity: the first company, or the one asked for.
-    if company.is_some()
+    // The default entity: the first company, or the one asked for. Making an
+    // existing company the workspace default is a company change
+    // (`legal_entities:update`); without it only WeldBooks' own default moves
+    // (`settings.default_entity_id`, which `defaultEntityIdFor('weldbooks')`
+    // falls back to).
+    let default_asked = company.is_some()
         && data.get("isDefault").and_then(Value::as_bool) == Some(true)
-        && !is_default
-    {
+        && !is_default;
+    if default_asked && caller.can("legal_entities:update") {
         set_default_legal_entity(db, &entity_id)
             .await
             .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
-    } else if is_default {
+    } else if default_asked || is_default {
         make_default_entity(db, &entity_id, &at).await?;
     }
     write_accounting_audit(

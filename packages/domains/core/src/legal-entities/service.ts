@@ -68,8 +68,15 @@ export class LegalEntityError extends Error {
   }
 }
 
-const iso = (d: Date | string | null | undefined): string | null =>
-  d == null ? null : d instanceof Date ? d.toISOString() : String(d);
+function iso(d: Date | string | null | undefined): string | null {
+  if (d == null) return null;
+  return d instanceof Date ? d.toISOString() : String(d);
+}
+
+/** `savings` or `checking`, else null (the employer bank blob knows only these two). */
+function knownAccountType(type: string | null | undefined): 'savings' | 'checking' | null {
+  return type === 'savings' || type === 'checking' ? type : null;
+}
 
 // ---------------------------------------------------------------------------
 // Entities
@@ -666,7 +673,7 @@ async function mirrorBankAccountToEmployers(db: Database, env: KeyEnv, row: Bank
       bic: row.bic ?? null,
       routingNumber: row.routingNumber ?? null,
       accountNumber,
-      accountType: row.accountType === 'savings' ? 'savings' : row.accountType === 'checking' ? 'checking' : previous.accountType ?? null,
+      accountType: knownAccountType(row.accountType) ?? previous.accountType ?? null,
       bankName: row.bankName ?? null,
       nachaCompanyId: typeof ach.companyIdentification === 'string' ? ach.companyIdentification : previous.nachaCompanyId ?? null,
     };

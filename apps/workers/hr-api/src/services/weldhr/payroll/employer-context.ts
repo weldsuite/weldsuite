@@ -96,6 +96,7 @@ async function bankFromAccount(account: BankAccountRow, row: EmployerRow, keyrin
     }
   }
   const ach = (account.achSettings ?? {}) as Record<string, unknown>;
+  const accountType = account.accountType === 'savings' || account.accountType === 'checking' ? account.accountType : null;
   return {
     ...previous,
     accountHolder: account.accountHolderName ?? null,
@@ -103,8 +104,7 @@ async function bankFromAccount(account: BankAccountRow, row: EmployerRow, keyrin
     bic: account.bic ?? null,
     routingNumber: account.routingNumber ?? null,
     accountNumber,
-    accountType:
-      account.accountType === 'savings' ? 'savings' : account.accountType === 'checking' ? 'checking' : previous.accountType ?? null,
+    accountType: accountType ?? previous.accountType ?? null,
     bankName: account.bankName ?? null,
     nachaCompanyId: typeof ach.companyIdentification === 'string' ? ach.companyIdentification : previous.nachaCompanyId ?? null,
   };

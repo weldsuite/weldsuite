@@ -199,20 +199,28 @@ impl Caller {
     /// a record in: the member sees it and acts there with the role the
     /// request was checked with. Anything else is a `Legal entity` 404.
     pub(crate) fn assert_entity_usable(&self, entity_id: &str) -> Result<(), HrError> {
-        let Some(request) = &self.entity else {
-            return Ok(());
-        };
-        if !can_see_entity(request.access(), Some(entity_id))
-            || !record_in_request_entity(request, Some(entity_id))
-        {
-            return Err(HrError::not_found("Legal entity", entity_id));
+        if self.entity_usable(entity_id) {
+            Ok(())
+        } else {
+            Err(HrError::not_found("Legal entity", entity_id))
         }
-        Ok(())
+    }
+
+    /// The check behind [`Self::assert_entity_usable`].
+    fn entity_usable(&self, entity_id: &str) -> bool {
+        self.entity.as_ref().is_none_or(|request| {
+            can_see_entity(request.access(), Some(entity_id))
+                && record_in_request_entity(request, Some(entity_id))
+        })
     }
 
     /// `resolveNewEmployeeEntity(c, requested)`: the request's entity
     /// (`X-Legal-Entity-Id`), else the one the body names, else the
-    /// workspace default, else none.
+    /// workspace default, else none. A request that names an entity it may
+    /// not use (unknown, hidden, not WeldHR's) is a `Legal entity` 404, never
+    /// the body's or the default; the body's and the default must pass the
+    /// check of [`Self::assert_entity_usable`]. A refused default is a 404
+    /// without its id: the caller never named it, and may not even see it.
     pub(crate) async fn resolve_new_employee_entity(
         &self,
         requested: Option<&str>,
@@ -231,11 +239,24 @@ impl Caller {
             }
             return Ok(Some(from_request.to_owned()));
         }
+        if let Some(named) = self.entity.as_ref().and_then(RequestEntity::requested) {
+            return Err(HrError::not_found("Legal entity", named));
+        }
         if let Some(requested) = requested {
             self.assert_entity_usable(requested)?;
             return Ok(Some(requested.to_owned()));
         }
-        Ok(default_entity_id_for(&self.db, Some(HR_APP)).await?)
+        let fallback = default_entity_id_for(&self.db, Some(HR_APP)).await?;
+        if let Some(fallback) = fallback.as_deref()
+            && !self.entity_usable(fallback)
+        {
+            return Err(HrError::not_found_message(
+                "Legal entity",
+                fallback,
+                "Legal entity not found",
+            ));
+        }
+        Ok(fallback)
     }
 }
 

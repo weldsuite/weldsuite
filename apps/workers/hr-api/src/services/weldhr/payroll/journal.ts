@@ -73,7 +73,9 @@ export async function postRunJournal(db: Database, runId: string, deps: PayrollD
 
 async function attemptJournal(run: RunRow, employer: PayrollEmployer, deps: PayrollDeps, ctx: { userId: string | null }): Promise<JournalOutcome> {
   // The journal belongs to the employer's legal entity. An employer from before the entities keeps its WeldBooks link.
-  const entityId = employer.legalEntityId ? (employer.links.booksEnabled ? employer.legalEntityId : null) : employer.accountingEntityId;
+  let entityId: string | null;
+  if (employer.legalEntityId) entityId = employer.links.booksEnabled ? employer.legalEntityId : null;
+  else entityId = employer.accountingEntityId;
   if (!entityId) return { status: 'skipped', error: employer.legalEntityId ? BOOKS_NOT_ENABLED : null, journalEntryId: null };
   if (!deps.books) return { status: 'skipped', error: 'The WeldBooks link (BOOKS_INTERNAL) is not configured on this worker', journalEntryId: null };
   if (!run.totals) return { status: 'failed', error: 'The run has no totals to post', journalEntryId: null };

@@ -25,6 +25,7 @@ import {
   getEntityAccess,
   recordInRequestEntity,
   requestEntityScope,
+  requestedEntityId,
 } from '@weldsuite/core-domain/legal-entities';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { error } from '@weldsuite/worker-kit/response';
@@ -99,16 +100,22 @@ export async function assertEmployeeVisible(c: HrContext, employeeId: string | n
  * restricted entity's existence is never confirmed).
  */
 export async function assertEntityUsable(c: HrContext, entityId: string): Promise<void> {
+  if (!(await entityUsable(c, entityId))) throw new HrNotFoundError('Legal entity', entityId);
+}
+
+async function entityUsable(c: HrContext, entityId: string): Promise<boolean> {
   const access = await getEntityAccess(c);
-  if (!canSeeEntity(access, entityId) || !(await recordInRequestEntity(c, entityId))) {
-    throw new HrNotFoundError('Legal entity', entityId);
-  }
+  return canSeeEntity(access, entityId) && (await recordInRequestEntity(c, entityId));
 }
 
 /**
  * The entity a new employee belongs to, in order: the entity of the request
  * (`X-Legal-Entity-Id`), else the one the body names, else the workspace default,
- * else none (a workspace without entities).
+ * else none (a workspace without entities). A request that names an entity it
+ * may not use (unknown, hidden, not WeldHR's) is a `Legal entity` 404, never the
+ * body's or the default; the body's and the default must pass the same check as
+ * `assertEntityUsable`. A refused default is a 404 without its id: the caller
+ * never named it, and may not even see it.
  */
 export async function resolveNewEmployeeEntity(c: HrContext, requested: string | null | undefined): Promise<string | null> {
   const fromRequest = c.get('legalEntityId') ?? null;
@@ -118,11 +125,17 @@ export async function resolveNewEmployeeEntity(c: HrContext, requested: string |
     }
     return fromRequest;
   }
+  const named = requestedEntityId(c);
+  if (named) throw new HrNotFoundError('Legal entity', named);
   if (requested) {
     await assertEntityUsable(c, requested);
     return requested;
   }
-  return defaultEntityIdFor(db(c), 'weldhr');
+  const fallback = await defaultEntityIdFor(db(c), 'weldhr');
+  if (fallback && !(await entityUsable(c, fallback))) {
+    throw new HrNotFoundError('Legal entity', fallback, 'Legal entity not found');
+  }
+  return fallback;
 }
 
 /** Same for a payroll employer. */

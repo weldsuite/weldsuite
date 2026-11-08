@@ -25,7 +25,7 @@ import {
 } from '@weldsuite/core-domain/legal-entities';
 import { HrConflictError, HrNotFoundError, HrValidationError } from '../shared';
 import { sortIssues, yearOfDate, type EmployerRow } from './common';
-import { resolveEmployers, type PayrollEmployer } from './employer-context';
+import { resolveEmployers } from './employer-context';
 import { todayIso } from './dates';
 import { isValidIban, isValidRoutingNumber, maskAccountNumber, maskIban, normalizeBic, normalizeIban } from './validators';
 

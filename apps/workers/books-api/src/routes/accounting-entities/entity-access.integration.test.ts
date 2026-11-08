@@ -10,7 +10,9 @@
  *      B's invoice while sending entity A's header;
  *  (d) POST /accounting-entities with `legalEntityId` enables WeldBooks for an
  *      existing core entity (and DELETE refuses once there are documents, see
- *      delete.integration.test.ts).
+ *      delete.integration.test.ts): it takes `entities:create` in the member's
+ *      role inside that entity, leaves the company's identity alone, and only
+ *      moves the workspace default with `legal_entities:update`.
  *
  * Every request goes through `createTestApp`, one app per member with that
  * member's workspace permissions resolved from the database, so conformance
@@ -30,7 +32,7 @@ import type { Env, Variables } from '../../types';
 import { accountingEntitiesRoutes } from './index';
 import { invoicesRoutes } from '../invoices';
 
-const USERS = ['u_admin', 'u_member'] as const;
+const USERS = ['u_admin', 'u_member', 'u_clerk'] as const;
 type User = (typeof USERS)[number];
 
 let db: Database;
@@ -47,7 +49,8 @@ function booksRoutes() {
       app: 'weldbooks',
       scoped: true,
       skip: (c) => {
-        const path = c.req.path.replace(/\/+$/, '');
+        let path = c.req.path;
+        while (path.endsWith('/')) path = path.slice(0, -1);
         return path === '/api/accounting-entities' && (c.req.method === 'GET' || c.req.method === 'POST');
       },
     }),
@@ -96,20 +99,45 @@ const invoiceBody = {
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
 
-  await db.insert(schema.roles).values({ id: 'role_viewer', name: 'Books viewer', isSystem: false, permissions: ['invoices:read'] });
+  await db.insert(schema.roles).values([
+    { id: 'role_viewer', name: 'Books viewer', isSystem: false, permissions: ['invoices:read'] },
+    // May enable WeldBooks for a company (entities:create), but not change companies (no legal_entities:*).
+    { id: 'role_clerk', name: 'Books clerk', isSystem: false, permissions: ['entities:read', 'entities:create'] },
+  ]);
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_admin', userId: 'u_admin', role: 'ADMIN' },
     { id: 'wm_member', userId: 'u_member', role: 'MEMBER', permissions: ['entities:read'] },
+    { id: 'wm_clerk', userId: 'u_clerk', role: 'MEMBER', roleId: 'role_clerk' },
   ]);
   await db.insert(schema.legalEntities).values([
     { id: 'ent_open', name: 'Open BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', isDefault: true },
     { id: 'ent_secret', name: 'Secret BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', accessRestricted: true },
     { id: 'ent_role', name: 'Viewer here BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
     { id: 'ent_core', name: 'Core only BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
+    // Core-only companies u_clerk enables WeldBooks for (or may not).
+    { id: 'ent_clerk_viewer', name: 'Clerk views BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
+    {
+      id: 'ent_clerk_open',
+      name: 'Clerk BV',
+      legalName: 'Clerk Holding BV',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      address: { line1: 'Kerkstraat 1', city: 'Amsterdam', postalCode: '1011 AA', country: 'NL' },
+      contact: { email: 'info@clerk.example' },
+      taxIdentifiers: { vatNumber: 'NL123456789B01' },
+      bankDetails: { iban: 'NL91ABNA0417164300' },
+      branding: { logoUrl: 'https://example.com/clerk.png', primaryColor: '#123456' },
+      fiscalYearStart: 1,
+    },
+    { id: 'ent_clerk_default', name: 'Clerk default BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
+    { id: 'ent_admin_default', name: 'Admin default BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
   ]);
-  // WeldBooks is enabled for the first three, not for ent_core.
+  // WeldBooks is enabled for the first three, not for ent_core and the clerk's and admin's companies.
   await db.insert(schema.accountingEntitySettings).values([{ entityId: 'ent_open' }, { entityId: 'ent_secret' }, { entityId: 'ent_role' }]);
-  await db.insert(schema.legalEntityMembers).values({ id: 'lem_1', entityId: 'ent_role', userId: 'u_member', roleId: 'role_viewer' });
+  await db.insert(schema.legalEntityMembers).values([
+    { id: 'lem_1', entityId: 'ent_role', userId: 'u_member', roleId: 'role_viewer' },
+    { id: 'lem_2', entityId: 'ent_clerk_viewer', userId: 'u_clerk', roleId: 'role_viewer' },
+  ]);
   await db.insert(schema.parties).values({ id: 'pty_access', displayName: 'Klant BV', role: 'none' });
 
   // Each member's workspace permissions as the API resolves them (legalEntityContext
@@ -168,6 +196,7 @@ describe('POST /api/accounting-entities with legalEntityId', () => {
   it('enables WeldBooks for an existing core entity instead of creating a company', async () => {
     const before = await call('u_admin', 'GET', '/api/accounting-entities');
     expect(before.data.map((e: { id: string }) => e.id)).not.toContain('ent_core');
+    const companiesBefore = await db.select({ id: schema.legalEntities.id }).from(schema.legalEntities).where(isNull(schema.legalEntities.deletedAt));
 
     const res = await call('u_admin', 'POST', '/api/accounting-entities', { body: { legalEntityId: 'ent_core', jurisdictionCode: 'NL' } });
     expect(res.status).toBe(201);
@@ -180,7 +209,7 @@ describe('POST /api/accounting-entities with legalEntityId', () => {
     expect(sequences).toHaveLength(4);
     // No second company was made.
     const companies = await db.select({ id: schema.legalEntities.id }).from(schema.legalEntities).where(isNull(schema.legalEntities.deletedAt));
-    expect(companies).toHaveLength(4);
+    expect(companies).toHaveLength(companiesBefore.length);
 
     const after = await call('u_admin', 'GET', '/api/accounting-entities');
     expect(after.data.map((e: { id: string }) => e.id)).toContain('ent_core');
@@ -191,5 +220,106 @@ describe('POST /api/accounting-entities with legalEntityId', () => {
   it('refuses to create a new company without legal_entities:create', async () => {
     const res = await call('u_member', 'POST', '/api/accounting-entities', { body: { name: 'New BV', jurisdictionCode: 'NL' } });
     expect(res.status).toBe(403);
+  });
+
+  it('answers 403 when the member\'s role inside that entity lacks entities:create', async () => {
+    // u_clerk holds entities:create in the workspace, but is a Books viewer in ent_clerk_viewer.
+    const res = await call('u_clerk', 'POST', '/api/accounting-entities', { body: { legalEntityId: 'ent_clerk_viewer' } });
+    expect(res).toMatchObject({
+      status: 403,
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' },
+    });
+    const ext = await db.select().from(schema.accountingEntitySettings).where(eq(schema.accountingEntitySettings.entityId, 'ent_clerk_viewer'));
+    expect(ext).toHaveLength(0);
+  });
+
+  it('leaves the company\'s identity alone and only takes what WeldBooks adds', async () => {
+    const identity = (row: typeof schema.legalEntities.$inferSelect) => ({
+      name: row.name,
+      legalName: row.legalName,
+      dba: row.dba,
+      entityType: row.entityType,
+      taxClassification: row.taxClassification,
+      jurisdictionCode: row.jurisdictionCode,
+      baseCurrency: row.baseCurrency,
+      locale: row.locale,
+      timezone: row.timezone,
+      taxIdentifiers: row.taxIdentifiers,
+      address: row.address,
+      contact: row.contact,
+      bankDetails: row.bankDetails,
+      branding: row.branding,
+      fiscalYearStart: row.fiscalYearStart,
+      fiscalYearConfig: row.fiscalYearConfig,
+      isDefault: row.isDefault,
+    });
+    const [before] = await db.select().from(schema.legalEntities).where(eq(schema.legalEntities.id, 'ent_clerk_open'));
+
+    const res = await call('u_clerk', 'POST', '/api/accounting-entities', {
+      body: {
+        legalEntityId: 'ent_clerk_open',
+        name: 'Renamed BV',
+        legalName: 'Renamed Holding BV',
+        dba: 'Renamed',
+        entityType: 'bv',
+        jurisdictionCode: 'BE',
+        baseCurrency: 'USD',
+        locale: 'en-US',
+        timezone: 'America/New_York',
+        vatNumber: 'not a VAT number',
+        taxIdentifiers: { registrationNumber: '12345678' },
+        address: { line1: 'Elsewhere 2', city: 'Utrecht', country: 'NL' },
+        contact: { email: 'new@clerk.example' },
+        bankDetails: { bankName: 'Other bank' },
+        branding: { logoUrl: 'https://example.com/other.png', primaryColor: '#000000', footerText: 'Thank you' },
+        fiscalYearStart: 4,
+        accountingMethod: 'cash',
+      },
+    });
+    expect(res.status).toBe(201);
+    expect(res.data).toMatchObject({
+      id: 'ent_clerk_open',
+      name: 'Clerk BV',
+      accountingMethod: 'cash',
+      branding: { logoUrl: 'https://example.com/clerk.png', primaryColor: '#123456', footerText: 'Thank you' },
+    });
+
+    const [after] = await db.select().from(schema.legalEntities).where(eq(schema.legalEntities.id, 'ent_clerk_open'));
+    expect(identity(after!)).toEqual(identity(before!));
+    const registrations = await db
+      .select()
+      .from(schema.legalEntityRegistrations)
+      .where(eq(schema.legalEntityRegistrations.entityId, 'ent_clerk_open'));
+    expect(registrations).toHaveLength(0);
+    // WeldBooks' own fields went to its extension.
+    const [ext] = await db.select().from(schema.accountingEntitySettings).where(eq(schema.accountingEntitySettings.entityId, 'ent_clerk_open'));
+    expect(ext).toMatchObject({ accountingMethod: 'cash', documentTexts: { footerText: 'Thank you' } });
+  });
+
+  it('only moves WeldBooks\' default, not the workspace default, without legal_entities:update', async () => {
+    const res = await call('u_clerk', 'POST', '/api/accounting-entities', { body: { legalEntityId: 'ent_clerk_default', isDefault: true } });
+    expect(res.status).toBe(201);
+    expect(res.data.isDefault).toBe(false);
+    const defaults = await db
+      .select({ id: schema.legalEntities.id })
+      .from(schema.legalEntities)
+      .where(and(eq(schema.legalEntities.isDefault, true), isNull(schema.legalEntities.deletedAt)));
+    expect(defaults.map((e) => e.id)).toEqual(['ent_open']);
+    const [settings] = await db.select({ defaultEntityId: schema.settings.defaultEntityId }).from(schema.settings);
+    expect(settings?.defaultEntityId).toBe('ent_clerk_default');
+  });
+
+  it('makes it the workspace default for a member with legal_entities:update', async () => {
+    const res = await call('u_admin', 'POST', '/api/accounting-entities', { body: { legalEntityId: 'ent_admin_default', isDefault: true } });
+    expect(res.status).toBe(201);
+    expect(res.data.isDefault).toBe(true);
+    const defaults = await db
+      .select({ id: schema.legalEntities.id })
+      .from(schema.legalEntities)
+      .where(and(eq(schema.legalEntities.isDefault, true), isNull(schema.legalEntities.deletedAt)));
+    expect(defaults.map((e) => e.id)).toEqual(['ent_admin_default']);
+    const [settings] = await db.select({ defaultEntityId: schema.settings.defaultEntityId }).from(schema.settings);
+    expect(settings?.defaultEntityId).toBe('ent_admin_default');
   });
 });

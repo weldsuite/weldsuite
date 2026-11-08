@@ -14,6 +14,10 @@
  * POST /:id/reveal-account-number, which needs `tax_ids:reveal` and writes an
  * append-only reveal row. Responses and events never carry the encrypted blob.
  *
+ * DELETE only reaches accounts that are in WeldBooks (an
+ * `accounting_bank_account_settings` row); one WeldHR pays salaries from keeps
+ * its core row and only leaves WeldBooks.
+ *
  * Permissions: banking:read | banking:create | banking:update | banking:delete.
  */
 
@@ -129,9 +133,16 @@ function settingsValues(account: BankAccountRow) {
 }
 
 /** Upsert the account's settings row from the (mirrored) bank account row. */
+/** A shallow copy of `value` without `keys`. */
+function without<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Omit<T, K> {
+  const copy: Partial<T> = { ...value };
+  for (const key of keys) delete copy[key];
+  return copy as Omit<T, K>;
+}
+
 async function upsertBankAccountSettings(db: Database, account: BankAccountRow): Promise<void> {
   const values = settingsValues(account);
-  const { bankAccountId: _id, ...set } = values;
+  const set = without(values, ['bankAccountId']);
   await db
     .insert(schema.accountingBankAccountSettings)
     .values(values)
@@ -289,7 +300,8 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     const normalized = data.accountNumber ? normalizeAccountNumber(data.accountNumber) : null;
     const sealed = normalized ? await sealAccountNumber(c.env, normalized) : null;
 
-    const { accountNumber: _accountNumber, createLedgerAccount: _create, bankAccountId: _core, ...fields } = data;
+    // Not columns of the new row: the number is sealed above, the other two are instructions.
+    const fields = without(data, ['accountNumber', 'createLedgerAccount', 'bankAccountId']);
     const now = new Date();
     const newAccount = {
       id: generateId('ba'),
@@ -427,25 +439,40 @@ app.post('/:id/reveal-account-number', requirePermission('banking:read'), requir
   }
 });
 
-// DELETE /:id — soft delete
+// DELETE /:id — the account leaves WeldBooks, and the core account is soft-deleted
+// unless WeldHR pays salaries from it (then only WeldBooks' part goes).
 app.delete('/:id', requirePermission('banking:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
     const [account] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!account) return error.notFound(c, 'Bank account', id);
-    await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
-    // The account leaves WeldBooks too; an entity that printed it on invoices falls back to bank_details.
+    // A core account WeldBooks never had (an HR-only salary account) is not WeldBooks' to delete.
+    const [inBooks] = await db
+      .select({ id: schema.accountingBankAccountSettings.bankAccountId })
+      .from(schema.accountingBankAccountSettings)
+      .where(eq(schema.accountingBankAccountSettings.bankAccountId, id))
+      .limit(1);
+    if (!inBooks) return error.notFound(c, 'Bank account', id);
+    const [paysSalaries] = await db
+      .select({ id: schema.hrPayrollEmployers.id })
+      .from(schema.hrPayrollEmployers)
+      .where(and(eq(schema.hrPayrollEmployers.bankAccountId, id), isNull(schema.hrPayrollEmployers.deletedAt)))
+      .limit(1);
+
+    if (!paysSalaries) await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+    // The account leaves WeldBooks; an entity that printed it on invoices falls back to bank_details.
     await db.delete(schema.accountingBankAccountSettings).where(eq(schema.accountingBankAccountSettings.bankAccountId, id));
     await db
       .update(schema.accountingEntitySettings)
       .set({ invoiceBankAccountId: null, updatedAt: new Date() })
       .where(eq(schema.accountingEntitySettings.invoiceBankAccountId, id));
+    // Kept for WeldHR, the core account only lost its WeldBooks part (as bringing it in is an update).
     publishEntityEvent({
       c,
       entityType: 'bank_account',
       entityId: id,
-      action: 'deleted',
+      action: paysSalaries ? 'updated' : 'deleted',
       data: publicBankAccount(account) as unknown as Record<string, unknown>,
     });
     return noContent(c);

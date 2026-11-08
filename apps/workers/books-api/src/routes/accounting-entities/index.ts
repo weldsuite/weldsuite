@@ -31,7 +31,11 @@
  * service enforces them.
  *
  * Permissions: entities:read | entities:create | entities:update | entities:delete,
- * accounts:update (apply-tax-lines), tax_ids:reveal (reveal-ssn).
+ * accounts:update (apply-tax-lines), tax_ids:reveal (reveal-ssn). Enabling
+ * WeldBooks for an existing legal entity (`POST /` with `legalEntityId`) takes
+ * `entities:create` inside that entity (the member's entity role, when they
+ * have one there), and making it the workspace default takes
+ * `legal_entities:update`.
  */
 
 import { Hono, type Context } from 'hono';
@@ -46,9 +50,11 @@ import {
   getLegalEntityExtension,
   LegalEntityError,
   listLegalEntities,
+  permissionsInEntity,
   recordInRequestEntity,
   setDefaultLegalEntity,
   updateLegalEntity,
+  type EntityAccess,
 } from '@weldsuite/core-domain/legal-entities';
 import type { CreateLegalEntityInput, UpdateLegalEntityInput } from '@weldsuite/app-api-client/schemas/legal-entities';
 import {
@@ -380,7 +386,9 @@ const updateEntitySchema = createEntitySchema
  * SSN that was typed into the EIN field before it was checked is masked.
  */
 function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; fiscalCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null; weldbooksEnabled?: boolean }>(row: T) {
-  const { ssnEncrypted, salesTaxCredentialsEncrypted, fiscalCredentialsEncrypted, weldbooksEnabled: _weldbooksEnabled, ...rest } = row;
+  const { ssnEncrypted, salesTaxCredentialsEncrypted, fiscalCredentialsEncrypted, ...rest } = row;
+  // The loader's flag is internal: never part of the response.
+  delete (rest as { weldbooksEnabled?: boolean }).weldbooksEnabled;
   const ids = rest.taxIdentifiers;
   return {
     ...rest,
@@ -632,6 +640,43 @@ function coreBrandingOf(branding: z.infer<typeof brandingSchema> | null | undefi
 }
 
 /**
+ * What `POST /` takes from the body when it enables WeldBooks for an existing
+ * legal entity: only what WeldBooks adds (accounting method, jurisdiction
+ * settings, the owner's SSN, seeding, the default). The company's identity
+ * (name, legal form, address, contact, tax identifiers, branding, bank details,
+ * currency, locale, time zone, fiscal year) is edited in Settings → Legal
+ * entities and stays as it is. The document texts are WeldBooks' too; the route
+ * reads them from the body itself.
+ */
+function weldbooksPartOf(data: Omit<CreateEntityData, 'legalEntityId'>): Omit<CreateEntityData, 'legalEntityId'> {
+  const { accountingMethod, jurisdictionSettings, ssn, isDefault, seedDefaults } = data;
+  return { accountingMethod, jurisdictionSettings, ssn, isDefault, seedDefaults };
+}
+
+/** The 403 `requirePermission` answers. */
+function permissionRefused(c: AppContext) {
+  return c.json(
+    { success: false, error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' } },
+    403,
+  );
+}
+
+/**
+ * Whether the member holds `key` inside one entity: with their role there (an
+ * entity role is swapped in, as `legalEntityContext` does for the scoped
+ * routes), checked the way `requirePermission` checks it.
+ */
+async function canInEntity(c: AppContext, access: EntityAccess, entityId: string, key: string): Promise<boolean> {
+  const workspace = c.get('userPermissions');
+  c.set('userPermissions', await permissionsInEntity(c.get('tenantDb'), access, entityId));
+  try {
+    return await hasContextPermission(c, key);
+  } finally {
+    c.set('userPermissions', workspace);
+  }
+}
+
+/**
  * Seeds sequences, chart of accounts and tax rates once per entity: enabling
  * WeldBooks again after it was switched off keeps what is already there.
  */
@@ -681,7 +726,7 @@ async function seedWeldbooksDefaults(
 // and enable WeldBooks for it; either way seed sequences/CoA/tax rates from the jurisdiction adapter.
 app.post('/', requirePermission('entities:create'), zValidator('json', createEntitySchema), async (c) => {
   const db = c.get('tenantDb');
-  const { legalEntityId, ...data } = c.req.valid('json');
+  const { legalEntityId, ...body } = c.req.valid('json');
 
   // The company: an existing legal entity the member sees, or a new one (which also needs legal_entities:create).
   let core: AccountingEntity | null = null;
@@ -689,10 +734,16 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     const access = await getEntityAccess(c);
     core = canSeeEntity(access, legalEntityId) ? await loadAccountingEntity(db, legalEntityId) : null;
     if (!core) return error.notFound(c, 'Legal entity', legalEntityId);
+    // legalEntityContext skips this route, so the member's role inside that entity is checked here.
+    if (!(await canInEntity(c, access, legalEntityId, 'entities:create'))) return permissionRefused(c);
     if (core.weldbooksEnabled) return error.conflict(c, 'WeldBooks is already enabled for this legal entity');
   } else if (!(await hasContextPermission(c, 'legal_entities:create'))) {
     return error.forbidden(c, 'Creating a company needs the legal_entities:create permission');
   }
+
+  // An existing company keeps its identity: only what WeldBooks adds is read from the body.
+  const data = core ? weldbooksPartOf(body) : body;
+  const documentTexts = documentTextsOf(body.branding);
 
   if (!core && !data.name) return error.badRequest(c, 'name is required');
   const jurisdictionCode = core?.jurisdictionCode ?? data.jurisdictionCode ?? data.jurisdiction;
@@ -748,9 +799,8 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     const baseCurrency = core?.baseCurrency ?? data.baseCurrency ?? adapter.defaultCurrency;
 
     const fiscalYearConfig = core ? (core.fiscalYearConfig ?? null) : (data.fiscalYearConfig ?? null);
-    const fiscalYearStart = core
-      ? (core.fiscalYearStart ?? 1)
-      : (data.fiscalYearStart ?? (fiscalYearConfig ? (fiscalYearConfig.endMonth % 12) + 1 : 1));
+    const startFromConfig = fiscalYearConfig ? (fiscalYearConfig.endMonth % 12) + 1 : 1;
+    const fiscalYearStart = core ? (core.fiscalYearStart ?? 1) : (data.fiscalYearStart ?? startFromConfig);
 
     const now = new Date();
     const accountingMethod = data.accountingMethod ?? (isUs ? 'accrual' : null);
@@ -797,7 +847,6 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     await syncRegistrationsFromTaxIdentifiers(db, { id: entityId, jurisdictionCode: code }, taxIdentifiers, touchedIds);
 
     // 3. WeldBooks' extension, and (release 1 mirror) the same values on the old entity columns.
-    const documentTexts = documentTextsOf(data.branding);
     await upsertAccountingEntitySettings(db, entityId, {
       accountingMethod,
       jurisdictionSettings: jurisdictionSettings ?? null,
@@ -832,10 +881,13 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       now,
     });
 
-    // The default entity: the first company, or the one asked for.
-    if (core && data.isDefault === true && !isDefault) {
+    // The default entity: the first company, or the one asked for. Making an existing company the
+    // workspace default is a company change (legal_entities:update); without it only WeldBooks' own
+    // default moves (settings.default_entity_id, which defaultEntityIdFor('weldbooks') falls back to).
+    const defaultAsked = core !== null && data.isDefault === true && !isDefault;
+    if (defaultAsked && (await hasContextPermission(c, 'legal_entities:update'))) {
       await setDefaultLegalEntity(db, entityId);
-    } else if (isDefault) {
+    } else if (defaultAsked || isDefault) {
       await makeDefaultEntity(db, entityId, now);
     }
 

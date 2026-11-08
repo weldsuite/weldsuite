@@ -2,7 +2,9 @@
 //! bank accounts with their ledger account, US routing and account numbers
 //! (sealed, only the last four shown; the full number through
 //! `POST /:id/reveal-account-number`, logged), and the remembered import
-//! settings. Responses and events never carry the encrypted blob.
+//! settings. Responses and events never carry the encrypted blob. `DELETE`
+//! only reaches accounts that are in WeldBooks; one WeldHR pays salaries from
+//! keeps its core row and only leaves WeldBooks.
 
 use std::sync::Arc;
 
@@ -870,6 +872,9 @@ async fn reveal(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
+/// The account leaves WeldBooks, and the core account is soft-deleted unless
+/// WeldHR pays salaries from it (then only WeldBooks' part goes). A core
+/// account WeldBooks never had (an HR-only salary account) is a 404.
 async fn remove(
     caller: Caller,
     State(state): State<BooksState>,
@@ -879,16 +884,29 @@ async fn remove(
         let Some(account) = BANK_ACCOUNTS.find_live(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Bank account", &id));
         };
-        let stamp = now();
-        sqlx::query(
-            "update bank_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+        let (in_books, pays_salaries): (bool, bool) = sqlx::query_as(
+            "select exists (select 1 from accounting_bank_account_settings where bank_account_id = $1), \
+                    exists (select 1 from hr_payroll_employers \
+                            where bank_account_id = $1 and deleted_at is null)",
         )
         .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
+        .fetch_one(&caller.db)
         .await?;
-        // The account leaves WeldBooks too; an entity that printed it on
-        // invoices falls back to bank_details.
+        if !in_books {
+            return Err(Refusal::not_found("Bank account", &id));
+        }
+        let stamp = now();
+        if !pays_salaries {
+            sqlx::query(
+                "update bank_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+            )
+            .bind(&id)
+            .bind(&stamp)
+            .execute(&caller.db)
+            .await?;
+        }
+        // The account leaves WeldBooks; an entity that printed it on invoices
+        // falls back to bank_details.
         sqlx::query("delete from accounting_bank_account_settings where bank_account_id = $1")
             .bind(&id)
             .execute(&caller.db)
@@ -901,7 +919,14 @@ async fn remove(
         .bind(&stamp)
         .execute(&caller.db)
         .await?;
-        caller.publish(&state, BANK_ACCOUNT_DELETED, &id, public_bank_account(&account));
+        // Kept for WeldHR, the core account only lost its WeldBooks part (as
+        // bringing it in is an update).
+        let event = if pays_salaries {
+            BANK_ACCOUNT_UPDATED
+        } else {
+            BANK_ACCOUNT_DELETED
+        };
+        caller.publish(&state, event, &id, public_bank_account(&account));
         Ok(no_content())
     }
     .await;

@@ -186,7 +186,7 @@ ORDER BY h."legal_entity_id", n."number", h."created_at", h."id"
 ON CONFLICT ("id") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "legal_entity_registrations" ("id", "entity_id", "type", "country", "number", "label", "is_primary", "created_at", "updated_at")
-SELECT DISTINCT ON (h."legal_entity_id", n."number")
+SELECT DISTINCT ON (h."legal_entity_id", regexp_replace(n."number", '[^0-9]', '', 'g'))
   'ler_' || substr(md5('ein:hr:' || h."id"), 1, 24), h."legal_entity_id", 'ein', 'US',
   n."number", left(h."name", 120), false, h."created_at", now()
 FROM "hr_payroll_employers" h
@@ -199,7 +199,7 @@ WHERE h."legal_entity_id" IS NOT NULL
       AND regexp_replace(r."number", '[^0-9]', '', 'g') = regexp_replace(n."number", '[^0-9]', '', 'g')
       AND r."deleted_at" IS NULL
   )
-ORDER BY h."legal_entity_id", n."number", h."created_at", h."id"
+ORDER BY h."legal_entity_id", regexp_replace(n."number", '[^0-9]', '', 'g'), h."created_at", h."id"
 ON CONFLICT ("id") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "legal_entity_registrations" ("id", "entity_id", "type", "country", "region", "number", "is_primary", "created_at", "updated_at")

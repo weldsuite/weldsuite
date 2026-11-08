@@ -15,6 +15,7 @@ import { polyfillRadixSelect } from '@/app/weldbooks/invoices/components/test-ut
 import { EmployerDialog } from './employer-dialog';
 import { ScheduleDialog } from './schedule-dialog';
 import { TaxElectionDialog } from './tax-election-dialog';
+import { EmployerBankDialog } from './employer-bank-dialog';
 
 const t = en.weldhr.payroll;
 
@@ -23,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   updateEmployer: vi.fn(),
   createSchedule: vi.fn(),
   updateSchedule: vi.fn(),
+  setBank: vi.fn(),
+  saveAccount: vi.fn(),
 }));
 
 const fixtures = vi.hoisted(() => ({
@@ -36,6 +39,7 @@ vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
   useCreateHrPayrollEmployer: () => ({ mutateAsync: mocks.createEmployer, isPending: false }),
   useUpdateHrPayrollEmployer: () => ({ mutateAsync: mocks.updateEmployer, isPending: false }),
+  useSetHrPayrollEmployerBank: () => ({ mutateAsync: mocks.setBank, isPending: false }),
   useCreateHrPaySchedule: () => ({ mutateAsync: mocks.createSchedule, isPending: false }),
   useUpdateHrPaySchedule: () => ({ mutateAsync: mocks.updateSchedule, isPending: false }),
 }));
@@ -44,6 +48,7 @@ vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
   useLegalEntities: () => ({ data: fixtures.legalEntities, isLoading: false }),
   useLegalEntityRegistrations: (id: string | null | undefined) => ({ data: id ? fixtures.registrations : undefined }),
   useLegalEntityBankAccounts: (id: string | null | undefined) => ({ data: id ? fixtures.bankAccounts : undefined }),
+  useSaveBankAccount: () => ({ mutateAsync: mocks.saveAccount, isPending: false }),
 }));
 
 function renderInProvider(ui: React.ReactElement) {
@@ -294,5 +299,71 @@ describe('TaxElectionDialog', () => {
     );
 
     expect(screen.getByText(t.elections.state.noCertificate.replace('{state}', 'TX'))).toBeTruthy();
+  });
+});
+
+describe('EmployerBankDialog', () => {
+  beforeAll(polyfillRadixSelect);
+
+  async function chooseNewAccount(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByLabelText(t.settings.bank.entityAccount));
+    await user.click(await screen.findByRole('option', { name: t.settings.bank.addAccount }));
+  }
+
+  it('creates a new core account on the entity and links it, leaving the shared account alone', async () => {
+    const user = userEvent.setup();
+    mocks.saveAccount.mockResolvedValue({ id: 'bank_new' });
+    const onClose = vi.fn();
+    renderInProvider(<EmployerBankDialog employer={{ ...employer, bankAccountId: 'bank_1' }} onClose={onClose} />);
+
+    await chooseNewAccount(user);
+    const holder = screen.getByLabelText(t.settings.bank.accountHolder);
+    await user.clear(holder);
+    await user.type(holder, 'Acme Payroll');
+    await user.type(screen.getByLabelText('IBAN'), 'NL91ABNA0417164300');
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    await waitFor(() => expect(mocks.updateEmployer).toHaveBeenCalledWith({ id: 'emp_1', bankAccountId: 'bank_new' }));
+    expect(mocks.saveAccount).toHaveBeenCalledWith({
+      create: expect.objectContaining({ accountHolderName: 'Acme Payroll', iban: 'NL91ABNA0417164300' }),
+    });
+    expect(mocks.setBank).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('keeps the NACHA company id on the new core account', async () => {
+    const user = userEvent.setup();
+    mocks.saveAccount.mockResolvedValue({ id: 'bank_new' });
+    renderInProvider(<EmployerBankDialog employer={{ ...employer, country: 'US', bankAccountId: 'bank_1' }} onClose={vi.fn()} />);
+
+    await chooseNewAccount(user);
+    await user.type(screen.getByLabelText(t.settings.bank.nachaCompanyId), '1234567890');
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    await waitFor(() => expect(mocks.saveAccount).toHaveBeenCalled());
+    expect(mocks.saveAccount.mock.calls[0][0].create.achSettings).toEqual({ companyIdentification: '1234567890' });
+  });
+
+  it('shows a failure inline and does not link when creating the account fails', async () => {
+    const user = userEvent.setup();
+    mocks.saveAccount.mockRejectedValue(new Error('IBAN rejected'));
+    renderInProvider(<EmployerBankDialog employer={{ ...employer, bankAccountId: 'bank_1' }} onClose={vi.fn()} />);
+
+    await chooseNewAccount(user);
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    expect(await screen.findByText('IBAN rejected')).toBeTruthy();
+    expect(mocks.updateEmployer).not.toHaveBeenCalled();
+  });
+
+  it('keeps the plain bank PUT for an employer without a legal entity', async () => {
+    const user = userEvent.setup();
+    renderInProvider(<EmployerBankDialog employer={{ ...employer, legalEntityId: null }} onClose={vi.fn()} />);
+
+    await user.type(screen.getByLabelText(t.settings.bank.accountHolder), 'Acme');
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    await waitFor(() => expect(mocks.setBank).toHaveBeenCalled());
+    expect(mocks.saveAccount).not.toHaveBeenCalled();
   });
 });

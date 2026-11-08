@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { ALL_HR_GRANTS, HR, HR_ADMIN, data, errorOf, hrCaller, hrDb, resetHr, seedEmployee, seedMember } from '../../test/hr-fixtures';
 
@@ -111,6 +111,50 @@ describe('employee entity', () => {
     expect((await data<{ legalEntityId: string }>(await create('x1@example.com', { 'X-Legal-Entity-Id': 'ent_b' }))).legalEntityId).toBe('ent_b');
     expect((await data<{ legalEntityId: string }>(await create('x2@example.com', {}, { legalEntityId: 'ent_b' }))).legalEntityId).toBe('ent_b');
     expect((await data<{ legalEntityId: string }>(await create('x3@example.com', {}))).legalEntityId).toBe('ent_a');
+  });
+
+  const newHire = (caller: ReturnType<typeof as>, headers: Record<string, string> = {}, extra: Record<string, unknown> = {}) =>
+    caller.request(`${HR}/employees`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ firstName: 'N', lastName: 'Ew', email: 'new@example.com', ...extra }),
+    });
+
+  it('refuses an entity the request names but may not use, instead of the named or default one', async () => {
+    const admin = as(HR_ADMIN);
+    const unknown = await newHire(admin, { 'X-Legal-Entity-Id': 'ent_nope' }, { legalEntityId: 'ent_a' });
+    expect(unknown.status).toBe(404);
+    expect(await errorOf(unknown)).toEqual({ code: 'NOT_FOUND', message: "Legal entity with ID 'ent_nope' not found" });
+
+    // Beta restricted, and the admin (no legal_entities:manage) has no row there.
+    await db.update(schema.legalEntities).set({ accessRestricted: true }).where(eq(schema.legalEntities.id, 'ent_b'));
+    const hidden = await newHire(admin, { 'X-Legal-Entity-Id': 'ent_b' });
+    expect(hidden.status).toBe(404);
+    expect(await errorOf(hidden)).toEqual({ code: 'NOT_FOUND', message: "Legal entity with ID 'ent_b' not found" });
+    expect(await db.select({ id: schema.hrEmployees.id }).from(schema.hrEmployees)).toHaveLength(2);
+  });
+
+  it('refuses the default entity when the member may not add employees there, without naming it', async () => {
+    // Alpha, the default, restricted: the member has no row there, so does not see it.
+    await db.update(schema.legalEntities).set({ accessRestricted: true }).where(eq(schema.legalEntities.id, 'ent_a'));
+    const hidden = await newHire(as(VIEWER));
+    expect(hidden.status).toBe(404);
+    expect(await errorOf(hidden)).toEqual({ code: 'NOT_FOUND', message: 'Legal entity not found' });
+
+    // Beta the default: the member acts there as an HR viewer, so the workspace role
+    // the request was checked with does not reach it.
+    await db.update(schema.legalEntities).set({ accessRestricted: false, isDefault: false }).where(eq(schema.legalEntities.id, 'ent_a'));
+    await db.update(schema.legalEntities).set({ isDefault: true }).where(eq(schema.legalEntities.id, 'ent_b'));
+    const withRole = await newHire(as(VIEWER));
+    expect(withRole.status).toBe(404);
+    expect(await errorOf(withRole)).toEqual({ code: 'NOT_FOUND', message: 'Legal entity not found' });
+    expect(await db.select({ id: schema.hrEmployees.id }).from(schema.hrEmployees)).toHaveLength(2);
+
+    // Someone who acts there with their workspace role still lands in it.
+    await seedMember(db, 'user_new_hire', { email: 'new@example.com' });
+    const placed = await newHire(as(HR_ADMIN));
+    expect(placed.status).toBe(201);
+    expect((await data<{ legalEntityId: string }>(placed)).legalEntityId).toBe('ent_b');
   });
 });
 
