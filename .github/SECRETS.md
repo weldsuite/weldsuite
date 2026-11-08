@@ -10,7 +10,7 @@ deployment branch policies:
 
 | Environment | Allowed branches | Notes |
 |---|---|---|
-| `test` | `develop` | Auto-deploys on push to develop |
+| `test` | `main` | Deploys every `main` commit that passes CI |
 | `production` | `main` | Prefer a required reviewer on production |
 
 Values come from Doppler project `weldsuite` (`test` / `prd` configs).
@@ -27,11 +27,11 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages + D1 migrations |
 | `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages + D1 migrations |
 | `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
-| `VERCEL_TOKEN` | not in Doppler | `vercel` job in `deploy.yml` (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
+| `VERCEL_TOKEN` | not in Doppler | `vercel` deploy job (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
 
 Vercel-hosted apps (`vercel` job; app → project map in
-`.github/scripts/vercel-apps.mjs`): `admin`, `api-docs`, `booking-portal`,
-`docs`, `helpcenter`, `helpdesk-widget`, `meeting-portal`, `partner`. Their
+`.github/scripts/vercel-apps.mjs`): `api-docs`, `booking-portal`,
+`docs`, `helpdesk-widget`, `meeting-portal`, `partner`. Their
 env vars and domains stay on the Vercel projects: production builds pull the
 Production env, test builds pull the Preview env for branch `develop`, and the
 project's domains bound to `develop` (e.g. `partner-test.weldsuite.org`) are
@@ -39,6 +39,11 @@ aliased to each test deploy. Each app's `vercel.json` turns Vercel's own Git
 builds off for every branch, so Vercel makes no automatic preview deployments.
 Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
 cannot read those, so the runner would build without them.
+
+The admin console (`apps/web/admin`) is a Worker now (the deploy's `start-workers` job). It
+deploys only to the environments named in the repository **variable**
+`ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
+from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.
 
 Store submission (`auto-submit` in `mobile-build.yml`) needs **no GitHub
 secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and the Google
@@ -64,7 +69,7 @@ Cloudflare Pages projects for the developer portal (create manually; Git auto-de
 
 Also add both hostnames to Clerk **Allowed origins** / **Redirect URLs**.
 
-First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.yml`):
+First-party hosted WeldApps (`apps/hosted-apps/`, the deploy's `hosted-apps` job, on the deploy environments in `weldsuite-deploy`):
 
 | GitHub secret | Used by |
 |---|---|
@@ -115,26 +120,56 @@ Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 | `WORKSPACE_ADMIN_SECRET` | `workspace-worker` (`/api/internal/admin/*`: database moves, live shard state, shard sizes); the admin console holds the same value, next to `WORKSPACE_WORKER_URL` (`https://workspace-worker-test.weldsuite.org` / `https://workspace-worker.weldsuite.org`). 32+ random characters; unset or shorter, the routes answer 503. The console also sends the admin's `x-admin-email`, `x-admin-user-id` and `x-admin-role` headers; only a `superadmin` can start, cancel or recover a move |
 | `OUTBOUND_ADMIN_SECRET` | `mail-api` (`/internal/outbound/*`); the admin console holds the same value, next to `MAIL_API_URL` |
 
-Copy from Doppler without printing values:
+Copy from Doppler without printing values. `REPO` is the repo whose
+environments you fill: `weldsuite/weldsuite` today, and also
+`weldsuite/weldsuite-deploy` (below) until the phase 2 cut-over of OPS-018,
+after which only the private one.
 
 ```bash
+REPO=weldsuite/weldsuite-deploy
 for env in test production; do
   cfg=$([ "$env" = production ] && echo prd || echo test)
   for s in DATABASE_ENCRYPTION_KEY NEON_API_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
     doppler secrets get "$s" --project weldsuite --config "$cfg" --plain \
-      | gh secret set "$s" --env "$env" -R weldsuite/weldsuite
+      | gh secret set "$s" --env "$env" -R "$REPO"
   done
   doppler secrets get DATABASE_URL_MASTER --project weldsuite --config "$cfg" --plain \
-    | gh secret set MASTER_DATABASE_URL --env "$env" -R weldsuite/weldsuite
+    | gh secret set MASTER_DATABASE_URL --env "$env" -R "$REPO"
   doppler secrets get DATABASE_URL_PERSONAL --project weldsuite --config "$cfg" --plain \
-    | gh secret set PERSONAL_DATABASE_URL --env "$env" -R weldsuite/weldsuite
+    | gh secret set PERSONAL_DATABASE_URL --env "$env" -R "$REPO"
 done
 ```
 
 `production` should only deploy from `main` (environment deployment branch
-policy). `test` deploys from `develop`.
+policy). `test` deploys from `main` too.
 
-Optional production-only (desktop release): `R2_DOWNLOADS_API_TOKEN`,
-`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`,
-`WIN_CSC_KEY_PASSWORD`.
+### Private deploy repo `weldsuite/weldsuite-deploy` (OPS-018)
+
+Deploys move to this private repo in phases
+(`docs/plans/main-only-private-deploys.md`). Its environments `test` and
+`production` exist and are limited to that repo's `main` branch. Phase 1
+deploys nothing (plan only), so they are not read yet; fill them before the
+phase 2 hand-off, with the same names as here:
+
+- the Doppler-backed ones: the loop above with `REPO=weldsuite/weldsuite-deploy`;
+- by hand (not in Doppler, and a GitHub secret can't be read back):
+  `VERCEL_TOKEN` (both), `EXPO_TOKEN` (production; test has none today, so
+  test skips mobile OTA), `VITE_MAPBOX_ACCESS_TOKEN` (both) and any other
+  optional `VITE_*` build secret below that is set;
+- the repository variable `ADMIN_WORKER_ENVS` once it is set here.
+
+The desktop signing secrets and `R2_DOWNLOADS_API_TOKEN` do not go there:
+`release-desktop.yml` and `mobile-build.yml` stay public and use their own
+public environments (below), so the cut-over can delete `test` and
+`production` here.
+
+### Release environments (public)
+
+The two release workflows that stay public, run by hand, each read their own
+environment, never `test` or `production`:
+
+| Environment | Branch | Workflow | Secrets |
+|---|---|---|---|
+| `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
+| `mobile-release` | `main` | `mobile-build.yml`, channel `production` | `EXPO_TOKEN` |
+| `mobile-preview` | `main` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |

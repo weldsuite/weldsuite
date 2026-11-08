@@ -7,7 +7,7 @@
  * calls for `employees:sensitive` holders and which the route audits.
  */
 
-import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { escapeLikeTerm } from '@weldsuite/db/lib/custom-objects';
 import {
@@ -38,6 +38,7 @@ export type PublicEmployee = Omit<HrEmployee, 'sensitiveEncrypted'> & {
 };
 
 export type EmployeeListItem = PublicEmployee & {
+  legalEntityName: string | null;
   departmentName: string | null;
   managerName: string | null;
   clients: Array<{ companyId: string; companyName: string | null; isPrimary: boolean }>;
@@ -104,7 +105,8 @@ async function decorate(db: Database, rawRows: HrEmployee[]): Promise<EmployeeLi
   const departmentIds = [...new Set(rows.map((r) => r.departmentId).filter((v): v is string => Boolean(v)))];
   const managerIds = [...new Set(rows.map((r) => r.managerId).filter((v): v is string => Boolean(v)))];
 
-  const [departments, managers, clients] = await Promise.all([
+  const entityIds = [...new Set(rows.map((r) => r.legalEntityId).filter((v): v is string => Boolean(v)))];
+  const [departments, managers, clients, entities] = await Promise.all([
     departmentIds.length
       ? db
           .select({ id: schema.hrDepartments.id, name: schema.hrDepartments.name })
@@ -118,12 +120,20 @@ async function decorate(db: Database, rawRows: HrEmployee[]): Promise<EmployeeLi
           .where(inArray(t.id, managerIds))
       : Promise.resolve([]),
     activeClientsFor(db, rows.map((r) => r.id)),
+    entityIds.length
+      ? db
+          .select({ id: schema.legalEntities.id, name: schema.legalEntities.name })
+          .from(schema.legalEntities)
+          .where(inArray(schema.legalEntities.id, entityIds))
+      : Promise.resolve([]),
   ]);
+  const entityName = new Map(entities.map((e) => [e.id, e.name]));
   const departmentName = new Map(departments.map((d) => [d.id, d.name]));
   const managerName = new Map(managers.map((m) => [m.id, displayNameOf(m)]));
 
   return rows.map((row) => ({
     ...toPublicEmployee(row),
+    legalEntityName: row.legalEntityId ? entityName.get(row.legalEntityId) ?? null : null,
     departmentName: row.departmentId ? departmentName.get(row.departmentId) ?? null : null,
     managerName: row.managerId ? managerName.get(row.managerId) ?? null : null,
     clients: clients.get(row.id) ?? [],
@@ -131,6 +141,8 @@ async function decorate(db: Database, rawRows: HrEmployee[]): Promise<EmployeeLi
 }
 
 export interface ListEmployeesFilters {
+  /** Condition on `hr_employees.legal_entity_id` (the request's entity scope). */
+  entity?: SQL;
   search?: string;
   status?: string;
   departmentId?: string;
@@ -144,6 +156,7 @@ export interface ListEmployeesFilters {
 export async function listEmployees(db: Database, filters: ListEmployeesFilters) {
   const limit = Math.min(filters.limit ?? 50, 200);
   const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
 
   if (filters.search?.trim()) {
     const escaped = filters.search.trim().replace(/[%_]/g, (m) => `\\${m}`);
@@ -223,7 +236,7 @@ export async function getEmployeeDetail(db: Database, id: string) {
 }
 
 /** Everyone, flattened, for the org chart. Small by design (ids + names + manager). */
-export async function orgChart(db: Database) {
+export async function orgChart(db: Database, entity?: SQL) {
   const rows = await db
     .select({
       id: t.id,
@@ -237,7 +250,7 @@ export async function orgChart(db: Database) {
       status: t.status,
     })
     .from(t)
-    .where(and(isNull(t.deletedAt), sql`${t.status} <> 'terminated'`))
+    .where(and(isNull(t.deletedAt), sql`${t.status} <> 'terminated'`, entity))
     .orderBy(asc(t.lastName), asc(t.firstName));
   return rows.map((r) => ({ ...r, displayName: displayNameOf(r) }));
 }
@@ -431,6 +444,8 @@ export type EmployeeWriteInput = {
   jobTitle?: string | null;
   departmentId?: string | null;
   managerId?: string | null;
+  /** The employing legal entity; the route resolves the default (routes/weldhr/employees.ts). */
+  legalEntityId?: string | null;
   userId?: string | null;
   employmentType?: string;
   status?: string;
@@ -571,6 +586,32 @@ export async function createEmployeeFromMember(
   );
 }
 
+/**
+ * Moving an employee to another legal entity is refused while their payroll
+ * profile is under an employer of a different entity: end the profile, or move
+ * it to an employer of the new entity first.
+ */
+async function assertEntityFitsPayroll(db: Database, employeeId: string, legalEntityId: string) {
+  const [clash] = await db
+    .select({ employerId: schema.hrPayrollProfiles.employerId })
+    .from(schema.hrPayrollProfiles)
+    .innerJoin(schema.hrPayrollEmployers, eq(schema.hrPayrollEmployers.id, schema.hrPayrollProfiles.employerId))
+    .where(
+      and(
+        eq(schema.hrPayrollProfiles.employeeId, employeeId),
+        ne(schema.hrPayrollProfiles.status, 'ended'),
+        isNotNull(schema.hrPayrollEmployers.legalEntityId),
+        ne(schema.hrPayrollEmployers.legalEntityId, legalEntityId),
+      ),
+    )
+    .limit(1);
+  if (clash) {
+    throw new HrConflictError(
+      'This employee is on the payroll of an employer of another legal entity. Move or end their payroll profile first.',
+    );
+  }
+}
+
 export async function updateEmployee(db: Database, id: string, input: EmployeeWriteInput): Promise<HrEmployee> {
   const existing = await requireEmployee(db, id);
   assertDateOrder(
@@ -591,6 +632,9 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     await assertUserIdFree(db, input.userId, id);
   }
   await assertWorkLocations(db, input.workLocationIds);
+  if (input.legalEntityId && input.legalEntityId !== existing.legalEntityId) {
+    await assertEntityFitsPayroll(db, id, input.legalEntityId);
+  }
   const definitions = await prepareCustomFields(db, input.customFields);
 
   const [row] = await db

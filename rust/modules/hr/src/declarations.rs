@@ -35,6 +35,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynFileStore, PutOptions};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{guard, via_employee};
 use crate::fields::{Fields, id, iso_date};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, js_round, js_to_fixed,
@@ -94,6 +95,11 @@ where
             "/declarations/{id}/receipt",
             get(download_receipt).route_layer(gate.require([DECLARATIONS_READ])),
         )
+        .route_layer(guard(
+            "/declarations",
+            "Declaration",
+            via_employee!("hr_declarations"),
+        ))
 }
 
 /// `toPublicDeclaration(row)`: the amount as a number, `hasReceipt` instead
@@ -146,6 +152,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     let split = |key: &str| -> Option<Vec<String>> {
         query_text(&q, key).map(|v| v.split(',').map(str::to_owned).collect())
     };
+    let scope = caller.scope().await?;
     let rows: Vec<(Value, Value)> = sqlx::query_as(
         "select to_jsonb(d), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
              'preferredName', e.preferred_name)
@@ -156,6 +163,8 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
            and ($3::text[] is null or d.category = any($3))
            and ($4::text is null or d.expense_date >= $4::date)
            and ($5::text is null or d.expense_date <= $5::date)
+           and ($6::text[] is null or e.legal_entity_id = any($6)
+                or ($7::boolean and e.legal_entity_id is null))
          order by d.expense_date desc, d.created_at desc
          limit 1000",
     )
@@ -164,6 +173,8 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     .bind(split("category"))
     .bind(query_date(&q, "from"))
     .bind(query_date(&q, "to"))
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(&caller.db)
     .await?;
     let reviewers: Vec<Option<&str>> = rows
@@ -395,6 +406,7 @@ async fn create(
     body: Bytes,
 ) -> HrResult {
     let (employee, input) = declaration_body(&headers, &body, true)?;
+    caller.assert_employee_visible(employee.as_deref()).await?;
     let row = create_declaration(
         &caller.db,
         &employee.unwrap_or_default(),

@@ -1,221 +1,134 @@
 /**
- * The WeldReach reply inbox: conversations on the left (filters for state,
- * label, campaign and mailbox; refreshed every 30 seconds), the open
- * conversation on the right. `?thread=<key>` makes a conversation linkable.
+ * The WeldReach reply inbox, laid out like WeldMail's inbox: the shared
+ * conversation list on the left (Filter for state, label, campaign and
+ * mailbox; refreshed every 30 seconds), the open conversation on the right.
+ * `?thread=<key>` makes a conversation linkable.
  */
 
 import { useMemo, useState } from 'react';
-import { MessagesSquare, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
+import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import type { ReachReplyLabel } from '@weldsuite/app-api-client/schemas/reach';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { cn } from '@/lib/utils';
-import { useReachCampaigns } from '@/hooks/queries/use-reach-campaign-queries';
-import { useReachMailboxes } from '@/hooks/queries/use-reach-queries';
-import {
-  useReachThreads,
-  useReachUnreadCount,
-  type ReachInboxFilters,
-} from '@/hooks/queries/use-reach-inbox-queries';
-import { REPLY_LABEL_ORDER, replyLabelKey } from '@/app/weldreach/components/engage/badges';
+import { ConversationList } from '@/components/shared/conversation-list';
+import { EmptyStateIllustration } from '@/components/entity-list';
+import { useReachThreads, useReachUnreadCount } from '@/hooks/queries/use-reach-inbox-queries';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { emptyIcon, errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
-import { ThreadList } from './components/thread-list';
+import { errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
+import { InboxFilter, DEFAULT_INBOX_FILTER, countActiveFilters, type InboxFilterValue } from './components/inbox-filter';
+import { LoadMoreSentinel } from './components/load-more-sentinel';
 import { ThreadView } from './components/thread-view';
-import { INBOX_STATES, type InboxState } from './lib/thread-state';
-import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
-import { FilterSelect } from '@weldsuite/ui/components/filter-select';
-import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { threadToConversationItem } from './lib/conversation-items';
 
-const STATE_KEYS: Record<InboxState, string> = {
-  open: 'reachEngage.inbox.states.open',
-  unread: 'reachEngage.inbox.states.unread',
-  handled: 'reachEngage.inbox.states.handled',
-  all: 'reachEngage.inbox.states.all',
-};
+function threadHref(threadKey: string): string {
+  return `/weldreach/inbox?thread=${encodeURIComponent(threadKey)}`;
+}
 
-type ThreadsQuery = ReturnType<typeof useReachThreads>;
-
-/** The conversation list, or what stands in for it while loading, on error and when empty. */
-function ThreadsBody({
-  threads,
-  selectedKey,
-  emptyTitle,
-  emptyDescription,
-  onSelect,
-}: Readonly<{
-  threads: ThreadsQuery;
-  selectedKey: string | undefined;
-  emptyTitle: string;
-  emptyDescription: string;
-  onSelect: (threadKey: string) => void;
-}>) {
+/** What the reading pane shows while no conversation is open: WeldMail's "Select a message". */
+function NoConversationSelected({ unreadCount }: Readonly<{ unreadCount: number }>) {
   const t = useTranslations();
-
-  if (threads.isLoading) return <InlineSpinner />;
-  if (threads.isError && threads.threads.length === 0) {
-    return (
-      <div className="p-4">
-        <ErrorBanner error={errorMessage(threads.error, t('reachEngage.inbox.loadFailed'))} />
-      </div>
-    );
-  }
-  if (threads.threads.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
-        {emptyIcon(MessagesSquare)}
-        <p className="text-sm font-medium">{emptyTitle}</p>
-        <p className="max-w-xs text-sm text-muted-foreground">{emptyDescription}</p>
-      </div>
-    );
-  }
+  const format = useReachFormat();
 
   return (
-    <ThreadList
-      threads={threads.threads}
-      selectedKey={selectedKey}
-      hasMore={threads.hasNextPage}
-      isLoadingMore={threads.isFetchingNextPage}
-      onSelect={onSelect}
-      onLoadMore={() => void threads.fetchNextPage()}
-    />
+    <div className="hidden h-full w-full flex-col items-center justify-center px-6 text-center md:flex">
+      <EmptyStateIllustration>
+        {/* WeldReach logo as a mask, so it takes the theme colour instead of the brand pink */}
+        <span
+          aria-hidden="true"
+          className="block aspect-[653/602] w-20 bg-muted-foreground/20 [mask:url(/assets/images/weldreach/icon.svg)_center/contain_no-repeat]"
+        />
+      </EmptyStateIllustration>
+      <h3 className="mb-1.5 text-[15px] font-semibold text-foreground">{t('reachEngage.inbox.selectTitle')}</h3>
+      <p className="max-w-[320px] text-sm leading-relaxed text-muted-foreground">
+        {t('reachEngage.inbox.selectDescription')}
+      </p>
+      {unreadCount > 0 && (
+        <p className="mt-4 text-sm font-medium text-foreground">
+          {t(unreadCount === 1 ? 'reachEngage.inbox.newReply' : 'reachEngage.inbox.newReplies', {
+            count: format.number(unreadCount),
+          })}
+        </p>
+      )}
+    </div>
   );
 }
 
 export default function ReachInboxPage() {
   const t = useTranslations();
   const router = useRouter();
-  const format = useReachFormat();
   const { can } = usePermissions();
   const searchParams = useSearchParams();
   useReachBreadcrumbs({ label: t('reachEngage.inbox.title') });
 
   const threadKey = searchParams.get('thread') ?? undefined;
-  const [state, setState] = useState<InboxState>('open');
-  const [label, setLabel] = useState<ReachReplyLabel | undefined>(undefined);
-  const [campaignId, setCampaignId] = useState<string | undefined>(undefined);
-  const [mailboxId, setMailboxId] = useState<string | undefined>(undefined);
+  const [filter, setFilter] = useState<InboxFilterValue>(DEFAULT_INBOX_FILTER);
 
-  const filters = useMemo<ReachInboxFilters>(
-    () => ({ state, label, campaignId, mailboxId }),
-    [state, label, campaignId, mailboxId],
+  const threads = useReachThreads(filter);
+  const unread = useReachUnreadCount({ enabled: can('reach_inbox:read') });
+  const items = useMemo(
+    () => threads.threads.map((thread) => threadToConversationItem(thread, t)),
+    [threads.threads, t],
   );
-  const hasExtraFilters = label !== undefined || campaignId !== undefined || mailboxId !== undefined;
 
-  const canRead = can('reach_inbox:read');
-  const threads = useReachThreads(filters);
-  const unread = useReachUnreadCount({ enabled: canRead });
-  const campaigns = useReachCampaigns();
-  const mailboxes = useReachMailboxes();
+  const error =
+    threads.isError && threads.threads.length === 0
+      ? errorMessage(threads.error, t('reachEngage.inbox.loadFailed'))
+      : null;
+  const emptyMessage =
+    countActiveFilters(filter) === 0 ? t('reachEngage.inbox.emptyTitle') : t('reachEngage.inbox.noResultsTitle');
+  const refreshLabel = t('reachEngage.inbox.refresh');
 
-  function open(key: string) {
-    router.replace(`/weldreach/inbox?thread=${encodeURIComponent(key)}`);
-  }
-
-  function close() {
-    router.replace('/weldreach/inbox');
-  }
-
-  const emptyTitle =
-    state === 'open' && !hasExtraFilters
-      ? t('reachEngage.inbox.emptyTitle')
-      : t('reachEngage.inbox.noResultsTitle');
-  const emptyDescription =
-    state === 'open' && !hasExtraFilters
-      ? t('reachEngage.inbox.emptyDescription')
-      : t('reachEngage.inbox.noResultsDescription');
+  const list = (
+    <ConversationList
+      items={items}
+      selectedId={threadKey}
+      getItemUrl={(item) => threadHref(item.id)}
+      onItemClick={(item) => router.replace(threadHref(item.id))}
+      filterContent={
+        <>
+          <InboxFilter value={filter} onChange={setFilter} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 flex-shrink-0 p-0 text-muted-foreground shadow-none"
+                aria-label={refreshLabel}
+                disabled={threads.isFetching}
+                onClick={() => void threads.refetch()}
+              >
+                <RefreshCw className={cn('h-4 w-4', threads.isFetching && 'animate-spin')} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{refreshLabel}</TooltipContent>
+          </Tooltip>
+        </>
+      }
+      error={error}
+      isLoading={threads.isLoading}
+      emptyMessage={emptyMessage}
+      footer={
+        threads.hasNextPage ? (
+          <LoadMoreSentinel
+            isLoadingMore={threads.isFetchingNextPage}
+            onLoadMore={() => void threads.fetchNextPage()}
+          />
+        ) : null
+      }
+    />
+  );
 
   return (
-    <div className="flex h-full min-h-0">
-      <section
-        aria-label={t('reachEngage.inbox.conversations')}
-        className={cn(
-          'flex min-h-0 w-full flex-col md:w-[400px] md:shrink-0 md:border-r lg:w-[440px]',
-          threadKey && 'hidden md:flex',
-        )}
-      >
-        <div className="space-y-2 border-b px-3 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <Tabs value={state} onValueChange={(value) => setState(value as InboxState)}>
-              <TabsList className="h-8">
-                {INBOX_STATES.map((value) => (
-                  <TabsTrigger key={value} value={value} className="px-2.5 text-xs">
-                    {t(STATE_KEYS[value])}
-                    {value === 'unread' && (unread.data ?? 0) > 0 && (
-                      <span className="ml-1.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                        {format.number(unread.data ?? 0)}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              disabled={threads.isFetching}
-              onClick={() => void threads.refetch()}
-              aria-label={t('reachEngage.inbox.refresh')}
-            >
-              <RefreshCw className={cn('h-4 w-4', threads.isFetching && 'animate-spin')} />
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <FilterSelect
-              value={label}
-              onChange={(next) => setLabel(next as ReachReplyLabel | undefined)}
-              options={REPLY_LABEL_ORDER.map((value) => ({ value, label: t(replyLabelKey(value)) }))}
-              allLabel={t('reachEngage.inbox.allLabels')}
-              ariaLabel={t('reachEngage.inbox.labelFilter')}
-            />
-            <FilterSelect
-              value={campaignId}
-              onChange={setCampaignId}
-              options={campaigns.campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name }))}
-              allLabel={t('reachEngage.inbox.allCampaigns')}
-              ariaLabel={t('reachEngage.inbox.campaignFilter')}
-              className="max-w-[11rem]"
-            />
-            <FilterSelect
-              value={mailboxId}
-              onChange={setMailboxId}
-              options={(mailboxes.data ?? []).map((mailbox) => ({ value: mailbox.id, label: mailbox.email }))}
-              allLabel={t('reachEngage.inbox.allMailboxes')}
-              ariaLabel={t('reachEngage.inbox.mailboxFilter')}
-              className="max-w-[11rem]"
-            />
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ThreadsBody
-            threads={threads}
-            selectedKey={threadKey}
-            emptyTitle={emptyTitle}
-            emptyDescription={emptyDescription}
-            onSelect={open}
-          />
-        </div>
-      </section>
-
-      <section
-        aria-label={t('reachEngage.inbox.conversation')}
-        className={cn('min-w-0 flex-1 flex-col', threadKey ? 'flex' : 'hidden md:flex')}
-      >
-        {threadKey ? (
-          <ThreadView key={threadKey} threadKey={threadKey} onBack={close} />
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
-            <MessagesSquare className="h-8 w-8" strokeWidth={1.5} />
-            <p className="text-sm">{t('reachEngage.inbox.selectPrompt')}</p>
-          </div>
-        )}
-      </section>
-    </div>
+    <ListDetailLayout list={list} isDetailSelected={Boolean(threadKey)}>
+      {threadKey ? (
+        <ThreadView key={threadKey} threadKey={threadKey} onBack={() => router.replace('/weldreach/inbox')} />
+      ) : (
+        <NoConversationSelected unreadCount={unread.data ?? 0} />
+      )}
+    </ListDetailLayout>
   );
 }

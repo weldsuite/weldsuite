@@ -103,6 +103,10 @@ export interface HrEmployee {
   jobTitle: string | null;
   departmentId: string | null;
   managerId: string | null;
+  /** The legal entity that employs them; null only for rows from before the workspace had entities. */
+  legalEntityId: string | null;
+  /** Filled on the directory and detail reads. */
+  legalEntityName?: string | null;
   userId: string | null;
   employmentType: HrEmploymentType;
   status: HrEmployeeStatus;

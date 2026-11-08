@@ -7,7 +7,7 @@
    precede other statements, and stylelint's no-invalid-position-at-import-rule
    flags it otherwise. (apps/web/platform/app/globals.css has the same rules in
    the looser order; worth aligning there separately.) */
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @import "tw-animate-css";
 
 @source "../**/*.{ts,tsx}";

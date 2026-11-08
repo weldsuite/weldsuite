@@ -5,6 +5,10 @@ use serde_json::{Map, Value, json};
 
 use crate::{HrError, js_to_fixed};
 
+/// `hr_pay_runs.journal_error` of a skipped journal whose legal entity has no
+/// WeldBooks (the run DTO's `journalReason`, `BOOKS_NOT_ENABLED`).
+pub(crate) const BOOKS_NOT_ENABLED: &str = "books_not_enabled";
+
 /// `num(value)`: a finite number from a number or numeric text.
 pub(crate) fn num(value: &Value) -> Option<f64> {
     match value {

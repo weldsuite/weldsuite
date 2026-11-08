@@ -29,7 +29,8 @@ export interface Env extends KitEnv, BankFeedEnv {
 
   // --- Bank feeds (@weldsuite/bank-feeds) ------------------------------------
   // Provider secrets and routing come from BankFeedEnv (PLAID_*, STRIPE_FC_SECRET_KEY,
-  // PONTO_*, ENABLE_BANKING_*, BANK_FEED_PROVIDERS, BANK_FEED_WEBHOOK_URL).
+  // PONTO_* including the live-only PONTO_SIGNATURE_CERT_ID / PONTO_SIGNATURE_KEY,
+  // ENABLE_BANKING_*, BANK_FEED_PROVIDERS, BANK_FEED_WEBHOOK_URL).
   /** Workers mTLS binding presenting Ponto's client certificate (wrangler.toml `mtls_certificates`). */
   PONTO_CERT?: Fetcher;
 

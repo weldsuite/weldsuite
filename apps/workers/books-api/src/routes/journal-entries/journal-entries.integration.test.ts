@@ -48,6 +48,8 @@ beforeAll(async () => {
     { id: ENTITY, name: 'Ledger BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
     { id: 'ent_other', name: 'Other BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', periodLockDate: '2026-01-31' },
   ]);
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values([{ entityId: ENTITY }, { entityId: 'ent_other' }]);
   await db.insert(schema.accounts).values([
     { id: 'acc_rent', entityId: ENTITY, code: '4300', name: 'Rent', type: 'expense', normalSide: 'debit' },
     { id: 'acc_bank', entityId: ENTITY, code: '1100', name: 'Bank', type: 'asset', normalSide: 'debit' },

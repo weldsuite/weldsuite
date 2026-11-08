@@ -33,6 +33,7 @@ import {
   type DeskPriority,
   type DeskTicketField,
 } from '@/hooks/queries/use-desk-queries';
+import { ImpactUrgencyFields } from './impact-urgency-fields';
 
 /** Radix Select can't hold an empty value; this stands for "not set". */
 const NONE = '__none__';
@@ -48,7 +49,7 @@ export const PRIORITY_DOT: Record<DeskPriority, string> = {
 
 type T = ReturnType<typeof getTranslations<'deskInbox2'>>;
 
-function FieldRow({ label, required, children }: Readonly<{ label: string; required?: boolean; children: React.ReactNode }>) {
+export function FieldRow({ label, required, children }: Readonly<{ label: string; required?: boolean; children: React.ReactNode }>) {
   const t = getTranslations('deskInbox2');
   return (
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
@@ -65,7 +66,7 @@ function FieldRow({ label, required, children }: Readonly<{ label: string; requi
   );
 }
 
-function PickOne({
+export function PickOne({
   value,
   noneLabel,
   items,
@@ -326,6 +327,7 @@ export function TicketFields({ conversation }: Readonly<{ conversation: DeskConv
           testId="desk-ticket-priority"
         />
       </FieldRow>
+      <ImpactUrgencyFields conversation={conversation} save={save} />
       <FieldRow label={t.ticket.team}>
         <PickOne
           value={conversation.departmentId}

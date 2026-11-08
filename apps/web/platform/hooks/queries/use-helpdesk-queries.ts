@@ -280,6 +280,8 @@ export function useArticles(filters?: {
   folderId?: string;
   status?: string;
   visibility?: string;
+  /** `'1'`: originals only, not their language versions. */
+  originals?: string;
   limit?: number;
   cursor?: string;
 }) {
@@ -1197,7 +1199,7 @@ export interface KnowledgeArticle {
   views: number;
   lastUpdated: Date;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'internal' | 'restricted';
+  visibility: 'public' | 'logged_in' | 'groups' | 'internal';
   helpful: number;
   notHelpful: number;
 }

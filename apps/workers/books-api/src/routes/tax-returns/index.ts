@@ -30,6 +30,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { ClosedPeriodError, LockedPeriodError, writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { resolveEntityId } from '../../lib/entity-context';
 import { PostingError } from '../../services/accounting-posting';
@@ -55,6 +56,9 @@ import { loadFiledRows } from '../../services/sales-tax-returns/rows';
 import { exportReturn } from '../../services/sales-tax-returns/export';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.taxReturns, { label: 'Tax return' });
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 

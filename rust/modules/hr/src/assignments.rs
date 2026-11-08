@@ -23,6 +23,7 @@ use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, change, id, iso_date, number, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_round,
@@ -41,6 +42,11 @@ where
         .route("/assignments", post(create).route_layer(update()))
         .route("/assignments/{id}", patch(edit).route_layer(update()))
         .route("/assignments/{id}", delete(remove).route_layer(update()))
+        .route_layer(guard(
+            "/assignments",
+            "Assignment",
+            via_employee!("hr_client_assignments"),
+        ))
         .route("/clients", get(clients).route_layer(read()))
         .route("/clients/{company_id}", get(client).route_layer(read()))
 }
@@ -136,12 +142,13 @@ async fn assert_no_overlapping_assignment(
     Ok(())
 }
 
-/// `listAssignments(db, filters)`.
+/// `listAssignments(db, filters)`; `scope` is the request's entity scope.
 pub(crate) async fn list_assignments(
     db: &PgPool,
     employee_id: Option<&str>,
     company_id: Option<&str>,
     active_only: bool,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let today = today_iso();
     let rows: Vec<(Value, Value)> = sqlx::query_as(
@@ -154,12 +161,16 @@ pub(crate) async fn list_assignments(
            and ($1::text is null or a.employee_id = $1)
            and ($2::text is null or a.company_id = $2)
            and (not $3 or (a.start_date <= $4::date and (a.end_date is null or a.end_date >= $4::date)))
+           and ($5::text[] is null or e.legal_entity_id = any($5)
+                or ($6::boolean and e.legal_entity_id is null))
          order by a.start_date desc, e.last_name asc",
     )
     .bind(employee_id)
     .bind(company_id)
     .bind(active_only)
     .bind(&today)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let company_ids: Vec<String> = rows
@@ -209,6 +220,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         query_text(&q, "employeeId").as_deref(),
         query_text(&q, "companyId").as_deref(),
         query_param(&q, "active").as_deref() == Some("true"),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -308,6 +320,7 @@ async fn create(
         assignment_input(issues, fields, false)
     })?;
     let employee_id = input.employee_id.as_set().cloned().unwrap_or_default();
+    caller.assert_employee_visible(Some(&employee_id)).await?;
     let company_id = input.company_id.as_set().cloned().unwrap_or_default();
     let start_date = input.start_date.as_set().cloned().unwrap_or_default();
     let end_date = input.end_date.as_set().cloned();
@@ -455,9 +468,12 @@ pub(crate) async fn end_assignments_for(
     Ok(())
 }
 
-/// `listClientAccounts(db)`: client accounts with (or that had) anyone
-/// assigned, with live headcount, by name.
-pub(crate) async fn list_client_accounts(db: &PgPool) -> Result<Vec<Value>, HrError> {
+/// `listClientAccounts(db, entity)`: client accounts with (or that had)
+/// anyone assigned, with live headcount, by name.
+pub(crate) async fn list_client_accounts(
+    db: &PgPool,
+    scope: &Scope,
+) -> Result<Vec<Value>, HrError> {
     let today = today_iso();
     let rows: Vec<(String, i64, i64, f64)> = sqlx::query_as(
         "select a.company_id,
@@ -469,9 +485,13 @@ pub(crate) async fn list_client_accounts(db: &PgPool) -> Result<Vec<Value>, HrEr
          join hr_employees e on e.id = a.employee_id
          join companies c on c.id = a.company_id
          where e.deleted_at is null and c.deleted_at is null
+           and ($2::text[] is null or e.legal_entity_id = any($2)
+                or ($3::boolean and e.legal_entity_id is null))
          group by a.company_id",
     )
     .bind(&today)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let refs: Vec<Option<&str>> = rows.iter().map(|row| Some(row.0.as_str())).collect();
@@ -497,11 +517,13 @@ pub(crate) async fn list_client_accounts(db: &PgPool) -> Result<Vec<Value>, HrEr
 }
 
 async fn clients(caller: Caller) -> HrResult {
-    Ok(Data(list_client_accounts(&caller.db).await?).into_response())
+    let scope = caller.scope().await?;
+    Ok(Data(list_client_accounts(&caller.db, &scope).await?).into_response())
 }
 
 async fn client(caller: Caller, Path(company_id): Path<String>) -> HrResult {
     let company = require_company(&caller.db, &company_id).await?;
-    let assignments = list_assignments(&caller.db, None, Some(&company_id), false).await?;
+    let scope = caller.scope().await?;
+    let assignments = list_assignments(&caller.db, None, Some(&company_id), false, &scope).await?;
     Ok(Data(json!({ "company": company, "assignments": assignments })).into_response())
 }

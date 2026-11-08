@@ -2,7 +2,9 @@
 //! bank accounts with their ledger account, US routing and account numbers
 //! (sealed, only the last four shown; the full number through
 //! `POST /:id/reveal-account-number`, logged), and the remembered import
-//! settings. Responses and events never carry the encrypted blob.
+//! settings. Responses and events never carry the encrypted blob. `DELETE`
+//! only reaches accounts that are in WeldBooks; one WeldHR pays salaries from
+//! keeps its core row and only leaves WeldBooks.
 
 use std::sync::Arc;
 
@@ -29,6 +31,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{bank_account_refusal, changes, field, text};
@@ -53,6 +56,11 @@ where
                 .route_layer(need("tax_ids:reveal"))
                 .route_layer(need("banking:read")),
         )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_accounts"), "Bank account").layer(),
+        )
         .with_state(state)
 }
 
@@ -64,11 +72,13 @@ struct Body {
     fields: Map<String, Value>,
     account_number: Field<String>,
     create_ledger_account: Option<bool>,
+    /// Create only: an existing core bank account to bring into WeldBooks.
+    bank_account_id: Option<String>,
     import_settings: Option<Value>,
 }
 
-/// `baseFields` (+ `routingNumber`, `accountNumber`, `createLedgerAccount`
-/// on create): `createBankAccountSchema`, or `updateBankAccountSchema`
+/// `baseFields` (+ `routingNumber`, `accountNumber`, `createLedgerAccount`,
+/// `bankAccountId` on create): `createBankAccountSchema`, or `updateBankAccountSchema`
 /// (`.partial()`, the numbers nullable) when `partial`.
 #[allow(clippy::too_many_lines)] // one field after another, as the schema lists them
 fn read_body(
@@ -204,6 +214,9 @@ fn read_body(
         out.create_ledger_account = issues
             .boolean(body, "createLedgerAccount", Presence::Optional)
             .into_option();
+        out.bank_account_id = issues
+            .text(body, "bankAccountId", Presence::Optional, Some(1), Some(30))
+            .into_option();
     }
     out
 }
@@ -257,6 +270,79 @@ async fn load_ledger_account(
     };
     assert_ledger_account_fits(&ledger, account_type).map_err(bank_account_refusal)?;
     Ok(ledger)
+}
+
+/// `settingsValues(account)`: the WeldBooks columns of a bank account, for
+/// `accounting_bank_account_settings` (release 1 writes them there next to
+/// the old columns on `bank_accounts`), from the account as Drizzle has it.
+struct BooksSettings {
+    bank_account_id: Option<String>,
+    entity_id: Option<String>,
+    ledger_account_id: Option<String>,
+    current_balance: String,
+    auto_reconcile: bool,
+    next_check_number: Option<i64>,
+    import_settings: Option<Value>,
+}
+
+impl BooksSettings {
+    fn of(account: &Value) -> Self {
+        let owned = |key: &str| text(account, key).map(str::to_owned);
+        Self {
+            bank_account_id: owned("id"),
+            entity_id: owned("entityId"),
+            ledger_account_id: owned("ledgerAccountId"),
+            // `account.currentBalance ?? '0'`
+            current_balance: match account.get("currentBalance") {
+                Some(Value::String(balance)) => balance.clone(),
+                Some(Value::Number(balance)) => balance.to_string(),
+                _ => "0".to_owned(),
+            },
+            auto_reconcile: account
+                .get("autoReconcile")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            next_check_number: account.get("nextCheckNumber").and_then(Value::as_i64),
+            import_settings: account
+                .get("importSettings")
+                .filter(|settings| !settings.is_null())
+                .cloned(),
+        }
+    }
+
+    /// `insert … values(settingsValues(account))`, with `upsert` the
+    /// `onConflictDoUpdate` of `upsertBankAccountSettings`.
+    async fn write<'e>(
+        &self,
+        db: impl sqlx::PgExecutor<'e>,
+        upsert: bool,
+    ) -> Result<(), sqlx::Error> {
+        const INSERT: &str = "insert into accounting_bank_account_settings \
+             (bank_account_id, entity_id, ledger_account_id, current_balance, auto_reconcile, \
+             next_check_number, import_settings) \
+             values ($1, $2, $3, $4::numeric, $5, $6::integer, $7)";
+        const UPSERT: &str = "insert into accounting_bank_account_settings \
+             (bank_account_id, entity_id, ledger_account_id, current_balance, auto_reconcile, \
+             next_check_number, import_settings) \
+             values ($1, $2, $3, $4::numeric, $5, $6::integer, $7) \
+             on conflict (bank_account_id) do update set entity_id = excluded.entity_id, \
+             ledger_account_id = excluded.ledger_account_id, \
+             current_balance = excluded.current_balance, \
+             auto_reconcile = excluded.auto_reconcile, \
+             next_check_number = excluded.next_check_number, \
+             import_settings = excluded.import_settings, updated_at = $8::timestamp";
+        let query = sqlx::query(if upsert { UPSERT } else { INSERT })
+            .bind(&self.bank_account_id)
+            .bind(&self.entity_id)
+            .bind(&self.ledger_account_id)
+            .bind(&self.current_balance)
+            .bind(self.auto_reconcile)
+            .bind(self.next_check_number)
+            .bind(&self.import_settings);
+        let query = if upsert { query.bind(now()) } else { query };
+        query.execute(db).await?;
+        Ok(())
+    }
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -331,6 +417,9 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
     };
     if let Some(message) = bad_numbers(&data) {
         return Err(Refusal::bad_request(message));
+    }
+    if let Some(core) = data.bank_account_id.as_deref() {
+        return bring_into_weldbooks(caller, state, &entity_id, &data, core).await;
     }
     let fields = Value::Object(data.fields.clone());
     let currency = match text(&fields, "currency") {
@@ -413,6 +502,10 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
     BANK_ACCOUNTS
         .insert_raw(&mut *tx, BANK_ACCOUNTS.values(&account))
         .await?;
+    // WeldBooks' side of the account (release 1 writes it next to the old columns).
+    BooksSettings::of(&Value::Object(account.clone()))
+        .write(&mut *tx, false)
+        .await?;
     tx.commit().await?;
 
     if let Some(row) = &new_ledger {
@@ -442,6 +535,163 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
                 ),
                 ("ledgerAccountId", Value::Null, json!(ledger_account_id)),
             ])),
+        },
+    )
+    .await;
+    let mut out = payload.as_object().cloned().unwrap_or_default();
+    if let Some(info) = ledger_info {
+        out.insert("ledgerAccount".to_owned(), info);
+    }
+    Ok(created(Value::Object(out)))
+}
+
+/// `bringIntoWeldbooks(c, db, entityId, data)`: POST with `bankAccountId`
+/// makes an existing core bank account of the entity a WeldBooks bank
+/// account. It takes the ledger account given, else (for an account with a
+/// type) plans one as a new account would; only the WeldBooks columns change
+/// on the core row, and its settings row is added.
+#[allow(clippy::too_many_lines)] // mirrors the TypeScript route step by step
+async fn bring_into_weldbooks(
+    caller: &Caller,
+    state: &BooksState,
+    entity_id: &str,
+    data: &Body,
+    bank_account_id: &str,
+) -> Reply {
+    let core: Option<Value> = sqlx::query_scalar(concat!(
+        "select ",
+        weldsuite_books_domain::books_row!(bank_accounts),
+        " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
+    ))
+    .bind(bank_account_id)
+    .bind(entity_id)
+    .fetch_optional(&caller.db)
+    .await?;
+    let Some(core) = core.map(|row| BANK_ACCOUNTS.js(row)) else {
+        return Err(Refusal::not_found("Bank account", bank_account_id));
+    };
+    let in_books: Option<String> = sqlx::query_scalar(
+        "select bank_account_id from accounting_bank_account_settings \
+         where bank_account_id = $1 limit 1",
+    )
+    .bind(bank_account_id)
+    .fetch_optional(&caller.db)
+    .await?;
+    if in_books.is_some() {
+        return Err(Refusal::conflict(
+            "This bank account is already in WeldBooks",
+        ));
+    }
+
+    let fields = Value::Object(data.fields.clone());
+    let given_type = text(&fields, "accountType").filter(|t| !t.is_empty());
+    // `data.accountType ?? core.accountType`
+    let account_type = given_type.or_else(|| text(&core, "accountType"));
+    // `data.ledgerAccountId ?? null`: an empty id counts as none.
+    let mut ledger_account_id = text(&fields, "ledgerAccountId")
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
+    let mut new_ledger: Option<Map<String, Value>> = None;
+    let mut ledger_info: Option<Value> = None;
+    if let Some(id) = &ledger_account_id {
+        load_ledger_account(caller, entity_id, id, account_type).await?;
+    } else if let Some(kind) = account_type.filter(|t| !t.is_empty())
+        && data.create_ledger_account != Some(false)
+    {
+        let base = resolve_entity_base_currency(&caller.db, entity_id).await?;
+        let name = text(&core, "name").unwrap_or_default();
+        match plan_bank_ledger_account(&caller.db, entity_id, name, kind, &base).await? {
+            BankLedgerPlan::Existing(account) => {
+                ledger_account_id = text(&account, "id").map(str::to_owned);
+                ledger_info = Some(json!({
+                    "id": field(&account, "id"),
+                    "code": field(&account, "code"),
+                    "name": field(&account, "name"),
+                    "created": false,
+                }));
+            }
+            BankLedgerPlan::New(row) => {
+                ledger_account_id = row.get("id").and_then(Value::as_str).map(str::to_owned);
+                ledger_info = Some(json!({
+                    "id": row.get("id"),
+                    "code": row.get("code"),
+                    "name": row.get("name"),
+                    "created": true,
+                }));
+                new_ledger = Some(row);
+            }
+        }
+    }
+    let Some(ledger_account_id) = ledger_account_id.filter(|id| !id.is_empty()) else {
+        return Err(Refusal::bad_request(
+            "Choose a ledger account for the bank account",
+        ));
+    };
+
+    // `{ ledgerAccountId, accountType?, autoReconcile?, nextCheckNumber?, importSettings? }`
+    let mut patch = Map::new();
+    patch.insert("ledgerAccountId".to_owned(), json!(ledger_account_id));
+    if let Some(kind) = given_type {
+        patch.insert("accountType".to_owned(), json!(kind));
+    }
+    for key in ["autoReconcile", "nextCheckNumber"] {
+        if let Some(value) = data.fields.get(key) {
+            patch.insert(key.to_owned(), value.clone());
+        }
+    }
+    if let Some(settings) = data
+        .fields
+        .get("importSettings")
+        .filter(|settings| weldsuite_books_domain::js::truthy(Some(settings)))
+    {
+        patch.insert("importSettings".to_owned(), settings.clone());
+    }
+    let mut merged = core.as_object().cloned().unwrap_or_default();
+    for (key, value) in &patch {
+        merged.insert(key.clone(), value.clone());
+    }
+    let merged = Value::Object(merged);
+
+    let mut values = BANK_ACCOUNTS.values(&patch);
+    BANK_ACCOUNTS.set(&mut values, "updatedAt", json!(now()));
+    let mut tx = caller.db.begin().await?;
+    if let Some(row) = &new_ledger {
+        insert_ledger_account(&mut *tx, row).await?;
+    }
+    BANK_ACCOUNTS
+        .patch_raw(&mut *tx, bank_account_id, values, false)
+        .await?;
+    BooksSettings::of(&merged).write(&mut *tx, false).await?;
+    tx.commit().await?;
+
+    if let Some(row) = &new_ledger {
+        caller.publish(
+            state,
+            ACCOUNT_CREATED,
+            row.get("id").and_then(Value::as_str).unwrap_or_default(),
+            Value::Object(row.clone()),
+        );
+    }
+    let payload = public_bank_account(&merged);
+    caller.publish(
+        state,
+        BANK_ACCOUNT_UPDATED,
+        bank_account_id,
+        payload.clone(),
+    );
+    write_accounting_audit(
+        caller,
+        &caller.db,
+        AuditInput {
+            accounting_entity_id: Some(entity_id),
+            entity_type: "bank_account",
+            entity_id: bank_account_id,
+            action: "updated",
+            changes: Some(changes(vec![(
+                "ledgerAccountId",
+                field(&core, "ledgerAccountId"),
+                json!(ledger_account_id),
+            )])),
         },
     )
     .await;
@@ -533,6 +783,8 @@ async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Bod
         updated.insert(key.clone(), value.clone());
     }
     let updated = Value::Object(updated);
+    // `upsertBankAccountSettings(db, { ...account, ...patch })`
+    BooksSettings::of(&updated).write(&caller.db, true).await?;
     caller.publish(
         state,
         BANK_ACCOUNT_UPDATED,
@@ -620,6 +872,9 @@ async fn reveal(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
+/// The account leaves WeldBooks, and the core account is soft-deleted unless
+/// WeldHR pays salaries from it (then only WeldBooks' part goes). A core
+/// account WeldBooks never had (an HR-only salary account) is a 404.
 async fn remove(
     caller: Caller,
     State(state): State<BooksState>,
@@ -629,17 +884,97 @@ async fn remove(
         let Some(account) = BANK_ACCOUNTS.find_live(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Bank account", &id));
         };
+        let (in_books, pays_salaries): (bool, bool) = sqlx::query_as(
+            "select exists (select 1 from accounting_bank_account_settings where bank_account_id = $1), \
+                    exists (select 1 from hr_payroll_employers \
+                            where bank_account_id = $1 and deleted_at is null)",
+        )
+        .bind(&id)
+        .fetch_one(&caller.db)
+        .await?;
+        if !in_books {
+            return Err(Refusal::not_found("Bank account", &id));
+        }
         let stamp = now();
+        if !pays_salaries {
+            sqlx::query(
+                "update bank_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+            )
+            .bind(&id)
+            .bind(&stamp)
+            .execute(&caller.db)
+            .await?;
+        }
+        // The account leaves WeldBooks; an entity that printed it on invoices
+        // falls back to bank_details.
+        sqlx::query("delete from accounting_bank_account_settings where bank_account_id = $1")
+            .bind(&id)
+            .execute(&caller.db)
+            .await?;
         sqlx::query(
-            "update bank_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+            "update accounting_entity_settings set invoice_bank_account_id = null, \
+             updated_at = $2::timestamp where invoice_bank_account_id = $1",
         )
         .bind(&id)
         .bind(&stamp)
         .execute(&caller.db)
         .await?;
-        caller.publish(&state, BANK_ACCOUNT_DELETED, &id, public_bank_account(&account));
+        // Kept for WeldHR, the core account only lost its WeldBooks part (as
+        // bringing it in is an update).
+        let event = if pays_salaries {
+            BANK_ACCOUNT_UPDATED
+        } else {
+            BANK_ACCOUNT_DELETED
+        };
+        caller.publish(&state, event, &id, public_bank_account(&account));
         Ok(no_content())
     }
     .await;
     reply(result, "Failed to delete bank account")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_books_settings_default_as_settings_values_does() {
+        let fresh = BooksSettings::of(&json!({
+            "id": "ba_1",
+            "entityId": "ent_1",
+            "ledgerAccountId": null,
+            "currentBalance": "0",
+        }));
+        assert_eq!(fresh.bank_account_id.as_deref(), Some("ba_1"));
+        assert_eq!(fresh.entity_id.as_deref(), Some("ent_1"));
+        assert_eq!(fresh.ledger_account_id, None);
+        assert_eq!(fresh.current_balance, "0");
+        assert!(fresh.auto_reconcile);
+        assert_eq!(fresh.next_check_number, None);
+        assert_eq!(fresh.import_settings, None);
+
+        let row = BooksSettings::of(&json!({
+            "id": "ba_2",
+            "entityId": "ent_1",
+            "ledgerAccountId": "acc_1",
+            "currentBalance": "12.50",
+            "autoReconcile": false,
+            "nextCheckNumber": 1001,
+            "importSettings": { "csv": { "delimiter": ";" } },
+        }));
+        assert_eq!(row.ledger_account_id.as_deref(), Some("acc_1"));
+        assert_eq!(row.current_balance, "12.50");
+        assert!(!row.auto_reconcile);
+        assert_eq!(row.next_check_number, Some(1001));
+        assert_eq!(
+            row.import_settings,
+            Some(json!({ "csv": { "delimiter": ";" } }))
+        );
+
+        // No balance at all reads as '0'.
+        assert_eq!(
+            BooksSettings::of(&json!({ "id": "ba_3" })).current_balance,
+            "0"
+        );
+    }
 }

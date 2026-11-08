@@ -151,6 +151,8 @@ describe('connector ingest · Moneybird accounting', () => {
       jurisdictionCode: 'NL',
       baseCurrency: 'EUR',
     });
+    // WeldBooks is enabled for an entity by its extension row; the default fallback needs it.
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_1' });
     const [existingSettings] = await db.select({ id: schema.settings.id }).from(schema.settings).limit(1);
     if (existingSettings) {
       await db

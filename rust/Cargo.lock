@@ -3973,6 +3973,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http 0.7.1",
  "tracing",
@@ -4026,6 +4027,7 @@ dependencies = [
  "weldsuite-meet",
  "weldsuite-merge",
  "weldsuite-migrations",
+ "weldsuite-mta",
  "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -4193,6 +4195,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4214,6 +4217,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4222,6 +4226,7 @@ dependencies = [
 name = "weldsuite-books-domain"
 version = "0.0.0"
 dependencies = [
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
@@ -4242,12 +4247,14 @@ dependencies = [
  "tokio",
  "tracing",
  "unicode-normalization",
+ "url",
  "uuid",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
@@ -4271,6 +4278,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4295,6 +4303,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4316,6 +4325,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4339,6 +4349,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4365,6 +4376,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4756,6 +4768,7 @@ dependencies = [
  "axum",
  "http",
  "regex",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
@@ -4766,6 +4779,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4870,8 +4884,10 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "getrandom 0.4.3",
+ "hex",
  "http",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "time",
  "tokio",
@@ -5115,6 +5131,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-notifications",
  "weldsuite-payroll-domain",
  "weldsuite-permissions",
@@ -5200,6 +5217,28 @@ dependencies = [
  "tracing",
  "weldsuite-db",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-legal-entities"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "http-body-util",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-permissions",
 ]
 
 [[package]]
@@ -5388,6 +5427,30 @@ dependencies = [
  "sqlx",
  "tokio",
  "weldsuite-db",
+]
+
+[[package]]
+name = "weldsuite-mta"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "flate2",
+ "futures-util",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

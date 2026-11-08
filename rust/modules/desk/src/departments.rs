@@ -21,6 +21,32 @@ use crate::library::DEPARTMENTS_CRUD;
 use crate::tables::HELPDESK_DEPARTMENTS;
 use crate::{Caller, DeskState, Refusal};
 
+/// `recheckEscalations(c, departmentId)`: a team's escalation rules or active
+/// flag changed, so its open conversations are looked at by the next SLA
+/// sweep, which re-derives when each rule can fire.
+pub(crate) async fn recheck_escalations(
+    state: &DeskState,
+    caller: &Caller,
+    department_id: &str,
+) -> Result<(), sqlx::Error> {
+    let touched: Vec<String> = sqlx::query_scalar(
+        "update desk_conversations set escalation_check_at = $2::timestamp
+         where department_id = $1 and state = 'open' returning id",
+    )
+    .bind(department_id)
+    .bind(weldsuite_desk_domain::webchat::now())
+    .fetch_all(&caller.db)
+    .await?;
+    if !touched.is_empty() {
+        crate::mark_sla_due(
+            state,
+            caller,
+            Some(weldsuite_desk_domain::realtime::now_ms()),
+        );
+    }
+    Ok(())
+}
+
 /// `$1` live-only skip, `($2, $3)` search, `($4, $5)` isActive, the cursor
 /// `($6, $7 sortOrder, $8 createdAt, $9 id)`, `$10` the limit.
 const LIST: &str = "select to_jsonb(t) from helpdesk_departments t

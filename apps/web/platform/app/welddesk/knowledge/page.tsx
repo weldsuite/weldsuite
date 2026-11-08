@@ -25,10 +25,12 @@ export default function KnowledgePage() {
   const search = searchParams.get('search') || undefined;
   const status = searchParams.get('status') || undefined;
 
+  // One row per article: language versions open from the article's editor.
   const { data, isLoading } = useArticles({
     limit: 100,
     search,
     status,
+    originals: '1',
   });
 
   // Map response to expected format

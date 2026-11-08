@@ -18,6 +18,9 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Loader2 } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
+import { LegalEntityPicker } from '@/components/legal-entity/legal-entity-picker';
+import { useLegalEntities } from '@/hooks/queries/use-legal-entities-queries';
 import { AddressFields } from '@/components/address/address-fields';
 import { cleanPostalAddress, type PostalAddress } from '@/components/address/postal-address';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -66,6 +69,31 @@ const FALLBACK_JURISDICTIONS = [
   { code: 'BR', name: 'Brazil' },
 ];
 
+/**
+ * "Use an existing legal entity": the entity's name, address, tax numbers and bank
+ * accounts already live in Settings → Legal entities, so only the entity is picked.
+ * Entities that already have WeldBooks are left out. Rendered only in this mode,
+ * so the legal-entities query runs only then.
+ */
+function ExistingEntityPicker({ value, onChange }: Readonly<{ value: string; onChange: (id: string) => void }>) {
+  const { t } = useI18n();
+  const tl = t.accounting.legalEntities;
+  const { data: withBooks = [] } = useLegalEntities({ app: 'weldbooks' });
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="existing-legal-entity">{tl.label}</Label>
+      <LegalEntityPicker
+        id="existing-legal-entity"
+        value={value}
+        onChange={onChange}
+        excludeIds={withBooks.map((e) => e.id)}
+        emptyLabel={tl.noExisting}
+      />
+      <p className="text-xs text-muted-foreground">{tl.useExistingHint}</p>
+    </div>
+  );
+}
+
 interface CreateEntityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +116,9 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const queryClient = useQueryClient();
   const { setEntityId } = useCurrentAccountingEntity();
 
+  const tl = tr.accounting.legalEntities;
+  const [mode, setMode] = useState<'new' | 'existing'>('new');
+  const [existingId, setExistingId] = useState('');
   const [name, setName] = useState('');
   const [jurisdictionCode, setJurisdictionCode] = useState('NL');
   const [baseCurrency, setBaseCurrency] = useState('EUR');
@@ -109,6 +140,14 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      // An existing legal entity brings its own name, country, currency, address and tax numbers.
+      if (mode === 'existing') {
+        return weldbooksApi.post<{ data: { id: string } } | { id: string }>('/accounting-entities', {
+          legalEntityId: existingId,
+          isDefault: true,
+          seedDefaults: true,
+        });
+      }
       return weldbooksApi.post<{ data: { id: string } } | { id: string }>('/accounting-entities', {
         name,
         jurisdictionCode,
@@ -126,6 +165,9 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
       const created = 'data' in res ? res.data : res;
       if (created?.id) setEntityId(created.id);
       queryClient.invalidateQueries({ queryKey: ['accounting'] });
+      queryClient.invalidateQueries({ queryKey: ['legal-entities'] });
+      setExistingId('');
+      setMode('new');
       setName('');
       setVatNumber('');
       setAddress({ country: ADDRESS_COUNTRY[jurisdictionCode] ?? '' });
@@ -134,11 +176,12 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   });
 
   const vatHint = JURISDICTION_HINTS[jurisdictionCode]?.vatHint ?? '';
+  const newMode = mode === 'new';
   const isIndia = jurisdictionCode === 'IN';
   // A US entity needs its legal form and tax classification, which the setup guide asks for.
-  const isUs = jurisdictionCode === 'US';
+  const isUs = newMode && jurisdictionCode === 'US';
   // A Brazilian entity needs its legal form, tax regime and state registration: the full form asks for them.
-  const isBrazil = jurisdictionCode === 'BR';
+  const isBrazil = newMode && jurisdictionCode === 'BR';
   const needsFullSetup = isUs || isBrazil;
   const startUsSetup = () => {
     onOpenChange(false);
@@ -163,7 +206,16 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {!needsFullSetup && (
+          <Tabs value={mode} onValueChange={(v) => setMode(v === 'existing' ? 'existing' : 'new')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="new">{tl.createNew}</TabsTrigger>
+              <TabsTrigger value="existing">{tl.useExisting}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {mode === 'existing' && <ExistingEntityPicker value={existingId} onChange={setExistingId} />}
+
+          {mode === 'new' && !needsFullSetup && (
           <div className="space-y-2">
             <Label htmlFor="entity-name">{t('sweep.weldbooks.createEntity.nameLabel')}</Label>
             <Input
@@ -176,6 +228,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           </div>
           )}
 
+          {newMode && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.jurisdictionLabel')}</Label>
@@ -202,7 +255,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 </SelectContent>
               </Select>
             </div>
-            {!needsFullSetup && (
+            {newMode && !needsFullSetup && (
             <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.currencyLabel')}</Label>
               <Select value={baseCurrency} onValueChange={setBaseCurrency}>
@@ -214,6 +267,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
             </div>
             )}
           </div>
+          )}
 
           {isUs && (
             <div className="rounded-md border border-border bg-muted/40 p-3 text-sm" data-testid="us-setup-notice">
@@ -229,7 +283,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
             </div>
           )}
 
-          {!needsFullSetup && (
+          {newMode && !needsFullSetup && (
           <div className="space-y-2">
             <Label htmlFor="entity-vat">
               {isIndia
@@ -251,7 +305,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           </div>
           )}
 
-          {!needsFullSetup && (
+          {newMode && !needsFullSetup && (
             <div className="space-y-3 rounded-md border border-border p-3" data-testid="entity-address">
               <div>
                 <p className="text-sm font-medium">{tin.title}</p>
@@ -273,10 +327,13 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={createMutation.isPending}>
             {t('sweep.weldbooks.cancel')}
           </Button>
-          {needsFullSetup ? (
+          {newMode && needsFullSetup ? (
             <Button onClick={startUsSetup}>{isUs ? tus.usButton : tbr.setupButton}</Button>
           ) : (
-            <Button onClick={() => createMutation.mutate()} disabled={!name || !isUsableAddress(address) || createMutation.isPending}>
+            <Button onClick={() => createMutation.mutate()} disabled={
+                createMutation.isPending ||
+                (newMode ? !name || !isUsableAddress(address) : !existingId)
+              }>
               {createMutation.isPending ? (
                 <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t('sweep.weldbooks.createEntity.creating')}</>
               ) : (

@@ -31,6 +31,8 @@ async function call(path: string, opts: { method?: string; body?: unknown; perms
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   await db.insert(schema.entities).values({ id: ENTITY, name: 'Accounts BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: ENTITY });
   await db.insert(schema.accounts).values([
     { id: 'acc_bank', entityId: ENTITY, code: '1100', name: 'Bank', type: 'asset', normalSide: 'debit', currentBalance: '50.00' },
     { id: 'acc_sales', entityId: ENTITY, code: '8000', name: 'Sales', type: 'revenue', normalSide: 'credit', currentBalance: '-50.00' },

@@ -83,23 +83,6 @@ export const hrPayrollEmployerUsSettingsSchema = z.object({
   employeeCountEstimate: z.number().int().min(0).max(1_000_000).nullable().optional(),
 });
 
-export const createHrPayrollEmployerSchema = z.object({
-  name: shortText(160).min(1),
-  legalName: shortText(255).min(1),
-  country: hrPayrollCountrySchema,
-  /** Defaults to EUR (NL) / USD (US). */
-  currency: z.string().length(3).optional(),
-  accountingEntityId: id.nullable().optional(),
-  address: hrPayrollAddressSchema.optional(),
-  nlSettings: hrPayrollEmployerNlSettingsSchema.optional(),
-  usSettings: hrPayrollEmployerUsSettingsSchema.optional(),
-  requireSeparateApprover: z.boolean().optional(),
-});
-export const updateHrPayrollEmployerSchema = createHrPayrollEmployerSchema
-  .omit({ country: true, currency: true })
-  .partial()
-  .extend({ isActive: z.boolean().optional() });
-
 /** The account salaries are paid from. Write-only; reads come back masked. */
 export const hrPayrollEmployerBankSchema = z.object({
   accountHolder: shortText(140).nullable().optional(),
@@ -111,6 +94,41 @@ export const hrPayrollEmployerBankSchema = z.object({
   nachaCompanyId: z.string().trim().max(10).nullable().optional(),
   bankName: shortText(23).nullable().optional(),
 });
+
+/**
+ * A payroll employer is a payroll registration of a legal entity
+ * (docs/plans/legal-entities.md). Name, legal name, country, currency and
+ * address come from the entity; send them only for a workspace without legal
+ * entities (the pre-entity shape, still accepted in release 1).
+ */
+export const createHrPayrollEmployerSchema = z.object({
+  /** The employing legal entity (`entities.id`). Required when the workspace has legal entities. */
+  legalEntityId: id.nullable().optional(),
+  /** An `nl_payroll_tax` (NL) or `ein` (US) registration of that entity. */
+  registrationId: id.nullable().optional(),
+  /** Alternative to `registrationId`: the loonheffingennummer (NL) or EIN (US); a registration is created on the entity. */
+  registrationNumber: shortText(64).min(1).optional(),
+  /** A core bank account of that entity salaries are paid from. */
+  bankAccountId: id.nullable().optional(),
+  /** Alternative to `bankAccountId`: bank details; a core bank account is created on the entity. */
+  bank: hrPayrollEmployerBankSchema.optional(),
+  /** Label of this registration ("L01 DGA"); defaults to the entity name. */
+  label: shortText(160).nullable().optional(),
+  name: shortText(160).min(1).optional(),
+  legalName: shortText(255).min(1).optional(),
+  country: hrPayrollCountrySchema.optional(),
+  /** Defaults to the entity's base currency, else EUR (NL) / USD (US). */
+  currency: z.string().length(3).optional(),
+  accountingEntityId: id.nullable().optional(),
+  address: hrPayrollAddressSchema.optional(),
+  nlSettings: hrPayrollEmployerNlSettingsSchema.optional(),
+  usSettings: hrPayrollEmployerUsSettingsSchema.optional(),
+  requireSeparateApprover: z.boolean().optional(),
+});
+export const updateHrPayrollEmployerSchema = createHrPayrollEmployerSchema
+  .omit({ country: true, currency: true, registrationNumber: true, bank: true })
+  .partial()
+  .extend({ isActive: z.boolean().optional() });
 
 // ---------------------------------------------------------------------------
 // Pay schedules

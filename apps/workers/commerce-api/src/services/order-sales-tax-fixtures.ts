@@ -40,6 +40,8 @@ export async function seedTaxWorkspace(db: Database): Promise<void> {
       ...base,
     },
   ]);
+  // WeldBooks is enabled for an entity by its extension row.
+  await db.insert(schema.accountingEntitySettings).values(Object.values(ENTITIES).map((entityId) => ({ entityId })));
   await db.insert(schema.settings).values({ id: 'set_tax', defaultEntityId: ENTITIES.us });
 
   const entityId = ENTITIES.us;

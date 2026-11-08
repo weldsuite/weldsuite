@@ -35,6 +35,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, js_number};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use filings::LinePatch;
@@ -174,6 +175,13 @@ where
         .route(
             "/filings/{id}/lines/{line_id}/delivered",
             post(delivered).route_layer(need("taxes:update")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("form_1099_filings"), "1099 filing")
+                .prefix("/filings")
+                .layer(),
         )
         .with_state(state)
 }

@@ -46,6 +46,9 @@ export const entityEventTriggerConfigSchema = z.object({
     'tagged',
     'priority_changed',
     'sla_breached',
+    // The WeldDesk inbox (desk_conversation): open/closed, and an SLA close to its due time.
+    'state_changed',
+    'sla_warning',
   ]),
   filters: z.array(filterSchema).optional(),
   channels: z.array(z.string()).optional(),

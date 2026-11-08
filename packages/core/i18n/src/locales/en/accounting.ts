@@ -3359,6 +3359,29 @@ export const accounting = {
       weldbooksSwitched: 'WeldBooks now works in {name}, so these settings and the pages they open apply to this entity.',
     },
 
+    // Legal entities as WeldBooks and WeldHR use them (switcher, picker, read-only notices)
+    legalEntities: {
+      label: 'Legal entity',
+      placeholder: 'Select entity',
+      addEntity: 'Add legal entity…',
+      default: 'default',
+      restricted: 'Restricted access',
+      yourRole: 'Your role: {role}',
+      pickerPlaceholder: 'Select a legal entity',
+      pickerEmpty: 'No legal entities yet.',
+      pickerCreate: 'Create one in Settings → Legal entities',
+      useExisting: 'Use an existing legal entity',
+      useExistingHint: 'Start from a legal entity you already have. Name, address and tax numbers come from it.',
+      createNew: 'Create a new entity',
+      noExisting: 'Every legal entity already has WeldBooks.',
+      existingRequired: 'Select a legal entity.',
+      coreFieldsTitle: 'Managed in Legal entities',
+      coreFieldsDescription:
+        'Name, address, country, currency, tax numbers and bank details of this entity are managed in Settings → Legal entities. The WeldBooks settings below stay here.',
+      openLegalEntities: 'Open legal entities',
+    },
+
+
     // Lock dates + lock exceptions (entity edit page)
     numbering: {
       title: 'Numbering',

@@ -1,10 +1,12 @@
 import { getTranslations } from '@weldsuite/i18n';
+import { GLOBAL } from '@/lib/edition';
 import { partnersCopy } from '@/lib/partners-copy';
 import {
   Building2,
   Coins,
   CreditCard,
   Database,
+  Flag,
   Flame,
   Globe,
   Handshake,
@@ -19,6 +21,7 @@ import {
   Receipt,
   ShieldCheck,
   Tags,
+  UserCog,
   Users,
   Video,
   type LucideIcon,
@@ -37,6 +40,10 @@ export interface NavItem {
   title: string;
   href: string;
   icon: LucideIcon;
+  /** A page only Global has (`lib/edition.ts`): left out on Kubernetes. */
+  globalOnly?: boolean;
+  /** A page only the Kubernetes editions have: left out on Global. */
+  kubernetesOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -55,9 +62,25 @@ export interface NavArea {
   /** Extra path prefixes that also belong to this area. */
   matches?: string[];
   groups: NavGroup[];
+  /** An area only Global has (`lib/edition.ts`): left out on Kubernetes. */
+  globalOnly?: boolean;
+  /** An area only the Kubernetes editions have: left out on Global. */
+  kubernetesOnly?: boolean;
 }
 
+/** The areas, groups and items this build of the console has. */
 export function getNavAreas(): NavArea[] {
+  const shown = (entry: { globalOnly?: boolean; kubernetesOnly?: boolean }) =>
+    GLOBAL ? !entry.kubernetesOnly : !entry.globalOnly;
+  return allNavAreas()
+    .filter(shown)
+    .map((area) => ({
+      ...area,
+      groups: area.groups.map((group) => ({ ...group, items: group.items.filter(shown) })),
+    }));
+}
+
+function allNavAreas(): NavArea[] {
   const pricing = getTranslations('host').adminPricing;
   const phonePricing = getTranslations('host').adminPhonePricing;
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
@@ -79,34 +102,37 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'Jump to',
         items: [
-          { title: 'Support Inbox', href: '/support', icon: Headphones },
+          { title: 'Support Inbox', href: '/support', icon: Headphones, globalOnly: true },
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Access requests', href: '/access-requests', icon: ShieldCheck },
           { title: 'Warmup network', href: '/warmup', icon: Flame },
           { title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
-          { title: databases.databases, href: '/databases', icon: Database },
+          { title: databases.databases, href: '/databases', icon: Database, globalOnly: true },
           { title: billing.plans, href: '/plans', icon: CreditCard },
-          { title: partners.jumpTo, href: '/partners', icon: Handshake },
+          { title: partners.jumpTo, href: '/partners', icon: Handshake, globalOnly: true },
           { title: billing.activity, href: '/activity', icon: History },
-          { title: 'AI Costs', href: '/ai-costs', icon: Coins },
-          { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags },
-          { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
-          { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone },
-          { title: meetAiPricing.navJumpTo, href: '/weldmeet-ai-pricing', icon: Video },
+          { title: billing.staff, href: '/staff', icon: UserCog, kubernetesOnly: true },
+          { title: billing.flags, href: '/flags', icon: Flag, kubernetesOnly: true },
+          { title: 'AI Costs', href: '/ai-costs', icon: Coins, globalOnly: true },
+          { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags, globalOnly: true },
+          { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe, globalOnly: true },
+          { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone, globalOnly: true },
+          { title: meetAiPricing.navJumpTo, href: '/weldmeet-ai-pricing', icon: Video, globalOnly: true },
         ],
       },
     ],
   },
   {
     key: 'support',
+    globalOnly: true,
     name: 'Support',
     icon: Headphones,
     href: '/support',
     groups: [
       {
         group: 'Support',
-        items: [{ title: 'Enterprise Inbox', href: '/support', icon: Headphones }],
+        items: [{ title: 'Enterprise Inbox', href: '/support', icon: Headphones, globalOnly: true }],
       },
     ],
   },
@@ -174,14 +200,31 @@ export function getNavAreas(): NavArea[] {
     ],
   },
   {
+    key: 'staff',
+    kubernetesOnly: true,
+    name: billing.staff,
+    icon: UserCog,
+    href: '/staff',
+    groups: [{ group: billing.staffGroup, items: [{ title: billing.staffList, href: '/staff', icon: UserCog }] }],
+  },
+  {
+    key: 'flags',
+    kubernetesOnly: true,
+    name: billing.flags,
+    icon: Flag,
+    href: '/flags',
+    groups: [{ group: billing.flagsGroup, items: [{ title: billing.flagsList, href: '/flags', icon: Flag }] }],
+  },
+  {
     key: 'databases',
+    globalOnly: true,
     name: databases.databases,
     icon: Database,
     href: '/databases',
     groups: [
       {
         group: databases.databasesGroup,
-        items: [{ title: databases.databasesOverview, href: '/databases', icon: Database }],
+        items: [{ title: databases.databasesOverview, href: '/databases', icon: Database, globalOnly: true }],
       },
     ],
   },
@@ -207,6 +250,7 @@ export function getNavAreas(): NavArea[] {
   },
   {
     key: 'partners',
+    globalOnly: true,
     name: partners.area,
     icon: Handshake,
     href: '/partners',
@@ -214,69 +258,74 @@ export function getNavAreas(): NavArea[] {
       {
         group: partners.group,
         items: [
-          { title: partners.list, href: '/partners', icon: ListTree },
-          { title: partners.new, href: '/partners/new', icon: PackagePlus },
+          { title: partners.list, href: '/partners', icon: ListTree, globalOnly: true },
+          { title: partners.new, href: '/partners/new', icon: PackagePlus, globalOnly: true },
         ],
       },
     ],
   },
   {
     key: 'ai-costs',
+    globalOnly: true,
     name: 'AI Costs',
     icon: Coins,
     href: '/ai-costs',
     groups: [
       {
         group: 'Spend',
-        items: [{ title: 'Gateway Costs', href: '/ai-costs', icon: Receipt }],
+        items: [{ title: 'Gateway Costs', href: '/ai-costs', icon: Receipt, globalOnly: true }],
       },
     ],
   },
   {
     key: 'plan-pricing',
+    globalOnly: true,
     name: planPricing.navArea,
     icon: Tags,
     href: '/plan-pricing',
     groups: [
       {
         group: planPricing.navGroup,
-        items: [{ title: planPricing.navPage, href: '/plan-pricing', icon: Tags }],
+        items: [{ title: planPricing.navPage, href: '/plan-pricing', icon: Tags, globalOnly: true }],
       },
     ],
   },
   {
     key: 'domain-pricing',
+    globalOnly: true,
     name: pricing.navArea,
     icon: Globe,
     href: '/domain-pricing',
     groups: [
       {
         group: pricing.navGroup,
-        items: [{ title: pricing.navCatalog, href: '/domain-pricing', icon: Globe }],
+        items: [{ title: pricing.navCatalog, href: '/domain-pricing', icon: Globe, globalOnly: true }],
       },
     ],
   },
   {
     key: 'phone-pricing',
+    globalOnly: true,
     name: phonePricing.navArea,
     icon: Phone,
     href: '/phone-pricing',
     groups: [
       {
         group: phonePricing.navGroup,
-        items: [{ title: phonePricing.navCatalog, href: '/phone-pricing', icon: Phone }],
+        items: [{ title: phonePricing.navCatalog, href: '/phone-pricing', icon: Phone, globalOnly: true }],
       },
     ],
   },
   {
     key: 'weldmeet-ai-pricing',
+    globalOnly: true,
     name: meetAiPricing.navArea,
     icon: Video,
     href: '/weldmeet-ai-pricing',
     groups: [
       {
         group: meetAiPricing.navGroup,
-        items: [{ title: meetAiPricing.navPage, href: '/weldmeet-ai-pricing', icon: Video }],
+        items: [{ title: meetAiPricing.navPage, href: '/weldmeet-ai-pricing', icon: Video, globalOnly: true }],
       },
     ],
   },

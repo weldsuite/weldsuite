@@ -70,6 +70,26 @@
       "markedSpam": null
     },
     {
+      "name": "reply-by-subject-stranger-with-headers",
+      "raw": "RnJvbTogbWFsbG9yeUBlbHNlLnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFJlOiBQcm9qZWN0IGtpY2tvZmYNCkRhdGU6IE1vbiwgMjYgT2N0IDIwMjYgMTI6MTU6MDAgKzAwMDANCk1lc3NhZ2UtSUQ6IDxzNkBlbHNlLnRlc3Q+DQpJbi1SZXBseS1UbzogPG1hZGUtdXBAZWxzZS50ZXN0Pg0KDQpIaS4=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<s4@else.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "reply-spoofing-participant",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPXNvZnRmYWlsIHNtdHAubWFpbGZyb209YmlsbGluZ0BlbHNlLnRlc3Q7IGRraW09bm9uZTsgZG1hcmM9ZmFpbCBoZWFkZXIuZnJvbT1wYXJ0bmVyLnRlc3QNCkZyb206IEFsaWNlIDxhbGljZUBwYXJ0bmVyLnRlc3Q+DQpUbzogaW5ib3hAYWNtZS50ZXN0DQpTdWJqZWN0OiBSZTogUHJvamVjdCBraWNrb2ZmDQpEYXRlOiBNb24sIDI2IE9jdCAyMDI2IDEyOjMwOjAwICswMDAwDQpNZXNzYWdlLUlEOiA8czVAZWxzZS50ZXN0Pg0KSW4tUmVwbHktVG86IDxtYWRlLXVwQGVsc2UudGVzdD4NCg0KTmV3IGJhbmsgZGV0YWlscyBhdHRhY2hlZC4=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": true,
+        "threadId": "<s1@partner.test>"
+      },
+      "markedSpam": null
+    },
+    {
       "name": "spam",
       "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPWZhaWw7IGRraW09ZmFpbDsgZG1hcmM9ZmFpbA0KRnJvbTogIlBheVBhbCIgPHhAZ21haWwuY29tPg0KVG86IGluYm94QGFjbWUudGVzdA0KU3ViamVjdDogQ2xhaW0geW91ciBwcml6ZQ0KRGF0ZTogTW9uLCAyNiBPY3QgMjAyNiAxMzowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPHNwYW0xQGdtYWlsLmNvbT4NCkxpc3QtVW5zdWJzY3JpYmU6IDxodHRwczovL3NwYW0udGVzdC91Pg0KDQp3aW4=",
       "stored": {
@@ -382,6 +402,108 @@
       "cc": [],
       "created_at": "<ts>",
       "deleted_at": null,
+      "dkim_status": null,
+      "dmarc_status": null,
+      "from": {
+        "email": "mallory@else.test",
+        "name": ""
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": "<made-up@else.test>",
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": true,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<s6@else.test>",
+      "preview": "Hi.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T12:15:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": null,
+      "subject": "Re: Project kickoff",
+      "text_body": "Hi.\n",
+      "thread_id": "<s4@else.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "none",
+      "dmarc_status": "fail",
+      "from": {
+        "email": "alice@partner.test",
+        "name": "Alice"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": "<made-up@else.test>",
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": true,
+      "is_spam": true,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "SPAM"
+      ],
+      "message_id": "<s5@else.test>",
+      "preview": "New bank details attached.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T12:30:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "softfail",
+      "subject": "Re: Project kickoff",
+      "text_body": "New bank details attached.\n",
+      "thread_id": "<s1@partner.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
       "dkim_status": "fail",
       "dmarc_status": "fail",
       "from": {
@@ -675,6 +797,16 @@
       "contentType": "message/rfc822",
       "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
       "size": 148
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 182
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 341
     },
     {
       "contentType": "message/rfc822",

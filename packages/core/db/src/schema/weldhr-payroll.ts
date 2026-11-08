@@ -315,22 +315,41 @@ export interface HrPayrollFilingTaxPayment {
 // ---------------------------------------------------------------------------
 
 /**
- * The legal employer: the company whose payroll tax number (NL) or EIN (US)
- * the pay runs and filings are under. Optionally linked to a WeldBooks
- * accounting entity, which is where approved pay runs post their journal.
+ * A payroll registration of a legal entity (N:1: a Dutch BV can have several
+ * loonheffingennummers). The legal entity (`entities`, core) is the employer;
+ * this row holds how payroll runs under one of its registrations. Approved
+ * pay runs post their journal to the entity when WeldBooks is enabled for it.
+ *
+ * Release 1 (docs/plans/legal-entities.md): `legal_entity_id`,
+ * `registration_id` and `bank_account_id` are the new links; the copied
+ * company facts below are @deprecated, still written (mirror) and dropped in
+ * release 2.
  */
 export const hrPayrollEmployers = pgTable('hr_payroll_employers', {
   id: varchar('id', { length: 30 }).primaryKey(),
+  /** @deprecated release 2: the entity's name; use `label` for this registration. */
   name: varchar('name', { length: 160 }).notNull(),
+  /** @deprecated release 2: the entity's legal name. */
   legalName: varchar('legal_name', { length: 255 }).notNull(),
+  /** @deprecated release 2: the entity's country. */
   country: varchar('country', { length: 2 }).notNull(),
+  /** @deprecated release 2: the entity's base currency. */
   currency: varchar('currency', { length: 3 }).notNull(),
-  /** WeldBooks `entities.id`; approved runs post their journal there. */
+  /** @deprecated release 2: replaced by `legal_entity_id`. */
   accountingEntityId: varchar('accounting_entity_id', { length: 30 }),
+  /** The employing legal entity (`entities.id`). NOT NULL after release 2. */
+  legalEntityId: varchar('legal_entity_id', { length: 30 }),
+  /** The entity's `nl_payroll_tax` or `ein` registration this payroll runs under. */
+  registrationId: varchar('registration_id', { length: 30 }),
+  /** Core `bank_accounts.id` salaries are paid from. */
+  bankAccountId: varchar('bank_account_id', { length: 30 }),
+  /** Optional label for this registration (was `name`). */
+  label: varchar('label', { length: 160 }),
+  /** @deprecated release 2: the entity's address. */
   address: jsonb('address').$type<HrPayrollAddress>().notNull().default({}),
   nlSettings: jsonb('nl_settings').$type<HrPayrollEmployerNlSettings>().notNull().default({}),
   usSettings: jsonb('us_settings').$type<HrPayrollEmployerUsSettings>().notNull().default({}),
-  /** AES-GCM blob of `HrPayrollEmployerBank`. */
+  /** @deprecated release 2: AES-GCM blob of `HrPayrollEmployerBank`; replaced by `bank_account_id`. */
   bankEncrypted: text('bank_encrypted'),
   /** Four eyes: the member who calculated a run may not approve it. */
   requireSeparateApprover: boolean('require_separate_approver').notNull().default(false),
@@ -341,6 +360,7 @@ export const hrPayrollEmployers = pgTable('hr_payroll_employers', {
   deletedAt: timestamp('deleted_at'),
 }, (table) => [
   index('hr_payroll_employers_country_idx').on(table.country),
+  index('hr_payroll_employers_legal_entity_idx').on(table.legalEntityId),
 ]);
 
 export const hrPaySchedules = pgTable('hr_pay_schedules', {

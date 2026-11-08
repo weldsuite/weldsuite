@@ -83,6 +83,12 @@ export const createHrEmployeeSchema = z.object({
   departmentId: id.nullable().optional(),
   managerId: id.nullable().optional(),
   /**
+   * The legal entity (company) that employs them (`entities.id`). Defaults to
+   * the entity the request is scoped to (`X-Legal-Entity-Id`), else the
+   * workspace's default entity. Every HR record of the employee belongs to it.
+   */
+  legalEntityId: id.nullable().optional(),
+  /**
    * Clerk id of the workspace member this employee is: every employee is
    * someone in this workspace (an INTERNAL or EMPLOYEE member). Leave it out
    * for someone who has been invited but hasn't accepted yet: the server then

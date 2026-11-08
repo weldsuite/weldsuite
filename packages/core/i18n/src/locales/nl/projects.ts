@@ -1,6 +1,11 @@
 export const projects = {
     title: 'Projecten',
     description: 'Beheer projecten, taken en tijdlijnen',
+    // Een taak die vanuit een WeldDesk-ticket is gemaakt, linkt ernaar terug.
+    fromTicket: {
+      label: 'Ticket',
+      value: 'Vanuit ticket #{number}',
+    },
 
     dashboard: {
       title: 'Dashboard',
@@ -821,6 +826,12 @@ export const projects = {
         residual: 'Na mitigatie',
         residualHint: 'Waar u het risico verwacht te hebben zodra de respons loopt. Optioneel.',
         residualNotSet: 'Niet ingesteld',
+        pickDate: 'Kies een datum',
+        score: 'Score',
+        ifItHappens: 'Als het gebeurt',
+        delayDays: 'Vertraging (dagen)',
+        cost: 'Kosten',
+        milestone: 'Mijlpaal',
         threatensMilestone: 'Bedreigt mijlpaal',
         noMilestone: 'Geen',
         alsoCreateTask: 'Maak ook een mitigatietaak aan, toegewezen aan de eigenaar',

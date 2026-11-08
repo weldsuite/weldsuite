@@ -1,11 +1,13 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
-import { neon } from '@neondatabase/serverless';
-import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
+import { decryptWorkspaceDatabaseUrl } from '@weldsuite/db/lib/crypto';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
+import { openMasterDb, openTenantDb } from '@/lib/server/database';
+import { GLOBAL } from './edition';
 import { getCachedWorkspace, setCachedWorkspace } from './workspace-cache';
 
 function masterUrl(): string {
@@ -14,14 +16,69 @@ function masterUrl(): string {
   return url;
 }
 
-export function getMasterDb(): NeonHttpDatabase<typeof masterSchema> {
-  const sql = neon(masterUrl());
-  return drizzleNeonHttp({ client: sql, schema: masterSchema });
+/**
+ * The driver-neutral Drizzle types every caller uses: Neon HTTP on Global,
+ * postgres.js over TCP on Kubernetes (`lib/server/database*.ts`).
+ * No caller may use `.transaction()` or `.batch()`: Neon HTTP has neither.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
+export type MasterDatabase = PgDatabase<PgQueryResultHKT, typeof masterSchema>;
+
+export function getMasterDb(): MasterDatabase {
+  return openMasterDb(masterUrl());
 }
 
-function createNeonTenantDb(connectionUrl: string): NeonHttpDatabase<typeof schema> {
-  const sql = neon(connectionUrl);
-  return drizzleNeonHttp({ client: sql, schema });
+/**
+ * A master-database transaction, for the Kubernetes editions' own screens
+ * (the staff list, feature flags, plans): postgres.js has transactions, Neon
+ * HTTP doesn't, so Global code never calls this.
+ */
+export function inMasterTransaction<T>(work: (tx: MasterDatabase) => Promise<T>): Promise<T> {
+  if (GLOBAL) throw new Error('inMasterTransaction is for the Kubernetes build only');
+  return getMasterDb().transaction((tx) => work(tx as unknown as MasterDatabase));
+}
+
+export interface WorkspaceDatabaseRow {
+  /** `workspaces.id` of the row `databaseUrl` came from: the AAD of a v3 value. */
+  id: string;
+  neonProjectId: string | null;
+  neonBranchId: string | null;
+  neonRoleName: string | null;
+  neonDatabaseName: string | null;
+  databaseUrl: string | null;
+}
+
+/**
+ * Global: the stored URL when there is one, else Neon's API, as the console
+ * always did (`resolveDatabaseUrl`).
+ */
+function resolveOnGlobal(workspace: WorkspaceDatabaseRow): Promise<string> {
+  const { neonProjectId, neonBranchId, neonRoleName } = workspace;
+  if (!neonProjectId || !neonBranchId || !neonRoleName) {
+    throw new Error(`No database configured for workspace: ${workspace.id}`);
+  }
+  return resolveDatabaseUrl(
+    process.env.NEON_API_KEY ?? '',
+    { ...workspace, neonProjectId, neonBranchId, neonRoleName },
+    { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
+  );
+}
+
+/**
+ * Kubernetes: the URL the Rust server stored when it provisioned the
+ * workspace, sealed with the install's `DATABASE_ENCRYPTION_KEY(_V2)`. There
+ * is no Neon here, so nothing else is tried. Exported for its tests.
+ */
+export async function openStoredUrl(workspace: WorkspaceDatabaseRow): Promise<string> {
+  const stored = workspace.databaseUrl;
+  if (!stored) throw new Error(`No database configured for workspace: ${workspace.id}`);
+  if (stored.startsWith('postgres://') || stored.startsWith('postgresql://')) return stored;
+
+  const keyring = { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 };
+  if (!keyring.v1 && !keyring.v2) {
+    throw new Error('DATABASE_ENCRYPTION_KEY is not set: the tenant database URLs cannot be opened');
+  }
+  return decryptWorkspaceDatabaseUrl(stored, workspace.id, keyring);
 }
 
 async function lookupWorkspace(clerkOrgId: string): Promise<{ id: string; databaseUrl: string }> {
@@ -43,38 +100,18 @@ async function lookupWorkspace(clerkOrgId: string): Promise<{ id: string; databa
     .limit(1);
 
   if (!workspace) throw new Error(`Workspace not found: ${clerkOrgId}`);
-  if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
-    throw new Error(`No database configured for workspace: ${workspace.id}`);
-  }
 
-  const databaseUrl = await resolveDatabaseUrl(
-    process.env.NEON_API_KEY ?? '',
-    workspace as NeonConnectionInput,
-    { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
-  );
-
+  const databaseUrl = GLOBAL ? await resolveOnGlobal(workspace) : await openStoredUrl(workspace);
   const entry = { id: workspace.id, databaseUrl };
   setCachedWorkspace(clerkOrgId, entry);
   return entry;
 }
 
-type NeonConnectionInput = {
-  /** `workspaces.id` of the row `databaseUrl` came from: the AAD of a v3 value. */
-  id: string;
-  neonProjectId: string;
-  neonBranchId: string;
-  neonRoleName: string;
-  neonDatabaseName: string | null;
-  databaseUrl?: string | null;
-};
-
 export async function getTenantDbForWorkspace(
   clerkOrgId: string,
-): Promise<NeonHttpDatabase<typeof schema>> {
+): Promise<Database> {
   const workspace = await lookupWorkspace(clerkOrgId);
-  return createNeonTenantDb(workspace.databaseUrl);
+  return openTenantDb(workspace.databaseUrl);
 }
 
-export type Database = NeonHttpDatabase<typeof schema>;
-export type MasterDatabase = NeonHttpDatabase<typeof masterSchema>;
 export { schema, masterSchema };

@@ -1,6 +1,6 @@
 ---
 name: weldtask
-description: "Fix or build one WeldSuite task end-to-end from its number. Use when the user types /weldtask <number> (TASK-734, 734, #734, or a task title), or asks to fix / work on / implement a specific WeldSuite task. Resolves the task via the WeldSuite MCP, decides per task how much to interview, triages, implements through the specialist agents, runs the Definition of Done, opens a PR against develop and updates the task. Asks the user whenever it is blocked or a decision is theirs."
+description: "Fix or build one WeldSuite task end-to-end from its number. Use when the user types /weldtask <number> (TASK-734, 734, #734, or a task title), or asks to fix / work on / implement a specific WeldSuite task. Resolves the task via the WeldSuite MCP, decides per task how much to interview, triages, implements through the specialist agents, runs the Definition of Done, opens a PR against main and updates the task. Asks the user whenever it is blocked or a decision is theirs."
 argument-hint: <task-number> [--no-interview] [--interview]
 ---
 
@@ -75,8 +75,8 @@ doesn't say which page this is on or what the expected result is").
 2. Git, from the repo root:
    - Uncommitted changes in the working tree → ask: "Stash them" / "Commit them
      first" / "Stop". Never discard them.
-   - `git fetch origin develop`, then
-     `git switch -c weldtask/task-<n>-<short-slug> origin/develop`.
+   - `git fetch origin main`, then
+     `git switch -c weldtask/task-<n>-<short-slug> origin/main`.
      If the branch already exists, ask whether to reuse it.
 
 ## 4. Triage
@@ -150,7 +150,7 @@ Review the diff yourself for:
   updated in `weldsuite-documentation` (skill `weldsuite-docs`), with the docs
   PR linked from the code PR
 
-Errors that already exist on `develop` in files you didn't touch: mention them,
+Errors that already exist on `main` in files you didn't touch: mention them,
 don't fix them.
 
 Then run `graphify update .` if `graphify-out/graph.json` exists.
@@ -161,7 +161,7 @@ Then run `graphify update .` if `graphify-out/graph.json` exists.
    `fix(<module>): <summary> (TASK-<n>)` for a bug or
    `feat(<module>): <summary> (TASK-<n>)` for a feature, ending with the
    session's commit attribution lines.
-2. `git push -u origin <branch>`, then `gh pr create --base develop` with:
+2. `git push -u origin <branch>`, then `gh pr create --base main` with:
    title = the commit subject; body = the task number and title, root cause (bug) or
    what was built (feature), changes per area, how it was verified, any schema
    change / migration, follow-ups, and the session's PR attribution line.

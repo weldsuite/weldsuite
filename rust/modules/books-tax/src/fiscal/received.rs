@@ -13,6 +13,7 @@ use axum::routing::{get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
 };
@@ -34,6 +35,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::documents::normalize_cnpj;
@@ -75,6 +77,15 @@ where
         .route(
             "/{id}/ignore",
             post(ignore).route_layer(need("bills:create")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(
+                EntityTable::new("received_fiscal_documents"),
+                "Received fiscal document",
+            )
+            .layer(),
         )
         .with_state(state)
 }
@@ -447,12 +458,17 @@ async fn sync_received(
         let mut next = settings.clone();
         next.insert("receivedNfeVersion".into(), js::number_value(version));
         next.insert("receivedNfeVersionEnv".into(), json!(environment));
+        let next = Value::Object(next);
         sqlx::query("update entities set jurisdiction_settings = $1, updated_at = $2::timestamp where id = $3")
-            .bind(Value::Object(next))
+            .bind(&next)
             .bind(now())
             .bind(entity_id)
             .execute(db)
             .await?;
+        // Release 1 mirror: the WeldBooks extension holds the same values.
+        let mut mirror = Map::new();
+        mirror.insert("jurisdictionSettings".into(), next);
+        upsert_accounting_entity_settings(db, entity_id, &mirror).await?;
     }
     Ok(result)
 }

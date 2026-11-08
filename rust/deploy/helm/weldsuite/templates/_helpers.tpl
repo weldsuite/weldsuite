@@ -274,6 +274,29 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
+{{- define "weldsuite.admin.fullname" -}}
+{{- printf "%s-admin" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.admin.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: admin
+{{- end }}
+
+{{- define "weldsuite.admin.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.admin.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.admin.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Where the admin console reaches the server (its outbound-mail API): the server's Service. */ -}}
+{{- define "weldsuite.admin.serverUrl" -}}
+{{- printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port }}
+{{- end }}
+
 {{- define "weldsuite.collabRooms.fullname" -}}
 {{- printf "%s-collab-rooms" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}

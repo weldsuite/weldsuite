@@ -3786,7 +3786,29 @@
        "type": "string",
        "enum": [
         "public",
+        "logged_in",
+        "groups",
         "internal"
+       ]
+      },
+      "audienceCompanyIds": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+       },
+       "maxItems": 100
+      },
+      "locale": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$"
+        },
+        {
+         "type": "null"
+        }
        ]
       },
       "tags": {
@@ -3895,7 +3917,29 @@
        "type": "string",
        "enum": [
         "public",
+        "logged_in",
+        "groups",
         "internal"
+       ]
+      },
+      "audienceCompanyIds": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+       },
+       "maxItems": 100
+      },
+      "locale": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$"
+        },
+        {
+         "type": "null"
+        }
        ]
       },
       "tags": {

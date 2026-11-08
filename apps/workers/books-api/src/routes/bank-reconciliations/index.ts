@@ -29,6 +29,7 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -45,6 +46,9 @@ import {
 } from '../../services/accounting-bank-reconciliation-statement';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.bankReconciliations, { label: 'Bank reconciliation' });
 
 const money = z
   .union([z.number().finite(), z.string().regex(/^-?\d+(\.\d{1,2})?$/, 'Use an amount such as 1234.56')])

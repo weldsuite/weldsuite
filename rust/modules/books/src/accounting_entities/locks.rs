@@ -8,6 +8,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, created, now, now_ms, ok, reply, validate,
@@ -183,6 +184,8 @@ pub(crate) async fn lock_dates(
         let Some(updated) = updated.map(|row| ENTITIES.js(row)) else {
             return Err(Refusal::bad_request(HARD_LOCK_FORWARD_ONLY));
         };
+        // The extension holds the lock dates too (release 1 writes both).
+        upsert_accounting_entity_settings(&caller.db, &id, &patch).await?;
         write_accounting_audit(
             &caller,
             &caller.db,

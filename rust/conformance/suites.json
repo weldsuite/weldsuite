@@ -45,12 +45,16 @@
       "tests": [
         "src/routes/custom-objects/custom-objects.test.ts",
         "src/routes/custom-object-records/custom-object-records.test.ts",
-        "src/routes/custom-object-links/custom-object-links.test.ts"
+        "src/routes/custom-object-links/custom-object-links.test.ts",
+        "src/routes/custom-object-records/import.test.ts",
+        "src/routes/custom-object-templates/custom-object-templates.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/custom-objects/",
         "apps/workers/app-api/src/routes/custom-object-records/",
         "apps/workers/app-api/src/routes/custom-object-links/",
+        "apps/workers/app-api/src/routes/custom-object-templates/",
+        "apps/workers/app-api/src/services/custom-object-templates.ts",
         "apps/workers/app-api/src/middleware/custom-object.ts",
         "apps/workers/app-api/src/services/custom-object-links.ts",
         "apps/workers/app-api/src/services/custom-object-targets.ts",
@@ -227,7 +231,8 @@
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
-        "src/routes/workspace-settings/workspace-settings.integration.test.ts"
+        "src/routes/workspace-settings/workspace-settings.integration.test.ts",
+        "src/routes/workspace-settings/business-profile.integration.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/workspace-settings/",
@@ -235,6 +240,26 @@
         "packages/clients/app-api-client/src/schemas/workspace-settings.ts",
         "packages/clients/app-api-client/src/schemas/workspace-slug.ts",
         "packages/clients/app-api-client/src/schemas/vat-number.ts",
+        "rust/modules/core-team/",
+        "apps/workers/app-api/src/services/business-profile.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
+      ]
+    },
+    {
+      "name": "core: legal-entities",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/legal-entities/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/legal-entities/",
+        "packages/clients/app-api-client/src/schemas/legal-entities.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/",
+        "apps/workers/app-api/src/services/business-profile.ts",
+        "apps/workers/app-api/src/services/workspace-settings.ts",
         "rust/modules/core-team/"
       ]
     },
@@ -1183,6 +1208,8 @@
       "workspace": "apps/workers/desk-api",
       "tests": [
         "src/routes/articles/routes.test.ts",
+        "src/routes/articles/translations.test.ts",
+        "src/routes/desk-knowledge/routes.test.ts",
         "src/routes/article-folders/routes.test.ts",
         "src/routes/ticket-types/routes.test.ts",
         "src/routes/canned-responses/routes.test.ts",
@@ -1191,6 +1218,9 @@
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/articles/",
+        "apps/workers/desk-api/src/routes/desk-knowledge/",
+        "packages/core/db/src/lib/desk-articles.ts",
+        "packages/clients/app-api-client/src/schemas/desk-knowledge.ts",
         "apps/workers/desk-api/src/routes/article-folders/",
         "apps/workers/desk-api/src/routes/ticket-types/",
         "apps/workers/desk-api/src/routes/canned-responses/",
@@ -1236,17 +1266,24 @@
         "src/routes/helpcenter-settings/routes.test.ts",
         "src/routes/desk-widget/routes.test.ts",
         "src/routes/desk-assignment/integration.test.ts",
+        "src/routes/desk-routing/integration.test.ts",
         "src/routes/helpdesk-email/routes.test.ts",
-        "src/routes/helpdesk-analytics/routes.test.ts"
+        "src/routes/helpdesk-analytics/routes.test.ts",
+        "src/routes/helpdesk-analytics/reports.integration.test.ts",
+        "src/routes/helpdesk-settings/priority-matrix.integration.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/helpdesk-settings/",
         "apps/workers/desk-api/src/routes/helpcenter-settings/",
         "apps/workers/desk-api/src/routes/desk-widget/",
         "apps/workers/desk-api/src/routes/desk-assignment/",
+        "apps/workers/desk-api/src/routes/desk-routing/",
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
+        "apps/workers/desk-api/src/services/desk-reports.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
@@ -1274,18 +1311,32 @@
         "src/routes/desk-conversations/routes.test.ts",
         "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/desk-conversations/sla.integration.test.ts",
+        "src/routes/desk-conversations/reporting-times.integration.test.ts",
+        "src/routes/desk-conversations/reply-translation.integration.test.ts",
+        "src/routes/desk-conversations/priority-matrix.integration.test.ts",
+        "src/routes/desk-conversations/links.integration.test.ts",
+        "src/routes/desk-conversations/routing.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
-        "src/routes/public-helpcenter/routes.test.ts"
+        "src/routes/public-helpcenter/routes.test.ts",
+        "src/routes/public-helpcenter/audiences.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/desk-conversations/",
         "apps/workers/desk-api/src/routes/helpdesk-integrations/",
         "apps/workers/desk-api/src/routes/integrations/",
         "apps/workers/desk-api/src/routes/public-helpcenter/",
+        "packages/core/db/src/lib/desk-articles.ts",
+        "packages/core/db/src/lib/desk-portal-session.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-priority-matrix.ts",
+        "packages/core/db/src/lib/desk-links.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
@@ -1294,6 +1345,16 @@
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/desk/conversations/:id/translate",
+          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
+        },
+        {
+          "route": "POST /api/desk/conversations/:id/translate-reply",
+          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
+        }
       ]
     },
     {
@@ -1301,14 +1362,19 @@
       "module": "desk",
       "workspace": "apps/workers/desk-api",
       "tests": [
-        "src/cron/sla-sweep.due-index.test.ts"
+        "src/cron/sla-sweep.due-index.test.ts",
+        "src/cron/escalation-sweep.due-index.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/cron/",
         "apps/workers/desk-api/src/lib/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/db/src/lib/desk-escalation.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/notifications/src/helpers/helpdesk.ts",
         "packages/core/worker-kit/src/testing/conformance-cron.ts",
         "rust/modules/desk/",
@@ -1325,15 +1391,23 @@
         "src/routes/config.integration.test.ts",
         "src/routes/conversations.integration.test.ts",
         "src/routes/conversations-assignment.integration.test.ts",
+        "src/routes/conversations-routing.integration.test.ts",
         "src/routes/realtime.integration.test.ts",
         "src/routes/attachments.integration.test.ts",
         "src/routes/visitor.integration.test.ts",
-        "src/routes/conversations-sla.integration.test.ts"
+        "src/routes/conversations-sla.integration.test.ts",
+        "src/routes/knowledge.integration.test.ts",
+        "src/routes/conversations-merged.integration.test.ts"
       ],
       "paths": [
         "apps/workers/helpdesk-widget-api/src/",
+        "packages/core/db/src/lib/desk-articles.ts",
+        "packages/core/db/src/lib/desk-portal-session.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-routing.ts",
+        "packages/core/db/src/lib/desk-escalation-check.ts",
         "packages/core/db/src/lib/desk-sla.ts",
         "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/desk-portal.ts",
@@ -1505,6 +1579,7 @@
         "src/routes/tasks/integration.test.ts",
         "src/routes/tasks/audit-fixes.integration.test.ts",
         "src/routes/tasks/web-contract.integration.test.ts",
+        "src/routes/tasks/source.integration.test.ts",
         "src/routes/my-tasks/integration.test.ts"
       ],
       "paths": [
@@ -1513,6 +1588,7 @@
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "packages/clients/app-api-client/src/schemas/tasks.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
@@ -1882,7 +1958,8 @@
         "src/routes/weldhr/performance.routes.test.ts",
         "src/routes/weldhr/me.routes.test.ts",
         "src/routes/weldhr/payroll/payroll-setup.routes.test.ts",
-        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts"
+        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts",
+        "src/routes/weldhr/entities.routes.test.ts"
       ],
       "paths": [
         "apps/workers/hr-api/src/",
@@ -1891,7 +1968,9 @@
         "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
         "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
         "rust/modules/hr/",
-        "rust/crates/payroll-domain/"
+        "rust/crates/payroll-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2033,7 +2112,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
+        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2161,7 +2242,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
+        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2253,7 +2336,8 @@
         "src/routes/accounting-dimensions/dimensions.integration.test.ts",
         "src/routes/accounting-settings/settings.integration.test.ts",
         "src/routes/accounting-settings/catch-up.integration.test.ts",
-        "src/routes/payroll/internal.integration.test.ts"
+        "src/routes/payroll/internal.integration.test.ts",
+        "src/routes/accounting-entities/entity-access.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",
@@ -2270,7 +2354,20 @@
         "packages/clients/app-api-client/src/schemas/books-responses.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books.ts",
         "rust/modules/books/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/books/src/accounting-entity.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
+      ],
+      "coverage": [
+        "/api/accounting-entities",
+        "/api/accounting-settings",
+        "/api/gl-accounts",
+        "/api/journal-entries",
+        "/api/fiscal-periods",
+        "/api/tax-rates",
+        "/api/fx-rates",
+        "/api/accounting-dimensions"
       ]
     },
     {
@@ -2442,7 +2539,9 @@
         "rust/crates/ads-domain/",
         "rust/crates/connect-domain/",
         "rust/modules/connect/",
-        "packages/domains/connect/src/connectors/"
+        "packages/domains/connect/src/connectors/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2474,7 +2573,9 @@
         "packages/clients/app-api-client/src/schemas/books-sales-responses.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-sales.ts",
         "rust/modules/books-sales/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2511,7 +2612,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books-reports.ts",
         "packages/clients/app-api-client/src/schemas/books-reports-responses.ts",
         "rust/modules/books-reports/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2551,7 +2654,9 @@
         "packages/clients/core-api-client/src/schemas/bank-transactions.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-banking.ts",
         "rust/modules/books-banking/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2599,7 +2704,9 @@
         "packages/clients/app-api-client/src/schemas/books-purchases-responses.ts",
         "rust/modules/books-purchases/",
         "rust/crates/books-domain/",
-        "rust/crates/crm-domain/"
+        "rust/crates/crm-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ],
       "excludedRoutes": [
         {
@@ -2647,7 +2754,9 @@
         "packages/domains/books/src/",
         "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/",
-        "apps/workers/books-api/src/cron/"
+        "apps/workers/books-api/src/cron/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2710,6 +2819,7 @@
         "apps/workers/call-api/src/routes/desk-phone/",
         "apps/workers/call-api/src/routes/webhooks-telnyx/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/domains/desk/src/",
         "rust/crates/desk-domain/",
         "apps/workers/call-api/src/lib/",
@@ -2757,7 +2867,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books-tax.ts",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books-tax/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2867,11 +2979,14 @@
       "workspace": "apps/workers/external-api",
       "paths": [
         "apps/workers/external-api/src/",
-        "rust/modules/external-api/"
+        "rust/modules/external-api/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ],
       "tests": [
         "src/test/accounting-read-only.test.ts",
-        "src/test/accounting-routes.test.ts"
+        "src/test/accounting-routes.test.ts",
+        "src/test/legal-entities.test.ts"
       ]
     },
     {
@@ -2974,7 +3089,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2996,7 +3113,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {

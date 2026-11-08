@@ -42,11 +42,14 @@ import {
   updateRunInput,
 } from '../../../services/weldhr/payroll/runs';
 import { recordHrAudit } from '../../../services/weldhr/shared';
+import { schema } from '@weldsuite/worker-kit/db';
+import { assertEmployeeVisible, assertEmployerVisible, employerEntityCondition, guardRecord, viaEmployer } from '../entity-scope';
 import { actor, clientIp, db, emit, param } from '../helpers';
 import { payrollDeps } from './deps';
 import { generatedFileResponse } from './responses';
 
 export const runsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(runsRoutes, 'runId', 'Pay run', viaEmployer(schema.hrPayRuns, schema.hrPayRuns.id, schema.hrPayRuns.employerId));
 
 const listQuery = z.object({
   employerId: z.string().optional(),
@@ -56,11 +59,14 @@ const listQuery = z.object({
 
 const detail = async (c: Parameters<typeof actor>[0], id: string) => getRunDetail(db(c), id, { userId: actor(c) });
 
-runsRoutes.get('/', requirePermission('payroll:read'), zValidator('query', listQuery), async (c) => success(c, await listRuns(db(c), c.req.valid('query'))));
+runsRoutes.get('/', requirePermission('payroll:read'), zValidator('query', listQuery), async (c) =>
+  success(c, await listRuns(db(c), { ...c.req.valid('query'), entity: await employerEntityCondition(c) })),
+);
 
 runsRoutes.get('/:runId', requirePermission('payroll:read'), async (c) => success(c, await detail(c, param(c, 'runId'))));
 
 runsRoutes.post('/', requirePermission('payroll:prepare'), zValidator('json', createHrPayRunSchema), async (c) => {
+  await assertEmployerVisible(c, c.req.valid('json').employerId);
   const run = await createRun(db(c), c.req.valid('json'), { userId: actor(c) });
   emit(c, 'hr_pay_run', 'created', run.id, { status: run.status });
   return success(c, await detail(c, run.id), 201);
@@ -80,6 +86,7 @@ runsRoutes.post('/:runId/cancel', requirePermission('payroll:prepare'), async (c
 
 runsRoutes.post('/:runId/employees', requirePermission('payroll:prepare'), zValidator('json', setHrPayRunEmployeeSchema), async (c) => {
   const body = c.req.valid('json');
+  await assertEmployeeVisible(c, body.employeeId);
   const run = await setRunEmployee(db(c), param(c, 'runId'), body.employeeId, body.excluded);
   emit(c, 'hr_pay_run', 'updated', run.id, { status: run.status });
   return success(c, await detail(c, run.id));
@@ -96,9 +103,10 @@ runsRoutes.get('/:runId/inputs', requirePermission('payroll:read'), zValidator('
   success(c, await listRunInputs(db(c), param(c, 'runId'), c.req.valid('query'))),
 );
 
-runsRoutes.post('/:runId/inputs', requirePermission('payroll:prepare'), zValidator('json', createHrPayRunInputSchema), async (c) =>
-  success(c, await createRunInput(db(c), param(c, 'runId'), c.req.valid('json'), { userId: actor(c) }), 201),
-);
+runsRoutes.post('/:runId/inputs', requirePermission('payroll:prepare'), zValidator('json', createHrPayRunInputSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
+  return success(c, await createRunInput(db(c), param(c, 'runId'), c.req.valid('json'), { userId: actor(c) }), 201);
+});
 
 runsRoutes.patch('/:runId/inputs/:inputId', requirePermission('payroll:prepare'), zValidator('json', updateHrPayRunInputSchema), async (c) =>
   success(c, await updateRunInput(db(c), param(c, 'runId'), param(c, 'inputId'), c.req.valid('json'))),

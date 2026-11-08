@@ -82,7 +82,7 @@ export default function WeldReachSettingsPage() {
     return <div className="flex items-center justify-center py-16 text-muted-foreground">{t('common.empty.appNotInstalled')}</div>;
   }
   return (
-    <ReachAccessBoundary statusStrip={false}>
+    <ReachAccessBoundary sendingBanner={false}>
       <ReachSettingsContent />
     </ReachAccessBoundary>
   );

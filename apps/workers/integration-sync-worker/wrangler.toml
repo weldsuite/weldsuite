@@ -56,7 +56,8 @@ service = "weldsuite-app-api-dev"
 # The sweep probes store APIs from rows here and only calls app-api when the
 # remote has new data. DATABASE_ENCRYPTION_KEY / DATABASE_ENCRYPTION_KEY_V2 must
 # match app-api (wrangler secret put) so probes can decrypt the D1 credential copy.
-# Schema migrations live in ./migrations/d1 and are applied by deploy.yml via
+# Schema migrations live in ./migrations/d1 and are applied by the deploy
+# (.github/actions/deploy-d1-migrations, run by weldsuite-deploy) via
 # `wrangler d1 migrations apply`.
 [[d1_databases]]
 binding = "CONNECTOR_SYNC_INDEX"

@@ -32,6 +32,7 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_kit::cursor::{atob_url, btoa_url};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{changes, field, posting_refusal, text};
@@ -52,6 +53,11 @@ where
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route("/{id}", patch(update).route_layer(need("banking:update")))
         .route("/{id}", delete(void).route_layer(need("banking:update")))
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_deposits"), "Bank deposit").layer(),
+        )
         .with_state(state)
 }
 

@@ -24,9 +24,17 @@
 //!   and what to notify on an assignment or a customer reply.
 //! - [`attributes`] (`updateDeskConversationAttributes` of
 //!   `@weldsuite/db/lib/desk`): a conversation's ticket fields, as any author.
+//! - [`links`] (`@weldsuite/db/lib/desk-links`): parent/child links, major
+//!   incidents and merging duplicates; [`webchat::append`] follows a merge.
+//! - [`priority_matrix`] (`@weldsuite/db/lib/desk-priority-matrix`): ITIL
+//!   impact × urgency → priority, which [`attributes`] applies.
 //! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
 //!   outside it (workflows, the public API): `ingestDeskApi`, assignment,
 //!   notifications and the inbox events.
+//! - [`routing`] (`@weldsuite/db/lib/desk-routing`): the workspace's routing
+//!   rules, applied when a conversation opens or its type or tags change.
+//! - [`escalation`] (`@weldsuite/db/lib/desk-escalation*`): a team's
+//!   escalation rules, when they come due and what firing one does.
 //! - [`sla`] (`@weldsuite/db/lib/desk-sla`): the SLA engine. Clocks per
 //!   conversation, derived from the timeline and the matching policy on
 //!   [`sla_calendar`]'s business time (`desk-sla-calendar`); every write
@@ -36,19 +44,28 @@
 //!   service binding), its in-process implementation, the step handlers and
 //!   the `ConversationWorkflow` as the `desk.conversation-workflow` job.
 //!
+//! - [`articles`] (`@weldsuite/db/lib/desk-articles`): who may read a
+//!   help-center article or announcement, article search, language versions
+//!   and help-center links.
+//!
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+pub mod articles;
 pub mod assignment;
 pub mod assignment_router;
 pub mod attributes;
 pub mod email;
+pub mod escalation;
 pub mod http;
 pub mod inbox;
+pub mod links;
 pub mod list;
 pub mod notify;
 pub mod phone;
+pub mod priority_matrix;
 pub mod realtime;
+pub mod routing;
 pub mod sla;
 pub mod sla_calendar;
 pub mod table;

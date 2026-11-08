@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -213,7 +213,6 @@ function StatusDialog({
   appName: string;
   onClose: () => void;
 }>) {
-  const router = useRouter();
   const copy = ACTION_COPY[action];
   return (
     <ActionDialog
@@ -222,11 +221,7 @@ function StatusDialog({
       submitLabel={copy.submit}
       destructive={copy.destructive}
       onClose={onClose}
-      onSubmit={async (reason) => {
-        const result = await copy.run(workspaceId, appCode, reason);
-        if (result.ok) router.refresh();
-        return result;
-      }}
+      onSubmit={(reason) => copy.run(workspaceId, appCode, reason)}
       successMessage={copy.success}
     />
   );

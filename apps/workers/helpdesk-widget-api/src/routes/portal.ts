@@ -362,7 +362,7 @@ function announceVisitorMessage(
     visitorDisplayName(db, visitor.id, visitor).then((visitorName) =>
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, opts.isNew ? 'created' : 'updated'),
-        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+        autoAssignConversation(c.env, db, orgId, conversation, opts.isNew).then((current) =>
           opts.teamAlreadyWaiting
             ? undefined
             : notifyTeamOfVisitorMessage({

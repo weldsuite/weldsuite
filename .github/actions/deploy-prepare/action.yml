@@ -1,0 +1,138 @@
+name: Deploy prepare
+description: >-
+  Works out what a deploy ships: path-filter change detection (filters.yml),
+  the module API workers and Vercel apps that changed, and the deploy plan
+  (.github/scripts/deploy-plan.mjs). Used by the deploy workflow of the
+  private repo weldsuite-deploy, which checks this repo out at the commit it
+  deploys (ADR OPS-018, docs/plans/main-only-private-deploys.md). Expects this repo checked out at
+  the workspace root with full history (fetch-depth: 0).
+
+inputs:
+  environment:
+    description: test or production.
+    required: true
+  sha:
+    description: The commit being deployed (checked out at the workspace root).
+    required: true
+  base:
+    description: >-
+      Diff base: the commit the last successful deploy of this environment
+      shipped (.github/scripts/deploy-diff-base.mjs). Empty when there is none.
+    required: false
+    default: ''
+  ref:
+    description: >-
+      Head ref for the path filter. Leave empty on a push (the filter takes
+      the pushed ref); pass the sha when the run's own ref is not the deployed
+      commit, as in the private deploy repo.
+    required: false
+    default: ''
+  full:
+    description: '"true" deploys everything regardless of changes (manual dispatch).'
+    required: false
+    default: 'false'
+  admin-worker-envs:
+    description: The ADMIN_WORKER_ENVS variable (environments whose admin console is a Worker).
+    required: false
+    default: ''
+  summary:
+    description: '"true" writes the plan to the job summary.'
+    required: false
+    default: 'false'
+
+outputs:
+  run_migrations:
+    description: '"true" when the database migrations run.'
+    value: ${{ steps.plan.outputs.migrations }}
+  run_d1_connector_migrations:
+    description: '"true" when the connector sync index D1 migrations changed.'
+    value: ${{ steps.plan.outputs.d1_connector_migrations }}
+  run_d1_schedule_migrations:
+    description: '"true" when the schedule index D1 migrations changed.'
+    value: ${{ steps.plan.outputs.d1_schedule_migrations }}
+  run_hosted_apps:
+    description: '"true" when the first-party hosted apps (deploy-hosted-apps) may have changed.'
+    value: ${{ steps.plan.outputs.hosted_apps }}
+  run_d1_migrations:
+    description: '"true" when the D1 migrations job runs.'
+    value: ${{ steps.plan.outputs.run_d1_migrations }}
+  d1_connector:
+    description: '"true" when the connector sync index migrations apply.'
+    value: ${{ steps.plan.outputs.d1_connector }}
+  d1_schedule:
+    description: '"true" when the schedule index migrations apply.'
+    value: ${{ steps.plan.outputs.d1_schedule }}
+  workers:
+    description: JSON array of core workers to deploy.
+    value: ${{ steps.plan.outputs.workers }}
+  module_workers:
+    description: JSON array of module API workers to deploy.
+    value: ${{ steps.modules.outputs.module_workers }}
+  vercel_apps:
+    description: JSON array of { app, project } Vercel apps to deploy.
+    value: ${{ steps.vercel.outputs.vercel_apps }}
+  mobile_apps:
+    description: JSON array of { app, name } Expo apps to release.
+    value: ${{ steps.plan.outputs.mobile_apps }}
+  pages_apps:
+    description: JSON array of { app, name } Pages apps to deploy.
+    value: ${{ steps.plan.outputs.pages_apps }}
+  start_apps:
+    description: JSON array of { app, name } TanStack Start Workers to deploy.
+    value: ${{ steps.plan.outputs.start_apps }}
+
+runs:
+  using: composite
+  steps:
+    # Path filters only apply when not forcing a full deploy: a manual
+    # dispatch has no push `before` SHA, and the filter would otherwise only
+    # see the tip commit (often platform-only), skipping workers, migrations
+    # and mobile.
+    - name: Detect DB / mobile / worker changes
+      if: inputs.full != 'true'
+      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+      id: filter
+      with:
+        base: ${{ inputs.base }}
+        ref: ${{ inputs.ref }}
+        filters: .github/actions/deploy-prepare/filters.yml
+
+    # Per-module API workers (apps/workers/<module>-api) come from the
+    # @weldsuite/api-modules manifest instead of filters.yml, so a new module
+    # worker deploys without editing anything here. They deploy in their own
+    # job BEFORE the other workers.
+    - name: Set up Node (module worker detection)
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Add module API workers
+      id: modules
+      shell: bash
+      env:
+        FORCE_ALL: ${{ inputs.full == 'true' && 'true' || steps.filter.outputs.all_workers }}
+        BEFORE: ${{ inputs.base }}
+        SHA: ${{ inputs.sha }}
+      run: node .github/scripts/module-workers.mjs
+
+    - name: Select Vercel apps
+      id: vercel
+      shell: bash
+      env:
+        FORCE_ALL: ${{ inputs.full == 'true' && 'true' || 'false' }}
+        BEFORE: ${{ inputs.base }}
+        SHA: ${{ inputs.sha }}
+      run: node .github/scripts/vercel-apps.mjs
+
+    - name: Build deploy plan
+      id: plan
+      shell: bash
+      env:
+        FULL: ${{ inputs.full }}
+        CHANGES: ${{ steps.filter.outputs.changes }}
+        MODULE_WORKERS: ${{ steps.modules.outputs.module_workers }}
+        VERCEL_APPS: ${{ steps.vercel.outputs.vercel_apps }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        ADMIN_WORKER_ENVS: ${{ inputs.admin-worker-envs }}
+        PLAN_SUMMARY: ${{ inputs.summary }}
+      run: node .github/scripts/deploy-plan.mjs

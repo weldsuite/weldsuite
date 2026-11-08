@@ -27,6 +27,7 @@ use weldsuite_books_domain::vendor_tax::{
 use weldsuite_catalogs::entity_events::{W9_REQUEST_CREATED, W9_REQUEST_UPDATED};
 use weldsuite_kit::validation::{Field, Format, Number, Presence, Text};
 use weldsuite_kit::{ApiError, generate_id};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -51,6 +52,11 @@ where
         .route(
             "/{id}/cancel",
             post(cancel).route_layer(need(&["suppliers:update", "taxes:update"])),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("w9_requests"), "W-9 request").layer(),
         )
         .with_state(state)
 }

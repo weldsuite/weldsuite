@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { AppForm, emptyAppForm, type AppFormValues } from '@/components/app-form';

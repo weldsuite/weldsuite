@@ -60,6 +60,15 @@ import {
   settleOpenShift,
   updateOpenShift,
 } from '../../services/weldhr/open-shifts';
+import { inArray, and } from 'drizzle-orm';
+import { schema } from '@weldsuite/worker-kit/db';
+import {
+  assertEmployeeVisible,
+  employeeEntityCondition,
+  guardRecord,
+  scopeByEmployee,
+  viaEmployee,
+} from './entity-scope';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
@@ -69,16 +78,27 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 // ---------------------------------------------------------------------------
 
 export const shiftsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(shiftsRoutes, 'shiftId', 'Shift', viaEmployee(schema.hrShifts, schema.hrShifts.id, schema.hrShifts.employeeId));
 
 shiftsRoutes.get('/', requirePermission('attendance:read'), async (c) => {
   const q = c.req.query();
   const from = q.from && isoDate.test(q.from) ? q.from : todayIso();
   const to = q.to && isoDate.test(q.to) ? q.to : addDays(from, 6);
   if (to < from || addDays(from, 62) < to) return error.badRequest(c, 'Pick a range of at most 62 days');
-  return success(c, await listShifts(db(c), { from, to, employeeId: q.employeeId || undefined, companyId: q.companyId || undefined }));
+  return success(
+    c,
+    await listShifts(db(c), {
+      from,
+      to,
+      employeeId: q.employeeId || undefined,
+      companyId: q.companyId || undefined,
+      entity: await employeeEntityCondition(c),
+    }),
+  );
 });
 
 shiftsRoutes.post('/', requirePermission('attendance:create'), hrJson(createHrShiftSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   return success(c, await createShift(db(c), c.req.valid('json'), actor(c)), 201);
 });
 
@@ -96,6 +116,12 @@ shiftsRoutes.delete('/:shiftId', requirePermission('attendance:delete'), async (
 // ---------------------------------------------------------------------------
 
 export const shiftRequestsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  shiftRequestsRoutes,
+  'shiftRequestId',
+  'Shift request',
+  viaEmployee(schema.hrShiftRequests, schema.hrShiftRequests.id, schema.hrShiftRequests.employeeId),
+);
 
 shiftRequestsRoutes.get('/', requirePermission('attendance:read'), async (c) => {
   const q = c.req.query();
@@ -106,6 +132,7 @@ shiftRequestsRoutes.get('/', requirePermission('attendance:read'), async (c) => 
       status: q.status || undefined,
       from: q.from && isoDate.test(q.from) ? q.from : undefined,
       to: q.to && isoDate.test(q.to) ? q.to : undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
@@ -177,10 +204,17 @@ openShiftsRoutes.post('/:openShiftId/cancel', requirePermission('attendance:dele
 // ---------------------------------------------------------------------------
 
 export const attendanceRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  attendanceRoutes,
+  'attendanceId',
+  'Attendance record',
+  viaEmployee(schema.hrAttendanceRecords, schema.hrAttendanceRecords.id, schema.hrAttendanceRecords.employeeId),
+);
 
 attendanceRoutes.get('/', requirePermission('attendance:read'), async (c) => {
   const q = c.req.query();
   const result = await listAttendance(db(c), {
+    entity: await employeeEntityCondition(c),
     employeeId: q.employeeId || undefined,
     companyId: q.companyId || undefined,
     from: q.from && isoDate.test(q.from) ? q.from : undefined,
@@ -204,11 +238,13 @@ attendanceRoutes.get('/summary', requirePermission('attendance:read'), async (c)
       to,
       employeeIds: q.employeeId ? [q.employeeId] : undefined,
       companyId: q.companyId || undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 attendanceRoutes.post('/', requirePermission('attendance:create'), hrJson(createHrAttendanceSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createAttendance(db(c), c.req.valid('json'), { createdBy: actor(c) });
   emit(c, 'hr_attendance', 'created', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, row, 201);
@@ -216,7 +252,8 @@ attendanceRoutes.post('/', requirePermission('attendance:create'), hrJson(create
 
 attendanceRoutes.post('/import', requirePermission('attendance:create'), hrJson(importHrAttendanceSchema), async (c) => {
   const { rows, dryRun } = c.req.valid('json');
-  const result = await importAttendance(db(c), rows, actor(c), { dryRun });
+  // Employees outside the request's entity scope do not match, as if they did not exist.
+  const result = await importAttendance(db(c), rows, actor(c), { dryRun, entity: await employeeEntityCondition(c) });
   return success(c, result);
 });
 
@@ -225,7 +262,17 @@ attendanceRoutes.post(
   requirePermission('attendance:approve'),
   hrJson(z.object({ ids: z.array(z.string().min(1).max(30)).min(1).max(1000) })),
   async (c) => {
-    const approved = await approveAttendance(db(c), c.req.valid('json').ids, actor(c));
+    // Only records of employees the request may touch; the rest are left alone.
+    const scope = await scopeByEmployee(c, schema.hrAttendanceRecords.employeeId);
+    const ids = scope
+      ? (
+          await db(c)
+            .select({ id: schema.hrAttendanceRecords.id })
+            .from(schema.hrAttendanceRecords)
+            .where(and(inArray(schema.hrAttendanceRecords.id, c.req.valid('json').ids), scope))
+        ).map((r) => r.id)
+      : c.req.valid('json').ids;
+    const approved = ids.length ? await approveAttendance(db(c), ids, actor(c)) : [];
     for (const row of approved) emit(c, 'hr_attendance', 'approved', row.id, { employeeId: row.employeeId });
     return success(c, { approved: approved.length });
   },
@@ -272,15 +319,23 @@ leaveTypesRoutes.delete('/:leaveTypeId', requirePermission('employees:manage'), 
 export const leaveAllowancesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 leaveAllowancesRoutes.get('/balances/:employeeId', requirePermission('leave:read'), async (c) => {
+  await assertEmployeeVisible(c, param(c, 'employeeId'));
   const year = Number(c.req.query('year')) || new Date().getUTCFullYear();
   return success(c, await leaveBalances(db(c), param(c, 'employeeId'), year));
 });
 
 leaveAllowancesRoutes.put('/', requirePermission('leave:update'), hrJson(setHrLeaveAllowanceSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   return success(c, await setAllowance(db(c), c.req.valid('json')));
 });
 
 export const leaveRequestsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  leaveRequestsRoutes,
+  'leaveRequestId',
+  'Leave request',
+  viaEmployee(schema.hrLeaveRequests, schema.hrLeaveRequests.id, schema.hrLeaveRequests.employeeId),
+);
 
 leaveRequestsRoutes.get('/', requirePermission('leave:read'), async (c) => {
   const q = c.req.query();
@@ -291,11 +346,13 @@ leaveRequestsRoutes.get('/', requirePermission('leave:read'), async (c) => {
       status: q.status || undefined,
       from: q.from && isoDate.test(q.from) ? q.from : undefined,
       to: q.to && isoDate.test(q.to) ? q.to : undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 leaveRequestsRoutes.post('/', requirePermission('leave:create'), hrJson(createHrLeaveRequestSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createLeaveRequest(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_leave_request', row.status === 'approved' ? 'approved' : 'created', row.id, {
     employeeId: row.employeeId,

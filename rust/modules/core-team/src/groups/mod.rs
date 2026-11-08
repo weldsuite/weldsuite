@@ -2,7 +2,9 @@
 
 pub(crate) mod account;
 pub(crate) mod app_catalog;
+pub(crate) mod business_profile;
 pub(crate) mod invitations;
+pub(crate) mod legal_entities;
 pub(crate) mod member_limits;
 pub(crate) mod my_role;
 pub(crate) mod notification_preferences;

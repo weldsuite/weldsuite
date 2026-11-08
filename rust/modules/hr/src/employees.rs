@@ -27,6 +27,7 @@ use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::entity_scope::{EMPLOYEE_RECORD, Scope, guard};
 use crate::fields::{Fields, field_json, id, iso_date, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number, now,
@@ -78,6 +79,8 @@ where
             put(write_sensitive_route).route_layer(sensitive()),
         )
         .route("/org-chart", get(org_chart_route).route_layer(read()))
+        // An employee of a legal entity the request may not touch is a 404 on every by-id route.
+        .route_layer(guard("/employees", "Employee", EMPLOYEE_RECORD))
         .merge(crate::departments::routes(gate))
 }
 
@@ -203,6 +206,7 @@ async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrError> 
     };
     let department_ids = unique("departmentId");
     let manager_ids = unique("managerId");
+    let entity_ids = unique("legalEntityId");
     let departments: Vec<(String, String)> = if department_ids.is_empty() {
         Vec::new()
     } else {
@@ -225,6 +229,15 @@ async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrError> 
     };
     let ids: Vec<String> = rows.iter().map(|row| text(row, "id").to_owned()).collect();
     let clients = active_clients_for(db, &ids, None).await?;
+    let entities: Vec<(String, String)> = if entity_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as("select id, name from entities where id = any($1)")
+            .bind(&entity_ids)
+            .fetch_all(db)
+            .await?
+    };
+    let entity_name: HashMap<String, String> = entities.into_iter().collect();
     let department_name: HashMap<String, String> = departments.into_iter().collect();
     let manager_name: HashMap<String, String> = managers
         .iter()
@@ -234,6 +247,10 @@ async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrError> 
         .into_iter()
         .map(|row| {
             let mut out = to_public_employee(&row);
+            let entity = row["legalEntityId"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .and_then(|id| entity_name.get(id).cloned());
             let department = row["departmentId"]
                 .as_str()
                 .filter(|id| !id.is_empty())
@@ -244,6 +261,7 @@ async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrError> 
                 .and_then(|id| manager_name.get(id).cloned());
             let client_list = clients.get(text(&row, "id")).cloned().unwrap_or_default();
             if let Some(map) = out.as_object_mut() {
+                map.insert("legalEntityName".to_owned(), json!(entity));
                 map.insert("departmentName".to_owned(), json!(department));
                 map.insert("managerName".to_owned(), json!(manager));
                 map.insert("clients".to_owned(), Value::Array(client_list));
@@ -282,10 +300,11 @@ fn escape_like_term(term: &str) -> String {
 }
 
 /// `listEmployees(db, filters)`: by last name, first name, id; the cursor
-/// is the last row's id.
+/// is the last row's id. `scope` is the request's entity scope.
 async fn list_employees(
     db: &PgPool,
     filters: &Map<String, Value>,
+    scope: &Scope,
 ) -> Result<(Vec<Value>, i64, bool, Option<String>), HrError> {
     let get = |key: &str| filters.get(key).and_then(Value::as_str).map(str::to_owned);
     #[allow(clippy::cast_possible_truncation)]
@@ -336,6 +355,8 @@ async fn list_employees(
                 where a.company_id = $5 and a.start_date <= $6::date
                   and (a.end_date is null or a.end_date >= $6::date)))
            and ($7::text is null or (t.last_name, t.first_name, t.id) > ($7, $8, $9))
+           and ($11::text[] is null or t.legal_entity_id = any($11)
+                or ($12::boolean and t.legal_entity_id is null))
          order by t.last_name asc, t.first_name asc, t.id asc
          limit $10",
     )
@@ -349,6 +370,8 @@ async fn list_employees(
     .bind(cursor_row.as_ref().map(|c| c.1.clone()))
     .bind(cursor_row.as_ref().map(|c| c.2.clone()))
     .bind(limit + 1)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let total: i64 = sqlx::query_scalar(
@@ -362,7 +385,9 @@ async fn list_employees(
            and ($4::text is null or t.manager_id = $4)
            and ($5::text is null or t.id in (select a.employee_id from hr_client_assignments a
                 where a.company_id = $5 and a.start_date <= $6::date
-                  and (a.end_date is null or a.end_date >= $6::date)))",
+                  and (a.end_date is null or a.end_date >= $6::date)))
+           and ($7::text[] is null or t.legal_entity_id = any($7)
+                or ($8::boolean and t.legal_entity_id is null))",
     )
     .bind(&search)
     .bind(&statuses)
@@ -370,6 +395,8 @@ async fn list_employees(
     .bind(&manager)
     .bind(&company)
     .bind(&today)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_one(db)
     .await?;
     let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
@@ -431,7 +458,8 @@ async fn list_route(
         out
     })?;
     link_invited_employees(&state, &caller, None, None).await?;
-    let (data, total, has_more, cursor) = list_employees(&caller.db, &filters).await?;
+    let scope = caller.scope().await?;
+    let (data, total, has_more, cursor) = list_employees(&caller.db, &filters, &scope).await?;
     Ok(List::new(
         data,
         Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor),
@@ -478,13 +506,18 @@ async fn detail_route(
 }
 
 async fn org_chart_route(caller: Caller) -> HrResult {
+    let scope = caller.scope().await?;
     let rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
              'preferredName', preferred_name, 'jobTitle', job_title, 'avatarUrl', avatar_url,
              'managerId', manager_id, 'departmentId', department_id, 'status', status)
          from hr_employees where deleted_at is null and status <> 'terminated'
+           and ($1::text[] is null or legal_entity_id = any($1)
+                or ($2::boolean and legal_entity_id is null))
          order by last_name asc, first_name asc",
     )
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(&caller.db)
     .await?;
     let rows: Vec<Value> = rows
@@ -609,7 +642,7 @@ pub(crate) async fn link_invited_employees(
 
 /// The schema fields of an employee write, in `createHrEmployeeSchema`'s
 /// order (the column each lands in).
-const WRITE_KEYS: [(&str, &str); 22] = [
+const WRITE_KEYS: [(&str, &str); 23] = [
     ("employeeNumber", "employee_number"),
     ("firstName", "first_name"),
     ("lastName", "last_name"),
@@ -621,6 +654,7 @@ const WRITE_KEYS: [(&str, &str); 22] = [
     ("jobTitle", "job_title"),
     ("departmentId", "department_id"),
     ("managerId", "manager_id"),
+    ("legalEntityId", "legal_entity_id"),
     ("userId", "user_id"),
     ("employmentType", "employment_type"),
     ("status", "status"),
@@ -959,6 +993,10 @@ fn employee_body(issues: &mut Issues, fields: &Fields, schema: Schema) -> Employ
     keep(
         "managerId",
         field_json(&id(issues, fields, "managerId", Presence::Nullish)),
+    );
+    keep(
+        "legalEntityId",
+        field_json(&id(issues, fields, "legalEntityId", Presence::Nullish)),
     );
     if schema != Schema::FromMember {
         keep(
@@ -1335,14 +1373,14 @@ async fn create_employee(
     record.insert("created_by".to_owned(), json!(caller.user_id));
     let row: Value = sqlx::query_scalar(
         "insert into hr_employees as t (id, employee_number, first_name, last_name, preferred_name, email,
-             phone, avatar_url, pronouns, job_title, department_id, manager_id, user_id, employment_type,
-             status, start_date, end_date, probation_end_date, location, timezone, weekly_hours,
-             work_location_ids, sensitive_encrypted, custom_fields, created_by)
+             phone, avatar_url, pronouns, job_title, department_id, manager_id, legal_entity_id, user_id,
+             employment_type, status, start_date, end_date, probation_end_date, location, timezone,
+             weekly_hours, work_location_ids, sensitive_encrypted, custom_fields, created_by)
          select r.id, r.employee_number, r.first_name, r.last_name, r.preferred_name, r.email,
-             r.phone, r.avatar_url, r.pronouns, r.job_title, r.department_id, r.manager_id, r.user_id,
-             r.employment_type, r.status, r.start_date, r.end_date, r.probation_end_date, r.location,
-             r.timezone, r.weekly_hours, r.work_location_ids, r.sensitive_encrypted, r.custom_fields,
-             r.created_by
+             r.phone, r.avatar_url, r.pronouns, r.job_title, r.department_id, r.manager_id,
+             r.legal_entity_id, r.user_id, r.employment_type, r.status, r.start_date, r.end_date,
+             r.probation_end_date, r.location, r.timezone, r.weekly_hours, r.work_location_ids,
+             r.sensitive_encrypted, r.custom_fields, r.created_by
          from jsonb_populate_record(null::hr_employees, $1) r
          returning to_jsonb(t)",
     )
@@ -1421,15 +1459,56 @@ async fn after_create(
     Ok(Created(to_public_employee(employee)).into_response())
 }
 
+/// The route's `legalEntityId`: the body's is replaced by
+/// `resolveNewEmployeeEntity(c, requested)` (the request's entity, else the
+/// one named, else the default).
+async fn with_new_employee_entity(caller: &Caller, body: &mut EmployeeBody) -> Result<(), HrError> {
+    let requested = body.text("legalEntityId").map(str::to_owned);
+    let resolved = caller
+        .resolve_new_employee_entity(requested.as_deref())
+        .await?;
+    body.input.retain(|(key, _)| *key != "legalEntityId");
+    body.input.push(("legalEntityId", json!(resolved)));
+    Ok(())
+}
+
+/// `assertEntityFitsPayroll(db, employeeId, legalEntityId)`: moving an
+/// employee to another legal entity is refused while their payroll profile
+/// is under an employer of a different entity.
+async fn assert_entity_fits_payroll(
+    db: &PgPool,
+    employee_id: &str,
+    legal_entity_id: &str,
+) -> Result<(), HrError> {
+    let clash: Option<String> = sqlx::query_scalar(
+        "select p.employer_id from hr_payroll_profiles p
+         join hr_payroll_employers pe on pe.id = p.employer_id
+         where p.employee_id = $1 and p.status <> 'ended'
+           and pe.legal_entity_id is not null and pe.legal_entity_id <> $2
+         limit 1",
+    )
+    .bind(employee_id)
+    .bind(legal_entity_id)
+    .fetch_optional(db)
+    .await?;
+    if clash.is_some() {
+        return Err(HrError::conflict(
+            "This employee is on the payroll of an employer of another legal entity. Move or end their payroll profile first.",
+        ));
+    }
+    Ok(())
+}
+
 async fn create_route(
     State(state): State<HrState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let body = hr_json(&headers, &body, |issues, fields| {
+    let mut body = hr_json(&headers, &body, |issues, fields| {
         employee_body(issues, fields, Schema::Create)
     })?;
+    with_new_employee_entity(&caller, &mut body).await?;
     if body.sensitive.is_some() && !caller.can(EMPLOYEES_SENSITIVE) {
         return Err(HrError::forbidden(
             "You do not have permission to set sensitive employee data",
@@ -1445,9 +1524,10 @@ async fn from_member_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let body = hr_json(&headers, &body, |issues, fields| {
+    let mut body = hr_json(&headers, &body, |issues, fields| {
         employee_body(issues, fields, Schema::FromMember)
     })?;
+    with_new_employee_entity(&caller, &mut body).await?;
     if body.sensitive.is_some() && !caller.can(EMPLOYEES_SENSITIVE) {
         return Err(HrError::forbidden(
             "You do not have permission to set sensitive employee data",
@@ -1520,6 +1600,14 @@ async fn update_route(
             "Update sensitive data through PUT /employees/:employeeId/sensitive",
         ));
     }
+    // Moving an employee needs the same standing in the target entity as creating one there.
+    let entity = body
+        .text("legalEntityId")
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
+    if let Some(entity) = &entity {
+        caller.assert_entity_usable(entity)?;
+    }
     let db = &caller.db;
     let existing = require_employee(db, &id).await?;
     let pick = |key: &str| -> Option<String> {
@@ -1555,6 +1643,11 @@ async fn update_route(
     }
     let locations = location_ids(body.get("workLocationIds"));
     crate::work_locations::assert_work_locations(db, locations.as_deref()).await?;
+    if let Some(entity) = &entity
+        && existing["legalEntityId"].as_str() != Some(entity.as_str())
+    {
+        assert_entity_fits_payroll(db, &id, entity).await?;
+    }
     let custom = body.get("customFields");
     let has_custom = prepare_custom_fields(db, custom).await?;
     let mut record = Map::new();
@@ -1576,6 +1669,7 @@ async fn update_route(
              job_title = case when $1 ? 'job_title' then r.job_title else t.job_title end,
              department_id = case when $1 ? 'department_id' then r.department_id else t.department_id end,
              manager_id = case when $1 ? 'manager_id' then r.manager_id else t.manager_id end,
+             legal_entity_id = case when $1 ? 'legal_entity_id' then r.legal_entity_id else t.legal_entity_id end,
              user_id = case when $1 ? 'user_id' then r.user_id else t.user_id end,
              employment_type = case when $1 ? 'employment_type' then r.employment_type else t.employment_type end,
              status = case when $1 ? 'status' then r.status else t.status end,

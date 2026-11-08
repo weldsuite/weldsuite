@@ -20,13 +20,13 @@ name: CI
 # Never gate this workflow with `on.pull_request.paths`: a workflow that does
 # not start leaves its required checks pending forever.
 # Gated jobs run when the area is anything but "false", so if "changes" itself
-# fails they all run. Pushes to main/develop run everything.
+# fails they all run. Pushes to main run everything.
 
 on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -200,7 +200,7 @@ jobs:
   # release build (LTO, one codegen unit, every module) takes about 40
   # minutes for amd64 and again for the arm64 cross-build.
   # On a PR it runs only when a file the image alone reads changes (the
-  # "image" area, IMAGE_PATHS in ci-changes.mjs); every push to develop and
+  # "image" area, IMAGE_PATHS in ci-changes.mjs); every push to main and
   # main builds it.
   rust-image:
     name: Rust · image and chart
@@ -238,6 +238,16 @@ jobs:
           target: sign-portal
           load: true
           tags: weldsuite-sign-portal:dev
+          cache-from: type=gha,scope=rust-image
+      # The staff admin console's Node container (ADR FE-018).
+      - name: Build the admin console's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: admin
+          load: true
+          tags: weldsuite-admin:dev
           cache-from: type=gha,scope=rust-image
       # WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md).
       - name: Build the collab-rooms image
@@ -321,7 +331,7 @@ jobs:
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
   # schemas, side effects). On a PR only the suites its changes touch; on
-  # develop and main all of them. The route coverage of the changed workers
+  # main all of them. The route coverage of the changed workers
   # runs on its own runner (rust-conformance-coverage).
   # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
   # the suites are dealt over eight runners (four took up to 36 minutes at 62
@@ -716,6 +726,13 @@ jobs:
       - uses: ./.github/actions/setup-monorepo
       - name: Build everything except platform
         run: pnpm exec turbo run build --filter=!platform --concurrency=4
+      # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
+      - name: Admin console unit tests
+        run: pnpm --filter admin test
+      # The console's Node build for Kubernetes (ADR FE-018), and its check that
+      # no Clerk, Neon driver or Cloudflare runtime module got into it.
+      - name: Admin console Node build
+        run: pnpm --filter admin build:node
 
   build:
     name: Build

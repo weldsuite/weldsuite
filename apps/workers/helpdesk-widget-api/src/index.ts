@@ -20,6 +20,7 @@ import { attachmentsRoutes } from './routes/attachments';
 import { discordWebhookRoutes } from './routes/webhook-discord';
 import { visitorRoutes } from './routes/visitor';
 import { portalRoutes } from './routes/portal';
+import { knowledgeRoutes } from './routes/knowledge';
 import { visitorAuthMiddleware } from './middleware/visitor-auth';
 import type { DeskWidgetSettings } from '@weldsuite/db/schema/desk-widget-settings';
 import type { DeskVisitor } from '@weldsuite/db/schema/desk-visitors';
@@ -118,6 +119,7 @@ app.route('/api/visitor', visitorRoutes);
 app.route('/api/conversations', conversationsRoutes);
 app.route('/api/realtime', realtimeRoutes);
 app.route('/api/attachments', attachmentsRoutes);
+app.route('/api', knowledgeRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found', path: c.req.path }, 404));
 

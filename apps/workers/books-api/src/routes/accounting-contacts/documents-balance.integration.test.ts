@@ -18,6 +18,7 @@ const CONTACT = 'acn_docs_balance';
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   await db.insert(schema.entities).values({ id: 'ent_docs', name: 'Docs BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_docs' });
   await db.insert(schema.parties).values({ id: CONTACT, kind: 'company', displayName: 'Docs Supplier', role: 'none' });
   const past = new Date('2020-01-31T00:00:00Z');
   const future = new Date('2099-01-31T00:00:00Z');

@@ -26,6 +26,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import {
   createGustoConnection,
@@ -41,6 +42,9 @@ import { accountMappingSchema } from '../../services/payroll/mapping';
 import { failPayroll } from './imports';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.payrollConnections, { label: 'Payroll connection' });
 const t = schema.payrollConnections;
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 

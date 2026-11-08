@@ -323,13 +323,10 @@ pub async fn load_sales_tax_context(
     entity_id: &str,
     opts: LoadOptions<'_>,
 ) -> Result<LoadedContext, LoadError> {
-    let entity: Option<(Option<String>, Option<Value>, Option<String>)> = sqlx::query_as(
-        "select sales_tax_engine, sales_tax_engine_config, sales_tax_credentials_encrypted \
-         from entities where id = $1 limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    // The engine columns, the WeldBooks extension's values first (`loadSalesTaxEngineSettings`).
+    let entity = crate::accounting_entity::load_sales_tax_engine_settings(db, entity_id)
+        .await?
+        .map(|settings| (settings.engine, settings.config, settings.credentials));
     let Some((engine, config, credentials)) = entity else {
         return Err(not_configured(format!("Accounting entity {entity_id} was not found")).into());
     };

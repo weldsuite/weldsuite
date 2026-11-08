@@ -36,6 +36,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::body::{br_document_fiscal, br_line_fiscal, cfop, ncm, read_currency};
@@ -80,6 +81,12 @@ where
         .route(
             "/{id}/generate",
             post(generate).route_layer(need("invoices:create")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("recurring_invoices"), "Recurring invoice")
+                .layer(),
         )
         .with_state(state)
 }

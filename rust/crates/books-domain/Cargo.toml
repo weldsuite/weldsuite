@@ -14,6 +14,7 @@ weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-legal-entities = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 weldsuite-ports = { workspace = true }
@@ -37,9 +38,11 @@ time = { workspace = true, features = ["parsing", "macros", "formatting"] }
 tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { workspace = true }
 unicode-normalization = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+aws-lc-rs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]

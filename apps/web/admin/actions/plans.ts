@@ -1,74 +1,35 @@
-'use server';
-
-import { revalidatePath } from 'next/cache';
-import { guardWrite } from '@/lib/auth';
-import { callBillingWorker } from '@/lib/billing-worker';
-import type { ActionResult } from './workspaces';
-
 /**
- * Plan catalog changes. The billing worker saves the plan and brings its
- * Stripe product and prices in line (and audits it); a Stripe failure comes
- * back as `stripeError` next to the saved plan rather than as a failure.
+ * Plan changes, as server functions: through the billing worker on Global,
+ * written directly on Kubernetes (Stripe sync is Global's). The bodies are
+ * in `./plans.server.ts`; each export here keeps that function's signature and
+ * runs it on the server.
  */
+import { createServerFn } from '@tanstack/react-start';
+import { globalOnly } from '@/lib/edition';
+import {
+  createPlan as createPlanOnServer,
+  updatePlan as updatePlanOnServer,
+  syncPlan as syncPlanOnServer,
+} from './plans.server';
 
-export interface PlanFormValues {
-  name: string;
-  description: string | null;
-  priceMonthly: string;
-  priceYearly: string;
-  currency: string;
-  pricePerUser: string | null;
-  includedUsers: number | null;
-  monthlyCredits: number;
-  creditsRolloverCap: number | null;
-  maxUsers: number | null;
-  maxProjects: number | null;
-  maxCustomDomains: number | null;
-  removeBranding: boolean;
-  hasApiAccess: boolean;
-  isActive: boolean;
-  isDefault: boolean;
-  sortOrder: number;
-  badge: string | null;
-  color: string | null;
-  features: Record<string, unknown>;
-}
+export type { PlanFormValues } from './plans.server';
 
-export interface PlanSaveResult {
-  plan: { id: string };
-  stripeError: string | null;
-}
+type Server = typeof import('./plans.server');
 
-const REQUEST_ID = /^[A-Za-z0-9_-]{8,100}$/;
+const createPlanFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['createPlan']>) => args)
+  .handler(({ data }) => createPlanOnServer(...data));
+export const createPlan = (...args: Parameters<Server['createPlan']>) =>
+  createPlanFn({ data: args });
 
-async function planWrite<T>(
-  method: 'POST' | 'PATCH',
-  path: string,
-  body: Record<string, unknown>,
-  requestId: string,
-): Promise<ActionResult<T>> {
-  const guard = await guardWrite();
-  if (!guard.ok) return { ok: false, error: guard.error };
-  if (!REQUEST_ID.test(requestId)) return { ok: false, error: 'Invalid request id.' };
+const updatePlanFn = createServerFn({ method: 'POST' })
+  .validator((args: Parameters<Server['updatePlan']>) => args)
+  .handler(({ data }) => updatePlanOnServer(...data));
+export const updatePlan = (...args: Parameters<Server['updatePlan']>) =>
+  updatePlanFn({ data: args });
 
-  const result = await callBillingWorker<T>(method, path, { identity: guard.identity, body, requestId });
-  revalidatePath('/plans', 'layout');
-  revalidatePath('/activity');
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
-}
-
-export async function createPlan(input: PlanFormValues & { slug: string; reason: string }, requestId: string) {
-  return planWrite<PlanSaveResult>('POST', '/plans', { ...input }, requestId);
-}
-
-export async function updatePlan(
-  planId: string,
-  patch: Partial<PlanFormValues> & { reason: string },
-  requestId: string,
-) {
-  return planWrite<PlanSaveResult>('PATCH', `/plans/${encodeURIComponent(planId)}`, { ...patch }, requestId);
-}
-
-export async function syncPlan(planId: string, input: { reason: string }, requestId: string) {
-  return planWrite<{ changes: string[] }>('POST', `/plans/${encodeURIComponent(planId)}/sync`, input, requestId);
-}
+const syncPlanFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
+  .validator((args: Parameters<Server['syncPlan']>) => args)
+  .handler(({ data }) => syncPlanOnServer(...data));
+export const syncPlan = (...args: Parameters<Server['syncPlan']>) =>
+  syncPlanFn({ data: args });

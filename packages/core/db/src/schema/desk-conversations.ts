@@ -6,6 +6,7 @@ import {
   integer,
   text,
   jsonb,
+  boolean,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -37,6 +38,28 @@ import type { DeskSlaMetric } from './desk-sla-clocks';
  * sla*: a summary of the conversation's SLA clocks (desk_sla_clocks) for the
  * inbox list, written only by refreshDeskSla. slaDueAt / slaMetric are the
  * running clock that comes due first; slaStatus is what the badge shows.
+ *
+ * firstResponse* / resolved* / resolutionSeconds: the reporting times, in
+ * calendar time, written by appendDeskMessage (ADR DESK-011).
+ *   - firstResponseAt: the first agent reply. firstResponseSeconds: from the
+ *     visitor's first message to that reply; null when the team spoke first
+ *     (a conversation the team started has no first response time).
+ *   - resolvedAt: the close that ended the conversation as it stands.
+ *     resolutionSeconds: from the first message to that close. Both are
+ *     cleared when the conversation reopens and set again at the next close.
+ *
+ * parentConversationId: the ticket this one is a child of (linked tickets).
+ * isMajorIncident: this conversation is a major incident; its children are
+ * the customers it affects, and an update posted on it goes to each of them.
+ * mergedIntoId: this conversation was merged into another as a duplicate. It
+ * stays closed, and a later customer message on it lands on the kept one.
+ *
+ * impact / urgency: the ITIL inputs; with the workspace's priority matrix on,
+ * they set `priority`. language: the customer's language as detected for
+ * translation (BCP 47 primary tag, e.g. `de`), null until detected.
+ *
+ * escalationCheckAt: when the team's escalation rules next need checking
+ * (the SLA sweep runs them); null when no rule can fire.
  */
 
 export type DeskConversationState = 'open' | 'closed';
@@ -45,6 +68,10 @@ export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' |
 
 /** null = no priority set. */
 export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+/** ITIL impact and urgency, the two axes of the priority matrix. null = not set. */
+export type DeskImpact = 'low' | 'medium' | 'high';
+export type DeskUrgency = 'low' | 'medium' | 'high';
 
 /**
  * active: a clock is running · warning: one is close to its due time ·
@@ -93,6 +120,21 @@ export const deskConversations = pgTable(
     slaStatus: varchar('sla_status', { length: 10 }).$type<DeskSlaStatus>(),
     slaDueAt: timestamp('sla_due_at'),
     slaMetric: varchar('sla_metric', { length: 20 }).$type<DeskSlaMetric>(),
+
+    firstResponseAt: timestamp('first_response_at'),
+    firstResponseSeconds: integer('first_response_seconds'),
+    resolvedAt: timestamp('resolved_at'),
+    resolutionSeconds: integer('resolution_seconds'),
+
+    parentConversationId: varchar('parent_conversation_id', { length: 30 }),
+    isMajorIncident: boolean('is_major_incident').notNull().default(false),
+    mergedIntoId: varchar('merged_into_id', { length: 30 }),
+
+    impact: varchar('impact', { length: 10 }).$type<DeskImpact>(),
+    urgency: varchar('urgency', { length: 10 }).$type<DeskUrgency>(),
+    language: varchar('language', { length: 10 }),
+
+    escalationCheckAt: timestamp('escalation_check_at'),
   },
   (table) => [
     uniqueIndex('desk_conversations_number_uidx').on(table.conversationNumber),
@@ -109,6 +151,21 @@ export const deskConversations = pgTable(
     index('desk_conversations_department_idx').on(table.departmentId, table.state),
     index('desk_conversations_tags_gin').using('gin', table.tags),
     index('desk_conversations_state_sla_due_idx').on(table.state, table.slaDueAt),
+    // Reports: conversations created, first answered and resolved in a period.
+    index('desk_conversations_created_at_idx').on(table.createdAt),
+    index('desk_conversations_first_response_at_idx').on(table.firstResponseAt),
+    index('desk_conversations_resolved_at_idx').on(table.resolvedAt),
+    // Linked tickets: a parent's children, and the duplicates merged into one.
+    index('desk_conversations_parent_idx')
+      .on(table.parentConversationId)
+      .where(sql`${table.parentConversationId} IS NOT NULL`),
+    index('desk_conversations_merged_into_idx')
+      .on(table.mergedIntoId)
+      .where(sql`${table.mergedIntoId} IS NOT NULL`),
+    // Escalation rules: the open conversations the sweep has to look at.
+    index('desk_conversations_escalation_check_idx')
+      .on(table.escalationCheckAt)
+      .where(sql`${table.escalationCheckAt} IS NOT NULL`),
   ],
 );
 

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { AlertTriangle, type LucideIcon } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent } from '@weldsuite/ui/components/card';

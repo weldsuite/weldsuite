@@ -15,6 +15,8 @@ data:
   FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
   FILES_S3_REGION: fsn1
   FILES_BUCKET_PRIVATE: weldsuite-eu-private
+  # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
+  FILES_BUCKET_MAIL: weldsuite-eu-mail
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (Hetzner runbook, step 7).
@@ -30,3 +32,8 @@ data:
   # Empty: the images are the release's. Set a tag only to run other images
   # under the release's chart, briefly and on purpose.
   WELDSUITE_IMAGE_TAG: ""
+  # Client addresses that may open the staff admin console (admin.${DOMAIN}):
+  # a YAML list of CIDRs, unquoted, e.g. [203.0.113.7/32, 198.51.100.0/24].
+  # 127.0.0.1/32 lets nobody in from outside; put the staff's addresses here
+  # (Hetzner runbook, "Staff work").
+  ADMIN_CIDRS: "[127.0.0.1/32]"

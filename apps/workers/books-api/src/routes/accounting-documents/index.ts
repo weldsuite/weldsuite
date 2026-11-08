@@ -18,6 +18,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
@@ -33,6 +34,9 @@ import {
 import { resolveAiMetering, InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.documents, { label: 'Document' });
 const t = schema.documents;
 
 type DocumentRow = typeof t.$inferSelect;

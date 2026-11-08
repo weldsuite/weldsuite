@@ -64,6 +64,7 @@ weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-legal-entities = { path = "crates/legal-entities" }
 weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
 weldsuite-know-domain = { path = "crates/know-domain" }
@@ -73,6 +74,7 @@ weldsuite-board = { path = "modules/board" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
+weldsuite-mta = { path = "crates/mta" }
 weldsuite-meet = { path = "modules/meet" }
 weldsuite-merge = { path = "modules/merge" }
 weldsuite-merge-domain = { path = "crates/merge-domain" }

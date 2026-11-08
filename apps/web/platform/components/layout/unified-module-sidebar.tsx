@@ -30,6 +30,8 @@ import { isRouteOffered } from '@/lib/edition-routes';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { EntitySwitcher } from '@/components/accounting/entity-switcher';
+import { WeldhrEntitySwitcher } from '@/app/weldhr/components/entity-switcher';
+import { useSyncHrLegalEntity } from '@/hooks/use-current-legal-entity';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -123,6 +125,8 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
   const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
   const weldbooksItems = useWeldbooksSidebarItems(moduleKey === 'weldbooks');
+  // Runs before the HR sidebar queries so they carry the selected legal entity.
+  const hrEntity = useSyncHrLegalEntity(moduleKey === 'weldhr');
   const weldhrItems = useWeldhrSidebarItems(moduleKey === 'weldhr');
   const welddeskItems = useWelddeskSidebarItems(moduleKey === 'welddesk');
   const settingsItems = useSettingsSidebarItems(moduleKey === 'settings');
@@ -179,7 +183,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
     case 'weldhr':
       // My HR on top for whoever has it, collapsible next to the team view;
       // payroll items follow the weldhr-payroll flag.
-      menuItems = weldhrItems.adjust(staticItems);
+      // The legal-entity switcher sits on top once the workspace has an entity WeldHR is enabled for.
+      menuItems = hrEntity.hasEntities
+        ? [{ group: '', items: [], customContent: <WeldhrEntitySwitcher /> }, ...weldhrItems.adjust(staticItems)]
+        : weldhrItems.adjust(staticItems);
       break;
     case 'settings':
       // Translated title + back button replace the module brand.

@@ -15,6 +15,9 @@ export interface Env extends KitEnv {
   /** Schedule-index D1 (`workspace_due_index`, kind `desk_sla`): an inbound call
    *  marks when its desk conversation's SLA clock next comes due (desk-api's SLA sweep). */
   SCHEDULE_INDEX?: D1Database;
+  /** helpdesk-workflow-worker: the per-workspace AssignmentRouter that auto-assigns a
+   *  new phone conversation (`/desk/assign`). Without it the pick runs locally. */
+  HELPDESK_WORKFLOW?: Fetcher;
 
   /** R2 bucket for files and documents (number-porting documents, r2-port-docs.ts). */
   STORAGE?: R2Bucket;

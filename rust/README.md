@@ -473,6 +473,9 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
+                        legal_entity_context layer and record guard for books and hr, the core service
+                        (entities, registrations, bank accounts, access) and its request schemas
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
@@ -542,7 +545,7 @@ rust/
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
-                        modules/core-team (team, roles, settings, preferences, app catalog),
+                        modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
                         modules/core-platform (notifications, audit logs, appstore, API keys, credits,
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
@@ -649,11 +652,13 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 
 ## Staff work
 
-`weldsuite admin` is what the admin console (`apps/web/admin`) does on Global,
-for the Kubernetes editions (ADR SEC-014): the console stays Global's, and on
-EU and self-hosted installs staff run commands in a server pod through the
-cluster's API. The rules and writes are in `crates/staff-domain`, the
-arguments and output in `bins/weldsuite/src/admin.rs`.
+On the Kubernetes editions staff work two ways, both checked against the
+install's staff list (ADR SEC-014): the admin console (`apps/web/admin`, its
+Node build in the chart's `admin` values, ADR FE-018), and `weldsuite admin`
+commands in a server pod through the cluster's API, for the first superadmin,
+scripts and the self-hosted operator. The commands' rules and writes are in
+`crates/staff-domain`, their arguments and output in
+`bins/weldsuite/src/admin.rs`.
 
 - **`staff`**: the install's staff list, master `admin_users`. Every change
   names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
@@ -696,11 +701,13 @@ Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
 `ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
 `ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
-`sha-<12 characters of the commit>`, on every push to `develop` or a
+`sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`. Production runs releases: the
-"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
-of those builds to a version, `X.Y.Z`, with the same image digests and the
+`main` also moves the tag `main` and publishes the chart as
+`<base>-main.<run>`; the EU test cluster follows the newest one. Production
+runs releases: the "Rust release" workflow
+(`.github/workflows/rust-release.yml`) promotes one of those builds, a commit
+on `main`, to a version, `X.Y.Z`, with the same image digests and the
 chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
@@ -750,7 +757,7 @@ due index; nothing while merge is not served). The server reads environment vari
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
 | `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
-| `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
+| `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `PONTO_SIGNATURE_CERT_ID`, `PONTO_SIGNATURE_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM, and for a live Ponto application the signature certificate's id from Isabel's developer portal and its unencrypted private key as PEM, which sign every Ponto request; the sandbox takes them unsigned), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `CONNECT_API_URL` | WeldConnect: the GitHub App (WeldFlow's repositories and Projects, the workflow GitHub integration; unset: those routes answer 500 `GitHub App is not configured`) and the public origin of the workflow webhook URLs (default by `ENVIRONMENT`). The install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the install callback lands on `PUBLIC_APP_URL`. `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`: the workflow integrations' OAuth apps |

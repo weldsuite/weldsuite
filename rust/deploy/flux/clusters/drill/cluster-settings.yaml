@@ -16,6 +16,8 @@ data:
   FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
   FILES_S3_REGION: fsn1
   FILES_BUCKET_PRIVATE: weldsuite-eu-private
+  # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
+  FILES_BUCKET_MAIL: weldsuite-eu-mail
   # Zitadel: restored from the backup with the rest, so the same project and
   # application ids as the eu cluster (its issuer is auth.${DOMAIN} here).
   ZITADEL_PROJECT_ID: "000000000000000000"
@@ -27,3 +29,8 @@ data:
   # clusters/eu/cluster-settings.yaml), so it proves that release restores.
   WELDSUITE_VERSION: "0.0.0"
   WELDSUITE_IMAGE_TAG: ""
+  # Client addresses that may open the staff admin console (admin.${DOMAIN}):
+  # a YAML list of CIDRs, unquoted, e.g. [203.0.113.7/32, 198.51.100.0/24].
+  # 127.0.0.1/32 lets nobody in from outside; put the staff's addresses here
+  # (Hetzner runbook, "Staff work").
+  ADMIN_CIDRS: "[127.0.0.1/32]"

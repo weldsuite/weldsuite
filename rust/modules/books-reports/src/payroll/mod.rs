@@ -41,6 +41,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use csv_import::{CsvImportArgs, ImportError, import_payroll_csv, problems_message};
@@ -101,6 +102,21 @@ where
         .route(
             "/connections/{id}",
             delete(connections::disconnect).route_layer(need("journal:delete")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("payroll_imports"), "Payroll import")
+                .prefix("/imports")
+                .layer(),
+        )
+        .route_layer(
+            EntityRecordGuard::table(
+                EntityTable::new("payroll_connections"),
+                "Payroll connection",
+            )
+            .prefix("/connections")
+            .layer(),
         )
         .with_state(state)
 }

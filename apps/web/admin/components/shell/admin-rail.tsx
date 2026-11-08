@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/components/link';
+import { usePathname } from '@/lib/navigation';
 import { Shield } from 'lucide-react';
 import {
   Tooltip,

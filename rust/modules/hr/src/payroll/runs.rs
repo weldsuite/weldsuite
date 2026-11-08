@@ -17,8 +17,11 @@ use weldsuite_kit::generate_id;
 use weldsuite_payroll_domain::components::{ComponentEntry, component_def};
 use weldsuite_payroll_domain::periods::{period_containing, weekdays_between};
 
-use super::common::{decimal2, decimal4, is_iso_date, num, ranges_overlap, sort_issues};
+use super::common::{
+    BOOKS_NOT_ENABLED, decimal2, decimal4, is_iso_date, num, ranges_overlap, sort_issues,
+};
 use super::employees::{EmployeePayrollData, compensation_on, load_employee_payroll_data};
+use super::employer_context::load_employer_for_payroll;
 use super::employers::{
     country_of, last_completed_periods, next_period_of, require_employer_row, require_schedule_row,
     spec_of,
@@ -26,6 +29,7 @@ use super::employers::{
 use super::schema::{has, str_of};
 use super::ytd::number_key;
 use crate::employees::display_name_of;
+use crate::entity_scope::Scope;
 use crate::{HrError, add_days, js_round, locale_compare, member_names, now, today_iso};
 
 pub(crate) const COLLECTED_SOURCES: [&str; 4] = ["attendance", "leave", "absence", "declaration"];
@@ -245,6 +249,8 @@ pub(crate) async fn to_run_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Value
         .map(|row| {
             let (errors, warnings) = count_issues(&row["issues"]);
             let schedule = row["payScheduleId"].as_str().filter(|v| !v.is_empty());
+            // A journal skipped because the legal entity has no WeldBooks: a reason, not an error.
+            let books_not_enabled = row["journalError"] == BOOKS_NOT_ENABLED;
             json!({
                 "id": row["id"],
                 "employerId": row["employerId"],
@@ -276,7 +282,8 @@ pub(crate) async fn to_run_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Value
                 "paidAt": row["paidAt"],
                 "journalStatus": row["journalStatus"],
                 "journalEntryId": row["journalEntryId"],
-                "journalError": row["journalError"],
+                "journalError": if books_not_enabled { Value::Null } else { row["journalError"].clone() },
+                "journalReason": if books_not_enabled { json!(BOOKS_NOT_ENABLED) } else { Value::Null },
                 "createdAt": row["createdAt"],
                 "updatedAt": row["updatedAt"],
             })
@@ -457,6 +464,7 @@ pub(crate) async fn list_runs(
     employer_id: Option<&str>,
     status: Option<&str>,
     year: Option<f64>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let statuses: Option<Vec<String>> = status
         .filter(|v| !v.is_empty())
@@ -466,11 +474,16 @@ pub(crate) async fn list_runs(
          where ($1::text is null or t.employer_id = $1)
            and ($2::text[] is null or t.status = any($2))
            and ($3::int is null or t.tax_year = $3)
+           and ($4::text[] is null or t.employer_id in (select scope_p.id from hr_payroll_employers scope_p
+                where scope_p.legal_entity_id = any($4)
+                   or ($5::boolean and scope_p.legal_entity_id is null)))
          order by t.period_start desc, t.created_at desc limit 500",
     )
     .bind(employer_id.filter(|v| !v.is_empty()))
     .bind(statuses)
     .bind(year.filter(|y| *y != 0.0).map(|y| y as i32))
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     to_run_dtos(db, &rows_of(rows)).await
@@ -617,7 +630,11 @@ pub(crate) async fn create_run(
     input: &Value,
     user_id: &str,
 ) -> Result<Value, HrError> {
-    let employer = require_employer_row(db, str_of(input, "employerId").unwrap_or("")).await?;
+    let employer_id = str_of(input, "employerId").unwrap_or("");
+    require_employer_row(db, employer_id).await?;
+    let employer = load_employer_for_payroll(db, employer_id, &Keyring::default())
+        .await?
+        .row;
     if employer["isActive"] != true {
         return Err(HrError::validation("This employer is not active"));
     }

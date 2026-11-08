@@ -1,7 +1,7 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { sendSystemEmail } from '@weldsuite/emails';
-import { transportFromEnv } from '@weldsuite/emails/transports/env';
+import { systemEmailTransport } from '@/lib/server/email-transport';
 
 /**
  * Best-effort transactional emails for admin-scheduled workspace deletion.
@@ -14,7 +14,7 @@ async function send(
   props: { workspaceName: string; deletionAt?: string | null; reason?: string | null },
 ): Promise<void> {
   if (to.length === 0) return;
-  const transport = transportFromEnv(process.env);
+  const transport = systemEmailTransport();
   if (!transport) {
     console.warn('[admin/workspace-deletion-email] no email transport configured — skipping email');
     return;

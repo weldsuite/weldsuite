@@ -16,10 +16,11 @@ use weldsuite_kit::generate_id;
 use super::Deps;
 use super::calculate::{data_version, run_inputs_stamp};
 use super::employees::{bank_of, decrypt_sensitive};
+use super::employer_context::load_employer_for_payroll;
 use super::filings::ensure_filings_for_run;
 use super::journal::{JournalOutcome, post_run_journal};
 use super::notifier::{PayslipReady, language_of, my_payroll_url, payslip_ready};
-use super::payslips::{employees_to_notify, employer_by_id, render_and_store_payslip};
+use super::payslips::{employees_to_notify, render_and_store_payslip};
 use super::runs::{
     assert_correction_in_year, four_eyes_blocks, included_employee_ids, int_of, payslip_sql,
     require_run, s,
@@ -267,12 +268,9 @@ async fn claim_and_finalise(
             details: Some(json!({ "issues": errors })),
         });
     }
-    let Some(employer) = employer_by_id(db, s(&run, "employerId")).await? else {
-        return Err(HrError::not_found(
-            "Payroll employer",
-            s(&run, "employerId"),
-        ));
-    };
+    let employer = load_employer_for_payroll(db, s(&run, "employerId"), &deps.keyring)
+        .await?
+        .row;
     if four_eyes_blocks(Some(&employer), &run, user_id) {
         return Err(HrError::payroll(
             "FOUR_EYES",

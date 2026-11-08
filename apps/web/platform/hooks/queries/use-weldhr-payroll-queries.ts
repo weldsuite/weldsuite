@@ -15,6 +15,7 @@
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { getHrLegalEntityId } from '@/lib/api/legal-entity-scope';
 import type {
   CreateHrCompensationInput,
   CreateHrPayComponentInput,
@@ -37,7 +38,11 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 
 export const payrollKeys = {
-  all: ['weldhr', 'payroll'] as const,
+  /** Under the WeldHR root, so it follows the selected legal entity (see `weldhrKeys.all` in use-weldhr-queries). */
+  get all() {
+    const entityId = getHrLegalEntityId();
+    return (entityId ? ['weldhr', entityId, 'payroll'] : ['weldhr', 'payroll']) as readonly string[];
+  },
   overview: () => [...payrollKeys.all, 'overview'] as const,
   employers: () => [...payrollKeys.all, 'employers'] as const,
   schedules: (params: object) => [...payrollKeys.all, 'schedules', params] as const,

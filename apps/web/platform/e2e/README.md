@@ -63,7 +63,7 @@ In `Settings → Secrets → Actions` on the repo, add:
 | `TEST_API_URL` | `https://app-api-test.weldsuite.org` (or `https://app-api-preview.weldsuite.org` for preview env) |
 | `TEST_WORKSPACE_ID` | the `org_…` id from step 1 |
 
-These three are read by both `pr-checks.yml` (`e2e-tests` job) and `deploy.yml` (`tests` job).
+No workflow reads these today: the suite runs from the Playwright commands below, not in CI or the deploy.
 
 ### 4. Wire the local `.env.test`
 
@@ -97,9 +97,7 @@ The `webServer` block in `playwright.config.ts` starts `pnpm dev` automatically 
 
 ### In CI
 
-`pr-checks.yml` runs the suite on every PR against `main` or `develop`, plus every push to `develop`. The job uses the three secrets above; if any are unset, the seed-driven specs `test.skip()` themselves with a clear message and the rest of the suite still runs.
-
-`deploy.yml` runs the same suite as part of the `tests` job that gates production deploys. Worker deploys and migrations both `needs: tests`, so a red Playwright run blocks the deploy.
+No workflow runs the suite: neither `ci.yml` nor the deploy (`weldsuite-deploy`) does, so a red Playwright run blocks nothing. Run it with the Playwright commands above, locally or against test. If any of the three values above is unset, the seed-driven specs `test.skip()` themselves with a clear message and the rest of the suite still runs.
 
 ## Email addresses in specs
 

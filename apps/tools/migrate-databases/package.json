@@ -20,7 +20,10 @@
     "backfill:pile-a:execute": "tsx src/backfill-pile-a-columns.ts --execute",
     "audit:blobs": "tsx src/audit-custom-field-blobs.ts",
     "extract:blobs": "tsx src/extract-blob-fields.ts",
-    "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute"
+    "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute",
+    "backfill:legal-entities": "tsx src/backfill-legal-entities.ts",
+    "backfill:legal-entities:execute": "tsx src/backfill-legal-entities.ts --execute",
+    "test": "vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.958.0",

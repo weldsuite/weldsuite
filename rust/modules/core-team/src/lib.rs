@@ -14,7 +14,8 @@
 //! | [`my_role`] | `/api/my-role` | `routes/my-role` |
 //! | [`member_limits`] | `/api/member-limits` | `routes/member-limits` |
 //! | [`prepaid_seats`] | `/api/prepaid-seats` | `routes/prepaid-seats` |
-//! | [`workspace_settings`] | `/api/workspace-settings` | `routes/workspace-settings` |
+//! | [`workspace_settings`] | `/api/workspace-settings` | `routes/workspace-settings`, `services/business-profile.ts` |
+//! | [`legal_entities`] | `/api/legal-entities` | `routes/legal-entities` |
 //! | [`settings_profile`] | `/api/settings/profile` | `routes/settings-profile` |
 //! | [`user_preferences`] | `/api/user-preferences` | `routes/user-preferences` |
 //! | [`notification_preferences`] | `/api/notification-preferences` | `routes/notification-preferences` |
@@ -115,6 +116,11 @@ group_router!(
 group_router!(
     /// `/api/workspace-settings`: settings, rename, slug, deletion.
     workspace_settings
+);
+group_router!(
+    /// `/api/legal-entities`: the workspace's companies, their registrations,
+    /// bank accounts and per-entity access.
+    legal_entities
 );
 group_router!(
     /// `/api/settings/profile`: the caller's own profile and avatar.

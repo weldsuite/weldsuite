@@ -58,7 +58,7 @@ The unified first-party backend is `apps/workers/app-api`. Every endpoint lives 
 
 ## Configuration & deployment
 
-`develop` deploys to **test** (`app-test.weldsuite.org`). `main` deploys to **production** (`app.weldsuite.org`). The pipeline lives in this repository (`.github/workflows/deploy.yml`) and runs on GitHub-hosted runners. Secrets live on the GitHub Environments `test` and `production` — see [`.github/SECRETS.md`](./.github/SECRETS.md).
+Every merge to `main` that passes CI deploys to **test** (`app-test.weldsuite.org`). **Production** (`app.weldsuite.org`) goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`, for a commit test already deployed. The deploy logic lives in this repository (`.github/actions/deploy-*`, `.github/scripts/deploy-plan.mjs`); the private repo runs it on GitHub-hosted runners and holds the GitHub Environments `test` and `production` with their secrets — see [`.github/SECRETS.md`](./.github/SECRETS.md).
 
 Hosted WeldSuite at [weldsuite.org](https://weldsuite.org) is the supported product. The AGPL source is public so you can audit, contribute, and self-host; self-hosting is not a supported product offering.
 

@@ -4,10 +4,10 @@
  * (list per report, create with its defaults and position, read, update,
  * layouts, delete with the report's chart count) and chart data.
  *
- * Chart data comes from Cloudflare's R2 SQL API, which `queryAnalytics` only
- * calls with R2_SQL_API_TOKEN, CF_ACCOUNT_ID and R2_ANALYTICS_BUCKET set.
- * The test env has none of them, so both data routes answer empty series
- * here; a real query is not reached.
+ * Chart data is aggregated from the live inbox (`services/desk-reports.ts`);
+ * the metrics these tests send are not in its catalogue, so they answer
+ * empty series. The catalogue itself and the overview are tested in
+ * reports.integration.test.ts.
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -477,7 +477,7 @@ describe('chart data', () => {
     }
   });
 
-  it('answers an empty series without the R2 SQL bindings', async () => {
+  it('answers an empty series for a metric outside the catalogue', async () => {
     const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {});
     for (const body of [query, { ...query, entity: 'unknown_entity', sortOrder: 'desc', limit: 5 }]) {
       const res = await READ().request(`${BASE}/charts/data`, send('POST', body));

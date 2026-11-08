@@ -161,7 +161,29 @@ fn news_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial)
     strings(issues, body, "tags", OPT);
 }
 
-fn announcement_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
+pub(crate) const ANNOUNCEMENT_TYPES: [&str; 4] = ["info", "warning", "success", "error"];
+pub(crate) const ANNOUNCEMENT_STATUSES: [&str; 3] = ["draft", "published", "archived"];
+pub(crate) const ANNOUNCEMENT_VISIBILITIES: [&str; 3] = ["public", "internal", "specific_groups"];
+
+/// `z.string().datetime()` with `presence`.
+fn datetime(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence) {
+    issues.text_with(
+        body,
+        key,
+        presence,
+        Text {
+            format: Some(Format::Datetime),
+            ..Text::default()
+        },
+    );
+}
+
+/// `createHelpdeskAnnouncementSchema`: the real columns only, no passthrough.
+pub(crate) fn announcement_schema(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: Partial,
+) {
     string(
         issues,
         body,
@@ -170,11 +192,24 @@ fn announcement_schema(issues: &mut Issues, body: &Map<String, Value>, partial: 
         Some(1),
         Some(500),
     );
-    string(issues, body, "body", OPT, None, None);
-    string(issues, body, "startsAt", OPT, None, None);
-    string(issues, body, "endsAt", OPT, None, None);
-    issues.boolean(body, "isPublished", OPT);
-    string(issues, body, "audience", OPT, None, Some(50));
+    string(issues, body, "content", partial.required(), None, None);
+    string(issues, body, "excerpt", NULLISH, None, None);
+    issues.choice(body, "type", OPT, &ANNOUNCEMENT_TYPES);
+    issues.choice(body, "status", OPT, &ANNOUNCEMENT_STATUSES);
+    issues.choice(body, "visibility", OPT, &ANNOUNCEMENT_VISIBILITIES);
+    issues.list(
+        body,
+        "targetGroups",
+        NULLISH,
+        None,
+        Some(100),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+    );
+    string(issues, body, "featuredImage", NULLISH, None, Some(500));
+    string(issues, body, "authorName", NULLISH, None, Some(255));
+    datetime(issues, body, "publishedAt", NULLISH);
+    datetime(issues, body, "expiresAt", NULLISH);
+    issues.boolean(body, "isPinned", OPT);
 }
 
 fn feedback_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
@@ -210,14 +245,133 @@ fn review_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partia
     issues.boolean(body, "isPublished", OPT);
 }
 
+const SLA_PRIORITIES: [&str; 5] = ["low", "medium", "high", "urgent", "critical"];
+const SLA_OPERATORS: [&str; 5] = [
+    "equals",
+    "not_equals",
+    "contains",
+    "greater_than",
+    "less_than",
+];
+const SLA_WEEKDAYS: [&str; 7] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+];
+
+/// `slaConditionSchema`: `{ field, operator, value }`; `value` is any JSON.
+fn sla_conditions(issues: &mut Issues, body: &Map<String, Value>) {
+    let _ = issues.list(body, "conditions", NULLISH, None, None, |issues, item| {
+        let fields = issues.object(item)?;
+        string(
+            issues,
+            fields,
+            "field",
+            Presence::Required,
+            Some(1),
+            Some(100),
+        );
+        let _ = issues.choice(fields, "operator", Presence::Required, &SLA_OPERATORS);
+        Some(())
+    });
+}
+
+/// `z.array(slaTargetSchema)`: `{ priority, time (minutes >= 1), notifyAt? }`.
+fn sla_targets(issues: &mut Issues, body: &Map<String, Value>, key: &str) {
+    let _ = issues.list(body, key, NULLISH, None, None, |issues, item| {
+        let fields = issues.object(item)?;
+        let _ = issues.choice(fields, "priority", Presence::Required, &SLA_PRIORITIES);
+        integer(issues, fields, "time", Presence::Required, Some(1.0), None);
+        let _ = issues.list(fields, "notifyAt", OPT, None, None, |issues, share| {
+            issues.item_number(
+                share,
+                Number {
+                    min: Some(0.0),
+                    max: Some(100.0),
+                    ..Number::default()
+                },
+            )
+        });
+        Some(())
+    });
+}
+
+/// `slaReminderSchema`: `{ type, time (minutes >= 1), recipients? }`.
+fn sla_reminders(issues: &mut Issues, body: &Map<String, Value>) {
+    let _ = issues.list(body, "reminders", NULLISH, None, None, |issues, item| {
+        let fields = issues.object(item)?;
+        let _ = issues.choice(
+            fields,
+            "type",
+            Presence::Required,
+            &["before_breach", "after_breach"],
+        );
+        integer(issues, fields, "time", Presence::Required, Some(1.0), None);
+        let _ = issues.list(fields, "recipients", OPT, None, None, |issues, who| {
+            issues.item_choice(who, &["assignee", "manager", "customer"])
+        });
+        Some(())
+    });
+}
+
+/// `slaBusinessHoursSchema`: a timezone, per-weekday `{ isOpen, openTime?,
+/// closeTime? }` and holidays.
+fn sla_business_hours(issues: &mut Issues, body: &Map<String, Value>) {
+    let _ = issues.nested(body, "businessHours", NULLISH, |issues, fields| {
+        string(
+            issues,
+            fields,
+            "timezone",
+            Presence::Required,
+            Some(1),
+            Some(100),
+        );
+        for day in SLA_WEEKDAYS {
+            let _ = issues.nested(fields, day, OPT, |issues, window| {
+                issues.boolean(window, "isOpen", Presence::Required);
+                string(issues, window, "openTime", OPT, None, Some(10));
+                string(issues, window, "closeTime", OPT, None, Some(10));
+            });
+        }
+        let _ = issues.list(fields, "holidays", OPT, None, None, |issues, item| {
+            let holiday = issues.object(item)?;
+            string(
+                issues,
+                holiday,
+                "date",
+                Presence::Required,
+                Some(1),
+                Some(10),
+            );
+            string(issues, holiday, "name", Presence::Required, None, Some(255));
+            issues.boolean(holiday, "isRecurring", OPT);
+            Some(())
+        });
+    });
+}
+
 fn sla_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     string(issues, body, "name", partial.required(), Some(1), Some(255));
-    string(issues, body, "description", OPT, None, None);
-    string(issues, body, "priority", OPT, None, Some(20));
-    integer(issues, body, "responseTimeMinutes", OPT, None, None);
-    integer(issues, body, "resolutionTimeMinutes", OPT, None, None);
+    string(issues, body, "description", NULLISH, None, None);
+    integer(issues, body, "priority", OPT, Some(0.0), Some(1_000_000.0));
     issues.boolean(body, "isActive", OPT);
     issues.boolean(body, "isDefault", OPT);
+    sla_conditions(issues, body);
+    sla_targets(issues, body, "firstResponseTime");
+    sla_targets(issues, body, "updateTime");
+    sla_targets(issues, body, "resolutionTime");
+    sla_reminders(issues, body);
+    let _ = issues.choice(
+        body,
+        "operationalHours",
+        OPT,
+        &["business", "24x7", "custom"],
+    );
+    sla_business_hours(issues, body);
 }
 
 fn note_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {

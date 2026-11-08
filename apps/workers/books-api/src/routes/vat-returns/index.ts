@@ -27,6 +27,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { VatRubrieken } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -49,6 +50,9 @@ import { submitFiling, checkFilingStatus, createConfig } from '../../services/ac
 import { GstReturnError, loadGstWorksheet } from '../../services/accounting-gst-return';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.vatReturns, { label: 'VAT return' });
 
 /**
  * The period of a new return: one whole month, quarter or year, and no overlap with another return of the entity

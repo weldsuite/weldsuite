@@ -33,9 +33,10 @@ export async function requireShiftRequest(db: Database, id: string) {
 /** Requests with who asked and who reviewed them, latest shift first. `from`/`to` are the days the shifts start on. */
 export async function listShiftRequests(
   db: Database,
-  filters: { id?: string; employeeId?: string; status?: string; from?: string; to?: string },
+  filters: { id?: string; employeeId?: string; status?: string; from?: string; to?: string; entity?: SQL },
 ) {
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.id) conditions.push(eq(sr.id, filters.id));
   if (filters.employeeId) conditions.push(eq(sr.employeeId, filters.employeeId));
   if (filters.status) conditions.push(inArray(sr.status, filters.status.split(',')));

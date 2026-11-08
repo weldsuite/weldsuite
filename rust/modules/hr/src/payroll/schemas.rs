@@ -173,9 +173,15 @@ fn us_settings() -> S {
 /// `createHrPayrollEmployerSchema`.
 pub(crate) fn create_employer() -> S {
     obj(vec![
-        ("name", short_text_required(160)),
-        ("legalName", short_text_required(255)),
-        ("country", S::Enum(&["NL", "US"])),
+        ("legalEntityId", id().nullish()),
+        ("registrationId", id().nullish()),
+        ("registrationNumber", short_text_required(64).optional()),
+        ("bankAccountId", id().nullish()),
+        ("bank", employer_bank().optional()),
+        ("label", short_text(160).nullish()),
+        ("name", short_text_required(160).optional()),
+        ("legalName", short_text_required(255).optional()),
+        ("country", S::Enum(&["NL", "US"]).optional()),
         ("currency", string(&[Check::Length(3)]).optional()),
         ("accountingEntityId", id().nullish()),
         ("address", address().optional()),
@@ -185,10 +191,15 @@ pub(crate) fn create_employer() -> S {
     ])
 }
 
-/// `updateHrPayrollEmployerSchema`: the create schema without country and
-/// currency, every field optional, and `isActive`.
+/// `updateHrPayrollEmployerSchema`: the create schema without country,
+/// currency, registration number and bank, every field optional, and
+/// `isActive`.
 pub(crate) fn update_employer() -> S {
     obj(vec![
+        ("legalEntityId", id().nullish()),
+        ("registrationId", id().nullish()),
+        ("bankAccountId", id().nullish()),
+        ("label", short_text(160).nullish()),
         ("name", short_text_required(160).optional()),
         ("legalName", short_text_required(255).optional()),
         ("accountingEntityId", id().nullish()),

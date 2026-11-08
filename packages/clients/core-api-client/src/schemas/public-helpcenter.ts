@@ -46,13 +46,18 @@ const pageSchema = z.object({
   hasMore: z.boolean(),
 });
 
-/** An article in GET /articles. */
+/**
+ * An article in GET /articles: one entry per article, in the reader's
+ * language (`?locale=`) when it has a version in it. `locale` null = the
+ * help center's default language.
+ */
 export const publicHelpcenterArticleSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   slug: z.string(),
   excerpt: z.string().nullable(),
   folderId: z.string().nullable(),
+  locale: z.string().nullable(),
   viewCount: z.number().int(),
   helpfulCount: z.number().int(),
   notHelpfulCount: z.number().int(),
@@ -67,8 +72,33 @@ export const publicHelpcenterArticlePageSchema = z.object({
   pagination: pageSchema,
 });
 
-/** GET /articles/:slug: the article with its content, the view just counted. */
-export const publicHelpcenterArticleSchema = publicHelpcenterArticleSummarySchema.extend({ content: z.string() });
+/** A language version of the article the reader may open. */
+export const publicHelpcenterArticleVersionSchema = z.object({
+  locale: z.string().nullable(),
+  slug: z.string(),
+  title: z.string(),
+});
+
+/**
+ * GET /articles/:slug: the article with its content, the view just counted,
+ * and every version of it the reader may open (itself included).
+ */
+export const publicHelpcenterArticleSchema = publicHelpcenterArticleSummarySchema.extend({
+  content: z.string(),
+  versions: z.array(publicHelpcenterArticleVersionSchema),
+});
+
+/** GET /announcements: a published, unexpired announcement the reader may see. */
+export const publicHelpcenterAnnouncementSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  content: z.string(),
+  excerpt: z.string().nullable(),
+  type: z.string(),
+  isPinned: z.boolean(),
+  publishedAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+});
 
 /** POST /articles/:id/feedback. */
 export const publicHelpcenterFeedbackSchema = z.object({ recorded: z.literal(true) });
@@ -80,6 +110,7 @@ export const publicHelpcenterSearchHitSchema = z.object({
   slug: z.string(),
   excerpt: z.string().nullable(),
   folderId: z.string().nullable(),
+  locale: z.string().nullable(),
   tags: z.array(z.string()),
   updatedAt: z.string(),
 });

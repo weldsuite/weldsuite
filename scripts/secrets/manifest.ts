@@ -503,6 +503,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Isabel Group Ponto Connect (Europe); needs the PONTO_CERT mTLS binding.
     "PONTO_CLIENT_ID",
     "PONTO_CLIENT_SECRET",
+    // A live Ponto application's signature certificate: its id in Isabel's
+    // developer portal and its unencrypted PEM private key. Every Ponto request
+    // is signed with it; the sandbox takes requests unsigned, so leave both unset there.
+    "PONTO_SIGNATURE_CERT_ID",
+    "PONTO_SIGNATURE_KEY",
     // Enable Banking (Europe): application id + PKCS#8 PEM private key.
     "ENABLE_BANKING_APP_ID",
     "ENABLE_BANKING_PRIVATE_KEY",
@@ -595,6 +600,10 @@ export const manifest: Record<string, SecretEntry[]> = {
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
   "desk-api": [
+    // Inbox translation (/api/desk/conversations/:id/translate*) through
+    // @weldsuite/ai: the dedicated AI token (Workers AI + AI Gateway Run scopes),
+    // preferred over CLOUDFLARE_API_TOKEN, which may not carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     // Help center custom domains (DNS records in zones), moved here from app-api.
     "CLOUDFLARE_API_TOKEN",
     // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies),
@@ -871,6 +880,33 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     "SIGN_SESSION_SECRET",
+  ],
+
+  // admin (apps/web/admin): the staff admin console, a TanStack Start app
+  // deployed as a Worker (ADR FE-018). It signs in with its OWN invite-only
+  // Clerk instance (ADR SEC-009), so its keys are ADMIN_CLERK_* in Doppler, not
+  // the product's CLERK_*. It reads and writes the master and tenant databases,
+  // calls billing-worker, workspace-worker, mail-api and realtime-worker with
+  // their shared admin secrets, prices phone numbers (Telnyx) and domains
+  // (Realtime Register), and emails WeldReach and deletion notices (Cloudflare
+  // Email REST, else Resend).
+  admin: [
+    ["ADMIN_CLERK_SECRET_KEY", "CLERK_SECRET_KEY"],
+    ["ADMIN_CLERK_PUBLISHABLE_KEY", "CLERK_PUBLISHABLE_KEY"],
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "BILLING_ADMIN_SECRET",
+    "WORKSPACE_ADMIN_SECRET",
+    "OUTBOUND_ADMIN_SECRET",
+    "REALTIME_INTERNAL_SECRET",
+    "TELNYX_API_KEY",
+    "REALTIME_REGISTER_API_KEY",
+    "REALTIME_REGISTER_CUSTOMER",
+    "REALTIME_REGISTER_OTE",
+    "CF_ACCOUNT_ID",
+    "CF_EMAIL_SEND_TOKEN",
+    "RESEND_API_KEY",
   ],
 
   // sign-portal (apps/web/sign-portal): WeldSign's signer portal, a TanStack

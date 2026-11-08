@@ -13,6 +13,9 @@ import { addDays } from './dates';
 
 export { addDays };
 
+/** `hr_pay_runs.journal_error` of a skipped journal whose legal entity has no WeldBooks (the run DTO's `journalReason`). */
+export const BOOKS_NOT_ENABLED = 'books_not_enabled' as const;
+
 export const FLAG_PAYROLL = 'weldhr-payroll' as const;
 export const FLAG_DIGIPOORT = 'weldhr-payroll-digipoort' as const;
 

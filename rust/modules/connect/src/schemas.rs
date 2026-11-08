@@ -136,6 +136,8 @@ const EVENT_TYPES: &[&str] = &[
     "tagged",
     "priority_changed",
     "sla_breached",
+    "state_changed",
+    "sla_warning",
 ];
 
 /// The trigger `config` union; `None` when no option (the record included)

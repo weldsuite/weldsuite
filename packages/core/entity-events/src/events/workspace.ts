@@ -16,6 +16,16 @@ export const WORKSPACE_ENTITY_EVENTS = {
   workflow_webhook: ['created', 'updated', 'deleted'],
   workspace_settings: ['updated', 'deleted'],
   /**
+   * Core legal entities (docs/plans/legal-entities.md). Registrations count
+   * as an `updated` of the entity; so does switching per-entity access on
+   * or off. `accounting_entity` stays for WeldBooks' extension.
+   */
+  legal_entity: ['created', 'updated', 'archived', 'deleted'],
+  /** Ids and masked numbers only; reveals are logged in `legal_entity_reveals`, never sent as events. */
+  legal_entity_bank_account: ['created', 'updated', 'deleted'],
+  /** Who may see a legal entity, and with which role (per-entity access). */
+  legal_entity_member: ['created', 'updated', 'deleted'],
+  /**
    * A tenant's connection to a third-party app through the connector
    * framework (WeldConnect › Connectors).
    *

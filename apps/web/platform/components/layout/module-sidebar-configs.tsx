@@ -447,6 +447,15 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
           { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/saved-replies', icon: MessageSquareText },
+          { title: t.helpdesk.announcementsAdmin.navTitle, href: '/welddesk/help-center/announcements', icon: Megaphone },
+        ],
+      },
+      {
+        // Read from the live inbox (ADR DESK-011); the report routes require settings:read.
+        group: t.navigation.moduleSidebar.welddesk.groups.reports,
+        items: [
+          { title: t.navigation.moduleSidebar.welddesk.reportsOverview, href: '/welddesk/reports', icon: LayoutDashboard, permission: 'settings:read' },
+          { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
         ],
       },
       {

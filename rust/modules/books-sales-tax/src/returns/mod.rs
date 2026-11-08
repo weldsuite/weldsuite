@@ -36,6 +36,7 @@ use weldsuite_catalogs::entity_events::{
     TAX_RETURN_UPDATED,
 };
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use self::calculate::{CalculationInput, calculate_return};
@@ -103,6 +104,11 @@ where
         .route(
             "/{id}/carry-forward",
             post(carry_forward).route_layer(need("taxes:update")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("tax_returns"), "Tax return").layer(),
         )
         .with_state(state)
 }

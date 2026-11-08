@@ -31,6 +31,7 @@ import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizz
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -43,6 +44,9 @@ import { PostingError } from '../../services/accounting-posting';
 import { recordPayment, voidPayment } from '../../services/accounting-payments';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.payments, { label: 'Payment' });
 
 const allocationSchema = z.object({
   invoiceId: z.string().max(30).optional(),
@@ -140,6 +144,17 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
   try {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+
+    // Documents, bank account and bank line named in the body must be in an entity this request may touch.
+    const named = [data.invoiceId, data.billId, ...(data.allocations ?? []).flatMap((a) => [a.invoiceId, a.billId])];
+    if (
+      !(await recordsInEntity(c, schema.invoices, named)) ||
+      !(await recordsInEntity(c, schema.bills, named)) ||
+      !(await recordsInEntity(c, schema.bankAccounts, [data.bankAccountId])) ||
+      !(await recordsInEntity(c, schema.bankTransactions, [data.bankTransactionId]))
+    ) {
+      return error.notFound(c, 'Record');
+    }
 
     const amount = Number.parseFloat(data.amount);
     const allocations = data.allocations

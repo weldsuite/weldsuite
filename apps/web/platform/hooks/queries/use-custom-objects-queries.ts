@@ -106,6 +106,26 @@ export interface LinkTarget {
   kind: 'builtin' | 'custom';
 }
 
+/** A ready-made object type (`GET /custom-objects/templates`). */
+export interface CustomObjectTemplate {
+  key: string;
+  slug: string;
+  labelSingular: string;
+  labelPlural: string;
+  description: string;
+  icon: string;
+  fieldCount: number;
+  linkCount: number;
+  installed: boolean;
+  objectId: string | null;
+}
+
+/** `POST /objects/:slug/records/import`: created count and refused rows (1-based). */
+export interface CustomObjectImportResult {
+  created: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Query keys
 // ---------------------------------------------------------------------------
@@ -117,6 +137,7 @@ export const customObjectKeys = {
   deleteImpact: (id: string) => [...customObjectKeys.all, 'delete-impact', id] as const,
   links: (id: string) => [...customObjectKeys.all, 'links', id] as const,
   linkTargets: () => [...customObjectKeys.all, 'link-targets'] as const,
+  templates: () => [...customObjectKeys.all, 'templates'] as const,
   records: (slug: string) => [...customObjectKeys.all, 'records', slug] as const,
   recordList: (slug: string, params: unknown) =>
     [...customObjectKeys.records(slug), 'list', params] as const,
@@ -320,6 +341,43 @@ export function useDeleteCustomObjectLink() {
 }
 
 // ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+/** The ready-made object types, and whether each is installed. */
+export function useCustomObjectTemplates(enabled = true) {
+  const { getClient } = useAppApiClient();
+
+  return useQuery({
+    queryKey: customObjectKeys.templates(),
+    enabled,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: CustomObjectTemplate[] }>('/custom-objects/templates');
+      return res.data ?? [];
+    },
+  });
+}
+
+/** Install a template (the object, its fields and relationships). 409 when its name is taken. */
+export function useInstallCustomObjectTemplate() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (key: string) => {
+      const client = await getClient();
+      const res = await client.post<{ data: CustomObject }>(`/custom-objects/templates/${key}`, {});
+      return res.data;
+    },
+    onSettled: () => {
+      // A 409 means it is installed after all: refetch either way.
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Records
 // ---------------------------------------------------------------------------
 
@@ -395,6 +453,27 @@ export function useCreateCustomObjectRecord(slug: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: customObjectKeys.records(slug) });
+    },
+  });
+}
+
+/** Up to 200 records per call, each created like a single create. */
+export function useImportCustomObjectRecords(slug: string) {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (rows: Array<{ fields: Record<string, unknown>; ownerId?: string | null }>) => {
+      const client = await getClient();
+      const res = await client.post<{ data: CustomObjectImportResult }>(
+        `/objects/${slug}/records/import`,
+        { rows },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.records(slug) });
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.list() });
     },
   });
 }

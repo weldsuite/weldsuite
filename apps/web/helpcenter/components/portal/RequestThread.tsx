@@ -7,6 +7,7 @@ import { errorText, useDateFormat, usePortalStrings, type PortalStrings } from '
 import { BODY_MAX } from '@/lib/portal-fields'
 import { useSignInRedirect } from '@/lib/portal-nav'
 import { fieldErrorClass, inputClass, invalidInputClass, labelClass, primaryButtonClass } from '@/components/portal/styles'
+import { LinkifiedText } from '@/components/LinkifiedText'
 
 /** Only http(s) links and images from the thread; anything else is dropped. */
 function safeUrl(url: string | null | undefined): string | null {
@@ -78,7 +79,14 @@ function Message({ message, t }: Readonly<{ message: DeskPortalMessage; t: Porta
               : 'border border-zinc-200 bg-white text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200',
           )}
         >
-          {message.body && <p className="break-words whitespace-pre-wrap">{message.body}</p>}
+          {message.body && (
+            <p className="break-words whitespace-pre-wrap">
+              <LinkifiedText
+                text={message.body}
+                linkClassName="break-all text-[var(--hc-accent)] underline underline-offset-2 hover:opacity-80"
+              />
+            </p>
+          )}
           {attachments.length > 0 && (
             <ul className={clsx('flex flex-wrap gap-2', message.body && 'mt-3')}>
               {attachments.map((a, i) => (

@@ -25,6 +25,7 @@ use super::employees::{
     EmployeePayrollData, compensation_on, components_overlapping, election_of, elections_in_force,
     load_employee_payroll_data, readiness_issues,
 };
+use super::employer_context::load_employer_for_payroll;
 use super::employers::{employer_issues, read_employer_bank, work_states_of};
 use super::runs::{
     assert_editable, included_employee_ids, int_of, payslip_sql, profile_window, require_run,
@@ -581,18 +582,9 @@ pub(crate) async fn calculate_run(
 ) -> Result<Value, HrError> {
     let run = require_run(db, run_id).await?;
     assert_editable(&run)?;
-    let employer: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1",
-    )
-    .bind(s(&run, "employerId"))
-    .fetch_optional(db)
-    .await?;
-    let Some(employer) = employer.map(js_row) else {
-        return Err(HrError::not_found(
-            "Payroll employer",
-            s(&run, "employerId"),
-        ));
-    };
+    let employer = load_employer_for_payroll(db, s(&run, "employerId"), keyring)
+        .await?
+        .row;
     claim_for_calculation(db, run_id).await?;
     let run = require_run(db, run_id).await?;
 

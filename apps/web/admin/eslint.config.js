@@ -1,11 +1,11 @@
-import { nextJsConfig } from '@weldsuite/eslint-config/next-js'
+import { config } from '@weldsuite/eslint-config/react-internal';
 
 /** @type {import("eslint").Linter.Config[]} */
 const eslintConfig = [
-  ...nextJsConfig,
+  ...config,
   {
-    ignores: ['.next/**', 'node_modules/**', 'postcss.config.js'],
+    ignores: ['dist/**', '.wrangler/**', 'node_modules/**', 'src/routeTree.gen.ts'],
   },
-]
+];
 
-export default eslintConfig
+export default eslintConfig;

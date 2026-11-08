@@ -28,6 +28,7 @@ use crate::employees::{
     active_clients_for, display_name_of, employee_for_user, link_invited_employees,
     require_employee,
 };
+use crate::entity_scope::Scope;
 use crate::fields::{id, iso_date, iso_date_time, number, short_text, text_max};
 use crate::lifecycle::settle_checklist;
 use crate::performance::{
@@ -236,7 +237,15 @@ async fn overview(State(state): State<HrState>, caller: Caller) -> HrResult {
     let today = today_iso();
     let profile = employee_profile(db, &employee_id).await?;
     let open_clock = open_clock_record(db, &employee_id).await?;
-    let shifts = list_shifts(db, &today, &add_days(&today, 13), Some(&employee_id), None).await?;
+    let shifts = list_shifts(
+        db,
+        &today,
+        &add_days(&today, 13),
+        Some(&employee_id),
+        None,
+        &Scope::ALL,
+    )
+    .await?;
     let balances = leave_balances(db, &employee_id, year_of(&today)).await?;
     let tasks = employee_tasks(db, &employee_id).await?;
     let coaching = list_coaching_logs(
@@ -257,7 +266,7 @@ async fn overview(State(state): State<HrState>, caller: Caller) -> HrResult {
         },
     )
     .await?;
-    let milestones = list_milestones(db, Some(&employee_id), None, None).await?;
+    let milestones = list_milestones(db, Some(&employee_id), None, None, &Scope::ALL).await?;
     let unread = crate::announcements::unread_announcement_count(db, &employee_id).await?;
     let open_shifts = crate::open_shifts::open_shifts_for_employee(db, &employee_id).await?;
     let upcoming: Vec<Value> = shifts
@@ -416,7 +425,7 @@ async fn employee_attendance(
         ..AttendanceFilters::default()
     };
     let (records, ..) = list_attendance(db, &filters).await?;
-    let shifts = list_shifts(db, from, to, Some(employee_id), None).await?;
+    let shifts = list_shifts(db, from, to, Some(employee_id), None, &Scope::ALL).await?;
     let compensations: Vec<Value> =
         sqlx::query_scalar("select to_jsonb(t) from hr_compensations t where t.employee_id = $1")
             .bind(employee_id)
@@ -430,6 +439,7 @@ async fn employee_attendance(
         Some("pending,rejected"),
         Some(from),
         Some(to),
+        &Scope::ALL,
     )
     .await?;
     let pay_on = |date: &str, out: &mut serde_json::Map<String, Value>| {
@@ -730,7 +740,8 @@ async fn leave(State(state): State<HrState>, caller: Caller) -> HrResult {
     let db = &caller.db;
     let types = list_leave_types(db, false).await?;
     let balances = leave_balances(db, &employee_id, year_of(&today_iso())).await?;
-    let requests = list_leave_requests(db, Some(&employee_id), None, None, None).await?;
+    let requests =
+        list_leave_requests(db, Some(&employee_id), None, None, None, &Scope::ALL).await?;
     let type_keys = ["id", "name", "color", "requiresApproval"];
     let request_keys = [
         "id",
@@ -1051,9 +1062,11 @@ async fn performance(State(state): State<HrState>, caller: Caller) -> HrResult {
         None,
         Some(&since),
         None,
+        &Scope::ALL,
     )
     .await?;
-    let milestones = list_milestones(&caller.db, Some(&employee_id), None, None).await?;
+    let milestones =
+        list_milestones(&caller.db, Some(&employee_id), None, None, &Scope::ALL).await?;
     let kpi_keys = [
         "id",
         "kpiId",

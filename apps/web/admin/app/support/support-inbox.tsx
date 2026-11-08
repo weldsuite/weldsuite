@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useStaffProfile } from '@/lib/auth-client';
 import { useSupportRoom } from '@weldsuite/realtime/react';
 import {
   Headphones,
@@ -20,8 +20,6 @@ import type { SupportWorkspace } from '@/lib/support-data';
 import { fetchSupportMessages } from '@/actions/support-messages';
 import { replyToSupport } from '@/actions/support';
 
-const REALTIME_URL = process.env.NEXT_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
-
 type Message = {
   id: string;
   channelId: string;
@@ -33,7 +31,10 @@ type Message = {
   createdAt: Date | string;
 };
 
-export function SupportInbox({ workspaces }: Readonly<{ workspaces: SupportWorkspace[] }>) {
+export function SupportInbox({
+  workspaces,
+  realtimeUrl,
+}: Readonly<{ workspaces: SupportWorkspace[]; realtimeUrl: string }>) {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const selected = workspaces.find((ws) => ws.clerkOrgId === selectedOrgId);
 
@@ -54,7 +55,12 @@ export function SupportInbox({ workspaces }: Readonly<{ workspaces: SupportWorks
       </div>
 
       {selectedOrgId && selected ? (
-        <ChatView key={selectedOrgId} orgId={selectedOrgId} workspaceName={selected.name} />
+        <ChatView
+          key={selectedOrgId}
+          orgId={selectedOrgId}
+          workspaceName={selected.name}
+          realtimeUrl={realtimeUrl}
+        />
       ) : (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <div className="space-y-2 text-center">
@@ -130,9 +136,12 @@ function WorkspaceList({
   );
 }
 
-function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceName: string }>) {
-  const { getToken } = useAuth();
-  const { user } = useUser();
+function ChatView({
+  orgId,
+  workspaceName,
+  realtimeUrl,
+}: Readonly<{ orgId: string; workspaceName: string; realtimeUrl: string }>) {
+  const staff = useStaffProfile();
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -146,12 +155,11 @@ function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceN
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const stableGetToken = useCallback(async () => (await getToken()) || '', [getToken]);
-  const adminName = user?.fullName || user?.firstName || 'Support';
+  const adminName = staff.name || 'Support';
 
   const { on, typingUsers, startTyping, stopTyping } = useSupportRoom(orgId, {
-    baseUrl: REALTIME_URL,
-    getToken: stableGetToken,
+    baseUrl: realtimeUrl,
+    getToken: staff.getToken,
     userName: adminName,
   });
 
@@ -218,7 +226,7 @@ function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceN
         orgId,
         content: trimmed,
         authorName: adminName,
-        authorAvatar: user?.imageUrl ?? null,
+        authorAvatar: staff.imageUrl,
       });
       if (result.ok) {
         await reload();

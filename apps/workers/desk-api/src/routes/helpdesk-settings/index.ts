@@ -18,6 +18,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import type { TicketSettings, SatisfactionSettings } from '@weldsuite/db/schema/helpdesk-settings';
+import { priorityMatrixRoutes } from './priority-matrix';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -604,5 +605,8 @@ app.delete('/widgets/:widgetId', requirePermission('settings:delete'), async (c)
     return error.internal(c, 'Failed to delete widget');
   }
 });
+
+// WeldDesk's impact × urgency priority matrix (tickets.priorityMatrix).
+app.route('/priority-matrix', priorityMatrixRoutes);
 
 export const helpdeskSettingsRoutes = app;

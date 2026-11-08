@@ -53,6 +53,8 @@ import {
   updateKpiValue,
   updateMilestone,
 } from '../../services/weldhr/performance';
+import { schema } from '@weldsuite/worker-kit/db';
+import { assertEmployeeVisible, employeeEntityCondition, guardRecord, viaEmployee } from './entity-scope';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
@@ -64,6 +66,12 @@ const dateParam = (value: string | undefined) => (value && isoDate.test(value) ?
 // ---------------------------------------------------------------------------
 
 export const coachingRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  coachingRoutes,
+  'coachingId',
+  'Coaching log',
+  viaEmployee(schema.hrCoachingLogs, schema.hrCoachingLogs.id, schema.hrCoachingLogs.employeeId),
+);
 
 coachingRoutes.get('/', requirePermission('coaching:read'), async (c) => {
   const q = c.req.query();
@@ -77,6 +85,7 @@ coachingRoutes.get('/', requirePermission('coaching:read'), async (c) => {
       from: dateParam(q.from),
       to: dateParam(q.to),
       followUpDue: q.followUpDue === 'true',
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
@@ -86,6 +95,7 @@ coachingRoutes.get('/:coachingId', requirePermission('coaching:read'), async (c)
 });
 
 coachingRoutes.post('/', requirePermission('coaching:create'), hrJson(createHrCoachingLogSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createCoachingLog(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_coaching_log', 'created', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, row, 201);
@@ -133,6 +143,12 @@ evaluationFormsRoutes.delete('/:formId', requirePermission('employees:manage'), 
 // ---------------------------------------------------------------------------
 
 export const evaluationsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  evaluationsRoutes,
+  'evaluationId',
+  'Evaluation',
+  viaEmployee(schema.hrEvaluations, schema.hrEvaluations.id, schema.hrEvaluations.employeeId),
+);
 
 evaluationsRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   const q = c.req.query();
@@ -145,6 +161,7 @@ evaluationsRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
       formId: q.formId || undefined,
       from: dateParam(q.from),
       to: dateParam(q.to),
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
@@ -154,6 +171,7 @@ evaluationsRoutes.get('/:evaluationId', requirePermission('evaluations:read'), a
 });
 
 evaluationsRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrEvaluationSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createEvaluation(db(c), c.req.valid('json'), actor(c));
   emit(
     c,
@@ -209,6 +227,12 @@ kpisRoutes.delete('/:kpiId', requirePermission('employees:manage'), async (c) =>
 });
 
 export const kpiValuesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  kpiValuesRoutes,
+  'kpiValueId',
+  'KPI value',
+  viaEmployee(schema.hrKpiValues, schema.hrKpiValues.id, schema.hrKpiValues.employeeId),
+);
 
 kpiValuesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   const q = c.req.query();
@@ -220,18 +244,20 @@ kpiValuesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
       companyId: q.companyId || undefined,
       from: dateParam(q.from),
       to: dateParam(q.to),
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 kpiValuesRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrKpiValueSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createKpiValue(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_kpi_value', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId });
   return success(c, row, 201);
 });
 
 kpiValuesRoutes.post('/import', requirePermission('evaluations:create'), hrJson(importHrKpiValuesSchema), async (c) => {
-  return success(c, await importKpiValues(db(c), c.req.valid('json'), actor(c)));
+  return success(c, await importKpiValues(db(c), { ...c.req.valid('json'), entity: await employeeEntityCondition(c) }, actor(c)));
 });
 
 kpiValuesRoutes.patch('/:kpiValueId', requirePermission('evaluations:update'), hrJson(updateHrKpiValueSchema), async (c) => {
@@ -253,6 +279,12 @@ kpiValuesRoutes.delete('/:kpiValueId', requirePermission('evaluations:delete'), 
 // ---------------------------------------------------------------------------
 
 export const milestonesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  milestonesRoutes,
+  'milestoneId',
+  'Milestone',
+  viaEmployee(schema.hrMilestones, schema.hrMilestones.id, schema.hrMilestones.employeeId),
+);
 
 milestonesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   const q = c.req.query();
@@ -262,11 +294,13 @@ milestonesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
       employeeId: q.employeeId || undefined,
       companyId: q.companyId || undefined,
       status: q.status || undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 milestonesRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrMilestoneSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createMilestone(db(c), c.req.valid('json'), actor(c));
   emit(
     c,

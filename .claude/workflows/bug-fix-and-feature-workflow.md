@@ -99,7 +99,7 @@ For features: triage is replaced by a design sketch from the dispatched speciali
 
 ### 4. Implement + DoD
 
-The specialist writes the code in a **new branch off `develop`**, named `fix/<task-id>-<slug>` or `feat/<task-id>-<slug>`.
+The specialist writes the code in a **new branch off `main`**, named `fix/<task-id>-<slug>` or `feat/<task-id>-<slug>`.
 
 Definition of Done (run before opening PR):
 
@@ -115,7 +115,7 @@ Definition of Done (run before opening PR):
 
 ### 5. PR → merge → close task (`/done <task-id>`)
 
-- Open the PR against `develop` with WeldSuite task ID in title
+- Open the PR against `main` with WeldSuite task ID in title
 - Merge **before** picking up the next task
 - `/done` comments on the WeldSuite task with PR URL + flips status to `done`
 
@@ -152,18 +152,18 @@ Don't bundle if:
 ## Branching & rebasing
 
 ```
-develop ──A───B───C───D────────────────► (main integration branch)
+main ─────A───B───C───D────────────────► (the only branch)
               │
-              └── fix/<task-id>-slug ──● open PR ──● merge to develop
+              └── fix/<task-id>-slug ──● open PR ──● merge to main
                                          │
-                                  (rebase on develop
+                                  (rebase on main
                                    immediately before
-                                   pushing if develop
+                                   pushing if main
                                    moved while you worked)
 ```
 
-- Branch off `develop`.
-- Rebase on `develop` **just before** opening the PR if `develop` moved.
+- Branch off `main`.
+- Rebase on `main` **just before** opening the PR if `main` moved.
 - Never have two long-lived branches at the same time.
 
 ---

@@ -61,6 +61,7 @@ weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-mail-inbound = { workspace = true }
+weldsuite-mta = { workspace = true }
 weldsuite-meet = { workspace = true }
 weldsuite-merge = { workspace = true }
 weldsuite-panel = { workspace = true }
@@ -93,6 +94,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio-util = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true, features = ["cors", "fs", "trace"] }

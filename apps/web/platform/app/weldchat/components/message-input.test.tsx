@@ -352,6 +352,46 @@ describe('MessageInput: edit and reply cancel', () => {
   });
 });
 
+describe('MessageInput: submit override', () => {
+  it('clears on submit and puts the text and reply target back when the override rejects', async () => {
+    const target = { messageId: 'thr_1', authorName: 'Zed', content: 'quoted' };
+    mocks.ctx.replyTo = target;
+    let reject: (error: Error) => void = () => {};
+    const onSubmitOverride = vi.fn(() => new Promise<void>((_, rej) => (reject = rej)));
+    const { container } = render(<MessageInput channelId="" saveDraft={false} onSubmitOverride={onSubmitOverride} />);
+    const editor = editorOf(container);
+    type(editor, 'hi <@user_2>');
+    editor.innerHTML = `hi ${CHIP}`;
+    fireEvent.input(editor);
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    expect(onSubmitOverride).toHaveBeenCalledWith({ content: 'hi <@user_2>', mentions: ['user_2'], attachments: [] });
+    expect(editor.textContent).toBe('');
+    expect(mocks.setReplyTo).toHaveBeenLastCalledWith(null);
+
+    await act(async () => reject(new Error('account_not_linked')));
+
+    expect(editor.textContent).toBe('hi @Zed');
+    expect(editor.querySelector('.mention-badge')?.getAttribute('data-userid')).toBe('user_2');
+    expect(mocks.setReplyTo).toHaveBeenLastCalledWith(target);
+  });
+
+  it('leaves what was typed meanwhile when the override rejects', async () => {
+    let reject: (error: Error) => void = () => {};
+    const onSubmitOverride = vi.fn(() => new Promise<void>((_, rej) => (reject = rej)));
+    const { container } = render(<MessageInput channelId="" saveDraft={false} onSubmitOverride={onSubmitOverride} />);
+    const editor = editorOf(container);
+    type(editor, 'first');
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    type(editor, 'second');
+
+    await act(async () => reject(new Error('provider_error')));
+
+    expect(editor.textContent).toBe('second');
+  });
+});
+
 describe('MessageInput: draft restore', () => {
   it('renders a restored draft with chips instead of raw tokens', () => {
     const { container } = render(<MessageInput channelId="ch_1" />);

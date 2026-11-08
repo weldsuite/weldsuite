@@ -1614,15 +1614,48 @@ async fn ingest_document(
     Ok(())
 }
 
+/// `resolveIngestEntityId(args)`: the entity the run names, else the
+/// default WeldBooks entity ([`load_default_entity_id`]).
 async fn resolve_entity_id(args: &IngestArgs<'_>) -> Result<Option<String>, sqlx::Error> {
     if let Some(id) = args.entity_id.filter(|e| !e.is_empty()) {
         return Ok(Some(id.to_owned()));
     }
-    let default: Option<Option<String>> =
+    load_default_entity_id(args.db).await
+}
+
+/// `loadDefaultEntityId(db)`: the workspace's default legal entity when
+/// WeldBooks is enabled for it (an `accounting_entity_settings` row), else
+/// the deprecated `settings.default_entity_id` when it is. The same rule as
+/// `defaultEntityIdFor(db, 'weldbooks')` of the legal entities core, without
+/// depending on it. No member is involved.
+async fn load_default_entity_id(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    async fn enabled(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
+        let row: Option<String> = sqlx::query_scalar(
+            "select entity_id from accounting_entity_settings where entity_id = $1 limit 1",
+        )
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+        Ok(row.is_some())
+    }
+    let core: Option<String> = sqlx::query_scalar(
+        "select id from entities where is_default = true and deleted_at is null limit 1",
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(core) = core
+        && enabled(db, &core).await?
+    {
+        return Ok(Some(core));
+    }
+    let settings: Option<Option<String>> =
         sqlx::query_scalar("select default_entity_id from settings limit 1")
-            .fetch_optional(args.db)
+            .fetch_optional(db)
             .await?;
-    Ok(default.flatten())
+    match settings.flatten().filter(|id| !id.is_empty()) {
+        Some(id) if enabled(db, &id).await? => Ok(Some(id)),
+        _ => Ok(None),
+    }
 }
 
 async fn ingest_accounting_record(

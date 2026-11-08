@@ -30,6 +30,7 @@ use weldsuite_books_domain::sales_tax::document_tax::{
 };
 use weldsuite_books_domain::tables::{INVOICES, PAYMENTS};
 use weldsuite_books_domain::{attachments, books_row};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::finalize::{load_invoice, load_items};
@@ -101,6 +102,9 @@ where
             "/from-order/{order_id}",
             post(from_order::create).route_layer(need("invoices:create")),
         )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(EntityRecordGuard::table(EntityTable::new("invoices"), "Invoice").layer())
         .with_state(state)
 }
 

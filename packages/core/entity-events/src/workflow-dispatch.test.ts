@@ -39,6 +39,10 @@ describe('deriveEventTypes', () => {
     expect(types).toEqual(['updated', 'status_changed', 'assigned', 'tagged', 'priority_changed']);
   });
 
+  it('reads the WeldDesk inbox state as state_changed', () => {
+    expect(deriveEventTypes('updated', { state: { old: 'open', new: 'closed' } })).toEqual(['updated', 'state_changed']);
+  });
+
   it('only adds the event types whose fields actually changed', () => {
     expect(deriveEventTypes('updated', { status: { old: 'a', new: 'b' } })).toEqual([
       'updated',

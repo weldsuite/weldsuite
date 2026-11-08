@@ -4,6 +4,17 @@ import userEvent from '@testing-library/user-event';
 
 const env = vi.hoisted(() => ({ push: vi.fn(), post: vi.fn() }));
 
+vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
+  useLegalEntities: (options?: { app?: string }) => ({
+    data: options?.app === 'weldbooks'
+      ? [{ id: 'ent_with_books', name: 'Has Books BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', isActive: true }]
+      : [
+          { id: 'ent_with_books', name: 'Has Books BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', isActive: true },
+          { id: 'ent_hr_only', name: 'HR Only BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', isActive: true },
+        ],
+    isLoading: false,
+  }),
+}));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: env.push }) }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ setEntityId: vi.fn() }) }));
 vi.mock('@/lib/api/weldbooks-client', () => ({
@@ -74,6 +85,27 @@ describe('CreateEntityDialog', { timeout: 30_000 }, () => {
       baseCurrency: 'EUR',
       address: { line1: 'Damrak 1', postalCode: '1012 LG', city: 'Amsterdam', country: 'NL' },
     });
+  });
+
+  it('creates a WeldBooks administration from an existing legal entity', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<CreateEntityDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('tab', { name: 'Use an existing legal entity' }));
+    // Name, address and tax numbers come from the entity, so they are not asked for here.
+    expect(screen.queryByTestId('entity-address')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Create/ })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('Legal entity'));
+    // An entity that already has WeldBooks is not offered.
+    expect(screen.queryByRole('option', { name: /Has Books BV/ })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('option', { name: /HR Only BV/ }));
+    await user.click(screen.getByRole('button', { name: /^Create/ }));
+
+    await waitFor(() => expect(env.post).toHaveBeenCalledTimes(1));
+    expect(env.post.mock.calls[0][0]).toBe('/accounting-entities');
+    expect(env.post.mock.calls[0][1]).toMatchObject({ legalEntityId: 'ent_hr_only', seedDefaults: true });
+    expect(env.post.mock.calls[0][1]).not.toHaveProperty('name');
   });
 
   it('asks an Indian entity for its address with a GST state picker', async () => {

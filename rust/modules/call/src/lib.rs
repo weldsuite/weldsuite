@@ -23,6 +23,7 @@ mod calls;
 mod credits;
 mod crm;
 mod desk_phone;
+mod desk_routing;
 mod intelligence;
 mod internal;
 mod js;
@@ -85,6 +86,10 @@ pub struct CallState {
     /// Workspaces' tenant databases for the webhook. A request's `Tenant`
     /// (conformance) wins.
     pub tenants: Option<TenantDatabases>,
+    /// WeldDesk's `AssignmentRouter` for phone conversations; without it the
+    /// pick is the local balanced one (as the worker without the binding).
+    pub assignment:
+        Option<std::sync::Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 impl std::fmt::Debug for CallState {

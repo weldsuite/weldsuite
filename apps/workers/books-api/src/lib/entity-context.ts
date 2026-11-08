@@ -2,21 +2,24 @@ import type { Context } from 'hono';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { canSeeEntity, getEntityAccess, getRequestEntityId, recordInRequestEntity } from '@weldsuite/core-domain/legal-entities';
 
 /** One resolution per request: routes and the services they call ask more than once. */
 const resolvedEntityIds = new WeakMap<Context, Promise<string | null>>();
 
 /**
  * Resolve the entity this request targets.
- * Precedence:
- *   1. `X-Accounting-Entity-Id` header (UI sends when user has switched entity)
- *   2. `?entityId=...` query param
- *   3. `settings.defaultEntityId` (workspace default)
  *
- * The id must name an entity of this workspace that isn't deleted. One that
- * doesn't (a selection kept from another workspace, a deleted entity) resolves
- * to null, so the route refuses or lists nothing instead of writing documents
- * under an entity that doesn't exist here.
+ * Behind `legalEntityContext()` (every `/api/*` request of the worker) that
+ * is the middleware's answer: `X-Legal-Entity-Id`, `X-Accounting-Entity-Id`,
+ * `?entityId`, else the default entity, checked against the member's access
+ * and WeldBooks being enabled for it. An entity that is unknown, deleted, not
+ * visible or not in WeldBooks resolves to null, so the route refuses or lists
+ * nothing instead of writing under an entity that isn't there.
+ *
+ * Without the middleware (cron, internal routes, unit tests that mount a
+ * router alone) the old resolution applies: the `X-Accounting-Entity-Id`
+ * header, `?entityId`, then `settings.defaultEntityId`.
  */
 export function resolveEntityId(c: Context, db: any): Promise<string | null> {
   let resolved = resolvedEntityIds.get(c);
@@ -28,6 +31,8 @@ export function resolveEntityId(c: Context, db: any): Promise<string | null> {
 }
 
 async function resolveEntityIdUncached(c: Context, db: any): Promise<string | null> {
+  const fromMiddleware = getRequestEntityId(c);
+  if (fromMiddleware) return fromMiddleware;
   const requested = c.req.header('x-accounting-entity-id') || c.req.query('entityId');
   if (requested) return (await entityExists(db, requested)) ? requested : null;
 
@@ -38,16 +43,22 @@ async function resolveEntityIdUncached(c: Context, db: any): Promise<string | nu
 
 /**
  * The entity a write targets when the body may name one: that id only when it
- * is an entity of this workspace that isn't deleted, else what
- * `resolveEntityId` resolves.
+ * is a live entity the member sees and may act in with the role this request
+ * was checked with (`recordInRequestEntity`), else null; without a named
+ * entity, what `resolveEntityId` resolves.
  */
 export async function resolveRequestedEntityId(
   c: Context,
   db: any,
   requested: string | null | undefined,
 ): Promise<string | null> {
-  if (requested) return (await entityExists(db, requested)) ? requested : null;
-  return resolveEntityId(c, db);
+  if (!requested) return resolveEntityId(c, db);
+  if (!(await entityExists(db, requested))) return null;
+  // No member (a trusted internal caller): nobody's access to check.
+  if (!c.get('userId')) return requested;
+  const access = await getEntityAccess(c);
+  if (!canSeeEntity(access, requested)) return null;
+  return (await recordInRequestEntity(c, requested)) ? requested : null;
 }
 
 /** Whether an id names an accounting entity of this workspace that isn't deleted. */

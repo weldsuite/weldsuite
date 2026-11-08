@@ -17,8 +17,9 @@
 import { eq } from 'drizzle-orm';
 import type { HrPayRunTotals } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { HrNotFoundError, HrPayrollError } from '../shared';
-import type { EmployerRow, RunRow } from './common';
+import { HrPayrollError } from '../shared';
+import { BOOKS_NOT_ENABLED, type RunRow } from './common';
+import { loadEmployerForPayroll, type PayrollEmployer } from './employer-context';
 import type { JournalTotals, PayrollDeps } from './deps';
 import { requireRun } from './runs';
 
@@ -56,8 +57,7 @@ export async function postRunJournal(db: Database, runId: string, deps: PayrollD
   if (run.status !== 'approved' && run.status !== 'paid') {
     throw new HrPayrollError('RUN_NOT_APPROVED', `This pay run is ${run.status}; the journal is posted once the run is approved`, 409);
   }
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
-  if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
+  const employer = await loadEmployerForPayroll(db, run.employerId, deps.keyring);
   const outcome = await attemptJournal(run, employer, deps, ctx);
   await db
     .update(schema.hrPayRuns)
@@ -71,14 +71,18 @@ export async function postRunJournal(db: Database, runId: string, deps: PayrollD
   return outcome;
 }
 
-async function attemptJournal(run: RunRow, employer: EmployerRow, deps: PayrollDeps, ctx: { userId: string | null }): Promise<JournalOutcome> {
-  if (!employer.accountingEntityId) return { status: 'skipped', error: null, journalEntryId: null };
+async function attemptJournal(run: RunRow, employer: PayrollEmployer, deps: PayrollDeps, ctx: { userId: string | null }): Promise<JournalOutcome> {
+  // The journal belongs to the employer's legal entity. An employer from before the entities keeps its WeldBooks link.
+  let entityId: string | null;
+  if (employer.legalEntityId) entityId = employer.links.booksEnabled ? employer.legalEntityId : null;
+  else entityId = employer.accountingEntityId;
+  if (!entityId) return { status: 'skipped', error: employer.legalEntityId ? BOOKS_NOT_ENABLED : null, journalEntryId: null };
   if (!deps.books) return { status: 'skipped', error: 'The WeldBooks link (BOOKS_INTERNAL) is not configured on this worker', journalEntryId: null };
   if (!run.totals) return { status: 'failed', error: 'The run has no totals to post', journalEntryId: null };
 
   const label = run.kind === 'correction' ? 'Payroll correction' : 'Payroll';
   const result = await deps.books.postPayroll(deps.workspaceKey, {
-    entityId: employer.accountingEntityId,
+    entityId,
     externalId: run.id,
     payDate: run.payDate,
     periodStart: run.periodStart,

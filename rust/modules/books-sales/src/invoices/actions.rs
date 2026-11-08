@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bad_debt::write_off_invoice;
 use weldsuite_books_domain::contacts::document_contact_fields;
 use weldsuite_books_domain::entity_context::{
-    SequenceType, next_entity_number, resolve_entity_base_currency,
+    SequenceType, next_entity_number, records_in_entity, resolve_entity_base_currency,
 };
 use weldsuite_books_domain::fx::{RateQuery, draft_rate};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -27,6 +27,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Presence;
+use weldsuite_legal_entities::EntityTable;
 
 use super::{event_data, fields_of, js_date, total_or_zero};
 use crate::body::read_record_payment;
@@ -904,6 +905,11 @@ async fn apply_credit_route(
         && amount.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
     {
         return Err(Refusal::bad_request("The amount must be greater than zero").into());
+    }
+    if let Some(invoice) = invoice_id.as_deref()
+        && !records_in_entity(caller, &EntityTable::new("invoices"), &[invoice]).await?
+    {
+        return Err(Refusal::not_found("Invoice", invoice).into());
     }
     let Some(applied) = apply_credit_note(db, id, invoice_id.as_deref(), amount).await? else {
         return Err(Refusal::bad_request(

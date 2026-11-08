@@ -1,12 +1,16 @@
-'use server';
+/**
+ * The support inbox's message loader, as a server function. The body is in
+ * `./support-messages.server.ts`; the export here keeps that function's
+ * signature and runs it on the server.
+ */
+import { createServerFn } from '@tanstack/react-start';
+import { fetchSupportMessages as fetchSupportMessagesOnServer } from './support-messages.server';
+import { globalOnly } from '@/lib/edition';
 
-import { requireAdmin } from '@/lib/auth';
-import { listSupportMessages, type SupportMessageList } from '@/lib/support-data';
+type Server = typeof import('./support-messages.server');
 
-export async function fetchSupportMessages(
-  orgId: string,
-  before?: string,
-): Promise<SupportMessageList> {
-  await requireAdmin();
-  return listSupportMessages(orgId, { before, limit: 50 });
-}
+const fetchSupportMessagesFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
+  .validator((args: Parameters<Server['fetchSupportMessages']>) => args)
+  .handler(({ data }) => fetchSupportMessagesOnServer(...data));
+export const fetchSupportMessages = (...args: Parameters<Server['fetchSupportMessages']>) =>
+  fetchSupportMessagesFn({ data: args });
