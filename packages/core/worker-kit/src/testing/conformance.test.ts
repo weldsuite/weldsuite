@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstDifference, normalizeForDiff } from './conformance';
+import { alignClockSeconds, firstDifference, normalizeForDiff } from './conformance';
 import { schemaFor } from './conformance-schemas';
 
 describe('conformance comparison', () => {
@@ -50,6 +50,39 @@ describe('conformance comparison', () => {
     // Longer or shorter hex runs are not tokens.
     expect(normalizeForDiff('a'.repeat(33), true)).toBe('a'.repeat(33));
     expect(normalizeForDiff('a'.repeat(31), true)).toBe('a'.repeat(31));
+  });
+
+  it("lets seconds counted to each run's own now differ only by what their instants do", () => {
+    const closed = (resolvedAt: string, resolutionSeconds: number | null) => ({
+      data: { conversation: { id: 'dconv_dup', resolvedAt, resolutionSeconds, firstResponseAt: null, firstResponseSeconds: null } },
+    });
+    const compare = (ts: unknown, rust: unknown) =>
+      firstDifference(normalizeForDiff(ts, true), normalizeForDiff(alignClockSeconds(ts, rust), true));
+
+    // Main CI run 42524631286: the clock ticked over between the two runs.
+    const ts = closed('2026-11-08T21:27:59.990Z', 26904419);
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904420))).toBeNull();
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904419))).toBeNull();
+    // Without the alignment the same pair differs.
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(closed('2026-11-08T21:28:00.015Z', 26904420), true))).toBe(
+      '$.data.conversation.resolutionSeconds: 26904419 vs 26904420',
+    );
+
+    // More than the instants are apart, or the wrong way round, still differs.
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904421))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904421');
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904418))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904418');
+    // The same instant (stored before the request) compares exactly.
+    expect(compare(ts, closed('2026-11-08T21:27:59.990Z', 26904420))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904420');
+    // A count against none.
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', null))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs null');
+
+    // The first response, in an entity event's row as in the answer.
+    const replied = (firstResponseAt: string, firstResponseSeconds: number) => ({
+      events: [{ entityType: 'desk_conversation', data: { firstResponseAt, firstResponseSeconds, resolvedAt: null, resolutionSeconds: null } }],
+    });
+    expect(compare(replied('2026-11-08T21:27:59.999Z', 5399), replied('2026-11-08T21:28:00.001Z', 5400))).toBeNull();
+    // A seconds field with no instant next to it is not touched.
+    expect(compare({ data: { resolutionSeconds: 5 } }, { data: { resolutionSeconds: 6 } })).toBe('$.data.resolutionSeconds: 5 vs 6');
   });
 
   it('reports missing fields, extra fields and length differences', () => {
