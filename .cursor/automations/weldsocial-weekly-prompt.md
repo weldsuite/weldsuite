@@ -8,7 +8,7 @@ Paste this prompt into a new automation at https://cursor.com/automations/new
 |--------|--------|
 | Name | WeldSocial weekly approval queue |
 | Trigger | Scheduled — Monday `0 8 * * 1` (Europe/Amsterdam) |
-| Repository | `weldsuite/weldsuite` on `develop` (needed for brand scripts + hosting assets) |
+| Repository | `weldsuite/weldsuite` on `main` (needed for brand scripts + hosting assets) |
 | Tools | WeldSuite MCP, **Higgsfield MCP**, Memories, optional Send to Slack |
 | Model | Your strongest available agent model |
 | Scope | Private or Team Owned (Team Owned needs WeldSuite MCP on the team service account) |

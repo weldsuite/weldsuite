@@ -53,7 +53,7 @@ Toolchain is already provisioned (Node 22, pnpm 10.34.5). The startup update
 script runs `pnpm install`; you normally don't need to reinstall.
 
 ### Branches
-Daily work goes to **`develop`** and deploys to test (`app-test.weldsuite.org`). Merge `develop` → **`main`** to deploy production (`app.weldsuite.org`).
+One branch: **`main`**. Every PR targets `main`, and a merge that passes CI deploys to test (`app-test.weldsuite.org`). Production (`app.weldsuite.org`) goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`.
 
 The hosted product depends on Clerk, Neon, Cloudflare, and Stripe. Local UI needs `VITE_CLERK_PUBLISHABLE_KEY`; a logged-in flow also needs a provisioned workspace.
 

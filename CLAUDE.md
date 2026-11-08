@@ -164,8 +164,9 @@ pnpm deploy:production    # production workers
 pnpm deploy:test          # test workers (app-api-test.weldsuite.org, etc.)
 ```
 **Two worker environments:** `test` (`[env.test]`, hostnames `*-test.weldsuite.org`) and
-`production` (`[env.production]`). Push `develop` to deploy test; push `main` to
-deploy production. `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
+`production` (`[env.production]`). A merge to `main` deploys test once CI
+passes; production goes out only through Promote in `weldsuite/weldsuite-deploy`
+(see CI/CD). `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
 The top-level (no `--env`) config is for `wrangler dev` only and is named
 `<worker>-dev`, never a deployed name, so a `wrangler deploy` / `secret put` /
 `tail` without `--env` cannot reach production. Always pass `--env test` or
@@ -459,19 +460,36 @@ before building any UI.
 
 ## CI/CD
 
-`develop` deploys **test**. `main` deploys **production**. Secrets live on the
-GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
+One branch: **`main`**, the default. Every PR targets `main`. Required checks:
+`Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`,
+`Unit · app-api`, `Unit · platform`, `Rust`, plus `WeldSuite Review`. Merge,
+squash or rebase.
+
+Every merge to `main` runs CI. When CI passes, `handoff.yml` starts
+`deploy-test` in the private repo `weldsuite/weldsuite-deploy`, which deploys
+that commit to **test** (`*-test.weldsuite.org`, `app-test.weldsuite.org`).
+**Production** goes out only through the **Promote** workflow in
+`weldsuite-deploy`, run by people with write access there (never a bot). It
+deploys a commit test already deployed. Nothing deploys production on a push.
+The GitHub Environments `test` and `production` and their secrets live in
+`weldsuite-deploy` (see `.github/SECRETS.md`). The decision is ADR OPS-018,
+which supersedes OPS-004.
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
-| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
+| `ci.yml` | PR + push to `main` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
-| `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
+| `handoff.yml` | CI passed on a push to `main` → starts the private `deploy-test` | n/a |
 | `release-desktop.yml` | manual | n/a |
 
-`deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
+The deploy logic stays in this repo: composite actions
+(`.github/actions/deploy-*`) and scripts (`.github/scripts/deploy-plan.mjs`,
+`deploy-diff-base.mjs`, `module-workers.mjs`, `vercel-apps.mjs`). There is no
+public `deploy.yml` or `deploy-hosted-apps.yml`; `deploy-test` and Promote run
+these actions from a checkout of this repo at the deployed commit:
+**Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
 (path-gated) → **Pages** (the platform always; WeldMail, WeldCalendar, developer
 portal when changed) + **Vercel** (only changed
@@ -481,26 +499,27 @@ for the TanStack Start apps (`start-workers`: help center, sign portal, project
 portal, admin console; the admin console deploys only to the environments the
 repository variable `ADMIN_WORKER_ENVS` names).
 
-`deploy.yml` is only the job graph: the logic is in composite actions
-(`.github/actions/deploy-*`) and scripts (`.github/scripts/deploy-*.mjs`), and
-every target is named in `.github/scripts/deploy-plan.mjs` (path filters in
+Every target is named in `.github/scripts/deploy-plan.mjs` (path filters in
 `.github/actions/deploy-prepare/filters.yml`). A new core worker, mobile app,
-Pages app or TanStack Start app goes there, never into a workflow: the private
-deploy repo planned in `docs/plans/main-only-private-deploys.md` (ADR OPS-018)
-runs the same actions.
+Pages app or TanStack Start app goes there, never into a workflow, so it still
+changes only this repo.
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git
 integration builds nothing, not even PR previews. A new Vercel
-app needs an entry in `vercel-apps.mjs`, the same `vercel.json` block, and its
-folder in `deploy.yml`'s `on.push.paths`.
+app needs an entry in `vercel-apps.mjs` and the same `vercel.json` block.
+
+Two `develop` labels stay on purpose: the test Pages projects are deployed with
+the branch label `develop`, and Vercel test builds pull the Preview env vars for
+branch `develop` and alias the domains bound to it. Those are settings on the
+Cloudflare and Vercel projects, not git branches. Don't rename them.
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.34.5 + Node 22 and caches the pnpm store + turbo cache.
 
 ### Frontend deploys
 
-- Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (push to `develop`)
-- Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (push to `main`)
+- Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (every merge to `main` that passes CI)
+- Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (Promote in `weldsuite-deploy`)
 
 Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions is the only releaser. PR preview deployments (`*.weldsuite.pages.dev`) can stay on.
 
@@ -508,7 +527,7 @@ Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions i
 `deploy:production` scripts (which shell out to `vercel`) are **dead code**.
 Cloudflare Pages is the real path.
 
-Environments: local wrangler → **test** (`develop`) → **production** (`main`).
+Environments: local wrangler → **test** (every green `main` commit) → **production** (Promote).
 
 ## Critical Files
 
@@ -523,7 +542,7 @@ Environments: local wrangler → **test** (`develop`) → **production** (`main`
    `packages/core/db/drizzle/`, All Drizzle migrations (master + tenant SQL + meta journal)
    `apps/tools/migrate-databases/src/index.ts`, Tenant migration runner used by CI
 9. `turbo.json`, Build pipeline
-10. `.github/workflows/deploy.yml`, Deployment
+10. `.github/scripts/deploy-plan.mjs` + `.github/actions/deploy-*`, Deployment (run by `weldsuite/weldsuite-deploy`)
 
 ## Important Notes
 

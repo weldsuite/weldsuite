@@ -701,11 +701,13 @@ Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
 `ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
 `ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
-`sha-<12 characters of the commit>`, on every push to `develop` or a
+`sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`. Production runs releases: the
-"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
-of those builds to a version, `X.Y.Z`, with the same image digests and the
+`main` also moves the tag `main` and publishes the chart as
+`<base>-main.<run>`; the EU test cluster follows the newest one. Production
+runs releases: the "Rust release" workflow
+(`.github/workflows/rust-release.yml`) promotes one of those builds, a commit
+on `main`, to a version, `X.Y.Z`, with the same image digests and the
 chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in

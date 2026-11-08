@@ -97,7 +97,7 @@ The `webServer` block in `playwright.config.ts` starts `pnpm dev` automatically 
 
 ### In CI
 
-`pr-checks.yml` runs the suite on every PR against `main` or `develop`, plus every push to `develop`. The job uses the three secrets above; if any are unset, the seed-driven specs `test.skip()` themselves with a clear message and the rest of the suite still runs.
+`pr-checks.yml` runs the suite on every PR against `main`, plus every push to `main`. The job uses the three secrets above; if any are unset, the seed-driven specs `test.skip()` themselves with a clear message and the rest of the suite still runs.
 
 `deploy.yml` runs the same suite as part of the `tests` job that gates production deploys. Worker deploys and migrations both `needs: tests`, so a red Playwright run blocks the deploy.
 

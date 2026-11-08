@@ -10,7 +10,7 @@ deployment branch policies:
 
 | Environment | Allowed branches | Notes |
 |---|---|---|
-| `test` | `develop` | Auto-deploys on push to develop |
+| `test` | `main` | Deploys every `main` commit that passes CI |
 | `production` | `main` | Prefer a required reviewer on production |
 
 Values come from Doppler project `weldsuite` (`test` / `prd` configs).
@@ -141,7 +141,7 @@ done
 ```
 
 `production` should only deploy from `main` (environment deployment branch
-policy). `test` deploys from `develop`.
+policy). `test` deploys from `main` too.
 
 ### Private deploy repo `weldsuite/weldsuite-deploy` (OPS-018)
 

@@ -10,7 +10,7 @@ How to take a WeldSuite GitHub issue from a terse one-liner to a merged, verifie
 
 ```
 0. Enrich      /enrich-issue <n>        → context written into the issue body
-1. Branch      fix/issue-<n>-slug       → never work on develop directly
+1. Branch      fix/issue-<n>-slug       → never work on main directly
 2. Classify    github-issue-enricher's "Suggested specialist chain" → pick specialist(s)
 3. Triage      reproduce + root-cause   → fix plan BEFORE code (bug-triage agent)
 4. Implement   specialist agent(s)      → code the plan, nothing more
@@ -37,10 +37,10 @@ The enrichment's **Suggested specialist chain** and **Success criteria** drive s
 
 ## 1. Branch
 
-Never commit to `develop` directly. Branch first:
+Never commit to `main` directly. Branch first:
 
 ```bash
-git checkout develop && git pull
+git checkout main && git pull
 git checkout -b fix/issue-<n>-<short-slug>      # bug
 git checkout -b feat/issue-<n>-<short-slug>     # feature
 ```
@@ -143,7 +143,7 @@ pnpm build           # of the touched app(s)
 
 ```bash
 git push -u origin fix/issue-<n>-<slug>
-gh pr create --base develop \
+gh pr create --base main \
   --title "<type>(<scope>): <summary> (#<n>)" \
   --body "Closes #<n>
 
@@ -161,15 +161,15 @@ gh pr create --base develop \
 ```
 
 - **`Closes #<n>`** in the body auto-closes the issue when the PR merges, that's stage 7 for free.
-- The **Claude PR review gate** runs on every PR; a required `claude-review` status check HARD-blocks merge on `develop` and `main`. Address its findings, don't try to route around it.
-- The develop→main promotion is gated by the Production branch ruleset checks (`Unit · *`, `Type Check · app-api`, `E2E Tests`), so keep those green.
+- The **PR review gate** runs on every PR; the required `WeldSuite Review` check HARD-blocks merge on `main`. Address its findings, don't try to route around it.
+- `main` also requires `Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`, `Unit · app-api`, `Unit · platform` and `Rust`, so keep those green. A merge deploys test; production goes out only through Promote in the private repo `weldsuite/weldsuite-deploy`.
 
 ---
 
 ## 7. Close
 
 - **Via PR merge:** if the body had `Closes #<n>`, merging closes the issue automatically. Done.
-- **Direct commit (rare, small fixes on develop):**
+- **Fixed elsewhere (rare, e.g. the fix rode along in another PR):**
   ```bash
   gh issue close <n> --comment "Fixed in <commit-sha>. <one-line what changed>."
   ```
