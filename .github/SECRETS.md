@@ -30,8 +30,8 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `VERCEL_TOKEN` | not in Doppler | `vercel` job in `deploy.yml` (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
 
 Vercel-hosted apps (`vercel` job; app → project map in
-`.github/scripts/vercel-apps.mjs`): `admin`, `api-docs`, `booking-portal`,
-`docs`, `helpcenter`, `helpdesk-widget`, `meeting-portal`, `partner`. Their
+`.github/scripts/vercel-apps.mjs`): `api-docs`, `booking-portal`,
+`docs`, `helpdesk-widget`, `meeting-portal`, `partner`. Their
 env vars and domains stay on the Vercel projects: production builds pull the
 Production env, test builds pull the Preview env for branch `develop`, and the
 project's domains bound to `develop` (e.g. `partner-test.weldsuite.org`) are
@@ -39,6 +39,11 @@ aliased to each test deploy. Each app's `vercel.json` turns Vercel's own Git
 builds off for every branch, so Vercel makes no automatic preview deployments.
 Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
 cannot read those, so the runner would build without them.
+
+The admin console (`apps/web/admin`) is a Worker now (`frontend-admin`). It
+deploys only to the environments named in the repository **variable**
+`ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
+from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.
 
 Store submission (`auto-submit` in `mobile-build.yml`) needs **no GitHub
 secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and the Google

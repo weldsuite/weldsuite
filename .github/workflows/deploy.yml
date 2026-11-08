@@ -6,8 +6,10 @@ name: Deploy
 #   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
 # Frontends: the platform, WeldMail, WeldCalendar and the developer portal go
-# to Cloudflare Pages; the help center and the WeldSign signer portal (TanStack
-# Start) are Cloudflare Workers (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`);
+# to Cloudflare Pages; the help center, the WeldSign signer portal, the project
+# portal and the admin console (TanStack Start) are Cloudflare Workers
+# (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`,
+# `frontend-admin`);
 # the Next.js apps, the helpdesk widget and the partner
 # portal go to Vercel (`vercel` job). Vercel's Git integration does not build develop/main.
 #
@@ -25,8 +27,8 @@ on:
       - 'apps/web/helpcenter/**'
       - 'apps/web/sign-portal/**'
       - 'apps/web/project-portal/**'
-      # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
       - 'apps/web/admin/**'
+      # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
       - 'apps/web/api-docs/**'
       - 'apps/web/booking-portal/**'
       - 'apps/web/docs/**'
@@ -85,6 +87,7 @@ jobs:
       # workspace deps and the lockfile, which the path filter cannot follow.
       release_sign_portal: ${{ steps.changes.outputs.sign-portal == 'true' || contains(fromJSON(steps.modules.outputs.module_workers || '[]'), 'sign-api') }}
       release_project_portal: ${{ steps.changes.outputs.project-portal }}
+      release_admin: ${{ steps.changes.outputs.admin }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -220,6 +223,19 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/core/i18n/**'
+              - 'packages/design/ui/**'
+            # The admin console and the workspace packages it bundles.
+            admin:
+              - 'apps/web/admin/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/core/credits/**'
+              - 'packages/core/db/src/**'
+              - 'packages/core/emails/**'
+              - 'packages/core/feature-flags/**'
+              - 'packages/core/i18n/**'
+              - 'packages/core/realtime/**'
+              - 'packages/core/realtime-registrar/**'
+              - 'packages/core/transactional-email/**'
               - 'packages/design/ui/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
@@ -411,6 +427,7 @@ jobs:
           HELPCENTER: ${{ steps.filter.outputs.helpcenter }}
           SIGN_PORTAL: ${{ steps.filter.outputs.sign-portal }}
           PROJECT_PORTAL: ${{ steps.filter.outputs.project-portal }}
+          ADMIN: ${{ steps.filter.outputs.admin }}
           WELDCHAT: ${{ steps.filter.outputs.weldchat }}
           WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
@@ -453,6 +470,7 @@ jobs:
               echo "helpcenter=true"
               echo "sign-portal=true"
               echo "project-portal=true"
+              echo "admin=true"
               echo "weldchat=true"
               echo "weldbooks=true"
               echo "weldflow=true"
@@ -494,6 +512,7 @@ jobs:
             echo "helpcenter=$HELPCENTER"
             echo "sign-portal=$SIGN_PORTAL"
             echo "project-portal=$PROJECT_PORTAL"
+            echo "admin=$ADMIN"
             echo "weldchat=$WELDCHAT"
             echo "weldbooks=$WELDBOOKS"
             echo "weldflow=$WELDFLOW"
@@ -1297,6 +1316,44 @@ jobs:
         run: pnpm build
       - name: Deploy Project portal Worker
         working-directory: apps/web/project-portal
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
+
+  # The staff admin console: TanStack Start on a Worker (ADR FE-018), with its
+  # own Clerk instance and the master and tenant databases over Neon HTTP. It
+  # calls billing-worker, workspace-worker and mail-api over HTTPS, so it
+  # deploys after the workers. Same build-time environment as the help center.
+  #
+  # Switched on per environment by the repository variable ADMIN_WORKER_ENVS
+  # ("test", then "test,production"). Until it names an environment, that
+  # environment's console stays on Vercel: the Worker's custom domain can't be
+  # created while the Vercel DNS record for admin(-test).weldsuite.org exists.
+  # Before adding an environment: put ADMIN_CLERK_* in Doppler and run
+  # `pnpm secrets:sync <env> admin`, add the host to the admin Clerk instance,
+  # and delete the hostname's DNS record (apps/web/admin/README.md).
+  frontend-admin:
+    name: Deploy Admin console (${{ needs.prepare.outputs.cf_env }} Worker)
+    needs: [prepare, workers, module-workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      (needs['module-workers'].result == 'success' || needs['module-workers'].result == 'skipped') &&
+      needs.prepare.outputs.release_admin == 'true' &&
+      contains(vars.ADMIN_WORKER_ENVS, needs.prepare.outputs.cf_env)
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build Admin console
+        working-directory: apps/web/admin
+        env:
+          CLOUDFLARE_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: pnpm build
+      - name: Deploy Admin console Worker
+        working-directory: apps/web/admin
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

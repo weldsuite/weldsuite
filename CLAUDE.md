@@ -33,7 +33,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `platform`, **Main Vite + React 19 SPA.** All web modules live here.
 - `sites`, Next.js customer-website renderer (port 3007)
 - `helpcenter`, WeldDesk knowledge base: TanStack Start on a Cloudflare Worker (port 3008; FE-015 pilot, `docs/plans/helpcenter-tanstack-start.md`)
-- `admin`, Next.js internal admin console
+- `admin`, staff admin console: TanStack Start (port 3001, ADR FE-018). Global builds it as a Cloudflare Worker (`admin.weldsuite.org` / `admin-test.weldsuite.org`, its own Clerk instance, Neon HTTP); the Kubernetes editions build it for Node (`pnpm build:node`, image `weldsuite-admin`, Zitadel sign-in let in by `admin_users`, Postgres over TCP), where the Global-only pages answer 404
 - `api-docs`, Next.js public API documentation site
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
 - `developer`, Vite SPA — WeldApps developer portal (`developer.weldsuite.org` / `developer-test.weldsuite.org`)
@@ -474,9 +474,11 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 `deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
 (path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
-apps: admin, api-docs, booking-portal, docs, helpdesk-widget, meeting-portal,
+apps: api-docs, booking-portal, docs, helpdesk-widget, meeting-portal,
 partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
-for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`).
+for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`,
+`frontend-admin`; the admin console deploys only to the environments the
+repository variable `ADMIN_WORKER_ENVS` names).
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git
