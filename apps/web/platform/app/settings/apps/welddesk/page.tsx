@@ -1,6 +1,7 @@
-import { BookOpen, Bot, ChevronRight, Mail, MessagesSquare, Phone, Shuffle, Tags, Timer, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
+import { AssetRegisterCard } from './asset-register-card';
 
 interface DeskSettingsLink {
   id: string;
@@ -24,6 +25,7 @@ function deskLink(id: string, icon: LucideIcon, title: string, description: stri
 export default function HelpdeskSettingsPage() {
   const ts = getTranslations('settings');
   const td = ts.welddesk;
+  const th = getTranslations('helpdesk');
 
   // Grouped the way the settings menu lists them.
   const sections: DeskSettingsSection[] = [
@@ -47,8 +49,11 @@ export default function HelpdeskSettingsPage() {
       title: td.sections.ticketsRouting,
       links: [
         deskLink('ticket-types', Tags, td.ticketTypesTitle, td.ticketTypesDescription),
+        deskLink('teams', Users, th.teamsSettings.title, th.teamsSettings.description),
+        deskLink('routing', Route, th.routing.title, th.routing.description),
         deskLink('assignment', Shuffle, td.assignmentTitle, td.assignmentDescription),
         deskLink('sla-policies', Timer, td.slaPoliciesTitle, td.slaPoliciesDescription),
+        deskLink('priority-matrix', Grid3x3, td.priorityMatrixTitle, td.priorityMatrixDescription),
       ],
     },
   ];
@@ -81,6 +86,8 @@ export default function HelpdeskSettingsPage() {
           </ul>
         </section>
       ))}
+
+      <AssetRegisterCard />
     </div>
   );
 }

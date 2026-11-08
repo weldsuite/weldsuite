@@ -31,6 +31,7 @@ import {
   type DeskMessage,
 } from '@weldsuite/db/lib/desk';
 import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
+import { routeAndAssignDeskConversation, type DeskRoutingStep } from '@weldsuite/db/lib/desk-routing';
 import { generateId } from './id';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
@@ -75,7 +76,12 @@ function messageText(message: DeskMessage): string {
   return `📎 ${files[0].name}${more}`;
 }
 
-/** Push a new visitor message to the conversation room and the agents' inbox. */
+/**
+ * Push a new visitor message to the conversation room and the agents' inbox,
+ * and to the hub as entity events (`desk_conversation created` for a new
+ * conversation, `desk_message created`), so WeldConnect workflows triggered
+ * by messenger conversations run.
+ */
 export async function publishVisitorMessage(
   env: Env,
   orgId: string,
@@ -84,6 +90,18 @@ export async function publishVisitorMessage(
   visitorName: string,
   event: 'created' | 'updated',
 ): Promise<void> {
+  await Promise.all([
+    ...(event === 'created' ? [publishConversationEntityEvent(env, orgId, conversation, 'created')] : []),
+    publishEntityEventRaw({
+      env,
+      workspaceId: orgId,
+      userId: 'system',
+      entityType: 'desk_message',
+      action: 'created',
+      entityId: message.id,
+      data: message as unknown as Record<string, unknown>,
+    }),
+  ]);
   if (!env.REALTIME) return;
   const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   const record = toPublicMessage(message, new Map());
@@ -131,7 +149,7 @@ async function publishConversationEntityEvent(
   env: Env,
   orgId: string,
   conversation: DeskConversation,
-  action: 'updated' | 'assigned',
+  action: 'created' | 'updated' | 'assigned',
 ): Promise<void> {
   await publishEntityEventRaw({
     env,
@@ -197,33 +215,75 @@ async function publishVisitorEventRealtime(
   }
 }
 
+/** A routing rule's ticket-field change: internal, so the inbox only (never the visitor's room). */
+async function publishInternalEvent(
+  env: Env,
+  orgId: string,
+  conversation: DeskConversation,
+  message: DeskMessage,
+): Promise<void> {
+  await publishConversationEntityEvent(env, orgId, conversation, 'updated');
+  if (!env.REALTIME) return;
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
+  const results = await Promise.allSettled([
+    rt.publish(orgId, 'desk_conversation', 'updated', conversation, 'system'),
+    rt.publish(orgId, 'desk_message', 'created', message, 'system'),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('[widget-api] realtime publish failed:', result.reason);
+  }
+}
+
 /**
- * Auto-assignment: hand an open, unowned conversation to a teammate (when the
- * workspace has it on) and push the `assigned` event live, so the widget shows
- * who joined and the inbox moves the thread. Returns the conversation as it
- * now stands; on any failure the conversation simply stays unassigned.
+ * Routing and auto-assignment. A conversation the visitor just `opened` goes
+ * through the workspace's routing rules first (`@weldsuite/db/lib/desk-routing`:
+ * team, priority, tags, a named owner); then an open, unowned conversation
+ * goes to a teammate (its team's members when it has any, else the roster)
+ * when the workspace has auto-assignment on. Every step is pushed live: the
+ * `assigned` event so the widget shows who joined, a rule's field change to
+ * the inbox only. Returns the conversation as it now stands; on any failure
+ * it simply stays as it was.
  */
 export async function autoAssignConversation(
   env: Env,
   db: Database,
   orgId: string,
   conversation: DeskConversation,
+  opened = false,
 ): Promise<DeskConversation> {
-  if (conversation.assigneeId || conversation.state !== 'open') return conversation;
+  if (!opened && (conversation.assigneeId || conversation.state !== 'open')) return conversation;
   try {
-    const result = await autoAssignDeskConversation(db, {
-      generateId,
-      conversationId: conversation.id,
-      pick: deskAssignmentRouterPicker(env.WORKFLOW_WORKER, orgId),
-    });
-    if (!result) return conversation;
-    // The owner can change which SLA policy applies.
-    if (result.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', orgId, result.slaCheckAt);
-    const authors = await resolveAuthors(db, [result.conversation.assigneeId]);
-    await publishVisitorEvent(env, orgId, result.conversation, result.message, authors, 'assigned');
-    return result.conversation;
+    const pick = deskAssignmentRouterPicker(env.WORKFLOW_WORKER, orgId);
+    let steps: DeskRoutingStep[];
+    let slaCheckAt: Date | null;
+    if (opened) {
+      ({ steps, slaCheckAt } = await routeAndAssignDeskConversation(db, {
+        generateId,
+        conversationId: conversation.id,
+        pick,
+        trigger: 'opened',
+        // A team the customer picked (the help-center request form) stays.
+        keepTeam: Boolean(conversation.departmentId),
+      }));
+    } else {
+      const result = await autoAssignDeskConversation(db, { generateId, conversationId: conversation.id, pick });
+      steps = result ? [{ conversation: result.conversation, message: result.message, action: 'assigned' }] : [];
+      slaCheckAt = result?.slaCheckAt ?? null;
+    }
+    if (steps.length === 0) return conversation;
+    // The owner and the team can change which SLA policy applies.
+    if (slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', orgId, slaCheckAt);
+    for (const step of steps) {
+      if (step.action === 'assigned') {
+        const authors = await resolveAuthors(db, [step.conversation.assigneeId]);
+        await publishVisitorEvent(env, orgId, step.conversation, step.message, authors, 'assigned');
+      } else {
+        await publishInternalEvent(env, orgId, step.conversation, step.message);
+      }
+    }
+    return steps[steps.length - 1]!.conversation;
   } catch (err) {
-    console.error('[widget-api] auto-assignment failed:', err);
+    console.error('[widget-api] routing / auto-assignment failed:', err);
     return conversation;
   }
 }

@@ -1918,10 +1918,11 @@ async function ingestHelpdeskInboxEmail(
     );
 
     await publishHelpdeskRealtime(env, email, inbox, { conversation: ingested.conversation, message, created, body });
-    // An unowned conversation gets an owner (auto-assignment) before anyone is
-    // notified, so the planner below pings that person instead of the team.
+    // A new conversation is routed, and an unowned one gets an owner
+    // (auto-assignment), before anyone is notified, so the planner below pings
+    // that person instead of the team.
     const conversation = inbox.clerkOrgId
-      ? await autoAssignDeskEmailConversation(env, tenantDb, inbox.clerkOrgId, ingested.conversation, generateId)
+      ? await autoAssignDeskEmailConversation(env, tenantDb, inbox.clerkOrgId, ingested.conversation, generateId, created)
       : ingested.conversation;
     const customerName = email.from.name || email.from.email;
     const plan = planDeskNotification({ created, assigneeId: conversation.assigneeId, prior });

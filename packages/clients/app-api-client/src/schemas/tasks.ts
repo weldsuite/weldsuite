@@ -33,6 +33,14 @@ export function taskStatusAliases(status: string): string[] {
 /** A task status in a request body, normalised on the way in. */
 export const taskStatusSchema = z.string().max(30).transform((s) => normalizeTaskStatus(s));
 
+/**
+ * What a task can be created from (`tasks.source_type`): a WeldDesk ticket,
+ * i.e. a `desk_conversations` row (`sourceId` is its id).
+ */
+export const TASK_SOURCE_TYPES = ['desk_conversation'] as const;
+export type TaskSourceType = (typeof TASK_SOURCE_TYPES)[number];
+export const taskSourceTypeSchema = z.enum(TASK_SOURCE_TYPES);
+
 const repeatSchema = z.object({
   frequency: z.enum(['daily', 'weekly', 'biweekly', 'monthly', 'yearly', 'custom']),
   interval: z.number().optional(),
@@ -76,6 +84,19 @@ export const createTaskSchema = z.object({
   customFields: z.record(z.any()).nullable().optional(),
   metadata: z.unknown().optional(),
 }).passthrough();
+
+/**
+ * flow-api's create body (`POST /api/tasks`, `POST /api/tasks/projects/:id`):
+ * the shared one plus the record the task is created from (a WeldDesk
+ * ticket), stored once; the task links back to it and the ticket lists its
+ * tasks. The public API and MCP keep `createTaskSchema`, which strips these.
+ */
+export const createFlowTaskSchema = createTaskSchema.extend({
+  sourceType: taskSourceTypeSchema.nullish(),
+  sourceId: z.string().max(30).nullish(),
+});
+export type CreateFlowTaskInput = z.infer<typeof createFlowTaskSchema>;
+
 // PATCH body. An explicit allow-list, not `createTaskSchema.partial()`: the create
 // schema is `.passthrough()`, which let a PATCH write any `tasks` column (`id`,
 // `number`, `key`, `reporterId`, `deletedAt`, ...). Unknown keys are stripped (not

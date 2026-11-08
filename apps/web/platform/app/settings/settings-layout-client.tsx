@@ -74,8 +74,11 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
     '/settings/apps/welddesk/help-center': ts.welddesk.helpCenterTitle,
     '/settings/apps/welddesk/voice-agents': ts.welddesk.voiceAgentsTitle,
     '/settings/apps/welddesk/ticket-types': ts.welddesk.ticketTypesTitle,
+    '/settings/apps/welddesk/teams': t.helpdesk.teamsSettings.title,
+    '/settings/apps/welddesk/routing': t.helpdesk.routing.title,
     '/settings/apps/welddesk/assignment': ts.welddesk.assignmentTitle,
     '/settings/apps/welddesk/sla-policies': ts.welddesk.slaPoliciesTitle,
+    '/settings/apps/welddesk/priority-matrix': ts.welddesk.priorityMatrixTitle,
   });
   const memberPanelWidth = useMemberPanelWidth();
 

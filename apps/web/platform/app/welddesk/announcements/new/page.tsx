@@ -1,6 +1,5 @@
-
-import NewAnnouncementClient from './new-announcement-client';
+import { AnnouncementForm } from '../announcement-form';
 
 export default function NewAnnouncementPage() {
-  return <NewAnnouncementClient />;
+  return <AnnouncementForm />;
 }

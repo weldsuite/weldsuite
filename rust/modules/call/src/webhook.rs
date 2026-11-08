@@ -931,6 +931,17 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
             Err(error) => tracing::warn!(%error, "[Telnyx Webhook] desk SLA due mark failed"),
         }
     }
+    // Hub events, then routing and auto-assignment, as the widget and email do.
+    crate::desk_routing::announce_call(
+        hook.state,
+        &db,
+        &master,
+        &workspace,
+        &conversation_id,
+        &desk.message,
+        desk.created,
+    )
+    .await;
     let record = recording != Some(false);
     sqlx::query(
         "insert into voip_calls (id, created_at, updated_at, user_id, provider, provider_call_id,

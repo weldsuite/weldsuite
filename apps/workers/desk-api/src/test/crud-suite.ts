@@ -42,6 +42,11 @@ export interface CrudSuite {
   invalidPatch: Row;
   /** List filters: the query, and the seed overrides that match it. */
   filters: Array<{ query: string; match: Row }>;
+  /**
+   * The route writes only the columns its schema names (no `.passthrough()`):
+   * a key the schema doesn't know, a timestamp string included, is dropped.
+   */
+  strictBody?: boolean;
 }
 
 const json = (body: unknown, method = 'POST'): RequestInit => ({
@@ -203,12 +208,12 @@ export function describeCrud(name: string, suite: CrudSuite): void {
       expect((await app().request(`${suite.base}/${id}`, json(suite.patch, 'PATCH'))).status).toBe(403);
     });
 
-    it('PATCH /:id with a timestamp string in the body is the route 500', async () => {
+    it(suite.strictBody ? 'PATCH /:id drops a key its schema does not name' : 'PATCH /:id with a timestamp string in the body is the route 500', async () => {
       const res = await app(suite.gates.update).request(
         `${suite.base}/${seeded[1]!}`,
         json({ updatedAt: '2026-01-01T00:00:00.000Z' }, 'PATCH'),
       );
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(suite.strictBody ? 200 : 500);
     });
 
     it('DELETE /:id soft-deletes; a deleted row is gone', async () => {

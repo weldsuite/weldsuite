@@ -69,7 +69,17 @@ export interface ScheduleTriggerConfig {
 export interface EntityEventTriggerConfig {
   type: 'entity_event';
   entityType: string;
-  eventType: 'created' | 'updated' | 'deleted' | 'status_changed' | 'assigned' | 'tagged' | 'priority_changed' | 'sla_breached';
+  eventType:
+    | 'created'
+    | 'updated'
+    | 'deleted'
+    | 'status_changed'
+    | 'assigned'
+    | 'tagged'
+    | 'priority_changed'
+    | 'sla_breached'
+    | 'state_changed'
+    | 'sla_warning';
   filters?: Array<{
     field: string;
     operator: string;

@@ -80,6 +80,8 @@ export const EDITION_FEATURES = [
    * Kubernetes editions yet).
    */
   'agent-ai',
+  /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
+  'desk-ai',
   /**
    * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.

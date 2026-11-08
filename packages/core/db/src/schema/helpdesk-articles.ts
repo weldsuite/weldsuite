@@ -12,7 +12,13 @@ import { helpdeskArticleFolders } from './helpdesk-article-folders';
 
 // Article types
 export type ArticleStatus = 'draft' | 'review' | 'published' | 'archived' | 'outdated';
-export type ArticleVisibility = 'public' | 'internal' | 'logged_in' | 'specific_users';
+/**
+ * public: everyone · logged_in: signed-in help-center readers and identified
+ * widget visitors · groups: readers at one of `audienceCompanyIds` (CRM
+ * companies, matched through the reader's verified email) · internal: the team
+ * only. `specific_users` is a legacy value no write accepts.
+ */
+export type ArticleVisibility = 'public' | 'internal' | 'logged_in' | 'groups' | 'specific_users';
 export type ArticleDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
 export interface ArticleAttachment {
@@ -56,6 +62,14 @@ export const helpdeskArticles = pgTable('helpdesk_articles', {
   // Status
   status: varchar('status', { length: 20 }).notNull().default('draft'),
   visibility: varchar('visibility', { length: 20 }).notNull().default('public'),
+  /** CRM company ids for visibility `groups`. */
+  audienceCompanyIds: jsonb('audience_company_ids').$type<string[]>().notNull().default([]),
+
+  // Language versions: a translation points at the original article
+  // (translationOfId) and has its own locale; null locale = the help center's
+  // default language. The help center shows the version in the reader's language.
+  locale: varchar('locale', { length: 10 }),
+  translationOfId: varchar('translation_of_id', { length: 30 }),
 
   // Publishing
   publishedAt: timestamp('published_at'),
@@ -105,6 +119,7 @@ export const helpdeskArticles = pgTable('helpdesk_articles', {
   index('helpdesk_articles_slug_idx').on(table.slug),
   index('helpdesk_articles_published_at_idx').on(table.publishedAt),
   index('helpdesk_articles_is_pinned_idx').on(table.isPinned),
+  index('helpdesk_articles_translation_of_idx').on(table.translationOfId),
 ]);
 
 export type HelpdeskArticle = typeof helpdeskArticles.$inferSelect;

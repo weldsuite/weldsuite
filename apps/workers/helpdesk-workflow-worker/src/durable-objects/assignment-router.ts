@@ -10,6 +10,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   EMPTY_DESK_PICKER_STATE,
+  deskPickerStateKey,
   pickDeskAssignee,
   type DeskPickRequest,
   type DeskPickerState,
@@ -103,12 +104,14 @@ export class AssignmentRouter extends DurableObject<Env> {
    * Pick a teammate for a desk conversation. The caller sends the roster and
    * open counts it read from the tenant DB; this object only adds the rotation
    * pointer and the picks of the last few seconds, single-threaded, so
-   * concurrent conversations don't land on the same person.
+   * concurrent conversations don't land on the same person. A pick among a
+   * team's members keeps its own rotation (`teamId`).
    */
   async pickDeskAssignee(request: DeskPickRequest): Promise<{ userId: string | null }> {
-    const state = (await this.ctx.storage.get<DeskPickerState>('desk')) ?? EMPTY_DESK_PICKER_STATE;
+    const key = deskPickerStateKey(request.teamId);
+    const state = (await this.ctx.storage.get<DeskPickerState>(key)) ?? EMPTY_DESK_PICKER_STATE;
     const result = pickDeskAssignee(state, request);
-    await this.ctx.storage.put('desk', result.state);
+    await this.ctx.storage.put(key, result.state);
     return { userId: result.userId };
   }
 

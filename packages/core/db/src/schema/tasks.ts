@@ -110,6 +110,11 @@ export const tasks = pgTable('tasks', {
   githubIssueNumber: integer('github_issue_number'),
   githubRepoLinkId: varchar('github_repo_link_id', { length: 30 }),
 
+  // Where the task came from, e.g. a WeldDesk ticket (sourceType
+  // 'desk_conversation', sourceId its id). The task links back to it.
+  sourceType: varchar('source_type', { length: 30 }),
+  sourceId: varchar('source_id', { length: 30 }),
+
   // Custom fields
   customFields: jsonb('custom_fields').$type<Record<string, unknown>>(),
 }, (table) => [
@@ -125,6 +130,7 @@ export const tasks = pgTable('tasks', {
   index('tasks_counterparty_idx').on(table.counterpartyId),
   index('tasks_person_idx').on(table.personId),
   index('tasks_github_repo_link_idx').on(table.githubRepoLinkId),
+  index('tasks_source_idx').on(table.sourceType, table.sourceId),
   uniqueIndex('tasks_number_unique').on(table.number),
 ]);
 

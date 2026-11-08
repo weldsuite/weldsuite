@@ -1,13 +1,15 @@
 /**
- * Shared CRM import wizard for Companies and People.
+ * The platform's CSV / Excel import wizard: CRM Companies and People, and the
+ * record list of every custom object.
  *
  * Upload → map columns → run → result. Modeled on the WeldFlow task importer
  * but synchronous and client-chunked: valid rows are split into batches and
- * each batch is POSTed to the entity's upsert endpoint via `onImportBatch`,
+ * each batch is POSTed to the entity's import endpoint via `onImportBatch`,
  * accumulating counts to drive the progress bar. No background-job infra.
  *
- * Parameterized per entity via `fields` / `requireOneOf` / `templateExample`,
- * so Companies and People reuse one dialog.
+ * Parameterized per entity via `fields` / `requireOneOf` / `templateExample`
+ * (and `tips`, `showUpdated`, `batchSize`), so every importer reuses one
+ * dialog. Its texts live in `common.import`.
  */
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
@@ -116,6 +118,15 @@ interface ImportEntitiesDialogProps {
   templateExample?: Record<string, string>;
   /** Base filename (no extension) for the template, e.g. "companies". */
   templateName: string;
+  /** The upload step's tips; default: match columns, download the template. */
+  tips?: string[];
+  /**
+   * Whether the import can update existing rows (CRM upserts). An import that
+   * only creates (custom objects) hides the "Updated" counts.
+   */
+  showUpdated?: boolean;
+  /** Rows per `onImportBatch` call (default 200, the import endpoints' limit). */
+  batchSize?: number;
   onImportBatch: (records: Record<string, unknown>[]) => Promise<ImportEntitiesResult>;
 }
 
@@ -215,7 +226,7 @@ function FieldCombobox({
       <PopoverTrigger asChild onClick={onFocus}>
         <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between h-9">
           <span className="truncate">
-            {selected ? selected.header : t('crm.importExport.skipThisColumn')}
+            {selected ? selected.header : t('common.import.skipThisColumn')}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
@@ -226,9 +237,9 @@ function FieldCombobox({
         onTouchMove={(e) => e.stopPropagation()}
       >
         <Command>
-          <CommandInput placeholder={t('crm.importExport.searchFields')} />
+          <CommandInput placeholder={t('common.import.searchFields')} />
           <CommandList>
-            <CommandEmpty>{t('crm.importExport.noFieldFound')}</CommandEmpty>
+            <CommandEmpty>{t('common.import.noFieldFound')}</CommandEmpty>
             <CommandGroup>
               <CommandItem
                 value="__skip__"
@@ -238,7 +249,7 @@ function FieldCombobox({
                 }}
                 className={cn(value === '' && 'bg-accent text-accent-foreground')}
               >
-                <span className="text-muted-foreground">{t('crm.importExport.skipThisColumn')}</span>
+                <span className="text-muted-foreground">{t('common.import.skipThisColumn')}</span>
                 <Check className={cn('size-4 ml-auto', value !== '' && 'opacity-0')} />
               </CommandItem>
               {fields.map((field) => {
@@ -258,7 +269,7 @@ function FieldCombobox({
                     <span>{field.header}</span>
                     {isUsed && (
                       <span className="ml-auto text-xs text-muted-foreground">
-                        {t('crm.importExport.usedBadge')}
+                        {t('common.import.usedBadge')}
                       </span>
                     )}
                     <Check
@@ -292,18 +303,18 @@ function DataPreviewList({
   return (
     <div className="space-y-2 border bg-background p-4 pb-1 rounded-md">
       <p className="text-sm font-semibold">
-        {t('crm.importExport.sampleValuesFor', { field: focusedColumn })}
+        {t('common.import.sampleValuesFor', { field: focusedColumn })}
       </p>
       <ul>
         {preview.map(({ rowId, value }) => (
           <li key={rowId} className="border-b py-3 text-sm first:border-t last:border-b-0 truncate">
-            {value || <span className="text-muted-foreground italic">{t('crm.importExport.emptyValue')}</span>}
+            {value || <span className="text-muted-foreground italic">{t('common.import.emptyValue')}</span>}
           </li>
         ))}
       </ul>
       {data.length > 5 && (
         <p className="text-xs text-muted-foreground">
-          {t('crm.importExport.andMoreRows', { n: data.length - 5 })}
+          {t('common.import.andMoreRows', { n: data.length - 5 })}
         </p>
       )}
     </div>
@@ -319,6 +330,9 @@ export function ImportEntitiesDialog({
   requiredForCreate,
   templateExample,
   templateName,
+  tips,
+  showUpdated = true,
+  batchSize = BATCH_SIZE,
   onImportBatch,
 }: Readonly<ImportEntitiesDialogProps>) {
   const t = useTranslations();
@@ -395,10 +409,10 @@ export function ImportEntitiesDialog({
             `${templateName}.xlsx`,
           );
         }
-        toast.success(t('crm.importExport.templateDownloaded'));
+        toast.success(t('common.import.templateDownloaded'));
       } catch (err) {
-        console.error('[CRM import] template error:', err);
-        toast.error(t('crm.importExport.failedToDownloadTemplate'));
+        console.error('[import] template error:', err);
+        toast.error(t('common.import.failedToDownloadTemplate'));
       }
     },
     [fields, templateExample, templateName, triggerDownload, t],
@@ -410,7 +424,7 @@ export function ImportEntitiesDialog({
       setFile(f);
       const reader = new FileReader();
       reader.onerror = () => {
-        setParseError(t('crm.importExport.fileReadError'));
+        setParseError(t('common.import.fileReadError'));
         setFile(null);
       };
       reader.onload = (e) => {
@@ -419,18 +433,18 @@ export function ImportEntitiesDialog({
           if (!(data instanceof ArrayBuffer) || data.byteLength === 0) throw new Error('empty');
           const json = readImportRows(data);
           if (json.length === 0) {
-            setParseError(t('crm.importExport.fileEmpty'));
+            setParseError(t('common.import.fileEmpty'));
             setFile(null);
             return;
           }
           if (json.length > MAX_ROWS) {
-            setParseError(t('crm.importExport.fileTooManyRows'));
+            setParseError(t('common.import.fileTooManyRows'));
             setFile(null);
             return;
           }
           const columns = Object.keys(json[0]!).filter((c) => c?.trim());
           if (columns.length === 0) {
-            setParseError(t('crm.importExport.fileNoColumns'));
+            setParseError(t('common.import.fileNoColumns'));
             setFile(null);
             return;
           }
@@ -463,7 +477,7 @@ export function ImportEntitiesDialog({
           setStep('mapping');
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'unknown';
-          setParseError(t('crm.importExport.fileParseError', { error: msg }));
+          setParseError(t('common.import.fileParseError', { error: msg }));
           setFile(null);
         }
       };
@@ -541,7 +555,7 @@ export function ImportEntitiesDialog({
   const handleImport = useCallback(async () => {
     const records = buildRecords();
     if (records.length === 0) {
-      toast.error(t('crm.importExport.noValidRows'));
+      toast.error(t('common.import.noValidRows'));
       return;
     }
 
@@ -560,9 +574,9 @@ export function ImportEntitiesDialog({
     };
 
     try {
-      for (let start = 0; start < records.length; start += BATCH_SIZE) {
+      for (let start = 0; start < records.length; start += batchSize) {
         if (cancelledRef.current) break;
-        const batch = records.slice(start, start + BATCH_SIZE);
+        const batch = records.slice(start, start + batchSize);
         const res = await onImportBatch(batch);
         agg.imported += res.imported;
         agg.updated += res.updated;
@@ -579,28 +593,25 @@ export function ImportEntitiesDialog({
       setStep('result');
 
       const ok = agg.imported + agg.updated;
+      const counts = { imported: agg.imported, updated: agg.updated, failed: agg.failed };
       if (agg.failed === 0) {
-        toast.success(t('crm.importExport.importSuccess', { imported: agg.imported, updated: agg.updated }));
+        toast.success(t(showUpdated ? 'common.import.importSuccess' : 'common.import.importCreatedOnly', counts));
       } else if (ok > 0) {
         toast.warning(
-          t('crm.importExport.importPartial', {
-            imported: agg.imported,
-            updated: agg.updated,
-            failed: agg.failed,
-          }),
+          t(showUpdated ? 'common.import.importPartial' : 'common.import.importPartialCreatedOnly', counts),
         );
       } else {
-        toast.error(t('crm.importExport.importAllFailed', { failed: agg.failed }));
+        toast.error(t('common.import.importAllFailed', { failed: agg.failed }));
       }
     } catch (err) {
-      console.error('[CRM import] failed:', err);
-      toast.error(t('crm.importExport.importFailed'));
+      console.error('[import] failed:', err);
+      toast.error(t('common.import.importFailed'));
       setResult(agg);
       setStep('result');
     } finally {
       setIsImporting(false);
     }
-  }, [buildRecords, onImportBatch, t]);
+  }, [buildRecords, onImportBatch, t, batchSize, showUpdated]);
 
   const handleClose = useCallback(() => {
     cancelledRef.current = true;
@@ -615,16 +626,16 @@ export function ImportEntitiesDialog({
         className={cn('overflow-hidden p-0', step === 'mapping' ? 'md:!max-w-3xl lg:!max-w-5xl' : 'md:!max-w-lg lg:!max-w-2xl')}
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>{t('crm.importExport.dialogTitle', { entity: entityLabel })}</DialogTitle>
+          <DialogTitle>{t('common.import.dialogTitle', { entity: entityLabel })}</DialogTitle>
           <DialogDescription>
-            {t('crm.importExport.dialogDescription', { entity: entityLabel })}
+            {t('common.import.dialogDescription', { entity: entityLabel })}
           </DialogDescription>
         </DialogHeader>
 
         {step === 'upload' && (
           <div className="px-6 pt-3.5 pb-6">
             <h3 className="text-lg font-semibold mb-4">
-              {t('crm.importExport.uploadHeading', { entity: entityLabel })}
+              {t('common.import.uploadHeading', { entity: entityLabel })}
             </h3>
 
             {parseError && (
@@ -644,7 +655,7 @@ export function ImportEntitiesDialog({
               multiple={false}
               onDrop={(accepted, rejected) => {
                 if (rejected.length > 0) {
-                  setParseError(t('crm.importExport.invalidFileType'));
+                  setParseError(t('common.import.invalidFileType'));
                   return;
                 }
                 if (accepted[0]) parseFile(accepted[0]);
@@ -654,18 +665,18 @@ export function ImportEntitiesDialog({
               <div className="flex flex-col items-center gap-3 text-center">
                 <UploadIcon className="size-6 text-muted-foreground" />
                 <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium">{t('crm.importExport.dropFileHere')}</p>
-                  <p className="text-muted-foreground text-xs">{t('crm.importExport.dropFileFormats')}</p>
+                  <p className="text-sm font-medium">{t('common.import.dropFileHere')}</p>
+                  <p className="text-muted-foreground text-xs">{t('common.import.dropFileFormats')}</p>
                 </div>
               </div>
             </Dropzone>
 
             <div className="mt-4 p-4 bg-muted rounded-lg">
-              <h4 className="font-medium mb-2">{t('crm.importExport.tipsHeading')}</h4>
+              <h4 className="font-medium mb-2">{t('common.import.tipsHeading')}</h4>
               <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-4">
-                <li>{t('crm.importExport.tip1')}</li>
-                <li>{t('crm.importExport.tip2')}</li>
-                <li>{t('crm.importExport.tip3')}</li>
+                {(tips ?? [t('common.import.tipMatch'), t('common.import.tipTemplate')]).map((tip) => (
+                  <li key={tip}>{tip}</li>
+                ))}
               </ul>
             </div>
 
@@ -682,10 +693,10 @@ export function ImportEntitiesDialog({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-foreground">
-                        {t('crm.importExport.downloadTemplate')}
+                        {t('common.import.downloadTemplate')}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {t('crm.importExport.downloadTemplateDesc')}
+                        {t('common.import.downloadTemplateDesc')}
                       </div>
                     </div>
                     <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -709,25 +720,25 @@ export function ImportEntitiesDialog({
         {step === 'mapping' && (
           <div>
             <div className="border-b px-6 py-4">
-              <h3 className="text-lg font-semibold">{t('crm.importExport.configureMappingHeading')}</h3>
+              <h3 className="text-lg font-semibold">{t('common.import.configureMappingHeading')}</h3>
             </div>
 
             <div className="grid md:grid-cols-9">
               <div className="col-span-5 pt-6">
                 <div className="px-6 space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{t('crm.importExport.matchSourceColumns')}</p>
+                    <p className="text-sm font-semibold">{t('common.import.matchSourceColumns')}</p>
                     <Badge variant="outline" className="rounded font-mono text-[12px]">
-                      {t('crm.importExport.mappedOf', { mapped: mappedCount, total: sourceColumns.length })}
+                      {t('common.import.mappedOf', { mapped: mappedCount, total: sourceColumns.length })}
                     </Badge>
                   </div>
 
                   {!hasRequireMapped && (
                     <Alert variant="destructive">
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>{t('crm.importExport.noKeyMappedTitle')}</AlertTitle>
+                      <AlertTitle>{t('common.import.noKeyMappedTitle')}</AlertTitle>
                       <AlertDescription>
-                        {t('crm.importExport.noKeyMappedDesc', { fields: requireLabels })}
+                        {t('common.import.noKeyMappedDesc', { fields: requireLabels })}
                       </AlertDescription>
                     </Alert>
                   )}
@@ -735,11 +746,11 @@ export function ImportEntitiesDialog({
                   {hasRequireMapped && skippedRows > 0 && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>{t('crm.importExport.someRowsSkipped')}</AlertTitle>
+                      <AlertTitle>{t('common.import.someRowsSkipped')}</AlertTitle>
                       <AlertDescription>
                         {plural(skippedRows, {
-                          one: t('crm.importExport.someRowsSkippedDescOne', { n: skippedRows }),
-                          other: t('crm.importExport.someRowsSkippedDesc', { n: skippedRows }),
+                          one: t('common.import.someRowsSkippedDescOne', { n: skippedRows }),
+                          other: t('common.import.someRowsSkippedDesc', { n: skippedRows }),
                         })}
                       </AlertDescription>
                     </Alert>
@@ -748,11 +759,11 @@ export function ImportEntitiesDialog({
                   {hasRequireMapped && matchOnlyRows > 0 && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>{t('crm.importExport.missingCreateFieldTitle')}</AlertTitle>
+                      <AlertTitle>{t('common.import.missingCreateFieldTitle')}</AlertTitle>
                       <AlertDescription>
                         {plural(matchOnlyRows, {
-                          one: t('crm.importExport.missingCreateFieldDescOne', missingCreateParams),
-                          other: t('crm.importExport.missingCreateFieldDesc', missingCreateParams),
+                          one: t('common.import.missingCreateFieldDescOne', missingCreateParams),
+                          other: t('common.import.missingCreateFieldDesc', missingCreateParams),
                         })}
                       </AlertDescription>
                     </Alert>
@@ -762,8 +773,8 @@ export function ImportEntitiesDialog({
                 <ScrollArea className="h-[400px] mt-4">
                   <div className="px-6 pb-6 space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-muted-foreground uppercase sticky top-0 bg-background py-2">
-                      <p>{t('crm.importExport.sourceColumns')}</p>
-                      <p>{t('crm.importExport.targetFields')}</p>
+                      <p>{t('common.import.sourceColumns')}</p>
+                      <p>{t('common.import.targetFields')}</p>
                     </div>
                     <ul className="space-y-3">
                       {sourceColumns.map((col) => (
@@ -793,7 +804,7 @@ export function ImportEntitiesDialog({
                 <DataPreviewList t={t} focusedColumn={focusedColumn} data={parsedData} />
                 {!focusedColumn && (
                   <div className="text-sm text-muted-foreground text-center py-8">
-                    {t('crm.importExport.previewHint')}
+                    {t('common.import.previewHint')}
                   </div>
                 )}
               </div>
@@ -802,22 +813,22 @@ export function ImportEntitiesDialog({
             <div className="flex items-center justify-between gap-4 border-t px-6 py-4">
               <p className="font-mono text-sm text-muted-foreground truncate min-w-0">
                 {plural(parsedData.length, {
-                  one: t('crm.importExport.fileStatsOne', fileStatsParams),
-                  other: t('crm.importExport.fileStats', fileStatsParams),
+                  one: t('common.import.fileStatsOne', fileStatsParams),
+                  other: t('common.import.fileStats', fileStatsParams),
                 })}
               </p>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Button variant="outline" onClick={() => setStep('upload')}>
-                  {t('crm.importExport.backBtn')}
+                  {t('common.import.backBtn')}
                 </Button>
                 <Button disabled={!hasRequireMapped || importableRows.length === 0 || isImporting} onClick={handleImport}>
                   {isImporting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-0.5 animate-spin" />
-                      {t('crm.importExport.importingBtn')}
+                      {t('common.import.importingBtn')}
                     </>
                   ) : (
-                    t('crm.importExport.importBtn', { n: importableRows.length })
+                    t('common.import.importBtn', { n: importableRows.length })
                   )}
                 </Button>
               </div>
@@ -828,31 +839,33 @@ export function ImportEntitiesDialog({
         {step === 'running' && (
           <div className="p-6">
             <h3 className="text-lg font-semibold mb-6">
-              {t('crm.importExport.importingHeading', { entity: entityLabel })}
+              {t('common.import.importingHeading', { entity: entityLabel })}
             </h3>
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 <p className="text-sm font-medium">
-                  {t('crm.importExport.importingProgress', {
+                  {t('common.import.importingProgress', {
                     processed: progress.processed,
                     total: progress.total,
                   })}
                 </p>
               </div>
               <Progress value={progressPct} />
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className={cn('grid gap-4 text-center', showUpdated ? 'grid-cols-3' : 'grid-cols-2')}>
                 <div className="p-3 border rounded-md">
                   <p className="text-2xl font-bold text-green-600">{running.imported}</p>
-                  <p className="text-xs text-muted-foreground">{t('crm.importExport.createdLabel')}</p>
+                  <p className="text-xs text-muted-foreground">{t('common.import.createdLabel')}</p>
                 </div>
-                <div className="p-3 border rounded-md">
-                  <p className="text-2xl font-bold text-blue-600">{running.updated}</p>
-                  <p className="text-xs text-muted-foreground">{t('crm.importExport.updatedLabel')}</p>
-                </div>
+                {showUpdated && (
+                  <div className="p-3 border rounded-md">
+                    <p className="text-2xl font-bold text-blue-600">{running.updated}</p>
+                    <p className="text-xs text-muted-foreground">{t('common.import.updatedLabel')}</p>
+                  </div>
+                )}
                 <div className="p-3 border rounded-md">
                   <p className="text-2xl font-bold text-red-600">{running.failed}</p>
-                  <p className="text-xs text-muted-foreground">{t('crm.importExport.failedLabel')}</p>
+                  <p className="text-xs text-muted-foreground">{t('common.import.failedLabel')}</p>
                 </div>
               </div>
             </div>
@@ -861,15 +874,15 @@ export function ImportEntitiesDialog({
 
         {step === 'result' && result && (
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-6">{t('crm.importExport.completeHeading')}</h3>
+            <h3 className="text-lg font-semibold mb-6">{t('common.import.completeHeading')}</h3>
             <div className="space-y-4">
               {(result.imported > 0 || result.updated > 0) && (
                 <Alert>
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <AlertTitle>{t('crm.importExport.successfullyProcessed')}</AlertTitle>
+                  <AlertTitle>{t('common.import.successfullyProcessed')}</AlertTitle>
                   <AlertDescription>
-                    {result.imported > 0 && t('crm.importExport.createdN', { n: result.imported }) + ' '}
-                    {result.updated > 0 && t('crm.importExport.updatedN', { n: result.updated })}
+                    {result.imported > 0 && t('common.import.createdN', { n: result.imported }) + ' '}
+                    {result.updated > 0 && t('common.import.updatedN', { n: result.updated })}
                   </AlertDescription>
                 </Alert>
               )}
@@ -877,11 +890,11 @@ export function ImportEntitiesDialog({
               {result.failed > 0 && (
                 <Alert variant="destructive">
                   <XCircle className="h-4 w-4" />
-                  <AlertTitle>{t('crm.importExport.failedToProcess')}</AlertTitle>
+                  <AlertTitle>{t('common.import.failedToProcess')}</AlertTitle>
                   <AlertDescription>
                     {plural(result.failed, {
-                      one: t('crm.importExport.failedNOne'),
-                      other: t('crm.importExport.failedN'),
+                      one: t('common.import.failedNOne'),
+                      other: t('common.import.failedN'),
                     })}
                   </AlertDescription>
                 </Alert>
@@ -889,13 +902,13 @@ export function ImportEntitiesDialog({
 
               {result.errors.length > 0 && (
                 <div>
-                  <h4 className="font-medium mb-2">{t('crm.importExport.errorDetailsHeading')}</h4>
+                  <h4 className="font-medium mb-2">{t('common.import.errorDetailsHeading')}</h4>
                   <ScrollArea className="h-[180px] border rounded-md p-3">
                     <ul className="space-y-1.5 text-sm">
                       {result.errors.slice(0, 100).map((e, index) => ({ e, errorId: `import-error-${index}` })).map(({ e, errorId }) => (
                         <li key={errorId} className="flex items-start gap-2">
                           <span className="text-muted-foreground whitespace-nowrap">
-                            {t('crm.importExport.rowPrefix', { n: e.row })}
+                            {t('common.import.rowPrefix', { n: e.row })}
                           </span>
                           <span className="text-red-600">
                             {e.ref ? `${e.ref} — ` : ''}
@@ -908,12 +921,12 @@ export function ImportEntitiesDialog({
                 </div>
               )}
 
-              <div className="grid grid-cols-4 gap-3">
+              <div className={cn('grid gap-3', showUpdated ? 'grid-cols-4' : 'grid-cols-3')}>
                 {[
-                  { value: result.imported, label: t('crm.importExport.createdLabel') },
-                  { value: result.updated, label: t('crm.importExport.updatedLabel') },
-                  { value: result.failed, label: t('crm.importExport.failedLabel') },
-                  { value: result.total, label: t('crm.importExport.totalLabel') },
+                  { value: result.imported, label: t('common.import.createdLabel') },
+                  ...(showUpdated ? [{ value: result.updated, label: t('common.import.updatedLabel') }] : []),
+                  { value: result.failed, label: t('common.import.failedLabel') },
+                  { value: result.total, label: t('common.import.totalLabel') },
                 ].map((cell) => (
                   <div key={cell.label} className="rounded-lg border bg-card p-4 text-center">
                     <p className="font-mono text-xl font-bold text-foreground">{cell.value}</p>
@@ -923,7 +936,7 @@ export function ImportEntitiesDialog({
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={handleClose}>{t('crm.importExport.doneButton')}</Button>
+                <Button onClick={handleClose}>{t('common.import.doneButton')}</Button>
               </div>
             </div>
           </div>

@@ -39,17 +39,27 @@ function send(url: URL, init?: RequestInit): Promise<Response> {
   return env.DESK_API ? env.DESK_API.fetch(url, init) : fetch(url, init)
 }
 
+/** The header desk-api reads the signed-in reader's portal session from. */
+const SESSION_HEADER = 'x-portal-session'
+
 /**
  * GET a public help-center endpoint and parse its JSON body.
  * `ttl` is seconds to cache at the edge: 0 = always live.
+ *
+ * `session` is the signed-in reader's portal session token: desk-api then
+ * answers with what that reader may see (article audiences, announcements
+ * for their company). Such an answer is personal, so it never goes through
+ * the edge cache, whatever `ttl` says.
  */
 export async function getJson<T>(
   path: string,
   domain: string,
-  opts: { params?: Record<string, string | undefined>; ttl: number },
+  opts: { params?: Record<string, string | undefined>; ttl: number; session?: string },
 ): Promise<T> {
   const url = upstreamUrl(path, domain, opts.params)
-  const res = await cached(url.toString(), opts.ttl, () => send(url))
+  const res = opts.session
+    ? await send(url, { headers: { [SESSION_HEADER]: opts.session } })
+    : await cached(url.toString(), opts.ttl, () => send(url))
   if (!res.ok) throw new UpstreamError(res.status)
   return (await res.json()) as T
 }

@@ -1030,7 +1030,9 @@ export const sweep = {
       "low": "Laag",
       "medium": "Gemiddeld",
       "high": "Hoog",
-      "urgent": "Urgent"
+      "urgent": "Urgent",
+      "critical": "Kritiek",
+      "none": "Geen"
     },
     "taskRepeat": {
       "daily": "Dagelijks",

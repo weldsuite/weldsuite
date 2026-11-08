@@ -34,6 +34,7 @@ import {
   type DeskConversation,
   type DeskMessage,
 } from '@weldsuite/db/lib/desk';
+import { closeDeskIncidentChildren } from '@weldsuite/db/lib/desk-links';
 import * as schema from '@weldsuite/db/schema';
 import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
@@ -43,11 +44,13 @@ import { sendDeskEmailReply } from '../../lib/desk-email';
 import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
 import { markDeskSlaDue } from '../../lib/sla-due';
+import { deskAttributeChanges, rerouteAfterAttributes } from '../../lib/desk-routing';
 import { getDeskAttributeOptions } from '../../services/desk-attributes';
+import { deskTranslationRoutes } from './translation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
+export async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
   const authors = new Map<string, DeskAuthorInfo>();
   if (!userId) return authors;
   try {
@@ -72,7 +75,7 @@ async function loadAuthor(db: Variables['tenantDb'], userId: string | null | und
  *     and open thread, including notes. Published directly (not only via the
  *     entity-event queue) so the inbox updates in the same second.
  */
-async function publishDeskChange(
+export async function publishDeskChange(
   c: { env: Env; get: (key: 'clerkOrgId') => string },
   conversation: DeskConversation,
   message: DeskMessage,
@@ -273,6 +276,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       authorId: userId,
       body: data.body || null,
       attachments: data.attachments,
+      metadata: data.translation ? { translation: data.translation } : undefined,
     });
     publishEntityEvent({
       c,
@@ -373,6 +377,20 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
         assignedByUserId: userId,
       });
     }
+    if (data.action === 'close' && data.closeChildren) {
+      // A major incident's open linked tickets close with it, each with its own close event.
+      const children = await closeDeskIncidentChildren(db, { generateId, incidentId: id, authorId: userId }).catch((err) => {
+        console.error('[app-api/desk-conversations] closing linked tickets failed:', err);
+        return [];
+      });
+      for (const child of children) {
+        publishEntityEvent({ c, entityType: 'desk_conversation', action: 'state_changed', entityId: child.conversation.id, data: child.conversation as unknown as Record<string, unknown> });
+        publishEntityEvent({ c, entityType: 'desk_message', action: 'created', entityId: child.message.id, data: child.message as unknown as Record<string, unknown> });
+        markDeskSlaDue(c, child.slaCheckAt);
+        const childAuthors = await loadAuthor(db, child.conversation.assigneeId);
+        c.executionCtx.waitUntil(publishDeskChange(c, child.conversation, child.message, childAuthors));
+      }
+    }
     return success(c, { conversation, message });
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
@@ -392,6 +410,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
+    const [before] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, id)).limit(1);
     const { conversation, message, customFields, slaCheckAt } = await updateDeskConversationAttributes(db, {
       generateId,
       conversationId: id,
@@ -408,6 +427,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
         action: 'updated',
         entityId: conversation.id,
         data: withFields as unknown as Record<string, unknown>,
+        changes: deskAttributeChanges(before, conversation),
       });
       publishEntityEvent({
         c,
@@ -418,6 +438,11 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
       });
       c.executionCtx.waitUntil(publishDeskChange(c, withFields, message, new Map()));
       markDeskSlaDue(c, slaCheckAt);
+      // A new type or tags can route it elsewhere (a team it set itself stays).
+      const routed = await rerouteAfterAttributes(c, message, async (next, event) =>
+        publishDeskChange(c, next, event, await loadAuthor(db, next.assigneeId)),
+      );
+      if (routed) return success(c, { conversation: { ...routed.conversation, customFields }, message });
     }
     return success(c, { conversation: withFields, message });
   } catch (err) {
@@ -427,5 +452,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
     return error.internal(c, 'Failed to update conversation');
   }
 });
+
+app.route('/', deskTranslationRoutes);
 
 export { app as deskConversationsRoutes };

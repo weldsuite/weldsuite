@@ -531,6 +531,23 @@ type WorkflowEditorStringKey = {
   [K in keyof WorkflowEditorStrings]: WorkflowEditorStrings[K] extends string ? K : never;
 }[keyof WorkflowEditorStrings];
 
+// The WeldDesk inbox (desk_conversations): widget, email, phone and API conversations.
+const DESK_INBOX_TRIGGERS: ReadonlyArray<{
+  id: string;
+  labelKey: keyof ReturnType<typeof useI18n>['t']['helpdesk']['routing']['triggers'];
+  icon: LucideIcon;
+  entityType: string;
+  eventType: string;
+}> = [
+  { id: 'desk_conv_created', labelKey: 'conversationCreated', icon: MessageSquare, entityType: 'desk_conversation', eventType: 'created' },
+  { id: 'desk_msg_created', labelKey: 'messageCreated', icon: MessageSquare, entityType: 'desk_message', eventType: 'created' },
+  { id: 'desk_conv_updated', labelKey: 'conversationUpdated', icon: CircleDot, entityType: 'desk_conversation', eventType: 'updated' },
+  { id: 'desk_conv_state', labelKey: 'conversationStateChanged', icon: CircleDot, entityType: 'desk_conversation', eventType: 'state_changed' },
+  { id: 'desk_conv_assigned', labelKey: 'conversationAssigned', icon: UserPlus, entityType: 'desk_conversation', eventType: 'assigned' },
+  { id: 'desk_conv_sla_warning', labelKey: 'conversationSlaWarning', icon: Shield, entityType: 'desk_conversation', eventType: 'sla_warning' },
+  { id: 'desk_conv_sla_breached', labelKey: 'conversationSlaBreached', icon: Shield, entityType: 'desk_conversation', eventType: 'sla_breached' },
+];
+
 // Helpdesk flat routing triggers (single-click selection)
 const HELPDESK_ROUTING_TRIGGERS: ReadonlyArray<{
   id: string;
@@ -1057,12 +1074,22 @@ function resolveCronExpression(preset: string, customCron: string, cronPresets: 
     : cronPresets.find((p) => p.id === preset)?.cron || '0 9 * * *';
 }
 
-type HelpdeskRoutingTrigger = (typeof HELPDESK_ROUTING_TRIGGERS)[number];
+interface HelpdeskRoutingTrigger {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  entityType: string;
+  eventType: string;
+}
 
 function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: TriggerFormApi; applyTriggerData: ApplyTriggerData }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const twe = t.helpdesk.workflowEditor;
+  const triggers: HelpdeskRoutingTrigger[] = [
+    ...DESK_INBOX_TRIGGERS.map((rt) => ({ ...rt, label: t.helpdesk.routing.triggers[rt.labelKey] })),
+    ...HELPDESK_ROUTING_TRIGGERS.map((rt) => ({ ...rt, label: twe[rt.labelKey] })),
+  ];
 
   const handleSelect = (rt: HelpdeskRoutingTrigger) => {
     form.setTriggerType('entity_event');
@@ -1073,14 +1100,14 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
       isEnabled: true,
       entityType: rt.entityType,
       eventType: rt.eventType,
-      name: twe[rt.labelKey],
+      name: rt.label,
     });
   };
 
   return (
     <div className="p-4 space-y-1">
       <Label className="mb-2 text-xs">{tec.triggerPanel.whenThisHappens}</Label>
-      {HELPDESK_ROUTING_TRIGGERS.map((rt) => {
+      {triggers.map((rt) => {
         const isSelected = form.triggerEntityType === rt.entityType && form.triggerEventType === rt.eventType;
         const Icon = rt.icon;
         return (
@@ -1097,7 +1124,7 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
             )}
           >
             <Icon className={cn('w-4 h-4 flex-shrink-0', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{twe[rt.labelKey]}</span>
+            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{rt.label}</span>
           </Button>
         );
       })}

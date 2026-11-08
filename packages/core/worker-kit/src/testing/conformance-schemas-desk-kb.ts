@@ -1,6 +1,7 @@
 /** WeldDesk (desk-api) response schemas: knowledge base: articles, article folders, ticket types, canned responses, changelog, stats. Spread into ROUTES by conformance-schemas.ts. */
 import { helpdeskArticleFolderSchema } from '@weldsuite/core-api-client/schemas/article-folders';
-import { helpdeskArticleSchema } from '@weldsuite/core-api-client/schemas/articles';
+import { articleVersionSchema, helpdeskArticleSchema } from '@weldsuite/core-api-client/schemas/articles';
+import { deskArticleSuggestionsSchema } from '@weldsuite/app-api-client/schemas/desk-knowledge';
 import {
   cannedResponseCategorySchema,
   cannedResponseUseResultSchema,
@@ -18,6 +19,11 @@ export const DESK_KB_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/articles/:id', envelope: 'single', data: helpdeskArticleSchema },
   { method: 'POST', route: '/api/articles', envelope: 'single', data: deskIdRefSchema },
   { method: 'PATCH', route: '/api/articles/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/articles/:id/translations', envelope: 'array', data: articleVersionSchema },
+  { method: 'POST', route: '/api/articles/:id/translations', envelope: 'single', data: deskIdRefSchema },
+  // desk: knowledge in the inbox
+  { method: 'GET', route: '/api/desk/conversations/:id/article-suggestions', envelope: 'single', data: deskArticleSuggestionsSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/draft-article', envelope: 'single', data: helpdeskArticleSchema },
   // desk: article folders
   { method: 'GET', route: '/api/article-folders', envelope: 'list', data: helpdeskArticleFolderSchema },
   { method: 'GET', route: '/api/article-folders/:id', envelope: 'single', data: helpdeskArticleFolderSchema },

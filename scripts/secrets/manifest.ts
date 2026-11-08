@@ -600,6 +600,10 @@ export const manifest: Record<string, SecretEntry[]> = {
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
   "desk-api": [
+    // Inbox translation (/api/desk/conversations/:id/translate*) through
+    // @weldsuite/ai: the dedicated AI token (Workers AI + AI Gateway Run scopes),
+    // preferred over CLOUDFLARE_API_TOKEN, which may not carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     // Help center custom domains (DNS records in zones), moved here from app-api.
     "CLOUDFLARE_API_TOKEN",
     // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies),
