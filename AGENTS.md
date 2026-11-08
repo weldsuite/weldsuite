@@ -23,8 +23,9 @@ it has real work:
   (`app-api/src/lib/weldagent-routine-index.ts` → `app-api/src/cron/weldagent-routines.ts`).
   Write the row on every create / update / pause / delete and re-derive it
   from the tenant when the tenant is open anyway; the sweep reads only D1.
-  Migrations live in `apps/workers/workflow-worker/migrations/d1/` and
-  `deploy.yml` applies them.
+  Migrations live in `apps/workers/workflow-worker/migrations/d1/` and the
+  deploy applies them (`.github/actions/deploy-d1-migrations`, run by
+  `weldsuite-deploy`).
 - **Per-workspace "next due" sweeps** use the generic `workspace_due_index`
   in the same D1 through `@weldsuite/worker-kit/due-index`:
   `runDueIndexSweep` (one-time seed, D1-only quiet ticks, compare-and-set
