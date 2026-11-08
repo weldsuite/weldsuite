@@ -43,13 +43,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # A private repo's GitHub-hosted runner has 7 GB (a public repo's 16 GB),
-    # and Node sizes its default heap from that: the platform's Vite build ran
-    # out of memory there. 5 GB fits the runner and the build.
-    - name: Give Node a larger heap
-      shell: bash
-      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
-
     # The Pages project and the branch name each environment deploys as.
     - name: Resolve Pages project
       id: project
@@ -75,11 +68,17 @@ runs:
 
     - uses: ./.github/actions/setup-monorepo
 
+    # Every build step sets NODE_OPTIONS itself. A private repo's GitHub-hosted
+    # runner has 7 GB (a public repo's 16 GB), and Node sizes its default heap
+    # from that: the Vite builds ran out of memory there. 5 GB fits the runner
+    # and the builds. It can't be set once through $GITHUB_ENV: GitHub refuses
+    # NODE_OPTIONS there.
     - name: Build platform
       if: inputs.app == 'platform'
       shell: bash
       working-directory: apps/web/platform
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         VITE_APP_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
         VITE_CORE_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
         VITE_REALTIME_URL: ${{ inputs.environment == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
@@ -103,6 +102,7 @@ runs:
       shell: bash
       working-directory: apps/web/weldmail
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         VITE_PERSONAL_API_URL: ${{ inputs.environment == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
         VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         VITE_ENVIRONMENT: ${{ inputs.environment }}
@@ -113,6 +113,7 @@ runs:
       shell: bash
       working-directory: apps/web/weldcalendar
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         VITE_PERSONAL_API_URL: ${{ inputs.environment == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
         VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         VITE_ENVIRONMENT: ${{ inputs.environment }}
@@ -125,6 +126,7 @@ runs:
       shell: bash
       working-directory: apps/web/developer
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         VITE_APP_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
         VITE_PLATFORM_URL: ${{ inputs.environment == 'test' && 'https://app-test.weldsuite.org' || 'https://app.weldsuite.org' }}
         VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}  # pragma: allowlist secret

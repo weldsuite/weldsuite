@@ -28,11 +28,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # 7 GB private runners: see deploy-pages.
-    - name: Give Node a larger heap
-      shell: bash
-      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
-
     - uses: ./.github/actions/setup-monorepo
 
     - name: Install Vercel CLI
@@ -59,9 +54,11 @@ runs:
         VERCEL_PROJECT: ${{ inputs.project }}
       run: vercel link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_TEAM_ID" --token "$VERCEL_TOKEN"
 
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages.
     - name: Build ${{ inputs.app }}
       shell: bash
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         VERCEL_TOKEN: ${{ inputs.vercel-token }}
         VERCEL_TEAM_ID: team_CmvR3M30MAIJPwioy1zvRVTb
         VERCEL_PROJECT: ${{ inputs.project }}
