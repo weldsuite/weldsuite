@@ -1,7 +1,14 @@
-# The layers Flux applies, in order: chart sources, operators and the
-# ingress, the encrypted secrets, Postgres and the issuer, the services, and
-# the weldsuite server, with video (LiveKit) next to it. `flux bootstrap ... --path=rust/deploy/flux/clusters/eu`
-# applies this directory (README.md, step 6).
+# An example cluster's layers, the way WeldSuite runs its own: in order, chart
+# sources, operators and the ingress, the encrypted secrets, Postgres and the
+# issuer (with the MTA's database after it, configs-extra), the services, and
+# the weldsuite server, with video (LiveKit) next to it. Copy clusters/example
+# to clusters/<your cluster> and change the paths below that name example.
+#
+# One source: GitRepository flux-system, your copy of this repository (a fork
+# or a mirror), which holds your cluster folder and your encrypted secrets
+# next to the base layers. `flux create kustomization flux-system ...
+# --path=./rust/deploy/flux/clusters/<your cluster>` applies this directory
+# (rust/deploy/hetzner/README.md, step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -36,6 +43,8 @@ spec:
     kind: GitRepository
     name: flux-system
 ---
+# Your secrets, encrypted with SOPS (age): every Secret the layers expect is
+# in secrets/examples/secrets.example.yaml.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -45,7 +54,7 @@ spec:
   dependsOn:
     - name: controllers
   interval: 1h
-  path: ./rust/deploy/flux/secrets/eu
+  path: ./rust/deploy/flux/secrets/example
   prune: true
   sourceRef:
     kind: GitRepository
@@ -55,6 +64,8 @@ spec:
     secretRef:
       name: sops-age
 ---
+# The issuer, the Postgres clusters, poolers and backups. A cluster's own
+# sizing or restore goes in patches here, on top of configs/base.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -64,7 +75,45 @@ spec:
   dependsOn:
     - name: secrets
   interval: 1h
-  path: ./rust/deploy/flux/infrastructure/configs/eu
+  path: ./rust/deploy/flux/infrastructure/configs/base
+  prune: false
+  wait: true
+  timeout: 30m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+  patches:
+    # The MTA's login on master (configs/mta-database.yaml), kept in step with
+    # its Secret like the marketing site's.
+    - target:
+        kind: Cluster
+        name: master
+      patch: |-
+        - op: add
+          path: /spec/managed/roles/-
+          value:
+            name: mta
+            ensure: present
+            login: true
+            passwordSecret:
+              name: master-db-mta
+---
+# This cluster's own configs (configs/ here): the MTA's database on master,
+# owned by the role the configs patch adds, so after configs.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: configs-extra
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: configs
+  interval: 1h
+  path: ./rust/deploy/flux/clusters/example/configs
   prune: false
   wait: true
   timeout: 30m
@@ -84,6 +133,7 @@ metadata:
 spec:
   dependsOn:
     - name: configs
+    - name: configs-extra
   interval: 1h
   path: ./rust/deploy/flux/infrastructure/services
   prune: true

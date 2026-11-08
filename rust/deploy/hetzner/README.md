@@ -1,4 +1,4 @@
-# WeldSuite EU on Hetzner: runbook
+# WeldSuite on Hetzner: install guide
 
 The Kubernetes edition of WeldSuite (the Rust backend, ADRs API-014 and
 OPS-012/013) on Hetzner Cloud: **Talos** Kubernetes across Falkenstein (FSN1)
@@ -7,13 +7,20 @@ CloudNativePG on a dedicated local-NVMe pool, and everything else in the
 cluster. Design: "EU: Kubernetes on Hetzner, then own servers" in
 `design/platform/editions-and-self-hosting.md` (docs repo), phase P5.
 
+This guide installs it on a cluster of your own: the self-hosted
+distribution of [ADR OPS-014](https://github.com/weldsuite/weldsuite-documentation/blob/main/adr/OPS-014-self-hosted-distribution.md).
+Your cluster's folder starts as a copy of `flux/clusters/example`, in your
+own copy of this repository. WeldSuite runs its own clusters (EU production,
+its test cluster and a monthly restore drill) with this module, the same
+base layers and the same chart, but from a private repository that holds
+their settings, secrets and runbooks (ADR OPS-018).
+
 | Layer | What | Where |
 |---|---|---|
 | Servers, network, firewall, load balancers, Talos bootstrap | OpenTofu (`hetznercloud/hcloud` 1.70.0, `siderolabs/talos` 0.12.0) | `rust/deploy/hetzner` |
 | Everything in the cluster | Flux (v2.9.6), Helm, kustomize, SOPS (age) | `rust/deploy/flux` |
 | The application | the `weldsuite` chart | `rust/deploy/helm/weldsuite` |
 | Checks without a cloud account | `rust/deploy/validate.sh` (CI: `Rust · deploy config`) | |
-| Monthly build, restore, teardown | `scripts/drill.sh`, [DRILL.md](DRILL.md) | |
 
 Nothing here uses a Hetzner-only managed service: no Cloud Volumes (local
 NVMe through OpenEBS LocalPV), no managed Postgres, no cloud controller
@@ -58,12 +65,12 @@ differ.
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
   `sops`, `age` and `hcloud-upload-image`.
-- **No GitHub credentials.** The repository is public and the organisation
-  doesn't allow deploy keys, so Flux reads it over anonymous HTTPS (step 6);
-  it never pushes.
-- **A release** to run: `WELDSUITE_VERSION` (step 4), made by the "Rust
-  release" workflow from a develop build the test cluster ran ("Releases"
-  below). Its images (`weldsuite`, `weldsuite-sign-portal`,
+- **Your copy of this repository** (a fork or a mirror) for your cluster's
+  folder and its encrypted secrets. Flux reads it (step 6) and never
+  pushes: a public copy needs no credentials, a private one a read-only
+  credential (a GitHub App, `flux create secret githubapp`, or a deploy key).
+- **A release** to run: `WELDSUITE_VERSION` (step 4), a `weldsuite-vX.Y.Z`
+  release of this repository ("Releases" below). Its images (`weldsuite`, `weldsuite-sign-portal`,
   `weldsuite-collab-rooms`, `weldsuite-haraka`) and chart are public
   packages on ghcr.io today, the EU registry later. The first three build
   from `rust/Dockerfile` at the repo root: `docker build -f rust/Dockerfile .`
@@ -87,12 +94,12 @@ talos_version=v1.14.3`; `servers.tf` picks the newest one with that label.
 ```bash
 cd rust/deploy/hetzner
 cp terraform.tfvars.example terraform.tfvars   # git-ignored
-# domain, admin_cidrs (your address and the drill runner's), sizes
+# domain, admin_cidrs (your address), sizes
 ```
 
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
-defaults, not facts: check availability in the console first, and expect the
-drill to report substitutions. `livekit_worker_count` (2) is how many general
+defaults, not facts: check availability in the console first (Hetzner has
+listed "limited availability" of cloud instances since April 2026). `livekit_worker_count` (2) is how many general
 workers also run LiveKit ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
@@ -139,18 +146,31 @@ a time.
 
 ## 4. Settings and secrets for Flux
 
-- `rust/deploy/flux/clusters/eu/cluster-settings.yaml`: domain, ACME email,
-  the backup and files endpoints and buckets, and the release
-  (`WELDSUITE_VERSION`, "Releases" below; the drill's settings pin the same
-  one). Not secret; commit it.
-- Secrets: put your age public key in `rust/deploy/flux/.sops.yaml`, then
+- Your cluster's folder: copy `rust/deploy/flux/clusters/example` to
+  `clusters/<cluster>` and `secrets/example` to `secrets/<cluster>`, and in
+  its `layers.yaml` change the two paths that name `example` (the secrets
+  layer and `configs-extra`). Then `cluster-settings.yaml`: domain, ACME
+  email, the backup and files endpoints and buckets, and the release
+  (`WELDSUITE_VERSION`, "Releases" below). Not secret; commit it. Sizing or
+  other changes to a base layer go in that layer's `patches` in
+  `layers.yaml`.
+- Secrets: a `rust/deploy/flux/.sops.yaml` with your age public key:
+
+  ```yaml
+  creation_rules:
+    - path_regex: secrets[/\\]<cluster>[/\\].*\.sops\.yaml$
+      encrypted_regex: ^(data|stringData)$
+      age: age1…   # the "public key" line of your .agekey
+  ```
+
+  then
 
   ```bash
   cd rust/deploy/flux
-  cp secrets/examples/secrets.example.yaml secrets/eu/secrets.sops.yaml
+  cp secrets/examples/secrets.example.yaml secrets/<cluster>/secrets.sops.yaml
   # replace every CHANGE_ME (openssl rand -base64 32 …)
-  sops --encrypt --in-place secrets/eu/secrets.sops.yaml
-  # list secrets.sops.yaml in secrets/eu/kustomization.yaml, commit
+  sops --encrypt --in-place secrets/<cluster>/secrets.sops.yaml
+  # list secrets.sops.yaml in secrets/<cluster>/kustomization.yaml, commit
   ```
 
   `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`;
@@ -178,24 +198,30 @@ gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
 ## 6. Flux
 
-Read only: the cluster pulls from the repository, nothing is pushed. The
-configuration comes from `main`; the chart and images come from the release
-`WELDSUITE_VERSION` names. The flux CLI must be the version it installs
-(v2.9.6; a newer CLI refuses).
+Read only: the cluster pulls from your copy of the repository, nothing is
+pushed. The configuration comes from its branch; the chart and images come
+from the release `WELDSUITE_VERSION` names. The flux CLI must be the version
+it installs (v2.9.6; a newer CLI refuses).
 
 ```bash
 flux install --version=v2.9.6
-kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=eu.agekey
+kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=<cluster>.agekey
 flux create source git flux-system \
-  --url=https://github.com/weldsuite/weldsuite --branch=main
+  --url=https://github.com/<you>/weldsuite --branch=main
 flux create kustomization flux-system \
-  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/eu --prune=true
+  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/<cluster> --prune=true
 flux get kustomizations --watch
 ```
 
+A private copy needs a credential first, e.g. a GitHub App with read access
+to it (`flux create secret githubapp <name> --app-id=… --app-installation-id=…
+--app-private-key=<pem>`, then `--provider=github --secret-ref=<name>` on the
+source; Flux 2.5 or later).
+
 The layers come up in order: `sources` → `controllers` (namespaces, OpenEBS,
 cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
-`configs` (Postgres clusters, poolers, backups, the issuer) → `services`
+`configs` (Postgres clusters, poolers, backups, the issuer; then
+`configs-extra`, the MTA's database) → `services`
 (NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite), with `video`
 (LiveKit) beside `apps`: a missing `livekit.` or `turn.` record holds up
 calls only.
@@ -214,7 +240,7 @@ default) organisation:
    refuses their first sign-in. Workspace access is the server's check (a
    token names only organisations that granted the person a role). Its **resource id** is
    the tokens' audience: `ZITADEL_PROJECT_ID` in
-   `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
+   `flux/clusters/<cluster>/cluster-settings.yaml` (quoted; it is 18 digits).
 2. **Web application** `platform` in the project: type *User Agent*,
    authentication *PKCE*, redirect URIs on `https://app.<domain>` (the auth
    facade's callback, P4 4.F5), and **Auth token type: JWT**: the server
@@ -306,8 +332,8 @@ empty):
 
 ```bash
 A="kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin"
-$A staff add you@weldsuite.org --role superadmin --name "Your Name" --reason "first superadmin"
-$A staff add colleague@weldsuite.org --role admin --as you@weldsuite.org --reason "support"
+$A staff add you@example.com --role superadmin --name "Your Name" --reason "first superadmin"
+$A staff add colleague@example.com --role admin --as you@example.com --reason "support"
 ```
 
 Then, for example, WeldReach's access requests (REACH-003; the module answers
@@ -316,16 +342,16 @@ Then, for example, WeldReach's access requests (REACH-003; the module answers
 ```bash
 $A access list --status requested
 $A access show <workspace>               # id, slug or organization id
-$A access approve <workspace> --as you@weldsuite.org --reason "B2B, own customer list"
-$A access limits <workspace> --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
-$A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
+$A access approve <workspace> --as you@example.com --reason "B2B, own customer list"
+$A access limits <workspace> --max-mailboxes 20 --as you@example.com --reason "launch"
+$A access suspend <workspace> --as you@example.com --reason "complaints"
 ```
 
 Every change is a row in `admin_audit_events`. Approval installs WeldReach in
 the workspace and emails the requester through `SMTP_URL`, with links to
 `PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
 command warns and you tell them yourself. Feature flags (`feature_flag_overrides`)
-and plan rows (TEST-CLUSTER.md, "Prices") are the console's **Feature flags**
+and plan rows (`plans`) are the console's **Feature flags**
 and **Plans** pages; the staff list is its **Staff** page too, for
 superadmins.
 
@@ -385,47 +411,28 @@ environment (the image has no shell):
 
 ## Releases
 
-Production runs a release, never a develop build. A release is a develop
-build the test cluster ([TEST-CLUSTER.md](TEST-CLUSTER.md)) already ran,
-promoted unchanged: the same image digests under a version tag, and the chart
-of the same commit.
+A cluster runs a release, never a development build. WeldSuite cuts a
+release with the "Rust release" workflow (`.github/workflows/rust-release.yml`)
+from a build its own test cluster already ran, promoted unchanged: the four
+images under the version tag (`ghcr.io/weldsuite/weldsuite:X.Y.Z`, `-sign-portal`,
+`-collab-rooms`, `-haraka`; the same digests as the build), the chart of the
+same commit as `oci://ghcr.io/weldsuite/releases/weldsuite` X.Y.Z (its
+appVersion names those images), and the tag `weldsuite-vX.Y.Z` on that
+commit. A release is never replaced: a fix is the next version.
 
-1. **Pick the build.** The test cluster runs the newest develop build; its
-   tag (`sha-<12 characters>`) is in the "Rust images" run's summary, or
-   `kubectl -n weldsuite get deploy weldsuite -o jsonpath='{..image}'` on the
-   test cluster. Try what the customers use there first.
-2. **Release it** with the "Rust release" workflow
-   (`.github/workflows/rust-release.yml`), the build and the next version:
-
-   ```bash
-   gh workflow run rust-release.yml -f build=sha-0123456789ab -f version=0.2.0
-   ```
-
-   It checks that the commit is on `develop`, that its `Rust` check didn't
-   fail, and that the version is newer than the last release; copies the
-   four images to `:0.2.0` (same digests, nothing rebuilt); publishes the
-   chart as `oci://ghcr.io/weldsuite/releases/weldsuite` 0.2.0, whose
-   appVersion names those images; and tags the commit `weldsuite-v0.2.0`,
-   last. A release is never replaced: a fix is the next version. The first
-   release creates the chart package `releases/weldsuite` as private: make
-   it public in its package settings on GitHub, as the test cluster's
-   packages were.
-3. **Deploy it.** Set `WELDSUITE_VERSION: "0.2.0"` in
-   `rust/deploy/flux/clusters/eu/cluster-settings.yaml` and in
-   `clusters/drill/cluster-settings.yaml` (`validate.sh` fails when they
-   differ), in a pull request to `develop`. Production takes it when it
-   reaches `main`, with the next merge of `develop` into `main`, which also
-   deploys Global. Flux runs the release's migration Job first, then rolls
-   the pods (step 8): `flux get helmreleases -A`.
-4. **Roll back** by putting the previous version back the same way. Its
+1. **Take the release's base layers.** Merge the tag `weldsuite-vX.Y.Z` into
+   your copy's branch, so the layers and `apps/eu/values/weldsuite.yaml`
+   are the ones the release was tested with.
+2. **Deploy it.** Set `WELDSUITE_VERSION: "X.Y.Z"` in your cluster's
+   `cluster-settings.yaml` and push. Flux runs the release's migration Job
+   first, then rolls the pods (step 8): `flux get helmreleases -A`.
+3. **Roll back** by putting the previous version back the same way. Its
    migrations stay applied, so the older release runs on the newer schema:
    check that the release's migrations only add before rolling back.
 
-The rest of the configuration (`apps/eu/values/weldsuite.yaml`, the layers,
-the secrets) comes from `main`, not from the release. The chart ignores
-values it doesn't know, so a value for a newer release can land before it;
-but don't remove or rename a value until production runs a release that no
-longer reads it.
+The chart ignores values it doesn't know, so a value for a newer release can
+land before it; but don't remove or rename a value until the cluster runs a
+release that no longer reads it.
 
 ## Tenant databases
 
@@ -676,15 +683,50 @@ certificate through Traefik. It needs the mail bucket
 
 Every Postgres cluster archives WAL continuously and takes a nightly base
 backup to the second provider (`postgres/*-backups` ObjectStores, 30 days).
-Restore a cluster the way the drill does (`flux/infrastructure/configs/drill`):
-a new `Cluster` with `bootstrap.recovery` from the ObjectStore. Run the drill
-monthly ([DRILL.md](DRILL.md)).
+Restore a cluster into a new `Cluster` with `bootstrap.recovery` from the
+ObjectStore: a patch on the `configs` layer in your cluster's `layers.yaml`,
+per Postgres cluster, that turns `initdb` off, recovers from the backups'
+ObjectStore and `serverName`, and archives its own WAL under a new
+`serverName` (or another ObjectStore), since barman refuses to archive into
+a path that holds another server's WAL. For `master`:
+
+```yaml
+    - target:
+        kind: Cluster
+        name: master
+      patch: |-
+        apiVersion: postgresql.cnpg.io/v1
+        kind: Cluster
+        metadata:
+          name: master
+        spec:
+          bootstrap:
+            initdb: null
+            recovery:
+              source: previous
+          externalClusters:
+            - name: previous
+              plugin:
+                name: barman-cloud.cloudnative-pg.io
+                parameters:
+                  barmanObjectName: master-backups
+                  serverName: master
+          plugins:
+            - name: barman-cloud.cloudnative-pg.io
+              isWALArchiver: true
+              parameters:
+                barmanObjectName: master-backups
+                serverName: master-2
+```
+
+The bootstrap only matters when the `Cluster` is created. Practise it: build
+a throwaway cluster from the backups now and then, check the data, and tear
+it down (WeldSuite does this monthly).
 
 ## Cost
 
-Estimates from the design doc, at Hetzner list prices: dormant ≈ €70/month
-(registry, backups, the drill), launch ≈ €310/month, ten times the launch load
-≈ €1,300/month.
+Estimates at Hetzner list prices: the default topology ≈ €310/month, ten
+times its load ≈ €1,300/month.
 
 LiveKit adds no servers at launch: it runs on two of the general workers. If
 those two need more CPU, making them `cpx42` instead of `cpx32` costs about

@@ -555,8 +555,9 @@ rust/
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
-  deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
-  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
+  deploy/hetzner/       OpenTofu for a cluster on Hetzner (Talos) and the install guide
+  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app, and an
+                        example cluster (WeldSuite's own clusters and runbooks are in its private deploy repository)
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
 ```
 

@@ -1,6 +1,6 @@
 # The EU cluster on Hetzner Cloud: servers, network, firewall, load balancers
 # and the Talos bootstrap. Flux takes over from the kubeconfig this outputs
-# (rust/deploy/flux). Runbook: README.md; monthly drill: DRILL.md.
+# (rust/deploy/flux). Install guide: README.md.
 
 terraform {
   required_version = ">= 1.9.0"

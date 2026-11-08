@@ -1,6 +1,7 @@
 # The MTA's queue (docs/plans/eu-mail-service.md): its own database,
 # weldsuite_mta, on the master cluster, owned by its own role `mta` (the
-# managed role kustomization.yaml adds, password from postgres/master-db-mta).
+# managed role the configs patch in ../layers.yaml adds, password from
+# postgres/master-db-mta).
 # `weldsuite mta` creates its tables itself at start, under an advisory lock,
 # so it connects to master-rw directly, not through the transaction-mode
 # PgBouncer (MTA_DATABASE_URL in weldsuite-mail/weldsuite-mta, secrets example).

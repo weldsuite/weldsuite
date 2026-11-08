@@ -1,11 +1,28 @@
 # One branch (`main`), deploys in a private repo
 
-Status: phase 1 in progress (2026-11-08): the open questions are answered
-(end of this page), `weldsuite/weldsuite-deploy` exists with plan-only
-workflows, and `deploy.yml` is split into actions and scripts. Once accepted
-it supersedes ADR OPS-004
-("`develop` → test, `main` → production") with a new ADR (OPS-018), and
-amends OPS-005 (change-detected deploys) and the EU deploy notes in OPS-012/013.
+Status: done (2026-11-08). All four phases landed in one day instead of
+over weeks (two committers, so the plan-only week and the read-only fortnight
+for `develop` were skipped). ADR OPS-018 is accepted and supersedes OPS-004
+("`develop` → test, `main` → production"); it amends OPS-005 and the EU deploy
+notes in OPS-012/013. Left open: rotating the EU test cluster's secrets
+(deferred on purpose), cleaning up the ~48,000 old public deployment records
+(rate limits make it a slow job of its own), and deleting the public
+`production` environment once the desktop signing secrets are on
+`desktop-release`.
+
+How it differs from the text below, which is the plan as written:
+- **Minutes:** measured at about 40,000 job-minutes a month. Decision: run
+  on GitHub-hosted runners and revisit in a month; a self-hosted runner on
+  Hetzner is the fallback. Private repos get 7 GB runners (public ones get
+  16 GB), so the frontend and mobile deploy builds set a 5 GB Node heap.
+- **Checks:** the private workflows check the commit inline, before any
+  public code runs.
+- **Workspace:** the public repo is checked out as the workspace, not into
+  `./src`.
+- **Diff base:** each environment's deployment records.
+- **EU clusters:** their `configs` overlays became inline patches over the
+  public `configs/base` in the private layers, because a Flux layer can't
+  build across two sources.
 
 Decided (2026-11-07):
 - **One branch for the whole repo.** `develop` goes away for Global
