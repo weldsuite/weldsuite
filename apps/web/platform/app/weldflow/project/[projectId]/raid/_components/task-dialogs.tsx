@@ -10,15 +10,23 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@weldsuite/ui/components/command';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { Form } from '@weldsuite/ui/components/form';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { FieldGroup } from '@weldsuite/ui/components/field';
 import { RAID_TASK_PRIORITIES } from '@weldsuite/app-api-client/schemas/project-control';
 import type { RaidItem } from '@weldsuite/app-api-client/domains/project-control';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCreateControlLink, useCreateRaidTask } from '@/hooks/queries/use-project-control-queries';
 import { useProjectTasks } from '@/hooks/queries/use-projects-queries';
 import { buildRaidTaskBody, raidResolverOptions, raidTaskFormSchema, type RaidTaskFormValues } from '../_lib/form';
-import { SelectField, TextAreaField, TextField } from './form-fields';
+import { DateField, SelectField, TextAreaField, TextField } from './form-fields';
 import { useRaid } from './raid-context';
 
 // ── Create ──────────────────────────────────────────────────────────────────
@@ -34,10 +42,10 @@ export function CreateTaskDialog({ item, onClose }: Readonly<CreateTaskDialogPro
   const copy = t.projects.raid.taskDialog;
   return (
     <Dialog open={item !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
         {item ? (
           <>
-            <DialogHeader className="border-b px-6 pt-6 pb-4 text-left">
+            <DialogHeader>
               <DialogTitle>{item.kind === 'risk' ? copy.titleMitigation : copy.titleResolution}</DialogTitle>
               <DialogDescription>{format(copy.description, { code: item.code })}</DialogDescription>
             </DialogHeader>
@@ -83,39 +91,39 @@ function CreateTaskForm({ item, onClose }: Readonly<{ item: RaidItem; onClose: (
   };
 
   return (
-    <Form {...form}>
-      <form noValidate onSubmit={form.handleSubmit(submit)} className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
-          <TextField control={form.control} name="title" label={copy.taskDialog.taskTitle} autoFocus />
-          <TextAreaField control={form.control} name="description" label={copy.taskDialog.taskDescription} rows={3} />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              control={form.control}
-              name="assigneeId"
-              label={copy.taskDialog.assignee}
-              noneLabel={copy.taskDialog.noAssignee}
-              options={members.map((member) => ({ value: member.userId, label: member.name }))}
-            />
-            <TextField control={form.control} name="dueDate" type="date" label={copy.taskDialog.dueDate} />
-          </div>
+    <form noValidate onSubmit={form.handleSubmit(submit)} className="grid gap-4">
+      <FieldGroup>
+        <TextField control={form.control} name="title" label={copy.taskDialog.taskTitle} autoFocus />
+        <TextAreaField control={form.control} name="description" label={copy.taskDialog.taskDescription} rows={3} />
+        <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
             control={form.control}
-            name="priority"
-            label={copy.taskDialog.priority}
-            options={RAID_TASK_PRIORITIES.map((priority) => ({ value: priority, label: copy.taskDialog.priorities[priority] }))}
+            name="assigneeId"
+            label={copy.taskDialog.assignee}
+            noneLabel={copy.taskDialog.noAssignee}
+            options={members.map((member) => ({ value: member.userId, label: member.name }))}
           />
+          <DateField control={form.control} name="dueDate" label={copy.taskDialog.dueDate} />
         </div>
-        <DialogFooter className="border-t px-6 py-3.5">
-          <Button type="button" variant="outline" onClick={onClose} disabled={createTask.isPending}>
+        <SelectField
+          control={form.control}
+          name="priority"
+          label={copy.taskDialog.priority}
+          options={RAID_TASK_PRIORITIES.map((priority) => ({ value: priority, label: copy.taskDialog.priorities[priority] }))}
+        />
+      </FieldGroup>
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline" disabled={createTask.isPending}>
             {t.common.actions.cancel}
           </Button>
-          <Button type="submit" disabled={createTask.isPending}>
-            {createTask.isPending ? <Loader2 aria-hidden className="animate-spin" /> : null}
-            {copy.taskDialog.submit}
-          </Button>
-        </DialogFooter>
-      </form>
-    </Form>
+        </DialogClose>
+        <Button type="submit" disabled={createTask.isPending}>
+          {createTask.isPending ? <Loader2 aria-hidden className="animate-spin" /> : null}
+          {copy.taskDialog.submit}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
@@ -136,15 +144,17 @@ export function LinkTaskDialog({ item, linkedTaskIds, onClose }: Readonly<LinkTa
       <DialogContent className="sm:max-w-md">
         {item ? (
           <>
-            <DialogHeader className="text-left">
+            <DialogHeader>
               <DialogTitle>{copy.title}</DialogTitle>
               <DialogDescription>{format(copy.description, { code: item.code })}</DialogDescription>
             </DialogHeader>
             <LinkTaskList item={item} linkedTaskIds={linkedTaskIds} onClose={onClose} />
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
-                {t.common.actions.cancel}
-              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  {t.common.actions.cancel}
+                </Button>
+              </DialogClose>
             </DialogFooter>
           </>
         ) : null}

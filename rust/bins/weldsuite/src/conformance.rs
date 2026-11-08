@@ -1030,6 +1030,10 @@ pub(crate) async fn desk_sla_sweep(
         events: state.infra.events.clone(),
         realtime: None,
         mail: None,
+        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        master: None,
+        cache: None,
+        assignment: None,
     };
     let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
     axum::Json(result.to_json()).into_response()

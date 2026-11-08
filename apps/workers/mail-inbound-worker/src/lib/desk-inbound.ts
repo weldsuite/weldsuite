@@ -15,6 +15,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { createAndDeliverNotification, helpdeskPreview } from '@weldsuite/notifications';
 import { findDeskEmailConversation, type DeskConversation } from '@weldsuite/db/lib/desk';
 import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
+import { routeAndAssignDeskConversation, type DeskRoutingStep } from '@weldsuite/db/lib/desk-routing';
 import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
@@ -177,10 +178,12 @@ export async function storeDeskAttachments(
 // ---------------------------------------------------------------------------
 
 /**
- * Give an unowned email conversation to a teammate when the workspace has
- * auto-assignment on (`@weldsuite/db/lib/desk-assignment`), and push the
- * change live. Returns the conversation as it now stands; any failure leaves
- * it unassigned and never fails the email.
+ * Route a new email conversation by the workspace's routing rules
+ * (`@weldsuite/db/lib/desk-routing`, only when `opened`), then give an unowned
+ * one to a teammate when the workspace has auto-assignment on (its team's
+ * members when it has any, else the roster), and push each change live.
+ * Returns the conversation as it now stands; any failure leaves it as it was
+ * and never fails the email.
  */
 export async function autoAssignDeskEmailConversation(
   env: Env,
@@ -188,25 +191,38 @@ export async function autoAssignDeskEmailConversation(
   clerkOrgId: string,
   conversation: DeskConversation,
   generateId: (prefix: string) => string,
+  opened = false,
 ): Promise<DeskConversation> {
-  if (conversation.assigneeId || conversation.state !== 'open') return conversation;
+  if (!opened && (conversation.assigneeId || conversation.state !== 'open')) return conversation;
   try {
-    const result = await autoAssignDeskConversation(db, {
-      generateId,
-      conversationId: conversation.id,
-      pick: deskAssignmentRouterPicker(env.HELPDESK_WORKFLOW, clerkOrgId),
-    });
-    if (!result) return conversation;
-    // The owner can change which SLA policy applies (desk-api's SLA sweep). Best-effort.
-    if (result.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', clerkOrgId, result.slaCheckAt);
-    try {
-      await publishDeskAssigned(env, clerkOrgId, result.conversation, result.message);
-    } catch (err) {
-      console.error(`[HelpdeskInbox] Failed to publish assignment of ${conversation.id}:`, err);
+    const pick = deskAssignmentRouterPicker(env.HELPDESK_WORKFLOW, clerkOrgId);
+    let steps: DeskRoutingStep[];
+    let slaCheckAt: Date | null;
+    if (opened) {
+      ({ steps, slaCheckAt } = await routeAndAssignDeskConversation(db, {
+        generateId,
+        conversationId: conversation.id,
+        pick,
+        trigger: 'opened',
+      }));
+    } else {
+      const result = await autoAssignDeskConversation(db, { generateId, conversationId: conversation.id, pick });
+      steps = result ? [{ conversation: result.conversation, message: result.message, action: 'assigned' }] : [];
+      slaCheckAt = result?.slaCheckAt ?? null;
     }
-    return result.conversation;
+    if (steps.length === 0) return conversation;
+    // The owner can change which SLA policy applies (desk-api's SLA sweep). Best-effort.
+    if (slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', clerkOrgId, slaCheckAt);
+    for (const step of steps) {
+      try {
+        await publishDeskAssigned(env, clerkOrgId, step.conversation, step.message, step.action);
+      } catch (err) {
+        console.error(`[HelpdeskInbox] Failed to publish routing of ${conversation.id}:`, err);
+      }
+    }
+    return steps[steps.length - 1]!.conversation;
   } catch (err) {
-    console.error(`[HelpdeskInbox] Auto-assignment failed for ${conversation.id}:`, err);
+    console.error(`[HelpdeskInbox] Routing / auto-assignment failed for ${conversation.id}:`, err);
     return conversation;
   }
 }

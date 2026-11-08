@@ -503,6 +503,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Isabel Group Ponto Connect (Europe); needs the PONTO_CERT mTLS binding.
     "PONTO_CLIENT_ID",
     "PONTO_CLIENT_SECRET",
+    // A live Ponto application's signature certificate: its id in Isabel's
+    // developer portal and its unencrypted PEM private key. Every Ponto request
+    // is signed with it; the sandbox takes requests unsigned, so leave both unset there.
+    "PONTO_SIGNATURE_CERT_ID",
+    "PONTO_SIGNATURE_KEY",
     // Enable Banking (Europe): application id + PKCS#8 PEM private key.
     "ENABLE_BANKING_APP_ID",
     "ENABLE_BANKING_PRIVATE_KEY",
@@ -595,6 +600,10 @@ export const manifest: Record<string, SecretEntry[]> = {
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
   "desk-api": [
+    // Inbox translation (/api/desk/conversations/:id/translate*) through
+    // @weldsuite/ai: the dedicated AI token (Workers AI + AI Gateway Run scopes),
+    // preferred over CLOUDFLARE_API_TOKEN, which may not carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     // Help center custom domains (DNS records in zones), moved here from app-api.
     "CLOUDFLARE_API_TOKEN",
     // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies),

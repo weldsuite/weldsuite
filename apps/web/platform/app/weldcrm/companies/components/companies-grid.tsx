@@ -36,7 +36,7 @@ import {
 import type { StatusStyle } from '@/components/entity-grid';
 import { QuickAddCompanyDialog } from './quick-add-company-dialog';
 import { useCompanyDeleteGuard } from '@/components/objects/company/use-company-delete-guard';
-import { ImportEntitiesDialog } from '@/app/weldcrm/components/import-entities-dialog';
+import { ImportEntitiesDialog } from '@/components/import/import-entities-dialog';
 import {
   getCompanyImportFields,
   COMPANY_IMPORT_REQUIRE_ONE_OF,
@@ -354,6 +354,7 @@ export function CompaniesGrid({
         requiredForCreate={['name']}
         templateExample={COMPANY_IMPORT_TEMPLATE_EXAMPLE}
         templateName="companies"
+        tips={[t('crm.importExport.tip1'), t('crm.importExport.tip2'), t('crm.importExport.tip3')]}
         onImportBatch={(records) => importMut.mutateAsync(records as ImportCompanyRecord[])}
       />
     </>

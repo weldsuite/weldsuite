@@ -76,18 +76,13 @@ export interface ObjectChatShellProps {
   channelQueryKey?: readonly unknown[];
 }
 
-export function ObjectChatShell({
-  channelQuery,
-  onSendFirstMessage,
-  fallbackName,
-  hideCallButtons,
-  hideHeader,
-  headerSlot,
-  channelQueryKey,
-}: Readonly<ObjectChatShellProps>) {
-  const t = useTranslations();
-  const queryClient = useQueryClient();
-  const { user } = useUser();
+/**
+ * The chat context a record's sidebar chat runs in: reply and edit state of
+ * its own, no thread pane, no profile panels. Also used by sidebars that put
+ * the chat composer in front of something other than a chat channel (a pull
+ * request's conversation), which pass `null`.
+ */
+export function useObjectChatContext(channelId: string | null): ChatContextValue {
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
   const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({
@@ -97,10 +92,9 @@ export function ObjectChatShell({
     date: undefined,
   });
 
-  const channel = channelQuery.data?.data ?? null;
-  const ctx = useMemo<ChatContextValue>(
+  return useMemo<ChatContextValue>(
     () => ({
-      activeChannelId: channel?.id ?? null,
+      activeChannelId: channelId,
       setActiveChannelId: () => {},
       rightPanel: null as RightPanel,
       setRightPanel: () => {},
@@ -120,8 +114,25 @@ export function ObjectChatShell({
       openAgentProfile: () => {},
       closeAgentProfile: () => {},
     }),
-    [replyTo, editingMessage, filters, channel?.id],
+    [replyTo, editingMessage, filters, channelId],
   );
+}
+
+export function ObjectChatShell({
+  channelQuery,
+  onSendFirstMessage,
+  fallbackName,
+  hideCallButtons,
+  hideHeader,
+  headerSlot,
+  channelQueryKey,
+}: Readonly<ObjectChatShellProps>) {
+  const t = useTranslations();
+  const queryClient = useQueryClient();
+  const { user } = useUser();
+
+  const channel = channelQuery.data?.data ?? null;
+  const ctx = useObjectChatContext(channel?.id ?? null);
 
   if (channelQuery.isLoading) {
     return (

@@ -7,7 +7,7 @@ import { test, expect } from '../../fixtures';
 
 test.describe('WeldDesk · new announcement form', () => {
   test('renders title + excerpt + content inputs', async ({ page }) => {
-    await page.goto('/welddesk/announcements/new');
+    await page.goto('/welddesk/help-center/announcements/new');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     await expect(page.locator('#title')).toBeVisible({ timeout: 10_000 });
@@ -16,7 +16,7 @@ test.describe('WeldDesk · new announcement form', () => {
   });
 
   test('typing into title updates the field value', async ({ page }) => {
-    await page.goto('/welddesk/announcements/new');
+    await page.goto('/welddesk/help-center/announcements/new');
     const title = page.locator('#title');
     await expect(title).toBeVisible({ timeout: 10_000 });
     await title.fill('E2E test announcement');
@@ -24,7 +24,7 @@ test.describe('WeldDesk · new announcement form', () => {
   });
 
   test('expiresAt date input is present', async ({ page }) => {
-    await page.goto('/welddesk/announcements/new');
+    await page.goto('/welddesk/help-center/announcements/new');
     await expect(page.locator('#expiresAt')).toBeVisible({ timeout: 10_000 });
   });
 });

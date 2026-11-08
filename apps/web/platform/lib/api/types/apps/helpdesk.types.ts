@@ -293,6 +293,12 @@ export namespace Helpdesk {
     // Status
     status: PublishStatus;
     visibility: ArticleVisibility;
+    /** CRM company ids, for visibility `groups`. */
+    audienceCompanyIds?: string[];
+    /** The article's language; null = the help center's default. */
+    locale?: string | null;
+    /** Set on a language version: the original it translates. */
+    translationOfId?: string | null;
 
     // Publishing
     publishedAt?: Date;
@@ -655,7 +661,8 @@ export namespace Helpdesk {
 
   export type MessageType = 'reply' | 'note' | 'system' | 'forward';
 
-  export type ArticleVisibility = 'public' | 'internal' | 'restricted';
+  /** public: everyone · logged_in: verified readers · groups: readers at `audienceCompanyIds` · internal: the team. */
+  export type ArticleVisibility = 'public' | 'logged_in' | 'groups' | 'internal';
 
   export type AgentRole = 'agent' | 'senior_agent' | 'team_lead' | 'admin';
 

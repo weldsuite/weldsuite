@@ -11,13 +11,16 @@ export const ARTICLE_STATUSES = ['draft', 'review', 'published', 'archived', 'ou
 export type ArticleStatus = (typeof ARTICLE_STATUSES)[number];
 
 /**
- * Visibility model. The public help center is unauthenticated, so only
- * `public` articles are ever served there; `internal` articles stay
- * staff-only inside the platform. (Legacy tiers `private` / `logged_in` /
- * `specific_users` were removed — they could never be enforced.)
+ * Who may read a published article on the help center and in the widget:
+ * `public` everyone, `logged_in` readers with a verified email, `groups`
+ * readers at one of `audienceCompanyIds` (CRM companies), `internal` the
+ * team only.
  */
-export const ARTICLE_VISIBILITIES = ['public', 'internal'] as const;
+export const ARTICLE_VISIBILITIES = ['public', 'logged_in', 'groups', 'internal'] as const;
 export type ArticleVisibility = (typeof ARTICLE_VISIBILITIES)[number];
+
+/** A language tag: `nl`, `en`, `pt-br`. Stored lower-cased. */
+export const ARTICLE_LOCALE_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
 
 export const createArticleSchema = z
   .object({
@@ -37,6 +40,8 @@ export const createArticleSchema = z
     authorName: z.string().max(255).optional(),
     status: z.enum(ARTICLE_STATUSES).optional(),
     visibility: z.enum(ARTICLE_VISIBILITIES).optional(),
+    audienceCompanyIds: z.array(z.string().min(1).max(30)).max(100).optional(),
+    locale: z.string().regex(ARTICLE_LOCALE_PATTERN, 'Invalid locale').nullish(),
     tags: z.array(z.string()).optional(),
     metadata: z.unknown().optional(),
   })

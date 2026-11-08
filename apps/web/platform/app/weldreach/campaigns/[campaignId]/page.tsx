@@ -1,6 +1,8 @@
 /**
- * One WeldReach campaign: header with status and Launch / Pause / Resume,
- * then the Sequence, Prospects, Mailboxes, Schedule & settings and Stats tabs.
+ * One WeldReach campaign, laid out like a WeldCRM sequence (WeldConnect's
+ * editor): one nav row with the Sequence, Prospects, Mailboxes, Schedule &
+ * settings and Stats tabs on the left and the status, the sequence's Save and
+ * Launch / Pause / Resume on the right; the campaign's name is in the breadcrumb.
  *
  * The API validates a launch (an active mailbox, a sender identity, steps and
  * prospects) and its message is shown as is, so the user sees exactly what is
@@ -22,11 +24,11 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import type { ReachCampaignDetail } from '@weldsuite/app-api-client/schemas/reach';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useParams, useRouter, useSearchParams } from '@/lib/router';
+import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import {
   useLaunchReachCampaign,
   usePauseReachCampaign,
@@ -35,13 +37,13 @@ import {
 } from '@/hooks/queries/use-reach-campaign-queries';
 import { CampaignStatusBadge } from '@/app/weldreach/components/engage/badges';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { DetailTabs, errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
+import { errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
 import { MailboxesTab } from './components/mailboxes-tab';
 import { ProspectsTab } from './components/prospects-tab';
 import { SequenceTab } from './components/sequence-tab';
 import { SettingsTab } from './components/settings-tab';
 import { StatsTab } from './components/stats-tab';
-import { DetailHeader, TabBody } from '@weldsuite/ui/components/page-layout';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
@@ -92,15 +94,17 @@ export default function ReachCampaignPage() {
 
 function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }>) {
   const t = useTranslations();
-  const router = useRouter();
   const format = useReachFormat();
   const { can } = usePermissions();
   const searchParams = useSearchParams();
 
+  // The tabs are links (`?tab=`), so the address is the only source of the open tab.
   const requestedTab = searchParams.get('tab');
-  const [tab, setTab] = useState<TabId>(isTabId(requestedTab) ? requestedTab : 'sequence');
+  const tab: TabId = isTabId(requestedTab) ? requestedTab : 'sequence';
   const [failure, setFailure] = useState<string | null>(null);
   const [confirmingLaunch, setConfirmingLaunch] = useState(false);
+  // The Sequence tab puts its Save / Discard here, next to Launch, as WeldConnect's editor does.
+  const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
 
   const launch = useLaunchReachCampaign(campaign.id);
   const pause = usePauseReachCampaign(campaign.id);
@@ -108,12 +112,6 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
 
   const canEdit = can('reach_campaigns:update');
   const busy = launch.isPending || pause.isPending || resume.isPending;
-
-  function changeTab(next: string) {
-    if (!isTabId(next)) return;
-    setTab(next);
-    router.replace(`/weldreach/campaigns/${campaign.id}?tab=${next}`);
-  }
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setFailure(null);
@@ -124,23 +122,14 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
     }
   }
 
-  const tabs: PageTab[] = [
+  const basePath = `/weldreach/campaigns/${campaign.id}`;
+  const tabs = [
     { id: 'sequence', label: t('reachEngage.campaign.tabs.sequence'), icon: ListOrdered },
-    {
-      id: 'prospects',
-      label: t('reachEngage.campaign.tabs.prospects'),
-      icon: Users,
-      count: campaign.stats.prospects,
-    },
-    {
-      id: 'mailboxes',
-      label: t('reachEngage.campaign.tabs.mailboxes'),
-      icon: Mail,
-      count: campaign.mailboxIds.length,
-    },
+    { id: 'prospects', label: t('reachEngage.campaign.tabs.prospects'), icon: Users },
+    { id: 'mailboxes', label: t('reachEngage.campaign.tabs.mailboxes'), icon: Mail },
     { id: 'settings', label: t('reachEngage.campaign.tabs.settings'), icon: CalendarClock },
     { id: 'stats', label: t('reachEngage.campaign.tabs.stats'), icon: BarChart3 },
-  ];
+  ].map(({ id, ...rest }) => ({ ...rest, id, href: id === 'sequence' ? basePath : `${basePath}?tab=${id}` }));
 
   const pausedReasonKey = campaign.pausedReason ? PAUSED_REASON_KEYS[campaign.pausedReason] : undefined;
   const showPausedReason =
@@ -192,21 +181,20 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <DetailHeader
-        className="px-6 pt-6"
-        title={campaign.name}
-        badges={<CampaignStatusBadge status={campaign.status} />}
-        subtitle={t('reachEngage.campaign.summary', {
-          prospects: format.number(campaign.stats.prospects),
-          steps: format.number(campaign.steps.length),
-          mailboxes: format.number(campaign.mailboxIds.length),
-        })}
-        actions={actions}
-        onBack={() => router.push('/weldreach/campaigns')}
+      <EditorWizardNav
+        tabs={tabs}
+        currentStep={tabs.findIndex((item) => item.id === tab) + 1}
+        rightContent={
+          <>
+            <div ref={setActionsTarget} className="flex items-center gap-1 md:gap-2" />
+            <CampaignStatusBadge status={campaign.status} />
+            {actions}
+          </>
+        }
       />
 
       {(failure || showPausedReason) && (
-        <div className="space-y-2 px-6 pt-4">
+        <div className="space-y-2 px-4 pt-3">
           <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
           {showPausedReason && (
             <InfoBanner variant="warning" title={t('reachEngage.campaign.pausedTitle')}>
@@ -218,15 +206,16 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
         </div>
       )}
 
-      <div className="min-h-0 flex-1">
-        <DetailTabs tabs={tabs} activeTab={tab} onTabChange={changeTab}>
-          {tab === 'sequence' && <SequenceTab campaign={campaign} canEdit={canEdit} />}
+      {tab === 'sequence' ? (
+        <SequenceTab campaign={campaign} canEdit={canEdit} actionsTarget={actionsTarget} />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {tab === 'prospects' && <ProspectsTab campaign={campaign} canEdit={canEdit} />}
           {tab === 'mailboxes' && <MailboxesTab campaign={campaign} canEdit={canEdit} />}
           {tab === 'settings' && <SettingsTab campaign={campaign} canEdit={canEdit} />}
           {tab === 'stats' && <StatsTab campaign={campaign} />}
-        </DetailTabs>
-      </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmingLaunch}

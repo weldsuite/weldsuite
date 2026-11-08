@@ -55,6 +55,9 @@ export interface Task {
   /** GitHub Issues integration — set when this task is linked to an issue. */
   githubIssueNumber?: number | null;
   githubRepoLinkId?: string | null;
+  /** The record the task was created from: `desk_conversation` + the ticket's id. */
+  sourceType?: string | null;
+  sourceId?: string | null;
 }
 
 export const crmTasksKeys = {

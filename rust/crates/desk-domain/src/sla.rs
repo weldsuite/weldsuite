@@ -1136,10 +1136,35 @@ const UPSERT: &str = "insert into desk_sla_clocks as t
 
 /// `refreshDeskSla(db, conversationOrId, { now, acknowledge })`: re-derive
 /// a conversation's SLA clocks from its timeline and the policy that
-/// matches it now, and store them with the inbox summary. Safe to call any
-/// number of times.
-#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+/// matches it now, and store them with the inbox summary; then when its
+/// team's escalation rules next need checking
+/// ([`crate::escalation::refresh_check`]), which `next_check_at` includes.
+/// Safe to call any number of times.
 pub async fn refresh(
+    db: &PgPool,
+    conversation: ConversationRef<'_>,
+    now: i64,
+    acknowledge: bool,
+) -> Result<Refreshed, SlaError> {
+    let mut refreshed = refresh_clocks(db, conversation, now, acknowledge).await?;
+    let Some(conversation) = refreshed.conversation.take() else {
+        return Ok(refreshed);
+    };
+    let breached_at = refreshed
+        .clocks
+        .iter()
+        .filter(|clock| clock.status == ClockStatus::Running)
+        .filter_map(|clock| clock.breached_at)
+        .min();
+    let (conversation, check) =
+        crate::escalation::refresh_check(db, conversation, breached_at).await?;
+    refreshed.conversation = Some(conversation);
+    refreshed.next_check_at = [refreshed.next_check_at, check].into_iter().flatten().min();
+    Ok(refreshed)
+}
+
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+async fn refresh_clocks(
     db: &PgPool,
     conversation: ConversationRef<'_>,
     now: i64,
@@ -1286,15 +1311,22 @@ pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, 
     .await
 }
 
-/// `nextDeskSlaCheckAt(db)`: when this workspace next has an SLA clock to
-/// look at; `None` when none.
+/// `nextDeskSlaCheckAt(db)`: when this workspace next has an SLA clock or an
+/// escalation rule to look at; `None` when none.
 pub async fn workspace_next_check_at(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar(
+    let clocks: Option<i64> = sqlx::query_scalar(
         "select floor(extract(epoch from next_check_at) * 1000)::int8 from desk_sla_clocks
          where next_check_at is not null order by next_check_at asc limit 1",
     )
     .fetch_optional(db)
-    .await
+    .await?;
+    let escalations: Option<i64> = sqlx::query_scalar(
+        "select floor(extract(epoch from escalation_check_at) * 1000)::int8 from desk_conversations
+         where escalation_check_at is not null order by escalation_check_at asc limit 1",
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok([clocks, escalations].into_iter().flatten().min())
 }
 
 /// `releaseDeskSlaAlert(db, alert, retryAt)`: undo an `acknowledge` whose

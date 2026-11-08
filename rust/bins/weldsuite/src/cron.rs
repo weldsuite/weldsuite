@@ -797,6 +797,17 @@ async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>
         events: infra.events.clone(),
         realtime: infra.realtime.clone(),
         mail: infra.mail.clone(),
+        // Escalation notices on email tickets go out like the desk API's replies.
+        outbound: if cfg!(feature = "conformance") {
+            weldsuite_mail_domain::outbound::OutboundBindings::default()
+        } else {
+            crate::routes::mail_outbound_for(&master, &infra.flags)
+                .0
+                .clone()
+        },
+        master: Some(master.clone()),
+        cache: infra.cache.clone(),
+        assignment: (!cfg!(feature = "conformance")).then(crate::routes::desk_assignment_router),
     };
     let now = time::OffsetDateTime::now_utc();
     let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;

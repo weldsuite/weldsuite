@@ -42,6 +42,12 @@ export interface DraftAutosaveOptions {
   attachments?: ChatAttachmentInput[];
   /** Called with the restored content + attachments when a draft is found on mount. */
   onRestore?: (content: string, attachments: ChatAttachmentInput[]) => void;
+  /**
+   * Off for a composer whose text never goes to a chat channel (a pull request
+   * comment): it neither restores nor saves, so its text cannot turn up in
+   * another composer that shares the empty channel id.
+   */
+  enabled?: boolean;
 }
 
 export interface DraftAutosaveResult {
@@ -65,6 +71,7 @@ export function useDraftAutosave({
   content,
   attachments = [],
   onRestore,
+  enabled = true,
 }: DraftAutosaveOptions): DraftAutosaveResult {
   const { data: draftsData } = useChatDrafts();
   const { mutateAsync: upsertAsync } = useUpsertDraft();
@@ -72,12 +79,15 @@ export function useDraftAutosave({
 
   const drafts: DraftItem[] = draftsData?.data ?? [];
 
-  // Find the matching draft for this context.
-  const matchingDraft = drafts.find(
-    (d) =>
-      d.channelId === channelId &&
-      (d.threadParentMessageId ?? null) === (threadParentMessageId ?? null),
-  ) ?? null;
+  // Find the matching draft for this context. None while switched off, so
+  // nothing is restored and nothing is ever known to delete.
+  const matchingDraft = enabled
+    ? drafts.find(
+        (d) =>
+          d.channelId === channelId &&
+          (d.threadParentMessageId ?? null) === (threadParentMessageId ?? null),
+      ) ?? null
+    : null;
 
   const ctxKey = contextKey(channelId, threadParentMessageId);
   const ctxKeyRef = useRef(ctxKey);
@@ -125,6 +135,7 @@ export function useDraftAutosave({
       text: string,
       files: ChatAttachmentInput[],
     ) => {
+      if (!enabled) return;
       const generation = generationRef.current;
       const key = contextKey(target.channelId, target.threadParentMessageId);
       enqueue(async () => {
@@ -143,7 +154,7 @@ export function useDraftAutosave({
         }
       });
     },
-    [enqueue, upsertAsync],
+    [enabled, enqueue, upsertAsync],
   );
 
   const removeDraft = useCallback(() => {

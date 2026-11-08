@@ -6,6 +6,7 @@ name: Rust images
 #   ghcr.io/weldsuite/weldsuite-sign-portal:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-admin:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-collab-rooms:sha-<same>
+#   ghcr.io/weldsuite/weldsuite-haraka:sha-<same>  (WeldMail's MX, rust/deploy/haraka)
 # A push to develop also moves the tag `develop` on the images to that build,
 # and publishes the weldsuite chart for it as
 #   oci://ghcr.io/weldsuite/charts/weldsuite:<chart version>-develop.<run number>
@@ -22,15 +23,16 @@ on:
   workflow_dispatch:
   push:
     branches: [develop, 'deploy/**']
-    # What the images are built from (rust/Dockerfile), and the chart that
-    # installs them. Other deploy config and docs change neither, so they
-    # start no build: a new run cancels the branch's running one, and a
-    # settings push must not do that. A chart change rebuilds the images
-    # (from the layer cache) so chart and images keep one tag.
+    # What the images are built from (rust/Dockerfile, rust/deploy/haraka),
+    # and the chart that installs them. Other deploy config and docs change
+    # neither, so they start no build: a new run cancels the branch's running
+    # one, and a settings push must not do that. A chart change rebuilds the
+    # images (from the layer cache) so chart and images keep one tag.
     paths:
       - 'rust/**'
       - '!rust/deploy/**'
       - 'rust/deploy/helm/**'
+      - 'rust/deploy/haraka/**'
       - 'apps/web/platform/**'
       - 'apps/web/sign-portal/**'
       - 'apps/web/admin/**'
@@ -114,6 +116,19 @@ jobs:
           tags: ghcr.io/weldsuite/weldsuite-collab-rooms:${{ steps.tag.outputs.tag }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rust-image
+      # Haraka, WeldMail's MX (ADR MAIL-010), which the EU values turn on
+      # (mailInbound). Its own context; released under the same tag as the
+      # server so the chart's appVersion names it too.
+      - name: Build the MX image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust/deploy/haraka
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/weldsuite/weldsuite-haraka:${{ steps.tag.outputs.tag }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rust-haraka
+          cache-to: type=gha,mode=max,scope=rust-haraka
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
@@ -128,7 +143,7 @@ jobs:
           MOVE_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
           for image in "${images[@]}"; do
             docker push "$image:$TAG"
             if [ "$MOVE_DEVELOP" = "true" ]; then

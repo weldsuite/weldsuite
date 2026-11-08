@@ -26,7 +26,7 @@ import type {
   MergeReviewDecision,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
 import { useI18n } from '@/lib/i18n/provider';
-import { initials } from '../lib/format';
+import { initials, providerMarkdown } from '../lib/format';
 import { useMergeMembers } from '../lib/use-members';
 
 const STATUS_ICON: Record<MergeIssueStatus, { icon: typeof Circle; className: string }> = {
@@ -185,11 +185,11 @@ export function useMemberName(userId: string | null | undefined): string | null 
   return memberById.get(userId)?.name ?? null;
 }
 
-/** Renders Markdown (GitHub flavour); raw HTML is never rendered. */
+/** Renders Markdown (GitHub flavour); raw HTML is never rendered, and HTML comments not shown. */
 export function MarkdownBody({ children, className }: Readonly<{ children: string; className?: string }>) {
   return (
     <div className={cn('prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{providerMarkdown(children)}</ReactMarkdown>
     </div>
   );
 }

@@ -44,7 +44,6 @@ import {
   Copy,
   Eye,
   EyeOff,
-  X,
   GitPullRequest,
   History,
   UserPlus,
@@ -72,6 +71,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
+import { EditorPanelHeader, EditorSidePanel } from '@weldsuite/ui/components/editor-side-panel';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
 import { toast } from 'sonner';
 import {
@@ -531,6 +531,23 @@ type WorkflowEditorStringKey = {
   [K in keyof WorkflowEditorStrings]: WorkflowEditorStrings[K] extends string ? K : never;
 }[keyof WorkflowEditorStrings];
 
+// The WeldDesk inbox (desk_conversations): widget, email, phone and API conversations.
+const DESK_INBOX_TRIGGERS: ReadonlyArray<{
+  id: string;
+  labelKey: keyof ReturnType<typeof useI18n>['t']['helpdesk']['routing']['triggers'];
+  icon: LucideIcon;
+  entityType: string;
+  eventType: string;
+}> = [
+  { id: 'desk_conv_created', labelKey: 'conversationCreated', icon: MessageSquare, entityType: 'desk_conversation', eventType: 'created' },
+  { id: 'desk_msg_created', labelKey: 'messageCreated', icon: MessageSquare, entityType: 'desk_message', eventType: 'created' },
+  { id: 'desk_conv_updated', labelKey: 'conversationUpdated', icon: CircleDot, entityType: 'desk_conversation', eventType: 'updated' },
+  { id: 'desk_conv_state', labelKey: 'conversationStateChanged', icon: CircleDot, entityType: 'desk_conversation', eventType: 'state_changed' },
+  { id: 'desk_conv_assigned', labelKey: 'conversationAssigned', icon: UserPlus, entityType: 'desk_conversation', eventType: 'assigned' },
+  { id: 'desk_conv_sla_warning', labelKey: 'conversationSlaWarning', icon: Shield, entityType: 'desk_conversation', eventType: 'sla_warning' },
+  { id: 'desk_conv_sla_breached', labelKey: 'conversationSlaBreached', icon: Shield, entityType: 'desk_conversation', eventType: 'sla_breached' },
+];
+
 // Helpdesk flat routing triggers (single-click selection)
 const HELPDESK_ROUTING_TRIGGERS: ReadonlyArray<{
   id: string;
@@ -617,6 +634,15 @@ function readWorkflowCompleteSettings(trigger: WorkflowTriggerBag): WorkflowComp
   };
 }
 
+/** The entity and event an entity-event trigger was saved with; both undefined for any other trigger. */
+function readEntityEventSettings(trigger: WorkflowTriggerBag | undefined): { entityType?: string; eventType?: string } {
+  if (trigger?.type !== 'entity_event') return {};
+  return {
+    entityType: trigger.entityType as string | undefined,
+    eventType: trigger.eventType as string | undefined,
+  };
+}
+
 interface ScheduleSettings {
   scheduleType: 'recurring' | 'one_time';
   timezone: string;
@@ -650,28 +676,20 @@ function readScheduleSettings(
 
 type EditorModule = 'helpdesk' | 'general';
 
-/** Shared ghost "X" button that closes a sidebar panel. */
-function PanelCloseButton({ onClick }: Readonly<{ onClick: () => void }>) {
-  const { t } = useI18n();
-  const label = t.weldconnect.workflowEditorClient.closePanel;
-  return (
-    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClick} aria-label={label} title={label}>
-      <X className="h-4 w-4" />
-    </Button>
-  );
-}
-
-/** Header of a sidebar panel: its title and the close button, 52px tall like the editor's tab bar. */
+/** Header of a sidebar panel: the shared `EditorPanelHeader` with the editor's close label. */
 function PanelHeader({
   title,
   onClose,
   className,
 }: Readonly<{ title: React.ReactNode; onClose: () => void; className?: string }>) {
+  const { t } = useI18n();
   return (
-    <div className={cn('h-[52px] shrink-0 px-3 border-b flex items-center justify-between', className)}>
-      <h3 className="font-semibold text-sm">{title}</h3>
-      <PanelCloseButton onClick={onClose} />
-    </div>
+    <EditorPanelHeader
+      title={title}
+      onClose={onClose}
+      closeLabel={t.weldconnect.workflowEditorClient.closePanel}
+      className={className}
+    />
   );
 }
 
@@ -1056,12 +1074,22 @@ function resolveCronExpression(preset: string, customCron: string, cronPresets: 
     : cronPresets.find((p) => p.id === preset)?.cron || '0 9 * * *';
 }
 
-type HelpdeskRoutingTrigger = (typeof HELPDESK_ROUTING_TRIGGERS)[number];
+interface HelpdeskRoutingTrigger {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  entityType: string;
+  eventType: string;
+}
 
 function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: TriggerFormApi; applyTriggerData: ApplyTriggerData }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const twe = t.helpdesk.workflowEditor;
+  const triggers: HelpdeskRoutingTrigger[] = [
+    ...DESK_INBOX_TRIGGERS.map((rt) => ({ ...rt, label: t.helpdesk.routing.triggers[rt.labelKey] })),
+    ...HELPDESK_ROUTING_TRIGGERS.map((rt) => ({ ...rt, label: twe[rt.labelKey] })),
+  ];
 
   const handleSelect = (rt: HelpdeskRoutingTrigger) => {
     form.setTriggerType('entity_event');
@@ -1072,14 +1100,14 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
       isEnabled: true,
       entityType: rt.entityType,
       eventType: rt.eventType,
-      name: twe[rt.labelKey],
+      name: rt.label,
     });
   };
 
   return (
     <div className="p-4 space-y-1">
       <Label className="mb-2 text-xs">{tec.triggerPanel.whenThisHappens}</Label>
-      {HELPDESK_ROUTING_TRIGGERS.map((rt) => {
+      {triggers.map((rt) => {
         const isSelected = form.triggerEntityType === rt.entityType && form.triggerEventType === rt.eventType;
         const Icon = rt.icon;
         return (
@@ -1096,7 +1124,7 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
             )}
           >
             <Icon className={cn('w-4 h-4 flex-shrink-0', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{twe[rt.labelKey]}</span>
+            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{rt.label}</span>
           </Button>
         );
       })}
@@ -3388,8 +3416,7 @@ export function WorkflowEditorClient({
   // unknown-variable check and the Test dialog's sample all come from it.
   const firstTrigger = workflow.triggers?.[0];
   const isEntityEventTrigger = firstTrigger?.type === 'entity_event';
-  const savedEntityType = isEntityEventTrigger ? (firstTrigger?.entityType as string | undefined) : undefined;
-  const savedEventType = isEntityEventTrigger ? (firstTrigger?.eventType as string | undefined) : undefined;
+  const { entityType: savedEntityType, eventType: savedEventType } = readEntityEventSettings(firstTrigger);
   const recordFieldDefs = useMemo(
     () => (isEntityEventTrigger ? resolveRecordFields?.(savedEntityType, savedEventType) : undefined),
     [isEntityEventTrigger, resolveRecordFields, savedEntityType, savedEventType],
@@ -4360,19 +4387,11 @@ export function WorkflowEditorClient({
         </div>
 
         {/* Right Sidebar - Actions Panel or Edit Panel */}
-        <div className={cn(
-          "bg-background flex flex-col z-50",
-          // Below lg: covers the editor area. Absolute (not viewport-fixed) so it
-          // stays inside the page content, which already sits right of the app rail.
-          "absolute inset-0 w-full transform transition-transform duration-200",
-          // Desktop: side panel
-          "lg:relative lg:inset-auto lg:w-[399px] lg:border-l",
-          showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
-        )}>
+        <EditorSidePanel open={showMobileSidebar}>
           <TriggerRecordFieldsProvider value={triggerRecordFields}>
             {renderSidebarPanel()}
           </TriggerRecordFieldsProvider>
-        </div>
+        </EditorSidePanel>
       </div>
 
       <TestRunDialog

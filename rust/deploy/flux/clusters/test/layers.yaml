@@ -220,6 +220,8 @@ spec:
     # image tag (WELDSUITE_IMAGE_TAG is empty here, so the images follow it).
     # One pod of each; no autoscaling, and no disruption budget (with one
     # replica it would block every drain). Streams on the one NATS server.
+    # No mail nodes, MTA database or MX here: mail goes through the test
+    # secrets' SMTP_URL, if they hold one.
     - target:
         kind: HelmRelease
         name: weldsuite
@@ -254,6 +256,10 @@ spec:
               streamReplicas: 1
               podDisruptionBudget:
                 enabled: false
+            mailInbound:
+              enabled: false
+            mta:
+              enabled: false
 ---
 # WeldMeet's media server (LiveKit) and its TURN, as on eu: one pod on each of
 # the two workers OpenTofu labels node.weldsuite.org/livekit.

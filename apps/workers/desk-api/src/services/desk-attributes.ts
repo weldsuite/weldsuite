@@ -9,6 +9,7 @@
 
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { getDeskPriorityMatrix, type DeskPriorityMatrix } from '@weldsuite/db/lib/desk-priority-matrix';
 
 const types = schema.helpdeskTicketTypes;
 const teams = schema.helpdeskDepartments;
@@ -46,10 +47,12 @@ export interface DeskAttributeOptions {
   }>;
   /** Most used first, over conversations active in the last TAG_WINDOW_DAYS. */
   tags: Array<{ tag: string; count: number }>;
+  /** The impact × urgency grid; with it on, the priority follows impact and urgency. */
+  priorityMatrix: DeskPriorityMatrix;
 }
 
 export async function getDeskAttributeOptions(db: Database): Promise<DeskAttributeOptions> {
-  const [ticketTypes, teamRows, fieldRows, tagResult] = await Promise.all([
+  const [ticketTypes, teamRows, fieldRows, tagResult, priorityMatrix] = await Promise.all([
     db
       .select({ id: types.id, name: types.name, description: types.description, icon: types.icon, color: types.color })
       .from(types)
@@ -84,6 +87,7 @@ export async function getDeskAttributeOptions(db: Database): Promise<DeskAttribu
       ORDER BY count DESC, tag ASC
       LIMIT ${TAG_SUGGESTIONS}
     `),
+    getDeskPriorityMatrix(db),
   ]);
 
   const tagRows =
@@ -95,5 +99,6 @@ export async function getDeskAttributeOptions(db: Database): Promise<DeskAttribu
     teams: teamRows,
     fields: fieldRows.map((f) => ({ ...f, required: f.required ?? false, sortOrder: f.sortOrder ?? 0 })),
     tags: (tagRows ?? []).map((r) => ({ tag: r.tag, count: Number(r.count) })),
+    priorityMatrix,
   };
 }

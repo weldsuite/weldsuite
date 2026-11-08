@@ -53,6 +53,7 @@ spec:
               args: ["cron", {{ $name | quote }}]
               env:
                 {{- include "weldsuite.env" $ | nindent 16 }}
+                {{- with include "weldsuite.mta.clientEnv" $ }}{{ . | nindent 16 }}{{- end }}
               envFrom:
                 - secretRef:
                     name: {{ include "weldsuite.secretName" $ }}

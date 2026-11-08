@@ -73,6 +73,8 @@ impl From<CreateError> for Refusal {
 const REPEAT_FREQUENCIES: [&str; 6] =
     ["daily", "weekly", "biweekly", "monthly", "yearly", "custom"];
 const REPEAT_UNITS: [&str; 4] = ["days", "weeks", "months", "years"];
+/// `TASK_SOURCE_TYPES`: what a task can be created from (`tasks.source_type`).
+pub(crate) const TASK_SOURCE_TYPES: [&str; 1] = ["desk_conversation"];
 
 /// A read field into the ordered body (`undefined` stays out).
 fn put(data: &mut Update, key: &str, field: Field<Js>) {
@@ -177,7 +179,8 @@ fn record(issues: &mut Issues, f: &Map<String, Value>, key: &str, raw: &Js) -> F
     }
 }
 
-/// `createTaskSchema` (`.passthrough()`: the extra keys are never read).
+/// `createFlowTaskSchema`: `createTaskSchema` (`.passthrough()`: the extra
+/// keys are never read) plus `sourceType` / `sourceId`.
 fn read_create(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update {
     let mut d = Update::default();
     let nullish = Presence::Nullish;
@@ -247,6 +250,12 @@ fn read_create(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update 
     put(&mut d, "repeat", repeat);
     let custom = record(issues, f, "customFields", raw);
     put(&mut d, "customFields", custom);
+    // `createFlowTaskSchema`'s own keys, after the shared ones: the record
+    // the task is created from (a WeldDesk ticket), stored once.
+    let source_type = string(issues.choice(f, "sourceType", nullish, &TASK_SOURCE_TYPES));
+    put(&mut d, "sourceType", source_type);
+    let source_id = text(issues, f, "sourceId", nullish, Some(30));
+    put(&mut d, "sourceId", source_id);
     d
 }
 

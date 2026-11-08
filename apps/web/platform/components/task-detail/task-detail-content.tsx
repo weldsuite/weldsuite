@@ -92,6 +92,7 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
 import { TaskDurationField } from './task-duration-field';
+import { TaskSourceTicket } from './task-source-ticket';
 import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
@@ -1679,6 +1680,11 @@ export function TaskDetailContent({
           {/* GitHub issue badge */}
           {task.githubIssueNumber != null && task.githubRepoLinkId != null && (
             <GithubIssueBadge task={task} />
+          )}
+
+          {/* The WeldDesk ticket the task was created from */}
+          {task.sourceType && task.sourceId && (
+            <TaskSourceTicket sourceType={task.sourceType} sourceId={task.sourceId} />
           )}
 
           {onSaveCustomFields && (

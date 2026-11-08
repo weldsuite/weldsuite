@@ -37,6 +37,7 @@ import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 import { runDueIndexSweep, type DueIndexSweepResult } from '@weldsuite/worker-kit/due-index';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Env, Variables } from '../types';
+import { sweepWorkspaceEscalations } from './escalation-sweep';
 
 type TenantDb = Variables['tenantDb'];
 
@@ -171,6 +172,7 @@ export async function runSlaSweep(
     process: async (orgId, at) => {
       const db = (await getTenantDbForWorkspace(env, orgId)) as unknown as TenantDb;
       announced += await sweepWorkspaceSla(env, db, orgId, at);
+      await sweepWorkspaceEscalations(env, db, orgId, at);
       return nextDeskSlaCheckAt(db);
     },
   });

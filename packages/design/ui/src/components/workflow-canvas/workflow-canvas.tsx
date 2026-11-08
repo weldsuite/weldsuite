@@ -232,6 +232,7 @@ function CustomControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: ()
     <Panel position="bottom-right" className="!m-4">
       <div className="flex flex-col bg-white dark:bg-background border border-border rounded-lg overflow-hidden">
         <button
+          type="button"
           onClick={() => zoomIn({ duration: 150 })}
           className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
           title={labels.zoomIn}
@@ -240,6 +241,7 @@ function CustomControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: ()
         </button>
         <div className="border-t border-border" />
         <button
+          type="button"
           onClick={() => zoomOut({ duration: 150 })}
           className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
           title={labels.zoomOut}
@@ -248,6 +250,7 @@ function CustomControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: ()
         </button>
         <div className="border-t border-border" />
         <button
+          type="button"
           onClick={() => {
             onResetLayout?.();
             setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);

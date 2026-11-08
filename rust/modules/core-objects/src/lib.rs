@@ -5,7 +5,8 @@
 //! `@weldsuite/core-domain/custom-objects` and `@weldsuite/db/lib/custom-*`).
 //!
 //! - `/api/custom-objects`: object type definitions and their relationship
-//!   definitions (`weldobjects:manage`; listing also `weldobjects:read`).
+//!   definitions (`weldobjects:manage`; listing also `weldobjects:read`),
+//!   and the ready-made types installed from `/templates`.
 //! - `/api/objects/:slug/records`: records of any custom object, behind the
 //!   per-object `weldobjects:<slug>:<action>` and owner scoping
 //!   (`weldobjects:<slug>:scope:all`), with relationship traversal.
@@ -23,6 +24,7 @@ mod fields;
 mod grid_views;
 mod js;
 mod links;
+mod object_templates;
 mod objects;
 mod records;
 mod targets;
@@ -64,7 +66,8 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    objects::router(gate)
+    object_templates::router(gate)
+        .merge(objects::router(gate))
         .merge(links::definition_router(gate))
         .with_state(state)
 }

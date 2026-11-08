@@ -8,11 +8,13 @@ name: Rust release
 # "Rust images" workflow published it) and a version (X.Y.Z), it
 #   - checks the commit is on develop, its `Rust` check passed, and the
 #     version is newer than every earlier release;
-#   - copies the three images to the version's tag, digest for digest:
+#   - copies the four images to the version's tag, digest for digest:
 #       ghcr.io/weldsuite/weldsuite:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-sign-portal:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-admin:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-collab-rooms:X.Y.Z
+#       ghcr.io/weldsuite/weldsuite-haraka:X.Y.Z (a build from before it
+#       existed can't be released)
 #   - publishes that commit's chart as
 #       oci://ghcr.io/weldsuite/releases/weldsuite:X.Y.Z (appVersion X.Y.Z),
 #     a repository of its own, so the test cluster, which takes the newest
@@ -119,7 +121,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
           digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
           for image in "${images[@]}"; do
             digest "$image:$BUILD" >/dev/null || { echo "::error::$image:$BUILD not found"; exit 1; }

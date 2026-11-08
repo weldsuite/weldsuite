@@ -12,9 +12,10 @@
 //! Two adapters:
 //! - [`ManualDomains`]: shows the records and checks them over DNS. The
 //!   self-hosted default, where the relay is the customer's business.
-//! - [`RelayDomains`]: the relay's domain API (per-domain DKIM, verification).
-//!   A skeleton around [`RelayDomainApi`] until the relay is chosen (MAIL-010
-//!   names the criteria, not the provider).
+//! - [`RelayDomains`]: the sending service's domain API (per-domain DKIM,
+//!   and verification when the service does it). On the EU edition that is
+//!   WeldSuite's own MTA ([`crate::mta_domains::MtaDomainApi`], ADR
+//!   MAIL-011, `docs/plans/eu-mail-service.md`).
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -329,7 +330,7 @@ fn unquote_txt(data: &str) -> String {
 }
 
 /// `encodeURIComponent` for a host name.
-fn encode(value: &str) -> String {
+pub(crate) fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -341,9 +342,8 @@ fn encode(value: &str) -> String {
     out
 }
 
-/// A relay's domain API: what [`RelayDomains`] needs from the chosen
-/// provider (Scaleway TEM, Brevo, …). No client is written until the relay
-/// is chosen (MAIL-010).
+/// A sending service's domain API: what [`RelayDomains`] needs from it. The
+/// EU edition's is its own MTA ([`crate::mta_domains::MtaDomainApi`]).
 pub trait RelayDomainApi: Send + Sync {
     /// The provider's name, written to `mail_domains`.
     fn name(&self) -> &str;
@@ -352,17 +352,21 @@ pub trait RelayDomainApi: Send + Sync {
         &'a self,
         domain: &'a str,
     ) -> BoxFuture<'a, Result<(String, String), DomainError>>;
-    /// Whether the provider has verified the domain's SPF and DKIM.
+    /// Whether the provider has verified the domain's SPF and DKIM; `None`
+    /// when it keeps no verification state (it signs, nothing more), so
+    /// [`RelayDomains`] looks both records up over DNS itself.
     fn domain_status<'a>(
         &'a self,
         domain: &'a str,
-    ) -> BoxFuture<'a, Result<(bool, bool), DomainError>>;
+    ) -> BoxFuture<'a, Result<Option<(bool, bool)>, DomainError>>;
     fn delete_domain<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<(), DomainError>>;
 }
 
 /// The relay-API adapter: the relay owns DKIM per domain and verifies SPF and
-/// DKIM itself; the MX record is still checked over DNS by [`ManualDomains`].
-/// Without an API client every call answers [`DomainError::NotConfigured`].
+/// DKIM itself when it can ([`RelayDomainApi::domain_status`]); the MX record,
+/// and SPF and DKIM for a relay that does not verify, are checked over DNS by
+/// [`ManualDomains`]. Without an API client every call answers
+/// [`DomainError::NotConfigured`].
 pub struct RelayDomains {
     api: Option<Arc<dyn RelayDomainApi>>,
     /// MX and DMARC, and the lookups.
@@ -377,8 +381,7 @@ impl RelayDomains {
     fn api(&self) -> Result<&Arc<dyn RelayDomainApi>, DomainError> {
         self.api.as_ref().ok_or_else(|| {
             DomainError::NotConfigured(
-                "No relay domain API is configured (MAIL-010: the relay is not chosen yet)"
-                    .to_owned(),
+                "No sending domain API is configured (MTA_API_URL and MTA_API_SECRET)".to_owned(),
             )
         })
     }
@@ -428,12 +431,12 @@ impl MailDomains for RelayDomains {
         Box::pin(async move {
             let api = self.api()?;
             let dkim = api.create_domain(domain).await?;
-            let (spf_ok, dkim_ok) = api.domain_status(domain).await?;
+            let status = api.domain_status(domain).await?;
             let mut records = self.records(domain, &dkim);
             for record in &mut records {
-                record.verified = match record.purpose {
-                    "spf" => spf_ok,
-                    "dkim" => dkim_ok,
+                record.verified = match (record.purpose, status) {
+                    ("spf", Some((spf_ok, _))) => spf_ok,
+                    ("dkim", Some((_, dkim_ok))) => dkim_ok,
                     _ => self.dns.check(record).await?,
                 };
             }
@@ -595,8 +598,8 @@ mod tests {
         fn domain_status<'a>(
             &'a self,
             _domain: &'a str,
-        ) -> BoxFuture<'a, Result<(bool, bool), DomainError>> {
-            Box::pin(async { Ok((true, true)) })
+        ) -> BoxFuture<'a, Result<Option<(bool, bool)>, DomainError>> {
+            Box::pin(async { Ok(Some((true, true))) })
         }
         fn delete_domain<'a>(&'a self, _domain: &'a str) -> BoxFuture<'a, Result<(), DomainError>> {
             Box::pin(async { Ok(()) })

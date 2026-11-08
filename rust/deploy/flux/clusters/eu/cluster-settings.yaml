@@ -15,6 +15,8 @@ data:
   FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
   FILES_S3_REGION: fsn1
   FILES_BUCKET_PRIVATE: weldsuite-eu-private
+  # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
+  FILES_BUCKET_MAIL: weldsuite-eu-mail
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (Hetzner runbook, step 7).

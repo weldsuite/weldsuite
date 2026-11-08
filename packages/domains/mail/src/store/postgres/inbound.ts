@@ -74,14 +74,14 @@ async function findThreadByReplyIds(
 
 /**
  * Fallback: match by subject when the Message-ID lookup fails. Ported from
- * `findThreadBySubject`; `requireParticipant` guards the "reply without
- * headers" path so two strangers' "Re: Hello" never merge.
+ * `findThreadBySubject`. The sender must already take part in the thread:
+ * two strangers' "Re: Hello" never merge, and a spoofer's "Re: Invoice"
+ * never joins (or inherits the spam cap of) a real conversation.
  */
 async function findThreadBySubject(
   db: Database,
   accountId: string,
   q: InboundThreadQuery,
-  opts: { requireParticipant: boolean } = { requireParticipant: false },
 ): Promise<ThreadMatch | null> {
   const subjects = conversationSubjects(q.subject);
   if (subjects.length === 0) return null;
@@ -106,7 +106,7 @@ async function findThreadBySubject(
     .limit(20);
 
   const match = candidates.find(
-    (c) => c.threadId && (!opts.requireParticipant || involvesAddress(c, q.fromEmail ?? undefined)),
+    (c) => c.threadId && involvesAddress(c, q.fromEmail ?? undefined),
   );
   if (!match?.threadId) return null;
   return { threadId: match.threadId, isExistingHamThread: match.isSpam === false };
@@ -155,7 +155,7 @@ export async function resolveInbound(
   // sender took part in it.
   if (!q.isReply) {
     if (hasReplyPrefix(q.subject) && bareSubject(q.subject)) {
-      const bySubject = await findThreadBySubject(db, accountId, q, { requireParticipant: true });
+      const bySubject = await findThreadBySubject(db, accountId, q);
       if (bySubject) return { duplicate: false, ...bySubject };
     }
     return { duplicate: false, threadId: q.rfcMessageId, isExistingHamThread: false };
@@ -164,6 +164,8 @@ export async function resolveInbound(
   const byIds = await findThreadByReplyIds(db, accountId, q);
   if (byIds) return { duplicate: false, ...byIds };
 
+  // Unmatched threading headers prove nothing (anyone can set them): only a
+  // sender who already took part may join a thread by its subject.
   const bySubject = await findThreadBySubject(db, accountId, q);
   if (bySubject) return { duplicate: false, ...bySubject };
 

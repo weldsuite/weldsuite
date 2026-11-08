@@ -1,4 +1,5 @@
 import type { DeskVisitorSession } from '@weldsuite/app-api-client/schemas/desk-portal';
+import type { DeskPublicAnnouncement, DeskPublicArticleHit } from '@weldsuite/app-api-client/schemas/desk-knowledge';
 import type { MessageAttachment, PublicConversation, PublicMessage, WidgetConfigResponse } from './types';
 
 const API_URL = import.meta.env.VITE_WIDGET_API_URL || 'http://localhost:8787';
@@ -62,6 +63,34 @@ export const widgetApi = {
   /** Exchange an identity token / held visitor token / legacy id for a visitor token. */
   startSession(widgetId: string, body: VisitorSessionRequest) {
     return request<DeskVisitorSession>(widgetId, '/api/visitor', post(body));
+  },
+
+  /**
+   * Articles matching what the visitor is typing, that they may read, in
+   * their language when there is a version in it. The visitor token, when
+   * the widget holds one, lets the API show articles for signed-in readers or
+   * the visitor's company; without it only public ones come back.
+   */
+  searchArticles(
+    widgetId: string,
+    input: { q: string; locale?: string; limit?: number },
+    visitorToken?: string | null,
+    signal?: AbortSignal,
+  ) {
+    const params = new URLSearchParams({ q: input.q });
+    if (input.locale) params.set('locale', input.locale);
+    if (input.limit) params.set('limit', String(input.limit));
+    return request<DeskPublicArticleHit[]>(
+      widgetId,
+      `/api/articles/search?${params.toString()}`,
+      { signal },
+      visitorToken ?? undefined,
+    );
+  },
+
+  /** Published, unexpired announcements this visitor may see (status banners). */
+  listAnnouncements(widgetId: string, visitorToken?: string | null) {
+    return request<DeskPublicAnnouncement[]>(widgetId, '/api/announcements', undefined, visitorToken ?? undefined);
   },
 };
 

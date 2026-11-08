@@ -4,8 +4,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { Form, FormField } from '@weldsuite/ui/components/form';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { FieldGroup } from '@weldsuite/ui/components/field';
 import { ISSUE_SEVERITIES } from '@weldsuite/app-api-client/schemas/project-control';
 import type { RaidItem } from '@weldsuite/app-api-client/domains/project-control';
 import { useI18n } from '@/lib/i18n/provider';
@@ -17,8 +25,8 @@ import {
   raidResolverOptions,
   type ConvertFormValues,
 } from '../_lib/form';
-import { SelectField, TextField } from './form-fields';
-import { RatingPicker, ScoreCard } from './rating-controls';
+import { DateField, SelectField, TextField } from './form-fields';
+import { RatingField, ScoreField } from './rating-controls';
 
 interface ConvertDialogProps {
   /** The assumption (to a risk) or risk (to an issue) to convert; the dialog is open while this is set. */
@@ -34,10 +42,10 @@ export function ConvertDialog({ item, onClose, onConverted }: Readonly<ConvertDi
   const to = item?.kind === 'assumption' ? 'risk' : 'issue';
   return (
     <Dialog open={item !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
         {item ? (
           <>
-            <DialogHeader className="border-b px-6 pt-6 pb-4 text-left">
+            <DialogHeader>
               <DialogTitle>{to === 'risk' ? copy.convert.titleToRisk : copy.convert.titleToIssue}</DialogTitle>
               <DialogDescription>
                 {format(to === 'risk' ? copy.convert.descriptionToRisk : copy.convert.descriptionToIssue, { code: item.code })}
@@ -86,50 +94,38 @@ function ConvertForm({
   };
 
   return (
-    <Form {...form}>
-      <form noValidate onSubmit={form.handleSubmit(submit)} className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
-          <TextField control={form.control} name="title" label={copy.convert.newTitle} autoFocus />
-          {to === 'risk' ? (
-            <>
-              <FormField
-                control={form.control}
-                name="probability"
-                render={({ field, fieldState }) => (
-                  <RatingPicker label={copy.form.probability} kind="probability" value={field.value} onChange={field.onChange} error={fieldState.error?.message} />
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="impact"
-                render={({ field, fieldState }) => (
-                  <RatingPicker label={copy.form.impact} kind="impact" value={field.value} onChange={field.onChange} error={fieldState.error?.message} />
-                )}
-              />
-              <ScoreCard probability={probability} impact={impact} />
-            </>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SelectField
-                control={form.control}
-                name="severity"
-                label={copy.convert.severity}
-                options={ISSUE_SEVERITIES.map((level) => ({ value: level, label: copy.severity[level] }))}
-              />
-              <TextField control={form.control} name="dueDate" type="date" label={copy.form.dueDate.issue} />
-            </div>
-          )}
-        </div>
-        <DialogFooter className="border-t px-6 py-3.5">
-          <Button type="button" variant="outline" onClick={onClose} disabled={convert.isPending}>
+    <form noValidate onSubmit={form.handleSubmit(submit)} className="grid gap-4">
+      <FieldGroup>
+        <TextField control={form.control} name="title" label={copy.convert.newTitle} autoFocus />
+        {to === 'risk' ? (
+          <FieldGroup>
+            <RatingField control={form.control} name="probability" label={copy.form.probability} kind="probability" />
+            <RatingField control={form.control} name="impact" label={copy.form.impact} kind="impact" />
+            <ScoreField probability={probability} impact={impact} />
+          </FieldGroup>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SelectField
+              control={form.control}
+              name="severity"
+              label={copy.convert.severity}
+              options={ISSUE_SEVERITIES.map((level) => ({ value: level, label: copy.severity[level] }))}
+            />
+            <DateField control={form.control} name="dueDate" label={copy.form.dueDate.issue} />
+          </div>
+        )}
+      </FieldGroup>
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline" disabled={convert.isPending}>
             {t.common.actions.cancel}
           </Button>
-          <Button type="submit" disabled={convert.isPending}>
-            {convert.isPending ? <Loader2 aria-hidden className="animate-spin" /> : null}
-            {copy.convert.submit}
-          </Button>
-        </DialogFooter>
-      </form>
-    </Form>
+        </DialogClose>
+        <Button type="submit" disabled={convert.isPending}>
+          {convert.isPending ? <Loader2 aria-hidden className="animate-spin" /> : null}
+          {copy.convert.submit}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

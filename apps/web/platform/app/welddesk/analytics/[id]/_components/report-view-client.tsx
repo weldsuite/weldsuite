@@ -73,6 +73,8 @@ import {
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { ChartLayout } from '@/lib/db/schema/helpdesk-analytics-charts';
 import type { ChartDataPoint } from '../../lib/analytics-data';
+import { reportDimensionOf, reportLabel } from '../../lib/report-labels';
+import type { TranslationsType } from '@/lib/i18n/types';
 import { EmptyStateIllustration } from '@/components/entity-list';
 
 interface ReportViewClientProps {
@@ -96,8 +98,9 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
     { value: 'last_7_days', label: t.helpdesk.analyticsReports.last7Days },
     { value: 'last_30_days', label: t.helpdesk.analyticsReports.last30Days },
     { value: 'last_90_days', label: t.helpdesk.analyticsReports.last90Days },
-    { value: 'this_month', label: t.helpdesk.analyticsReports.yearToDate },
-    { value: 'last_year', label: t.helpdesk.analyticsReports.last12Months },
+    { value: 'this_month', label: t.helpdesk.analyticsReports.thisMonth },
+    { value: 'this_year', label: t.helpdesk.analyticsReports.yearToDate },
+    { value: 'last_365_days', label: t.helpdesk.analyticsReports.last12Months },
     { value: 'all_time', label: t.helpdesk.analyticsReports.allTime },
   ];
   const reportId = report.id;
@@ -420,7 +423,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
       };
       setReports((prev) => [...prev, newReport]);
       setCreateReportDialogOpen(false);
-      router.push(`/welddesk/analytics/${newReport.id}`);
+      router.push(`/welddesk/reports/custom/${newReport.id}`);
     });
   };
 
@@ -434,9 +437,9 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
       setReportSelectorOpen(false);
       const remainingReports = reports.filter((r) => r.id !== reportId);
       if (remainingReports.length > 0) {
-        router.push(`/welddesk/analytics/${remainingReports[0].id}`);
+        router.push(`/welddesk/reports/custom/${remainingReports[0].id}`);
       } else {
-        router.push('/welddesk/analytics');
+        router.push('/welddesk/reports/custom');
       }
     });
   };
@@ -476,7 +479,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                             key={r.id}
                             value={r.title}
                             onSelect={() => {
-                              router.push(`/welddesk/analytics/${r.id}`);
+                              router.push(`/welddesk/reports/custom/${r.id}`);
                               setReportSelectorOpen(false);
                             }}
                           >
@@ -512,7 +515,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                 variant="outline"
                 size="sm"
                 className="shadow-none"
-                onClick={() => router.push(`/welddesk/analytics/builder?reportId=${reportId}`)}
+                onClick={() => router.push(`/welddesk/reports/custom/builder?reportId=${reportId}`)}
               >
                 {t.helpdesk.analyticsReports.addChart}
               </Button>
@@ -539,7 +542,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
             <Button
               size="sm"
               className="bg-black hover:bg-gray-800 text-white"
-              onClick={() => router.push(`/welddesk/analytics/builder?reportId=${reportId}`)}
+              onClick={() => router.push(`/welddesk/reports/custom/builder?reportId=${reportId}`)}
             >
               <Plus className="h-4 w-4 mr-0.5" />
               {t.helpdesk.analyticsReports.addChart}
@@ -718,7 +721,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                               key={r.id}
                               value={r.title}
                               onSelect={() => {
-                                router.push(`/welddesk/analytics/${r.id}`);
+                                router.push(`/welddesk/reports/custom/${r.id}`);
                                 setReportSelectorOpen(false);
                               }}
                             >
@@ -762,7 +765,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                   variant="outline"
                   size="sm"
                   className="shadow-none"
-                  onClick={() => router.push(`/welddesk/analytics/builder?reportId=${reportId}`)}
+                  onClick={() => router.push(`/welddesk/reports/custom/builder?reportId=${reportId}`)}
                 >
                   {t.helpdesk.analyticsReports.addChart}
                 </Button>
@@ -838,7 +841,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                 },
               } satisfies ChartConfig;
 
-              const points = chartData[chart.id];
+              const points = displayPoints(chartData[chart.id], chart.metric, t.helpdesk.reports);
               let chartBody: ReactNode;
               if (isLoadingData && !points) {
                 chartBody = (
@@ -1044,7 +1047,37 @@ function renderChart(chart: AnalyticsChart, data: ChartDataPoint[], totalLabel: 
 const TOOLTIP_WRAPPER_STYLE = { zIndex: 1000, outline: 'none' } as const;
 
 function formatTick(value: unknown): string {
-  return typeof value === 'string' ? value.slice(0, 7) : String(value);
+  const text = typeof value === 'string' ? value : String(value);
+  return text.length > 14 ? `${text.slice(0, 13)}…` : text;
+}
+
+/** A series bucket ("2026-03-09", "2026-03-09T14:00", "2026-03") as a short local date. */
+function dateLabel(label: string): string {
+  const utc = { timeZone: 'UTC' } as const;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+    return new Date(`${label}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...utc });
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(label)) {
+    return new Date(`${label}:00Z`).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', ...utc });
+  }
+  if (/^\d{4}-\d{2}$/.test(label)) {
+    return new Date(`${label}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: '2-digit', ...utc });
+  }
+  return label;
+}
+
+/** desk-api's points with readable labels: translated keys for a breakdown, local dates for a series. */
+function displayPoints(
+  points: ChartDataPoint[] | undefined,
+  metric: string,
+  t: TranslationsType['helpdesk']['reports'],
+): ChartDataPoint[] | undefined {
+  if (!points) return points;
+  const dimension = reportDimensionOf(metric);
+  return points.map((point) => ({
+    ...point,
+    label: dimension ? reportLabel(dimension, point.label, t) : dateLabel(point.label),
+  }));
 }
 
 type LabelViewBox = ComponentProps<typeof RechartsLabel>['viewBox'];

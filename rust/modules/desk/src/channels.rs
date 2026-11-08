@@ -12,12 +12,18 @@ mod attributes;
 mod helpcenter;
 #[path = "channels/inbox.rs"]
 mod inbox;
+/// The email send of a reply, for writers outside a request (the escalation sweep).
+pub(crate) use inbox::{ReplyFiles, deliver_email_reply};
 #[path = "channels/integrations.rs"]
 mod integrations;
+#[path = "channels/links.rs"]
+mod links;
 #[path = "channels/oauth.rs"]
 mod oauth;
 #[path = "channels/providers.rs"]
 mod providers;
+#[path = "channels/translation.rs"]
+mod translation;
 #[path = "channels/webchat.rs"]
 mod webchat;
 
@@ -45,7 +51,12 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .nest("/desk/conversations", inbox::routes(gate))
+        .nest(
+            "/desk/conversations",
+            inbox::routes(gate)
+                .merge(translation::routes(gate))
+                .merge(links::routes(gate)),
+        )
         .nest("/helpdesk-integrations", integrations::routes(gate))
 }
 

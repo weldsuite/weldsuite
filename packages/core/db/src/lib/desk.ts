@@ -2,7 +2,8 @@
  * WeldDesk conversation + message helpers.
  *
  * appendDeskMessage is the only writer for desk_messages and for
- * desk_conversations.state / waitingSince / lastMessage*.
+ * desk_conversations.state / waitingSince / lastMessage*, and for the
+ * reporting times (firstResponse*, resolvedAt, resolutionSeconds).
  * updateDeskConversationAttributes is the only writer of the ticket fields
  * (type, priority, tags, team, custom fields). The SLA clocks and the sla*
  * summary columns are written by refreshDeskSla (./desk-sla), which
@@ -44,6 +45,8 @@ import type {
 import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
 import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
+import { deskMatrixChanges, type DeskMatrixInput } from './desk-priority-matrix';
+import { deskMergeFollowUpTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -54,7 +57,7 @@ const messages = schema.deskMessages;
 const visitors = schema.deskVisitors;
 
 export class DeskConversationNotFoundError extends Error {
-  constructor(conversationId: string) {
+  constructor(readonly conversationId: string) {
     super(`Conversation '${conversationId}' not found`);
     this.name = 'DeskConversationNotFoundError';
   }
@@ -372,15 +375,20 @@ export async function appendDeskMessage(
   db: AnyDb,
   input: AppendDeskMessageInput,
 ): Promise<AppendDeskMessageResult> {
-  const [current] = await db
+  const [found] = await db
     .select()
     .from(conversations)
     .where(eq(conversations.id, input.conversationId))
     .limit(1);
 
-  if (!current) {
+  if (!found) {
     throw new DeskConversationNotFoundError(input.conversationId);
   }
+  // A customer's message on a merged duplicate lands on the conversation it
+  // was merged into (reopening it like any customer message would), when that
+  // customer can see the kept one; otherwise it stays on the duplicate.
+  const isCustomerMessage = input.kind === 'message' && input.authorType === 'visitor';
+  const current = isCustomerMessage && found.mergedIntoId ? await deskMergeFollowUpTarget(db, found) : found;
 
   const now = new Date();
   const next = nextConversationProgress(current, input, now);
@@ -402,7 +410,7 @@ export async function appendDeskMessage(
     .values({
       id: messageId,
       createdAt: now,
-      conversationId: input.conversationId,
+      conversationId: current.id,
       kind: input.kind,
       body: input.body ?? null,
       authorType: input.authorType,
@@ -411,6 +419,8 @@ export async function appendDeskMessage(
       metadata,
     })
     .returning();
+
+  const times = await reportingTimesAfter(db, current, next, input, now);
 
   const [updated] = await db
     .update(conversations)
@@ -421,13 +431,83 @@ export async function appendDeskMessage(
       ...ownerPatch,
       lastMessageAt: next.lastMessageAt,
       lastMessagePreview: next.lastMessagePreview,
+      ...times,
     })
-    .where(eq(conversations.id, input.conversationId))
+    .where(eq(conversations.id, current.id))
     .returning();
 
-  if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
+  if (!message || !updated) throw new DeskConversationNotFoundError(current.id);
   const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
   return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Reporting times (ADR DESK-011)
+//
+// Calendar time, measured where the timeline moves:
+//   - first response: the first agent reply. Its seconds run from the
+//     visitor's first message; a conversation the team started has none
+//     (the same rule as the first_response SLA clock).
+//   - resolution: the close that ends the conversation as it stands, counted
+//     from its first message. Reopening clears it; the next close sets it.
+// Bot and system messages never count as a response.
+// ---------------------------------------------------------------------------
+
+type DeskReportingTimes = Partial<
+  Pick<DeskConversation, 'firstResponseAt' | 'firstResponseSeconds' | 'resolvedAt' | 'resolutionSeconds'>
+>;
+
+/** Whole seconds from `from` to `to`, never negative. */
+export function deskSecondsBetween(from: Date, to: Date): number {
+  return Math.floor(Math.max(0, to.getTime() - from.getTime()) / 1000);
+}
+
+/**
+ * The first response as the timeline has it. Read from the messages rather
+ * than assumed to be this append, so a conversation answered before the
+ * columns existed gets its real first reply, not the latest one.
+ */
+async function firstResponseOf(db: AnyDb, conversationId: string): Promise<DeskReportingTimes> {
+  const [row] = await db
+    .select({
+      firstVisitor: sql`min(${messages.createdAt}) filter (where ${messages.authorType} = 'visitor')`.mapWith(
+        messages.createdAt,
+      ),
+      firstAgent: sql`min(${messages.createdAt}) filter (where ${messages.authorType} = 'agent')`.mapWith(
+        messages.createdAt,
+      ),
+    })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.kind, 'message')));
+  const firstAgent = row?.firstAgent ?? null;
+  if (!firstAgent) return {};
+  const firstVisitor = row?.firstVisitor ?? null;
+  const visitorSpokeFirst = firstVisitor !== null && firstVisitor.getTime() <= firstAgent.getTime();
+  return {
+    firstResponseAt: firstAgent,
+    firstResponseSeconds: visitorSpokeFirst ? deskSecondsBetween(firstVisitor, firstAgent) : null,
+  };
+}
+
+async function reportingTimesAfter(
+  db: AnyDb,
+  current: DeskConversation,
+  next: DeskConversationProgress,
+  input: AppendDeskMessageInput,
+  now: Date,
+): Promise<DeskReportingTimes> {
+  const times: DeskReportingTimes = {};
+  if (input.kind === 'message' && input.authorType === 'agent' && !current.firstResponseAt) {
+    Object.assign(times, await firstResponseOf(db, current.id));
+  }
+  if (current.state !== 'closed' && next.state === 'closed') {
+    times.resolvedAt = now;
+    times.resolutionSeconds = deskSecondsBetween(current.createdAt, now);
+  } else if (current.state === 'closed' && next.state !== 'closed') {
+    times.resolvedAt = null;
+    times.resolutionSeconds = null;
+  }
+  return times;
 }
 
 /**
@@ -542,7 +622,11 @@ export class DeskAttributeRejectedError extends Error {
   }
 }
 
-export interface UpdateDeskConversationAttributesInput {
+/**
+ * `impact` / `urgency` (DeskMatrixInput): with the priority matrix on they set
+ * the priority when either changes; a `priority` sent with them wins.
+ */
+export interface UpdateDeskConversationAttributesInput extends DeskMatrixInput {
   generateId: IdGenerator;
   conversationId: string;
   authorType: DeskAuthorType;
@@ -555,6 +639,8 @@ export interface UpdateDeskConversationAttributesInput {
   departmentId?: string | null;
   /** Slug → value for the type's fields; null or '' clears one. */
   customFields?: CustomFieldMap;
+  /** Extra keys for the `attributes_changed` event (a routing rule's id). */
+  metadata?: Record<string, unknown>;
 }
 
 export interface DeskConversationAttributesResult {
@@ -672,9 +758,14 @@ async function columnChanges(
     patch.departmentId = input.departmentId;
     changes.push(team);
   }
-  if (input.priority !== undefined && input.priority !== current.priority) {
-    patch.priority = input.priority;
-    changes.push({ field: 'priority', from: current.priority, to: input.priority });
+  // Impact and urgency, and the priority the matrix derives from them.
+  const matrix = await deskMatrixChanges(db, current, input);
+  Object.assign(patch, matrix.patch);
+  changes.push(...matrix.changes);
+  const priority = input.priority === undefined ? matrix.priority : input.priority;
+  if (priority !== undefined && priority !== current.priority) {
+    patch.priority = priority;
+    changes.push({ field: 'priority', from: current.priority, to: priority });
   }
   const tags = input.tags === undefined ? null : normalizeDeskTags(input.tags);
   if (tags && !sameTags(current.tags ?? [], tags)) {
@@ -798,7 +889,7 @@ export async function updateDeskConversationAttributes(
     kind: 'event',
     authorType: input.authorType,
     authorId: input.authorId ?? null,
-    metadata: { eventType: 'attributes_changed', changes },
+    metadata: { ...input.metadata, eventType: 'attributes_changed', changes },
   });
   const customFields = await readDeskCustomFields(db, current.id, definitions);
   return { conversation, message, customFields, slaCheckAt };
@@ -1566,8 +1657,22 @@ export function deskAuthorFromMember(member: {
   return { name: firstName || 'Support', avatar: member.picture ?? null };
 }
 
-/** Events only the team sees: ticket-field changes and SLA warnings / breaches. */
-const INTERNAL_DESK_EVENTS = new Set<string>(['attributes_changed', 'sla_warning', 'sla_breached']);
+/**
+ * Events only the team sees: ticket-field changes, SLA warnings / breaches,
+ * escalations, and linked-ticket changes (links, merges, major incidents).
+ */
+const INTERNAL_DESK_EVENTS = new Set<string>([
+  'attributes_changed',
+  'sla_warning',
+  'sla_breached',
+  'escalated',
+  'linked',
+  'unlinked',
+  'merged_into',
+  'merged_from',
+  'incident_marked',
+  'incident_unmarked',
+]);
 
 /** Notes, ticket-field changes and SLA events stay with the team. */
 export function isPublicDeskMessage(message: DeskMessage): boolean {

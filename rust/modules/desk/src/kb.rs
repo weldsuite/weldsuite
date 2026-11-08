@@ -2,7 +2,9 @@
 //!
 //! `/api/articles` (`routes/articles/index.ts`): the cursor list and the soft
 //! delete are the shared CRUD's; create and update are the route's own
-//! (slug, content aliases, excerpt, folder resolution, publish lifecycle).
+//! (slug, content aliases, excerpt, folder resolution, publish lifecycle,
+//! audience and locale), and so are the language versions
+//! (`GET|POST /:id/translations`, one version per locale).
 //! `/api/canned-responses` (`routes/canned-responses/index.ts`): the CRUD of
 //! [`crate::library::CANNED_RESPONSES`] plus `/search`, `/categories` and
 //! `POST /:id/use`. `/api/helpdesk-changelog` and `/api/helpdesk-stats` are
@@ -20,6 +22,7 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_desk_domain::articles::{article_slug, normalize_locale};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text, js_trim, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -50,6 +53,14 @@ where
         .route(
             "/{id}",
             delete(delete_article).route_layer(need(ARTICLES.delete)),
+        )
+        .route(
+            "/{id}/translations",
+            get(list_translations).route_layer(need(ARTICLES.read)),
+        )
+        .route(
+            "/{id}/translations",
+            post(create_translation).route_layer(need(ARTICLES.create)),
         );
     let canned = crate::crud::routes(&CANNED_RESPONSES, gate)
         .route(
@@ -84,8 +95,9 @@ where
 const ARTICLE_LIST: (&str, &str) = listing!("helpdesk_articles";
     "($2::boolean or t.status = $3::text)", "($4::boolean or t.visibility = $5::text)",
     "($6::boolean or t.category_id = $7::text)", "($8::boolean or t.author_id = $9::text)",
-    "($10::boolean or t.title like $11::text)";
-    12, 13, 14; "$15");
+    "($10::boolean or t.title like $11::text)",
+    "($12::boolean or (t.translation_of_id is null and $13::text is not null))";
+    14, 15, 16; "$17");
 
 const ARTICLE_LISTING: Listing = Listing {
     table: &HELPDESK_ARTICLES,
@@ -95,6 +107,8 @@ const ARTICLE_LISTING: Listing = Listing {
         Filter::eq("folderId"),
         Filter::eq("authorId"),
         Filter::like("search"),
+        // `?originals=1`: only originals, no language versions.
+        Filter::eq("originals"),
     ],
     list_sql: ARTICLE_LIST.0,
     count_sql: ARTICLE_LIST.1,
@@ -102,7 +116,27 @@ const ARTICLE_LISTING: Listing = Listing {
 };
 
 const ARTICLE_STATUSES: [&str; 5] = ["draft", "review", "published", "archived", "outdated"];
-const ARTICLE_VISIBILITIES: [&str; 2] = ["public", "internal"];
+const ARTICLE_VISIBILITIES: [&str; 4] = ["public", "logged_in", "groups", "internal"];
+
+/// `ARTICLE_LOCALE_PATTERN`: `/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/`.
+fn is_locale(text: &str) -> bool {
+    let (language, region) = match text.split_once('-') {
+        Some((language, region)) => (language, Some(region)),
+        None => (text, None),
+    };
+    (2..=3).contains(&language.len())
+        && language.bytes().all(|b| b.is_ascii_alphabetic())
+        && region.is_none_or(|region| {
+            (2..=8).contains(&region.len()) && region.bytes().all(|b| b.is_ascii_alphanumeric())
+        })
+}
+
+/// `articleAudienceSchema` at `key`: up to 100 company ids of 1–30 characters.
+fn audience(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence) {
+    issues.list(body, key, presence, None, Some(100), |issues, item| {
+        issues.item_text(item, Text::length(Some(1), Some(30)))
+    });
+}
 
 /// `createArticleSchema` (`.partial()` for the update), passthrough.
 fn article_schema(issues: &mut Issues, body: &Map<String, Value>, partial: bool) {
@@ -125,6 +159,16 @@ fn article_schema(issues: &mut Issues, body: &Map<String, Value>, partial: bool)
     issues.text(body, "authorName", opt, None, Some(255));
     issues.choice(body, "status", opt, &ARTICLE_STATUSES);
     issues.choice(body, "visibility", opt, &ARTICLE_VISIBILITIES);
+    audience(issues, body, "audienceCompanyIds", opt);
+    issues.pattern(
+        body,
+        "locale",
+        nullish,
+        None,
+        None,
+        is_locale,
+        "Invalid locale",
+    );
     issues.list(body, "tags", opt, None, None, |issues, item| {
         issues.item_text(item, Text::default())
     });
@@ -248,6 +292,7 @@ async fn article_detail(caller: Caller, Path(id): Path<String>) -> Response {
     }
 }
 
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
 async fn create_article(
     State(state): State<DeskState>,
     caller: Caller,
@@ -304,6 +349,14 @@ async fn create_article(
             .cloned()
             .unwrap_or_else(|| json!("public")),
     );
+    let audience = data.get("audienceCompanyIds").cloned();
+    table.set(
+        &mut values,
+        "audienceCompanyIds",
+        audience.unwrap_or_else(|| json!([])),
+    );
+    let locale = normalize_locale(data.get("locale").and_then(Value::as_str));
+    table.set(&mut values, "locale", json!(locale));
     if let Some(tags) = data.get("tags") {
         table.set(&mut values, "tags", tags.clone());
     }
@@ -382,12 +435,18 @@ async fn update_article(
         "slug",
         "excerpt",
         "visibility",
+        "audienceCompanyIds",
         "tags",
         "authorName",
     ] {
         if let Some(value) = data.get(key) {
             table.set(&mut values, key, value.clone());
         }
+    }
+    match locale_change(&caller.db, &id, &existing, &data).await {
+        Ok(Some(locale)) => table.set(&mut values, "locale", json!(locale)),
+        Ok(None) => {}
+        Err(refusal) => return refusal.respond(MESSAGE),
     }
     if let Some(content) = pick_content(&data) {
         table.set(&mut values, "content", json!(content));
@@ -468,6 +527,222 @@ async fn delete_article(
         &json!({ "id": id }),
     );
     NoContent.into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Language versions
+// ---------------------------------------------------------------------------
+
+/// `localeConflict(db, article, locale)`: why the article `id` (a version
+/// of `translation_of` when set) can't have `locale`, `None` when it can.
+async fn locale_conflict(
+    db: &weldsuite_db::PgPool,
+    id: &str,
+    translation_of: Option<&str>,
+    locale: Option<&str>,
+) -> Result<Option<&'static str>, sqlx::Error> {
+    if translation_of.is_some() && locale.is_none() {
+        return Ok(Some("A language version needs a language"));
+    }
+    let Some(locale) = locale else {
+        return Ok(None);
+    };
+    let root = translation_of.unwrap_or(id);
+    let taken: Option<String> = sqlx::query_scalar(
+        "select id from helpdesk_articles
+         where deleted_at is null and (id = $1 or translation_of_id = $1) and id <> $2 and locale = $3
+         limit 1",
+    )
+    .bind(root)
+    .bind(id)
+    .bind(locale)
+    .fetch_optional(db)
+    .await?;
+    Ok(taken.map(|_| "This article already has a version in that language"))
+}
+
+/// The locale an update sets (`None` when the body leaves it alone): one
+/// version per locale, and a version keeps one (409 otherwise).
+async fn locale_change(
+    db: &weldsuite_db::PgPool,
+    id: &str,
+    existing: &Value,
+    data: &Map<String, Value>,
+) -> Result<Option<Option<String>>, Refusal> {
+    if !data.contains_key("locale") {
+        return Ok(None);
+    }
+    let locale = normalize_locale(data.get("locale").and_then(Value::as_str));
+    if locale.as_deref() != existing["locale"].as_str() {
+        let translation_of = existing["translationOfId"].as_str();
+        if let Some(conflict) = locale_conflict(db, id, translation_of, locale.as_deref()).await? {
+            return Err(ApiError::conflict(conflict).into());
+        }
+    }
+    Ok(Some(locale))
+}
+
+/// `originalOf(db, id)`: the original of the family `id` belongs to, `None`
+/// when either is gone.
+async fn original_of(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    let Some(found) = HELPDESK_ARTICLES.find_live(db, id).await? else {
+        return Ok(None);
+    };
+    match found["translationOfId"].as_str().filter(|o| !o.is_empty()) {
+        Some(original) => HELPDESK_ARTICLES.find_live(db, original).await,
+        None => Ok(Some(found)),
+    }
+}
+
+async fn list_translations(caller: Caller, Path(id): Path<String>) -> Response {
+    const MESSAGE: &str = "Failed to list language versions";
+    let original = match original_of(&caller.db, &id).await {
+        Ok(Some(original)) => original,
+        Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
+        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+    };
+    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
+        "select to_jsonb(t) from helpdesk_articles t
+         where t.deleted_at is null and (t.id = $1 or t.translation_of_id = $1)
+         order by (t.translation_of_id is not null), t.locale asc nulls first, t.id",
+    )
+    .bind(original["id"].as_str())
+    .fetch_all(&caller.db)
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+    };
+    let data: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            let a = HELPDESK_ARTICLES.js(row);
+            json!({
+                "id": a["id"], "title": a["title"], "slug": a["slug"], "status": a["status"],
+                "visibility": a["visibility"], "locale": a["locale"],
+                "translationOfId": a["translationOfId"], "updatedAt": a["updatedAt"],
+            })
+        })
+        .collect();
+    Data(data).into_response()
+}
+
+/// `createArticleTranslationSchema`.
+fn translation_schema(issues: &mut Issues, body: &Map<String, Value>) {
+    let opt = Presence::Optional;
+    issues.pattern(
+        body,
+        "locale",
+        Presence::Required,
+        None,
+        None,
+        is_locale,
+        "Invalid locale",
+    );
+    issues.text(body, "title", opt, Some(1), Some(500));
+    issues.text(body, "content", opt, None, None);
+    issues.text(body, "excerpt", opt, None, None);
+}
+
+async fn create_translation(
+    State(state): State<DeskState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const MESSAGE: &str = "Failed to create the language version";
+    let data = match validate(&headers, &body, |issues, fields| {
+        translation_schema(issues, fields);
+        fields.clone()
+    }) {
+        Ok(data) => data,
+        Err(refusal) => return refusal.respond(MESSAGE),
+    };
+    let original = match original_of(&caller.db, &id).await {
+        Ok(Some(original)) => original,
+        Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
+        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+    };
+    let original_id = original["id"].as_str().unwrap_or_default().to_owned();
+    let locale = normalize_locale(data.get("locale").and_then(Value::as_str));
+    match locale_conflict(&caller.db, "", Some(&original_id), locale.as_deref()).await {
+        Ok(Some(conflict)) => return ApiError::conflict(conflict).into_response(),
+        Ok(None) => {}
+        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+    }
+
+    let new_id = generate_id("art");
+    let now = now();
+    let given = |key: &str| data.get(key).filter(|v| v.is_string()).cloned();
+    let title = given("title").unwrap_or_else(|| original["title"].clone());
+    let base = article_slug(title.as_str().unwrap_or_default());
+    let base = if base.is_empty() {
+        new_id.clone()
+    } else {
+        base
+    };
+    let suffix: String = new_id.chars().skip(4).take(6).collect();
+    let slug = format!("{base}-{suffix}");
+    let audience = if original["audienceCompanyIds"].is_null() {
+        json!([])
+    } else {
+        original["audienceCompanyIds"].clone()
+    };
+    let table = &HELPDESK_ARTICLES;
+    let mut values = Map::new();
+    for (prop, value) in [
+        ("id", json!(new_id)),
+        ("title", title.clone()),
+        ("slug", json!(slug)),
+        (
+            "content",
+            given("content").unwrap_or_else(|| original["content"].clone()),
+        ),
+        (
+            "excerpt",
+            given("excerpt").unwrap_or_else(|| original["excerpt"].clone()),
+        ),
+        ("category", original["category"].clone()),
+        ("categoryId", original["categoryId"].clone()),
+        ("categoryName", original["categoryName"].clone()),
+        ("status", json!("draft")),
+        ("visibility", original["visibility"].clone()),
+        ("audienceCompanyIds", audience),
+        ("locale", json!(locale)),
+        ("translationOfId", json!(original_id)),
+        ("tags", original["tags"].clone()),
+        ("authorId", json!(caller.user_id)),
+        ("isDraft", json!(true)),
+        ("publishedAt", Value::Null),
+        ("viewCount", json!(0)),
+        ("helpfulCount", json!(0)),
+        ("notHelpfulCount", json!(0)),
+        ("createdAt", json!(now)),
+        ("updatedAt", json!(now)),
+    ] {
+        table.set(&mut values, prop, value);
+    }
+    if let Err(error) = table
+        .insert(
+            &caller.db,
+            values,
+            &["createdAt", "updatedAt", "publishedAt"],
+        )
+        .await
+    {
+        return write_failed(&error, MESSAGE);
+    }
+    caller.publish(
+        &state,
+        ev::HELPDESK_ARTICLE_CREATED,
+        &new_id,
+        &json!({
+            "id": new_id, "title": title, "slug": slug, "status": "draft",
+            "authorId": caller.user_id, "translationOfId": original_id, "locale": locale,
+        }),
+    );
+    Created(json!({ "id": new_id })).into_response()
 }
 
 // ---------------------------------------------------------------------------

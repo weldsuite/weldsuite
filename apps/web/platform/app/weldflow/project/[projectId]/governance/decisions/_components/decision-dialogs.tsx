@@ -26,7 +26,7 @@ import {
   useSupersedeDecision,
   useUpdateDecision,
 } from '@/hooks/queries/use-project-governance-queries';
-import { SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
+import { DateField, SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
 import { fromDateInput, toDateInput } from '../../_lib/use-governance';
 import { FormDialog } from '../../_components/parts';
 
@@ -283,7 +283,7 @@ function DecisionForm({
                   description={f.deciderHelp}
                   options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
                 />
-                <TextField control={form.control} name="decisionDueAt" label={f.dueDate} type="date" />
+                <DateField control={form.control} name="decisionDueAt" label={f.dueDate} />
               </>
             ) : (
               <>
@@ -293,7 +293,7 @@ function DecisionForm({
                   label={f.decidedBy}
                   options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
                 />
-                <TextField control={form.control} name="decidedAt" label={f.decidedAt} type="date" />
+                <DateField control={form.control} name="decidedAt" label={f.decidedAt} />
               </>
             )}
           </div>
@@ -375,7 +375,7 @@ function DecideDialog({
           label={copy.decide.decidedBy}
           options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
         />
-        <TextField control={form.control} name="decidedAt" label={copy.decide.decidedAt} type="date" />
+        <DateField control={form.control} name="decidedAt" label={copy.decide.decidedAt} />
       </Form>
     </FormDialog>
   );

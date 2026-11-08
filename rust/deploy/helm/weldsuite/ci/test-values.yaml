@@ -11,6 +11,11 @@ secret:
     ADMIN_OIDC_CLIENT_ID: not-a-real-client
     ADMIN_OIDC_CLIENT_SECRET: not-a-real-secret
     MAIL_INBOUND_SECRET: not-a-real-secret
+    MTA_DATABASE_URL: postgres://mta:mta@postgres:5432/weldsuite_mta
+    MTA_KEY: bm90LWEtcmVhbC1rZXktbm90LWEtcmVhbC1rZXktMzI=
+    MTA_API_SECRET: not-a-real-secret
+    MTA_SUBMISSION_PASSWORD_SYSTEM: 0123456789abcdef
+    MTA_SUBMISSION_PASSWORD_CUSTOMER: fedcba9876543210
     ZITADEL_SERVICE_TOKEN: not-a-real-token
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
 config:
@@ -92,3 +97,18 @@ consume:
   embeddings:
     url: http://embeddings.example.com/v1
     model: bge-m3
+mta:
+  enabled: true
+  bounceDomain: bounces.example.org
+  spfInclude: _spf.example.org
+  warmupSchedule: "50,100,200"
+  pools:
+    - name: system
+      hostname: mail1-system.example.org
+    - name: customer
+  submission:
+    tls:
+      enabled: true
+  inbound:
+    tls:
+      dnsNames: [mail1-system.example.org, mail1-customer.example.org]

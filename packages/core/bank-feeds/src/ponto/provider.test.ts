@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { WebhookVerificationError } from '../errors';
-import { jsonResponse, routeFetch } from '../test-utils';
+import { jsonResponse, routeFetch, type RecordedCall } from '../test-utils';
 import { createPontoProvider } from './provider';
+import { testKey, verifySignature } from './signature-test-utils';
 
 // Shapes follow Ponto Connect's documented JSON:API (hand-written fixtures, not recorded).
 const API = 'https://api.ibanity.com/ponto-connect';
@@ -47,6 +48,8 @@ const stored = (credentials: Record<string, unknown>, extra: Record<string, unkn
 });
 
 const freshTokens = { accessToken: 'at-1', refreshToken: 'rt-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+
+const asSignable = (call: RecordedCall) => ({ method: call.method, url: call.url, headers: call.headers, body: call.body ?? undefined });
 
 describe('Ponto link', () => {
   it('builds an authorization-code URL with PKCE and a state that derives the verifier', async () => {
@@ -168,6 +171,51 @@ describe('Ponto balances, refresh, disconnect, webhooks', () => {
 
     expect(calls[1]?.payload).toMatchObject({ data: { type: 'synchronization', attributes: { resourceType: 'account', resourceId: 'acc_1', subtype: 'accountTransactions' } } });
     expect(calls[2]?.payload).toMatchObject({ token: 'rt-1' });
+  });
+
+  it('signs every call with the signature certificate when one is configured', async () => {
+    const { privateKey, publicKey } = await testKey();
+    const { fetch, calls } = routeFetch({
+      'POST /ponto-connect/oauth2/token': { access_token: 'at-2', refresh_token: 'rt-2', expires_in: 1800 },
+      'GET /ponto-connect/accounts/acc_1': { data: account('acc_1') },
+      'POST /ponto-connect/synchronizations': {},
+      'POST /ponto-connect/oauth2/revoke': {},
+    });
+    const provider = createPontoProvider({ ...config, fetch, signature: { certificateId: 'cert-1', privateKey } });
+    // Expired, so the token is refreshed first.
+    const connection = stored({ ...freshTokens, expiresAt: new Date(0).toISOString() });
+
+    await provider.getBalances(connection);
+    await provider.refresh?.(connection);
+    await provider.disconnect(connection);
+
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /ponto-connect/oauth2/token',
+      'GET /ponto-connect/accounts/acc_1',
+      'POST /ponto-connect/synchronizations',
+      'POST /ponto-connect/oauth2/revoke',
+    ]);
+    const now = Math.floor(Date.now() / 1000);
+    for (const call of calls) {
+      const { keyId, created } = await verifySignature(asSignable(call), publicKey);
+      expect(keyId).toBe('cert-1');
+      expect(Math.abs(created - now)).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it('sends calls unsigned without a signature certificate, as the sandbox takes them', async () => {
+    const { fetch, calls } = routeFetch({ 'GET /ponto-connect/accounts/acc_1': { data: account('acc_1') } });
+    const provider = createPontoProvider({ ...config, fetch });
+    await provider.getBalances(stored(freshTokens));
+    expect(calls[0]?.headers.signature).toBeUndefined();
+    expect(calls[0]?.headers.digest).toBeUndefined();
+  });
+
+  it('fails a call as an auth error when the signature key is unreadable', async () => {
+    const { fetch, calls } = routeFetch({ 'GET /ponto-connect/accounts/acc_1': { data: account('acc_1') } });
+    const provider = createPontoProvider({ ...config, fetch, signature: { certificateId: 'cert-1', privateKey: 'not a key' } });
+    await expect(provider.getBalances(stored(freshTokens))).rejects.toMatchObject({ provider: 'ponto', kind: 'auth' });
+    expect(calls).toHaveLength(0);
   });
 
   it('has no webhooks, so a delivery is refused', async () => {

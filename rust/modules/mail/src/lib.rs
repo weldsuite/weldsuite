@@ -24,6 +24,7 @@ use std::sync::Arc;
 use axum::Router;
 use weldsuite_db::PgPool;
 use weldsuite_events::EntityEventPublisher;
+use weldsuite_mail_domain::domains::MailDomains;
 use weldsuite_mail_domain::outbound::OutboundBindings;
 use weldsuite_mail_domain::recipients::DnsOverHttps;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -53,6 +54,10 @@ pub struct MailState {
     pub http: Option<OutboundHttp>,
     /// DNS-over-HTTPS for the recipients' MX lookup.
     pub doh: Option<Arc<dyn DnsOverHttps>>,
+    /// Custom domains (`MailDomains`, MAIL-010): the MTA's domain API on the
+    /// EU edition, the manual records otherwise; `None` when the edition
+    /// offers none. For the `/api/mail-domains` routes, not ported yet.
+    pub domains: Option<Arc<dyn MailDomains>>,
     /// Another workspace's tenant database and whether it is suspended,
     /// by reference (`/api/mailboxes`).
     pub workspace_tenants: Option<WorkspaceTenants>,
@@ -66,6 +71,7 @@ impl std::fmt::Debug for MailState {
         f.debug_struct("MailState")
             .field("master", &self.master.is_some())
             .field("outbound", &self.outbound)
+            .field("domains", &self.domains.as_ref().map(|d| d.provider()))
             .finish_non_exhaustive()
     }
 }

@@ -13,7 +13,7 @@ resource "talos_machine_secrets" "cluster" {
 # across locations (topology.kubernetes.io/zone), and the pool labels and
 # taints.
 data "talos_machine_configuration" "node" {
-  for_each = local.nodes
+  for_each = local.all_nodes
 
   cluster_name       = var.cluster_name
   cluster_endpoint   = local.cluster_endpoint
@@ -32,6 +32,7 @@ data "talos_machine_configuration" "node" {
         region       = var.network_zone
         pool         = each.value.pool
         livekit      = each.value.livekit
+        mail_pool    = each.value.mail
         nodes_subnet = var.nodes_subnet_cidr
         pod_cidr     = var.pod_cidr
         service_cidr = var.service_cidr
@@ -46,6 +47,7 @@ data "talos_machine_configuration" "node" {
       }),
     ] : [],
     each.value.pool == "postgres" ? [file("${path.module}/talos/postgres.yaml")] : [],
+    each.value.mail != "" ? [file("${path.module}/talos/mail.yaml")] : [],
   )
 }
 

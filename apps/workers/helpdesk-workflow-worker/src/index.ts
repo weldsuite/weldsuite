@@ -1,22 +1,20 @@
 /**
  * Helpdesk Workflow Worker — Entry Point
  *
- * Workflow execution via CF Workflows + assignment routing via DO + SLA cron.
+ * Workflow execution via CF Workflows + assignment routing via DO. SLAs are
+ * timed by desk-api's SLA sweep on the inbox (ADR DESK-009), not here.
  *
  * Entry points:
  * 1. HTTP fetch: /event, /respond (workflow), /assign, /release, /sync-agents.
  *    Service bindings only (desk-api, helpdesk-widget-api, discord-bot-worker):
  *    these endpoints carry no auth, so a request that arrives on a public
  *    hostname is refused.
- * 2. Cron scheduled: SLA breach detection (every minute)
- * 3. CF Workflow: ConversationWorkflow (step execution)
+ * 2. CF Workflow: ConversationWorkflow (step execution)
  */
 
-import { getMasterDb, getTenantDbForWorkspace } from './db';
-import { checkSlaBreaches } from './lib/sla-breach-checker';
+import { getTenantDbForWorkspace } from './db';
 import { isPublicHost } from './lib/public-host';
-import { workspaces } from '@weldsuite/db/schema/master';
-import { and, eq, isNotNull, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import type { DeskPickRequest } from '@weldsuite/db/lib/desk-assignment';
 import type { Env, AssignRequest, AgentCapacity } from './types';
@@ -217,7 +215,8 @@ async function handleSyncAgents(request: Request, env: Env): Promise<Response> {
 /**
  * WeldDesk inbox pick — one AssignmentRouter per workspace (`desk:<id>`).
  * The caller (widget-api, mail-inbound-worker) owns the tenant DB side; see
- * `@weldsuite/db/lib/desk-assignment`.
+ * `@weldsuite/db/lib/desk-assignment`. `teamId` (optional) picks within a
+ * team, on that team's own rotation.
  */
 async function handleDeskAssign(request: Request, env: Env): Promise<Response> {
   const body = (await request.json()) as Partial<DeskPickRequest> & { workspaceId?: string };
@@ -233,6 +232,7 @@ async function handleDeskAssign(request: Request, env: Env): Promise<Response> {
     mode: body.mode,
     candidates: body.candidates,
     maxOpen: typeof body.maxOpen === 'number' ? body.maxOpen : null,
+    teamId: typeof body.teamId === 'string' && body.teamId ? body.teamId : null,
   });
   return Response.json(result);
 }
@@ -270,45 +270,6 @@ export default {
     } catch (err) {
       console.error('[Fetch] Error:', err);
       return Response.json({ error: (err as Error).message }, { status: 500 });
-    }
-  },
-
-  // =========================================================================
-  // Cron: SLA breach detection (every minute)
-  // =========================================================================
-
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    try {
-      const masterDb = getMasterDb(env);
-
-      const activeWorkspaces = await masterDb
-        .select({ clerkOrgId: workspaces.clerkOrgId })
-        .from(workspaces)
-        .where(
-          and(
-            eq(workspaces.isActive, true),
-            isNotNull(workspaces.neonProjectId),
-          ),
-        );
-
-      for (const ws of activeWorkspaces) {
-        if (!ws.clerkOrgId) continue;
-        ctx.waitUntil(
-          (async () => {
-            try {
-              const tenantDb = await getTenantDbForWorkspace(env, ws.clerkOrgId!);
-              const breachCount = await checkSlaBreaches(tenantDb as any, ws.clerkOrgId!);
-              if (breachCount > 0) {
-                console.log(`[SLA] ${ws.clerkOrgId}: ${breachCount} breaches detected`);
-              }
-            } catch (err) {
-              console.error(`[SLA] Error for workspace ${ws.clerkOrgId}:`, err);
-            }
-          })(),
-        );
-      }
-    } catch (err) {
-      console.error('[SLA] Cron error:', err);
     }
   },
 } satisfies ExportedHandler<Env>;

@@ -25,11 +25,12 @@ output "ingress_ipv6" {
 
 # livekit. is WeldMeet's signalling (WebSocket) and turn. its TURN over TLS,
 # both through Traefik; media goes to the LiveKit nodes' own addresses, which
-# LiveKit tells clients itself (no record).
+# LiveKit tells clients itself (no record). mx. is WeldMail's MX (Haraka)
+# when mx_node_port is set.
 output "dns_records" {
   description = "The records to create at the EU DNS provider (README.md, step 5)."
   value = {
-    for name in ["app", "api", "auth", "sign", "admin", "livekit", "turn"] : "${name}.${var.domain}" => {
+    for name in concat(["app", "api", "auth", "sign", "admin", "livekit", "turn"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
       A    = hcloud_load_balancer.ingress.ipv4
       AAAA = hcloud_load_balancer.ingress.ipv6
     }
@@ -46,4 +47,31 @@ output "nodes" {
       public_ip  = hcloud_server.node[key].ipv4_address
     }
   }
+}
+
+# The mail nodes (mail.tf) and what DNS needs of them (README.md, "Mail"):
+# an A record for each name (its PTR is already set), the names as the
+# bounce domain's MX, and the addresses in _spf.<domain>.
+output "mail_nodes" {
+  description = "Each mail node: pool, location, public IPv4 and the name its PTR (and the MTA's EHLO) carries."
+  value = {
+    for key, node in local.mail_nodes : key => {
+      name     = node.rdns
+      pool     = node.mail
+      location = node.location
+      ipv4     = hcloud_primary_ip.mail[key].ip_address
+    }
+  }
+}
+
+output "mail_dns_records" {
+  description = "The mail records to create at the EU DNS provider (README.md, \"Mail\"). Empty without mail_pools."
+  value = length(local.mail_nodes) == 0 ? {} : merge(
+    { for key, node in local.mail_nodes : node.rdns => { A = hcloud_primary_ip.mail[key].ip_address } },
+    {
+      "_spf.${var.domain}" = {
+        TXT = "v=spf1 ${join(" ", [for key in sort(keys(local.mail_nodes)) : "ip4:${hcloud_primary_ip.mail[key].ip_address}"])} -all"
+      }
+    },
+  )
 }

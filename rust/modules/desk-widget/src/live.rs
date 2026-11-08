@@ -15,7 +15,7 @@ use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_desk_domain::webchat::{
     Author, collapse_whitespace, public_conversation, public_message, resolve_authors,
 };
-use weldsuite_desk_domain::{assignment, sla};
+use weldsuite_desk_domain::{assignment, routing, sla};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::js_trim;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
@@ -85,8 +85,32 @@ fn hub(org_id: &str, topic: &str, event: &str, data: &Value) -> RealtimeMessage 
     RealtimeMessage::workspace(org_id, topic, event, data.clone(), "system")
 }
 
+/// One `desk_conversation` / `desk_message` event to the hub, as `system`
+/// (`publishEntityEventRaw`).
+async fn publish_entity(
+    state: &WidgetState,
+    org_id: &str,
+    entity_type: &str,
+    action: &str,
+    row: &Value,
+) {
+    match EventType::catalog(entity_type, action) {
+        Ok(event) => {
+            let context = EventContext::new(org_id, "system", EventSource::System);
+            let entity_id = row["id"].as_str().unwrap_or_default().to_owned();
+            state
+                .events
+                .publish_and_wait(&context, EntityEvent::new(event, entity_id, row.clone()))
+                .await;
+        }
+        Err(error) => tracing::error!(%error, "[widget-api] unknown entity event"),
+    }
+}
+
 /// `publishVisitorMessage(env, orgId, conversation, message, visitorName, event)`:
-/// a new visitor message to the conversation room and the agents' inbox.
+/// a new visitor message to the hub (`desk_conversation created` for a new
+/// conversation, `desk_message created`, for workflows), the conversation
+/// room and the agents' inbox.
 pub(crate) async fn publish_visitor_message(
     state: &WidgetState,
     org_id: &str,
@@ -95,6 +119,10 @@ pub(crate) async fn publish_visitor_message(
     visitor_name: &str,
     event: &str,
 ) {
+    if event == "created" {
+        publish_entity(state, org_id, "desk_conversation", "created", conversation).await;
+    }
+    publish_entity(state, org_id, "desk_message", "created", message).await;
     let record = public_message(message, &HashMap::<String, Author>::new());
     let room = json!({
         "type": "message",
@@ -180,11 +208,35 @@ pub(crate) async fn publish_visitor_event(
     .await;
 }
 
-/// `autoAssignConversation(env, db, orgId, conversation)`: hand an open,
-/// unowned conversation to a teammate (when the workspace has it on) and
-/// publish the `assigned` event. The conversation as it now stands; on any
-/// failure it stays unassigned. The pick goes through the workspace's
-/// router (`workspace_id`, `workspaces.id`) when the state has one.
+/// `publishInternalEvent(env, orgId, conversation, message)`: a routing
+/// rule's ticket-field change, internal, so the hub and the inbox only
+/// (never the visitor's room).
+async fn publish_internal_event(
+    state: &WidgetState,
+    org_id: &str,
+    conversation: &Value,
+    message: &Value,
+) {
+    publish_entity(state, org_id, "desk_conversation", "updated", conversation).await;
+    publish_all(
+        state,
+        vec![
+            hub(org_id, "desk_conversation", "updated", conversation),
+            hub(org_id, "desk_message", "created", message),
+        ],
+    )
+    .await;
+}
+
+/// `autoAssignConversation(env, db, orgId, conversation, opened)`: a
+/// conversation the visitor just `opened` goes through the workspace's
+/// routing rules first; then an open, unowned conversation goes to a
+/// teammate (its team's members when it has any, else the roster) when the
+/// workspace has auto-assignment on. Every step is published: the
+/// `assigned` event so the widget shows who joined, a rule's field change
+/// to the inbox only. The conversation as it now stands; on any failure it
+/// stays as it was. The pick goes through the workspace's router
+/// (`workspace_id`, `workspaces.id`) when the state has one.
 pub(crate) async fn auto_assign(
     state: &WidgetState,
     db: &PgPool,
@@ -192,11 +244,12 @@ pub(crate) async fn auto_assign(
     workspace_id: &str,
     master: Option<PgPool>,
     conversation: Value,
+    opened: bool,
 ) -> Value {
     let owned = conversation["assigneeId"]
         .as_str()
         .is_some_and(|assignee| !assignee.is_empty());
-    if owned || conversation["state"] != "open" {
+    if !opened && (owned || conversation["state"] != "open") {
         return conversation;
     }
     let id = conversation["id"].as_str().unwrap_or_default().to_owned();
@@ -207,32 +260,78 @@ pub(crate) async fn auto_assign(
         },
         None => assignment::Picker::Local,
     };
-    match assignment::auto_assign_with(db, &id, &picker).await {
-        Ok(Some(appended)) => {
-            // The owner can change which SLA policy applies.
-            if let (Some(master), Some(at)) = (master, appended.sla_check_at.and_then(sla::instant))
-            {
-                weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
-            }
-            let (assigned, message) = appended.pair();
-            match resolve_authors(db, &[assigned["assigneeId"].as_str()]).await {
+    let done: Result<(Vec<routing::Step>, Option<i64>), String> = if opened {
+        // A team the customer picked (the help-center request form) stays.
+        let keep = routing::Keep {
+            team: conversation["departmentId"]
+                .as_str()
+                .is_some_and(|team| !team.is_empty()),
+            assignee: false,
+        };
+        routing::route_and_assign(db, &id, keep, routing::Trigger::Opened, &picker)
+            .await
+            .map(|routed| (routed.steps, routed.sla_check_at))
+            .map_err(|error| error.to_string())
+    } else {
+        assignment::auto_assign_with(db, &id, &picker)
+            .await
+            .map(|assigned| match assigned {
+                Some(appended) => {
+                    let at = appended.sla_check_at;
+                    let (conversation, message) = appended.pair();
+                    (
+                        vec![routing::Step {
+                            conversation,
+                            message,
+                            action: "assigned",
+                        }],
+                        at,
+                    )
+                }
+                None => (Vec::new(), None),
+            })
+            .map_err(|error| error.to_string())
+    };
+    let (steps, sla_check_at) = match done {
+        Ok(done) => done,
+        Err(error) => {
+            tracing::error!(%error, "[widget-api] routing / auto-assignment failed");
+            return conversation;
+        }
+    };
+    if steps.is_empty() {
+        return conversation;
+    }
+    // The owner and the team can change which SLA policy applies.
+    if let (Some(master), Some(at)) = (master, sla_check_at.and_then(sla::instant)) {
+        weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
+    }
+    for step in &steps {
+        if step.action == "assigned" {
+            match resolve_authors(db, &[step.conversation["assigneeId"].as_str()]).await {
                 Ok(authors) => {
-                    publish_visitor_event(state, org_id, &assigned, &message, &authors, "assigned")
-                        .await;
-                    assigned
+                    publish_visitor_event(
+                        state,
+                        org_id,
+                        &step.conversation,
+                        &step.message,
+                        &authors,
+                        "assigned",
+                    )
+                    .await;
                 }
                 Err(error) => {
-                    tracing::error!(%error, "[widget-api] auto-assignment failed");
-                    conversation
+                    tracing::error!(%error, "[widget-api] routing / auto-assignment failed");
+                    return conversation;
                 }
             }
-        }
-        Ok(None) => conversation,
-        Err(error) => {
-            tracing::error!(%error, "[widget-api] auto-assignment failed");
-            conversation
+        } else {
+            publish_internal_event(state, org_id, &step.conversation, &step.message).await;
         }
     }
+    steps
+        .last()
+        .map_or(conversation, |step| step.conversation.clone())
 }
 
 /// `notificationRecipients(db, conversation)`: the assignee, else every

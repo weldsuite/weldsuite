@@ -413,7 +413,8 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
   /**
    * Send a message. For the draft thread this creates the conversation and
-   * resolves with its id so the view can switch over to it. Attachments are
+   * resolves with its id so the view can switch over to it; so does a message
+   * on a conversation the team merged into another one. Attachments are
    * already uploaded (see `uploadAttachment`) and only valid in an existing
    * conversation: starting one is text-only.
    */
@@ -472,6 +473,20 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
           attachments: attachments.length > 0 ? attachments : undefined,
           clientId,
         });
+        const landedOn = result.conversation.id;
+        if (landedOn !== threadId) {
+          // The team merged this conversation into another one of yours: the
+          // message landed there, so the view switches over to it.
+          setThreads((prev) => ({
+            ...prev,
+            [threadId]: (prev[threadId] ?? []).filter((m) => m.clientId !== clientId),
+            [landedOn]: mergeMessage(prev[landedOn] ?? [], result.message),
+          }));
+          setConversations((prev) => upsertConversation(prev, result.conversation));
+          markSeen(landedOn, result.conversation.lastMessageAt);
+          void loadThread(landedOn, { silent: true });
+          return landedOn;
+        }
         setThreads((prev) => ({
           ...prev,
           [threadId]: mergeMessage(prev[threadId] ?? [], result.message),
@@ -484,7 +499,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
         return null;
       }
     },
-    [api, verified, profile, stopTyping, markSeen],
+    [api, verified, profile, stopTyping, markSeen, loadThread],
   );
 
   const retry = useCallback(
