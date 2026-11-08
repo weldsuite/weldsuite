@@ -29,7 +29,7 @@ HELPCENTER_API_URL = "http://localhost:8789"
 WIDGET_API_URL = "http://localhost:8787"
 FALLBACK_DOMAIN = "test.welddesk.org"
 
-# ── Test (develop) ──────────────────────────────────────────────────────────
+# ── Test (merge to main) ────────────────────────────────────────────────────
 [env.test]
 name = "weldsuite-helpcenter-test"
 workers_dev = true
@@ -45,7 +45,7 @@ service = "weldsuite-desk-api-test"
 binding = "WIDGET_API"
 service = "helpdesk-widget-api-test"
 
-# ── Production (main) ───────────────────────────────────────────────────────
+# ── Production (Promote) ────────────────────────────────────────────────────
 # No workers.dev host and no fallback: production only ever serves the help
 # center its hostname names, once routes are attached at the cutover.
 [env.production]

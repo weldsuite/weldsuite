@@ -43,6 +43,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # A private repo's GitHub-hosted runner has 7 GB (a public repo's 16 GB),
+    # and Node sizes its default heap from that: the platform's Vite build ran
+    # out of memory there. 5 GB fits the runner and the build.
+    - name: Give Node a larger heap
+      shell: bash
+      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
+
     # The Pages project and the branch name each environment deploys as.
     - name: Resolve Pages project
       id: project

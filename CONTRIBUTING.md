@@ -4,7 +4,7 @@ This guide is for members of the [weldsuite](https://github.com/weldsuite) GitHu
 
 > **Outside contributions are not accepted.** Pull requests and issues on this repository can only be opened by people with write access, i.e. members of the organization. The source is public so you can audit and self-host it. To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 
-Work lands on **`develop`** (test). Production is a PR from `develop` into **`main`**.
+Every PR targets **`main`**, the only branch. A merge that passes CI deploys to test; production goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`.
 
 ## Before you start
 

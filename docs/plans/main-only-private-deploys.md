@@ -306,6 +306,9 @@ PR ──► CI (public, required checks) ──► merge to main
   Public. They build public artifacts and run by hand. They use the public
   `production`/`test` environments today (`release-desktop`: the Apple and
   Windows signing secrets and `R2_DOWNLOADS_API_TOKEN`; `mobile-build`:
-  `EXPO_TOKEN`), which the phase 2 cut-over deletes. So before that, each
-  gets its own public environment, `desktop-release` and `mobile-release`,
-  holding only its secrets, limited to the branch it releases from.
+  `EXPO_TOKEN`), which the phase 2 cut-over deletes. So before that, they
+  get their own public environments, holding only their secrets, limited to
+  the branch they release from: `desktop-release` (main), and for
+  `mobile-build` `mobile-release` (production channel, main) and
+  `mobile-preview` (preview channel), all limited to `main` once `develop`
+  is gone.

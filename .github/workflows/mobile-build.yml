@@ -1,4 +1,4 @@
-# Native builds are never started by a deploy. `deploy.yml` publishes the OTA
+# Native builds are never started by a deploy. The deploy (weldsuite-deploy) publishes the OTA
 # update; which apps are worth a build and a store review is a judgement call,
 # so it is made here, by hand, per app.
 #
@@ -14,8 +14,10 @@
 # `{ policy: "appVersion" }` at `eas update` time). Bump `expo.version` when
 # native code changes, then ship a new binary.
 #
-# The job runs in the `test` / `production` GitHub Environment, which is where
-# EXPO_TOKEN lives. Adding required reviewers to that environment turns this
+# The job runs in the `mobile-preview` / `mobile-release` GitHub Environment
+# (both limited to main), which is where EXPO_TOKEN lives. They are not the deploy
+# environments `test`/`production`, which move to the private deploy repo
+# (ADR OPS-018). Adding required reviewers to that environment turns this
 # into a second approval gate on top of the manual dispatch.
 #
 # `auto-submit` uploads the finished binary to TestFlight (iOS) and to the Play
@@ -231,7 +233,7 @@ jobs:
     # (actions/runner-images#14777), see EAS_LOCAL_BUILD_WORKINGDIR below.
     runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-24.04' }}
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
-    environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
+    environment: ${{ inputs.channel == 'production' && 'mobile-release' || 'mobile-preview' }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -277,7 +279,7 @@ jobs:
       - name: Fail early without EXPO_TOKEN
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          ENV_NAME: ${{ inputs.channel == 'production' && 'production' || 'test' }}
+          ENV_NAME: ${{ inputs.channel == 'production' && 'mobile-release' || 'mobile-preview' }}
         run: |
           set -euo pipefail
           if [ -z "$EXPO_TOKEN" ]; then

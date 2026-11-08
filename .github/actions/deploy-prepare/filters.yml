@@ -10,6 +10,11 @@ migrations:
   - 'packages/core/db/drizzle/**'
   - 'packages/core/db/src/schema/**'
   - 'apps/tools/migrate-databases/**'
+# First-party WeldApps (deploy-hosted-apps action).
+hosted_apps:
+  - 'apps/hosted-apps/**'
+  - 'packages/sdk/app-sdk/**'
+  - 'packages/sdk/cli/**'
 d1_connector_migrations:
   - 'apps/workers/integration-sync-worker/migrations/d1/**'
   - 'apps/workers/integration-sync-worker/wrangler.toml'
