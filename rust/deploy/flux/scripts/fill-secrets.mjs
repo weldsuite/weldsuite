@@ -13,17 +13,19 @@
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
 //
-// A new cluster:
+// A new cluster (its secrets folder, next to its cluster folder: in a copy of
+// this repository rust/deploy/flux/secrets/<cluster>, in WeldSuite's deploy
+// repository eu/secrets/<cluster>):
 //
-//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // The file it writes is plaintext: fill in what it lists as left, then
 // `sops --encrypt --in-place` it before anything else. It never overwrites.
 //
 // A running cluster, once the examples gained Secrets or keys:
 //
-//   SOPS_AGE_KEY_FILE=~/weldsuite-eu-test.agekey \
-//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // decrypts the file with sops (in memory, never to disk), adds the Secrets and
 // keys the examples have and it lacks, and encrypts it again in place. Values
@@ -48,8 +50,9 @@ if (update ? !existsSync(out) : existsSync(out)) {
   process.exit(1);
 }
 
-// rust/deploy/flux: the examples, and .sops.yaml, which sops finds from its
-// working directory.
+// rust/deploy/flux: the examples. sops finds .sops.yaml from its working
+// directory up, so it runs in the secrets file's own folder (the deploy
+// repository keeps its .sops.yaml at its root).
 const flux = join(dirname(fileURLToPath(import.meta.url)), '..');
 const example = join(flux, 'secrets/examples/secrets.example.yaml');
 
@@ -226,7 +229,7 @@ function updateFile(file) {
   const sops = (args, input) => {
     try {
       return execFileSync('sops', args, {
-        cwd: flux,
+        cwd: dirname(path),
         input,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
