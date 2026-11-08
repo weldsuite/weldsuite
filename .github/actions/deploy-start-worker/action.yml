@@ -24,11 +24,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # 7 GB private runners: see deploy-pages.
-    - name: Give Node a larger heap
-      shell: bash
-      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
-
     - name: Check inputs
       shell: bash
       env:
@@ -39,10 +34,12 @@ runs:
 
     - uses: ./.github/actions/setup-monorepo
 
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages.
     - name: Build ${{ inputs.app }}
       shell: bash
       working-directory: apps/web/${{ inputs.app }}
       env:
+        NODE_OPTIONS: --max-old-space-size=5120
         CLOUDFLARE_ENV: ${{ inputs.environment }}
       run: pnpm build
 

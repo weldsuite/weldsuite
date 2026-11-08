@@ -24,11 +24,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # 7 GB private runners: see deploy-pages (Metro bundles in eas update).
-    - name: Give Node a larger heap
-      shell: bash
-      run: echo "NODE_OPTIONS=--max-old-space-size=5120" >> "$GITHUB_ENV"
-
     # WeldHR: app.config.js refuses a CI build while app.json still has the
     # scaffold project id, so until `eas init` has been run and committed the
     # release skips with a warning instead of failing every deploy.
@@ -104,9 +99,13 @@ runs:
           esac
         } >> "$GITHUB_ENV"
 
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages (Metro bundles in
+    # eas update).
     - name: Release
       if: steps.eas.outputs.ready != 'false'
       uses: ./.github/actions/mobile-release
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
       with:
         app-dir: apps/mobile/${{ inputs.app }}-app
         channel: ${{ inputs.environment == 'test' && 'preview' || 'production' }}
