@@ -159,11 +159,17 @@ phase 2 hand-off, with the same names as here:
 - the repository variable `ADMIN_WORKER_ENVS` once it is set here.
 
 The desktop signing secrets and `R2_DOWNLOADS_API_TOKEN` do not go there:
-`release-desktop.yml` and `mobile-build.yml` stay public and get their own
-public environments (`desktop-release`, `mobile-release`) before the cut-over
-deletes `test` and `production` here.
+`release-desktop.yml` and `mobile-build.yml` stay public and use their own
+public environments (below), so the cut-over can delete `test` and
+`production` here.
 
-Optional production-only (desktop release): `R2_DOWNLOADS_API_TOKEN`,
-`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`,
-`WIN_CSC_KEY_PASSWORD`.
+### Release environments (public)
+
+The two release workflows that stay public, run by hand, each read their own
+environment, never `test` or `production`:
+
+| Environment | Branch | Workflow | Secrets |
+|---|---|---|---|
+| `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
+| `mobile-release` | `main` | `mobile-build.yml`, channel `production` | `EXPO_TOKEN` |
+| `mobile-preview` | `develop` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |

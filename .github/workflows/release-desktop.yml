@@ -6,6 +6,10 @@ name: Release Desktop
 #
 # Not triggered by a push: bump apps/desktop/package.json, merge to main,
 # then run this workflow. Signing degrades to unsigned if certs are absent.
+#
+# The signing and upload secrets live on the GitHub Environment
+# `desktop-release` (main only), not on the deploy environment `production`,
+# which moves to the private deploy repo (ADR OPS-018).
 
 on:
   workflow_dispatch:
@@ -112,7 +116,7 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: prepare
-    environment: production
+    environment: desktop-release
     strategy:
       fail-fast: false
       matrix:
@@ -219,7 +223,7 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
     runs-on: ubuntu-latest
-    environment: production
+    environment: desktop-release
     steps:
       - uses: actions/checkout@v4
         with:
