@@ -1,0 +1,60 @@
+name: Hand-off
+
+# OPS-018 phase 2 (docs/plans/main-only-private-deploys.md): when CI passes on
+# a push to develop, hand the commit to the private repo
+# weldsuite/weldsuite-deploy, whose deploy-test workflow checks it again and
+# deploys it to test. This log names only the commit. Production is never
+# handed off: it goes out through Promote in the private repo.
+#
+# Off until the repository variable DEPLOYS_PRIVATE is "true". Switching over:
+#   1. set DEPLOYS_PRIVATE=true here;
+#   2. disable the public deploy.yml (gh workflow disable deploy.yml), so a
+#      commit doesn't deploy twice;
+#   3. merge the private PR that sets plan-only: false in deploy-test/promote.
+# Falling back is the reverse: unset the variable and enable deploy.yml.
+#
+# The weldsuite-deploy-bot App (Actions read/write, installed on
+# weldsuite-deploy only) signs in here. Its client id and private key sit on
+# the environment `handoff`, which only develop can use (main from phase 3).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop] # main from phase 3
+
+permissions: {}
+
+jobs:
+  handoff:
+    name: Hand off to the private deploy
+    # A pull request from a fork also completes CI, and workflow_run runs with
+    # this repo's environments, so only a successful push to develop in this
+    # repo goes on (a fork's branch can be called develop too).
+    if: >-
+      vars.DEPLOYS_PRIVATE == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'develop' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: handoff
+    steps:
+      - name: Token for weldsuite-deploy
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.DEPLOY_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_BOT_PRIVATE_KEY }}
+          owner: weldsuite
+          repositories: weldsuite-deploy
+          permission-actions: write
+
+      - name: Hand off ${{ github.event.workflow_run.head_sha }}
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-test.yml --repo weldsuite/weldsuite-deploy -f sha="$SHA" > /dev/null
+          echo "Handed $SHA to the test deploy."
