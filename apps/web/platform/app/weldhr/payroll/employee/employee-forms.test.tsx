@@ -91,6 +91,7 @@ vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }))
 
 vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
   useLegalEntityBankAccounts: () => ({ data: [] }),
+  useSaveBankAccount: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
