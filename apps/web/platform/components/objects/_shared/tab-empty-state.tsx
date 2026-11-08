@@ -283,3 +283,22 @@ export function AuditIllustration() {
     </TabEmptyIllustration>
   );
 }
+
+/** Issues — a list of items, each with a status ring. */
+export function IssuesIllustration() {
+  return (
+    <TabEmptyIllustration>
+      <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={TILT}>
+        {/* List sheet */}
+        <rect x="24" y="22" width="72" height="76" rx="6" className="fill-white dark:fill-white/[0.03] stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+        {/* Rows: a status ring and a title */}
+        <circle cx="37" cy="40" r="4" className="stroke-gray-300 dark:stroke-white/25" strokeWidth="1.5" />
+        <rect x="47" y="38.5" width="36" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" opacity="0.7" />
+        <circle cx="37" cy="58" r="4" className="stroke-gray-200 dark:stroke-white/20" strokeWidth="1.5" />
+        <rect x="47" y="56.5" width="28" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" opacity="0.6" />
+        <circle cx="37" cy="76" r="4" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1.5" />
+        <rect x="47" y="74.5" width="32" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" opacity="0.5" />
+      </svg>
+    </TabEmptyIllustration>
+  );
+}

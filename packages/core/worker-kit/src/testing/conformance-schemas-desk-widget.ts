@@ -20,11 +20,24 @@ import {
   widgetUploadedAttachmentSchema,
 } from '@weldsuite/core-api-client/schemas/helpdesk-widget';
 import { deskVisitorSessionSchema } from '@weldsuite/app-api-client/schemas/desk-portal';
+import { deskPublicAnnouncementsSchema, deskPublicArticleHitsSchema } from '@weldsuite/app-api-client/schemas/desk-knowledge';
 import type { RouteSchema } from './conformance-schemas';
 
 const WIDGET = '/public/helpdesk-widget';
 
 export const DESK_WIDGET_ROUTES: RouteSchema[] = [
+  {
+    method: 'GET',
+    route: `${WIDGET}/api/articles/search`,
+    envelope: 'body',
+    data: widgetResponseSchema(deskPublicArticleHitsSchema),
+  },
+  {
+    method: 'GET',
+    route: `${WIDGET}/api/announcements`,
+    envelope: 'body',
+    data: widgetResponseSchema(deskPublicAnnouncementsSchema),
+  },
   { method: 'GET', route: `${WIDGET}/api/config`, envelope: 'body', data: widgetResponseSchema(widgetConfigSchema) },
   {
     method: 'POST',

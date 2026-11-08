@@ -18,6 +18,7 @@ import { zValidator } from '@hono/zod-validator';
 import { publishCustomObjectEvent, computeChanges } from '@weldsuite/entity-events';
 import {
   createCustomObjectRecordSchema,
+  importCustomObjectRecordsSchema,
   updateCustomObjectRecordSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import { CustomFieldValidationError } from '@weldsuite/core-domain/custom-field-values';
@@ -157,6 +158,48 @@ app.post(
       console.error(`[app-api/objects/${object.slug}] create failed:`, err);
       return error.internal(c, `Failed to create ${object.labelSingular.toLowerCase()}`);
     }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Import (CSV / Excel rows, parsed and mapped by the platform)
+// ---------------------------------------------------------------------------
+
+/**
+ * Up to 200 records in one call, each created exactly as `POST /records`
+ * creates one (field validation, title, `co_<slug>:created` event). A row the
+ * field validation refuses doesn't stop the others: it comes back in
+ * `errors` with its 1-based position in `rows`. Rows are created one after
+ * the other, in order, so a re-run after a failure is predictable.
+ */
+app.post(
+  '/:slug/records/import',
+  requireCustomObject('create'),
+  zValidator('json', importCustomObjectRecordsSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const object = getCustomObject(c);
+    const { rows } = c.req.valid('json');
+    const userId = c.get('userId');
+    const fallback = `Failed to create ${object.labelSingular.toLowerCase()}`;
+
+    let created = 0;
+    const errors: { row: number; message: string }[] = [];
+    for (const [index, row] of rows.entries()) {
+      try {
+        const record = await createRecord(db, object, row, userId);
+        emit(c, object, 'created', record.id, { ...record });
+        created += 1;
+      } catch (err) {
+        if (err instanceof CustomFieldValidationError) {
+          errors.push({ row: index + 1, message: err.message });
+          continue;
+        }
+        console.error(`[app-api/objects/${object.slug}] import row ${index + 1} failed:`, err);
+        errors.push({ row: index + 1, message: fallback });
+      }
+    }
+    return success(c, { created, errors });
   },
 );
 

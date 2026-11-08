@@ -269,6 +269,28 @@ export const listCustomObjectRecordsQuerySchema = z.object({
 export type CreateCustomObjectRecordInput = z.infer<typeof createCustomObjectRecordSchema>;
 export type UpdateCustomObjectRecordInput = z.infer<typeof updateCustomObjectRecordSchema>;
 
+/** Rows one `POST /api/objects/:slug/records/import` call takes. */
+export const CUSTOM_OBJECT_IMPORT_MAX_ROWS = 200;
+
+/**
+ * `POST /api/objects/:slug/records/import`: up to 200 records, each shaped
+ * like a create. A row the field validation refuses is reported in `errors`
+ * (by its 1-based position in `rows`) and the others are still created.
+ */
+export const importCustomObjectRecordsSchema = z.object({
+  rows: z.array(createCustomObjectRecordSchema).min(1).max(CUSTOM_OBJECT_IMPORT_MAX_ROWS),
+});
+
+export type ImportCustomObjectRecordsInput = z.infer<typeof importCustomObjectRecordsSchema>;
+
+// ---------------------------------------------------------------------------
+// Templates (ready-made object types)
+// ---------------------------------------------------------------------------
+
+/** Keys of the object types `POST /api/custom-objects/templates/:key` installs. */
+export const CUSTOM_OBJECT_TEMPLATE_KEYS = ['asset'] as const;
+export type CustomObjectTemplateKey = (typeof CUSTOM_OBJECT_TEMPLATE_KEYS)[number];
+
 // ---------------------------------------------------------------------------
 // Field types a custom object may use
 // ---------------------------------------------------------------------------
@@ -442,6 +464,30 @@ export const customObjectReversePanelSchema = z.object({
   records: z.array(z.object({ id: z.string(), title: z.string(), href: z.string(), relationId: z.string() })),
 });
 
+/** `GET /api/custom-objects/templates`: one ready-made object type. */
+export const customObjectTemplateSchema = z.object({
+  key: z.string(),
+  slug: z.string(),
+  labelSingular: z.string(),
+  labelPlural: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  fieldCount: z.number(),
+  linkCount: z.number(),
+  /** A live object holds the template's slug. */
+  installed: z.boolean(),
+  /** That object's id. */
+  objectId: z.string().nullable(),
+});
+
+/** `POST /api/objects/:slug/records/import`. */
+export const customObjectImportResultSchema = z.object({
+  created: z.number(),
+  errors: z.array(z.object({ row: z.number(), message: z.string() })),
+});
+
+export type CustomObjectTemplate = z.infer<typeof customObjectTemplateSchema>;
+export type CustomObjectImportResult = z.infer<typeof customObjectImportResultSchema>;
 export type CustomObjectDeleteImpact = z.infer<typeof customObjectDeleteImpactSchema>;
 export type CustomObjectLinkTarget = z.infer<typeof customObjectLinkTargetSchema>;
 export type CustomObjectRelatedRecord = z.infer<typeof customObjectRelatedRecordSchema>;

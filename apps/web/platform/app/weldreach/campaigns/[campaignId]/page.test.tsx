@@ -23,7 +23,11 @@ vi.mock('@/lib/router', () => ({
   useParams: () => ({ campaignId: 'cmp_1' }),
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(),
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 const permissions = vi.hoisted(() => ({ granted: new Set<string>() }));
 vi.mock('@weldsuite/permissions/react', () => ({
@@ -46,13 +50,18 @@ beforeEach(() => {
 });
 
 describe('Campaign detail', () => {
-  it('shows the name, status and the counts', async () => {
+  it('shows the WeldConnect nav row: tabs as links, the status and the sequence on the canvas', async () => {
     reach.getCampaign.mockResolvedValue({ data: campaignFixture() });
     renderWithApp(<ReachCampaignPage />);
 
-    expect(await screen.findByRole('heading', { name: 'Q4 outreach' })).toBeInTheDocument();
+    const sequenceTab = await screen.findByRole('link', { name: 'Sequence' });
+    expect(sequenceTab).toHaveAttribute('href', '/weldreach/campaigns/cmp_1');
+    expect(sequenceTab).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Stats' })).toHaveAttribute('href', '/weldreach/campaigns/cmp_1?tab=stats');
     expect(screen.getByText('Draft')).toBeInTheDocument();
-    expect(screen.getByText('Prospects: 12 · Steps: 1 · Mailboxes: 1')).toBeInTheDocument();
+    // The sequence's Save sits in the nav row, next to Launch.
+    expect(screen.getByRole('button', { name: 'Save sequence' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'First email' })).toBeInTheDocument();
   });
 
   it('launches after a confirmation', async () => {
@@ -124,7 +133,7 @@ describe('Campaign detail', () => {
     reach.getCampaign.mockResolvedValue({ data: campaignFixture() });
     renderWithApp(<ReachCampaignPage />);
 
-    await screen.findByRole('heading', { name: 'Q4 outreach' });
+    await screen.findByRole('link', { name: 'Sequence' });
     expect(screen.queryByRole('button', { name: 'Launch' })).not.toBeInTheDocument();
   });
 

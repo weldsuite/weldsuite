@@ -16,7 +16,7 @@ import {
 } from '@weldsuite/app-api-client/domains/project-governance';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCreateBenefit, useCreateMeasurement, useUpdateBenefit } from '@/hooks/queries/use-project-governance-queries';
-import { SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
+import { DateField, SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
 import { fromDateInput, toDateInput } from '../../../governance/_lib/use-governance';
 import { FormDialog } from '../../../governance/_components/parts';
 
@@ -228,7 +228,7 @@ function BenefitForm({
           <TextField control={form.control} name="targetValue" label={f.target} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField control={form.control} name="realiseBy" label={f.realiseBy} type="date" />
+          <DateField control={form.control} name="realiseBy" label={f.realiseBy} />
           <SelectField control={form.control} name="goalRef" label={f.goal} options={[{ value: NONE, label: f.goalNone }, ...goalOptions]} />
         </div>
       </Form>

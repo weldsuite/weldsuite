@@ -17,6 +17,7 @@ use super::normalize::{
     account_fingerprint, connection_status, decimal_to_minor, iban_fingerprint, normalize_date,
     persistent_account_fingerprint, re_pull_window, sha256_hex,
 };
+use super::ponto_signature::{PontoSignature, sign_request};
 use super::{
     FeedAccount, FeedBalance, FeedConnection, FeedError, FeedTransaction, StoredConnection,
     SyncResult,
@@ -109,6 +110,22 @@ async fn request_json(
     body: Body,
     map_error: Option<MapError>,
 ) -> Result<Map<String, Value>, FeedError> {
+    send_json(
+        http,
+        provider,
+        build_request(method, url, headers, body),
+        map_error,
+    )
+    .await
+}
+
+/// The request `requestJson` sends: `Accept`, the body and its type.
+fn build_request(
+    method: Option<&str>,
+    url: &str,
+    headers: Vec<(String, String)>,
+    body: Body,
+) -> HttpRequest {
     let mut headers: Vec<(String, String)> = std::iter::once(pair("Accept", "application/json"))
         .chain(headers)
         .collect();
@@ -126,12 +143,21 @@ async fn request_json(
         }
     };
     let method = method.unwrap_or(if payload.is_some() { "POST" } else { "GET" });
-    let request = HttpRequest {
+    HttpRequest {
         method: method.to_owned(),
         url: url.to_owned(),
         headers,
         body: payload.map(String::into_bytes),
-    };
+    }
+}
+
+/// Send a built request and read its JSON answer.
+async fn send_json(
+    http: Option<&OutboundHttp>,
+    provider: &str,
+    request: HttpRequest,
+    map_error: Option<MapError>,
+) -> Result<Map<String, Value>, FeedError> {
     let Some(http) = http else {
         return Err(FeedError::new(
             provider,
@@ -203,6 +229,9 @@ pub struct StripeConfig {
 pub struct PontoConfig {
     pub client_id: String,
     pub client_secret: String,
+    /// The signature certificate a live application signs every request
+    /// with; None sends them unsigned, which only the sandbox accepts.
+    pub signature: Option<PontoSignature>,
 }
 
 #[derive(Debug, Clone)]
@@ -262,6 +291,16 @@ impl FeedConfig {
             config.ponto = Some(PontoConfig {
                 client_id,
                 client_secret,
+                signature: match (
+                    filled("PONTO_SIGNATURE_CERT_ID"),
+                    filled("PONTO_SIGNATURE_KEY"),
+                ) {
+                    (Some(certificate_id), Some(private_key)) => Some(PontoSignature {
+                        certificate_id,
+                        private_key,
+                    }),
+                    _ => None,
+                },
             });
         }
         if let (Some(app_id), Some(private_key)) = (
@@ -1722,18 +1761,31 @@ impl Provider<'_> {
         )
     }
 
+    /// One call to Ponto's API, signed when the server has a signature
+    /// certificate (a live application must sign; the sandbox need not).
+    async fn ponto_request(
+        &self,
+        method: Option<&str>,
+        url: &str,
+        headers: Vec<(String, String)>,
+        body: Body,
+    ) -> Result<Map<String, Value>, FeedError> {
+        let mut request = build_request(method, url, headers, body);
+        if let Some(signature) = &self.ponto_config().signature {
+            sign_request(&mut request, signature, crate::http::now_ms() / 1000)?;
+        }
+        send_json(self.ponto_client(), "ponto", request, Some(map_ponto_error)).await
+    }
+
     async fn ponto_token_request(
         &self,
         form: Vec<(String, String)>,
     ) -> Result<Map<String, Value>, FeedError> {
-        request_json(
-            self.ponto_client(),
-            "ponto",
+        self.ponto_request(
             Some("POST"),
             &format!("{PONTO_API}/oauth2/token"),
             vec![pair("Authorization", self.ponto_basic())],
             Body::Form(form),
-            Some(map_ponto_error),
         )
         .await
     }
@@ -1795,14 +1847,11 @@ impl Provider<'_> {
     }
 
     async fn ponto_get(&self, url: &str, access: &str) -> Result<Map<String, Value>, FeedError> {
-        request_json(
-            self.ponto_client(),
-            "ponto",
+        self.ponto_request(
             None,
             url,
             vec![pair("Authorization", format!("Bearer {access}"))],
             Body::None,
-            Some(map_ponto_error),
         )
         .await
     }
@@ -2073,9 +2122,7 @@ impl Provider<'_> {
             .clone()
             .unwrap_or_else(|| string_list(stored.metadata.get("accountIds")));
         for account_id in ids {
-            request_json(
-                self.ponto_client(),
-                "ponto",
+            self.ponto_request(
                 Some("POST"),
                 &format!("{PONTO_API}/synchronizations"),
                 vec![
@@ -2083,7 +2130,6 @@ impl Provider<'_> {
                     pair("Content-Type", "application/vnd.api+json"),
                 ],
                 Body::Json(json!({ "data": { "type": "synchronization", "attributes": { "resourceType": "account", "resourceId": account_id, "subtype": "accountTransactions" } } })),
-                Some(map_ponto_error),
             )
             .await?;
         }
@@ -2094,19 +2140,17 @@ impl Provider<'_> {
         let Ok(tokens) = ponto_tokens(&stored.credentials) else {
             return Ok(());
         };
-        match request_json(
-            self.ponto_client(),
-            "ponto",
-            Some("POST"),
-            &format!("{PONTO_API}/oauth2/revoke"),
-            vec![pair("Authorization", self.ponto_basic())],
-            Body::Form(vec![pair(
-                "token",
-                tokens["refreshToken"].as_str().unwrap_or_default(),
-            )]),
-            Some(map_ponto_error),
-        )
-        .await
+        match self
+            .ponto_request(
+                Some("POST"),
+                &format!("{PONTO_API}/oauth2/revoke"),
+                vec![pair("Authorization", self.ponto_basic())],
+                Body::Form(vec![pair(
+                    "token",
+                    tokens["refreshToken"].as_str().unwrap_or_default(),
+                )]),
+            )
+            .await
         {
             Ok(_) => Ok(()),
             Err(e) if matches!(e.kind, "reauth_required" | "revoked" | "permanent") => Ok(()),
@@ -2558,4 +2602,128 @@ fn eb_transaction(
         pending: st(raw.get("status")).as_deref() == Some("PDNG"),
         raw: Value::Object(raw.clone()),
     })
+}
+
+#[cfg(test)]
+mod ponto_signing_tests {
+    use std::sync::Arc;
+
+    use weldsuite_ports::{BoxFuture, DynOutboundHttp, HttpResponse, PortError};
+
+    use super::*;
+    use crate::bank_feeds::ponto_signature::tests::{test_key, verify};
+
+    /// Ponto's API, as far as these calls read it; every request is kept.
+    #[derive(Default)]
+    struct FakePonto {
+        requests: Mutex<Vec<HttpRequest>>,
+    }
+
+    impl DynOutboundHttp for FakePonto {
+        fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
+            Box::pin(async move {
+                let path = request
+                    .url
+                    .trim_start_matches(PONTO_API)
+                    .split('?')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                self.requests.lock().expect("requests").push(request);
+                let body = match path.as_str() {
+                    "/oauth2/token" => {
+                        json!({ "access_token": "at-2", "refresh_token": "rt-2", "expires_in": 1800 })
+                    }
+                    "/accounts/acc_1" => {
+                        json!({ "data": { "id": "acc_1", "attributes": { "currentBalance": 12.5, "currency": "EUR" } } })
+                    }
+                    _ => json!({}),
+                };
+                Ok(HttpResponse::new(200, body.to_string().into_bytes()))
+            })
+        }
+    }
+
+    fn config(key: Option<&str>) -> FeedConfig {
+        FeedConfig::from_env(|name| match name {
+            "PONTO_CLIENT_ID" => Some("cid".to_owned()),
+            "PONTO_CLIENT_SECRET" => Some("csecret".to_owned()),
+            "PONTO_SIGNATURE_CERT_ID" => key.map(|_| "cert-1".to_owned()),
+            "PONTO_SIGNATURE_KEY" => key.map(str::to_owned),
+            _ => None,
+        })
+    }
+
+    /// A connection whose access token has expired, so a refresh comes first.
+    fn stored() -> StoredConnection {
+        StoredConnection {
+            provider: "ponto".to_owned(),
+            provider_connection_id: "conn_1".to_owned(),
+            credentials: json!({ "accessToken": "at-1", "refreshToken": "rt-1", "expiresAt": "2000-01-01T00:00:00.000Z" }),
+            cursor: Value::Null,
+            metadata: Map::new(),
+            history_days: None,
+            account_ids: Some(vec!["acc_1".to_owned()]),
+        }
+    }
+
+    async fn calls(config: &FeedConfig) -> Vec<HttpRequest> {
+        let fake = Arc::new(FakePonto::default());
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let provider = Provider::create("ponto", config, None, Some(&http)).expect("ponto");
+        let balances = provider.get_balances(&stored()).await.expect("balances");
+        assert_eq!(balances.len(), 1);
+        provider.refresh(&stored()).await.expect("refresh");
+        provider.disconnect(&stored()).await.expect("disconnect");
+        let requests = fake.requests.lock().expect("requests").clone();
+        let paths: Vec<String> = requests
+            .iter()
+            .map(|r| format!("{} {}", r.method, r.url.trim_start_matches(PONTO_API)))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "POST /oauth2/token",
+                "GET /accounts/acc_1",
+                "POST /synchronizations",
+                "POST /oauth2/revoke"
+            ]
+        );
+        requests
+    }
+
+    #[tokio::test]
+    async fn with_a_signature_certificate_every_call_is_signed() {
+        let (pem, public_key) = test_key();
+        let now = crate::http::now_ms() / 1000;
+        for request in calls(&config(Some(&pem))).await {
+            let (key_id, created) = verify(&request, &public_key);
+            assert_eq!(key_id, "cert-1");
+            assert!((created - now).abs() <= 60, "created is the current time");
+        }
+    }
+
+    #[tokio::test]
+    async fn without_one_calls_go_unsigned_as_the_sandbox_takes_them() {
+        for request in calls(&config(None)).await {
+            assert!(
+                !request
+                    .headers
+                    .iter()
+                    .any(|(name, _)| name == "Signature" || name == "Digest")
+            );
+        }
+    }
+
+    #[test]
+    fn half_a_signature_configuration_signs_nothing() {
+        let config = FeedConfig::from_env(|name| match name {
+            "PONTO_CLIENT_ID" => Some("cid".to_owned()),
+            "PONTO_CLIENT_SECRET" => Some("csecret".to_owned()),
+            "PONTO_SIGNATURE_CERT_ID" => Some("cert-1".to_owned()),
+            "PONTO_SIGNATURE_KEY" => Some(String::new()),
+            _ => None,
+        });
+        assert!(config.ponto.expect("ponto").signature.is_none());
+    }
 }

@@ -167,6 +167,7 @@ fn pick_request(value: &Value) -> PickRequest {
         candidates: serde_json::from_value::<Vec<PickCandidate>>(value["candidates"].clone())
             .expect("candidates"),
         max_open: value["maxOpen"].as_i64(),
+        team_id: value["teamId"].as_str().map(str::to_owned),
     }
 }
 

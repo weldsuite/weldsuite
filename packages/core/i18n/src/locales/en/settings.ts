@@ -1816,6 +1816,10 @@ export const settings = {
       ticketTypesDescription: 'The kinds of tickets your team works on, and their fields.',
       assignmentTitle: 'Assignment',
       assignmentDescription: 'How new conversations are routed to agents.',
+      slaPoliciesTitle: 'SLA policies',
+      slaPoliciesDescription: 'Reply and resolution targets for your conversations.',
+      priorityMatrixTitle: 'Priority matrix',
+      priorityMatrixDescription: "Set a ticket's priority from its impact and urgency.",
     },
 
     weldmail: {

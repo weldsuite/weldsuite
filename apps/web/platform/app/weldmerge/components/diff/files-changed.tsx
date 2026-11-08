@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileDiff as FileIcon } from 'lucide-react';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
-import { Input } from '@weldsuite/ui/components/input';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { SearchInput } from '@weldsuite/ui/components/search-input';
 import type { MergePullRequestFile, MergeReviewThread } from '@weldsuite/app-api-client/schemas/weldmerge-review';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useMergePullRequestFiles, useMergePullRequestThreads } from '@/hooks/queries/use-weldmerge-review-queries';
@@ -66,7 +66,9 @@ export function FilesChanged({ pullRequestId, canReview, drafts, onAddDraft, onC
     document.getElementById(`file-${path}`)?.scrollIntoView?.({ block: 'start' });
   };
 
-  // j / k: next and previous file.
+  // j / k: next and previous file. Caught on the way down and marked handled,
+  // so the record panel's own J / K (previous / next pull request) leave them
+  // to this tab while it is open.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
@@ -74,17 +76,29 @@ export function FilesChanged({ pullRequestId, canReview, drafts, onAddDraft, onC
       const index = visible.findIndex((file) => file.path === active);
       const next = event.key === 'j' ? Math.min(index + 1, visible.length - 1) : Math.max(index - 1, 0);
       const target = visible[index === -1 ? 0 : next];
-      if (target) goTo(target.path);
+      if (!target) return;
+      event.preventDefault();
+      goTo(target.path);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   });
 
   if (files.isLoading) return <PageLoader fullScreen={false} />;
   if (files.isError || !files.data) {
-    return <ErrorState message={tf.loadFailed} retryLabel={tm.retry} onRetry={() => void files.refetch()} />;
+    return (
+      <div className="p-4">
+        <ErrorState message={tf.loadFailed} retryLabel={tm.retry} onRetry={() => void files.refetch()} />
+      </div>
+    );
   }
-  if (files.data.length === 0) return <EmptyState icon={FileIcon} title={tf.empty} description={tf.emptyDescription} />;
+  if (files.data.length === 0) {
+    return (
+      <div className="p-4">
+        <EmptyState icon={FileIcon} title={tf.empty} description={tf.emptyDescription} />
+      </div>
+    );
+  }
 
   const setFileViewed = (path: string, value: boolean) =>
     setViewed((current) => {
@@ -94,10 +108,17 @@ export function FilesChanged({ pullRequestId, canReview, drafts, onAddDraft, onC
       return next;
     });
 
+  // Two panes, by container width (the caller marks the container and gives it
+  // the tab's height): in fullscreen the file list is a column of its own with
+  // a line down its right edge, each pane scrolling by itself; in the narrow
+  // side panel the list sits above the diffs and the tab scrolls as a whole.
   return (
-    <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <nav aria-label={tf.heading} className="space-y-2 lg:sticky lg:top-2 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
-        <Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={tf.searchPlaceholder} aria-label={tf.searchPlaceholder} />
+    <div className="flex flex-col @3xl:h-full @3xl:flex-row">
+      <nav
+        aria-label={tf.heading}
+        className="flex shrink-0 flex-col gap-2 border-b border-border p-3 @3xl:w-72 @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r"
+      >
+        <SearchInput value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={tf.searchPlaceholder} aria-label={tf.searchPlaceholder} />
         <p className="text-xs text-muted-foreground">
           {fill(tf.viewedProgress, { viewed: viewed.size, total: files.data.length })} · {tf.keyboardHint}
         </p>
@@ -113,17 +134,18 @@ export function FilesChanged({ pullRequestId, canReview, drafts, onAddDraft, onC
                   onClick={() => goTo(file.path)}
                   title={file.path}
                   aria-current={active === file.path ? 'true' : undefined}
+                  // The module sidebar's item: a 32px row with a rounded hover area, the open file filled.
                   className={cn(
-                    'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-accent',
-                    active === file.path && 'bg-accent',
-                    viewed.has(file.path) && 'text-muted-foreground',
+                    'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent',
+                    active === file.path && 'bg-accent font-medium',
+                    viewed.has(file.path) && active !== file.path && 'text-muted-foreground',
                   )}
                 >
-                  <span className={cn('w-3 shrink-0 font-mono font-semibold', status.className)} title={tf.status[file.status]}>
+                  <span className={cn('w-3 shrink-0 font-mono text-xs font-semibold', status.className)} title={tf.status[file.status]}>
                     {status.letter}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{name}</span>
-                  <span className="shrink-0 tabular-nums">
+                  <span className="shrink-0 text-xs font-normal tabular-nums">
                     <span className="text-emerald-600">+{file.additions}</span> <span className="text-red-500">−{file.deletions}</span>
                   </span>
                 </button>
@@ -133,7 +155,7 @@ export function FilesChanged({ pullRequestId, canReview, drafts, onAddDraft, onC
         </ul>
       </nav>
 
-      <div className="min-w-0 space-y-4">
+      <div className="min-w-0 flex-1 space-y-4 p-4 @3xl:overflow-y-auto">
         {visible.map((file) => (
           <FileDiff
             key={file.path}

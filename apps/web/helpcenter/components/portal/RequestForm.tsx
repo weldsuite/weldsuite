@@ -14,6 +14,7 @@ import {
 } from '@/lib/portal-fields'
 import { errorText, usePortalStrings, type PortalStrings } from '@/lib/portal-i18n'
 import { useSignInRedirect } from '@/lib/portal-nav'
+import { ArticleSuggestions, suggestionQuery } from '@/components/portal/ArticleSuggestions'
 import {
   fieldErrorClass,
   helpTextClass,
@@ -162,6 +163,8 @@ export function RequestForm({ type, onChangeType }: Readonly<RequestFormProps>) 
           />
         </FormRow>
       )}
+
+      <ArticleSuggestions query={suggestionQuery(title, type.descriptionLabel === null ? '' : description)} />
 
       {visible.map((field) => (
         <FieldInput

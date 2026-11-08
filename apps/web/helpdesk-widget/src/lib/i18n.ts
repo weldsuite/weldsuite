@@ -1,8 +1,9 @@
 /**
  * Widget strings in the visitor's language (browser setting), en or nl.
  *
- * Only the rating, away-hours and sign-in copy goes through here so far; the
- * rest of the messenger is still English-only.
+ * Only the rating, away-hours, sign-in and self-service (article suggestions,
+ * announcements) copy goes through here so far; the rest of the messenger is
+ * still English-only.
  */
 
 import type { ExpectedReplyTime } from './api/types';
@@ -39,6 +40,13 @@ const en = {
     messageNoSite: 'Sign in on this website to chat with us.',
     hint: 'Once you are signed in, your conversations show up here.',
   },
+  selfService: {
+    suggestionsTitle: 'These articles might help',
+    openArticle: 'Open article',
+    showExcerpt: 'Show summary',
+    hideExcerpt: 'Hide summary',
+    dismiss: 'Dismiss',
+  },
 };
 
 type WidgetStrings = typeof en;
@@ -74,6 +82,13 @@ const nl: WidgetStrings = {
     message: 'Log in op {site} om met ons te chatten.',
     messageNoSite: 'Log in op deze website om met ons te chatten.',
     hint: 'Zodra je bent ingelogd, zie je hier je gesprekken.',
+  },
+  selfService: {
+    suggestionsTitle: 'Deze artikelen kunnen helpen',
+    openArticle: 'Artikel openen',
+    showExcerpt: 'Samenvatting tonen',
+    hideExcerpt: 'Samenvatting verbergen',
+    dismiss: 'Sluiten',
   },
 };
 

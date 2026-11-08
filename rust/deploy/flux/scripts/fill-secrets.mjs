@@ -2,7 +2,8 @@
 // Writes a cluster's secrets file from ../secrets/examples/secrets.example.yaml
 // with every value that isn't a provider's key generated: database passwords,
 // DATABASE_ENCRYPTION_KEY (64 hex), the Zitadel masterkey (32 characters) and
-// first admin password, the sign, storage and realtime secrets. Provider keys
+// first admin password, the sign, storage and realtime secrets, the MTA's key
+// (base64 of 32 bytes) and passwords. Provider keys
 // come from these environment variables when set, and stay CHANGE_ME otherwise:
 //
 //   FILES_S3_ACCESS_KEY_ID, FILES_S3_SECRET_ACCESS_KEY    the files bucket
@@ -86,6 +87,8 @@ function namedValue(token) {
   if (named.has(token)) return named.get(token);
   let value;
   if (token === 'CHANGE_ME_EXACTLY_32_CHARACTERS_') value = alnum(32);
+  // The MTA's MTA_KEY: base64 of 32 random bytes.
+  else if (token === 'CHANGE_ME_BASE64_32_BYTES') value = randomBytes(32).toString('base64');
   // Zitadel's password policy: upper, lower, digit and symbol.
   else if (token === 'CHANGE_ME_Aa1!') value = `${alnum(24)}Aa1!`;
   else if (LOGINS[token]) {

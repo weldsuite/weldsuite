@@ -1,6 +1,6 @@
 /**
  * The legal entities backfill script (release 1) on pglite. Every tenant
- * migration in the journal is applied once (0247 included, so the database
+ * migration in the journal is applied once (0249 included, so the database
  * looks like a tenant after the SQL backfill), and each test seeds a fresh
  * clone of it.
  */

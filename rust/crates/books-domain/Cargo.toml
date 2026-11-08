@@ -38,9 +38,11 @@ time = { workspace = true, features = ["parsing", "macros", "formatting"] }
 tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { workspace = true }
 unicode-normalization = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+aws-lc-rs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]

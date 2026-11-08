@@ -37,8 +37,12 @@ export default function ArticleEditPage() {
     author: articleData.authorName || t('sweep.welddesk.knowledge.unknownAuthor'),
     status: articleData.status,
     visibility: articleData.visibility,
+    audienceCompanyIds: articleData.audienceCompanyIds ?? [],
+    locale: articleData.locale ?? null,
+    translationOfId: articleData.translationOfId ?? null,
     lastUpdated: articleData.updatedAt ? new Date(articleData.updatedAt) : new Date(),
   };
 
-  return <ArticleEditor article={article} />;
+  // Keyed by id: moving between an article's language versions mounts a fresh editor.
+  return <ArticleEditor key={article.id} article={article} />;
 }

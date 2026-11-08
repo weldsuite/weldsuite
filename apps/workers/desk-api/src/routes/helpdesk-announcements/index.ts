@@ -2,6 +2,11 @@
  * Announcement routes — flat /api/helpdesk-announcements/* surface backed by `helpdeskAnnouncements`.
  *
  * Permissions: articles:read | articles:create | articles:update | articles:delete.
+ *
+ * Writes set the columns the schema names, nothing else: the author is the
+ * caller, and publishing without a `publishedAt` stamps it. The help center
+ * and the widget show published, unexpired announcements
+ * (@weldsuite/db/lib/desk-articles `listDeskAnnouncementsFor`).
  */
 
 import { Hono } from 'hono';
@@ -9,7 +14,11 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createHelpdeskAnnouncementSchema, updateHelpdeskAnnouncementSchema } from '@weldsuite/core-api-client/schemas/helpdesk-announcements';
+import {
+  createHelpdeskAnnouncementSchema,
+  updateHelpdeskAnnouncementSchema,
+  type UpdateHelpdeskAnnouncementInput,
+} from '@weldsuite/core-api-client/schemas/helpdesk-announcements';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -17,6 +26,27 @@ import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskAnnouncements;
+
+/** An ISO datetime from the body as a `Date`; null stays null. */
+const dateOf = (value: string | null | undefined) => (value ? new Date(value) : null);
+
+/** The columns a body sets, in the table's terms. */
+function columnsOf(data: UpdateHelpdeskAnnouncementInput): Partial<typeof t.$inferInsert> {
+  const out: Partial<typeof t.$inferInsert> = {};
+  if (data.title !== undefined) out.title = data.title;
+  if (data.content !== undefined) out.content = data.content;
+  if (data.excerpt !== undefined) out.excerpt = data.excerpt;
+  if (data.type !== undefined) out.type = data.type;
+  if (data.status !== undefined) out.status = data.status;
+  if (data.visibility !== undefined) out.visibility = data.visibility;
+  if (data.targetGroups !== undefined) out.targetGroups = data.targetGroups;
+  if (data.featuredImage !== undefined) out.featuredImage = data.featuredImage;
+  if (data.authorName !== undefined) out.authorName = data.authorName;
+  if (data.publishedAt !== undefined) out.publishedAt = dateOf(data.publishedAt);
+  if (data.expiresAt !== undefined) out.expiresAt = dateOf(data.expiresAt);
+  if (data.isPinned !== undefined) out.isPinned = data.isPinned;
+  return out;
+}
 
 app.get('/', requirePermission('articles:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -72,12 +102,22 @@ app.get('/:id', requirePermission('articles:read'), async (c) => {
 
 app.post('/', requirePermission('articles:create'), zValidator('json', createHelpdeskAnnouncementSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const id = generateId('ann');
   const now = new Date();
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
-    publishEntityEvent({ c, entityType: 'helpdesk_announcement', entityId: id, action: 'created', data: { id, title: (data as Record<string, unknown>).title } });
+    const values = columnsOf(data);
+    await db.insert(t).values({
+      ...values,
+      id,
+      title: data.title,
+      content: data.content,
+      authorId: c.get('userId'),
+      publishedAt: values.publishedAt ?? (data.status === 'published' ? now : null),
+      createdAt: now,
+      updatedAt: now,
+    });
+    publishEntityEvent({ c, entityType: 'helpdesk_announcement', entityId: id, action: 'created', data: { id, title: data.title } });
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/helpdesk-announcements] create failed:', err);
@@ -88,12 +128,16 @@ app.post('/', requirePermission('articles:create'), zValidator('json', createHel
 app.patch('/:id', requirePermission('articles:update'), zValidator('json', updateHelpdeskAnnouncementSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Announcement', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const now = new Date();
+    const update: Partial<typeof t.$inferInsert> = { updatedAt: now, ...columnsOf(data) };
+    // Published now, never before, no date given: it shows from now.
+    if (data.status === 'published' && existing.status !== 'published' && update.publishedAt == null && !existing.publishedAt) {
+      update.publishedAt = now;
+    }
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({ c, entityType: 'helpdesk_announcement', entityId: id, action: 'updated', data: { id, title: (update.title as string | undefined) ?? existing.title } });
     return success(c, { id });

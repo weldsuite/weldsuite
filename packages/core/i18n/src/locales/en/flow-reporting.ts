@@ -31,7 +31,7 @@ export const flowReporting = {
     unknown: 'Computed from the project data.',
   },
   status: { draft: 'Draft', published: 'Published' },
-  list: { title: 'Reports', new: 'New', empty: 'No reports yet. Create the first one.', superseded: 'Superseded', corrects: 'Corrects an earlier report' },
+  list: { new: 'New', empty: 'No reports yet. Create the first one.', superseded: 'Superseded', corrects: 'Corrects an earlier report' },
   report: {
     asOf: 'Data as of {date}',
     refresh: 'Refresh data',
@@ -41,7 +41,6 @@ export const flowReporting = {
     publishTo: 'Publish to {count} recipient(s)',
     discard: 'Discard draft',
     overall: 'Overall status',
-    overallHint: 'Suggested {colour} from the five areas. You can override it.',
     filledIn: 'Filled in',
     written: 'Written',
     override: 'Override',

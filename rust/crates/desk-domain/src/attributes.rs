@@ -106,6 +106,10 @@ pub struct Update {
     pub department_id: Field<String>,
     /// Slug → value, in the body's order.
     pub custom_fields: Vec<(String, Js)>,
+    /// ITIL impact and urgency (low / medium / high): with the priority
+    /// matrix on they set the priority ([`crate::priority_matrix`]).
+    pub impact: Field<String>,
+    pub urgency: Field<String>,
 }
 
 /// Why the update stopped.
@@ -275,6 +279,10 @@ struct Patch {
     #[allow(clippy::option_option)]
     priority: Option<Option<String>>,
     tags: Option<Vec<String>>,
+    #[allow(clippy::option_option)]
+    impact: Option<Option<String>>,
+    #[allow(clippy::option_option)]
+    urgency: Option<Option<String>>,
 }
 
 impl Patch {
@@ -283,10 +291,13 @@ impl Patch {
             && self.department_id.is_none()
             && self.priority.is_none()
             && self.tags.is_none()
+            && self.impact.is_none()
+            && self.urgency.is_none()
     }
 }
 
-/// `columnChanges(db, current, input)`: type, team, priority and tags.
+/// `columnChanges(db, current, input)`: type, team, impact, urgency,
+/// priority (the matrix's when they change and no priority is sent) and tags.
 async fn column_changes(
     db: &PgPool,
     current: &Value,
@@ -308,8 +319,14 @@ async fn column_changes(
         patch.department_id = Some(id);
         changes.push(change);
     }
+    // Impact and urgency, and the priority the matrix derives from them.
+    let matrix =
+        crate::priority_matrix::changes(db, current, &input.impact, &input.urgency).await?;
+    patch.impact = matrix.impact;
+    patch.urgency = matrix.urgency;
+    changes.extend(matrix.entries);
     let priority = match &input.priority {
-        Field::Absent => None,
+        Field::Absent => matrix.priority.map(Some),
         Field::Null => Some(None),
         Field::Set(priority) => Some(Some(priority.clone())),
     };
@@ -427,7 +444,9 @@ async fn write_columns(db: &PgPool, id: &str, patch: &Patch) -> Result<(), sqlx:
              department_id = case when $4 then $5 else department_id end,
              priority = case when $6 then $7 else priority end,
              tags = case when $8 then $9::jsonb else tags end,
-             updated_at = $10::timestamp
+             updated_at = $10::timestamp,
+             impact = case when $11 then $12 else impact end,
+             urgency = case when $13 then $14 else urgency end
          where id = $1",
     )
     .bind(id)
@@ -440,6 +459,10 @@ async fn write_columns(db: &PgPool, id: &str, patch: &Patch) -> Result<(), sqlx:
     .bind(patch.tags.is_some())
     .bind(patch.tags.as_ref().map(|tags| json!(tags)))
     .bind(webchat::now())
+    .bind(patch.impact.is_some())
+    .bind(patch.impact.clone().flatten())
+    .bind(patch.urgency.is_some())
+    .bind(patch.urgency.clone().flatten())
     .execute(db)
     .await?;
     Ok(())
@@ -456,6 +479,19 @@ pub async fn update(
     author_type: &str,
     author_id: Option<&str>,
     input: &Update,
+) -> Result<Updated, UpdateError> {
+    update_with_metadata(db, conversation_id, author_type, author_id, input, None).await
+}
+
+/// [`update`] with extra keys on the `attributes_changed` event (`input.metadata`:
+/// a routing rule's id, an escalation).
+pub async fn update_with_metadata(
+    db: &PgPool,
+    conversation_id: &str,
+    author_type: &str,
+    author_id: Option<&str>,
+    input: &Update,
+    extra: Option<Map<String, Value>>,
 ) -> Result<Updated, UpdateError> {
     let Some((current, _)) = webchat::get(db, conversation_id, false).await? else {
         return Err(UpdateError::NotFound);
@@ -484,7 +520,7 @@ pub async fn update(
     write_values(db, conversation_id, &definitions, &writes).await?;
     write_columns(db, conversation_id, &patch).await?;
 
-    let mut metadata = Map::new();
+    let mut metadata = extra.unwrap_or_default();
     metadata.insert("eventType".to_owned(), json!("attributes_changed"));
     metadata.insert("changes".to_owned(), Value::Array(changes));
     let appended = webchat::append(

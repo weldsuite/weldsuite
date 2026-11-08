@@ -82,11 +82,41 @@ pub struct Candidate {
     pub open: i64,
 }
 
-/// `deskAssignmentCandidates(db, settings)`: the members in rotation who
-/// are not away, active and internal, with their open counts.
-pub async fn candidates(db: &PgPool, settings: &Settings) -> Result<Vec<Candidate>, sqlx::Error> {
-    let ids: Vec<String> = settings
-        .member_ids
+/// `deskTeamMemberIds(db, teamId)`: the members of a conversation's team
+/// (`helpdesk_departments.agentIds`, Clerk user ids), or `None` when it has
+/// no team, the team is gone or inactive, or it has no members: then the
+/// roster takes the work.
+pub async fn team_member_ids(
+    db: &PgPool,
+    team_id: Option<&str>,
+) -> Result<Option<Vec<String>>, sqlx::Error> {
+    let Some(team_id) = team_id.filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    let team: Option<(Option<Value>, bool)> = sqlx::query_as(
+        "select agent_ids, is_active from helpdesk_departments
+         where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(team_id)
+    .fetch_optional(db)
+    .await?;
+    let Some((agent_ids, true)) = team else {
+        return Ok(None);
+    };
+    let ids = id_list(&agent_ids.unwrap_or(Value::Null));
+    Ok((!ids.is_empty()).then_some(ids))
+}
+
+/// `deskAssignmentCandidates(db, settings, teamMemberIds)`: the team's
+/// members when it has any, else the members in rotation; either way only
+/// those who are not away, active and internal, with their open counts.
+pub async fn candidates(
+    db: &PgPool,
+    settings: &Settings,
+    team_member_ids: Option<&[String]>,
+) -> Result<Vec<Candidate>, sqlx::Error> {
+    let ids: Vec<String> = team_member_ids
+        .unwrap_or(&settings.member_ids)
         .iter()
         .filter(|id| !settings.away_member_ids.contains(id))
         .cloned()
@@ -198,12 +228,13 @@ pub enum Picker<'a> {
 }
 
 impl Picker<'_> {
-    /// `pick({ mode, candidates, maxOpen })`.
+    /// `pick({ mode, candidates, maxOpen, teamId })`.
     pub async fn pick(
         &self,
         mode: PickMode,
         candidates: &[Candidate],
         max_open: Option<i64>,
+        team_id: Option<&str>,
     ) -> Option<String> {
         match self {
             Self::Local => pick_balanced(candidates, max_open),
@@ -221,6 +252,7 @@ impl Picker<'_> {
                         })
                         .collect(),
                     max_open,
+                    team_id: team_id.map(str::to_owned),
                 };
                 match router.pick_desk_assignee(workspace_id, &request).await {
                     Ok(user_id) => user_id,
@@ -244,21 +276,24 @@ pub async fn auto_assign(
 
 /// `autoAssignDeskConversation(db, { conversationId, pick })`: give an open,
 /// unowned conversation to a teammate, if the workspace has auto-assignment
-/// on and someone can take it. The conversation after it and the `assigned`
-/// event (author `system`, `metadata.auto`), or `None` when nothing changed.
-/// Safe under concurrent customer messages: the owner is claimed with a
-/// conditional update before the event is written.
+/// on and someone can take it. A conversation in a team with members goes
+/// to one of them (a rotation per team); otherwise to the roster. The
+/// conversation after it and the `assigned` event (author `system`,
+/// `metadata.auto`, and `metadata.teamId` for a team pick), or `None` when
+/// nothing changed. Safe under concurrent customer messages: the owner is
+/// claimed with a conditional update before the event is written.
 pub async fn auto_assign_with(
     db: &PgPool,
     conversation_id: &str,
     picker: &Picker<'_>,
 ) -> Result<Option<Appended>, AppendError> {
-    let current: Option<(String, Option<String>)> =
-        sqlx::query_as("select state, assignee_id from desk_conversations where id = $1 limit 1")
-            .bind(conversation_id)
-            .fetch_optional(db)
-            .await?;
-    let Some((state, None)) = current else {
+    let current: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "select state, assignee_id, department_id from desk_conversations where id = $1 limit 1",
+    )
+    .bind(conversation_id)
+    .fetch_optional(db)
+    .await?;
+    let Some((state, None, department_id)) = current else {
         return Ok(None);
     };
     if state != "open" {
@@ -268,12 +303,14 @@ pub async fn auto_assign_with(
     let Some(mode) = PickMode::parse(&settings.mode) else {
         return Ok(None);
     };
-    let candidates = candidates(db, &settings).await?;
+    let team_members = team_member_ids(db, department_id.as_deref()).await?;
+    let team_id = team_members.as_ref().and(department_id.as_deref());
+    let candidates = candidates(db, &settings, team_members.as_deref()).await?;
     if candidates.is_empty() {
         return Ok(None);
     }
     let Some(user_id) = picker
-        .pick(mode, &candidates, settings.max_open_per_member)
+        .pick(mode, &candidates, settings.max_open_per_member, team_id)
         .await
         .filter(|id| candidates.iter().any(|c| &c.user_id == id))
     else {
@@ -295,6 +332,9 @@ pub async fn auto_assign_with(
     metadata.insert("eventType".to_owned(), json!("assigned"));
     metadata.insert("assigneeId".to_owned(), json!(user_id));
     metadata.insert("auto".to_owned(), json!(true));
+    if let Some(team_id) = team_id {
+        metadata.insert("teamId".to_owned(), json!(team_id));
+    }
     append(
         db,
         Append {

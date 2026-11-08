@@ -2,3 +2,19 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../base
+  - mta-database.yaml
+patches:
+  # The MTA's login on master (mta-database.yaml), kept in step with its
+  # Secret like the marketing site's.
+  - target:
+      kind: Cluster
+      name: master
+    patch: |-
+      - op: add
+        path: /spec/managed/roles/-
+        value:
+          name: mta
+          ensure: present
+          login: true
+          passwordSecret:
+            name: master-db-mta

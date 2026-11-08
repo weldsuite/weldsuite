@@ -1,11 +1,11 @@
 /**
- * The legal-entities release 1 migrations (tenant 0246 schema + 0247 data
+ * The legal-entities release 1 migrations (tenant 0248 schema + 0249 data
  * backfill) on fixture rows: duplicate defaults, an employer linked to a live
  * entity, one linked to a deleted entity, two unlinked employers of the same
  * company, employees with and without a payroll profile, custom roles.
  *
- * Applies the journal up to the migration before 0246, seeds, then applies
- * 0246 and 0247 the way the runner does, and 0247 a second time to prove it
+ * Applies the journal up to the migration before 0248, seeds, then applies
+ * 0248 and 0249 the way the runner does, and 0249 a second time to prove it
  * is safe to re-run.
  */
 
@@ -20,8 +20,8 @@ import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(here, '../../../../core/db/drizzle/tenant-migrations');
 
-const SCHEMA_TAG_PREFIX = '0246_';
-const BACKFILL_TAG = '0247_legal_entities_backfill';
+const SCHEMA_TAG_PREFIX = '0248_';
+const BACKFILL_TAG = '0249_legal_entities_backfill';
 
 async function journalTags(): Promise<string[]> {
   const journal = JSON.parse(await readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8')) as {
@@ -110,7 +110,7 @@ beforeAll(async () => {
   for (const tag of tags.slice(schemaIndex, schemaIndex + 2)) await applyMigration(client, tag, false);
 }, 120_000);
 
-describe('0246 schema: one default legal entity', () => {
+describe('0248 schema: one default legal entity', () => {
   it('keeps settings.default_entity_id as the only default', async () => {
     const defaults = await rows<{ id: string }>(client, `SELECT id FROM entities WHERE is_default AND deleted_at IS NULL`);
     expect(defaults.map((r) => r.id)).toEqual(['ent_b']);
@@ -121,7 +121,7 @@ describe('0246 schema: one default legal entity', () => {
   });
 });
 
-describe('0247 backfill', () => {
+describe('0249 backfill', () => {
   it('enables WeldBooks for every existing entity and moves the document texts', async () => {
     const settings = await rows<{ entity_id: string; document_texts: unknown }>(
       client,

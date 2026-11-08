@@ -38,6 +38,7 @@ import {
 import { matchCallerByPhone, lookupCrm, formatCrmLookupForAssistant } from '../../services/desk-phone-crm';
 import { parseMessageHistory, syncAiTalkTranscript } from '../../services/desk-phone-transcript';
 import { fanoutDeskPhoneMessage } from '../../lib/desk-phone-fanout';
+import { announceDeskPhoneCall } from '../../lib/desk-phone-routing';
 import {
   bearerTokenFromHeader,
   verifyDeskPhoneToolToken,
@@ -536,6 +537,15 @@ async function handleInboundInitiated(
   await syncConversationCaller(db, desk, caller, now);
   // The caller's message may start an SLA clock: tell desk-api's SLA sweep (best-effort).
   if (desk.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', workspaceId, desk.slaCheckAt);
+  // Hub events, then routing and auto-assignment, as the widget and email do.
+  await announceDeskPhoneCall({
+    env,
+    db,
+    workspaceId,
+    conversationId: desk.conversation.id,
+    message: desk.message,
+    created: desk.created,
+  });
 
   await insertInboundCall(db, {
     callId,

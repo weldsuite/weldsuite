@@ -8,7 +8,12 @@ import {
   Tag,
   FolderOpen,
   Clock,
+  UserCheck,
+  Building2,
 } from 'lucide-react';
+import { DESK_ARTICLE_LANGUAGES } from '@weldsuite/app-api-client/schemas/desk-knowledge';
+import { CompanyMultiPicker } from '@/app/welddesk/components/company-multi-picker';
+import { ArticleLanguages, useLanguageName } from './article-languages';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Input } from '@weldsuite/ui/components/input';
@@ -58,9 +63,19 @@ interface Article {
   tags: string[];
   author: string;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'internal' | 'restricted';
+  visibility: ArticleVisibilityValue;
+  /** CRM company ids, for visibility `groups`. */
+  audienceCompanyIds?: string[];
+  /** The article's language; null = the help center's default. */
+  locale?: string | null;
+  /** Set on a language version: the original it translates. */
+  translationOfId?: string | null;
   lastUpdated: Date;
 }
+
+export type ArticleVisibilityValue = 'public' | 'logged_in' | 'groups' | 'internal';
+
+const DEFAULT_LOCALE = '_default';
 
 interface ArticleEditorProps {
   article: Article;
@@ -68,6 +83,8 @@ interface ArticleEditorProps {
 
 export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEditorProps>) {
   const { t } = useI18n();
+  const audience = t.helpdesk.articleAudience;
+  const languageName = useLanguageName();
   const router = useRouter();
   const [article, setArticle] = useState(initialArticle);
   const [isSaving, setIsSaving] = useState(false);
@@ -126,6 +143,8 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
         tags: article.tags,
         status: article.status,
         visibility: article.visibility,
+        audienceCompanyIds: article.audienceCompanyIds ?? [],
+        locale: article.locale ?? null,
       };
 
       const onSaveSuccess = (result: unknown) => {
@@ -179,6 +198,19 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
+
+  const visibilityOptions: { value: ArticleVisibilityValue; label: string; hint: string; icon: typeof Globe }[] = [
+    { value: 'public', label: audience.public, hint: audience.publicHint, icon: Globe },
+    { value: 'logged_in', label: audience.loggedIn, hint: audience.loggedInHint, icon: UserCheck },
+    { value: 'groups', label: audience.groups, hint: audience.groupsHint, icon: Building2 },
+    { value: 'internal', label: audience.internal, hint: audience.internalHint, icon: Lock },
+  ];
+
+  // The stored locale stays selectable even when it is not one the editor offers.
+  const languageOptions: string[] =
+    article.locale && !(DESK_ARTICLE_LANGUAGES as readonly string[]).includes(article.locale)
+      ? [...DESK_ARTICLE_LANGUAGES, article.locale]
+      : [...DESK_ARTICLE_LANGUAGES];
 
   // ── Sidebar ──────────────────────────────────────────────────────────────
 
@@ -234,20 +266,59 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="public">
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4" />
-                  {t.helpdesk.knowledgeEditor.visibilityPublic}
-                </div>
-              </SelectItem>
-              <SelectItem value="internal">
-                <div className="flex items-center gap-2">
-                  <Lock className="h-4 w-4" />
-                  {t.helpdesk.knowledgeEditor.visibilityInternal}
-                </div>
-              </SelectItem>
+              {visibilityOptions.map(({ value, label, hint, icon: Icon }) => (
+                <SelectItem key={value} value={value}>
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                    <span className="text-xs text-muted-foreground">{hint}</span>
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {article.visibility === 'groups' && (
+            <div className="mt-2 space-y-1.5" data-testid="article-audience-companies">
+              <label className="text-xs font-medium text-muted-foreground block">{audience.companies}</label>
+              <CompanyMultiPicker
+                value={article.audienceCompanyIds ?? []}
+                onChange={(ids) => setArticle((prev) => ({ ...prev, audienceCompanyIds: ids }))}
+              />
+              {(article.audienceCompanyIds ?? []).length === 0 && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">{audience.noCompaniesPicked}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Language */}
+        <div>
+          <label className="text-sm font-medium mb-2 block">{audience.language}</label>
+          <Select
+            value={article.locale ?? DEFAULT_LOCALE}
+            disabled={Boolean(article.translationOfId)}
+            onValueChange={(value) =>
+              setArticle((prev) => ({ ...prev, locale: value === DEFAULT_LOCALE ? null : value }))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEFAULT_LOCALE}>{audience.defaultLanguage}</SelectItem>
+              {languageOptions.map((locale) => (
+                <SelectItem key={locale} value={locale}>
+                  {languageName(locale)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Language versions */}
+        <div>
+          <label className="text-sm font-medium mb-2 block">{audience.translations}</label>
+          <ArticleLanguages articleId={article.id} />
         </div>
 
         {/* Folder Selection */}

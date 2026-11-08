@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Legal entities, release 1: the TypeScript half of the backfill
- * (docs/plans/legal-entities.md, "Release 1 (expand)"). Tenant migration 0247
+ * (docs/plans/legal-entities.md, "Release 1 (expand)"). Tenant migration 0249
  * has done the deterministic copies; this does what SQL cannot, per tenant
  * database (logic and details in ./lib/legal-entities-backfill.ts):
  *

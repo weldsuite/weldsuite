@@ -1,0 +1,35 @@
+[package]
+name = "weldsuite-mta"
+description = "WeldSuite's own MTA for the Kubernetes editions (ADR MAIL-011): submission, queue, direct delivery, DKIM, the return path, MTA-STS and TLS-RPT"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-nats = { workspace = true, features = ["aws-lc-rs", "jetstream"] }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["http1", "json", "tokio", "query"] }
+base64 = { workspace = true }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+futures-util = { workspace = true, features = ["std"] }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

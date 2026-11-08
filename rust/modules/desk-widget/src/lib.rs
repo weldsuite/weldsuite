@@ -24,6 +24,7 @@ mod attachments;
 mod auth;
 mod config;
 mod conversations;
+mod knowledge;
 mod live;
 mod office_hours;
 mod rate_limit;
@@ -134,6 +135,8 @@ pub fn router(state: WidgetState) -> Router {
     let api = Router::new()
         .route("/config", get(config::get_config))
         .route("/visitor", post(visitor::session))
+        .route("/articles/search", get(knowledge::search))
+        .route("/announcements", get(knowledge::announcements))
         .nest("/conversations", conversations::routes())
         .route("/realtime/token", post(realtime_token::token))
         .route(

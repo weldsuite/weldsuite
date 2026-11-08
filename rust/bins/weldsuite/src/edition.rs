@@ -128,6 +128,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
     // on Global; the Kubernetes editions have no AI provider yet.
     "agent-ai",
+    // WeldDesk's inbox translation (`POST /api/desk/conversations/:id/translate`
+    // and `/translate-reply`) runs on Workers AI through `@weldsuite/ai`; the
+    // routes answer 503 `ai_unavailable` here (ADR AI-011).
+    "desk-ai",
 ];
 
 /// WeldDocs, WeldSheets and WeldBoard: live editing runs in the collab-rooms

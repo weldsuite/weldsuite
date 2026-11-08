@@ -52,6 +52,18 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: privileged
 ---
+# The MTA (chart value mta.namespace) sends from each mail node's own public
+# IP and listens on its port 25, so it runs on the host network, which the
+# baseline and restricted levels forbid. Its container is locked down
+# instead (non-root, read-only, every capability dropped but
+# NET_BIND_SERVICE), and only mail nodes, tainted for it, run it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: weldsuite-mail
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
 # LiveKit runs on the host network with host ports (media goes straight to
 # the node), which the baseline and restricted levels forbid. Its container
 # is locked down instead (infrastructure/video/values/livekit.yaml).

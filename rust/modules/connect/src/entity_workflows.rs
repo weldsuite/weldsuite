@@ -46,6 +46,9 @@ pub(crate) fn derive_event_types(
         if changes.contains_key("status") {
             types.push("status_changed".into());
         }
+        if changes.contains_key("state") {
+            types.push("state_changed".into());
+        }
         if changes.contains_key("assigneeId") || changes.contains_key("assigneeName") {
             types.push("assigned".into());
         }
@@ -359,6 +362,11 @@ mod tests {
         assert_eq!(
             derive_event_types("updated", Some(&changes)),
             vec!["updated", "status_changed", "tagged"]
+        );
+        let changes: Map<String, Value> = serde_json::from_value(json!({ "state": {} })).unwrap();
+        assert_eq!(
+            derive_event_types("updated", Some(&changes)),
+            vec!["updated", "state_changed"]
         );
         let data: Map<String, Value> =
             serde_json::from_value(json!({ "status": "won", "name": "Acme Corp" })).unwrap();

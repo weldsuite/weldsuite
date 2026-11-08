@@ -1,5 +1,5 @@
 {
-  "id": "6693fcb8-9a6d-47c7-966a-af535c92d4e5",
+  "id": "1375bede-4fea-4f59-89ab-04b211ce5adf",
   "prevId": "c90a9310-fe40-419e-8e60-be31ff73012c",
   "version": "7",
   "dialect": "postgresql",
@@ -35366,6 +35366,30 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": false
+        },
+        "first_response_at": {
+          "name": "first_response_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_response_seconds": {
+          "name": "first_response_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_seconds": {
+          "name": "resolution_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -35582,6 +35606,51 @@
             },
             {
               "expression": "sla_due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "desk_conversations_created_at_idx": {
+          "name": "desk_conversations_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "desk_conversations_first_response_at_idx": {
+          "name": "desk_conversations_first_response_at_idx",
+          "columns": [
+            {
+              "expression": "first_response_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "desk_conversations_resolved_at_idx": {
+          "name": "desk_conversations_resolved_at_idx",
+          "columns": [
+            {
+              "expression": "resolved_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -51741,291 +51810,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.bank_accounts": {
-      "name": "bank_accounts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "iban": {
-          "name": "iban",
-          "type": "varchar(34)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bic": {
-          "name": "bic",
-          "type": "varchar(11)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bank_name": {
-          "name": "bank_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "account_holder_name": {
-          "name": "account_holder_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "currency": {
-          "name": "currency",
-          "type": "varchar(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'EUR'"
-        },
-        "ledger_account_id": {
-          "name": "ledger_account_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "current_balance": {
-          "name": "current_balance",
-          "type": "numeric(18, 2)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'0'"
-        },
-        "is_default": {
-          "name": "is_default",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": true
-        },
-        "last_import_date": {
-          "name": "last_import_date",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_import_balance": {
-          "name": "last_import_balance",
-          "type": "numeric(18, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auto_reconcile": {
-          "name": "auto_reconcile",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": true
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "account_type": {
-          "name": "account_type",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "routing_number": {
-          "name": "routing_number",
-          "type": "varchar(9)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "account_number_encrypted": {
-          "name": "account_number_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "account_number_last4": {
-          "name": "account_number_last4",
-          "type": "varchar(4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_connection_id": {
-          "name": "feed_connection_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_provider": {
-          "name": "feed_provider",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_account_id": {
-          "name": "feed_account_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_account_fingerprint": {
-          "name": "feed_account_fingerprint",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_sync_from": {
-          "name": "feed_sync_from",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "feed_status": {
-          "name": "feed_status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_check_number": {
-          "name": "next_check_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "check_settings": {
-          "name": "check_settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ach_settings": {
-          "name": "ach_settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "positive_pay_format": {
-          "name": "positive_pay_format",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "import_settings": {
-          "name": "import_settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "acct_bank_accounts_feed_connection_idx": {
-          "name": "acct_bank_accounts_feed_connection_idx",
-          "columns": [
-            {
-              "expression": "feed_connection_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "acct_bank_accounts_entity_idx": {
-          "name": "acct_bank_accounts_entity_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "acct_bank_accounts_iban_idx": {
-          "name": "acct_bank_accounts_iban_idx",
-          "columns": [
-            {
-              "expression": "iban",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "acct_bank_accounts_is_active_idx": {
-          "name": "acct_bank_accounts_is_active_idx",
-          "columns": [
-            {
-              "expression": "is_active",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.entities": {
       "name": "entities",
       "schema": "",
@@ -52247,13 +52031,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": true
-        },
-        "access_restricted": {
-          "name": "access_restricted",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         }
       },
       "indexes": {
@@ -52301,369 +52078,8 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "entities_single_default_uidx": {
-          "name": "entities_single_default_uidx",
-          "columns": [
-            {
-              "expression": "is_default",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"entities\".\"is_default\" = true AND \"entities\".\"deleted_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.legal_entity_members": {
-      "name": "legal_entity_members",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role_id": {
-          "name": "role_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "granted_by": {
-          "name": "granted_by",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "legal_entity_members_entity_user_uidx": {
-          "name": "legal_entity_members_entity_user_uidx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "legal_entity_members_user_idx": {
-          "name": "legal_entity_members_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.legal_entity_registrations": {
-      "name": "legal_entity_registrations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "country": {
-          "name": "country",
-          "type": "varchar(2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "region": {
-          "name": "region",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "number": {
-          "name": "number",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "valid_from": {
-          "name": "valid_from",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "valid_to": {
-          "name": "valid_to",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_primary": {
-          "name": "is_primary",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verification": {
-          "name": "verification",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "legal_entity_registrations_entity_type_idx": {
-          "name": "legal_entity_registrations_entity_type_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.accounting_entity_settings": {
-      "name": "accounting_entity_settings",
-      "schema": "",
-      "columns": {
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "sales_lock_date": {
-          "name": "sales_lock_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "purchase_lock_date": {
-          "name": "purchase_lock_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tax_lock_date": {
-          "name": "tax_lock_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "period_lock_date": {
-          "name": "period_lock_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hard_lock_date": {
-          "name": "hard_lock_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "accounting_method": {
-          "name": "accounting_method",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sales_tax_engine": {
-          "name": "sales_tax_engine",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sales_tax_engine_config": {
-          "name": "sales_tax_engine_config",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sales_tax_credentials_encrypted": {
-          "name": "sales_tax_credentials_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fiscal_credentials_encrypted": {
-          "name": "fiscal_credentials_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ssn_encrypted": {
-          "name": "ssn_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ssn_last4": {
-          "name": "ssn_last4",
-          "type": "varchar(4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "jurisdiction_settings": {
-          "name": "jurisdiction_settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invoice_bank_account_id": {
-          "name": "invoice_bank_account_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "document_texts": {
-          "name": "document_texts",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -55420,21 +54836,78 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.accounting_bank_account_settings": {
-      "name": "accounting_bank_account_settings",
+    "public.bank_accounts": {
+      "name": "bank_accounts",
       "schema": "",
       "columns": {
-        "bank_account_id": {
-          "name": "bank_account_id",
+        "id": {
+          "name": "id",
           "type": "varchar(30)",
           "primaryKey": true,
           "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "entity_id": {
           "name": "entity_id",
           "type": "varchar(30)",
           "primaryKey": false,
           "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "iban": {
+          "name": "iban",
+          "type": "varchar(34)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bic": {
+          "name": "bic",
+          "type": "varchar(11)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bank_name": {
+          "name": "bank_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_holder_name": {
+          "name": "account_holder_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'EUR'"
         },
         "ledger_account_id": {
           "name": "ledger_account_id",
@@ -55448,6 +54921,20 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'0'"
+        },
+        "is_default": {
+          "name": "is_default",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
         },
         "last_import_date": {
           "name": "last_import_date",
@@ -55471,6 +54958,30 @@
         "metadata": {
           "name": "metadata",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_type": {
+          "name": "account_type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "routing_number": {
+          "name": "routing_number",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_number_encrypted": {
+          "name": "account_number_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_number_last4": {
+          "name": "account_number_last4",
+          "type": "varchar(4)",
           "primaryKey": false,
           "notNull": false
         },
@@ -55522,6 +55033,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "ach_settings": {
+          "name": "ach_settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "positive_pay_format": {
           "name": "positive_pay_format",
           "type": "varchar(30)",
@@ -55533,28 +55050,59 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
       "indexes": {
-        "acct_bank_account_settings_entity_idx": {
-          "name": "acct_bank_account_settings_entity_idx",
+        "acct_bank_accounts_feed_connection_idx": {
+          "name": "acct_bank_accounts_feed_connection_idx",
+          "columns": [
+            {
+              "expression": "feed_connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "acct_bank_accounts_entity_idx": {
+          "name": "acct_bank_accounts_entity_idx",
           "columns": [
             {
               "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "acct_bank_accounts_iban_idx": {
+          "name": "acct_bank_accounts_iban_idx",
+          "columns": [
+            {
+              "expression": "iban",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "acct_bank_accounts_is_active_idx": {
+          "name": "acct_bank_accounts_is_active_idx",
+          "columns": [
+            {
+              "expression": "is_active",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -70065,12 +69613,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "legal_entity_id": {
-          "name": "legal_entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "employment_type": {
           "name": "employment_type",
           "type": "varchar(20)",
@@ -70232,21 +69774,6 @@
           "columns": [
             {
               "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hr_employees_legal_entity_idx": {
-          "name": "hr_employees_legal_entity_idx",
-          "columns": [
-            {
-              "expression": "legal_entity_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -72528,30 +72055,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "legal_entity_id": {
-          "name": "legal_entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "registration_id": {
-          "name": "registration_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bank_account_id": {
-          "name": "bank_account_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "label": {
-          "name": "label",
-          "type": "varchar(160)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "address": {
           "name": "address",
           "type": "jsonb",
@@ -72626,21 +72129,6 @@
           "columns": [
             {
               "expression": "country",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hr_payroll_employers_legal_entity_idx": {
-          "name": "hr_payroll_employers_legal_entity_idx",
-          "columns": [
-            {
-              "expression": "legal_entity_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

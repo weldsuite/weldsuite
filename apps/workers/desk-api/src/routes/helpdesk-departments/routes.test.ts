@@ -28,7 +28,20 @@ describeCrud(BASE, {
     delete: 'departments:delete',
   },
   seed: (n) => ({ name: `Department ${n}` }),
-  valid: { name: 'Customer Support', email: 'support@e2e.test', color: '#3b82f6', sortOrder: 3, isActive: true },
+  valid: {
+    name: 'Customer Support',
+    email: 'support@e2e.test',
+    color: '#3b82f6',
+    sortOrder: 3,
+    isActive: true,
+    managerId: 'wm_manager',
+    managerName: 'Mia',
+    agentIds: ['user_ann', 'user_bob'],
+    escalationRules: [
+      { condition: 'unassigned', afterMinutes: 15, escalateTo: 'manager', notifyCustomer: true },
+      { condition: 'no_response', afterMinutes: 60, escalateTo: 'specific_agent', escalateToId: 'user_bob' },
+    ],
+  },
   // Passed through by the schema; the column is varchar(20).
   unstorable: { name: 'Bad priority', defaultPriority: 'x'.repeat(21) },
   invalid: [
@@ -38,8 +51,25 @@ describeCrud(BASE, {
     { name: 'x', color: 'x'.repeat(51) },
     { name: 'x', icon: 'x'.repeat(101) },
     { description: 'no name' },
+    // The column is varchar(30): a member id, not a Clerk user id.
+    { name: 'x', managerId: 'x'.repeat(31) },
+    { name: 'x', agentIds: ['user_ann', ''] },
+    { name: 'x', agentIds: 'user_ann' },
+    { name: 'x', escalationRules: [{ condition: 'later', afterMinutes: 5, escalateTo: 'manager' }] },
+    { name: 'x', escalationRules: [{ condition: 'unassigned', afterMinutes: 1.5, escalateTo: 'manager' }] },
+    { name: 'x', escalationRules: [{ condition: 'unassigned', afterMinutes: -1, escalateTo: 'manager' }] },
+    { name: 'x', escalationRules: [{ condition: 'unassigned', afterMinutes: 5, escalateTo: 'boss' }] },
+    { name: 'x', escalationRules: [{ condition: 'unassigned', afterMinutes: 5, escalateTo: 'manager', notifyCustomer: 'yes' }] },
+    { name: 'x', escalationRules: [null] },
   ],
-  patch: { name: 'Sales', description: 'Renamed', autoAssignment: true },
+  patch: {
+    name: 'Sales',
+    description: 'Renamed',
+    autoAssignment: true,
+    managerId: null,
+    agentIds: [],
+    escalationRules: [{ condition: 'sla_breach', afterMinutes: 0, escalateTo: 'next_tier' }],
+  },
   invalidPatch: { isActive: 'yes' },
   filters: [
     { query: 'search=Needle', match: { name: 'Needle Department' } },
@@ -220,5 +250,24 @@ describe(`${BASE} · department specifics`, () => {
       body: JSON.stringify({ managerName: 'Pat', agentIds: ['agt_1'] }),
     });
     expect(passthrough.status).toBe(200);
+  });
+
+  it('re-checks the open conversations of a team whose escalation rules change', async () => {
+    const at = new Date(Date.UTC(2026, 1, 2, 9));
+    await db.insert(schema.helpdeskDepartments).values({ id: 'hdep_esc', name: 'Escalating', createdAt: at, updatedAt: at });
+    await db.insert(schema.deskConversations).values([
+      { id: 'dconv_esc_open', conversationNumber: 9101, departmentId: 'hdep_esc', createdAt: at, updatedAt: at },
+      { id: 'dconv_esc_closed', conversationNumber: 9102, departmentId: 'hdep_esc', state: 'closed', createdAt: at, updatedAt: at },
+    ]);
+    const res = await app('departments:update').request(`${BASE}/hdep_esc`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ escalationRules: [{ condition: 'unassigned', afterMinutes: 30, escalateTo: 'manager' }] }),
+    });
+    expect(res.status).toBe(200);
+    const rows = await db.select().from(schema.deskConversations);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get('dconv_esc_open')?.escalationCheckAt).toBeInstanceOf(Date);
+    expect(byId.get('dconv_esc_closed')?.escalationCheckAt).toBeNull();
   });
 });

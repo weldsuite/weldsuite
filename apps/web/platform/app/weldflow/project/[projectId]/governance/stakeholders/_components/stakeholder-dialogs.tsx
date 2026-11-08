@@ -16,7 +16,7 @@ import { useAllTeamMembers } from '@/hooks/queries/use-team-queries';
 import { CrmPersonSelect } from '@/components/objects/person/crm-person-select';
 import { useCreateStakeholder, useDeleteStakeholder, useUpdateStakeholder } from '@/hooks/queries/use-project-reporting-queries';
 import { FormDialog } from '../../_components/parts';
-import { SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
+import { DateField, SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
 import {
   SCORES,
   buildCreateInput,
@@ -149,7 +149,7 @@ function StakeholderForm({ projectId, existing = [], state, onClose }: Readonly<
           <SelectField control={form.control} name="attitude" label={copy.columns.attitude} options={attitudeOptions} />
           <SelectField control={form.control} name="engagement" label={copy.columns.engagement} options={engagementOptions} />
         </div>
-        <TextField control={form.control} name="lastContact" label={copy.columns.lastContact} type="date" />
+        <DateField control={form.control} name="lastContact" label={copy.columns.lastContact} />
         <TextAreaField control={form.control} name="notes" label={copy.form.notes} rows={3} />
       </FormDialog>
     </Form>

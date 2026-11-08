@@ -1,7 +1,7 @@
 /**
  * Legal entities, release 1: the part of the backfill SQL cannot do
  * (docs/plans/legal-entities.md, "Release 1 (expand)"). The SQL migration
- * (tenant 0247) has already copied everything deterministic; this works on
+ * (tenant 0249) has already copied everything deterministic; this works on
  * one tenant database at a time and needs the field-encryption keyring.
  *
  *  1. Employer bank accounts: decrypt `hr_payroll_employers.bank_encrypted`,
@@ -193,7 +193,7 @@ export class ConcurrentChangeError extends Error {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-/** `prefix_` + 24 hex characters derived from `seed`, like the ids the 0247 SQL derives. */
+/** `prefix_` + 24 hex characters derived from `seed`, like the ids the 0249 SQL derives. */
 export function derivedId(prefix: string, seed: string): string {
   return `${prefix}_${createHash('md5').update(seed).digest('hex').slice(0, 24)}`;
 }
@@ -593,7 +593,7 @@ async function planEmployerBanks(ctx: PlanContext): Promise<void> {
         subject,
         message: employer.legalEntityId
           ? `legal entity ${employer.legalEntityId} is deleted or missing; bank account not moved`
-          : 'has no legal entity (did migration 0247 run?); bank account not moved',
+          : 'has no legal entity (did migration 0249 run?); bank account not moved',
       });
       continue;
     }
@@ -960,7 +960,7 @@ async function planWorkspaceSettings(ctx: PlanContext): Promise<string | null> {
   if (live.length > 0) {
     ctx.report.conflicts.push({
       subject: 'workspace settings',
-      message: `${live.length} legal ${live.length === 1 ? 'entity exists' : 'entities exist'} but none is the default (migration 0247 sets one); not merged`,
+      message: `${live.length} legal ${live.length === 1 ? 'entity exists' : 'entities exist'} but none is the default (migration 0249 sets one); not merged`,
     });
     return null;
   }
@@ -1200,8 +1200,8 @@ async function applyOp(db: Database, keyring: EncryptionKeyring, op: Op, report:
 }
 
 /**
- * Whether the tenant has the release 1 schema (tenant migrations 0246 and
- * 0247). Run outside a transaction: a failed probe would abort one.
+ * Whether the tenant has the release 1 schema (tenant migrations 0248 and
+ * 0249). Run outside a transaction: a failed probe would abort one.
  */
 export async function hasLegalEntitySchema(db: Database): Promise<boolean> {
   try {
@@ -1236,7 +1236,7 @@ export async function backfillLegalEntities(
   if (!(await hasLegalEntitySchema(db))) {
     const report = emptyReport(options.execute ? 'execute' : 'dry-run');
     report.status = 'skipped';
-    report.skippedReason = 'the legal entities migrations (tenant 0246 and 0247) have not run here';
+    report.skippedReason = 'the legal entities migrations (tenant 0248 and 0249) have not run here';
     return report;
   }
   if (!options.execute) {

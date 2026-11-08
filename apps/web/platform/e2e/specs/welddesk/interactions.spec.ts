@@ -45,9 +45,9 @@ test.describe('WeldDesk · knowledge base', () => {
   });
 
   test('announcements/new form is reachable', async ({ page }) => {
-    await page.goto('/welddesk/announcements/new');
+    await page.goto('/welddesk/help-center/announcements/new');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(/\/welddesk\/announcements\/new/);
+    await expect(page).toHaveURL(/\/welddesk\/help-center\/announcements\/new/);
   });
 });
 

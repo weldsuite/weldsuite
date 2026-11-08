@@ -4,7 +4,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { MERGE_METHODS, type MergeMethod } from '@weldsuite/app-api-client/schemas/weldmerge-review';
@@ -27,7 +26,7 @@ export function mergeBlockedReason(pr: Pick<MergePullRequestDetailDto, 'state' |
   return null;
 }
 
-/** Merge method, commit text for a squash, and the merge button behind a confirmation. */
+/** Merge method, commit text for a squash, and the merge button behind a confirmation. The caller gives it its heading. */
 export function MergeBox({ pullRequest, merging, onMerge }: Readonly<MergeBoxProps>) {
   const { t } = useI18n();
   const tg = t.weldmerge.reviewing.merge;
@@ -53,7 +52,7 @@ export function MergeBox({ pullRequest, merging, onMerge }: Readonly<MergeBoxPro
   };
 
   return (
-    <SectionCard title={tg.button}>
+    <>
       <div className="space-y-3">
         <div className="space-y-1.5">
           <Label htmlFor="merge-method">{tg.method}</Label>
@@ -112,6 +111,6 @@ export function MergeBox({ pullRequest, merging, onMerge }: Readonly<MergeBoxPro
         loading={merging}
         onConfirm={confirm}
       />
-    </SectionCard>
+    </>
   );
 }

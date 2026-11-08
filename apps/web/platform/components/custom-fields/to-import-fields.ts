@@ -9,7 +9,7 @@
  * everything else stays a string. The `file` type is skipped (not CSV-mappable).
  */
 
-import type { ImportFieldDef } from '@/app/weldcrm/components/import-entities-dialog';
+import type { ImportFieldDef } from '@/components/import/import-entities-dialog';
 import type { CustomFieldDefinition } from '@/lib/api/domains/settings';
 
 function valueTypeFor(fieldType: string): 'string' | 'number' | 'boolean' {

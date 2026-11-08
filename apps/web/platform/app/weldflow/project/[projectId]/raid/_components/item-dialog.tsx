@@ -1,18 +1,27 @@
 /**
- * The create and edit dialog of a RAID item. One shell (header, scrolling body,
- * footer) and one form per kind; every form is React Hook Form with the shared
- * request schemas behind `zodResolver`, and every save goes through
- * `useItemSave`.
+ * The create and edit dialog of a RAID item. One shell (the stock shadcn
+ * dialog header, body and footer) and one form per kind; every form is React
+ * Hook Form with the shared request schemas behind `zodResolver`, and every
+ * save goes through `useItemSave`.
  */
 
 import { useMemo, type ReactNode } from 'react';
-import { useForm, type Control, type FieldPath, type FieldValues, type UseFormReturn } from 'react-hook-form';
+import { Controller, useForm, type Control, type FieldPath, type FieldValues, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { Form, FormField, FormItem, FormMessage } from '@weldsuite/ui/components/form';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { FieldGroup, FieldSeparator } from '@weldsuite/ui/components/field';
+import { Separator } from '@weldsuite/ui/components/separator';
 import {
   ASSUMPTION_CONFIDENCES,
   DEPENDENCY_DIRECTIONS,
@@ -22,6 +31,7 @@ import {
 import type { RaidItem, RaidKind } from '@weldsuite/app-api-client/domains/project-control';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import {
   useCreateControlLink,
   useCreateRaidItem,
@@ -58,8 +68,8 @@ import {
   type RaidFormValues,
   type RiskFormValues,
 } from '../_lib/form';
-import { CheckboxField, NumberField, SelectField, TextAreaField, TextField, type SelectOption } from './form-fields';
-import { RatingPicker, ScoreCard, StrategyPicker } from './rating-controls';
+import { CheckboxField, DateField, NumberField, SelectField, TextAreaField, TextField, type SelectOption } from './form-fields';
+import { RatingField, ScoreField, StrategyPicker } from './rating-controls';
 import { useRaid } from './raid-context';
 
 export type ItemDialogState = { mode: 'create'; kind: RaidKind } | { mode: 'edit'; item: RaidItem };
@@ -77,20 +87,20 @@ function kindOfState(state: ItemDialogState): RaidKind {
 export function ItemDialog({ state, onClose }: Readonly<ItemDialogProps>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
-  const { projectName } = useRaid();
   const kind = state ? kindOfState(state) : null;
+  const code = state?.mode === 'edit' ? state.item.code : null;
 
   return (
     <Dialog open={state !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-2xl">
+      <DialogContent
+        className={cn('max-h-[92vh] overflow-y-auto', kind === 'risk' ? 'sm:max-w-4xl' : 'sm:max-w-2xl')}
+        {...(code ? {} : { 'aria-describedby': undefined })}
+      >
         {state && kind ? (
           <>
-            <DialogHeader className="border-b px-6 pt-6 pb-4 text-left">
+            <DialogHeader>
               <DialogTitle>{state.mode === 'create' ? copy.form.createTitle[kind] : copy.form.editTitle[kind]}</DialogTitle>
-              <DialogDescription>
-                {state.mode === 'edit' ? `${state.item.code} · ` : ''}
-                {projectName}
-              </DialogDescription>
+              {code ? <DialogDescription>{code}</DialogDescription> : null}
             </DialogHeader>
             <ItemForm key={state.mode === 'edit' ? state.item.id : `new-${kind}`} state={state} onClose={onClose} />
           </>
@@ -206,31 +216,30 @@ function useDefaultOwner(): string | null {
 interface FormShellProps<T extends FieldValues> {
   form: UseFormReturn<T>;
   onSubmit: (values: T) => void | Promise<void>;
-  onClose: () => void;
   pending: boolean;
   submitLabel: string;
   children: ReactNode;
 }
 
-/** The form element with a scrolling body and a footer with Cancel and the submit button. */
-function FormShell<T extends FieldValues>({ form, onSubmit, onClose, pending, submitLabel, children }: Readonly<FormShellProps<T>>) {
+/** The form element: the fields in a `FieldGroup`, then the dialog footer with Cancel and the submit button. */
+function FormShell<T extends FieldValues>({ form, onSubmit, pending, submitLabel, children }: Readonly<FormShellProps<T>>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
   return (
-    <Form {...form}>
-      <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">{children}</div>
-        <div className="flex justify-end gap-2 border-t px-6 py-3.5">
-          <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+    <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="grid gap-8">
+      <FieldGroup>{children}</FieldGroup>
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline" disabled={pending}>
             {t.common.actions.cancel}
           </Button>
-          <Button type="submit" disabled={pending}>
-            {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
-            {pending ? copy.form.saving : submitLabel}
-          </Button>
-        </div>
-      </form>
-    </Form>
+        </DialogClose>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
+          {pending ? copy.form.saving : submitLabel}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
@@ -239,7 +248,11 @@ function useMemberOptions(): SelectOption[] {
   return members.map((member) => ({ value: member.userId, label: member.name }));
 }
 
-function StatusField<T extends FieldValues>({ control, kind }: Readonly<{ control: Control<T>; kind: RaidKind }>) {
+function StatusField<T extends FieldValues>({
+  control,
+  kind,
+  inline,
+}: Readonly<{ control: Control<T>; kind: RaidKind; inline?: boolean }>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
   const labels = copy.status[kind] as Record<string, string>;
@@ -249,6 +262,7 @@ function StatusField<T extends FieldValues>({ control, kind }: Readonly<{ contro
       name={'status' as FieldPath<T>}
       label={copy.form.status}
       options={statusesOf(kind).map((status) => ({ value: status, label: labels[status] ?? status }))}
+      inline={inline}
     />
   );
 }
@@ -278,89 +292,62 @@ function RiskForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onClose: 
   });
 
   return (
-    <FormShell form={form} onSubmit={save} onClose={onClose} pending={pending} submitLabel={submitLabel}>
-      <TextField control={form.control} name="title" label={copy.form.title} placeholder={copy.form.titlePlaceholder.risk} autoFocus />
-      <TextAreaField control={form.control} name="description" label={copy.form.description.risk} />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <SelectField
-          control={form.control}
-          name="category"
-          label={copy.form.category}
-          noneLabel={copy.form.noCategory}
-          options={categoryOptions}
-        />
-        <SelectField control={form.control} name="ownerId" label={copy.form.owner} noneLabel={copy.form.noOwner} options={members} />
-      </div>
-
-      {edit ? (
-        <p className="text-xs text-muted-foreground">{copy.form.ratingHint}</p>
-      ) : (
-        <>
-          <FormField
+    <FormShell form={form} onSubmit={save} pending={pending} submitLabel={submitLabel}>
+      <div className="grid gap-7 md:grid-cols-[minmax(0,1fr)_auto_22rem]">
+        <FieldGroup>
+          <TextField control={form.control} name="title" label={copy.form.title} placeholder={copy.form.titlePlaceholder.risk} autoFocus />
+          <TextAreaField control={form.control} name="description" label={copy.form.description.risk} rows={4} />
+          <TextAreaField control={form.control} name="trigger" label={copy.form.trigger} placeholder={copy.form.triggerPlaceholder} rows={3} />
+          <Controller
             control={form.control}
-            name="probability"
-            render={({ field, fieldState }) => (
-              <RatingPicker
-                label={copy.form.probability}
-                kind="probability"
-                value={field.value}
-                onChange={field.onChange}
-                error={fieldState.error?.message}
+            name="strategy"
+            render={({ field }) => <StrategyPicker value={field.value} onChange={field.onChange} />}
+          />
+          {!edit && abilities.createTasks ? <CheckboxField control={form.control} name="createTask" label={copy.form.alsoCreateTask} /> : null}
+        </FieldGroup>
+
+        <Separator orientation="vertical" className="hidden md:block" />
+
+        <FieldGroup>
+          <FieldGroup>
+            {edit ? (
+              <ScoreField probability={edit.probability} impact={edit.impact} hint={copy.form.ratingHint} />
+            ) : (
+              <>
+                <RatingField control={form.control} name="probability" label={copy.form.probability} kind="probability" />
+                <RatingField control={form.control} name="impact" label={copy.form.impact} kind="impact" />
+                <ScoreField probability={probability} impact={impact} />
+              </>
+            )}
+            <SelectField control={form.control} name="ownerId" label={copy.form.owner} noneLabel={copy.form.noOwner} options={members} inline />
+            <SelectField
+              control={form.control}
+              name="category"
+              label={copy.form.category}
+              noneLabel={copy.form.noCategory}
+              options={categoryOptions}
+              inline
+            />
+            <DateField control={form.control} name="dueDate" label={copy.form.dueDate.risk} description={edit ? undefined : reviewHint} inline />
+            {edit ? <StatusField control={form.control} kind="risk" inline /> : null}
+          </FieldGroup>
+          <FieldSeparator>{copy.form.ifItHappens}</FieldSeparator>
+          <FieldGroup>
+            <NumberField control={form.control} name="scheduleImpactDays" label={copy.form.delayDays} step={1} inline />
+            <NumberField control={form.control} name="costImpact" label={copy.form.cost} step="any" inline />
+            {edit ? null : (
+              <SelectField
+                control={form.control}
+                name="milestoneId"
+                label={copy.form.milestone}
+                noneLabel={copy.form.noMilestone}
+                options={(milestones.data ?? []).map((milestone) => ({ value: milestone.id, label: milestone.name }))}
+                inline
               />
             )}
-          />
-          <FormField
-            control={form.control}
-            name="impact"
-            render={({ field, fieldState }) => (
-              <RatingPicker
-                label={copy.form.impact}
-                kind="impact"
-                value={field.value}
-                onChange={field.onChange}
-                error={fieldState.error?.message}
-              />
-            )}
-          />
-          <ScoreCard probability={probability} impact={impact} />
-        </>
-      )}
-
-      <FormField
-        control={form.control}
-        name="strategy"
-        render={({ field }) => (
-          <FormItem>
-            <StrategyPicker value={field.value} onChange={field.onChange} />
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-
-      <TextAreaField control={form.control} name="trigger" label={copy.form.trigger} placeholder={copy.form.triggerPlaceholder} rows={2} />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField control={form.control} name="scheduleImpactDays" label={copy.form.scheduleImpactDays} step={1} />
-        <NumberField control={form.control} name="costImpact" label={copy.form.costImpact} step="any" />
+          </FieldGroup>
+        </FieldGroup>
       </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <TextField control={form.control} name="dueDate" type="date" label={copy.form.dueDate.risk} description={edit ? undefined : reviewHint} />
-        {edit ? (
-          <StatusField control={form.control} kind="risk" />
-        ) : (
-          <SelectField
-            control={form.control}
-            name="milestoneId"
-            label={copy.form.threatensMilestone}
-            noneLabel={copy.form.noMilestone}
-            options={(milestones.data ?? []).map((milestone) => ({ value: milestone.id, label: milestone.name }))}
-          />
-        )}
-      </div>
-
-      {!edit && abilities.createTasks ? <CheckboxField control={form.control} name="createTask" label={copy.form.alsoCreateTask} /> : null}
     </FormShell>
   );
 }
@@ -381,7 +368,7 @@ function AssumptionForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onC
   });
 
   return (
-    <FormShell form={form} onSubmit={save} onClose={onClose} pending={pending} submitLabel={submitLabel}>
+    <FormShell form={form} onSubmit={save} pending={pending} submitLabel={submitLabel}>
       <TextField control={form.control} name="title" label={copy.form.title} placeholder={copy.form.titlePlaceholder.assumption} autoFocus />
       <TextAreaField control={form.control} name="description" label={copy.form.description.assumption} />
       <TextAreaField control={form.control} name="ifWrong" label={copy.form.ifWrong} placeholder={copy.form.ifWrongPlaceholder} rows={2} />
@@ -395,7 +382,7 @@ function AssumptionForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onC
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField control={form.control} name="dueDate" type="date" label={copy.form.dueDate.assumption} />
+        <DateField control={form.control} name="dueDate" label={copy.form.dueDate.assumption} />
         {edit ? <StatusField control={form.control} kind="assumption" /> : null}
       </div>
     </FormShell>
@@ -418,7 +405,7 @@ function IssueForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onClose:
   });
 
   return (
-    <FormShell form={form} onSubmit={save} onClose={onClose} pending={pending} submitLabel={submitLabel}>
+    <FormShell form={form} onSubmit={save} pending={pending} submitLabel={submitLabel}>
       <TextField control={form.control} name="title" label={copy.form.title} placeholder={copy.form.titlePlaceholder.issue} autoFocus />
       <TextAreaField control={form.control} name="description" label={copy.form.description.issue} />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -431,7 +418,7 @@ function IssueForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onClose:
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField control={form.control} name="dueDate" type="date" label={copy.form.dueDate.issue} />
+        <DateField control={form.control} name="dueDate" label={copy.form.dueDate.issue} />
         {edit ? <StatusField control={form.control} kind="issue" /> : null}
       </div>
       <CheckboxField control={form.control} name="escalated" label={copy.form.escalated} />
@@ -461,7 +448,7 @@ function DependencyForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onC
     .map((project) => ({ value: project.id, label: project.name }));
 
   return (
-    <FormShell form={form} onSubmit={save} onClose={onClose} pending={pending} submitLabel={submitLabel}>
+    <FormShell form={form} onSubmit={save} pending={pending} submitLabel={submitLabel}>
       <TextField control={form.control} name="title" label={copy.form.title} placeholder={copy.form.titlePlaceholder.dependency} autoFocus />
       <TextAreaField control={form.control} name="description" label={copy.form.description.dependency} />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -494,7 +481,7 @@ function DependencyForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onC
         )}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField control={form.control} name="dueDate" type="date" label={copy.form.dueDate.dependency} />
+        <DateField control={form.control} name="dueDate" label={copy.form.dueDate.dependency} />
         {edit ? <StatusField control={form.control} kind="dependency" /> : null}
       </div>
     </FormShell>

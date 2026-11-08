@@ -19,6 +19,8 @@ import {
   type CustomObjectRecord,
 } from '@/hooks/queries/use-custom-objects-queries';
 import { RecordFormDialog } from './record-form-dialog';
+import { ObjectImportDialog } from './object-import-dialog';
+import { usePermissions } from '@weldsuite/permissions/react';
 
 /** Records fetched per page. */
 const PAGE_SIZE = 50;
@@ -83,6 +85,9 @@ export default function CustomObjectListPage() {
   const deleteRecord = useDeleteCustomObjectRecord(slug);
 
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const { can } = usePermissions();
+  const canImport = can(`weldobjects:${slug}:create`);
 
   const records = loadedPages;
   const totalCount = result?.pagination.totalCount ?? 0;
@@ -223,6 +228,7 @@ export default function CustomObjectListPage() {
               },
               onRowClick: (record) => router.push(`/objects/${slug}/${record.id}`),
               onCreateEntity: () => setCreateOpen(true),
+              onImport: canImport ? () => setImportOpen(true) : undefined,
             }}
             entities={records}
             searchParams={{ search }}
@@ -246,6 +252,13 @@ export default function CustomObjectListPage() {
           />
         </div>
       )}
+
+      <ObjectImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        object={object}
+        fields={fieldDefs ?? []}
+      />
 
       <RecordFormDialog
         open={createOpen}

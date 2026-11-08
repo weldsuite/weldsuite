@@ -236,6 +236,7 @@ export const navigation = {
           inbox: 'Inbox',
           channels: 'Channels',
           knowledge: 'Knowledge',
+          reports: 'Reports',
         },
         inbox: 'Inbox',
         allOpen: 'All open',
@@ -247,6 +248,8 @@ export const navigation = {
         helpCenter: 'Help Center',
         articles: 'Articles',
         savedReplies: 'Saved replies',
+        reportsOverview: 'Overview',
+        customReports: 'Custom reports',
         settings: 'WeldDesk settings',
       },
       weldmeet: {

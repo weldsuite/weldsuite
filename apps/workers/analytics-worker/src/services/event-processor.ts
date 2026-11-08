@@ -57,9 +57,17 @@ interface StringField {
 interface NumericField {
   target: keyof AnalyticsRecord;
   boolean?: true;
+  /** 1 when `data[field ?? 'status']` is one of these, else 0. */
   statusCheck?: string[];
   exists?: true;
   field?: string;
+  /**
+   * Only on the event that recorded the measure: both fields set and equal
+   * (e.g. the first response time when `firstResponseAt` is the append's own
+   * `updatedAt`). Later events carry the same after-state, and writing
+   * the measure on each would weigh a busy conversation more in an average.
+   */
+  whenEqual?: [string, string];
 }
 
 interface EntityConfig {
@@ -70,6 +78,40 @@ interface EntityConfig {
 }
 
 const ENTITY_CONFIG: Record<string, EntityConfig> = {
+  // WeldDesk's live inbox: the conversation is the ticket (ADR DESK-007).
+  // The stream's columns are fixed (analytics-schema.json; a stream can't be
+  // changed after creation), so the team rides in `stage` and the SLA status
+  // in `sub_status`. Reports in the platform read the tenant DB (ADR
+  // DESK-011); these rows are for trends across modules and history.
+  desk_conversation: {
+    module: 'helpdesk',
+    entityType: 'desk_conversation',
+    strings: [
+      { source: 'state', target: 'status' },
+      { source: 'priority', target: 'priority' },
+      { source: 'channel', target: 'channel' },
+      { source: 'ticketTypeId', target: 'category' },
+      { source: 'assigneeId', target: 'assignee_id' },
+      { source: 'departmentId', target: 'stage' },
+      { source: 'slaStatus', target: 'sub_status' },
+    ],
+    numerics: [
+      { target: 'is_completed', field: 'state', statusCheck: ['closed'] },
+      { target: 'is_escalated', field: 'slaStatus', statusCheck: ['breached'] },
+      { target: 'score', field: 'rating' },
+      { target: 'response_time_seconds', field: 'firstResponseSeconds', whenEqual: ['firstResponseAt', 'updatedAt'] },
+      { target: 'resolution_time_seconds', field: 'resolutionSeconds', whenEqual: ['resolvedAt', 'updatedAt'] },
+    ],
+  },
+  desk_message: {
+    module: 'helpdesk',
+    entityType: 'desk_message',
+    strings: [
+      { source: 'kind', target: 'status' },
+      { source: 'authorType', target: 'category' },
+    ],
+    numerics: [],
+  },
   helpdesk_ticket: {
     module: 'helpdesk',
     entityType: 'ticket',
@@ -277,7 +319,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
 // ---------------------------------------------------------------------------
 
 function deriveModule(entityType: string): string {
-  if (entityType.startsWith('helpdesk_')) return 'helpdesk';
+  if (entityType.startsWith('helpdesk_') || entityType.startsWith('desk_')) return 'helpdesk';
   if (entityType.startsWith('project_')) return 'projects';
   if (entityType === 'lead' || entityType === 'opportunity' || entityType === 'activity') return 'crm';
   if (entityType.startsWith('crm_')) return 'crm';
@@ -324,10 +366,15 @@ function applyNumericField(
 ): void {
   const value = data[field.field ?? field.target];
 
+  if (field.whenEqual) {
+    const [a, b] = field.whenEqual;
+    if (data[a] == null || data[b] == null || asText(data[a]) !== asText(data[b])) return;
+  }
+
   if (field.boolean) {
     out[field.target] = value ? 1 : 0;
   } else if (field.statusCheck) {
-    const status = asText(data['status'] ?? '').toLowerCase();
+    const status = asText(data[field.field ?? 'status'] ?? '').toLowerCase();
     out[field.target] = field.statusCheck.includes(status) ? 1 : 0;
   } else if (field.exists) {
     out[field.target] = value != null ? 1 : 0;

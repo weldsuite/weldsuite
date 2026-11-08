@@ -168,14 +168,16 @@ export async function publishNewConversation(
  * Uses Clerk org id as the WorkspaceHub key (same as app-api).
  */
 /**
- * A desk timeline event the worker wrote (auto-assignment): agents' inboxes
- * refresh the thread and its owner, and the hub queue sees `assigned`.
+ * A desk timeline event the worker wrote (auto-assignment, a routing rule):
+ * agents' inboxes refresh the thread and its owner, and the hub queue sees
+ * `assigned` (or `updated` for a rule's ticket-field change).
  */
 export async function publishDeskAssigned(
   env: Env,
   clerkOrgId: string,
   conversation: { id: string; assigneeId: string | null; [key: string]: unknown },
   message: { id: string; [key: string]: unknown },
+  action: 'assigned' | 'updated' = 'assigned',
 ): Promise<void> {
   const rt = getPublisher(env);
   await Promise.all([
@@ -186,13 +188,19 @@ export async function publishDeskAssigned(
       workspaceId: clerkOrgId,
       userId: 'system',
       entityType: 'desk_conversation',
-      action: 'assigned',
+      action,
       entityId: conversation.id,
       data: conversation,
     }),
   ]);
 }
 
+/**
+ * A customer email on the desk: the inbox live, the conversation room, and the
+ * hub queue (`desk_conversation created` for a new conversation,
+ * `desk_message created` for the email), so WeldConnect workflows triggered by
+ * email conversations run.
+ */
 export async function publishDeskInbound(
   env: Env,
   clerkOrgId: string,
@@ -206,6 +214,30 @@ export async function publishDeskInbound(
 ): Promise<void> {
   const rt = getPublisher(env);
   const { conversation, message, created, preview, senderName } = params;
+  await Promise.all([
+    ...(created
+      ? [
+          publishEntityEventRaw({
+            env,
+            workspaceId: clerkOrgId,
+            userId: 'system',
+            entityType: 'desk_conversation',
+            action: 'created',
+            entityId: conversation.id,
+            data: conversation,
+          }),
+        ]
+      : []),
+    publishEntityEventRaw({
+      env,
+      workspaceId: clerkOrgId,
+      userId: 'system',
+      entityType: 'desk_message',
+      action: 'created',
+      entityId: message.id,
+      data: message as Record<string, unknown>,
+    }),
+  ]);
   await rt.publish(
     clerkOrgId,
     'desk_conversation',

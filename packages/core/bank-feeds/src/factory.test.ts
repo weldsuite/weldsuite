@@ -68,6 +68,15 @@ describe('bankFeedConfigFromEnv / createBankFeedProvider', () => {
     expect(bankFeedConfigFromEnv({ ...ENV, PLAID_ENV: undefined as unknown as string }).plaid?.env).toBe('sandbox');
   });
 
+  it('gives Ponto its signature certificate only when both its id and key are set', () => {
+    expect(bankFeedConfigFromEnv(ENV).ponto?.signature).toBeUndefined();
+    expect(bankFeedConfigFromEnv({ ...ENV, PONTO_SIGNATURE_CERT_ID: 'cert-1' }).ponto?.signature).toBeUndefined();
+    expect(bankFeedConfigFromEnv({ ...ENV, PONTO_SIGNATURE_CERT_ID: 'cert-1', PONTO_SIGNATURE_KEY: 'pem' }).ponto?.signature).toEqual({
+      certificateId: 'cert-1',
+      privateKey: 'pem',
+    });
+  });
+
   it('creates a provider by id (url segments accepted) and refuses unknown or unconfigured ones', () => {
     const config = bankFeedConfigFromEnv(ENV);
     expect(createBankFeedProvider('stripe-fc', config).id).toBe('stripe_fc');
