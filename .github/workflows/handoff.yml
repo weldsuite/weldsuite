@@ -50,7 +50,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+        # The REST dispatch with an explicit ref: `gh workflow run` looks up the
+        # repo's default branch over GraphQL first, which the App (Actions only)
+        # may not read.
         run: |
           set -euo pipefail
-          gh workflow run deploy-test.yml --repo weldsuite/weldsuite-deploy -f sha="$SHA" > /dev/null
+          gh api -X POST repos/weldsuite/weldsuite-deploy/actions/workflows/deploy-test.yml/dispatches \
+            -f ref=main -f "inputs[sha]=$SHA" > /dev/null
           echo "Handed $SHA to the test deploy."
