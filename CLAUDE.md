@@ -469,6 +469,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 | `i18n-check.yml` | PR touching locales | yes |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
 | `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
+| `handoff.yml` | CI passed on a push to `develop` → starts the private `deploy-test` (ADR OPS-018 phase 2); off until the variable `DEPLOYS_PRIVATE` is `true` | n/a |
 | `release-desktop.yml` | manual | n/a |
 
 `deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
