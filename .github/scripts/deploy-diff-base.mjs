@@ -10,20 +10,21 @@
  * commit being deployed.
  *
  * Env:
- *   SOURCES   JSON array of run histories to try, in order. Each one:
+ *   SOURCES   JSON array of deploy histories to try, in order. Two kinds:
  *               { "repo": "owner/name", "workflow": "deploy.yml",
- *                 "branch"?: "develop", "event"?: "push",
- *                 "sha"?: "head" | "title", "exclude"?: "(plan only)" }
- *             `sha: "head"` (default) takes the run's head commit, for runs
- *             of this repo. `sha: "title"` takes the first 40-character sha
- *             in the run's title, for the private deploy repo, whose runs
- *             name the public commit they deployed (`run-name`). Runs whose
- *             title contains `exclude` are skipped.
- *             The newest successful run of the first source whose commit is
- *             an ancestor of HEAD wins.
+ *                 "branch"?: "develop", "event"?: "push" }
+ *                 the head commit of the newest successful run of a
+ *                 workflow in this repo (deploy.yml);
+ *               { "repo": "owner/name", "environment": "test",
+ *                 "task": "deploy:weldsuite" }
+ *                 the newest deployment record with that task whose latest
+ *                 status is `success`, with the deployed commit in
+ *                 `payload.sha`: what the private deploy repo records after
+ *                 each deploy (docs/plans/main-only-private-deploys.md).
+ *             The first source whose commit is an ancestor of HEAD wins.
  *   BEFORE    fallback when no source has one (the push's `before`); a zero
  *             sha counts as missing
- *   GH_TOKEN  a token that can list those runs (actions: read)
+ *   GH_TOKEN  a token that can read those runs or deployments
  *
  * Writes `base=<sha or empty>` to GITHUB_OUTPUT. Empty means "no usable base":
  * the change detection then deploys everything it cannot rule out.
@@ -32,11 +33,12 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
-const SHA_RE = /\b[0-9a-f]{40}\b/;
-const TITLE_SCAN = 30;
+const FULL_SHA = /^[0-9a-f]{40}$/;
+const RECORD_SCAN = 30;
 
-function run(cmd, args) {
-  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+function ghJson(args) {
+  const out = execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return out ? JSON.parse(out) : null;
 }
 
 function isAncestor(sha) {
@@ -48,28 +50,39 @@ function isAncestor(sha) {
   }
 }
 
-/** The commit the newest successful run of `source` deployed, or "". */
-function lastDeployed(source) {
-  const mode = source.sha ?? 'head';
+/** Head commit of the newest successful run (the old `--limit 1` lookup). */
+function fromRuns(source) {
   const args = ['run', 'list', '--repo', source.repo, '--workflow', source.workflow, '--status', 'success'];
   if (source.branch) args.push('--branch', source.branch);
   if (source.event) args.push('--event', source.event);
-  // Head mode keeps the old `--limit 1`: only the newest success counts.
-  args.push('--limit', mode === 'head' ? '1' : String(TITLE_SCAN), '--json', 'headSha,displayTitle');
-  let runs;
-  try {
-    runs = JSON.parse(run('gh', args) || '[]');
-  } catch (err) {
-    console.log(`Could not list runs of ${source.repo} ${source.workflow}: ${err.stderr || err.message}`);
-    return '';
-  }
-  for (const r of runs) {
-    if (mode === 'head') return r.headSha ?? '';
-    if (source.exclude && (r.displayTitle ?? '').includes(source.exclude)) continue;
-    const match = (r.displayTitle ?? '').match(SHA_RE);
-    if (match) return match[0];
+  args.push('--limit', '1', '--json', 'headSha');
+  return ghJson(args)?.[0]?.headSha ?? '';
+}
+
+/** Commit of the newest deployment record whose latest status is success. */
+function fromDeployments(source) {
+  const query = new URLSearchParams({
+    environment: source.environment,
+    task: source.task,
+    per_page: String(RECORD_SCAN),
+  });
+  const deployments = ghJson(['api', `repos/${source.repo}/deployments?${query}`]) ?? [];
+  for (const d of deployments) {
+    const [latest] = ghJson(['api', `repos/${source.repo}/deployments/${d.id}/statuses?per_page=1`]) ?? [];
+    if (latest?.state !== 'success') continue;
+    const payload = typeof d.payload === 'string' ? JSON.parse(d.payload || '{}') : (d.payload ?? {});
+    if (FULL_SHA.test(payload.sha ?? '')) return payload.sha;
   }
   return '';
+}
+
+function lastDeployed(source) {
+  try {
+    return source.workflow ? fromRuns(source) : fromDeployments(source);
+  } catch (err) {
+    console.log(`Could not read the deploy history of ${source.repo}: ${err.stderr || err.message}`);
+    return '';
+  }
 }
 
 const sources = JSON.parse(process.env.SOURCES || '[]');
@@ -79,7 +92,9 @@ let base = '';
 const tried = [];
 for (const source of sources) {
   const last = lastDeployed(source);
-  const label = `${source.repo} ${source.workflow}${source.branch ? ` (${source.branch})` : ''}`;
+  const label = source.workflow
+    ? `${source.repo} ${source.workflow}${source.branch ? ` (${source.branch})` : ''}`
+    : `${source.repo} deployments (${source.environment})`;
   if (last && isAncestor(last)) {
     base = last;
     tried.push(`${label}: ${last}`);
@@ -89,6 +104,8 @@ for (const source of sources) {
 }
 if (!base && before && !/^0+$/.test(before)) base = before;
 
-console.log(`Diff base: ${base || '<none>'} (last successful deploy: ${tried.join('; ') || 'no sources'}; push before: ${before || 'none'})`);
+console.log(
+  `Diff base: ${base || '<none>'} (last successful deploy: ${tried.join('; ') || 'no sources'}; push before: ${before || 'none'})`,
+);
 
 if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `base=${base}\n`);

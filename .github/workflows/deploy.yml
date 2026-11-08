@@ -145,7 +145,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SOURCES: >-
             [{"repo": "${{ github.repository }}", "workflow": "deploy.yml",
-              "branch": "${{ github.ref_name }}", "event": "push", "sha": "head"}]
+              "branch": "${{ github.ref_name }}", "event": "push"}]
         run: node .github/scripts/deploy-diff-base.mjs
 
       - name: Plan the deploy
