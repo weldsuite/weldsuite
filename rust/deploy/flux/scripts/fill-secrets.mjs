@@ -9,6 +9,7 @@
 //   FILES_S3_ACCESS_KEY_ID, FILES_S3_SECRET_ACCESS_KEY    the files bucket
 //   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY  the backup bucket
 //   ZITADEL_SERVICE_TOKEN                                 the weldsuite service user's PAT
+//   ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET        the admin console's Zitadel app
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
 //
@@ -63,6 +64,8 @@ const PROVIDED = {
   'postgres-backup-s3/ACCESS_KEY_ID': 'BACKUP_S3_ACCESS_KEY_ID',
   'postgres-backup-s3/ACCESS_SECRET_KEY': 'BACKUP_S3_SECRET_ACCESS_KEY',
   'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
+  'weldsuite-env/ADMIN_OIDC_CLIENT_ID': 'ADMIN_OIDC_CLIENT_ID',
+  'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET': 'ADMIN_OIDC_CLIENT_SECRET',
 };
 
 function bareValue(secret, key) {

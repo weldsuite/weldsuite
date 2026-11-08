@@ -4,6 +4,7 @@ name: Rust images
 # branch, should one exist):
 #   ghcr.io/weldsuite/weldsuite:sha-<12 characters of the commit>
 #   ghcr.io/weldsuite/weldsuite-sign-portal:sha-<same>
+#   ghcr.io/weldsuite/weldsuite-admin:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-collab-rooms:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-haraka:sha-<same>  (WeldMail's MX, rust/deploy/haraka)
 # A push to develop also moves the tag `develop` on the images to that build,
@@ -34,6 +35,7 @@ on:
       - 'rust/deploy/haraka/**'
       - 'apps/web/platform/**'
       - 'apps/web/sign-portal/**'
+      - 'apps/web/admin/**'
       - 'packages/**'
       - 'patches/**'
       - 'package.json'
@@ -89,6 +91,18 @@ jobs:
           tags: ghcr.io/weldsuite/weldsuite-sign-portal:${{ steps.tag.outputs.tag }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rust-image
+      # The staff admin console (ADR FE-018), which the EU values turn on (admin).
+      - name: Build the admin console's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: admin
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/weldsuite/weldsuite-admin:${{ steps.tag.outputs.tag }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rust-image
       # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md), which the
       # EU values turn on (collabRooms).
       - name: Build the collab-rooms image
@@ -129,7 +143,7 @@ jobs:
           MOVE_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
           for image in "${images[@]}"; do
             docker push "$image:$TAG"
             if [ "$MOVE_DEVELOP" = "true" ]; then

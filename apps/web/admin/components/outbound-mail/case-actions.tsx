@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -41,7 +40,6 @@ export function CaseActions({
   hasSnippet,
   canWrite,
 }: Readonly<{ caseId: string; status: OutboundCaseStatus; hasSnippet: boolean; canWrite: boolean }>) {
-  const router = useRouter();
   const [snippet, setSnippet] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const [dialog, setDialog] = useState<Review | null>(null);
@@ -120,11 +118,7 @@ export function CaseActions({
           submitLabel={REVIEW_COPY[dialog].submit}
           destructive={dialog === 'confirmed'}
           onClose={() => setDialog(null)}
-          onSubmit={async (notes) => {
-            const result = await reviewOutboundCase(caseId, { status: dialog, notes });
-            if (result.ok) router.refresh();
-            return result;
-          }}
+          onSubmit={(notes) => reviewOutboundCase(caseId, { status: dialog, notes })}
           successMessage={REVIEW_COPY[dialog].success}
         />
       )}

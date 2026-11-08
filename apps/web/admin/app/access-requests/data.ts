@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { requireAdmin } from '@/lib/auth';
 import { isAccessStatus, type AppAccessStatus } from '@/lib/app-access';

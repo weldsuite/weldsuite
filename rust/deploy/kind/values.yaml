@@ -67,6 +67,15 @@ signPortal:
     tag: dev
     pullPolicy: Never
   replicaCount: 1
+# The admin console, the image's `admin` target, without its sign-in keys:
+# the smoke test checks it stays closed.
+admin:
+  enabled: true
+  image:
+    repository: weldsuite-admin
+    tag: dev
+    pullPolicy: Never
+  publicUrl: http://127.0.0.1:18082
 # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md).
 collabRooms:
   enabled: true

@@ -100,6 +100,10 @@ const ACTION_KEYS: Record<string, keyof AdminCopy['activity']['actions']> = {
   'plan.sync': 'planSync',
   'workspace.deletion_schedule': 'deletionSchedule',
   'workspace.deletion_cancel': 'deletionCancel',
+  'staff.add': 'staffAdd',
+  'staff.remove': 'staffRemove',
+  'flag.set': 'flagSet',
+  'flag.clear': 'flagClear',
 };
 
 export function actionLabel(t: AdminCopy, action: string): string {

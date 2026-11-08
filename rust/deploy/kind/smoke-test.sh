@@ -4,13 +4,15 @@
 # Valkey and NATS, and check the full request pipeline with a signed session
 # token: auth → workspace → tenant DB → licence → flags → permission →
 # envelope, a job run through Restate, the platform SPA from the image on the
-# same origin, the sign portal's container calling the server, then the same
+# same origin, the sign portal's container calling the server, the admin
+# console's container closed until its sign-in is configured, then the same
 # with OIDC sign-in against a stand-in issuer, inbound mail over SMTP through
 # Haraka into the tenant database (MAIL-010), and (with a reachable Zitadel,
 # SMOKE_ZITADEL_*) sign-up and the first workspace's provisioning.
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target admin -t weldsuite-admin:dev .
 #   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 #   docker build -t weldsuite-haraka:dev rust/deploy/haraka
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
@@ -23,6 +25,7 @@ chart="$here/../helm/weldsuite"
 cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
 portal_image="${PORTAL_IMAGE:-weldsuite-sign-portal:dev}"
+admin_image="${ADMIN_IMAGE:-weldsuite-admin:dev}"
 haraka_image="${HARAKA_IMAGE:-weldsuite-haraka:dev}"
 rooms_image="${ROOMS_IMAGE:-weldsuite-collab-rooms:dev}"
 work="$(mktemp -d)"
@@ -39,7 +42,7 @@ if ! kind get clusters | grep -qx "$cluster"; then
   kind create cluster --name "$cluster" --wait 120s
 fi
 kubectl config use-context "kind-$cluster" >/dev/null
-kind load docker-image "$image" "$portal_image" "$haraka_image" "$rooms_image" --name "$cluster"
+kind load docker-image "$image" "$portal_image" "$admin_image" "$haraka_image" "$rooms_image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
@@ -77,6 +80,8 @@ helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
   --set signPortal.image.repository="${portal_image%:*}" \
   --set-string signPortal.image.tag="${portal_image##*:}" \
+  --set admin.image.repository="${admin_image%:*}" \
+  --set-string admin.image.tag="${admin_image##*:}" \
   --set mailInbound.haraka.image.repository="${haraka_image%:*}" \
   --set-string mailInbound.haraka.image.tag="${haraka_image##*:}" \
   --set collabRooms.image.repository="${rooms_image%:*}" \
@@ -227,6 +232,27 @@ contains '<html'
 header x-frame-options DENY
 check POST /api/session 404 "" '{"token":"smoke-unknown-link-token-0001"}'
 contains '"NOT_FOUND"'
+base=http://127.0.0.1:18080
+
+# ── The admin console (ADR FE-018) ──────────────────────────────────────────
+# Its Node container, without its sign-in keys (ADMIN_OIDC_*,
+# ADMIN_SESSION_SECRET): every page sends people to /auth/sign-in, which says
+# what is missing and lets nobody in.
+kubectl rollout status deployment/weldsuite-admin --timeout=120s
+kubectl port-forward service/weldsuite-admin 18082:80 >/dev/null 2>&1 &
+forwards+=($!)
+for _ in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:18082/healthz >/dev/null 2>&1 && break
+  sleep 1
+done
+base=http://127.0.0.1:18082
+check GET /healthz 200
+check GET /workspaces 307
+header location '/auth/sign-in?redirect_url=%2Fworkspaces'
+check GET /ai-costs 307
+check GET /auth/sign-in 503
+contains 'ADMIN_OIDC_CLIENT_ID is not set'
+check POST /auth/sign-out 403
 base=http://127.0.0.1:18080
 
 # ── WeldDocs' rooms (rust/docs/collab-rooms.md) ─────────────────────────────

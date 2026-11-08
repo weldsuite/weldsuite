@@ -14,6 +14,22 @@ export const admin = {
     databases: 'Databases',
     databasesGroup: 'Infrastructure',
     databasesOverview: 'Overview',
+    staff: 'Staff',
+    staffGroup: 'Access',
+    staffList: 'Staff list',
+    flags: 'Feature flags',
+    flagsGroup: 'Rollout',
+    flagsList: 'All flags',
+  },
+
+  signIn: {
+    title: 'Sign in to WeldSuite Admin',
+    description: "Use your staff account at this install's identity provider. Only people on its staff list get in.",
+    button: 'Sign in',
+    failed: "Signing in didn't work. Try again; if it keeps failing, the console's log says why.",
+    signedOut: 'You are signed out.',
+    notOnRoster:
+      "Your account isn't on this install's staff list. Ask a superadmin to add you with weldsuite admin staff add.",
   },
 
   common: {
@@ -312,6 +328,10 @@ export const admin = {
       planSync: 'Synced a plan to Stripe',
       deletionSchedule: 'Scheduled deletion',
       deletionCancel: 'Cancelled deletion',
+      staffAdd: 'Added or changed staff',
+      staffRemove: 'Removed staff',
+      flagSet: 'Set a feature flag',
+      flagClear: 'Cleared a feature flag',
     },
   },
 
@@ -398,10 +418,106 @@ export const admin = {
         'Creates the product and prices in Stripe if they are missing, and replaces prices that no longer match the plan.',
       synced: 'Synced to Stripe',
     },
+    noStripe:
+      'This install has no Stripe: a plan is its row here, which the platform and the pricing pages read. Nobody is charged for it.',
+    errors: {
+      slugTaken: 'A plan with the slug "{slug}" already exists.',
+      notFound: 'Plan not found.',
+      noStripe: 'This install has no Stripe to sync with.',
+    },
     history: 'History',
   },
 
   // Where workspace databases live, and moving them (task 1150). Placeholders
+  // The staff list of a Kubernetes install (admin_users, ADR SEC-014).
+  staff: {
+    title: 'Staff',
+    description:
+      'Who may use this console and the weldsuite admin commands on this install, and with which role. Every change is in the activity log.',
+    add: 'Add staff',
+    columns: {
+      person: 'Person',
+      role: 'Role',
+      status: 'Status',
+      lastSignIn: 'Last sign-in',
+      addedBy: 'Added by',
+    },
+    active: 'Active',
+    removed: 'Removed',
+    never: 'Never',
+    you: 'you',
+    readOnly: 'Only a superadmin changes the staff list.',
+    empty: 'Nobody is on the staff list.',
+    email: 'Email',
+    name: 'Name (optional)',
+    role: 'Role',
+    addTitle: 'Add someone to the staff list',
+    addDescription:
+      "They sign in with their account at this install's identity provider. The first time, the email that account has verified must be this one.",
+    addSubmit: 'Add',
+    added: '{email} is on the staff list as {role}.',
+    changeRole: 'Change role',
+    changeRoleTitle: "Change {email}'s role",
+    roleChanged: '{email} is now {role}.',
+    remove: 'Remove',
+    removeTitle: 'Remove {email} from the staff list',
+    removeDescription: 'They lose access on their next click. Their row stays, for the activity log.',
+    removedToast: '{email} is off the staff list.',
+    addAgain: 'Add again',
+    errors: {
+      invalidEmail: 'That is not an email address.',
+      notSuperadmin: 'Only a superadmin adds or removes staff.',
+      lastSuperadmin: 'That is the last superadmin; add another one first.',
+      notOnList: '{email} is not on the staff list.',
+      invalidRole: 'Choose superadmin, admin or viewer.',
+      reason: 'Give a reason of at least 3 characters.',
+    },
+  },
+
+  // Feature flags on a Kubernetes install (feature_flag_overrides).
+  flags: {
+    title: 'Feature flags',
+    description:
+      "The flags this install's server reads from its master database, every 30 seconds. A workspace's own value wins over the value for everyone, which wins over the default.",
+    columns: {
+      flag: 'Flag',
+      type: 'Type',
+      default: 'Default',
+      everyone: 'For everyone',
+      workspaces: 'Workspaces',
+    },
+    usingDefault: 'default',
+    setForEveryone: 'Set for everyone',
+    setForWorkspace: 'Set for a workspace',
+    backToDefault: 'Back to default',
+    remove: 'Remove',
+    value: 'Value',
+    on: 'On',
+    off: 'Off',
+    workspace: 'Workspace',
+    workspaceHint: 'Its id, slug or organization id.',
+    setTitle: 'Set {flag} for everyone',
+    setWorkspaceTitle: 'Set {flag} for a workspace',
+    clearTitle: 'Clear {flag}',
+    clearEveryone: 'Everyone gets the default again, except workspaces with their own value.',
+    clearWorkspace: '{workspace} gets the value for everyone again.',
+    saved: '{flag} is set.',
+    cleared: '{flag} is cleared.',
+    overrides: 'Workspace values',
+    noOverrides: 'No workspace has its own value.',
+    readOnly: 'Viewers only read the flags.',
+    errors: {
+      unknownFlag: 'There is no flag {flag}.',
+      notBoolean: 'Choose on or off.',
+      notNumber: 'Enter a number.',
+      notJson: 'Enter valid JSON.',
+      tooLong: 'Keep it under 500 characters.',
+      noWorkspace: 'No workspace matches {workspace}.',
+      workspaceRequired: 'Enter the workspace.',
+      notSet: 'That value is not set.',
+    },
+  },
+
   // like {count} are filled with `fill()`.
   databases: {
     title: 'Databases',

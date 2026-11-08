@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { toast } from 'sonner';
 import { PARTNER_MEMBER_ROLES, type PartnerMemberRole } from '@weldsuite/app-api-client/schemas/partners';
 import { Badge } from '@weldsuite/ui/components/badge';

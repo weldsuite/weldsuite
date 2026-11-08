@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
@@ -6,7 +6,7 @@ import { partnersCopy } from '@/lib/partners-copy';
 import type { NewPartnerPageData } from './data';
 import { NewPartnerForm } from './new-partner-form';
 
-/** Rendered only for writers; page.tsx redirects viewers before it gets here. */
+/** Rendered only for writers; the page's server function (fn.ts) redirects viewers. */
 export function NewPartnerPage({
   planOptions,
   contractDefaults,

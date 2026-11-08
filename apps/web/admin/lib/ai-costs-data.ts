@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { desc, gte, sql } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';

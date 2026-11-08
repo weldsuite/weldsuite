@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { formatDateTime } from '@/lib/billing-format';
 import { cn } from '@/lib/utils';

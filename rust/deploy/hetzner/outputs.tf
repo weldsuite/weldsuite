@@ -30,7 +30,7 @@ output "ingress_ipv6" {
 output "dns_records" {
   description = "The records to create at the EU DNS provider (README.md, step 5)."
   value = {
-    for name in concat(["app", "api", "auth", "sign", "livekit", "turn"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
+    for name in concat(["app", "api", "auth", "sign", "admin", "livekit", "turn"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
       A    = hcloud_load_balancer.ingress.ipv4
       AAAA = hcloud_load_balancer.ingress.ipv6
     }

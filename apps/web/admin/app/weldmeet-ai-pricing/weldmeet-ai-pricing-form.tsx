@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { Loader2, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@weldsuite/ui/components/badge';

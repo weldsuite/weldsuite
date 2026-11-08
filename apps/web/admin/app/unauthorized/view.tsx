@@ -1,11 +1,22 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ShieldAlert } from 'lucide-react';
-import { SignOutButton } from '@clerk/nextjs';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { useSignOut } from '@/lib/auth-client';
+import { GLOBAL } from '@/lib/edition';
+import { adminCopy } from '@/lib/i18n';
 import type { UnauthorizedPageData } from './data';
 
+/** Why someone signed in but not an admin is here: Clerk's invite list on Global, the staff list on Kubernetes. */
+function noAccess(): string {
+  if (GLOBAL) {
+    return 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.';
+  }
+  return adminCopy().signIn.notOnRoster;
+}
+
 export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
+  const signOut = useSignOut();
   return (
     <div className="flex h-full items-center justify-center p-6">
       <Card className="w-full max-w-md py-8">
@@ -16,9 +27,7 @@ export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
           <div>
             <h1 className="text-lg font-semibold">Access restricted</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isAdmin
-                ? 'This area is limited to superadmins. Ask a superadmin if you need access.'
-                : 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'}
+              {isAdmin ? 'This area is limited to superadmins. Ask a superadmin if you need access.' : noAccess()}
             </p>
           </div>
           <div className="flex items-center justify-center gap-2 pt-2">
@@ -27,9 +36,9 @@ export function UnauthorizedPage({ isAdmin }: Readonly<UnauthorizedPageData>) {
                 <Link href="/">Back to dashboard</Link>
               </Button>
             ) : (
-              <SignOutButton>
-                <Button variant="outline">Sign out</Button>
-              </SignOutButton>
+              <Button variant="outline" onClick={signOut}>
+                Sign out
+              </Button>
             )}
           </div>
         </CardContent>

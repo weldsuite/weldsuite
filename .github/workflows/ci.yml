@@ -239,6 +239,16 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # The staff admin console's Node container (ADR FE-018).
+      - name: Build the admin console's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: admin
+          load: true
+          tags: weldsuite-admin:dev
+          cache-from: type=gha,scope=rust-image
       # WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md).
       - name: Build the collab-rooms image
         uses: docker/build-push-action@v6
@@ -719,6 +729,10 @@ jobs:
       # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
       - name: Admin console unit tests
         run: pnpm --filter admin test
+      # The console's Node build for Kubernetes (ADR FE-018), and its check that
+      # no Clerk, Neon driver or Cloudflare runtime module got into it.
+      - name: Admin console Node build
+        run: pnpm --filter admin build:node
 
   build:
     name: Build

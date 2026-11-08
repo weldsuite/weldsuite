@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageBody, PageContent } from '@/components/shell/admin-shell';

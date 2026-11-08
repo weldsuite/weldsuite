@@ -170,11 +170,11 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `livekit.`, `turn.`, and `mx.` with `mx_node_port`
-→ the ingress load balancer) at the DNS provider. cert-manager issues
-certificates once they resolve. (external-dns is not installed: a handful of
-static records doesn't need it.) Media needs no record: LiveKit gives clients
-the nodes' addresses itself. The mail records are in "Mail" below.
+`api.`, `auth.`, `sign.`, `admin.`, `livekit.`, `turn.`, and `mx.` with
+`mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
+issues certificates once they resolve. (external-dns is not installed: a
+handful of static records doesn't need it.) Media needs no record: LiveKit
+gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
 ## 6. Flux
 
@@ -296,11 +296,13 @@ those.
 
 ## Staff work
 
-The admin console is Global's. Here staff work is `weldsuite admin`, run in
-a server pod (ADR SEC-014; `weldsuite admin --help`, and "Staff work" in
-`rust/README.md`). Access to it is access to the cluster's API, which only
-`admin_cidrs` reach. Once per cluster, add the first superadmin (allowed
-without `--as` only while the staff list is empty):
+Staff work in the admin console at `https://admin.<domain>` (ADR FE-018) or
+with `weldsuite admin`, run in a server pod (ADR SEC-014;
+`weldsuite admin --help`, and "Staff work" in `rust/README.md`). Both let in
+only the cluster's staff list, master `admin_users`. The commands need the
+cluster's API, which only `admin_cidrs` reach. Once per cluster, add the first
+superadmin with a command (allowed without `--as` only while the staff list is
+empty):
 
 ```bash
 A="kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin"
@@ -322,9 +324,43 @@ $A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
 Every change is a row in `admin_audit_events`. Approval installs WeldReach in
 the workspace and emails the requester through `SMTP_URL`, with links to
 `PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
-command warns and you tell them yourself. Feature flags, the app catalog's
-flags and plan rows are still SQL against `weldsuite_master` (flags:
-`feature_flag_overrides`; plans: TEST-CLUSTER.md, "Prices").
+command warns and you tell them yourself. Feature flags (`feature_flag_overrides`)
+and plan rows (TEST-CLUSTER.md, "Prices") are the console's **Feature flags**
+and **Plans** pages; the staff list is its **Staff** page too, for
+superadmins.
+
+### The admin console
+
+The chart runs it (`admin` in `flux/apps/eu/values/weldsuite.yaml`), but it
+lets nobody in until these are done, once per cluster:
+
+1. **Zitadel.** In `https://auth.<domain>/ui/console`, an organization
+   `WeldSuite Staff` for the staff's own accounts (MFA required in its login
+   policy), a project `WeldSuite Staff`, and in it a web application `admin`:
+   code flow, authentication method Basic (a client secret), redirect URI
+   `https://admin.<domain>/auth/callback`, post-logout URI
+   `https://admin.<domain>/sign-in?signed_out=1`. Keep its client id and
+   secret.
+2. **Secrets.** `ADMIN_OIDC_CLIENT_ID` and `ADMIN_OIDC_CLIENT_SECRET` from that
+   app, plus a generated `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`, in
+   `weldsuite-env`:
+
+   ```bash
+   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+   ```
+
+3. **Who may reach it.** `ADMIN_CIDRS` in `flux/clusters/<cluster>/cluster-settings.yaml`:
+   the staff's addresses as an unquoted YAML list (`[203.0.113.7/32]`). The
+   default, `[127.0.0.1/32]`, refuses everyone; Traefik checks it with the
+   client's own address, which the load balancer passes on (PROXY protocol).
+4. **DNS.** `admin.` is in `tofu output dns_records`.
+
+A person on the staff list then signs in with their Zitadel account. Their row
+matches the account (`user_id`, which `staff add` fills when they also use the
+platform) or, the first time, their verified email, and is then bound to that
+account. `staff remove`, or `staff add` again with another `--role`, takes
+effect on their next click.
 
 ## 8. The master database schema
 

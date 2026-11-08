@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 const TELNYX_API_BASE = 'https://api.telnyx.com/v2';
 

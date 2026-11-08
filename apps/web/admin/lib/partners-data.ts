@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import type { AdminIdentity } from './auth';
 import { callBillingWorker, type WorkerResult } from './billing-worker';

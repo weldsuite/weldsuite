@@ -649,11 +649,13 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 
 ## Staff work
 
-`weldsuite admin` is what the admin console (`apps/web/admin`) does on Global,
-for the Kubernetes editions (ADR SEC-014): the console stays Global's, and on
-EU and self-hosted installs staff run commands in a server pod through the
-cluster's API. The rules and writes are in `crates/staff-domain`, the
-arguments and output in `bins/weldsuite/src/admin.rs`.
+On the Kubernetes editions staff work two ways, both checked against the
+install's staff list (ADR SEC-014): the admin console (`apps/web/admin`, its
+Node build in the chart's `admin` values, ADR FE-018), and `weldsuite admin`
+commands in a server pod through the cluster's API, for the first superadmin,
+scripts and the self-hosted operator. The commands' rules and writes are in
+`crates/staff-domain`, their arguments and output in
+`bins/weldsuite/src/admin.rs`.
 
 - **`staff`**: the install's staff list, master `admin_users`. Every change
   names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have

@@ -1,8 +1,9 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { getMasterDb, masterSchema } from './db';
 import { generateId } from './id';
 import type { AdminIdentity } from './auth';
+import type { AdminAuditTargetType } from '@weldsuite/db/schema/master';
 
 /**
  * One console audit entry. The target is the workspace; an entry about
@@ -12,29 +13,34 @@ import type { AdminIdentity } from './auth';
 export type ConsoleAuditEntry = {
   identity: AdminIdentity;
   action: string;
+  /** What targetId names; a workspace unless said otherwise. */
+  targetType?: AdminAuditTargetType;
   outcome: 'success' | 'failure';
   reason?: string | null;
   details?: Record<string, unknown>;
   error?: string | null;
 } & ({ workspaceId: string; targetId?: string } | { workspaceId: null; targetId: string });
 
-async function insertConsoleAudit(entry: ConsoleAuditEntry): Promise<void> {
+/** The admin_audit_events row for an entry, for writing it inside a transaction too. */
+export function consoleAuditRow(entry: ConsoleAuditEntry): typeof masterSchema.adminAuditEvents.$inferInsert {
   const targetId = entry.workspaceId === null ? entry.targetId : (entry.targetId ?? entry.workspaceId);
-  await getMasterDb()
-    .insert(masterSchema.adminAuditEvents)
-    .values({
-      id: generateId('aae'),
-      workspaceId: entry.workspaceId,
-      targetType: 'workspace',
-      targetId,
-      action: entry.action,
-      outcome: entry.outcome,
-      actorEmail: entry.identity.email,
-      actorUserId: entry.identity.userId,
-      reason: entry.reason ?? null,
-      details: entry.details ?? null,
-      error: entry.error ?? null,
-    });
+  return {
+    id: generateId('aae'),
+    workspaceId: entry.workspaceId,
+    targetType: entry.targetType ?? 'workspace',
+    targetId,
+    action: entry.action,
+    outcome: entry.outcome,
+    actorEmail: entry.identity.email,
+    actorUserId: entry.identity.userId,
+    reason: entry.reason ?? null,
+    details: entry.details ?? null,
+    error: entry.error ?? null,
+  };
+}
+
+async function insertConsoleAudit(entry: ConsoleAuditEntry): Promise<void> {
+  await getMasterDb().insert(masterSchema.adminAuditEvents).values(consoleAuditRow(entry));
 }
 
 /**

@@ -32,3 +32,8 @@ data:
   # Empty: the images are the release's. Set a tag only to run other images
   # under the release's chart, briefly and on purpose.
   WELDSUITE_IMAGE_TAG: ""
+  # Client addresses that may open the staff admin console (admin.${DOMAIN}):
+  # a YAML list of CIDRs, unquoted, e.g. [203.0.113.7/32, 198.51.100.0/24].
+  # 127.0.0.1/32 lets nobody in from outside; put the staff's addresses here
+  # (Hetzner runbook, "Staff work").
+  ADMIN_CIDRS: "[127.0.0.1/32]"
