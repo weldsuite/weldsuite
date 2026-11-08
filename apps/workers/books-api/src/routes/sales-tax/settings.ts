@@ -27,6 +27,7 @@ import { loadSalesTaxContext } from '@weldsuite/books-domain/sales-tax/load';
 import { calculateDocumentTax, TaxCalculationError } from '../../services/accounting-tax-resolve';
 import { resolveGstBillSupply, resolveGstSupply } from '../../services/accounting-gst';
 import { SalesTaxDocumentError, SalesTaxSetupError, salesTaxErrorResponse } from '../../services/sales-tax/errors';
+import { upsertAccountingEntitySettings } from '@weldsuite/books-domain/accounting-entity';
 import { hasEncryptionKey, salesTaxRuntimeFromEnv, sealEngineCredentials } from '../../services/sales-tax/runtime';
 import { requireEntityId, requireSalesTaxEntity } from '../../services/sales-tax/route-helpers';
 import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
@@ -168,6 +169,12 @@ app.put('/settings', requirePermission('taxes:update'), zValidator('json', updat
         updatedAt: new Date(),
       })
       .where(eq(schema.entities.id, entity.id));
+    // Release 1 mirror: the WeldBooks extension holds the same values.
+    await upsertAccountingEntitySettings(db, entity.id, {
+      salesTaxEngine: data.engine,
+      salesTaxEngineConfig: nextConfig as Record<string, unknown>,
+      salesTaxCredentialsEncrypted: credentialsBlob,
+    });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entity.id,

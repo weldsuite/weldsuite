@@ -57,6 +57,8 @@ export const weldhrPeople = {
       phoneInvalid: 'Vul een telefoonnummer met alleen cijfers in, zoals +31 20 123 4567',
     },
     create: {
+      employer: 'Werkgever',
+      employerHint: 'De juridische entiteit die deze persoon in dienst heeft. Zijn of haar HR-gegevens horen erbij.',
       title: 'Nieuwe medewerker',
       member: 'Workspace-lid',
       memberPlaceholder: 'Selecteer een workspace-lid…',

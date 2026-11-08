@@ -51,6 +51,8 @@ import {
 import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
 import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
+import { EmployerField } from './employer-field';
+import { useCurrentLegalEntity } from '@/hooks/use-current-legal-entity';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildFormSchema(t: (path: string) => string) {
@@ -63,6 +65,7 @@ function buildFormSchema(t: (path: string) => string) {
     startDate: z.string().optional(),
     departmentId: z.string().optional(),
     managerId: z.string().optional(),
+    legalEntityId: z.string().optional(),
   });
 }
 
@@ -159,6 +162,8 @@ export function CreateEmployeeDialog({
   const createFromMember = useCreateHrEmployeeFromMember();
   const inviteAndCreate = useInviteAndCreate();
   const { data: departments } = useHrDepartments();
+  // A new employee defaults to the legal entity selected in the sidebar.
+  const { entityId: currentEntityId } = useCurrentLegalEntity({ app: 'weldhr' });
   const { data: availableMembers, isLoading: membersLoading } = useHrAvailableMembers({ limit: 200 });
   // Inviting takes a paid seat, so it needs team:create like Settings → Team does.
   const canInvite = can('team:create');
@@ -193,6 +198,7 @@ export function CreateEmployeeDialog({
       startDate: todayIso(),
       departmentId: undefined,
       managerId: undefined,
+      legalEntityId: undefined,
     },
   });
 
@@ -246,6 +252,8 @@ export function CreateEmployeeDialog({
       startDate: values.startDate || null,
       departmentId: values.departmentId || null,
       managerId: values.managerId || null,
+      // Omitted without an entity: hr-api then uses the one the request is scoped to.
+      ...((values.legalEntityId || currentEntityId) ? { legalEntityId: values.legalEntityId || currentEntityId } : {}),
       ...(workLocationIds.length > 0 ? { workLocationIds } : {}),
     };
   }
@@ -522,6 +530,16 @@ export function CreateEmployeeDialog({
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="legalEntityId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <EmployerField value={field.value} onChange={field.onChange} disabled={isSubmitting} />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}

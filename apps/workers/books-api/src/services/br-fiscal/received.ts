@@ -18,6 +18,7 @@ import { draftRate } from '../accounting-fx';
 import { salesTaxRuntimeFromEnv } from '../sales-tax/runtime';
 import { FiscalDocumentError } from './errors';
 import { FiscalProviderError, type FocusClient, type FocusEnvironment, type FocusRecord } from './focus-client';
+import { upsertAccountingEntitySettings } from '@weldsuite/books-domain/accounting-entity';
 import { requireFiscalEntity } from './fiscal-documents';
 import { parseNfeXml, XmlParseError, type ParsedNfe } from './nfe-xml';
 import { fiscalEnvironmentOf, fiscalSettingsOf, focusClientFor } from './settings';
@@ -263,6 +264,9 @@ async function saveReceivedVersion(
       updatedAt: new Date(),
     })
     .where(eq(schema.entities.id, entity.id));
+  await upsertAccountingEntitySettings(db, entity.id, {
+    jurisdictionSettings: { ...settings, receivedNfeVersion: version, receivedNfeVersionEnv: environment } as Record<string, unknown>,
+  });
 }
 
 // --- Upload ---------------------------------------------------------------------------------------

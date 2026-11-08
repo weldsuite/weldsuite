@@ -81,17 +81,19 @@ import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel'
 import { createWeldMergeApi } from '@weldsuite/app-api-client/domains/weldmerge';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
+import { createLegalEntitiesApi } from '@weldsuite/app-api-client/domains/legal-entities';
 import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
 import { getApiOriginForPath } from '@/lib/api/public-env';
+import { hrLegalEntityHeaders } from '@/lib/api/legal-entity-scope';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 
 /**
- * Returns a token-aware ClientApi instance pointing at the app-api worker.
- * Cached and only recreated when the token changes.
+ * A token-aware ClientApi getter, cached and only recreated when the token
+ * changes. `getExtraHeaders` adds request headers (read per request).
  */
-export function useAppApiClient() {
+function useClientGetter(getExtraHeaders?: () => Record<string, string>) {
   const { getToken } = useAuth();
   // Preview routes have no Clerk session; a placeholder token lets requests
   // go out so fixtures can answer them (see contexts/preview-mode-context).
@@ -99,18 +101,45 @@ export function useAppApiClient() {
   const clientRef = useRef<ClientApi | null>(null);
   const tokenRef = useRef<string | null>(null);
 
-  const getClient = useCallback(async () => {
+  return useCallback(async () => {
     const token = previewToken ?? (await getToken());
     if (token !== tokenRef.current || !clientRef.current) {
       tokenRef.current = token;
       clientRef.current = createClientApi({
         getToken: () => Promise.resolve(token),
         baseUrl: getApiOriginForPath,
+        getExtraHeaders,
       });
     }
     return clientRef.current;
-  }, [getToken, previewToken]);
+  }, [getToken, previewToken, getExtraHeaders]);
+}
 
+/** A ClientApi that resolves its real client on first use (so the token is fresh per request). */
+function lazyClientFrom(getClient: () => Promise<ClientApi>): ClientApi {
+  const handler = (method: keyof ClientApi) =>
+    async (...args: unknown[]) => {
+      const client = await getClient();
+      return (client[method] as (...a: unknown[]) => unknown)(...args);
+    };
+
+  return {
+    get: handler('get'),
+    getRaw: handler('getRaw'),
+    post: handler('post'),
+    put: handler('put'),
+    patch: handler('patch'),
+    delete: handler('delete'),
+    postForm: handler('postForm'),
+  } as ClientApi;
+}
+
+/**
+ * Returns a token-aware ClientApi instance pointing at the app-api worker.
+ * Cached and only recreated when the token changes.
+ */
+export function useAppApiClient() {
+  const getClient = useClientGetter();
   return { getClient };
 }
 
@@ -121,24 +150,11 @@ export function useAppApiClient() {
  */
 export function useAppApi() {
   const { getClient } = useAppApiClient();
+  // WeldHR requests also carry the selected legal entity (X-Legal-Entity-Id); nothing else does.
+  const getHrClient = useClientGetter(hrLegalEntityHeaders);
 
-  const lazyClient = useMemo<ClientApi>(() => {
-    const handler = (method: keyof ClientApi) =>
-      async (...args: unknown[]) => {
-        const client = await getClient();
-        return (client[method] as (...a: unknown[]) => unknown)(...args);
-      };
-
-    return {
-      get: handler('get'),
-      getRaw: handler('getRaw'),
-      post: handler('post'),
-      put: handler('put'),
-      patch: handler('patch'),
-      delete: handler('delete'),
-      postForm: handler('postForm'),
-    } as ClientApi;
-  }, [getClient]);
+  const lazyClient = useMemo<ClientApi>(() => lazyClientFrom(getClient), [getClient]);
+  const hrClient = useMemo<ClientApi>(() => lazyClientFrom(getHrClient), [getHrClient]);
 
   return useMemo(
     () => ({
@@ -239,14 +255,15 @@ export function useAppApi() {
       // Enterprise single sign-on: domain proof, SAML connection, on/off and
       // the add-on subscription (its billing paths are forwarded to billing-worker).
       sso: createSsoApi(lazyClient),
-      weldhr: createWeldHrApi(lazyClient),
-      weldhrPayroll: createWeldHrPayrollApi(lazyClient),
+      legalEntities: createLegalEntitiesApi(lazyClient),
+      weldhr: createWeldHrApi(hrClient),
+      weldhrPayroll: createWeldHrPayrollApi(hrClient),
 
       // WeldMeet live-session actions (host "Remove from call").
       meetingSessions: createMeetingSessionsApi(lazyClient),
       // WeldMeet recordings, transcripts and summaries (meet-api, session-scoped).
       weldmeetRecordings: createWeldmeetRecordingsApi(lazyClient),
     }),
-    [lazyClient],
+    [lazyClient, hrClient],
   );
 }

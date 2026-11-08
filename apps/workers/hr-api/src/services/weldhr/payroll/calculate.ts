@@ -63,6 +63,7 @@ import {
   readinessIssues,
   type EmployeePayrollData,
 } from './employees';
+import { loadEmployerForPayroll } from './employer-context';
 import { employerIssues, readEmployerBank, workStatesOf } from './employers';
 import { assertEditable, includedEmployeeIds, profileWindow, requireRun } from './runs';
 import { carriedOverYtd, employeesWithFinalPayslips, finalPayslipsByEmployee, latestByApproval } from './ytd';
@@ -307,13 +308,7 @@ function aggregateTotals(slips: StoredPayslip[]): HrPayRunTotals {
 export async function calculateRun(db: Database, runId: string, deps: PayrollDeps, ctx: { userId: string }): Promise<RunRow> {
   let run = await requireRun(db, runId);
   assertEditable(run);
-  const employer = await db
-    .select()
-    .from(schema.hrPayrollEmployers)
-    .where(eq(schema.hrPayrollEmployers.id, run.employerId))
-    .limit(1)
-    .then((rows) => rows[0]);
-  if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
+  const employer = await loadEmployerForPayroll(db, run.employerId, deps.keyring);
 
   // While the run is being (re)calculated it is a draft: an approval cannot start on a half-written calculation, and
   // a run that was approved or cancelled in the meantime is left alone (409).

@@ -369,8 +369,22 @@ struct TaxEntity {
 
 type EntityRow = (String, String, Option<String>, Option<Value>);
 
-/// `resolveOrderTaxEntity(db)`: the workspace default, else the one
-/// flagged default, else the only one.
+/// The columns of [`EntityRow`] and the tables they come from: the entities
+/// WeldBooks is enabled for (they have an extension row), with the
+/// extension's engine first.
+macro_rules! tax_entity_columns {
+    () => {
+        "e.id, e.jurisdiction_code, coalesce(s.sales_tax_engine, e.sales_tax_engine), e.address \
+         from entities e join accounting_entity_settings s on s.entity_id = e.id"
+    };
+}
+
+/// `resolveOrderTaxEntity(db)`: the WeldBooks entity orders are taxed under:
+/// `settings.default_entity_id` when WeldBooks is enabled for it (an
+/// `accounting_entity_settings` row), else the legal entity flagged default
+/// when it is, else the only WeldBooks entity. The engine is the extension's,
+/// else the old column (release 1 mirrors both). No member is involved, so no
+/// per-entity access applies.
 async fn resolve_order_tax_entity(db: &PgPool) -> Result<Option<TaxEntity>, sqlx::Error> {
     let entity = |(id, jurisdiction_code, sales_tax_engine, address): EntityRow| TaxEntity {
         id,
@@ -383,10 +397,11 @@ async fn resolve_order_tax_entity(db: &PgPool) -> Result<Option<TaxEntity>, sqlx
             .fetch_optional(db)
             .await?;
     if let Some(default_id) = default_id.flatten().filter(|id| !id.is_empty()) {
-        let row: Option<EntityRow> = sqlx::query_as(
-            "select id, jurisdiction_code, sales_tax_engine, address from entities \
-             where id = $1 and deleted_at is null limit 1",
-        )
+        let row: Option<EntityRow> = sqlx::query_as(concat!(
+            "select ",
+            tax_entity_columns!(),
+            " where e.id = $1 and e.deleted_at is null limit 1"
+        ))
         .bind(&default_id)
         .fetch_optional(db)
         .await?;
@@ -394,18 +409,21 @@ async fn resolve_order_tax_entity(db: &PgPool) -> Result<Option<TaxEntity>, sqlx
             return Ok(Some(entity(row)));
         }
     }
-    let flagged: Option<EntityRow> = sqlx::query_as(
-        "select id, jurisdiction_code, sales_tax_engine, address from entities \
-         where is_default = true and is_active = true and deleted_at is null limit 1",
-    )
+    let flagged: Option<EntityRow> = sqlx::query_as(concat!(
+        "select ",
+        tax_entity_columns!(),
+        " where e.is_default = true and e.is_active = true and e.deleted_at is null limit 1"
+    ))
     .fetch_optional(db)
     .await?;
     if let Some(row) = flagged {
         return Ok(Some(entity(row)));
     }
-    let mut rows: Vec<EntityRow> = sqlx::query_as(
-        "select id, jurisdiction_code, sales_tax_engine, address from entities where deleted_at is null limit 2",
-    )
+    let mut rows: Vec<EntityRow> = sqlx::query_as(concat!(
+        "select ",
+        tax_entity_columns!(),
+        " where e.deleted_at is null limit 2"
+    ))
     .fetch_all(db)
     .await?;
     Ok(if rows.len() == 1 {

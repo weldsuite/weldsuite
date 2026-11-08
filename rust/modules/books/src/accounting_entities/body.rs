@@ -1,7 +1,8 @@
 //! The bodies of `POST /api/accounting-entities` (`createEntitySchema`) and
-//! `PATCH /:id` (`.partial().omit({ seedDefaults })`), read as Zod outputs
-//! them: unknown keys stripped (the schemas are not passthrough), nested
-//! objects reduced to their own keys, in the schema's order.
+//! `PATCH /:id` (`.partial().omit({ seedDefaults, legalEntityId })
+//! .extend({ invoiceBankAccountId })`), read as Zod outputs them: unknown
+//! keys stripped (the schemas are not passthrough), nested objects reduced
+//! to their own keys, in the schema's order.
 
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::identifiers::is_valid_iban;
@@ -36,14 +37,6 @@ fn keep<T: serde::Serialize>(out: &mut Map<String, Value>, key: &str, field: Fie
             out.insert(key.to_owned(), Value::Null);
         }
         Field::Absent => {}
-    }
-}
-
-fn opt(partial: bool, presence: Presence) -> Presence {
-    if partial && presence == Presence::Required {
-        Presence::Optional
-    } else {
-        presence
     }
 }
 
@@ -88,12 +81,13 @@ const fn any() -> Text {
 #[allow(clippy::too_many_lines)] // one block per schema field, in order
 pub(crate) fn read(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> EntityBody {
     let mut out = Map::new();
+    // Required unless `legalEntityId` names an existing company (the route checks).
     string(
         issues,
         body,
         &mut out,
         "name",
-        opt(partial, Presence::Required),
+        Presence::Optional,
         Some(1),
         Some(255),
     );
@@ -371,6 +365,29 @@ pub(crate) fn read(issues: &mut Issues, body: &Map<String, Value>, partial: bool
     } else {
         issues.boolean(body, "seedDefaults", Presence::Optional)
     };
+    if partial {
+        // The core bank account invoices print; null prints `bankDetails` again.
+        string(
+            issues,
+            body,
+            &mut out,
+            "invoiceBankAccountId",
+            Presence::Nullish,
+            Some(1),
+            Some(30),
+        );
+    } else {
+        // Enable WeldBooks for this existing legal entity instead of creating a company.
+        string(
+            issues,
+            body,
+            &mut out,
+            "legalEntityId",
+            Presence::Optional,
+            Some(1),
+            Some(30),
+        );
+    }
     if iban_refused {
         issues.custom_at(
             &[json!("bankDetails"), json!("iban")],

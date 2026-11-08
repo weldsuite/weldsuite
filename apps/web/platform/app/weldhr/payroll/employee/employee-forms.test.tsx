@@ -46,6 +46,13 @@ const mocks = vi.hoisted(() => ({
 
 const employer: HrPayrollEmployer = {
   id: 'emp_1',
+  legalEntityId: null,
+  legalEntityName: null,
+  registrationId: null,
+  registrationNumber: null,
+  bankAccountId: null,
+  label: null,
+  booksEnabled: false,
   name: 'Acme',
   legalName: 'Acme BV',
   country: 'NL',
@@ -82,6 +89,10 @@ let employers: HrPayrollEmployer[] = [employer];
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }));
 
+vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
+  useLegalEntityBankAccounts: () => ({ data: [] }),
+}));
+
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
   useHrPayrollEmployers: () => ({ data: employers }),
   useHrPayrollSchedules: () => ({ data: [schedule] }),
@@ -92,6 +103,7 @@ vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
   useUpdateHrPayComponent: () => ({ mutateAsync: mocks.updateComponent, isPending: false }),
   useCreateHrPayRun: () => ({ mutateAsync: mocks.createRun, isPending: false }),
   useMarkHrPayrollFilingFiled: () => ({ mutateAsync: mocks.markFiled, isPending: false }),
+  useUpdateHrPayrollEmployer: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSetHrPayrollEmployerBank: () => ({ mutateAsync: mocks.setBank, isPending: false }),
   useCreateHrPayRunInput: () => ({ mutateAsync: mocks.createInput, isPending: false }),
   useUpdateHrPayRunInput: () => ({ mutateAsync: mocks.updateInput, isPending: false }),

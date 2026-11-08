@@ -5,10 +5,19 @@
 //! entities carry an entity type and tax classification, a write-only SSN and
 //! tax lines on their accounts; lock dates and their exceptions are set here
 //! (the posting engine enforces them), and so is the documents' numbering.
+//!
+//! The company itself is a core legal entity (docs/plans/legal-entities.md):
+//! the list shows the entities the member sees that WeldBooks is enabled for
+//! (an `accounting_entity_settings` row), `POST` with `legalEntityId` enables
+//! WeldBooks for an existing one (else it creates the company through core),
+//! `PATCH` splits the write between core, the registrations and the
+//! extension (and, release 1, mirrors everything to the old columns), and
+//! `DELETE` only switches WeldBooks off, until it holds documents.
 
 mod body;
 mod locks;
 mod numbering;
+mod registrations;
 
 use std::sync::Arc;
 
@@ -19,23 +28,33 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::accounting_entity::{
+    load_accounting_entities, load_accounting_entity, upsert_accounting_entity_settings,
+};
 use weldsuite_books_domain::address::normalize_postal_address;
+use weldsuite_books_domain::entity_context::{entity_access, record_in_request_entity};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
+use weldsuite_books_domain::js::locale_compare;
 use weldsuite_books_domain::jurisdictions::{self, TaxIdField, br, india, us};
-use weldsuite_books_domain::tables::{
-    ACCOUNTS, ENTITIES, ENTITY_NUMBER_SEQUENCES, SETTINGS, TAX_RATES,
-};
+use weldsuite_books_domain::tables::{ACCOUNTS, ENTITIES, SETTINGS, TAX_RATES};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_ENTITY_CREATED, ACCOUNTING_ENTITY_DELETED, ACCOUNTING_ENTITY_UPDATED,
+    LEGAL_ENTITY_CREATED,
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
+use weldsuite_legal_entities::service::{
+    CreateLegalEntityInput, ListLegalEntitiesOptions, UpdateLegalEntityInput, create_legal_entity,
+    list_legal_entities, set_default_legal_entity, update_legal_entity,
+};
+use weldsuite_legal_entities::{LegalEntityApp, LegalEntityError, can_see_entity};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use self::body::EntityBody;
+use self::registrations::sync_registrations_from_tax_identifiers;
 use crate::entity_setup::{
     EntityKind, Given, SeedArgs, SetupError, apply_tax_lines, build_seed_accounts, check_ssn,
     check_us_address, form_of, lock_state, looks_like_ssn, resolve_entity_kind,
@@ -99,14 +118,17 @@ where
         .with_state(state)
 }
 
-const SECRET_COLUMNS: [&str; 3] = [
+/// The columns that never leave the database, and the loader's flag.
+const SECRET_COLUMNS: [&str; 4] = [
     "ssnEncrypted",
     "salesTaxCredentialsEncrypted",
     "fiscalCredentialsEncrypted",
+    "weldbooksEnabled",
 ];
 
 /// `serializeEntity(row)`: the sealed columns out (`hasSsn`, … say whether
-/// one is stored), and an SSN typed into the EIN slot masked.
+/// one is stored), and an SSN typed into the EIN slot masked. The loader's
+/// `weldbooksEnabled` is left out.
 pub(crate) fn serialize(row: &Map<String, Value>) -> Value {
     let truthy = |key: &str| weldsuite_books_domain::js::truthy(row.get(key));
     let mut out: Map<String, Value> = row
@@ -144,20 +166,38 @@ fn object(value: Value) -> Map<String, Value> {
     }
 }
 
-/// A live entity, as Drizzle returns it.
+/// `findActiveEntity(c, db, id)`: a live entity as the API returns it
+/// (extension values merged in, `loadAccountingEntity`), or `None` when it is
+/// unknown, deleted, or not one this request may touch: a member who is not
+/// allowed everywhere only reaches the entity the request is scoped to, and a
+/// restricted entity they have no row on does not exist.
 pub(crate) async fn find_active(
     caller: &Caller,
     id: &str,
 ) -> Result<Option<Map<String, Value>>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| object(ENTITIES.js(row))))
+    let access = entity_access(caller).await?;
+    if !can_see_entity(&access, Some(id)) || !record_in_request_entity(caller, Some(id)).await? {
+        return Ok(None);
+    }
+    Ok(load_accounting_entity(&caller.db, id).await?.map(object))
+}
+
+/// A `LegalEntityError` the route's `catch` answers itself (`badRequest` on
+/// create, `conflict` on update), else the route's 500.
+fn legal_entity_refusal(error: LegalEntityError, answer: fn(String) -> Refusal) -> Refusal {
+    match error {
+        LegalEntityError::Coded { message, .. } => answer(message),
+        LegalEntityError::Database(error) => Refusal::Database(error),
+        LegalEntityError::Internal(message) => Refusal::Internal(message),
+    }
+}
+
+/// A `LegalEntityError` the route does not catch on its own: the route's 500.
+fn legal_entity_failure(error: LegalEntityError) -> Refusal {
+    match error {
+        LegalEntityError::Database(error) => Refusal::Database(error),
+        other => Refusal::Internal(other.to_string()),
+    }
 }
 
 fn unsupported(code: &str) -> String {
@@ -343,18 +383,28 @@ fn map_of(value: Option<&Value>) -> Option<Map<String, Value>> {
 
 // ── GET / and /jurisdictions ────────────────────────────────────────────────
 
+/// `GET /`: the entities the member sees that WeldBooks is enabled for
+/// (archived ones with `?includeArchived=true`), by name.
 async fn list(caller: Caller) -> Response {
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(entities),
-            " from entities t where t.deleted_at is null order by t.name"
-        ))
-        .fetch_all(&caller.db)
-        .await?;
+        let access = entity_access(&caller).await?;
+        let options = ListLegalEntitiesOptions {
+            app: Some(LegalEntityApp::Weldbooks),
+            include_archived: caller.query().get("includeArchived") == Some("true"),
+        };
+        let visible = list_legal_entities(&caller.db, Some(&access), options)
+            .await
+            .map_err(legal_entity_failure)?;
+        let ids: Vec<String> = visible.into_iter().map(|entity| entity.id).collect();
+        let mut rows = load_accounting_entities(&caller.db, &ids, false).await?;
+        let text = |row: &Value, key: &str| row[key].as_str().unwrap_or_default().to_owned();
+        rows.sort_by(|a, b| {
+            locale_compare(&text(a, "name"), &text(b, "name"))
+                .then_with(|| locale_compare(&text(a, "id"), &text(b, "id")))
+        });
         let rows: Vec<Value> = rows
             .into_iter()
-            .map(|row| serialize(&object(ENTITIES.js(row))))
+            .map(|row| serialize(&object(row)))
             .collect();
         Ok(ok(Value::Array(rows)))
     }
@@ -438,11 +488,98 @@ async fn create(
     )
 }
 
+/// The company a `POST /` is about: an existing legal entity the member sees
+/// (`legalEntityId`, WeldBooks not yet enabled), or none, when the route
+/// creates one (which also needs `legal_entities:create`).
+async fn existing_company(
+    caller: &Caller,
+    data: &EntityBody,
+) -> Result<Option<Map<String, Value>>, Refusal> {
+    let Some(legal_entity_id) = data.text("legalEntityId") else {
+        if !caller.can("legal_entities:create") {
+            return Err(Refusal::forbidden(
+                "Creating a company needs the legal_entities:create permission",
+            ));
+        }
+        return Ok(None);
+    };
+    let access = entity_access(caller).await?;
+    let core = if can_see_entity(&access, Some(legal_entity_id)) {
+        load_accounting_entity(&caller.db, legal_entity_id)
+            .await?
+            .map(object)
+    } else {
+        None
+    };
+    let Some(core) = core else {
+        return Err(Refusal::not_found("Legal entity", legal_entity_id));
+    };
+    if core.get("weldbooksEnabled") == Some(&Value::Bool(true)) {
+        return Err(Refusal::conflict(
+            "WeldBooks is already enabled for this legal entity",
+        ));
+    }
+    Ok(Some(core))
+}
+
+/// A text column of an existing company (`core?.x`), `None` when null.
+fn core_text<'a>(core: Option<&'a Map<String, Value>>, key: &str) -> Option<&'a str> {
+    core.and_then(|core| core.get(key)).and_then(Value::as_str)
+}
+
+/// `{ logoUrl, primaryColor, accentColor }` of a branding body
+/// (`coreBrandingOf`): the core part, shared with the other apps.
+fn core_branding_of(branding: Option<&Value>) -> Option<Map<String, Value>> {
+    let branding = branding?.as_object()?;
+    Some(
+        ["logoUrl", "primaryColor", "accentColor"]
+            .into_iter()
+            .filter_map(|key| Some((key.to_owned(), branding.get(key)?.clone())))
+            .collect(),
+    )
+}
+
+/// The document texts WeldBooks prints (`documentTextsOf`), which live in
+/// `accounting_entity_settings.document_texts`.
+fn document_texts_of(branding: Option<&Value>) -> Option<Map<String, Value>> {
+    let branding = branding?.as_object()?;
+    Some(
+        ["footerText", "paymentInstructions", "termsAndConditions"]
+            .into_iter()
+            .filter_map(|key| Some((key.to_owned(), branding.get(key)?.clone())))
+            .collect(),
+    )
+}
+
+/// A [`Field`] of an optional JSON value: absent, null or set.
+fn field_of(value: Option<&Value>) -> Field<Value> {
+    match value {
+        None => Field::Absent,
+        Some(Value::Null) => Field::Null,
+        Some(value) => Field::Set(value.clone()),
+    }
+}
+
+/// A [`Field`] of an optional text: absent, null or set.
+fn text_field_of(value: Option<&Value>) -> Field<String> {
+    match value {
+        None => Field::Absent,
+        Some(Value::Null) => Field::Null,
+        Some(value) => Field::Set(value.as_str().unwrap_or_default().to_owned()),
+    }
+}
+
 #[allow(clippy::too_many_lines)] // the worker's handler, step by step
 async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -> Reply {
     let db = &caller.db;
-    let Some(jurisdiction) = data
-        .text("jurisdictionCode")
+    // The company: an existing legal entity the member sees, or a new one.
+    let company = existing_company(caller, data).await?;
+    let company = company.as_ref();
+    if company.is_none() && data.text("name").is_none() {
+        return Err(Refusal::bad_request("name is required"));
+    }
+    let Some(jurisdiction) = core_text(company, "jurisdictionCode")
+        .or_else(|| data.text("jurisdictionCode"))
         .or_else(|| data.text("jurisdiction"))
         .map(str::to_owned)
     else {
@@ -470,7 +607,9 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         &jurisdiction,
         merged,
         map_of(data.get("jurisdictionSettings")),
-        data.text("timezone").map(str::to_owned),
+        data.text("timezone")
+            .or_else(|| core_text(company, "timezone"))
+            .map(str::to_owned),
         true,
     )
     .map_err(Refusal::bad_request)?;
@@ -478,14 +617,24 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
     let tax_identifiers = validate_with_adapter(&jurisdiction, india.ids.clone(), &touched)
         .map_err(Refusal::bad_request)?;
 
+    // An existing company keeps its own identity; the body only supplies what WeldBooks adds.
+    let kind_given = |key: &str| match core_text(company, key) {
+        Some(own) => Given::Set(own.to_owned()),
+        None => given_text(data, key),
+    };
     let kind = resolve_entity_kind(
         &code,
-        &given_text(data, "entityType"),
-        &given_text(data, "taxClassification"),
+        &kind_given("entityType"),
+        &kind_given("taxClassification"),
         None,
     )?;
-    // `newEntityLocation`
-    let address = normalize_postal_address(data.get("address"));
+    // `newEntityLocation`, with the company's own address and time zone first.
+    let given_address = company
+        .and_then(|company| company.get("address"))
+        .filter(|a| !a.is_null())
+        .or_else(|| data.get("address"));
+    let given_timezone = core_text(company, "timezone").or_else(|| data.text("timezone"));
+    let address = normalize_postal_address(given_address);
     let mut address = if is_us {
         check_us_address(address)?
     } else {
@@ -507,7 +656,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         None => india.settings.clone(),
     };
     let mut timezone = if is_us {
-        Some(data.text("timezone").map_or_else(
+        Some(given_timezone.map_or_else(
             || us::default_time_zone(address.as_ref().and_then(|a| a["state"].as_str())).to_owned(),
             str::to_owned,
         ))
@@ -515,10 +664,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         india.timezone.clone()
     };
     if let Some((_, zone)) = &br_settings {
-        timezone = Some(
-            data.text("timezone")
-                .map_or_else(|| zone.clone(), str::to_owned),
-        );
+        timezone = Some(given_timezone.map_or_else(|| zone.clone(), str::to_owned));
     }
 
     // `newEntitySsn`
@@ -543,114 +689,161 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         }
     };
 
-    let locale = data
-        .text("locale")
+    let locale = core_text(company, "locale")
+        .or_else(|| data.text("locale"))
         .unwrap_or(adapter.default_locale)
         .to_owned();
-    let base_currency = data
-        .text("baseCurrency")
+    let base_currency = core_text(company, "baseCurrency")
+        .or_else(|| data.text("baseCurrency"))
         .unwrap_or(adapter.default_currency)
         .to_owned();
-    let fiscal_year_config = data.get("fiscalYearConfig").cloned().unwrap_or(Value::Null);
-    let fiscal_year_start = match data.get("fiscalYearStart").and_then(Value::as_i64) {
-        Some(start) => start,
-        None => fiscal_year_config["endMonth"]
-            .as_i64()
-            .map_or(1, |end| end % 12 + 1),
-    };
     let at = now();
-    let entity_id = generate_id("ent");
-    let is_default = data
-        .get("isDefault")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let accounting_method = data
+        .get("accountingMethod")
+        .filter(|m| !m.is_null())
+        .cloned()
+        .unwrap_or_else(|| if is_us { json!("accrual") } else { Value::Null });
 
-    // `newEntity`: a key with an undefined value is left out (JSON drops it).
-    let mut entity = Map::new();
-    let mut put = |key: &str, value: Option<Value>| {
-        if let Some(value) = value {
-            entity.insert(key.to_owned(), value);
-        }
-    };
-    put("id", Some(json!(entity_id)));
-    put("name", data.get("name").cloned());
-    put("legalName", data.get("legalName").cloned());
-    put("entityType", kind.entity_type.clone().map(Value::String));
-    put("taxClassification", Some(json!(kind.tax_classification)));
-    put("dba", Some(data.get("dba").cloned().unwrap_or(Value::Null)));
-    put(
-        "accountingMethod",
-        Some(
-            data.get("accountingMethod")
-                .filter(|m| !m.is_null())
-                .cloned()
-                .unwrap_or_else(|| if is_us { json!("accrual") } else { Value::Null }),
-        ),
-    );
-    put("jurisdictionCode", Some(json!(code)));
-    put("baseCurrency", Some(json!(base_currency)));
-    put("locale", Some(json!(locale)));
-    put("timezone", timezone.clone().map(Value::String));
-    put("taxIdentifiers", tax_identifiers.map(Value::Object));
-    put("address", Some(address.unwrap_or(Value::Null)));
-    put("contact", data.get("contact").cloned());
-    put("bankDetails", data.get("bankDetails").cloned());
-    put("branding", data.get("branding").cloned());
-    put(
-        "jurisdictionSettings",
-        jurisdiction_settings.map(Value::Object),
-    );
-    put("fiscalYearStart", Some(json!(fiscal_year_start)));
-    put("fiscalYearConfig", Some(fiscal_year_config));
-    put("ssnEncrypted", Some(ssn_encrypted));
-    put("ssnLast4", Some(ssn_last4));
-    put("isDefault", Some(json!(is_default)));
-    put("isActive", Some(json!(true)));
-    put("createdAt", Some(json!(at)));
-    put("updatedAt", Some(json!(at)));
-
-    ENTITIES.insert_raw(db, ENTITIES.values(&entity)).await?;
-
-    // Numbering sequences: invoice, bill, credit note, journal.
-    for (kind_name, prefix) in [
-        ("invoice", "INV-"),
-        ("bill", "BILL-"),
-        ("creditNote", "CN-"),
-        ("journal", "JE-"),
-    ] {
-        let mut sequence = Map::new();
-        for (key, value) in [
-            ("id", json!(generate_id("seq"))),
-            ("entityId", json!(entity_id)),
-            ("sequenceType", json!(kind_name)),
-            ("prefix", json!(prefix)),
-            ("nextValue", json!(1)),
-            ("padding", json!(adapter.default_padding)),
-            ("createdAt", json!(at)),
-            ("updatedAt", json!(at)),
-        ] {
-            sequence.insert(key.to_owned(), value);
-        }
-        ENTITY_NUMBER_SEQUENCES
-            .insert_raw(db, ENTITY_NUMBER_SEQUENCES.values(&sequence))
-            .await?;
-    }
-
-    let (accounts_created, rates_created) = if data.seed_defaults {
-        seed_defaults(
-            db,
-            &entity_id,
-            &code,
-            &base_currency,
-            &kind,
-            timezone.as_deref(),
-            &at,
+    // 1. The company: the existing one, created here only when none was named.
+    let (entity_id, is_default, entity_name) = if let Some(company) = company {
+        (
+            core_text(Some(company), "id")
+                .unwrap_or_default()
+                .to_owned(),
+            company
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            company.get("name").cloned().unwrap_or(Value::Null),
         )
-        .await?
     } else {
-        (0, 0)
+        let fiscal_year_config = data.get("fiscalYearConfig").cloned().unwrap_or(Value::Null);
+        let fiscal_year_start = match data.get("fiscalYearStart").and_then(Value::as_i64) {
+            Some(start) => start,
+            None => fiscal_year_config["endMonth"]
+                .as_i64()
+                .map_or(1, |end| end % 12 + 1),
+        };
+        let input = CreateLegalEntityInput {
+            name: data.text("name").unwrap_or_default().to_owned(),
+            legal_name: text_field_of(data.get("legalName")),
+            // `data.dba ?? null`
+            dba: match data.get("dba") {
+                Some(Value::String(dba)) => Field::Set(dba.clone()),
+                _ => Field::Null,
+            },
+            // `kind.entityType ?? undefined`
+            entity_type: kind.entity_type.clone().map_or(Field::Absent, Field::Set),
+            jurisdiction_code: code.clone(),
+            base_currency: base_currency.clone(),
+            locale: Some(locale.clone()),
+            timezone: timezone.clone(),
+            address: address.clone().map_or(Field::Null, Field::Set),
+            contact: field_of(data.get("contact")),
+            branding: core_branding_of(data.get("branding")).map_or(Field::Absent, |branding| {
+                Field::Set(Value::Object(branding))
+            }),
+            fiscal_year_start: i32::try_from(fiscal_year_start).ok(),
+            fiscal_year_config: field_of(Some(&fiscal_year_config)),
+            tax_classification: kind
+                .tax_classification
+                .clone()
+                .map_or(Field::Null, Field::Set),
+            is_default: data.get("isDefault").and_then(Value::as_bool),
+        };
+        let created = create_legal_entity(db, &input)
+            .await
+            .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
+        caller.publish(
+            state,
+            LEGAL_ENTITY_CREATED,
+            &created.id,
+            json!({
+                "id": created.id,
+                "name": created.name,
+                "jurisdictionCode": created.jurisdiction_code,
+            }),
+        );
+        (
+            created.id.clone(),
+            created.is_default.unwrap_or(false),
+            Value::String(created.name.clone()),
+        )
     };
-    if is_default {
+
+    // 2. The tax identifiers are the company's registrations.
+    sync_registrations_from_tax_identifiers(
+        db,
+        &entity_id,
+        &code,
+        tax_identifiers.as_ref(),
+        &touched,
+    )
+    .await?;
+
+    // 3. WeldBooks' extension, and (release 1 mirror) the same values on the old entity columns.
+    let mut extension = Map::new();
+    extension.insert("accountingMethod".to_owned(), accounting_method.clone());
+    extension.insert(
+        "jurisdictionSettings".to_owned(),
+        jurisdiction_settings
+            .clone()
+            .map_or(Value::Null, Value::Object),
+    );
+    extension.insert("ssnEncrypted".to_owned(), ssn_encrypted.clone());
+    extension.insert("ssnLast4".to_owned(), ssn_last4.clone());
+    if let Some(texts) = document_texts_of(data.get("branding")).filter(|t| !t.is_empty()) {
+        extension.insert("documentTexts".to_owned(), Value::Object(texts));
+    }
+    upsert_accounting_entity_settings(db, &entity_id, &extension).await?;
+    let mut mirror = Map::new();
+    mirror.insert("accountingMethod".to_owned(), accounting_method);
+    if let Some(ids) = &tax_identifiers {
+        mirror.insert("taxIdentifiers".to_owned(), Value::Object(ids.clone()));
+    }
+    if let Some(settings) = &jurisdiction_settings {
+        mirror.insert(
+            "jurisdictionSettings".to_owned(),
+            Value::Object(settings.clone()),
+        );
+    }
+    mirror.insert("ssnEncrypted".to_owned(), ssn_encrypted);
+    mirror.insert("ssnLast4".to_owned(), ssn_last4);
+    for key in ["bankDetails", "branding"] {
+        if let Some(value) = data.get(key) {
+            mirror.insert(key.to_owned(), value.clone());
+        }
+    }
+    mirror.insert("updatedAt".to_owned(), json!(at));
+    ENTITIES
+        .patch_raw(db, &entity_id, ENTITIES.values(&mirror), false)
+        .await?;
+
+    // 4. Numbering, chart of accounts and tax rates.
+    let (accounts_created, rates_created) = seed_weldbooks_defaults(
+        db,
+        &SeedDefaults {
+            entity_id: &entity_id,
+            code: &code,
+            base_currency: &base_currency,
+            padding: adapter.default_padding,
+            kind: &kind,
+            timezone: timezone.as_deref(),
+            seed_chart: data.seed_defaults,
+            at: &at,
+        },
+    )
+    .await?;
+
+    // The default entity: the first company, or the one asked for.
+    if company.is_some()
+        && data.get("isDefault").and_then(Value::as_bool) == Some(true)
+        && !is_default
+    {
+        set_default_legal_entity(db, &entity_id)
+            .await
+            .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
+    } else if is_default {
         make_default_entity(db, &entity_id, &at).await?;
     }
     write_accounting_audit(
@@ -671,13 +864,16 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         &entity_id,
         json!({
             "id": entity_id,
-            "name": entity.get("name"),
+            "name": entity_name,
             "jurisdictionCode": code,
             "entityType": kind.entity_type,
             "taxClassification": kind.tax_classification,
         }),
     );
-    let mut out = object(serialize(&entity));
+    let Some(entity) = load_accounting_entity(db, &entity_id).await? else {
+        return Err(Refusal::Internal("the new entity is gone".to_owned()));
+    };
+    let mut out = object(serialize(&object(entity)));
     out.insert("accountsCreated".to_owned(), json!(accounts_created));
     out.insert("taxRatesCreated".to_owned(), json!(rates_created));
     Ok(created(Value::Object(out)))
@@ -692,29 +888,98 @@ fn given_text(data: &EntityBody, key: &str) -> Given<String> {
     }
 }
 
-/// `seedEntityDefaults`: the chart and the standard tax rates.
+/// What `seedWeldbooksDefaults` needs.
+struct SeedDefaults<'a> {
+    entity_id: &'a str,
+    code: &'a str,
+    base_currency: &'a str,
+    /// `adapter.getInvoiceRequirements(locale).defaultPadding`.
+    padding: i64,
+    kind: &'a EntityKind,
+    timezone: Option<&'a str>,
+    seed_chart: bool,
+    at: &'a str,
+}
+
+/// `seedWeldbooksDefaults`: the number sequences (invoice, bill, credit
+/// note, journal), then, with `seedDefaults`, the chart of accounts and the
+/// tax rates; once per entity, so enabling WeldBooks again after it was
+/// switched off keeps what is already there.
+async fn seed_weldbooks_defaults(
+    db: &sqlx::PgPool,
+    args: &SeedDefaults<'_>,
+) -> Result<(usize, usize), sqlx::Error> {
+    let mut ids = Vec::new();
+    let mut types = Vec::new();
+    let mut prefixes = Vec::new();
+    for (kind_name, prefix) in [
+        ("invoice", "INV-"),
+        ("bill", "BILL-"),
+        ("creditNote", "CN-"),
+        ("journal", "JE-"),
+    ] {
+        ids.push(generate_id("seq"));
+        types.push(kind_name);
+        prefixes.push(prefix);
+    }
+    sqlx::query(
+        "insert into entity_number_sequences \
+           (id, entity_id, sequence_type, prefix, next_value, padding, created_at, updated_at) \
+         select s.id, $2, s.sequence_type, s.prefix, 1, $5, $6::timestamp, $6::timestamp \
+         from unnest($1::text[], $3::text[], $4::text[]) as s(id, sequence_type, prefix) \
+         on conflict do nothing",
+    )
+    .bind(&ids)
+    .bind(args.entity_id)
+    .bind(&types)
+    .bind(&prefixes)
+    .bind(i32::try_from(args.padding).unwrap_or(4))
+    .bind(args.at)
+    .execute(db)
+    .await?;
+    if !args.seed_chart {
+        return Ok((0, 0));
+    }
+    seed_defaults(db, args).await
+}
+
+/// `seedEntityDefaults`: the chart and the standard tax rates, each only
+/// when the entity has none yet.
 async fn seed_defaults(
     db: &sqlx::PgPool,
-    entity_id: &str,
-    code: &str,
-    base_currency: &str,
-    kind: &EntityKind,
-    timezone: Option<&str>,
-    at: &str,
+    args: &SeedDefaults<'_>,
 ) -> Result<(usize, usize), sqlx::Error> {
-    let accounts = build_seed_accounts(&SeedArgs {
-        entity_id,
-        jurisdiction: code,
-        base_currency,
-        kind,
-        tax_year: tax_year_of(timezone),
-        now: at,
-    });
-    let categories = jurisdictions::tax_categories(
-        code,
-        kind.entity_type.as_deref(),
-        kind.tax_classification.as_deref(),
-    );
+    let (has_accounts, has_rates): (bool, bool) = sqlx::query_as(
+        "select exists (select 1 from accounts where entity_id = $1), \
+                exists (select 1 from tax_rates where entity_id = $1)",
+    )
+    .bind(args.entity_id)
+    .fetch_one(db)
+    .await?;
+    let accounts = if has_accounts {
+        Vec::new()
+    } else {
+        build_seed_accounts(&SeedArgs {
+            entity_id: args.entity_id,
+            jurisdiction: args.code,
+            base_currency: args.base_currency,
+            kind: args.kind,
+            tax_year: tax_year_of(args.timezone),
+            now: args.at,
+        })
+    };
+    let categories: &[Value] = if has_rates {
+        &[]
+    } else {
+        jurisdictions::tax_categories(
+            args.code,
+            args.kind.entity_type.as_deref(),
+            args.kind.tax_classification.as_deref(),
+        )
+    };
+    let entity_id = args.entity_id;
+    let code = args.code;
+    let at = args.at;
     let rates: Vec<Map<String, Value>> = categories
         .iter()
         .map(|t| {
@@ -957,15 +1222,58 @@ fn audit_value(column: &str, value: Option<&Value>) -> Value {
     value
 }
 
+/// The core fields of a PATCH patch (`CORE_PATCH_KEYS`, everything else stays
+/// WeldBooks' own or a mirror), with the core part of the body's branding;
+/// `None` when the patch touches none of them.
+fn core_patch_of(
+    patch: &Map<String, Value>,
+    branding: Option<&Value>,
+) -> Option<UpdateLegalEntityInput> {
+    let text = |key: &str| patch.get(key).and_then(Value::as_str).map(str::to_owned);
+    let mut input = UpdateLegalEntityInput {
+        name: text("name"),
+        legal_name: text_field_of(patch.get("legalName")),
+        dba: text_field_of(patch.get("dba")),
+        entity_type: text_field_of(patch.get("entityType")),
+        jurisdiction_code: text("jurisdictionCode"),
+        base_currency: text("baseCurrency"),
+        locale: text("locale"),
+        timezone: text("timezone"),
+        address: field_of(patch.get("address")),
+        contact: field_of(patch.get("contact")),
+        fiscal_year_start: patch
+            .get("fiscalYearStart")
+            .and_then(Value::as_i64)
+            .and_then(|start| i32::try_from(start).ok()),
+        fiscal_year_config: field_of(patch.get("fiscalYearConfig")),
+        tax_classification: text_field_of(patch.get("taxClassification")),
+        branding: Field::Absent,
+    };
+    if let Some(core) = core_branding_of(branding) {
+        input.branding = Field::Set(Value::Object(core));
+    }
+    (input != UpdateLegalEntityInput::default()).then_some(input)
+}
+
 #[allow(clippy::too_many_lines)] // the worker's handler, step by step
 async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: EntityBody) -> Reply {
     let db = &caller.db;
     // `jurisdiction` / `vatNumber` are request-shape aliases; `ssn` is sealed before it is stored.
+    // `isDefault` goes through core (`setDefaultLegalEntity`), `invoiceBankAccountId`
+    // to the WeldBooks extension.
     let jurisdiction_alias = body.text("jurisdiction").map(str::to_owned);
     let vat_alias = body.get("vatNumber").cloned();
     let ssn = body.get("ssn").cloned();
+    let is_default = body.get("isDefault").and_then(Value::as_bool);
+    let invoice_bank_account_id = body.get("invoiceBankAccountId").cloned();
     let mut data = body;
-    for alias in ["jurisdiction", "vatNumber", "ssn"] {
+    for alias in [
+        "jurisdiction",
+        "vatNumber",
+        "ssn",
+        "isDefault",
+        "invoiceBankAccountId",
+    ] {
         data.data.remove(alias);
     }
     let Some(existing) = find_active(caller, id).await? else {
@@ -1177,22 +1485,74 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         }
     }
 
+    if let Some(account) = invoice_bank_account_id
+        .as_ref()
+        .and_then(Value::as_str)
+        .filter(|account| !account.is_empty())
+    {
+        let found: Option<String> = sqlx::query_scalar(
+            "select id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
+        )
+        .bind(account)
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+        if found.is_none() {
+            return Err(Refusal::bad_request(
+                "That bank account does not belong to this entity",
+            ));
+        }
+    }
+
+    // 1. The company's own fields go through core.
+    if let Some(core_patch) = core_patch_of(&patch, data.get("branding")) {
+        update_legal_entity(db, id, &core_patch)
+            .await
+            .map_err(|error| legal_entity_refusal(error, Refusal::conflict))?;
+    }
+
+    // 2. The tax identifiers are the company's registrations.
+    if let Some(Value::Object(ids)) = patch.get("taxIdentifiers") {
+        sync_registrations_from_tax_identifiers(db, id, &next, Some(ids), &touched).await?;
+    }
+
+    // 3. What WeldBooks adds on top: the extension row.
+    let mut extension = Map::new();
+    for key in ["accountingMethod", "ssnEncrypted", "ssnLast4"] {
+        if let Some(value) = patch.get(key) {
+            extension.insert(key.to_owned(), value.clone());
+        }
+    }
+    if let Some(settings) = patch.get("jurisdictionSettings") {
+        extension.insert("jurisdictionSettings".to_owned(), settings.clone());
+    }
+    if data.get("branding").is_some() {
+        let texts = document_texts_of(data.get("branding")).unwrap_or_default();
+        extension.insert("documentTexts".to_owned(), Value::Object(texts));
+    }
+    if let Some(account) = &invoice_bank_account_id {
+        extension.insert("invoiceBankAccountId".to_owned(), account.clone());
+    }
+    upsert_accounting_entity_settings(db, id, &extension).await?;
+
+    // 4. Release 1 mirror: the old entity columns keep every value too
+    // (readers outside the loader, old workers).
     ENTITIES
         .patch_raw(db, id, ENTITIES.values(&patch), true)
         .await?;
-    let updated: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let updated = updated
-        .map(|row| object(ENTITIES.js(row)))
-        .unwrap_or_default();
 
-    let changes: Map<String, Value> = patch
+    // 5. Making it the workspace default is core's call (it also keeps
+    // settings.default_entity_id in step).
+    if is_default == Some(true) && existing.get("isDefault").and_then(Value::as_bool) != Some(true)
+    {
+        set_default_legal_entity(db, id)
+            .await
+            .map_err(|error| legal_entity_refusal(error, Refusal::conflict))?;
+    }
+
+    let updated = load_accounting_entity(db, id).await?.map(object);
+
+    let mut changes: Map<String, Value> = patch
         .iter()
         .filter(|(key, _)| {
             key.as_str() != "updatedAt" && !weldsuite_events::SENSITIVE_KEYS.contains(&key.as_str())
@@ -1207,6 +1567,18 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
             )
         })
         .collect();
+    if let Some(account) = &invoice_bank_account_id {
+        changes.insert(
+            "invoiceBankAccountId".to_owned(),
+            change(
+                existing
+                    .get("invoiceBankAccountId")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                account.clone(),
+            ),
+        );
+    }
     write_accounting_audit(
         caller,
         db,
@@ -1219,19 +1591,20 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         },
     )
     .await;
-    caller.publish(
-        state,
-        ACCOUNTING_ENTITY_UPDATED,
-        id,
-        json!({ "id": id, "name": updated.get("name") }),
-    );
+    // `{ id, name: updated?.name }`: no name when the entity is gone.
+    let mut event = Map::new();
+    event.insert("id".to_owned(), json!(id));
+    if let Some(name) = updated.as_ref().and_then(|row| row.get("name")) {
+        event.insert("name".to_owned(), name.clone());
+    }
+    caller.publish(state, ACCOUNTING_ENTITY_UPDATED, id, Value::Object(event));
     if next == "BR"
         && let Some(classification) = patch.get("taxClassification")
         && Some(classification) != existing.get("taxClassification")
     {
         sync_br_tax_profiles(db, id, classification.as_str()).await?;
     }
-    let mut out = object(serialize(&updated));
+    let mut out = object(serialize(updated.as_ref().unwrap_or(&existing)));
     out.extend(object(lock_state(db, id).await?));
     out.insert("taxLineRemapNeeded".to_owned(), json!(form_changed));
     Ok(ok(Value::Object(out)))
@@ -1407,17 +1780,23 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        if find_active(&caller, &id).await?.is_none() {
+        let enabled = find_active(&caller, &id)
+            .await?
+            .is_some_and(|entity| entity.get("weldbooksEnabled") == Some(&Value::Bool(true)));
+        if !enabled {
             return Err(Refusal::not_found("Entity", &id));
         }
-        let at = now();
-        sqlx::query(
-            "update entities set deleted_at = $1::timestamp, is_active = false, updated_at = $1::timestamp where id = $2",
-        )
-        .bind(&at)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        let has_data = LegalEntityApp::Weldbooks.has_data(&caller.db, &id).await?;
+        if has_data || lock_state(&caller.db, &id).await?["hasPostings"] == true {
+            return Err(Refusal::conflict_with(
+                "WeldBooks already holds invoices, bills or journal entries for this entity. Archive or delete the company in Settings → Legal entities instead.",
+                json!({ "code": "ENTITY_HAS_POSTINGS" }),
+            ));
+        }
+        sqlx::query("delete from accounting_entity_settings where entity_id = $1")
+            .bind(&id)
+            .execute(&caller.db)
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,

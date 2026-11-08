@@ -473,6 +473,9 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
+                        legal_entity_context layer and record guard for books and hr, the core service
+                        (entities, registrations, bank accounts, access) and its request schemas
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
@@ -542,7 +545,7 @@ rust/
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
-                        modules/core-team (team, roles, settings, preferences, app catalog),
+                        modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
                         modules/core-platform (notifications, audit logs, appstore, API keys, credits,
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:

@@ -28,6 +28,7 @@ import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { displayNameOf } from '../employees';
 import { HrConflictError, HrNotFoundError, HrPayrollError } from '../shared';
 import { hasError, type EmployerRow, type PayslipRow, type RunRow } from './common';
+import { loadEmployerForPayroll } from './employer-context';
 import { dataVersion, runInputsStamp } from './calculate';
 import type { PayrollDeps, UsageEventInput } from './deps';
 import { bankOf, decryptSensitive, sealBank } from './employees';
@@ -166,8 +167,7 @@ async function claimAndFinalise(db: Database, runId: string, deps: PayrollDeps, 
   if (hasError(run.issues)) {
     throw new HrPayrollError('RUN_HAS_ERRORS', `Resolve the ${errors.length} error${errors.length === 1 ? '' : 's'} in this run before approving it`, 409, { issues: errors });
   }
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
-  if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
+  const employer = await loadEmployerForPayroll(db, run.employerId, deps.keyring);
   if (fourEyesBlocks(employer, run, ctx.userId)) {
     throw new HrPayrollError('FOUR_EYES', 'This employer requires a second person to approve: the member who calculated the run cannot approve it', 409);
   }

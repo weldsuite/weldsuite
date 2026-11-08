@@ -2,14 +2,16 @@
  * WeldHR landing-page rollup. One request, a handful of cheap aggregates.
  */
 
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { displayNameOf } from './employees';
 import { listClientAccounts } from './assignments';
+import { employeeIdIn } from './entity-scope';
 import { onLeaveOn } from './time';
 import { addDays, todayIso } from './shared';
 
-export async function hrDashboard(db: Database) {
+/** `entity`: condition on the employees' legal entity (docs/plans/legal-entities.md); undefined = every employee. */
+export async function hrDashboard(db: Database, entity?: SQL) {
   const today = todayIso();
   const e = schema.hrEmployees;
   const att = schema.hrAttendanceRecords;
@@ -24,7 +26,7 @@ export async function hrDashboard(db: Database) {
       db
         .select({ status: e.status, count: sql<number>`count(*)` })
         .from(e)
-        .where(isNull(e.deletedAt))
+        .where(and(isNull(e.deletedAt), entity))
         .groupBy(e.status),
       db
         .select({
@@ -33,7 +35,7 @@ export async function hrDashboard(db: Database) {
           clockedIn: sql<number>`count(*) filter (where ${att.clockIn} is not null and ${att.clockOut} is null)`,
         })
         .from(att)
-        .where(eq(att.date, today))
+        .where(and(eq(att.date, today), employeeIdIn(att.employeeId, entity)))
         .groupBy(att.status),
       db
         .select({
@@ -42,12 +44,15 @@ export async function hrDashboard(db: Database) {
         })
         .from(tsk)
         .innerJoin(chk, eq(chk.id, tsk.checklistId))
-        .where(and(isNull(tsk.completedAt), eq(chk.status, 'in_progress'))),
-      db.select({ count: sql<number>`count(*)` }).from(lr).where(eq(lr.status, 'pending')),
+        .where(and(isNull(tsk.completedAt), eq(chk.status, 'in_progress'), employeeIdIn(tsk.employeeId, entity))),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(lr)
+        .where(and(eq(lr.status, 'pending'), employeeIdIn(lr.employeeId, entity))),
       db
         .select({ count: sql<number>`count(*)` })
         .from(co)
-        .where(and(isNull(co.deletedAt), sql`${co.status} <> 'closed'`, lte(co.followUpDate, today))),
+        .where(and(isNull(co.deletedAt), sql`${co.status} <> 'closed'`, lte(co.followUpDate, today), employeeIdIn(co.employeeId, entity))),
       db
         .select({
           id: ev.id,
@@ -61,7 +66,7 @@ export async function hrDashboard(db: Database) {
         })
         .from(ev)
         .innerJoin(e, eq(e.id, ev.employeeId))
-        .where(and(isNull(ev.deletedAt), isNull(e.deletedAt), inArray(ev.status, ['submitted', 'acknowledged'])))
+        .where(and(isNull(ev.deletedAt), isNull(e.deletedAt), inArray(ev.status, ['submitted', 'acknowledged']), entity))
         .orderBy(desc(ev.submittedAt))
         .limit(5),
       db
@@ -72,6 +77,7 @@ export async function hrDashboard(db: Database) {
             isNull(ev.deletedAt),
             inArray(ev.status, ['submitted', 'acknowledged']),
             gte(ev.submittedAt, new Date(`${addDays(today, -90)}T00:00:00Z`)),
+            employeeIdIn(ev.employeeId, entity),
           ),
         ),
       db
@@ -85,11 +91,11 @@ export async function hrDashboard(db: Database) {
           status: e.status,
         })
         .from(e)
-        .where(and(isNull(e.deletedAt), gte(e.startDate, today), lte(e.startDate, addDays(today, 30))))
+        .where(and(isNull(e.deletedAt), gte(e.startDate, today), lte(e.startDate, addDays(today, 30)), entity))
         .orderBy(e.startDate)
         .limit(10),
-      onLeaveOn(db, today),
-      listClientAccounts(db),
+      onLeaveOn(db, today, entity),
+      listClientAccounts(db, entity),
     ]);
 
   const byStatus: Record<string, number> = {};

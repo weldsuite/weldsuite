@@ -17,13 +17,14 @@
  * Permissions: banking:read | banking:create | banking:update | banking:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
@@ -45,6 +46,9 @@ import {
 import { csvFormatSchema } from '../../services/bank-parsers/csv-format-schema';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.bankAccounts, { label: 'Bank account' });
 const t = schema.bankAccounts;
 
 const routingNumber = z.string().regex(/^\d{9}$/, 'A routing number has nine digits');
@@ -72,6 +76,12 @@ const createBankAccountSchema = z.object({
   accountNumber: z.string().min(4).max(40).optional(),
   /** Set false to link an existing ledger account later instead of creating one for a typed account. */
   createLedgerAccount: z.boolean().optional(),
+  /**
+   * Bring an existing core bank account of the entity into WeldBooks (it has no
+   * ledger side yet, e.g. an account added in Settings → Legal entities): only
+   * the WeldBooks settings row is added; the name, numbers and the like stay.
+   */
+  bankAccountId: z.string().min(1).max(30).optional(),
 });
 
 const updateBankAccountSchema = z.object(baseFields).partial().extend({
@@ -80,6 +90,7 @@ const updateBankAccountSchema = z.object(baseFields).partial().extend({
 });
 
 type BankAccountRow = typeof t.$inferSelect;
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 /** Load a ledger account of the entity, or answer with the reason it can't be used. */
 async function loadLedgerAccount(
@@ -102,6 +113,107 @@ function badNumbers(data: { routingNumber?: string | null; accountNumber?: strin
   if (data.routingNumber && !isValidAbaRouting(data.routingNumber)) return 'That routing number does not pass the ABA check. Check the nine digits.';
   if (data.accountNumber && !normalizeAccountNumber(data.accountNumber)) return 'An account number has 4 to 34 letters or digits.';
   return null;
+}
+
+/** The WeldBooks columns of a bank account, for `accounting_bank_account_settings`. */
+function settingsValues(account: BankAccountRow) {
+  return {
+    bankAccountId: account.id,
+    entityId: account.entityId,
+    ledgerAccountId: account.ledgerAccountId ?? null,
+    currentBalance: account.currentBalance ?? '0',
+    autoReconcile: account.autoReconcile ?? true,
+    nextCheckNumber: account.nextCheckNumber ?? null,
+    importSettings: account.importSettings ?? null,
+  };
+}
+
+/** Upsert the account's settings row from the (mirrored) bank account row. */
+async function upsertBankAccountSettings(db: Database, account: BankAccountRow): Promise<void> {
+  const values = settingsValues(account);
+  const { bankAccountId: _id, ...set } = values;
+  await db
+    .insert(schema.accountingBankAccountSettings)
+    .values(values)
+    .onConflictDoUpdate({ target: schema.accountingBankAccountSettings.bankAccountId, set: { ...set, updatedAt: new Date() } });
+}
+
+/**
+ * POST with `bankAccountId`: the core account becomes a WeldBooks bank account.
+ * Takes the ledger account given, else (for an account with a type) plans one
+ * like a new account would; the old WeldBooks columns on the core row are
+ * mirrored.
+ */
+async function bringIntoWeldbooks(
+  c: AppContext,
+  db: Database,
+  entityId: string,
+  data: z.infer<typeof createBankAccountSchema>,
+): Promise<Response> {
+  const bankAccountId = data.bankAccountId as string;
+  const [core] = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.id, bankAccountId), eq(t.entityId, entityId), isNull(t.deletedAt)))
+    .limit(1);
+  if (!core) return error.notFound(c, 'Bank account', bankAccountId);
+  const [inBooks] = await db
+    .select({ id: schema.accountingBankAccountSettings.bankAccountId })
+    .from(schema.accountingBankAccountSettings)
+    .where(eq(schema.accountingBankAccountSettings.bankAccountId, bankAccountId))
+    .limit(1);
+  if (inBooks) return error.conflict(c, 'This bank account is already in WeldBooks');
+
+  const accountType = data.accountType ?? core.accountType;
+  let ledgerAccountId = data.ledgerAccountId ?? null;
+  let newLedger: Extract<Awaited<ReturnType<typeof planBankLedgerAccount>>, { kind: 'new' }>['row'] | null = null;
+  let ledgerInfo: { id: string; code: string; name: string; created: boolean } | undefined;
+  if (ledgerAccountId) {
+    await loadLedgerAccount(db, entityId, ledgerAccountId, accountType);
+  } else if (accountType && data.createLedgerAccount !== false) {
+    const plan = await planBankLedgerAccount(db, {
+      entityId,
+      name: core.name,
+      accountType: accountType as (typeof BANK_ACCOUNT_TYPES)[number],
+      currency: await resolveEntityBaseCurrency(db, entityId),
+    });
+    if (plan.kind === 'existing') {
+      ledgerAccountId = plan.account.id;
+      ledgerInfo = { id: plan.account.id, code: plan.account.code, name: plan.account.name, created: false };
+    } else {
+      newLedger = plan.row;
+      ledgerAccountId = plan.row.id;
+      ledgerInfo = { id: plan.row.id, code: plan.row.code, name: plan.row.name, created: true };
+    }
+  }
+  if (!ledgerAccountId) return error.badRequest(c, 'Choose a ledger account for the bank account');
+
+  const patch: Partial<BankAccountRow> = {
+    ledgerAccountId,
+    ...(data.accountType ? { accountType: data.accountType } : {}),
+    ...(data.autoReconcile !== undefined ? { autoReconcile: data.autoReconcile } : {}),
+    ...(data.nextCheckNumber !== undefined ? { nextCheckNumber: data.nextCheckNumber } : {}),
+    ...(data.importSettings ? { importSettings: data.importSettings } : {}),
+  };
+  const merged = { ...core, ...patch };
+  await atomically(db, (h) => [
+    ...(newLedger ? [h.insert(schema.accounts).values(newLedger)] : []),
+    h.update(t).set({ ...patch, updatedAt: new Date() }).where(eq(t.id, bankAccountId)),
+    h.insert(schema.accountingBankAccountSettings).values(settingsValues(merged)),
+  ]);
+  if (newLedger) {
+    publishEntityEvent({ c, entityType: 'account', entityId: newLedger.id, action: 'created', data: newLedger as unknown as Record<string, unknown> });
+  }
+  const payload = publicBankAccount(merged);
+  publishEntityEvent({ c, entityType: 'bank_account', entityId: bankAccountId, action: 'updated', data: payload as unknown as Record<string, unknown> });
+  await writeAccountingAudit(c, db, {
+    accountingEntityId: entityId,
+    entityType: 'bank_account',
+    entityId: bankAccountId,
+    action: 'updated',
+    changes: { ledgerAccountId: { old: core.ledgerAccountId, new: ledgerAccountId } },
+  });
+  return success(c, { ...payload, ledgerAccount: ledgerInfo }, 201);
 }
 
 // GET / — all bank accounts for the resolved accounting entity
@@ -147,6 +259,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     if (!accountingEntityId) return error.badRequest(c, 'No accounting entity resolved');
     const invalid = badNumbers(data);
     if (invalid) return error.badRequest(c, invalid);
+    if (data.bankAccountId) return await bringIntoWeldbooks(c, db, accountingEntityId, data);
 
     const currency = data.currency ?? (await resolveEntityBaseCurrency(db, accountingEntityId));
 
@@ -176,7 +289,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     const normalized = data.accountNumber ? normalizeAccountNumber(data.accountNumber) : null;
     const sealed = normalized ? await sealAccountNumber(c.env, normalized) : null;
 
-    const { accountNumber: _accountNumber, createLedgerAccount: _create, ...fields } = data;
+    const { accountNumber: _accountNumber, createLedgerAccount: _create, bankAccountId: _core, ...fields } = data;
     const now = new Date();
     const newAccount = {
       id: generateId('ba'),
@@ -193,6 +306,8 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     await atomically(db, (h) => [
       ...(newLedger ? [h.insert(schema.accounts).values(newLedger)] : []),
       h.insert(t).values(newAccount),
+      // WeldBooks' side of the account (release 1 writes it next to the old columns).
+      h.insert(schema.accountingBankAccountSettings).values(settingsValues(newAccount as unknown as BankAccountRow)),
     ]);
 
     if (newLedger) {
@@ -256,6 +371,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('banking:update'), zValidator
     if (importSettings) patch.importSettings = { ...(account.importSettings ?? {}), ...importSettings };
 
     await db.update(t).set({ ...patch, updatedAt: new Date() }).where(eq(t.id, id));
+    await upsertBankAccountSettings(db, { ...account, ...patch });
     const updated = { ...account, ...patch };
     publishEntityEvent({
       c,
@@ -319,6 +435,12 @@ app.delete('/:id', requirePermission('banking:delete'), async (c) => {
     const [account] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!account) return error.notFound(c, 'Bank account', id);
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+    // The account leaves WeldBooks too; an entity that printed it on invoices falls back to bank_details.
+    await db.delete(schema.accountingBankAccountSettings).where(eq(schema.accountingBankAccountSettings.bankAccountId, id));
+    await db
+      .update(schema.accountingEntitySettings)
+      .set({ invoiceBankAccountId: null, updatedAt: new Date() })
+      .where(eq(schema.accountingEntitySettings.invoiceBankAccountId, id));
     publishEntityEvent({
       c,
       entityType: 'bank_account',

@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE, HeaderValue};
 use serde_json::{Map, Value};
-use weldsuite_books_domain::books_row;
+use weldsuite_books_domain::accounting_entity::load_invoice_entity;
 use weldsuite_books_domain::compliance::{
     build_compliance_notices, collect_invoice_tax_categories, get_contact_vat_number,
     invoice_uses_reverse_charge,
@@ -20,7 +20,6 @@ use weldsuite_books_domain::invoice_html::{
 };
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::pix::{PixPayloadInput, build_pix_payload};
-use weldsuite_books_domain::tables::ENTITIES;
 
 use crate::finalize::{load_invoice, load_items};
 use crate::persist::{owned, text};
@@ -28,11 +27,11 @@ use crate::templates::resolve_invoice_template;
 
 pub(crate) async fn render(
     caller: Caller,
-    State(_state): State<BooksState>,
+    State(state): State<BooksState>,
     Path(id): Path<String>,
 ) -> Response {
     reply(
-        render_invoice(&caller, &id).await,
+        render_invoice(&caller, &state, &id).await,
         "Failed to generate invoice document",
     )
 }
@@ -118,22 +117,17 @@ fn pix_of(entity: &Value, invoice: &Value) -> Result<Option<Pix>, Refusal> {
     clippy::too_many_lines,
     reason = "the render data of the route, field by field"
 )]
-async fn render_invoice(caller: &Caller, id: &str) -> Reply {
+async fn render_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
     let items = load_items(db, id, true).await?;
     let entity_id = text(&invoice, "entityId").unwrap_or_default().to_owned();
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = entity.map(|e| ENTITIES.js(e)) else {
+    // Extension values merged in; the bank account printed is the one chosen
+    // for invoices, else `bank_details` (`loadInvoiceEntity(db, id, c.env)`).
+    let keyring = caller.keyring(state);
+    let Some(entity) = load_invoice_entity(db, &entity_id, Some(&keyring)).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
 

@@ -110,6 +110,8 @@ export const apiCors = () =>
       'X-Test-Token',
       'X-Test-Flags',
       'X-Accounting-Entity-Id',
+      // Current legal entity (WeldBooks, WeldHR); X-Accounting-Entity-Id stays for old clients.
+      'X-Legal-Entity-Id',
       'X-Weld-App',
       // Partner portal: which partner the caller acts for, and retry-safe credit grants.
       'X-Partner-Id',

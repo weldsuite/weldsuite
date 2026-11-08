@@ -35,6 +35,7 @@ beforeAll(async () => {
     createdAt: now,
     updatedAt: now,
   });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: ENTITY_ID });
   await db.insert(schema.parties).values([
     {
       id: 'pty_xaf_ct_001',

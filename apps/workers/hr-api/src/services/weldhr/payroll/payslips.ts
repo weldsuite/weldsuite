@@ -11,6 +11,7 @@ import type { HrMyPayslip, HrPayslip as PayslipDto, HrPayslipSummary } from '@we
 import { displayNameOf } from '../employees';
 import { HrNotFoundError } from '../shared';
 import { sortIssues, ts, type EmployerRow, type PayslipRow } from './common';
+import { findEmployerForPayroll } from './employer-context';
 import { addTotals, rowTotals, zeroTotals } from './corrections';
 import type { PayrollDeps } from './deps';
 import { decryptSensitive } from './employees';
@@ -149,7 +150,7 @@ export function languageOf(employer: Pick<EmployerRow, 'country' | 'nlSettings'>
 }
 
 export async function buildPayslipView(db: Database, row: PayslipRow, deps: Pick<PayrollDeps, 'keyring'>): Promise<{ view: PayslipView; lang: 'en' | 'nl' }> {
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, row.employerId)).limit(1);
+  const employer = await findEmployerForPayroll(db, row.employerId, deps.keyring);
   const [employee] = await db.select().from(schema.hrEmployees).where(eq(schema.hrEmployees.id, row.employeeId)).limit(1);
   if (!employer || !employee) throw new HrNotFoundError('Payslip', row.id);
   const [profile] = await db.select().from(schema.hrPayrollProfiles).where(eq(schema.hrPayrollProfiles.employeeId, row.employeeId)).limit(1);

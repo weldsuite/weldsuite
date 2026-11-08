@@ -114,6 +114,19 @@ export interface HrPayrollEmployerBankMasked {
 
 export interface HrPayrollEmployer {
   id: string;
+  /** The employing legal entity; null for an employer from before the workspace had entities. */
+  legalEntityId: string | null;
+  legalEntityName: string | null;
+  /** The `nl_payroll_tax` / `ein` registration payroll runs under. */
+  registrationId: string | null;
+  /** Its number: the loonheffingennummer (NL) or EIN (US). */
+  registrationNumber: string | null;
+  /** Core bank account salaries are paid from. */
+  bankAccountId: string | null;
+  /** Label of this registration ("L01 DGA"). */
+  label: string | null;
+  /** WeldBooks is enabled for the legal entity, so approved runs post their journal. */
+  booksEnabled: boolean;
   name: string;
   legalName: string;
   country: HrPayrollCountry;
@@ -349,6 +362,8 @@ export interface HrPayRun {
   journalStatus: HrJournalStatus;
   journalEntryId: string | null;
   journalError: string | null;
+  /** Why the journal was skipped: `books_not_enabled` (WeldBooks is not enabled for the employer's legal entity). */
+  journalReason: 'books_not_enabled' | null;
   createdAt: string;
   updatedAt: string;
 }

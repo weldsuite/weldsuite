@@ -26,6 +26,7 @@ import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/re
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import {
   generateW9Token,
@@ -40,6 +41,9 @@ import {
 } from '../../services/w9-requests';
 
 const app = new Hono<{ Bindings: Env & { PLATFORM_URL?: string }; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.w9Requests, { label: 'W-9 request' });
 
 const t = schema.w9Requests;
 

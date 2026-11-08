@@ -5,7 +5,7 @@
  * block. Also the readiness checks ("can this person be paid?").
  */
 
-import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { HrEmployeeSensitive, HrPayrollIssue } from '@weldsuite/db/schema';
 import { componentDef } from '@weldsuite/payroll-domain';
@@ -47,6 +47,7 @@ import {
   type ProfileRow,
 } from './common';
 import { addDays, ageOnDate, isIsoDate, rangesOverlap, todayIso } from './dates';
+import { findEmployerForPayroll, resolveEmployers } from './employer-context';
 import { employerIssues, readEmployerBank, workStatesOf } from './employers';
 import {
   isValidIban,
@@ -140,7 +141,7 @@ export async function loadEmployeePayrollData(
   ]);
   const employerIds = [...new Set(profiles.map((p) => p.employerId))];
   const employers = employerIds.length
-    ? await db.select().from(schema.hrPayrollEmployers).where(inArray(schema.hrPayrollEmployers.id, employerIds))
+    ? await resolveEmployers(db, await db.select().from(schema.hrPayrollEmployers).where(inArray(schema.hrPayrollEmployers.id, employerIds)), keyring)
     : [];
   const employerById = new Map(employers.map((r) => [r.id, r]));
   const profileOf = new Map(profiles.map((p) => [p.employeeId, p]));
@@ -368,18 +369,18 @@ async function employerIssueMap(db: Database, employers: EmployerRow[], keyring:
 
 export async function listPayrollEmployees(
   db: Database,
-  filters: { employerId?: string; onPayroll?: boolean },
+  filters: { employerId?: string; onPayroll?: boolean; entity?: SQL },
   keyring: EncryptionKeyring,
   today: string = todayIso(),
 ): Promise<HrPayrollEmployeeListItem[]> {
   const e = schema.hrEmployees;
-  const employees = await db.select({ id: e.id }).from(e).where(and(isNull(e.deletedAt), ne(e.status, 'terminated')));
+  const employees = await db.select({ id: e.id }).from(e).where(and(isNull(e.deletedAt), ne(e.status, 'terminated'), filters.entity));
   // Terminated employees stay in the list when they are still on a live payroll (final pay).
   const stillPaid = await db
     .select({ id: e.id })
     .from(e)
     .innerJoin(schema.hrPayrollProfiles, eq(schema.hrPayrollProfiles.employeeId, e.id))
-    .where(and(isNull(e.deletedAt), eq(e.status, 'terminated'), ne(schema.hrPayrollProfiles.status, 'ended')));
+    .where(and(isNull(e.deletedAt), eq(e.status, 'terminated'), ne(schema.hrPayrollProfiles.status, 'ended'), filters.entity));
   const ids = [...new Set([...employees, ...stillPaid].map((r) => r.id))];
   const data = await loadEmployeePayrollData(db, ids, keyring);
 
@@ -482,13 +483,13 @@ export async function transitionIncomeRelationshipNumber(db: Database, employeeI
 
 export async function upsertProfile(db: Database, employeeId: string, input: UpsertHrPayrollProfileInput): Promise<ProfileDto> {
   const employee = await requireEmployee(db, employeeId);
-  const [employer] = await db
-    .select()
-    .from(schema.hrPayrollEmployers)
-    .where(and(eq(schema.hrPayrollEmployers.id, input.employerId), isNull(schema.hrPayrollEmployers.deletedAt)))
-    .limit(1);
-  if (!employer) throw new HrNotFoundError('Payroll employer', input.employerId);
+  const employer = await findEmployerForPayroll(db, input.employerId);
+  if (!employer || employer.deletedAt) throw new HrNotFoundError('Payroll employer', input.employerId);
   if (!employer.isActive) throw new HrValidationError('This employer is not active');
+  // The employer is a payroll registration of the company that employs the employee.
+  if (employee.legalEntityId && employer.legalEntityId && employee.legalEntityId !== employer.legalEntityId) {
+    throw new HrValidationError('This employer belongs to another legal entity than the employee. Move the employee to that entity first.');
+  }
 
   if (input.payScheduleId) {
     const [schedule] = await db
@@ -568,9 +569,7 @@ export async function createCompensation(
 ): Promise<CompensationDto> {
   const employee = await requireEmployee(db, employeeId);
   const [profile] = await db.select().from(schema.hrPayrollProfiles).where(eq(schema.hrPayrollProfiles.employeeId, employeeId)).limit(1);
-  const [employer] = profile
-    ? await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, profile.employerId)).limit(1)
-    : [];
+  const employer = profile ? await findEmployerForPayroll(db, profile.employerId) : null;
 
   if (input.payType === 'hourly' && input.period !== 'hour') throw new HrValidationError('Hourly pay is an amount per hour');
   if (input.payType === 'salary' && input.period === 'hour') throw new HrValidationError('A salary is an amount per week, month or year');
@@ -642,7 +641,7 @@ export async function deleteCompensation(db: Database, id: string): Promise<{ em
 async function employerCountryOf(db: Database, employeeId: string): Promise<'NL' | 'US'> {
   const [profile] = await db.select().from(schema.hrPayrollProfiles).where(eq(schema.hrPayrollProfiles.employeeId, employeeId)).limit(1);
   if (!profile) throw new HrValidationError('Put the employee on payroll first');
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, profile.employerId)).limit(1);
+  const employer = await findEmployerForPayroll(db, profile.employerId);
   if (!employer) throw new HrValidationError('The employee\'s employer no longer exists');
   return employer.country as 'NL' | 'US';
 }
@@ -819,7 +818,7 @@ export async function setPaymentDetails(
   const [profile] = await db.select().from(schema.hrPayrollProfiles).where(eq(schema.hrPayrollProfiles.employeeId, employeeId)).limit(1);
   let country: 'NL' | 'US' | null = null;
   if (profile) {
-    const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, profile.employerId)).limit(1);
+    const employer = await findEmployerForPayroll(db, profile.employerId);
     country = (employer?.country as 'NL' | 'US' | undefined) ?? null;
   }
   const today = ctx.today ?? todayIso();

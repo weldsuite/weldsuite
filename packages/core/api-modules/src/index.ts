@@ -135,6 +135,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/grid-views',
     '/api/internal',
     '/api/invitations',
+    '/api/legal-entities',
     '/api/me',
     '/api/member-limits',
     '/api/my-role',

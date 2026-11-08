@@ -33,6 +33,8 @@ beforeAll(async () => {
     { id: 'ent_fp', name: 'Periods BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', fiscalYearStart: 7, hardLockDate: '2025-08-31' },
     { id: 'ent_week', name: 'Weeks Inc', jurisdictionCode: 'US', baseCurrency: 'USD', fiscalYearStart: 1, fiscalYearConfig: { type: 'fifty_two_fifty_three', endMonth: 12, weekday: 6, rule: 'nearest' } },
   ]);
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values([{ entityId: 'ent_fp' }, { entityId: 'ent_week' }]);
 }, 60_000);
 
 describe('fiscal periods by hand', () => {

@@ -4,13 +4,14 @@
  * and the field components are the real ones.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { STATE_CERTIFICATE_LABELS } from '@weldsuite/payroll-domain/us/states/certificate-labels';
+import { polyfillRadixSelect } from '@/app/weldbooks/invoices/components/test-utils';
 import { EmployerDialog } from './employer-dialog';
 import { ScheduleDialog } from './schedule-dialog';
 import { TaxElectionDialog } from './tax-election-dialog';
@@ -22,8 +23,15 @@ const mocks = vi.hoisted(() => ({
   updateEmployer: vi.fn(),
   createSchedule: vi.fn(),
   updateSchedule: vi.fn(),
-  accountingEntities: vi.fn((_options?: { enabled?: boolean }) => ({ data: [{ id: 'ent_1', name: 'Acme BV', baseCurrency: 'EUR' }] })),
 }));
+
+const fixtures = vi.hoisted(() => ({
+  legalEntities: [{ id: 'ent_1', name: 'Acme BV', jurisdictionCode: 'NL', baseCurrency: 'EUR', isActive: true }],
+  registrations: [{ id: 'reg_1', type: 'nl_payroll_tax', number: '123456789L01', label: null }],
+  bankAccounts: [{ id: 'bank_1', name: 'Salary', iban: null, accountNumberLast4: null, isActive: true }],
+}));
+
+vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
   useCreateHrPayrollEmployer: () => ({ mutateAsync: mocks.createEmployer, isPending: false }),
@@ -32,8 +40,10 @@ vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
   useUpdateHrPaySchedule: () => ({ mutateAsync: mocks.updateSchedule, isPending: false }),
 }));
 
-vi.mock('@/hooks/use-current-entity-currency', () => ({
-  useAccountingEntities: (options?: { enabled?: boolean }) => mocks.accountingEntities(options),
+vi.mock('@/hooks/queries/use-legal-entities-queries', () => ({
+  useLegalEntities: () => ({ data: fixtures.legalEntities, isLoading: false }),
+  useLegalEntityRegistrations: (id: string | null | undefined) => ({ data: id ? fixtures.registrations : undefined }),
+  useLegalEntityBankAccounts: (id: string | null | undefined) => ({ data: id ? fixtures.bankAccounts : undefined }),
 }));
 
 function renderInProvider(ui: React.ReactElement) {
@@ -42,6 +52,13 @@ function renderInProvider(ui: React.ReactElement) {
 
 const employer: HrPayrollEmployer = {
   id: 'emp_1',
+  legalEntityId: 'ent_1',
+  legalEntityName: 'Acme BV',
+  registrationId: 'reg_1',
+  registrationNumber: '123456789L01',
+  bankAccountId: null,
+  label: null,
+  booksEnabled: true,
   name: 'Acme',
   legalName: 'Acme BV',
   country: 'NL',
@@ -65,58 +82,90 @@ beforeEach(() => {
 });
 
 describe('EmployerDialog', () => {
-  it('does not load the WeldBooks entities without entities:read', () => {
-    mocks.accountingEntities.mockClear();
+  beforeAll(polyfillRadixSelect);
+
+  async function pickEntity(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByLabelText(t.settings.employers.legalEntity));
+    await user.click(await screen.findByRole('option', { name: /Acme BV/ }));
+  }
+
+  it('asks for the legal entity, not for name, country, currency or address', () => {
     renderInProvider(<EmployerDialog onClose={vi.fn()} />);
 
-    expect(mocks.accountingEntities).toHaveBeenCalledWith({ enabled: false });
+    expect(screen.getByLabelText(t.settings.employers.legalEntity)).toBeTruthy();
+    expect(screen.queryByLabelText(t.settings.employers.name)).toBeNull();
+    expect(screen.queryByLabelText(t.settings.employers.legalName)).toBeNull();
+    expect(screen.queryByLabelText(en.weldhr.payroll.common.country)).toBeNull();
+    expect(screen.queryByLabelText(t.settings.employers.street)).toBeNull();
   });
 
-  it('creates a Dutch employer with its loonheffingennummer', async () => {
+  it('creates a Dutch employer from a legal entity with a new loonheffingennummer', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderInProvider(<EmployerDialog onClose={onClose} />);
 
-    await user.type(screen.getByLabelText(t.settings.employers.name), 'Acme');
-    await user.type(screen.getByLabelText(t.settings.employers.legalName), 'Acme BV');
-    await user.type(screen.getByLabelText(t.settings.employers.loonheffingennummer), '123456789L01');
+    await pickEntity(user);
+    await user.type(screen.getByLabelText(t.settings.employers.registrationNumber), '123456789l02');
     await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
 
     await waitFor(() => expect(mocks.createEmployer).toHaveBeenCalledTimes(1));
-    expect(mocks.createEmployer.mock.calls[0][0]).toMatchObject({
-      name: 'Acme',
-      legalName: 'Acme BV',
-      country: 'NL',
-      nlSettings: { loonheffingennummer: '123456789L01' },
-    });
+    const payload = mocks.createEmployer.mock.calls[0][0];
+    expect(payload).toMatchObject({ legalEntityId: 'ent_1', registrationNumber: '123456789L02', country: 'NL' });
+    expect(payload).not.toHaveProperty('name');
+    expect(payload).not.toHaveProperty('address');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('links an existing registration of the entity instead of a typed number', async () => {
+    const user = userEvent.setup();
+    renderInProvider(<EmployerDialog onClose={vi.fn()} />);
+
+    await pickEntity(user);
+    await user.click(screen.getByLabelText(t.settings.employers.loonheffingennummer));
+    await user.click(await screen.findByRole('option', { name: /123456789L01/ }));
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    await waitFor(() => expect(mocks.createEmployer).toHaveBeenCalledTimes(1));
+    const payload = mocks.createEmployer.mock.calls[0][0];
+    expect(payload).toMatchObject({ legalEntityId: 'ent_1', registrationId: 'reg_1' });
+    expect(payload).not.toHaveProperty('registrationNumber');
   });
 
   it('does not submit an invalid loonheffingennummer and shows the problem', async () => {
     const user = userEvent.setup();
     renderInProvider(<EmployerDialog onClose={vi.fn()} />);
 
-    await user.type(screen.getByLabelText(t.settings.employers.name), 'Acme');
-    await user.type(screen.getByLabelText(t.settings.employers.legalName), 'Acme BV');
-    await user.type(screen.getByLabelText(t.settings.employers.loonheffingennummer), '12345');
+    await pickEntity(user);
+    await user.type(screen.getByLabelText(t.settings.employers.registrationNumber), '12345');
     await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
 
-    expect(await screen.findByText(/Expected a loonheffingennummer/)).toBeTruthy();
+    expect(await screen.findByText(/looks like 123456789L01/)).toBeTruthy();
     expect(mocks.createEmployer).not.toHaveBeenCalled();
   });
 
-  it('edits an employer without sending its country', async () => {
+  it('does not create an employer without a legal entity', async () => {
+    const user = userEvent.setup();
+    renderInProvider(<EmployerDialog onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
+
+    expect(await screen.findByText(t.settings.employers.legalEntityRequired)).toBeTruthy();
+    expect(mocks.createEmployer).not.toHaveBeenCalled();
+  });
+
+  it('edits an employer without sending its country or its entity details', async () => {
     const user = userEvent.setup();
     renderInProvider(<EmployerDialog employer={employer} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText(t.settings.employers.name));
-    await user.type(screen.getByLabelText(t.settings.employers.name), 'Acme Holding');
+    expect(screen.getByTestId('employer-legal-entity-locked')).toHaveTextContent('Acme BV');
+    await user.type(screen.getByLabelText(t.settings.employers.label), 'L01 DGA');
     await user.click(screen.getByRole('button', { name: en.weldhr.common.save }));
 
     await waitFor(() => expect(mocks.updateEmployer).toHaveBeenCalledTimes(1));
     const payload = mocks.updateEmployer.mock.calls[0][0];
-    expect(payload).toMatchObject({ id: 'emp_1', name: 'Acme Holding' });
+    expect(payload).toMatchObject({ id: 'emp_1', legalEntityId: 'ent_1', registrationId: 'reg_1', label: 'L01 DGA' });
     expect(payload).not.toHaveProperty('country');
+    expect(payload).not.toHaveProperty('name');
   });
 });
 

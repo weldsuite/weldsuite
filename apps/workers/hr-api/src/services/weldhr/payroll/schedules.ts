@@ -4,7 +4,8 @@
  * schedule (frequency, anchor, pay-date rule) is stored.
  */
 
-import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { employerIdIn } from '../entity-scope';
 import { nextPeriodToRun, type PayScheduleSpec } from '@weldsuite/payroll-domain/periods';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -151,8 +152,10 @@ export async function toScheduleDtos(db: Database, rows: ScheduleRow[]): Promise
   });
 }
 
-export async function listSchedules(db: Database, filters: { employerId?: string } = {}): Promise<ScheduleDto[]> {
-  const conditions = [isNull(t.deletedAt)];
+export async function listSchedules(db: Database, filters: { employerId?: string; entity?: SQL } = {}): Promise<ScheduleDto[]> {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  const inEntity = employerIdIn(t.employerId, filters.entity);
+  if (inEntity) conditions.push(inEntity);
   if (filters.employerId) conditions.push(eq(t.employerId, filters.employerId));
   const rows = await db.select().from(t).where(and(...conditions)).orderBy(t.name);
   return toScheduleDtos(db, rows);

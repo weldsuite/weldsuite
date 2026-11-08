@@ -159,10 +159,12 @@ function hostnameOf(url: string): string {
   }
 }
 
+/** A live legal entity WeldBooks is enabled for (it has an extension row). */
 async function accountingEntityExists(db: Database, entityId: string): Promise<boolean> {
   const [entity] = await db
     .select({ id: schema.entities.id })
     .from(schema.entities)
+    .innerJoin(schema.accountingEntitySettings, eq(schema.accountingEntitySettings.entityId, schema.entities.id))
     .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
     .limit(1);
   return Boolean(entity);

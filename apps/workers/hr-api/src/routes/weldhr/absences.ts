@@ -27,13 +27,17 @@ import {
   requireAbsence,
   updateAbsence,
 } from '../../services/weldhr/absences';
+import { schema } from '@weldsuite/worker-kit/db';
+import { assertEmployeeVisible, employeeEntityCondition, guardRecord, viaEmployee } from './entity-scope';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 export const absencesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(absencesRoutes, 'absenceId', 'Absence', viaEmployee(schema.hrAbsences, schema.hrAbsences.id, schema.hrAbsences.employeeId));
 
 absencesRoutes.get('/', requirePermission('absences:read'), async (c) => {
   const q = c.req.query();
   const result = await listAbsences(db(c), {
+    entity: await employeeEntityCondition(c),
     status: q.status === 'ongoing' || q.status === 'completed' ? q.status : undefined,
     employeeId: q.employeeId || undefined,
     departmentId: q.departmentId || undefined,
@@ -44,6 +48,7 @@ absencesRoutes.get('/', requirePermission('absences:read'), async (c) => {
 });
 
 absencesRoutes.post('/', requirePermission('absences:create'), hrJson(createHrAbsenceSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createAbsence(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_absence', 'created', row.id);
   return success(c, row, 201);

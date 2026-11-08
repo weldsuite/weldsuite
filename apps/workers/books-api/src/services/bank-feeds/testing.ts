@@ -140,6 +140,8 @@ export async function seedEntity(db: Database, id = 'ent_us', jurisdictionCode =
     .insert(schema.entities)
     .values({ id, name: 'Test Entity', jurisdictionCode, baseCurrency, locale: jurisdictionCode === 'US' ? 'en-US' : 'nl-NL' })
     .onConflictDoNothing();
+  // WeldBooks is enabled for the entity (its accounting_entity_settings row).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: id }).onConflictDoNothing();
   return id;
 }
 

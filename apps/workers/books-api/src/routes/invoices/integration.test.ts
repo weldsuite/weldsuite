@@ -27,6 +27,7 @@ describe('/api/invoices · entity base currency', () => {
       locale: 'en-IN',
       timezone: 'Asia/Kolkata',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_inr_inv' });
 
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
       context: { permissions: permissions('invoices:create'), tenantDb: db },
@@ -66,6 +67,7 @@ describe('/api/invoices · entity base currency', () => {
       baseCurrency: 'INR',
       locale: 'en-IN',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_inr_usd' });
 
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
       context: { permissions: permissions('invoices:create'), tenantDb: db },
@@ -105,6 +107,7 @@ describe('/api/invoices · entity base currency', () => {
       locale: 'nl-NL',
       timezone: 'Europe/Amsterdam',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_status_inv' });
 
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
       context: { permissions: permissions('invoices:create'), tenantDb: db },
@@ -166,6 +169,7 @@ describe('/api/invoices · list', () => {
       baseCurrency: 'EUR',
       locale: 'nl-NL',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_cn_list' });
 
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
       context: { permissions: permissions('invoices:create', 'invoices:read'), tenantDb: db },

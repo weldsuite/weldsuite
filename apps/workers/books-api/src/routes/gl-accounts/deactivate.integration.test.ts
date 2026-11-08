@@ -24,6 +24,8 @@ beforeAll(async () => {
     jurisdictionCode: 'NL',
     baseCurrency: 'EUR',
   } as typeof schema.entities.$inferInsert);
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: ENTITY });
 }, 60_000);
 
 function request(path: string, init?: { method?: string; body?: unknown; perms?: string[] }) {

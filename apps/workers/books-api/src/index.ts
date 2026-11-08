@@ -12,6 +12,7 @@
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { legalEntityContext } from '@weldsuite/core-domain/legal-entities';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
 import { accountingDocumentsRoutes } from './routes/accounting-documents';
@@ -70,6 +71,23 @@ app.route('/public/fiscal-webhooks', publicFiscalWebhooksRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());
+
+// Which legal entity the request is about, and per-entity access
+// (docs/plans/legal-entities.md): an entity the member does not see resolves
+// to none, and inside an entity the member acts with their entity role. The
+// switcher's list and create run on workspace permissions, so a restrictive
+// role in the current entity never hides the switcher.
+app.use(
+  '/api/*',
+  legalEntityContext({
+    app: 'weldbooks',
+    scoped: true,
+    skip: (c) => {
+      const path = c.req.path.replace(/\/+$/, '');
+      return path === '/api/accounting-entities' && (c.req.method === 'GET' || c.req.method === 'POST');
+    },
+  }),
+);
 
 // Remember which workspaces use WeldBooks, so the daily sweep only opens those tenants.
 app.use('/api/*', async (c, next) => {

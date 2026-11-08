@@ -79,6 +79,11 @@ export type KitVariables = {
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason | null;
   userPermissions?: ResolvedPermissions;
+  /**
+   * The legal entity this request is about, set by `legalEntityContext()`
+   * (`@weldsuite/core-domain/legal-entities`): null when it resolved to none.
+   */
+  legalEntityId?: string | null;
   /** Canonical app code from the X-Weld-App header (appContextMiddleware). */
   app?: string;
   flags?: FlagContext;

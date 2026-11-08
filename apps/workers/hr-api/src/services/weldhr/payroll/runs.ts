@@ -11,7 +11,7 @@
  * gets approved.
  */
 
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { HrPayrollIssue } from '@weldsuite/db/schema';
 import { componentDef } from '@weldsuite/payroll-domain';
@@ -37,6 +37,7 @@ import { HrConflictError, HrNotFoundError, HrPayrollError, HrValidationError, me
 import {
   countIssues,
   decimal2,
+  BOOKS_NOT_ENABLED,
   decimal4,
   hasError,
   num,
@@ -52,7 +53,9 @@ import {
 } from './common';
 import { addDays, isIsoDate, maxDate, minDate, rangesOverlap, todayIso } from './dates';
 import { compensationOn, loadEmployeePayrollData } from './employees';
+import { employerIdIn } from '../entity-scope';
 import { requireEmployerRow } from './employers';
+import { loadEmployerForPayroll } from './employer-context';
 import { lastCompletedPeriods, nextPeriodOf, requireScheduleRow, specOf } from './schedules';
 import { numberKey } from './ytd';
 
@@ -187,7 +190,8 @@ export async function toRunDtos(db: Database, rows: RunRow[]): Promise<RunDto[]>
       paidAt: ts(row.paidAt),
       journalStatus: row.journalStatus as RunDto['journalStatus'],
       journalEntryId: row.journalEntryId,
-      journalError: row.journalError,
+      journalError: row.journalError === BOOKS_NOT_ENABLED ? null : row.journalError,
+      journalReason: row.journalError === BOOKS_NOT_ENABLED ? BOOKS_NOT_ENABLED : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -283,9 +287,11 @@ export async function getRunDetail(db: Database, id: string, ctx: { userId: stri
 
 export async function listRuns(
   db: Database,
-  filters: { employerId?: string; status?: string; year?: number },
+  filters: { employerId?: string; status?: string; year?: number; entity?: SQL },
 ): Promise<RunDto[]> {
   const conditions = [];
+  const inEntity = employerIdIn(r.employerId, filters.entity);
+  if (inEntity) conditions.push(inEntity);
   if (filters.employerId) conditions.push(eq(r.employerId, filters.employerId));
   if (filters.status) conditions.push(inArray(r.status, filters.status.split(',')));
   if (filters.year) conditions.push(eq(r.taxYear, Number(filters.year)));
@@ -364,7 +370,8 @@ async function numberingForPayDate(db: Database, run: RunRow, payDate: string): 
 }
 
 export async function createRun(db: Database, input: CreateHrPayRunInput, ctx: { userId: string }): Promise<RunRow> {
-  const employer = await requireEmployerRow(db, input.employerId);
+  await requireEmployerRow(db, input.employerId);
+  const employer = await loadEmployerForPayroll(db, input.employerId);
   if (!employer.isActive) throw new HrValidationError('This employer is not active');
   const kind = input.kind ?? 'regular';
   const country = employer.country as 'NL' | 'US';

@@ -29,11 +29,19 @@ import {
   toPublicDeclaration,
   updateDeclaration,
 } from '../../services/weldhr/declarations';
+import { schema } from '@weldsuite/worker-kit/db';
+import { assertEmployeeVisible, employeeEntityCondition, guardRecord, viaEmployee } from './entity-scope';
 import { actor, hrJson, db, emit, param, receiptBucket, orgIdOf } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
 export const declarationsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  declarationsRoutes,
+  'declarationId',
+  'Declaration',
+  viaEmployee(schema.hrDeclarations, schema.hrDeclarations.id, schema.hrDeclarations.employeeId),
+);
 
 declarationsRoutes.get('/', requirePermission('declarations:read'), async (c) => {
   const q = c.req.query();
@@ -45,11 +53,13 @@ declarationsRoutes.get('/', requirePermission('declarations:read'), async (c) =>
       category: q.category || undefined,
       from: q.from && isoDate.test(q.from) ? q.from : undefined,
       to: q.to && isoDate.test(q.to) ? q.to : undefined,
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 declarationsRoutes.post('/', requirePermission('declarations:create'), hrJson(createHrDeclarationSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createDeclaration(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_declaration', 'created', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, toPublicDeclaration(row), 201);

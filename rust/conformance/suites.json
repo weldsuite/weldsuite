@@ -227,7 +227,8 @@
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
-        "src/routes/workspace-settings/workspace-settings.integration.test.ts"
+        "src/routes/workspace-settings/workspace-settings.integration.test.ts",
+        "src/routes/workspace-settings/business-profile.integration.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/workspace-settings/",
@@ -235,6 +236,26 @@
         "packages/clients/app-api-client/src/schemas/workspace-settings.ts",
         "packages/clients/app-api-client/src/schemas/workspace-slug.ts",
         "packages/clients/app-api-client/src/schemas/vat-number.ts",
+        "rust/modules/core-team/",
+        "apps/workers/app-api/src/services/business-profile.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
+      ]
+    },
+    {
+      "name": "core: legal-entities",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/legal-entities/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/legal-entities/",
+        "packages/clients/app-api-client/src/schemas/legal-entities.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/",
+        "apps/workers/app-api/src/services/business-profile.ts",
+        "apps/workers/app-api/src/services/workspace-settings.ts",
         "rust/modules/core-team/"
       ]
     },
@@ -1882,7 +1903,8 @@
         "src/routes/weldhr/performance.routes.test.ts",
         "src/routes/weldhr/me.routes.test.ts",
         "src/routes/weldhr/payroll/payroll-setup.routes.test.ts",
-        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts"
+        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts",
+        "src/routes/weldhr/entities.routes.test.ts"
       ],
       "paths": [
         "apps/workers/hr-api/src/",
@@ -1891,7 +1913,9 @@
         "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
         "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
         "rust/modules/hr/",
-        "rust/crates/payroll-domain/"
+        "rust/crates/payroll-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2033,7 +2057,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
+        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2161,7 +2187,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
+        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2253,7 +2281,8 @@
         "src/routes/accounting-dimensions/dimensions.integration.test.ts",
         "src/routes/accounting-settings/settings.integration.test.ts",
         "src/routes/accounting-settings/catch-up.integration.test.ts",
-        "src/routes/payroll/internal.integration.test.ts"
+        "src/routes/payroll/internal.integration.test.ts",
+        "src/routes/accounting-entities/entity-access.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",
@@ -2270,7 +2299,20 @@
         "packages/clients/app-api-client/src/schemas/books-responses.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books.ts",
         "rust/modules/books/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/books/src/accounting-entity.ts",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
+      ],
+      "coverage": [
+        "/api/accounting-entities",
+        "/api/accounting-settings",
+        "/api/gl-accounts",
+        "/api/journal-entries",
+        "/api/fiscal-periods",
+        "/api/tax-rates",
+        "/api/fx-rates",
+        "/api/accounting-dimensions"
       ]
     },
     {
@@ -2442,7 +2484,9 @@
         "rust/crates/ads-domain/",
         "rust/crates/connect-domain/",
         "rust/modules/connect/",
-        "packages/domains/connect/src/connectors/"
+        "packages/domains/connect/src/connectors/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2474,7 +2518,9 @@
         "packages/clients/app-api-client/src/schemas/books-sales-responses.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-sales.ts",
         "rust/modules/books-sales/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2511,7 +2557,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books-reports.ts",
         "packages/clients/app-api-client/src/schemas/books-reports-responses.ts",
         "rust/modules/books-reports/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2551,7 +2599,9 @@
         "packages/clients/core-api-client/src/schemas/bank-transactions.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-banking.ts",
         "rust/modules/books-banking/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2599,7 +2649,9 @@
         "packages/clients/app-api-client/src/schemas/books-purchases-responses.ts",
         "rust/modules/books-purchases/",
         "rust/crates/books-domain/",
-        "rust/crates/crm-domain/"
+        "rust/crates/crm-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ],
       "excludedRoutes": [
         {
@@ -2647,7 +2699,9 @@
         "packages/domains/books/src/",
         "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/",
-        "apps/workers/books-api/src/cron/"
+        "apps/workers/books-api/src/cron/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2757,7 +2811,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books-tax.ts",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books-tax/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2867,11 +2923,14 @@
       "workspace": "apps/workers/external-api",
       "paths": [
         "apps/workers/external-api/src/",
-        "rust/modules/external-api/"
+        "rust/modules/external-api/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ],
       "tests": [
         "src/test/accounting-read-only.test.ts",
-        "src/test/accounting-routes.test.ts"
+        "src/test/accounting-routes.test.ts",
+        "src/test/legal-entities.test.ts"
       ]
     },
     {
@@ -2974,7 +3033,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {
@@ -2996,7 +3057,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "packages/domains/core/src/legal-entities/",
+        "rust/crates/legal-entities/"
       ]
     },
     {

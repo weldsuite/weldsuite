@@ -97,6 +97,7 @@ function makeRun(overrides: Partial<HrPayRunDetail> = {}): HrPayRunDetail {
     journalStatus: 'not_linked',
     journalEntryId: null,
     journalError: null,
+    journalReason: null,
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-10-01T00:00:00Z',
     employees: [
@@ -199,6 +200,14 @@ describe('WeldHR pay run page', () => {
     expect(screen.getByText(t.run.journalFailed)).toBeTruthy();
     expect(screen.getByText('Period is locked')).toBeTruthy();
     expect(screen.getByRole('button', { name: t.run.journalRetry })).toBeTruthy();
+  });
+
+  it('says WeldBooks is not enabled and points to Legal entities', () => {
+    run = makeRun({ status: 'approved', journalStatus: 'skipped', journalReason: 'books_not_enabled' });
+    renderPage();
+
+    expect(screen.getByText(new RegExp(t.run.journalBooksNotEnabled.slice(0, 30)))).toBeTruthy();
+    expect(screen.getByText(t.run.journalEnableBooks)).toBeTruthy();
   });
 
   it('does not offer collecting inputs on a correction run', () => {

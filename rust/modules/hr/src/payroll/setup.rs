@@ -18,6 +18,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::schema::{json_body, query, str_of};
 use super::{employees as svc, employers, schemas};
+use crate::entity_scope::{EMPLOYEE_RECORD, EMPLOYER_RECORD, guard, via_employee, via_employer};
 use crate::{Caller, HrResult, HrState, today_iso};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -103,10 +104,31 @@ where
             "/components/{id}",
             delete(delete_component).route_layer(prepare()),
         )
+        .route_layer(guard("/employers", "Payroll employer", EMPLOYER_RECORD))
+        .route_layer(guard(
+            "/schedules",
+            "Pay schedule",
+            via_employer!("hr_pay_schedules"),
+        ))
+        .route_layer(guard("/employees", "Employee", EMPLOYEE_RECORD))
+        .route_layer(guard(
+            "/compensations",
+            "Compensation",
+            via_employee!("hr_compensations"),
+        ))
+        .route_layer(guard(
+            "/components",
+            "Pay component",
+            via_employee!("hr_pay_components"),
+        ))
 }
 
 async fn list_employers(caller: Caller) -> HrResult {
-    Ok(Data(employers::list_employers(&caller.db, &caller.keyring()).await?).into_response())
+    let scope = caller.scope().await?;
+    Ok(
+        Data(employers::list_employers(&caller.db, &caller.keyring(), &scope).await?)
+            .into_response(),
+    )
 }
 
 async fn get_employer(caller: Caller, Path(id): Path<String>) -> HrResult {
@@ -115,6 +137,10 @@ async fn get_employer(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 async fn create_employer(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_employer())?;
+    // A payroll registration of an entity needs the same standing in that entity as anything else there.
+    if let Some(entity) = str_of(&input, "legalEntityId").filter(|e| !e.is_empty()) {
+        caller.assert_entity_usable(entity)?;
+    }
     let row =
         employers::create_employer(&caller.db, &input, &caller.user_id, &caller.keyring()).await?;
     Ok(Created(row).into_response())
@@ -127,6 +153,9 @@ async fn update_employer(
     body: Bytes,
 ) -> HrResult {
     let input = json_body(&headers, &body, &schemas::update_employer())?;
+    if let Some(entity) = str_of(&input, "legalEntityId").filter(|e| !e.is_empty()) {
+        caller.assert_entity_usable(entity)?;
+    }
     Ok(
         Data(employers::update_employer(&caller.db, &id, &input, &caller.keyring()).await?)
             .into_response(),
@@ -163,14 +192,18 @@ async fn set_employer_bank(
 
 async fn list_schedules(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
     let q = query(raw.as_deref(), &schemas::employer_query())?;
+    let scope = caller.scope().await?;
     Ok(
-        Data(employers::list_schedules(&caller.db, str_of(&q, "employerId")).await?)
+        Data(employers::list_schedules(&caller.db, str_of(&q, "employerId"), &scope).await?)
             .into_response(),
     )
 }
 
 async fn create_schedule(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_schedule())?;
+    caller
+        .assert_employer_visible(str_of(&input, "employerId"))
+        .await?;
     Ok(Created(employers::create_schedule(&caller.db, &input).await?).into_response())
 }
 
@@ -196,6 +229,7 @@ async fn list_employees(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
         &caller.db,
         str_of(&q, "employerId"),
         on_payroll,
+        &caller.scope().await?,
         &caller.keyring(),
         &today_iso(),
     )
@@ -217,6 +251,9 @@ async fn upsert_profile(
     body: Bytes,
 ) -> HrResult {
     let input = json_body(&headers, &body, &schemas::upsert_profile())?;
+    caller
+        .assert_employer_visible(str_of(&input, "employerId"))
+        .await?;
     Ok(Data(svc::upsert_profile(&caller.db, &id, &input).await?).into_response())
 }
 

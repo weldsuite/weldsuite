@@ -88,9 +88,10 @@ export async function requireDeclaration(db: Database, id: string, onlyEmployeeI
 
 export async function listDeclarations(
   db: Database,
-  filters: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {},
+  filters: { employeeId?: string; status?: string; category?: string; from?: string; to?: string; entity?: SQL } = {},
 ) {
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(dcl.employeeId, filters.employeeId));
   if (filters.status) conditions.push(inArray(dcl.status, filters.status.split(',')));
   if (filters.category) conditions.push(inArray(dcl.category, filters.category.split(',')));

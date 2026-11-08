@@ -48,7 +48,11 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(currentAccountingEntityId ? { 'X-Accounting-Entity-Id': currentAccountingEntityId } : {}),
+    // Both names carry the same id: books-api reads X-Legal-Entity-Id first and
+    // keeps X-Accounting-Entity-Id for old clients.
+    ...(currentAccountingEntityId
+      ? { 'X-Accounting-Entity-Id': currentAccountingEntityId, 'X-Legal-Entity-Id': currentAccountingEntityId }
+      : {}),
   };
 }
 

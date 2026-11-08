@@ -15,6 +15,7 @@
  */
 
 import { and, asc, desc, eq, gte, inArray, isNull, lte, type SQL } from 'drizzle-orm';
+import { employerIdIn } from '../entity-scope';
 import type { HrPayrollFilingEvent, HrPayrollFilingKind, HrPayrollIssue } from '@weldsuite/db/schema';
 import { fromCents } from '@weldsuite/payroll-domain/money';
 import type { NlFilingData, UsFilingData } from '@weldsuite/payroll-domain/types';
@@ -27,6 +28,7 @@ import type { HrPayrollFiling as FilingDto } from '@weldsuite/app-api-client/dom
 import { displayNameOf } from '../employees';
 import { HrConflictError, HrNotFoundError, HrPayrollError } from '../shared';
 import { endOfNextMonth, fileSafe, monthBounds, quarterBounds, ts, type EmployerRow, type FilingRow, type PayslipRow } from './common';
+import { findEmployerForPayroll, loadEmployerForPayroll } from './employer-context';
 import type { PayrollDeps } from './deps';
 import { decryptSensitive, transitionIncomeRelationshipNumber } from './employees';
 import { addressLines, engineCall, safeId } from './format';
@@ -106,10 +108,12 @@ export async function getFiling(db: Database, id: string, digipoortAvailable: bo
 
 export async function listFilings(
   db: Database,
-  filters: { employerId?: string; year?: number; status?: string; kind?: string },
+  filters: { employerId?: string; year?: number; status?: string; kind?: string; entity?: SQL },
   digipoortAvailable: boolean,
 ): Promise<FilingDto[]> {
   const conditions: SQL[] = [];
+  const inEntity = employerIdIn(f.employerId, filters.entity);
+  if (inEntity) conditions.push(inEntity);
   if (filters.employerId) conditions.push(eq(f.employerId, filters.employerId));
   if (filters.year) conditions.push(eq(f.taxYear, Number(filters.year)));
   if (filters.status) conditions.push(inArray(f.status, filters.status.split(',')));
@@ -124,13 +128,13 @@ export async function listFilings(
 }
 
 /** Filings that are open or ready and due within 45 days (or overdue), oldest due first. */
-export async function filingsDueSoon(db: Database, today: string, digipoortAvailable: boolean): Promise<FilingDto[]> {
+export async function filingsDueSoon(db: Database, today: string, digipoortAvailable: boolean, entity?: SQL): Promise<FilingDto[]> {
   const limit = new Date(`${today}T00:00:00Z`);
   limit.setUTCDate(limit.getUTCDate() + 45);
   const rows = await db
     .select()
     .from(f)
-    .where(and(inArray(f.status, ['open', 'ready']), lte(f.dueDate, limit.toISOString().slice(0, 10))))
+    .where(and(inArray(f.status, ['open', 'ready']), lte(f.dueDate, limit.toISOString().slice(0, 10)), employerIdIn(f.employerId, entity)))
     .orderBy(asc(f.dueDate))
     .limit(50);
   return toFilingDtos(db, rows, digipoortAvailable);
@@ -633,8 +637,7 @@ async function buildUs(db: Database, filing: FilingRow, employer: EmployerRow, d
 /** Rebuild a filing from final payslips and store its files. */
 export async function generateFiling(db: Database, id: string, deps: PayrollDeps, ctx: { userId: string }): Promise<FilingRow> {
   const filing = await requireFilingRow(db, id);
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, filing.employerId)).limit(1);
-  if (!employer) throw new HrNotFoundError('Payroll employer', filing.employerId);
+  const employer = await loadEmployerForPayroll(db, filing.employerId, deps.keyring);
   const bucket = requireBucket(deps);
 
   // Sent before (by status or by history, a reopened filing is open again): this is a new version, never an overwrite.
@@ -722,7 +725,7 @@ export async function submitFiling(db: Database, id: string, deps: PayrollDeps, 
   if (!ctx.flagOn || !deps.digipoort) throw notConfigured();
   if (filing.status !== 'ready' && filing.status !== 'rejected') throw new HrConflictError(`This filing is ${filing.status} and cannot be submitted`);
   if (!filing.fileKey || !deps.bucket) throw new HrConflictError('Generate the filing first');
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, filing.employerId)).limit(1);
+  const employer = await findEmployerForPayroll(db, filing.employerId, deps.keyring);
   const lhn = employer?.nlSettings.loonheffingennummer;
   if (!lhn) throw new HrPayrollError('EMPLOYER_INCOMPLETE', 'The employer has no loonheffingennummer', 409);
   const object = await deps.bucket.get(filing.fileKey);

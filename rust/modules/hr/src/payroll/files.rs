@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, decrypt_field, js_row};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, js_row};
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::labels::payslip_line_label;
 use weldsuite_payroll_domain::money::{from_cents, to_cents_text};
@@ -24,9 +24,9 @@ use super::common::{
     sort_issues,
 };
 use super::employees::{bank_of, decrypt_sensitive, same_bank};
+use super::employer_context::{find_employer_for_payroll, load_employer_for_payroll};
 use super::employers::read_employer_bank;
 use super::notifier::language_of;
-use super::payslips::employer_by_id;
 use super::runs::{payslip_sql, require_run, s};
 use crate::employees::display_name_of;
 use crate::{HrError, locale_compare, today_iso};
@@ -124,12 +124,9 @@ pub(crate) async fn build_payment_file(
             409,
         ));
     }
-    let Some(employer) = employer_by_id(db, s(&run, "employerId")).await? else {
-        return Err(HrError::not_found(
-            "Payroll employer",
-            s(&run, "employerId"),
-        ));
-    };
+    let employer = load_employer_for_payroll(db, s(&run, "employerId"), &deps.keyring)
+        .await?
+        .row;
     let bank = read_employer_bank(&employer, &deps.keyring)?;
     let slips: Vec<Value> = sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'final'"))
         .bind(run_id)
@@ -521,7 +518,9 @@ pub(crate) async fn build_run_report(
     run_id: &str,
 ) -> Result<(String, String, String), HrError> {
     let run = require_run(db, run_id).await?;
-    let employer = employer_by_id(db, s(&run, "employerId")).await?;
+    let employer = find_employer_for_payroll(db, s(&run, "employerId"), &Keyring::default())
+        .await?
+        .map(|employer| employer.row);
     let lang = if employer.as_ref().is_some_and(|e| language_of(e) == "nl") {
         Lang::Nl
     } else {

@@ -37,6 +37,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::text;
@@ -89,6 +90,12 @@ where
             get(pending).route_layer(need("banking:read")),
         )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_connections"), "Bank connection")
+                .layer(),
+        )
         .with_state(state)
 }
 

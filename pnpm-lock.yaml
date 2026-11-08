@@ -6089,6 +6089,9 @@ importers:
       '@weldsuite/commerce-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/commerce
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
@@ -9131,6 +9134,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      '@weldsuite/permissions':
+        specifier: workspace:*
+        version: link:../../core/permissions
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../core/worker-kit
@@ -9150,6 +9156,9 @@ importers:
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
       typescript:
         specifier: ^5.9.2
         version: 5.9.2

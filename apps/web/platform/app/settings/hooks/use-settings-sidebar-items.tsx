@@ -11,6 +11,7 @@ import {
   Key,
   Fingerprint,
   Landmark,
+  Scale,
   Keyboard,
   Receipt,
   Bell,
@@ -153,6 +154,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
           ...(hasEntityApps
             ? [{ title: ts.menu.entities, href: '/settings/entities', icon: Landmark, isActive: (pathname ?? '').startsWith('/settings/entities') }]
             : []),
+          { title: ts.menu.legalEntities, href: '/settings/legal-entities', icon: Scale, isActive: (pathname ?? '').startsWith('/settings/legal-entities') },
           { title: ts.menu.apiKeys, href: '/settings/api-keys', icon: Key },
           { title: ts.menu.webhooks, href: '/settings/webhooks', icon: Webhook },
           { title: ts.menu.customFields, href: '/settings/custom-fields', icon: SlidersHorizontal },

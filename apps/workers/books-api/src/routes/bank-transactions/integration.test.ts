@@ -29,6 +29,9 @@ beforeAll(async () => {
       locale: 'nl-NL',
     })),
   );
+  await db
+    .insert(schema.accountingEntitySettings)
+    .values(['ent_manual_bt', 'ent_cat_bt', 'ent_cat_out'].map((entityId) => ({ entityId })));
 }, 60_000);
 
 async function seedBankAccount(id: string, balance = '100.00') {
@@ -530,6 +533,7 @@ describe('/api/bank-transactions import, delete and undo · pglite integration',
 describe('/api/bank-transactions reconciliation rules · pglite integration', () => {
   async function seedRuleEntity(entityId: string, bankAccountId: string) {
     await db.insert(schema.entities).values({ id: entityId, name: entityId, jurisdictionCode: 'NL', baseCurrency: 'EUR', locale: 'nl-NL' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: entityId });
     await db.insert(schema.accounts).values([
       { id: `${entityId}_bank`, entityId, code: '1100', name: 'Bank', type: 'asset', subtype: 'bank', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },
       { id: `${entityId}_rent`, entityId, code: '4210', name: 'Huur', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },

@@ -154,6 +154,7 @@ describe('GST worksheet', () => {
 
   it('refuses an entity without a GST return', async () => {
     await db.insert(schema.entities).values({ id: 'ent_nl', name: 'Bedrijf', jurisdictionCode: 'NL' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_nl' });
     const res = await worksheet('?periodStart=2026-07-01&periodEnd=2026-07-31', 'ent_nl');
     expect(res.error?.message).toBe("This entity's jurisdiction has no GST return.");
   });

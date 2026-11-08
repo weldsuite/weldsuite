@@ -49,6 +49,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use self::runs::{s, text};
@@ -605,6 +606,21 @@ where
         .route(
             "/{id}/complete",
             post(complete).route_layer(need("banking:manage")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("payment_runs"), "Payment run").layer(),
+        )
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("payments"), "Payment")
+                .prefix("/checks")
+                .layer(),
+        )
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("bank_accounts"), "Bank account")
+                .prefix("/settings")
+                .layer(),
         )
         .with_state(state)
 }

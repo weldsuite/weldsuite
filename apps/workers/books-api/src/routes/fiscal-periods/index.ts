@@ -23,6 +23,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createFiscalPeriodSchema, updateFiscalPeriodSchema } from '@weldsuite/core-api-client/schemas/fiscal-periods';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -32,6 +33,9 @@ import { resolveEntityId } from '../../lib/entity-context';
 import { fiscalCalendarFor } from './calendar';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.fiscalPeriods, { label: 'Fiscal period' });
 const t = schema.fiscalPeriods;
 
 /** Filters shared by the list query and its total count (everything but the cursor). */

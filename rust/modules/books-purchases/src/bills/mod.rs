@@ -48,6 +48,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use body::{BillBody, BillLine, read_bill};
@@ -89,6 +90,14 @@ where
         .route(
             "/{id}/reject",
             patch(reject).route_layer(need("bills:update")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(EntityRecordGuard::table(EntityTable::new("bills"), "Bill").layer())
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("documents"), "Document")
+                .prefix("/from-document")
+                .layer(),
         )
         .with_state(state)
 }

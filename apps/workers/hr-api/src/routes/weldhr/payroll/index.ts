@@ -25,6 +25,7 @@ import { success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../../types';
 import { payrollOverview } from '../../../services/weldhr/payroll/overview';
 import { todayIso } from '../../../services/weldhr/shared';
+import { employeeEntityCondition, employerEntityCondition } from '../entity-scope';
 import { db } from '../helpers';
 import { payrollDeps, sendingAvailable } from './deps';
 import { filingsRoutes, payslipsRoutes } from './documents';
@@ -37,7 +38,12 @@ export const payrollRoutes = new Hono<{ Bindings: Env; Variables: Variables }>()
 payrollRoutes.use('*', requirePayrollFlag);
 
 payrollRoutes.get('/overview', requirePermission('payroll:read'), async (c) =>
-  success(c, await payrollOverview(db(c), payrollDeps(c).keyring, { today: todayIso(), digipoortAvailable: (await sendingAvailable(c)).available })),
+  success(c, await payrollOverview(db(c), payrollDeps(c).keyring, {
+      today: todayIso(),
+      digipoortAvailable: (await sendingAvailable(c)).available,
+      employerEntity: await employerEntityCondition(c),
+      employeeEntity: await employeeEntityCondition(c),
+    })),
 );
 
 payrollRoutes.route('/employers', employersRoutes);

@@ -9,6 +9,7 @@
     "./types": "./src/types.ts",
     "./schemas/ai": "./src/schemas/ai.ts",
     "./schemas/accounting-settings": "./src/schemas/accounting-settings.ts",
+    "./schemas/legal-entities": "./src/schemas/legal-entities.ts",
     "./schemas/tasks": "./src/schemas/tasks.ts",
     "./schemas/projects": "./src/schemas/projects.ts",
     "./schemas/flow-responses": "./src/schemas/flow-responses.ts",
@@ -236,7 +237,8 @@
     "./domains/weldmeet-recordings": "./src/domains/weldmeet-recordings.ts",
     "./domains/weldhr": "./src/domains/weldhr.ts",
     "./domains/weldhr-payroll": "./src/domains/weldhr-payroll.ts",
-    "./domains/sso": "./src/domains/sso.ts"
+    "./domains/sso": "./src/domains/sso.ts",
+    "./domains/legal-entities": "./src/domains/legal-entities.ts"
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",

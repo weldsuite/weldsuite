@@ -11,6 +11,7 @@ import type { HrAnnualStatement } from '@weldsuite/app-api-client/domains/weldhr
 import { displayNameOf } from '../employees';
 import { HrNotFoundError } from '../shared';
 import type { PayslipRow } from './common';
+import { findEmployerForPayroll } from './employer-context';
 import type { PayrollDeps } from './deps';
 import { decryptSensitive } from './employees';
 import { addressLines, annualStatementFileName, engineCall } from './format';
@@ -43,7 +44,7 @@ export async function annualStatementPdf(
   employerId: string,
   deps: PayrollDeps,
 ): Promise<{ bytes: Uint8Array; fileName: string }> {
-  const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, employerId)).limit(1);
+  const employer = await findEmployerForPayroll(db, employerId, deps.keyring);
   const [employee] = await db.select().from(schema.hrEmployees).where(eq(schema.hrEmployees.id, employeeId)).limit(1);
   if (!employer || !employee) throw new HrNotFoundError('Annual statement', `${employerId}/${year}`);
   const slips: PayslipRow[] = (

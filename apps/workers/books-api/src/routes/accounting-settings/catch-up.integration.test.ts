@@ -62,6 +62,9 @@ beforeAll(async () => {
   });
   expect(created.status).toBe(201);
   entityId = created.data.id;
+  // The first company is the workspace default; these tests need a workspace without one ("no entity").
+  await db.update(schema.settings).set({ defaultEntityId: null });
+  await db.update(schema.entities).set({ isDefault: false });
   for (const a of await db.select().from(schema.accounts).where(eq(schema.accounts.entityId, entityId))) acc[a.code] = a.id;
   const rates = await db.select().from(schema.taxRates).where(eq(schema.taxRates.entityId, entityId));
   hoog = rates.find((r) => r.name === 'BTW Hoog 21%')!.id;

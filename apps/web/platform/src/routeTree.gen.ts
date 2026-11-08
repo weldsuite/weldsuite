@@ -252,6 +252,7 @@ import { Route as SettingsPrivacyIndexRouteImport } from './routes/settings/priv
 import { Route as SettingsPlansIndexRouteImport } from './routes/settings/plans/index'
 import { Route as SettingsObjectTemplatesIndexRouteImport } from './routes/settings/object-templates/index'
 import { Route as SettingsNotificationsIndexRouteImport } from './routes/settings/notifications/index'
+import { Route as SettingsLegalEntitiesIndexRouteImport } from './routes/settings/legal-entities/index'
 import { Route as SettingsIntegrationsIndexRouteImport } from './routes/settings/integrations/index'
 import { Route as SettingsGeneralIndexRouteImport } from './routes/settings/general/index'
 import { Route as SettingsFeedbackIndexRouteImport } from './routes/settings/feedback/index'
@@ -424,6 +425,7 @@ import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks
 import { Route as WeldadsConnectCallbackIndexRouteImport } from './routes/weldads/connect/callback/index'
 import { Route as SettingsTeamMemberIdIndexRouteImport } from './routes/settings/team/$memberId/index'
 import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/roles/$roleId/index'
+import { Route as SettingsLegalEntitiesIdIndexRouteImport } from './routes/settings/legal-entities/$id/index'
 import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
 import { Route as SettingsIntegrationsSendcloudIndexRouteImport } from './routes/settings/integrations/sendcloud/index'
 import { Route as SettingsIntegrationsSalesforceIndexRouteImport } from './routes/settings/integrations/salesforce/index'
@@ -1820,6 +1822,12 @@ const SettingsNotificationsIndexRoute =
     path: '/notifications/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsLegalEntitiesIndexRoute =
+  SettingsLegalEntitiesIndexRouteImport.update({
+    id: '/legal-entities/',
+    path: '/legal-entities/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsIntegrationsIndexRoute =
   SettingsIntegrationsIndexRouteImport.update({
     id: '/integrations/',
@@ -2782,6 +2790,12 @@ const SettingsRolesRoleIdIndexRoute =
   SettingsRolesRoleIdIndexRouteImport.update({
     id: '/roles/$roleId/',
     path: '/roles/$roleId/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
+const SettingsLegalEntitiesIdIndexRoute =
+  SettingsLegalEntitiesIdIndexRouteImport.update({
+    id: '/legal-entities/$id/',
+    path: '/legal-entities/$id/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsIntegrationsSlackIndexRoute =
@@ -3850,6 +3864,7 @@ export interface FileRoutesByFullPath {
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
   '/settings/general/': typeof SettingsGeneralIndexRoute
   '/settings/integrations/': typeof SettingsIntegrationsIndexRoute
+  '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
@@ -4042,6 +4057,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
+  '/settings/legal-entities/$id/': typeof SettingsLegalEntitiesIdIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
   '/weldads/connect/callback/': typeof WeldadsConnectCallbackIndexRoute
@@ -4370,6 +4386,7 @@ export interface FileRoutesByTo {
   '/settings/feedback': typeof SettingsFeedbackIndexRoute
   '/settings/general': typeof SettingsGeneralIndexRoute
   '/settings/integrations': typeof SettingsIntegrationsIndexRoute
+  '/settings/legal-entities': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates': typeof SettingsObjectTemplatesIndexRoute
   '/settings/plans': typeof SettingsPlansIndexRoute
@@ -4555,6 +4572,7 @@ export interface FileRoutesByTo {
   '/settings/integrations/salesforce': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack': typeof SettingsIntegrationsSlackIndexRoute
+  '/settings/legal-entities/$id': typeof SettingsLegalEntitiesIdIndexRoute
   '/settings/roles/$roleId': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId': typeof SettingsTeamMemberIdIndexRoute
   '/weldads/connect/callback': typeof WeldadsConnectCallbackIndexRoute
@@ -4933,6 +4951,7 @@ export interface FileRoutesById {
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
   '/settings/general/': typeof SettingsGeneralIndexRoute
   '/settings/integrations/': typeof SettingsIntegrationsIndexRoute
+  '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
@@ -5125,6 +5144,7 @@ export interface FileRoutesById {
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
+  '/settings/legal-entities/$id/': typeof SettingsLegalEntitiesIdIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
   '/weldads/connect/callback/': typeof WeldadsConnectCallbackIndexRoute
@@ -5504,6 +5524,7 @@ export interface FileRouteTypes {
     | '/settings/feedback/'
     | '/settings/general/'
     | '/settings/integrations/'
+    | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
     | '/settings/plans/'
@@ -5696,6 +5717,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/salesforce/'
     | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
+    | '/settings/legal-entities/$id/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
     | '/weldads/connect/callback/'
@@ -6024,6 +6046,7 @@ export interface FileRouteTypes {
     | '/settings/feedback'
     | '/settings/general'
     | '/settings/integrations'
+    | '/settings/legal-entities'
     | '/settings/notifications'
     | '/settings/object-templates'
     | '/settings/plans'
@@ -6209,6 +6232,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/salesforce'
     | '/settings/integrations/sendcloud'
     | '/settings/integrations/slack'
+    | '/settings/legal-entities/$id'
     | '/settings/roles/$roleId'
     | '/settings/team/$memberId'
     | '/weldads/connect/callback'
@@ -6586,6 +6610,7 @@ export interface FileRouteTypes {
     | '/settings/feedback/'
     | '/settings/general/'
     | '/settings/integrations/'
+    | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
     | '/settings/plans/'
@@ -6778,6 +6803,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/salesforce/'
     | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
+    | '/settings/legal-entities/$id/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
     | '/weldads/connect/callback/'
@@ -8766,6 +8792,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsNotificationsIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/legal-entities/': {
+      id: '/settings/legal-entities/'
+      path: '/legal-entities'
+      fullPath: '/settings/legal-entities/'
+      preLoaderRoute: typeof SettingsLegalEntitiesIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/integrations/': {
       id: '/settings/integrations/'
       path: '/integrations'
@@ -9970,6 +10003,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRolesRoleIdIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/legal-entities/$id/': {
+      id: '/settings/legal-entities/$id/'
+      path: '/legal-entities/$id'
+      fullPath: '/settings/legal-entities/$id/'
+      preLoaderRoute: typeof SettingsLegalEntitiesIdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/integrations/slack/': {
       id: '/settings/integrations/slack/'
       path: '/integrations/slack'
@@ -11153,6 +11193,7 @@ interface SettingsRouteRouteChildren {
   SettingsFeedbackIndexRoute: typeof SettingsFeedbackIndexRoute
   SettingsGeneralIndexRoute: typeof SettingsGeneralIndexRoute
   SettingsIntegrationsIndexRoute: typeof SettingsIntegrationsIndexRoute
+  SettingsLegalEntitiesIndexRoute: typeof SettingsLegalEntitiesIndexRoute
   SettingsNotificationsIndexRoute: typeof SettingsNotificationsIndexRoute
   SettingsObjectTemplatesIndexRoute: typeof SettingsObjectTemplatesIndexRoute
   SettingsPlansIndexRoute: typeof SettingsPlansIndexRoute
@@ -11183,6 +11224,7 @@ interface SettingsRouteRouteChildren {
   SettingsIntegrationsSalesforceIndexRoute: typeof SettingsIntegrationsSalesforceIndexRoute
   SettingsIntegrationsSendcloudIndexRoute: typeof SettingsIntegrationsSendcloudIndexRoute
   SettingsIntegrationsSlackIndexRoute: typeof SettingsIntegrationsSlackIndexRoute
+  SettingsLegalEntitiesIdIndexRoute: typeof SettingsLegalEntitiesIdIndexRoute
   SettingsRolesRoleIdIndexRoute: typeof SettingsRolesRoleIdIndexRoute
   SettingsTeamMemberIdIndexRoute: typeof SettingsTeamMemberIdIndexRoute
   SettingsAppsPhoneNumbersNewNumberIndexRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
@@ -11217,6 +11259,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsFeedbackIndexRoute: SettingsFeedbackIndexRoute,
   SettingsGeneralIndexRoute: SettingsGeneralIndexRoute,
   SettingsIntegrationsIndexRoute: SettingsIntegrationsIndexRoute,
+  SettingsLegalEntitiesIndexRoute: SettingsLegalEntitiesIndexRoute,
   SettingsNotificationsIndexRoute: SettingsNotificationsIndexRoute,
   SettingsObjectTemplatesIndexRoute: SettingsObjectTemplatesIndexRoute,
   SettingsPlansIndexRoute: SettingsPlansIndexRoute,
@@ -11255,6 +11298,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIntegrationsSendcloudIndexRoute:
     SettingsIntegrationsSendcloudIndexRoute,
   SettingsIntegrationsSlackIndexRoute: SettingsIntegrationsSlackIndexRoute,
+  SettingsLegalEntitiesIdIndexRoute: SettingsLegalEntitiesIdIndexRoute,
   SettingsRolesRoleIdIndexRoute: SettingsRolesRoleIdIndexRoute,
   SettingsTeamMemberIdIndexRoute: SettingsTeamMemberIdIndexRoute,
   SettingsAppsPhoneNumbersNewNumberIndexRoute:

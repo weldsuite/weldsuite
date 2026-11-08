@@ -28,6 +28,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_kit::validation::{Field, Number, Presence};
 use weldsuite_kit::{ApiError, generate_id};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::ocr::match_vendor_to_contact;
@@ -67,6 +68,9 @@ where
             "/{id}/reject",
             patch(reject).route_layer(need("invoices:update")),
         )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(EntityRecordGuard::table(EntityTable::new("documents"), "Document").layer())
         .with_state(state)
 }
 

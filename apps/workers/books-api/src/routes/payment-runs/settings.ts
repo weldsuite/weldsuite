@@ -20,11 +20,16 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
+import { schema } from '@weldsuite/worker-kit/db';
 import { getBankSettings, updateBankSettings } from '../../services/payment-runs/bank-settings';
 import { updateSettingsSchema } from '../../services/payment-runs/settings';
 import { requireEntity, respondError } from './shared';
 
 export const settingsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(settingsRoutes, schema.bankAccounts, { param: 'bankAccountId', label: 'Bank account' });
 
 settingsRoutes.get('/:bankAccountId', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');

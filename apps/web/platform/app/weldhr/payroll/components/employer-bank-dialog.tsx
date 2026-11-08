@@ -1,9 +1,11 @@
 /**
- * The account salaries are paid from. Write-only: the IBAN and the account
+ * The account salaries are paid from: one of the legal entity's bank accounts,
+ * or a new one added here (created on the entity). Write-only: the IBAN and the account
  * number are never shown again, only masked. Leaving one of them blank keeps
  * what is stored; the other fields describe the account and are prefilled.
  */
 
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
@@ -12,10 +14,13 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Form } from '@weldsuite/ui/components/form';
+import { Label } from '@weldsuite/ui/components/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { hrPayrollEmployerBankSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
-import { useSetHrPayrollEmployerBank } from '@/hooks/queries/use-weldhr-payroll-queries';
+import { useSetHrPayrollEmployerBank, useUpdateHrPayrollEmployer } from '@/hooks/queries/use-weldhr-payroll-queries';
+import { useLegalEntityBankAccounts } from '@/hooks/queries/use-legal-entities-queries';
 import { errorMessage } from '../../components/shared';
 import { SelectField, TextField } from './form-fields';
 import { InfoLine } from './payroll-ui';
@@ -24,9 +29,18 @@ import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 type Values = z.input<typeof hrPayrollEmployerBankSchema>;
 type Parsed = z.output<typeof hrPayrollEmployerBankSchema>;
 
+const NEW_ACCOUNT = '__new';
+
 export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: HrPayrollEmployer; onClose: () => void }>) {
   const t = useTranslations();
   const setBank = useSetHrPayrollEmployerBank();
+  const updateEmployer = useUpdateHrPayrollEmployer();
+  // One of the entity's accounts, or a new one typed below.
+  const { data: entityAccounts } = useLegalEntityBankAccounts(employer.legalEntityId);
+  const accountOptions = (entityAccounts ?? []).filter((a) => a.isActive);
+  const [accountChoice, setAccountChoice] = useState<string>(employer.bankAccountId ?? NEW_ACCOUNT);
+  const usingExisting = accountChoice !== NEW_ACCOUNT;
+  const busy = setBank.isPending || updateEmployer.isPending;
   const bank = employer.bank;
   const isNl = employer.country === 'NL';
 
@@ -45,7 +59,21 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
   });
   const failure = form.formState.errors.root?.message ?? null;
 
+  async function saveExisting() {
+    try {
+      await updateEmployer.mutateAsync({ id: employer.id, bankAccountId: accountChoice });
+      toast.success(t('weldhr.payroll.settings.bank.saved'));
+      onClose();
+    } catch (err) {
+      form.setError('root', { message: errorMessage(err, t('weldhr.payroll.settings.bank.saveFailed')) });
+    }
+  }
+
   async function onSubmit(values: Parsed) {
+    if (usingExisting) {
+      await saveExisting();
+      return;
+    }
     // A blank secret keeps the stored one (undefined); other blank fields clear (null).
     const keepIban = !values.iban && Boolean(bank?.ibanMasked);
     const keepAccountNumber = !values.accountNumber && Boolean(bank?.accountNumberMasked);
@@ -69,7 +97,7 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !setBank.isPending && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('weldhr.payroll.settings.bank.title', { employer: employer.name })}</DialogTitle>
@@ -86,6 +114,28 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
               </InfoLine>
             )}
 
+            {employer.legalEntityId && (
+              <div className="space-y-2">
+                <Label htmlFor="employer-bank-choice">{t('weldhr.payroll.settings.bank.entityAccount')}</Label>
+                <Select value={accountChoice} onValueChange={setAccountChoice}>
+                  <SelectTrigger id="employer-bank-choice">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accountOptions.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                        <span className="ml-2 text-xs text-muted-foreground">{a.iban ?? (a.accountNumberLast4 ? `••••${a.accountNumberLast4}` : '')}</span>
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={NEW_ACCOUNT}>{t('weldhr.payroll.settings.bank.addAccount')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {!usingExisting && (
+              <>
             <TextField control={form.control} name="accountHolder" label={t('weldhr.payroll.settings.bank.accountHolder')} maxLength={140} />
 
             {isNl ? (
@@ -135,13 +185,15 @@ export function EmployerBankDialog({ employer, onClose }: Readonly<{ employer: H
                 />
               </>
             )}
+              </>
+            )}
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose} disabled={setBank.isPending}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={setBank.isPending}>
-                {setBank.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Button type="submit" disabled={busy}>
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t('weldhr.common.save')}
               </Button>
             </DialogFooter>

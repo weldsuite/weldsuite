@@ -101,6 +101,16 @@ impl Caller {
         self.overrides.env.as_ref().and_then(|env| env.get(name))
     }
 
+    /// `c.env.<name>`: the request's env when it brings one (conformance
+    /// mode), else the process's. Empty counts as unset.
+    pub fn env_value(&self, name: &str) -> Option<String> {
+        match &self.overrides.env {
+            Some(env) => env.get(name).map(str::to_owned),
+            None => std::env::var(name).ok(),
+        }
+        .filter(|value| !value.is_empty())
+    }
+
     /// The cache (`WORKSPACE_CACHE`): the request's in conformance mode (the
     /// test's KV namespace), else the app's.
     pub fn cache(&self, state: &CoreTeamState) -> Option<Arc<dyn DynCache>> {

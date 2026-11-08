@@ -71,6 +71,8 @@ beforeAll(async () => {
   db = (await createPgliteDb()).db;
   await master.insert(masterSchema.workspaces).values({ id: 'ws_test_default', clerkOrgId: 'org_test_default', name: 'Books', slug: 'books-settings' });
   await db.insert(schema.entities).values({ id: 'ent_set', name: 'Settings BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_set' });
 }, 60_000);
 
 afterEach(() => {

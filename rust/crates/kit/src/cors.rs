@@ -27,7 +27,7 @@ pub use weldsuite_catalogs::FIRST_PARTY_ORIGINS;
 /// page talks to several origins, and each pays its own preflights.
 pub const CORS_MAX_AGE_SECONDS: u64 = 86_400;
 
-const ALLOW_HEADERS: [&str; 9] = [
+const ALLOW_HEADERS: [&str; 10] = [
     "content-type",
     "authorization",
     "x-request-id",
@@ -36,6 +36,8 @@ const ALLOW_HEADERS: [&str; 9] = [
     "x-test-token",
     "x-test-flags",
     "x-accounting-entity-id",
+    // Current legal entity; the accounting header stays for old clients.
+    "x-legal-entity-id",
     "x-weld-app",
     // Partner portal: which partner the caller acts for, and retry-safe
     // credit grants.

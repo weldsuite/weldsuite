@@ -10,24 +10,28 @@ use super::employers::{list_employers, list_schedules};
 use super::filings::filings_due_soon;
 use super::runs::{s, to_run_dtos};
 use crate::HrError;
+use crate::entity_scope::Scope;
 
-/// `payrollOverview(db, keyring, { today, digipoortAvailable })`.
+/// `payrollOverview(db, keyring, { today, digipoortAvailable, employerEntity,
+/// employeeEntity })`: `scope` is the request's entity scope, on the
+/// employers and on the employees.
 pub(crate) async fn payroll_overview(
     db: &PgPool,
     keyring: &Keyring,
     today: &str,
+    scope: &Scope,
 ) -> Result<Value, HrError> {
-    let employers: Vec<Value> = list_employers(db, keyring)
+    let employers: Vec<Value> = list_employers(db, keyring, scope)
         .await?
         .into_iter()
         .filter(|e| e["isActive"] == true)
         .collect();
-    let schedules: Vec<Value> = list_schedules(db, None)
+    let schedules: Vec<Value> = list_schedules(db, None, scope)
         .await?
         .into_iter()
         .filter(|x| x["isActive"] == true && employers.iter().any(|e| e["id"] == x["employerId"]))
         .collect();
-    let on_payroll = list_payroll_employees(db, None, Some(true), keyring, today).await?;
+    let on_payroll = list_payroll_employees(db, None, Some(true), scope, keyring, today).await?;
     let schedule_ids: Vec<&str> = schedules.iter().map(|x| s(x, "id")).collect();
     let live_runs: Vec<(String, Option<String>, String, String)> = if schedule_ids.is_empty() {
         vec![]
@@ -60,8 +64,14 @@ pub(crate) async fn payroll_overview(
     }
     upcoming.sort_by(|a, b| s(&a["period"], "payDate").cmp(s(&b["period"], "payDate")));
     let recent: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_pay_runs t where t.status <> 'cancelled' order by t.period_start desc, t.created_at desc limit 6",
+        "select to_jsonb(t) from hr_pay_runs t where t.status <> 'cancelled'
+           and ($1::text[] is null or t.employer_id in (select scope_p.id from hr_payroll_employers scope_p
+                where scope_p.legal_entity_id = any($1)
+                   or ($2::boolean and scope_p.legal_entity_id is null)))
+         order by t.period_start desc, t.created_at desc limit 6",
     )
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let recent: Vec<Value> = recent.into_iter().map(js_row).collect();
@@ -85,6 +95,6 @@ pub(crate) async fn payroll_overview(
         },
         "upcoming": upcoming,
         "recentRuns": to_run_dtos(db, &recent).await?,
-        "filingsDue": filings_due_soon(db, today).await?,
+        "filingsDue": filings_due_soon(db, today, scope).await?,
     }))
 }

@@ -68,6 +68,7 @@ beforeAll(async () => {
     { id: ENTITY, name: 'Bank US', jurisdictionCode: 'US', baseCurrency: 'USD', locale: 'en-US' },
     { id: OTHER, name: 'Bank NL', jurisdictionCode: 'NL', baseCurrency: 'EUR', locale: 'nl-NL' },
   ]);
+  await db.insert(schema.accountingEntitySettings).values([{ entityId: ENTITY }, { entityId: OTHER }]);
   const now = new Date();
   await db.insert(schema.accounts).values([
     { id: 'acc_ba_checking', entityId: ENTITY, code: '1000', name: 'Checking', type: 'asset', subtype: 'bank', normalSide: 'debit', taxLine: 'bs_cash', createdAt: now, updatedAt: now },

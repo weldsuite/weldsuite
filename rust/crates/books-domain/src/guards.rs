@@ -181,16 +181,18 @@ pub async fn assert_posting_allowed(
 ) -> Result<(), GuardError> {
     assert_period_open(db, check.entity_id, check.date).await?;
     let iso = iso_date(check.date);
-    let locks: Option<Locks> = sqlx::query_as(
-        "select sales_lock_date::text, purchase_lock_date::text, tax_lock_date::text, \
-         period_lock_date::text, hard_lock_date::text from entities where id = $1 limit 1",
-    )
-    .bind(check.entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((sales, purchase, tax, period, hard)) = locks else {
+    // The lock dates, the WeldBooks extension's values first (`loadEntityLockDates`).
+    let locks = crate::accounting_entity::load_entity_lock_dates(db, check.entity_id).await?;
+    let Some(locks) = locks else {
         return Ok(());
     };
+    let (sales, purchase, tax, period, hard): Locks = (
+        locks.sales_lock_date,
+        locks.purchase_lock_date,
+        locks.tax_lock_date,
+        locks.period_lock_date,
+        locks.hard_lock_date,
+    );
     if let Some(hard) = locked(hard.as_deref(), iso) {
         return Err(GuardError::Locked(LockedPeriodError {
             lock_type: LockType::Hard,

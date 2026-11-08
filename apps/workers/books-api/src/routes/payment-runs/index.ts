@@ -49,6 +49,8 @@ import { hasContextPermission, requirePermission } from '@weldsuite/permissions/
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, list, noContent, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
+import { schema } from '@weldsuite/worker-kit/db';
 import { approveRun } from '../../services/payment-runs/approval';
 import { buildCheckPrintData, markChecksPrinted } from '../../services/payment-runs/checks';
 import { generateNachaFile, completeAchRun } from '../../services/payment-runs/nacha';
@@ -86,6 +88,9 @@ import {
 import type { RunRow } from '../../services/payment-runs/runs';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.paymentRuns, { label: 'Payment run' });
 
 /** The entity event of a run mutation: ids, status and totals only, never vendor bank data. */
 function runEvent(c: AppContext, run: RunRow, action: RunAction): void {
