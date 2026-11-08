@@ -27,7 +27,7 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages + D1 migrations |
 | `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages + D1 migrations |
 | `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
-| `VERCEL_TOKEN` | not in Doppler | `vercel` job in `deploy.yml` (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
+| `VERCEL_TOKEN` | not in Doppler | `vercel` deploy job (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
 
 Vercel-hosted apps (`vercel` job; app → project map in
 `.github/scripts/vercel-apps.mjs`): `api-docs`, `booking-portal`,
@@ -40,7 +40,7 @@ builds off for every branch, so Vercel makes no automatic preview deployments.
 Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
 cannot read those, so the runner would build without them.
 
-The admin console (`apps/web/admin`) is a Worker now (`start-workers` job in `deploy.yml`). It
+The admin console (`apps/web/admin`) is a Worker now (the deploy's `start-workers` job). It
 deploys only to the environments named in the repository **variable**
 `ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
 from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.
@@ -69,7 +69,7 @@ Cloudflare Pages projects for the developer portal (create manually; Git auto-de
 
 Also add both hostnames to Clerk **Allowed origins** / **Redirect URLs**.
 
-First-party hosted WeldApps (`apps/hosted-apps/`, workflow `deploy-hosted-apps.yml`):
+First-party hosted WeldApps (`apps/hosted-apps/`, the deploy's `hosted-apps` job, on the deploy environments in `weldsuite-deploy`):
 
 | GitHub secret | Used by |
 |---|---|

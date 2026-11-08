@@ -1,19 +1,20 @@
 name: Rust images
 
-# Publishes the Rust backend's images from develop (and from a deploy/*
+# Publishes the Rust backend's images from main (and from a deploy/*
 # branch, should one exist):
 #   ghcr.io/weldsuite/weldsuite:sha-<12 characters of the commit>
 #   ghcr.io/weldsuite/weldsuite-sign-portal:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-admin:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-collab-rooms:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-haraka:sha-<same>  (WeldMail's MX, rust/deploy/haraka)
-# A push to develop also moves the tag `develop` on the images to that build,
+# A push to main also moves the tag `main` on the images to that build,
 # and publishes the weldsuite chart for it as
-#   oci://ghcr.io/weldsuite/charts/weldsuite:<chart version>-develop.<run number>
+#   oci://ghcr.io/weldsuite/charts/weldsuite:<chart version>-main.<run number>
 # with the build's tag as its appVersion, so the chart installs these images.
-# The EU test cluster follows those charts: every develop build reaches it,
-# as every develop push reaches Global's test environment
-# (rust/deploy/hetzner/TEST-CLUSTER.md).
+# The EU test cluster follows those charts: every main build reaches it,
+# as every merge to main reaches Global's test environment (ADR OPS-018).
+# The -main charts rank above the older -develop ones ("main" sorts after
+# "develop" in a semver prerelease), so the cluster's range needs no change.
 # Releases for the EU production cluster promote one of these builds
 # unchanged (.github/workflows/rust-release.yml). The build is the one
 # "Rust · image and chart" in ci.yml runs, amd64 only (the Hetzner servers),
@@ -22,7 +23,7 @@ name: Rust images
 on:
   workflow_dispatch:
   push:
-    branches: [develop, 'deploy/**']
+    branches: [main, 'deploy/**']
     # What the images are built from (rust/Dockerfile, rust/deploy/haraka),
     # and the chart that installs them. Other deploy config and docs change
     # neither, so they start no build: a new run cancels the branch's running
@@ -140,15 +141,15 @@ jobs:
       - name: Push
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-          MOVE_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
+          MOVE_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
           images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
           for image in "${images[@]}"; do
             docker push "$image:$TAG"
-            if [ "$MOVE_DEVELOP" = "true" ]; then
-              docker tag "$image:$TAG" "$image:develop"
-              docker push "$image:develop"
+            if [ "$MOVE_MAIN" = "true" ]; then
+              docker tag "$image:$TAG" "$image:main"
+              docker push "$image:main"
             fi
           done
           {
@@ -157,17 +158,17 @@ jobs:
             echo "WELDSUITE_IMAGE_TAG: $TAG"
             echo
             for image in "${images[@]}"; do echo "- $image:$TAG"; done
-            if [ "$MOVE_DEVELOP" = "true" ]; then
+            if [ "$MOVE_MAIN" = "true" ]; then
               echo
-              echo "\`develop\` now points at this build."
+              echo "\`main\` now points at this build."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       # The chart of this commit, installing this build's images (appVersion =
       # the tag). The version is a prerelease that rises with every run, so a
       # HelmRelease with `version: ">=0.0.0-0"` on this repository always takes
-      # the newest develop build (the EU test cluster, clusters/test).
+      # the newest main build (the EU test cluster).
       - name: Publish the chart
-        if: github.ref == 'refs/heads/develop'
+        if: github.ref == 'refs/heads/main'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           ACTOR: ${{ github.actor }}
@@ -176,7 +177,7 @@ jobs:
           set -euo pipefail
           chart=rust/deploy/helm/weldsuite
           base="$(awk '$1 == "version:" { print $2; exit }' "$chart/Chart.yaml")"
-          version="${base}-develop.${GITHUB_RUN_NUMBER}"
+          version="${base}-main.${GITHUB_RUN_NUMBER}"
           helm package "$chart" --version "$version" --app-version "$TAG" --destination "$RUNNER_TEMP/chart"
           echo "$REGISTRY_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
           helm push "$RUNNER_TEMP/chart/weldsuite-$version.tgz" oci://ghcr.io/weldsuite/charts

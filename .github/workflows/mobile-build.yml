@@ -1,4 +1,4 @@
-# Native builds are never started by a deploy. `deploy.yml` publishes the OTA
+# Native builds are never started by a deploy. The deploy (weldsuite-deploy) publishes the OTA
 # update; which apps are worth a build and a store review is a judgement call,
 # so it is made here, by hand, per app.
 #
