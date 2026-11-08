@@ -1,0 +1,48 @@
+name: Deploy database migrations
+description: >-
+  Applies the master, personal and tenant Postgres migrations. Expects this
+  repo checked out at the workspace root. Secrets come in as inputs because a
+  composite action cannot read the `secrets` context.
+
+inputs:
+  master-database-url:
+    description: MASTER_DATABASE_URL secret.
+    required: true
+  personal-database-url:
+    description: PERSONAL_DATABASE_URL secret.
+    required: true
+  database-encryption-key:
+    description: DATABASE_ENCRYPTION_KEY secret (decrypts the stored tenant DB URLs).
+    required: true
+  neon-api-key:
+    description: NEON_API_KEY secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-monorepo
+
+    - name: Run master migration
+      shell: bash
+      working-directory: packages/core/db
+      env:
+        MASTER_DATABASE_URL: ${{ inputs.master-database-url }}
+      run: pnpm db:migrate:master
+
+    - name: Run personal DB migration
+      shell: bash
+      working-directory: packages/core/db
+      env:
+        PERSONAL_DATABASE_URL: ${{ inputs.personal-database-url }}
+      run: pnpm db:migrate:personal
+
+    - name: Run tenant migrations
+      shell: bash
+      working-directory: apps/tools/migrate-databases
+      env:
+        MASTER_DATABASE_URL: ${{ inputs.master-database-url }}
+        DATABASE_ENCRYPTION_KEY: ${{ inputs.database-encryption-key }}
+        NEON_API_KEY: ${{ inputs.neon-api-key }}
+        NODE_TLS_REJECT_UNAUTHORIZED: '0'
+      run: pnpm migrate
