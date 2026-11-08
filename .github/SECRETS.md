@@ -172,4 +172,4 @@ environment, never `test` or `production`:
 |---|---|---|---|
 | `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
 | `mobile-release` | `main` | `mobile-build.yml`, channel `production` | `EXPO_TOKEN` |
-| `mobile-preview` | `develop` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |
+| `mobile-preview` | `main` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |

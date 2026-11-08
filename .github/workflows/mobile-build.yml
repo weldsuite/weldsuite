@@ -14,8 +14,8 @@
 # `{ policy: "appVersion" }` at `eas update` time). Bump `expo.version` when
 # native code changes, then ship a new binary.
 #
-# The job runs in the `mobile-preview` (develop) / `mobile-release` (main)
-# GitHub Environment, which is where EXPO_TOKEN lives. They are not the deploy
+# The job runs in the `mobile-preview` / `mobile-release` GitHub Environment
+# (both limited to main), which is where EXPO_TOKEN lives. They are not the deploy
 # environments `test`/`production`, which move to the private deploy repo
 # (ADR OPS-018). Adding required reviewers to that environment turns this
 # into a second approval gate on top of the manual dispatch.

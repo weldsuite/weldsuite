@@ -310,5 +310,5 @@ PR ──► CI (public, required checks) ──► merge to main
   get their own public environments, holding only their secrets, limited to
   the branch they release from: `desktop-release` (main), and for
   `mobile-build` `mobile-release` (production channel, main) and
-  `mobile-preview` (preview channel, develop), the same branch split as
-  today.
+  `mobile-preview` (preview channel), all limited to `main` once `develop`
+  is gone.
