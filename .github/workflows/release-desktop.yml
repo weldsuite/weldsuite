@@ -116,7 +116,10 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: prepare
-    environment: desktop-release
+    # No deployment record (see handoff.yml); releases show under Releases.
+    environment:
+      name: desktop-release
+      deployment: false
     strategy:
       fail-fast: false
       matrix:
@@ -223,7 +226,9 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
     runs-on: ubuntu-latest
-    environment: desktop-release
+    environment:
+      name: desktop-release
+      deployment: false
     steps:
       - uses: actions/checkout@v4
         with:

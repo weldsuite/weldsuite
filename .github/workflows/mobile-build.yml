@@ -233,7 +233,11 @@ jobs:
     # (actions/runner-images#14777), see EAS_LOCAL_BUILD_WORKINGDIR below.
     runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-24.04' }}
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
-    environment: ${{ inputs.channel == 'production' && 'mobile-release' || 'mobile-preview' }}
+    # deployment: false: no deployment record per build (see handoff.yml).
+    # Required reviewers still apply.
+    environment:
+      name: ${{ inputs.channel == 'production' && 'mobile-release' || 'mobile-preview' }}
+      deployment: false
     timeout-minutes: 120
     strategy:
       fail-fast: false
