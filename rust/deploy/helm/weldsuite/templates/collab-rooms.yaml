@@ -125,9 +125,7 @@ spec:
             - name: COLLAB_ROOMS_SECRET
               valueFrom:
                 {{- include "weldsuite.secretKeyRef" (dict "root" . "key" "COLLAB_ROOMS_SECRET") | nindent 16 }}
-            - name: DATABASE_URL_MASTER
-              valueFrom:
-                {{- include "weldsuite.secretKeyRef" (dict "root" . "key" "DATABASE_URL_MASTER") | nindent 16 }}
+            {{- include "weldsuite.masterDatabaseEnv" $ | nindent 12 }}
             {{- range $key := list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" }}
             - name: {{ $key }}
               valueFrom:
