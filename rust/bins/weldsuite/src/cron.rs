@@ -347,6 +347,7 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
         flags: Arc::clone(&infra.flags),
         portal_url: config.sign_portal_url.clone(),
         environment: Some(config.environment.clone()),
+        app_url: config.public_app_url.clone(),
     };
     let tenants: Arc<dyn TenantResolver> = Arc::new(WorkspaceTenants(workspaces));
     let now = time::OffsetDateTime::now_utc();

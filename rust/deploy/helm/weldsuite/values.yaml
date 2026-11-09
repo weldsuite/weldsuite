@@ -33,6 +33,15 @@ config:
   # the features it lacks (rust/bins/weldsuite/src/edition.rs); neither is a
   # setting.
   edition: self-hosted
+  # The install's public origin, e.g. https://weldsuite.example.com: where the
+  # platform, /api, /v1 and the webhooks are served. Set, it becomes
+  # PUBLIC_URL and fills every URL setting that names this host and isn't in
+  # extraEnv (PUBLIC_APP_URL, APP_URL, PLATFORM_URL, APP_API_PUBLIC_URL,
+  # PUBLIC_API_URL, CONNECT_API_URL, CONNECTOR_WEBHOOK_BASE_URL,
+  # WEBHOOK_BASE_URL, PANEL_COLLECTOR_URL). Unset, the server falls back to
+  # Global's *.weldsuite.org hosts for links in mail, OAuth redirects and
+  # webhook registrations, and warns about it at start.
+  publicUrl: ""
   # Public settings the platform would otherwise bake in at build time, by
   # their VITE_* name, served in /config.json's `env`. Anyone can read that
   # document, so the server takes only the names it knows are public
@@ -61,11 +70,12 @@ config:
       apiUrl: ""
       # How long a join token can be used to connect (default 600).
       tokenTtlSeconds: ""
-  # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
-  # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
-  # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
+  # Who signs people in (ADR SEC-012): oidc (Zitadel, or the customer's own
+  # provider; set oidc.issuer and oidc.audience) or clerk (the Global
+  # edition's provider, for testing against Global's tokens; its key goes in
+  # the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or clerkJwks below).
   auth:
-    provider: clerk
+    provider: oidc
     oidc:
       # Compared with the token's iss exactly; discovery reads
       # <issuer>/.well-known/openid-configuration. Zitadel: https://auth.<domain>.
@@ -156,6 +166,11 @@ config:
     publicBucket: ""
     # Path-style URLs; MinIO, RustFS, Garage and endpoints reached by IP need them.
     forcePathStyle: false
+    # Where browsers read public objects (avatars, logos, published
+    # documents), e.g. https://files.weldsuite.example.com: S3_PUBLIC_URL.
+    # Unset, public object links point at Global's test bucket host, and the
+    # server warns at start.
+    publicUrl: ""
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
   # to run jobs inside the server process instead (lost on a restart; fine
   # for a small self-hosted install). With Restate, every pod also serves the
@@ -940,6 +955,36 @@ cron:
     domain-auto-renew:
       enabled: false
       schedule: "0 4 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldMail's outbound ledgers: every active ledger's alarm (state
+    # changes, cases, staff alerts), as the Durable Object's 5-minute alarm
+    # does on Global. Skips without VALKEY_URL (the ledgers then live in serve).
+    mail-outbound-ledgers:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 280
+    # WeldCalendar: re-plan stale auto-scheduled events, daily as on Global.
+    calendar-replan:
+      enabled: true
+      schedule: "0 4 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldFlow: hard-delete files soft-deleted more than 30 days ago, for the
+    # workspaces the file_purge due index lists.
+    flow-file-purge:
+      enabled: true
+      schedule: "30 3 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldFlow: approval reminders and overdue notices, for the workspaces
+    # the approval_due due index lists.
+    flow-approval-due:
+      enabled: true
+      schedule: "30 3 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldFlow: measure project benefits for the month that just ended, for
+    # the workspaces the benefit_measure due index lists.
+    flow-benefit-measure:
+      enabled: true
+      schedule: "30 3 * * *"
       activeDeadlineSeconds: 3000
   resources:
     requests:

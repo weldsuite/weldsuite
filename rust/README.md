@@ -743,13 +743,23 @@ scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
 books is not served), `connector-catchup` every 15 minutes and `moneybird-push`
 every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
-due index; nothing while merge is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
+minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
+`calendar-replan` daily at 04:00 UTC, and `flow-file-purge`, `flow-approval-due`
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global. The server reads
+environment variables only (`bins/weldsuite/src/config.rs`).
+At start it logs a "Global default" warning for every setting still on a value
+that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
+sign-in, no public URL, public objects on Global's bucket host, mail from
+`mail.weldsuite.org`, no video service); an EU or self-hosted install should
+log none.
 
 | Variable | |
 |---|---|
 | `DATABASE_URL_MASTER` | master database (required) |
+| `PUBLIC_URL` | the install's public origin (`https://weldsuite.example.com`). The chart's `config.publicUrl` sets it and fills each URL setting that names this host and isn't in `extraEnv`: `PUBLIC_APP_URL`, `APP_URL`, `PLATFORM_URL`, `APP_API_PUBLIC_URL`, `PUBLIC_API_URL`, `CONNECT_API_URL`, `CONNECTOR_WEBHOOK_BASE_URL`, `WEBHOOK_BASE_URL`, `PANEL_COLLECTOR_URL` (`PUBLIC_URL_SETTINGS` in `config.rs`). Unset, links in mail, OAuth redirects and webhook registrations name Global's hosts. `PUBLIC_APP_URL` is also the platform WeldSign's mail links to |
 | `DATABASE_URL_PERSONAL`, `PERSONAL_DB_MAX_CONNECTIONS` | personal-api's shared personal database (optional; set, `/personal-api` is served) and its pool size (default 5) |
-| `AUTH_PROVIDER` | `clerk` (default) or `oidc` (ADR SEC-012) |
+| `AUTH_PROVIDER` | `clerk` (the binary's default, for conformance and the dev setups) or `oidc` (ADR SEC-012; the chart's default) |
 | `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | with `clerk`: session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
@@ -772,7 +782,7 @@ due index; nothing while merge is not served). The server reads environment vari
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
-| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). See "WeldMeet on LiveKit" below |
+| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). Without the chosen provider's credentials (`weldsuite_video_rooms::configured`), `/config.json` leaves `meet` out of `modules`, so the platform hides WeldMeet. See "WeldMeet on LiveKit" below |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
@@ -798,7 +808,7 @@ due index; nothing while merge is not served). The server reads environment vari
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
-| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
+| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`, chart `config.files.publicUrl`), for public objects (avatars, logos, published documents) and Drive rows that store only a key. Unset, those links name Global's test bucket host, as the TypeScript routes do |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
 | `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: no identity provider) |
 | `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |

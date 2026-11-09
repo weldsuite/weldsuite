@@ -62,10 +62,22 @@ pub(crate) fn workspace_app_url(base: &str, clerk_org_id: &str, path: &str) -> S
 /// The request in the platform, for the sender (`envelopeAppUrl`).
 pub(crate) fn envelope_app_url(ctx: &SendContext, envelope_id: &str) -> String {
     workspace_app_url(
-        platform_url(ctx.services.environment.as_deref()),
+        app_base(
+            ctx.services.app_url.as_deref(),
+            ctx.services.environment.as_deref(),
+        ),
         &ctx.clerk_org_id,
         &format!("/weldsign/{envelope_id}"),
     )
+}
+
+/// The platform links go to: the install's own (`PUBLIC_APP_URL`, which the
+/// Kubernetes editions set), else Global's for the `ENVIRONMENT`.
+fn app_base<'a>(app_url: Option<&'a str>, environment: Option<&str>) -> &'a str {
+    app_url
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| platform_url(environment))
 }
 
 /// The file name a signed PDF travels under.
@@ -455,6 +467,15 @@ mod tests {
             workspace_app_url("https://app.weldsuite.org/", "org_a b", "weldsign/sgn_1"),
             "https://app.weldsuite.org/w/org_a%20b/weldsign/sgn_1"
         );
+        assert_eq!(
+            app_base(Some(" https://weldsuite.example.com/ "), Some("production")),
+            "https://weldsuite.example.com/"
+        );
+        assert_eq!(
+            app_base(Some(" "), Some("test")),
+            "https://app-test.weldsuite.org"
+        );
+        assert_eq!(app_base(None, None), "https://app.weldsuite.org");
         assert_eq!(pdf_file_name(" a/b:c "), "a b c.pdf");
         assert_eq!(pdf_file_name("??"), "signed.pdf");
         assert_eq!(safe_title("x<>|y", "z"), "x y");
