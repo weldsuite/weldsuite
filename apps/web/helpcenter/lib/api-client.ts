@@ -245,6 +245,6 @@ export const suggestArticles = createServerFn({ method: 'GET' })
     if (query.length < SUGGEST_MIN_LENGTH) return []
     const domain = requestDomain()
     if (!domain) return []
-    const page = await helpcenter.searchArticles(domain, query, '1', currentReader(), String(SUGGEST_LIMIT))
+    const page = await helpcenter.searchArticles(domain, query, '1', currentReader(), String(SUGGEST_LIMIT), 'any')
     return page.data.slice(0, SUGGEST_LIMIT).map(({ id, title, slug, excerpt }) => ({ id, title, slug, excerpt }))
   })

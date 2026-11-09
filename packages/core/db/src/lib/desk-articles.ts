@@ -15,7 +15,9 @@
  * stemming or stop words, so any language works): title weighted A, excerpt
  * B, content (tags stripped) C, ranked by `ts_rank`. A typed query is
  * `websearch_to_tsquery` OR every word with the last as a prefix (typeahead);
- * "related" text (a customer's messages) is an OR of its longer words.
+ * "related" text (a customer's messages) is an OR of its longer words, and so
+ * is what a customer writes before sending a request (deflection), with the
+ * word still being typed as a prefix.
  *
  * Language versions. A version is an article row with `translationOfId` (the
  * original) and its own `locale`. Lists show one entry per original: the
@@ -149,6 +151,33 @@ export function deskRelatedSearch(text: string): DeskArticleSearch | null {
   }
   if (words.length === 0) return null;
   return { websearch: null, tsquery: words.map((word) => `'${word}'`).join(' | ') };
+}
+
+/**
+ * What a customer is writing before they send a request (deflection): an OR
+ * of its distinct words of four characters or more, at most twelve, in
+ * order, the one still being typed (the text ends on it) as a prefix. A
+ * question is a sentence, and an article about resetting a password rarely
+ * holds every "how", "do" and "my" of it, so a typed search (every word)
+ * finds nothing; the rank puts the articles with the most of its words
+ * first. Text with only short words ("vpn", "2fa") is searched as typed.
+ */
+export function deskSuggestSearch(text: string): DeskArticleSearch | null {
+  const term = Array.from(text.trim()).slice(0, 200).join('');
+  const all = deskSearchWords(term);
+  const words: string[] = [];
+  for (const word of all) {
+    if (Array.from(word).length < 4 || words.includes(word)) continue;
+    words.push(word);
+    if (words.length === 12) break;
+  }
+  if (words.length === 0) return deskTypedSearch(term);
+  const typing = /[\p{L}\p{N}]$/u.test(term) ? all[all.length - 1] : null;
+  const last = words.length - 1;
+  return {
+    websearch: null,
+    tsquery: words.map((word, i) => (i === last && word === typing ? `'${word}':*` : `'${word}'`)).join(' | '),
+  };
 }
 
 /** The tsquery of a search. */
@@ -342,7 +371,12 @@ export interface DeskArticleSuggestionRow {
 /** Visibilities an agent may hand a customer (every published, non-internal article and version). */
 export const DESK_SHAREABLE_VISIBILITIES = ['public', 'logged_in', 'groups'] as const;
 
-/** Published, shareable articles (originals and versions) matching the search, best first. */
+/**
+ * Published, shareable articles (originals and versions) matching the search,
+ * best first. A version counts only while its original is published and
+ * shareable too: the help center serves it under the same rule
+ * (`findDeskReadableArticle`), so its link would open nothing otherwise.
+ */
 export async function suggestDeskArticles(
   db: AnyDb,
   search: DeskArticleSearch,
@@ -364,6 +398,7 @@ export async function suggestDeskArticles(
         eq(articles.status, 'published'),
         isNull(articles.deletedAt),
         sql`${articles.visibility} in ('public', 'logged_in', 'groups')`,
+        sql`(helpdesk_articles.translation_of_id is null or exists (select 1 from helpdesk_articles o where o.id = helpdesk_articles.translation_of_id and o.status = 'published' and o.deleted_at is null and o.visibility in ('public', 'logged_in', 'groups')))`,
         deskArticleMatches('helpdesk_articles', search),
       ),
     )

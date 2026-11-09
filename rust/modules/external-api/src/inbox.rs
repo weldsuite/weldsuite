@@ -321,12 +321,16 @@ async fn open_conversation(
             contact_id: opt_text(body, "contactId"),
             metadata: Map::new(),
         },
-        fields: open_fields(
-            opt_text(body, "ticketTypeId"),
-            opt_text(body, "priority"),
-            body,
-            opt_text(body, "departmentId"),
-        ),
+        fields: Update {
+            impact: opt_text(body, "impact").map_or(Field::Absent, Field::Set),
+            urgency: opt_text(body, "urgency").map_or(Field::Absent, Field::Set),
+            ..open_fields(
+                opt_text(body, "ticketTypeId"),
+                opt_text(body, "priority"),
+                body,
+                opt_text(body, "departmentId"),
+            )
+        },
         assignee_id: None,
     };
     open(&state, &caller, &input).await
@@ -373,7 +377,8 @@ async fn update_conversation(
             tags: tags(body),
             department_id: nullable(body, "departmentId"),
             custom_fields,
-            ..Update::default()
+            impact: nullable(body, "impact"),
+            urgency: nullable(body, "urgency"),
         },
     };
     let master = crate::master_db_of(&state, &caller);

@@ -419,4 +419,12 @@ describe('GET /search', () => {
     expect(await listIds(await get(`/search?${q}&q=runbook`))).toEqual([]);
     expect(await listIds(await get(`/search?${q}&q=_`))).toEqual([]);
   });
+
+  it('suggests for a whole question with match=any: any of its longer words', async () => {
+    const question = encodeURIComponent('How do I pay my invoice?');
+    // The search box needs every word; the request form's suggestions do not.
+    expect(await listIds(await get(`/search?${q}&q=${question}`))).toEqual([]);
+    expect(await listIds(await get(`/search?${q}&q=${question}&match=any`))).toEqual(['art_invoice']);
+    expect(await listIds(await get(`/search?${q}&q=%3F%21&match=any`))).toEqual([]);
+  });
 });

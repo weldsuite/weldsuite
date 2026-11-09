@@ -26,6 +26,7 @@ import {
   deskArticleRank,
   deskDisplayedArticleIds,
   deskReaderOf,
+  deskSuggestSearch,
   deskTypedSearch,
   findDeskReadableArticle,
   listDeskAnnouncementsFor,
@@ -290,13 +291,14 @@ app.post('/articles/:id/feedback', async (c) => {
 });
 
 // ============================================================================
-// GET /search — full-text over the reader's articles (page-based)
+// GET /search — full-text over the reader's articles (page-based); ?match=any suggests
 // ============================================================================
 
 app.get('/search', async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const search = deskTypedSearch(q.q ?? '');
+  // match=any: what a reader is writing in a request form (deflection), not a search box.
+  const search = q.match === 'any' ? deskSuggestSearch(q.q ?? '') : deskTypedSearch(q.q ?? '');
   if (!search) return c.json({ data: [], pagination: pageMeta(1, 20, 0) });
   const { page, pageSize, offset } = parsePaging(q);
   try {

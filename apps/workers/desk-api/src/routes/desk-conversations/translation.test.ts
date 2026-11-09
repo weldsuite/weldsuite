@@ -62,6 +62,9 @@ const WORKSPACE_CACHE = {
     kv.set(key, value);
     kvPuts.push({ key, ttl: opts?.expirationTtl });
   },
+  delete: async (key: string) => {
+    kv.delete(key);
+  },
 };
 const ENTITY_EVENTS = {
   send: async (message: { entityType: string; action: string; entityId: string; changes?: unknown }) => {
@@ -120,6 +123,41 @@ async function germanConversation(visitorId: string) {
 
 function answer(language: string, translations: { id: string; text: string }[]) {
   ai.generateObject.mockResolvedValueOnce({ object: { language, translations }, usage, providerMetadata: undefined });
+}
+
+/** A conversation of `count` customer messages. */
+async function thread(visitorId: string, count: number, text: (i: number) => string) {
+  const { conversation } = await createDeskConversation(db, { generateId, visitorId, name: 'Jonas', body: text(1) });
+  for (let i = 2; i <= count; i++) {
+    await appendDeskMessage(db, {
+      generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      body: text(i),
+    });
+  }
+  return { id: conversation.id };
+}
+
+/** The messages a model call was given. */
+function promptOf(call: number): { id: string; role: string; text: string }[] {
+  return JSON.parse((ai.generateObject.mock.calls[call]![0] as { prompt: string }).prompt);
+}
+
+/** A model that names `language` and "translates" every message it is given; `failCall` (1-based) throws instead. */
+function echo(language: string, opts: { failCall?: number } = {}) {
+  let calls = 0;
+  ai.generateObject.mockImplementation(async (input: { prompt: string }) => {
+    calls += 1;
+    if (calls === opts.failCall) throw new Error('upstream');
+    const messages = JSON.parse(input.prompt) as { id: string; text: string }[];
+    return {
+      object: { language, translations: messages.map((m) => ({ id: m.id, text: `EN: ${m.text}` })) },
+      usage,
+      providerMetadata: undefined,
+    };
+  });
 }
 
 interface TranslateBody {
@@ -220,11 +258,131 @@ describe('POST /api/desk/conversations/:id/translate', () => {
     answer('en', [{ id: 'x', text: 'My invoice is wrong.' }]);
     const res = await post(`/${conversation.id}/translate`, { targetLocale: 'en' });
     expect(((await res.json()) as TranslateBody).data).toEqual({ language: 'en', targetLocale: 'en', translations: [] });
-    expect(kvPuts).toHaveLength(0);
+    // The message is remembered as judged (not as a translation), so it is not judged again.
+    expect(kvPuts).toHaveLength(1);
 
     // Known now: no second model call.
     await post(`/${conversation.id}/translate`, { targetLocale: 'en-GB' });
     expect(ai.generateObject).toHaveBeenCalledTimes(1);
+  });
+
+  it('judges the language on the newest customer messages before paying for a whole thread', async () => {
+    const c = await thread('visitor_tr_long_en', 20, (i) => `Message number ${i} about my order.`);
+    answer('en', []);
+    const res = await post(`/${c.id}/translate`, { targetLocale: 'en' });
+    expect(((await res.json()) as TranslateBody).data).toEqual({ language: 'en', targetLocale: 'en', translations: [] });
+
+    // One small call for a thread in the agent's own language, not twenty messages.
+    expect(ai.generateObject).toHaveBeenCalledTimes(1);
+    expect(promptOf(0)).toHaveLength(5);
+    expect(billing.chargeAiUsage).toHaveBeenCalledTimes(1);
+
+    await post(`/${c.id}/translate`, { targetLocale: 'en' });
+    expect(ai.generateObject).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts a wrong first guess right once the customer writes on', async () => {
+    const { conversation, message: hello } = await createDeskConversation(db, {
+      generateId,
+      visitorId: 'visitor_tr_hallo',
+      body: 'Hallo',
+    });
+    // "Hallo" alone reads as Dutch to a Dutch agent's translation.
+    answer('nl', []);
+    const first = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(((await first.json()) as TranslateBody).data).toMatchObject({ language: 'nl', translations: [] });
+
+    const { message: next } = await appendDeskMessage(db, {
+      generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      body: 'Ich brauche Hilfe mit meiner Rechnung.',
+    });
+    events.length = 0;
+    answer('de', [{ id: next.id, text: 'Ik heb hulp nodig met mijn factuur.' }]);
+    answer('de', [{ id: hello!.id, text: 'Hallo' }]);
+    const second = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(((await second.json()) as TranslateBody).data).toEqual({
+      language: 'de',
+      targetLocale: 'nl',
+      translations: [
+        { messageId: hello!.id, text: 'Hallo' },
+        { messageId: next.id, text: 'Ik heb hulp nodig met mijn factuur.' },
+      ],
+    });
+    // The new message was judged first, on its own; the earlier one followed.
+    expect(promptOf(1).map((m) => m.id)).toEqual([next.id]);
+    expect(promptOf(2).map((m) => m.id)).toEqual([hello!.id]);
+    const [row] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, conversation.id));
+    expect(row!.language).toBe('de');
+    expect(events).toEqual([expect.objectContaining({ changes: { language: { old: 'nl', new: 'de' } } })]);
+  });
+
+  it('sends the earlier messages again when their batch fails after the language turned out foreign', async () => {
+    const { conversation, message: hello } = await createDeskConversation(db, {
+      generateId,
+      visitorId: 'visitor_tr_hallo_retry',
+      body: 'Hallo',
+    });
+    answer('nl', []);
+    await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+
+    const { message: next } = await appendDeskMessage(db, {
+      generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      body: 'Ich brauche Hilfe mit meiner Rechnung.',
+    });
+    // The new message says German; the call for the earlier "Hallo" fails.
+    answer('de', [{ id: next.id, text: 'Ik heb hulp nodig met mijn factuur.' }]);
+    ai.generateObject.mockRejectedValueOnce(new Error('upstream'));
+    const partial = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(partial.status).toBe(200);
+    expect(((await partial.json()) as TranslateBody).data.translations.map((t) => t.messageId)).toEqual([next.id]);
+
+    // "Hallo" is no longer remembered as "same language": the next request sends it again.
+    answer('de', [{ id: hello!.id, text: 'Hallo' }]);
+    const again = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(((await again.json()) as TranslateBody).data.translations.map((t) => t.messageId)).toEqual([
+      hello!.id,
+      next.id,
+    ]);
+    expect(promptOf(3).map((m) => m.id)).toEqual([hello!.id]);
+  });
+
+  it('translates a long thread in batches, each charged', async () => {
+    const c = await thread('visitor_tr_long_de', 30, (i) => `Nachricht ${i} zu meiner Bestellung.`);
+    echo('de');
+    const res = await post(`/${c.id}/translate`, { targetLocale: 'en' });
+    expect(res.status).toBe(200);
+    const body = ((await res.json()) as TranslateBody).data;
+    expect(body.language).toBe('de');
+    expect(body.translations).toHaveLength(30);
+    expect(body.translations.every((t) => t.text.startsWith('EN: Nachricht'))).toBe(true);
+
+    // The newest five to judge the language, then twelve a call.
+    expect(ai.generateObject.mock.calls.map((_, i) => promptOf(i).length)).toEqual([5, 12, 12, 1]);
+    expect((ai.generateObject.mock.calls[0]![0] as { maxOutputTokens?: number }).maxOutputTokens).toBeGreaterThan(0);
+    expect(billing.assertAiCredits).toHaveBeenCalledTimes(1);
+    expect(billing.chargeAiUsage).toHaveBeenCalledTimes(4);
+  });
+
+  it('answers what it has when a later batch fails, and the rest on the next request', async () => {
+    const c = await thread('visitor_tr_partial', 20, (i) => `Nachricht ${i} zu meiner Rechnung.`);
+    echo('de', { failCall: 3 });
+    const res = await post(`/${c.id}/translate`, { targetLocale: 'en' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as TranslateBody).data.translations).toHaveLength(17);
+    expect(billing.chargeAiUsage).toHaveBeenCalledTimes(2);
+
+    ai.generateObject.mockReset();
+    echo('de');
+    const again = await post(`/${c.id}/translate`, { targetLocale: 'en' });
+    expect(((await again.json()) as TranslateBody).data.translations).toHaveLength(20);
+    expect(ai.generateObject).toHaveBeenCalledTimes(1);
+    expect(promptOf(0)).toHaveLength(3);
   });
 
   it('answers 402 when the wallet is empty, before calling the model', async () => {
