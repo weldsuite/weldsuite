@@ -206,6 +206,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         collab_secret: config.collab_rooms_secret.as_deref().map(Arc::from),
         mail_inbound_secret: config.mail_inbound_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
+        files_public_via_server: config.files_public_via_server,
         widget_token_secret: config
             .realtime
             .widget_token_secret

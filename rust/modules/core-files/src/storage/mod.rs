@@ -80,6 +80,11 @@ pub struct StorageState {
     pub environment: Arc<str>,
     /// Starts the 30-day purge of a trashed file.
     pub jobs: Option<Arc<dyn DynJobs>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects at
+    /// `/api/storage/public/<key>` to anyone, for an object store with no
+    /// public endpoint of its own (the one a self-hosted chart bundles).
+    /// Off, that route answers only local development, as in TypeScript.
+    pub serve_public_objects: bool,
 }
 
 impl std::fmt::Debug for StorageState {
@@ -90,6 +95,7 @@ impl std::fmt::Debug for StorageState {
             .field("signing_key", &self.signing_key.is_some())
             .field("environment", &self.environment)
             .field("jobs", &self.jobs.is_some())
+            .field("serve_public_objects", &self.serve_public_objects)
             .finish()
     }
 }
@@ -1092,14 +1098,18 @@ async fn private_object(
 /// Streams a public object back for local development, where the bucket's
 /// public domain does not serve what was just uploaded. Fails closed: only
 /// with `ENVIRONMENT=development` and only for requests to localhost, so it
-/// never becomes an open proxy for the bucket.
+/// never becomes an open proxy for the bucket; or, on an install that turned
+/// it on (`StorageState::serve_public_objects`), for anyone, since the public
+/// bucket holds only what is published anyway.
 async fn public_object(
     State(state): State<CoreFilesState>,
     visitor: Visitor,
     OriginalUri(uri): OriginalUri,
 ) -> Response {
     let overrides = &visitor.overrides;
-    if overrides.environment(&state) != "development" || !is_local_origin(&visitor.origin) {
+    let local_development =
+        overrides.environment(&state) == "development" && is_local_origin(&visitor.origin);
+    if !local_development && !state.storage.serve_public_objects {
         return plain_error(StatusCode::NOT_FOUND, "Not found");
     }
     let Some(bucket) = overrides.buckets(&state).public else {
@@ -1149,6 +1159,60 @@ async fn public_object(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `GET /api/storage/public/<key>` against a state whose public bucket
+    /// holds one object, from a remote origin in production.
+    async fn read_public(serve_public_objects: bool) -> (StatusCode, Vec<u8>) {
+        use tower::ServiceExt as _;
+        use weldsuite_ports::{FileStore as _, MemoryFileStore, PutOptions};
+        let public = Arc::new(MemoryFileStore::default());
+        public
+            .put(
+                "workspaces/o/logo.png",
+                b"png".to_vec(),
+                &PutOptions::default(),
+            )
+            .await
+            .expect("put");
+        let state = CoreFilesState {
+            events: weldsuite_events::EntityEventPublisher::new(
+                None,
+                weldsuite_events::TaskTracker::new(),
+            ),
+            files: Some(FileStores {
+                private: Arc::new(MemoryFileStore::default()),
+                public: Some(public),
+            }),
+            public_files_url: None,
+            storage: StorageState {
+                environment: Arc::from("production"),
+                serve_public_objects,
+                ..StorageState::default()
+            },
+        };
+        let request = axum::http::Request::get("/api/storage/public/workspaces/o/logo.png")
+            .header("host", "weldsuite.example.com")
+            .header("origin", "https://weldsuite.example.com")
+            .body(axum::body::Body::empty())
+            .expect("request");
+        let response = storage_public_router::<()>(state)
+            .oneshot(request)
+            .await
+            .expect("response");
+        let status = response.status();
+        let body = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .expect("body")
+            .to_bytes()
+            .to_vec();
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn public_objects_are_served_only_where_turned_on() {
+        assert_eq!(read_public(false).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(read_public(true).await, (StatusCode::OK, b"png".to_vec()));
+    }
 
     #[test]
     fn local_origins() {

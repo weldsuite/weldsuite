@@ -200,6 +200,10 @@ pub(crate) struct Config {
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
+    /// `S3_PUBLIC_VIA_SERVER=true`: this server serves the public bucket's
+    /// objects at `/api/storage/public/<key>` (for an object store with no
+    /// public endpoint of its own; the chart then points `S3_PUBLIC_URL` there).
+    pub(crate) files_public_via_server: bool,
     /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
     /// open private objects; the same value as app-api's.
     pub(crate) storage_signing_key: Option<String>,
@@ -380,6 +384,9 @@ pub(crate) struct FilesConfig {
     pub(crate) private: weldsuite_adapters_oss::S3Options,
     /// `S3_BUCKET_PUBLIC`: read for objects stored before the private bucket.
     pub(crate) public_bucket: Option<String>,
+    /// `S3_ENSURE_BUCKETS=true`: create the buckets at start when the store
+    /// doesn't have them (the object store a self-hosted chart bundles).
+    pub(crate) ensure_buckets: bool,
 }
 
 impl FilesConfig {
@@ -408,6 +415,14 @@ impl FilesConfig {
                 false
             }
         };
+        let ensure_buckets = match lookup("S3_ENSURE_BUCKETS").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                problems.push("S3_ENSURE_BUCKETS must be true or false".to_owned());
+                false
+            }
+        };
         Some(Self {
             private: weldsuite_adapters_oss::S3Options {
                 endpoint,
@@ -418,6 +433,7 @@ impl FilesConfig {
                 path_style,
             },
             public_bucket: lookup("S3_BUCKET_PUBLIC"),
+            ensure_buckets,
         })
     }
 
@@ -660,6 +676,7 @@ impl Config {
             collab_rooms_secret: lookup("COLLAB_ROOMS_SECRET").filter(|s| !s.is_empty()),
             mail_inbound_secret: lookup("MAIL_INBOUND_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
+            files_public_via_server: lookup("S3_PUBLIC_VIA_SERVER").as_deref() == Some("true"),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
