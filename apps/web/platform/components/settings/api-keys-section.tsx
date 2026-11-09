@@ -140,6 +140,8 @@ const PERMISSION_ENTITIES = [
   // Settings
   { entityKey: 'settings', group: 'settings', scopes: ro('settings') },
   { entityKey: 'members', group: 'settings', scopes: ro('members') },
+  // Companies of the workspace; bank accounts only as a masked IBAN.
+  { entityKey: 'legalEntities', group: 'settings', scopes: ro('legal_entities') },
 ] as const;
 
 // Get all scope IDs the bulk buttons may select (named-only scopes excluded)

@@ -23,6 +23,7 @@ use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{guard, via_employee};
 use crate::fields::{Fields, id, iso_date};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, assert_date_order, hr_json, js_number, js_trim,
@@ -60,6 +61,7 @@ where
             "/absences/{id}",
             delete(remove).route_layer(gate.require([ABSENCES_DELETE])),
         )
+        .route_layer(guard("/absences", "Absence", via_employee!("hr_absences")))
 }
 
 /// `absenceStatus(endDate, today)`.
@@ -148,6 +150,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     let cursor = query_text(&q, "cursor");
     let today = today_iso();
     let db = &caller.db;
+    let scope = caller.scope().await?;
     let cursor_row: Option<(String, String)> = match &cursor {
         Some(cursor) => {
             sqlx::query_as("select start_date::text, id from hr_absences where id = $1 limit 1")
@@ -174,6 +177,8 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
            and ($3::text is null or ($3 = 'completed' and ab.end_date < $4::date)
                 or ($3 = 'ongoing' and (ab.end_date is null or ab.end_date >= $4::date)))
            and ($5::text is null or (ab.start_date, ab.id) < ($5::date, $6))
+           and ($8::text[] is null or e.legal_entity_id = any($8)
+                or ($9::boolean and e.legal_entity_id is null))
          order by ab.start_date desc, ab.id desc
          limit $7",
     )
@@ -184,6 +189,8 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     .bind(cursor_row.as_ref().map(|c| c.0.clone()))
     .bind(cursor_row.as_ref().map(|c| c.1.clone()))
     .bind(limit + 1)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let total: i64 = sqlx::query_scalar(
@@ -192,12 +199,16 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
            and ($1::text is null or ab.employee_id = $1)
            and ($2::text is null or e.department_id = $2)
            and ($3::text is null or ($3 = 'completed' and ab.end_date < $4::date)
-                or ($3 = 'ongoing' and (ab.end_date is null or ab.end_date >= $4::date)))",
+                or ($3 = 'ongoing' and (ab.end_date is null or ab.end_date >= $4::date)))
+           and ($5::text[] is null or e.legal_entity_id = any($5)
+                or ($6::boolean and e.legal_entity_id is null))",
     )
     .bind(&employee_id)
     .bind(&department_id)
     .bind(&status)
     .bind(&today)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_one(db)
     .await?;
     let page_size = usize::try_from(limit).unwrap_or(0);
@@ -317,6 +328,9 @@ async fn create(
                 note(issues, fields),
             )
         })?;
+    caller
+        .assert_employee_visible(employee_id.as_set().map(String::as_str))
+        .await?;
     let row = create_absence(
         &caller.db,
         employee_id.as_set().map_or("", String::as_str),

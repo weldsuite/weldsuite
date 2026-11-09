@@ -284,6 +284,9 @@ export * from './ad-platform';
 // Audit Logs (generic, cross-module)
 export * from './audit-logs';
 
+// Legal entities (core: companies, registrations, bank accounts, per-entity access)
+export * from './legal-entities';
+
 // Accounting module (shared database model — no prefix)
 export * from './accounting-entities';
 export * from './accounting-entity-sequences';

@@ -2,9 +2,14 @@
 //! `services/workspace-settings.ts`):
 //!
 //! - `GET /` and `PUT /`: the `workspace_settings` business record
-//!   (`general:read` / `general:update`). The PUT mirrors the timezone into the
-//!   master `digest_schedules`; the Stripe customer mirror is Global-only and
-//!   skipped, as the worker skips it without `STRIPE_SECRET_KEY`.
+//!   (`general:read` / `general:update`). The business profile is the default
+//!   legal entity ([`super::business_profile`]): the PUT refuses a country
+//!   the entity's history locks (409), writes the legal fields through to the
+//!   entity (creating it when there is none and the country is ISO-2), and
+//!   both answer the record with the entity's values laid over it. The PUT
+//!   mirrors the timezone into the master `digest_schedules`; the Stripe
+//!   customer mirror is Global-only and skipped, as the worker skips it
+//!   without `STRIPE_SECRET_KEY`.
 //! - `PUT /name` (owner or admin) and `POST /slug` (owner): mirrored to the
 //!   identity provider, with the master (and help-center) writes undone when
 //!   it refuses.
@@ -24,7 +29,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
-use weldsuite_catalogs::entity_events::{WORKSPACE_SETTINGS_DELETED, WORKSPACE_SETTINGS_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    LEGAL_ENTITY_CREATED, LEGAL_ENTITY_UPDATED, WORKSPACE_SETTINGS_DELETED,
+    WORKSPACE_SETTINGS_UPDATED,
+};
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::{Presence, json_body};
@@ -32,6 +40,10 @@ use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{IdentityError, OrganizationChanges, with_identity};
 
+use super::business_profile::{
+    WriteThrough, locked_business_profile_change, overlay_default_entity,
+    write_through_to_default_entity,
+};
 use super::vat_number;
 use super::zod_issues::{
     ZodIssues, invalid_type_issue, js_length, js_trim, object, unrecognized_keys,
@@ -113,10 +125,24 @@ async fn get_settings(caller: Caller) -> Response {
     if caller.org_id.is_none() {
         return ApiError::org_required().into_response();
     }
-    match select_settings(&caller.db).await {
-        Ok(row) => Data(row.unwrap_or(Value::Null)).into_response(),
-        Err(error) => TeamError::internal("Failed to fetch workspace settings", error).respond(),
+    match read_overlaid(&caller.db).await {
+        Ok(row) => Data(row).into_response(),
+        Err(cause) => TeamError::internal("Failed to fetch workspace settings", cause).respond(),
     }
+}
+
+/// The settings row with the default legal entity's business fields laid
+/// over it, or null when the workspace has never saved one.
+async fn read_overlaid(db: &PgPool) -> Result<Value, String> {
+    let Some(row) = select_settings(db)
+        .await
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(Value::Null);
+    };
+    overlay_default_entity(db, row)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// How a field of `updateWorkspaceSettingsInput` is checked.
@@ -303,8 +329,14 @@ fn touches_billing_mirror(data: &Map<String, Value>) -> bool {
 }
 
 /// `syncBillingMirror`: the digest timezone in the master database. Best
-/// effort end to end. The Stripe customer update is Global-only.
-async fn sync_billing_mirror(master: &PgPool, org: &str, data: &Map<String, Value>) {
+/// effort end to end. The Stripe customer update is Global-only; with
+/// `skip_stripe` the default legal entity carries it instead.
+async fn sync_billing_mirror(
+    master: &PgPool,
+    org: &str,
+    data: &Map<String, Value>,
+    skip_stripe: bool,
+) {
     let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> = sqlx::query_as(
         "select id, stripe_customer_id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
     )
@@ -333,9 +365,19 @@ async fn sync_billing_mirror(master: &PgPool, org: &str, data: &Map<String, Valu
     {
         tracing::error!(%error, "workspace settings: digest timezone sync failed");
     }
-    if stripe_customer.is_some() {
+    if !skip_stripe && stripe_customer.is_some() {
         tracing::debug!("workspace settings: no Stripe on this edition, customer not updated");
     }
+}
+
+/// `mirrorStripeCustomer` with the default entity's profile: the Stripe
+/// customer follows the default legal entity. Billing is Global-only, so
+/// there is no customer to update on this edition.
+fn mirror_stripe_customer(written: &WriteThrough) {
+    tracing::debug!(
+        entity_id = written.entity.id,
+        "workspace settings: no Stripe on this edition, customer not updated"
+    );
 }
 
 async fn put_settings(
@@ -347,17 +389,12 @@ async fn put_settings(
     answer(run_put_settings(&state, &caller, &headers, &body).await)
 }
 
-async fn run_put_settings(
-    state: &CoreTeamState,
-    caller: &Caller,
-    headers: &HeaderMap,
-    body: &Bytes,
-) -> TeamResult<Response> {
-    let data = read_settings(&body_json(headers, body)?)?;
-    let org = org_of(caller)?;
-    let failed =
-        |error: sqlx::Error| TeamError::internal("Failed to update workspace settings", error);
-
+/// `upsertWorkspaceSettings`: the singleton row with the fields the body
+/// sets; its id, whether it was created, and the row as Drizzle returns it.
+async fn upsert_settings(
+    db: &PgPool,
+    data: &Map<String, Value>,
+) -> Result<(String, bool, Value), sqlx::Error> {
     // The columns the body sets, for `jsonb_populate_record`.
     let patch: Map<String, Value> = FIELDS
         .iter()
@@ -368,9 +405,8 @@ async fn run_put_settings(
 
     let existing: Option<String> =
         sqlx::query_scalar("select id from workspace_settings where deleted_at is null limit 1")
-            .fetch_optional(&caller.db)
-            .await
-            .map_err(failed)?;
+            .fetch_optional(db)
+            .await?;
     let (id, created) = if let Some(id) = existing {
         sqlx::query(
             "update workspace_settings w set
@@ -392,9 +428,8 @@ async fn run_put_settings(
         .bind(&id)
         .bind(&patch)
         .bind(&stamp)
-        .execute(&caller.db)
-        .await
-        .map_err(failed)?;
+        .execute(db)
+        .await?;
         (id, false)
     } else {
         let id = generate_id("ws");
@@ -416,24 +451,77 @@ async fn run_put_settings(
         .bind(&id)
         .bind(&patch)
         .bind(&stamp)
-        .execute(&caller.db)
-        .await
-        .map_err(failed)?;
+        .execute(db)
+        .await?;
         (id, true)
     };
     let row: Value =
         sqlx::query_scalar("select to_jsonb(s) from workspace_settings s where id = $1 limit 1")
             .bind(&id)
-            .fetch_one(&caller.db)
-            .await
-            .map_err(failed)?;
-    let row = js_row(row);
+            .fetch_one(db)
+            .await?;
+    Ok((id, created, js_row(row)))
+}
+
+async fn run_put_settings(
+    state: &CoreTeamState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> TeamResult<Response> {
+    let data = read_settings(&body_json(headers, body)?)?;
+    let org = org_of(caller)?;
+    // A country the default entity's history locks is refused before
+    // anything is saved.
+    if let Some(reason) = locked_business_profile_change(&caller.db, &data)
+        .await
+        .map_err(|error| TeamError::internal("Failed to update workspace settings", error))?
+    {
+        return Err(TeamError::api(ApiError::conflict(reason)));
+    }
+
+    let (id, created, row) = upsert_settings(&caller.db, &data)
+        .await
+        .map_err(|error| TeamError::internal("Failed to update workspace settings", error))?;
+
+    // The business profile is the default legal entity: write the legal
+    // fields through to it. The settings row keeps its copy while old
+    // workers may still read it, and a failure here never loses the save.
+    let master = caller.master(state);
+    let written = match write_through_to_default_entity(&caller.db, &data, &row, &master, &org)
+        .await
+    {
+        Ok(written) => written,
+        Err(error) => {
+            tracing::error!(%error, "workspace settings: write-through to the default legal entity failed");
+            None
+        }
+    };
 
     if touches_billing_mirror(&data) {
-        sync_billing_mirror(&caller.master(state), &org, &data).await;
+        // With a default entity the Stripe customer follows the entity (the
+        // same mirror as /api/legal-entities); the digest timezone still
+        // syncs here.
+        sync_billing_mirror(&master, &org, &data, written.is_some()).await;
+        if let Some(written) = &written {
+            mirror_stripe_customer(written);
+        }
     }
+
+    if let Some(written) = &written {
+        let event = if written.created {
+            LEGAL_ENTITY_CREATED
+        } else {
+            LEGAL_ENTITY_UPDATED
+        };
+        caller.publish(state, event, &written.entity.id, &written.entity.row);
+    }
+
     // The catalog has no `created` action: an insert is `updated` too.
     caller.publish(state, WORKSPACE_SETTINGS_UPDATED, &id, &row);
+    let row = overlay_default_entity(&caller.db, row)
+        .await
+        .map_err(|error| TeamError::internal("Failed to update workspace settings", error))?;
     Ok(if created {
         Created(row).into_response()
     } else {

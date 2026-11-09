@@ -21,7 +21,7 @@ beforeAll(async () => {
 function request(path: string, init?: { method?: string; body?: unknown; perms?: string[] }) {
   const { request: send } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
     context: {
-      permissions: permissions(...(init?.perms ?? ['entities:read', 'entities:create', 'entities:update'])),
+      permissions: permissions(...(init?.perms ?? ['entities:read', 'entities:create', 'legal_entities:create', 'entities:update'])),
       tenantDb: db,
     },
   });

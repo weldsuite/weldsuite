@@ -473,6 +473,9 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
+                        legal_entity_context layer and record guard for books and hr, the core service
+                        (entities, registrations, bank accounts, access) and its request schemas
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
@@ -542,7 +545,7 @@ rust/
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
-                        modules/core-team (team, roles, settings, preferences, app catalog),
+                        modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
                         modules/core-platform (notifications, audit logs, appstore, API keys, credits,
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
@@ -552,8 +555,9 @@ rust/
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
-  deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
-  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
+  deploy/hetzner/       OpenTofu for a cluster on Hetzner (Talos) and the install guide
+  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app, and an
+                        example cluster (WeldSuite's own clusters and runbooks are in its private deploy repository)
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
 ```
 
@@ -649,11 +653,13 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 
 ## Staff work
 
-`weldsuite admin` is what the admin console (`apps/web/admin`) does on Global,
-for the Kubernetes editions (ADR SEC-014): the console stays Global's, and on
-EU and self-hosted installs staff run commands in a server pod through the
-cluster's API. The rules and writes are in `crates/staff-domain`, the
-arguments and output in `bins/weldsuite/src/admin.rs`.
+On the Kubernetes editions staff work two ways, both checked against the
+install's staff list (ADR SEC-014): the admin console (`apps/web/admin`, its
+Node build in the chart's `admin` values, ADR FE-018), and `weldsuite admin`
+commands in a server pod through the cluster's API, for the first superadmin,
+scripts and the self-hosted operator. The commands' rules and writes are in
+`crates/staff-domain`, their arguments and output in
+`bins/weldsuite/src/admin.rs`.
 
 - **`staff`**: the install's staff list, master `admin_users`. Every change
   names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
@@ -696,11 +702,13 @@ Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
 `ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
 `ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
-`sha-<12 characters of the commit>`, on every push to `develop` or a
+`sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`. Production runs releases: the
-"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
-of those builds to a version, `X.Y.Z`, with the same image digests and the
+`main` also moves the tag `main` and publishes the chart as
+`<base>-main.<run>`; the EU test cluster follows the newest one. Production
+runs releases: the "Rust release" workflow
+(`.github/workflows/rust-release.yml`) promotes one of those builds, a commit
+on `main`, to a version, `X.Y.Z`, with the same image digests and the
 chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in

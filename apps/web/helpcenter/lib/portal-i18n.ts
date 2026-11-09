@@ -17,6 +17,19 @@ export function usePortalStrings(): PortalStrings {
   return withEnglishFallback(local.helpcenter?.portal, english.helpcenter.portal) as PortalStrings
 }
 
+export type SelfServiceStrings = Translations['common']['helpcenter']['selfService']
+
+/**
+ * Banners, language versions and article suggestions
+ * (`common.helpcenter.selfService`), with the same English fallback for a
+ * partial locale. Suspends while a chunk loads: use inside `<Suspense>`.
+ */
+export function useSelfServiceStrings(): SelfServiceStrings {
+  const local = useTranslations('common')
+  const english = readNamespace('en', 'common')
+  return withEnglishFallback(local.helpcenter?.selfService, english.helpcenter.selfService) as SelfServiceStrings
+}
+
 /** The message for a failed portal call's `code` (see lib/portal.ts). */
 export function errorText(t: PortalStrings, code: string): string {
   switch (code) {

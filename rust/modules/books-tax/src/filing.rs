@@ -12,6 +12,7 @@
 use base64::Engine;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::http::{now, now_ms};
 use weldsuite_books_domain::js;
 
@@ -186,6 +187,10 @@ pub(crate) async fn file_period(
         .bind(entity_id)
         .execute(&mut *tx)
         .await?;
+        // Release 1 mirror: the WeldBooks extension holds the lock date too.
+        let mut mirror = serde_json::Map::new();
+        mirror.insert("taxLockDate".into(), json!(end_day));
+        upsert_accounting_entity_settings(&mut *tx, entity_id, &mirror).await?;
     }
     Ok(())
 }

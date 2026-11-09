@@ -46,4 +46,5 @@ pub use middleware::{
 };
 pub use resolver::{
     MemberRow, PermissionQueries, ResolvedPermissions, resolve_effective_permissions,
+    resolve_permissions_with_role,
 };

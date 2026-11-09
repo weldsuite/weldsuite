@@ -17,6 +17,8 @@ import { filingFile, generateFiling, getFiling, listFilings, markFilingFiled, re
 import { payslipFileName } from '../../../services/weldhr/payroll/format';
 import { getPayslip, payslipPdf, requirePayslip } from '../../../services/weldhr/payroll/payslips';
 import { recordHrAudit } from '../../../services/weldhr/shared';
+import { schema } from '@weldsuite/worker-kit/db';
+import { employerEntityCondition, guardRecord, viaEmployee, viaEmployer } from '../entity-scope';
 import { actor, clientIp, db, emit, param } from '../helpers';
 import { payrollDeps, sendingAvailable } from './deps';
 import { objectResponse, pdfResponse } from './responses';
@@ -26,6 +28,7 @@ import { objectResponse, pdfResponse } from './responses';
 // ---------------------------------------------------------------------------
 
 export const payslipsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(payslipsRoutes, 'payslipId', 'Payslip', viaEmployee(schema.hrPayslips, schema.hrPayslips.id, schema.hrPayslips.employeeId));
 
 payslipsRoutes.get('/:payslipId', requirePermission('payroll:read'), async (c) => success(c, await getPayslip(db(c), param(c, 'payslipId'))));
 
@@ -40,6 +43,12 @@ payslipsRoutes.get('/:payslipId/pdf', requirePermission('payroll:read'), async (
 // ---------------------------------------------------------------------------
 
 export const filingsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  filingsRoutes,
+  'filingId',
+  'Filing',
+  viaEmployer(schema.hrPayrollFilings, schema.hrPayrollFilings.id, schema.hrPayrollFilings.employerId),
+);
 
 const listQuery = z.object({
   employerId: z.string().optional(),
@@ -49,7 +58,7 @@ const listQuery = z.object({
 });
 
 filingsRoutes.get('/', requirePermission('payroll:read'), zValidator('query', listQuery), async (c) =>
-  success(c, await listFilings(db(c), c.req.valid('query'), (await sendingAvailable(c)).available)),
+  success(c, await listFilings(db(c), { ...c.req.valid('query'), entity: await employerEntityCondition(c) }, (await sendingAvailable(c)).available)),
 );
 
 filingsRoutes.get('/:filingId', requirePermission('payroll:read'), async (c) =>

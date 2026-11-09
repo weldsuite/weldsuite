@@ -30,6 +30,7 @@ async function seedRecurring(opts: {
     baseCurrency: opts.baseCurrency,
     locale: opts.baseCurrency === 'INR' ? 'en-IN' : 'en-US',
   });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: opts.entityId });
 
   await db.insert(schema.recurringInvoices).values({
     id: opts.recurringId,

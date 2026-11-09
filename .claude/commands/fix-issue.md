@@ -11,7 +11,7 @@ Run the pipeline:
    - Skip only when: (a) `--skip-enrich` passed, or (b) body already contains `## Enriched analysis` (enricher self-skips).
    - If the body has a `## Pending interview` block (from a `--auto` batch pass), the enricher uses those queued questions as round 1.
 
-1. **Branch.** `git checkout develop && git pull`, then `git checkout -b fix/issue-<n>-<slug>` (or `feat/issue-<n>-<slug>`). Never work on `develop` directly.
+1. **Branch.** `git checkout main && git pull`, then `git checkout -b fix/issue-<n>-<slug>` (or `feat/issue-<n>-<slug>`). Never work on `main` directly.
 
 2. **Classify.** Read the enrichment's **Stack layers touched** + **Suggested specialist chain**. API routes → `backend-app-api`: module routes in the owning `apps/workers/<module>-api` worker (owner by path prefix in `packages/core/api-modules/src/index.ts`), core platform routes in `apps/workers/app-api`.
 
@@ -27,7 +27,7 @@ Run the pipeline:
    - **Build:** `pnpm build` of the touched app(s).
    - **Sweep:** `git status` clean; no migration file without user approval; success criteria from the enrichment all met.
 
-6. **PR.** Push the branch and `gh pr create --base develop` with `Closes #<n>` in the body plus a DoD checklist. The **Claude PR review gate** (`claude-review` required check) will run, address its findings, don't route around it.
+6. **PR.** Push the branch and `gh pr create --base main` with `Closes #<n>` in the body plus a DoD checklist. The **PR review gate** (`WeldSuite Review` required check) will run, address its findings, don't route around it.
 
 7. **Close.** `Closes #<n>` auto-closes on merge. For a direct small fix, `gh issue close <n> --comment "Fixed in <sha>. <what changed>."`
 

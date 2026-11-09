@@ -6,7 +6,7 @@
  * block, and only ever returned masked.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { HrPayrollEmployerBank, HrPayrollIssue } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -17,8 +17,15 @@ import type {
   UpdateHrPayrollEmployerInput,
 } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import type { HrPayrollEmployer as EmployerDto, HrPayrollEmployerBankMasked } from '@weldsuite/app-api-client/domains/weldhr-payroll';
+import {
+  createBankAccount,
+  createRegistration,
+  updateBankAccount,
+  LegalEntityError,
+} from '@weldsuite/core-domain/legal-entities';
 import { HrConflictError, HrNotFoundError, HrValidationError } from '../shared';
 import { sortIssues, yearOfDate, type EmployerRow } from './common';
+import { resolveEmployers } from './employer-context';
 import { todayIso } from './dates';
 import { isValidIban, isValidRoutingNumber, maskAccountNumber, maskIban, normalizeBic, normalizeIban } from './validators';
 
@@ -30,7 +37,12 @@ export async function requireEmployerRow(db: Database, id: string): Promise<Empl
   return row;
 }
 
-export async function readEmployerBank(row: Pick<EmployerRow, 'bankEncrypted'>, keyring: EncryptionKeyring): Promise<HrPayrollEmployerBank | null> {
+/** The salary account: the linked core bank account when the employer has one (see employer-context.ts), else the sealed copy. */
+export async function readEmployerBank(
+  row: Pick<EmployerRow, 'bankEncrypted'> & { linkedBank?: HrPayrollEmployerBank | null },
+  keyring: EncryptionKeyring,
+): Promise<HrPayrollEmployerBank | null> {
+  if (row.linkedBank !== undefined) return row.linkedBank;
   if (!row.bankEncrypted) return null;
   return JSON.parse(await decryptField(row.bankEncrypted, keyring)) as HrPayrollEmployerBank;
 }
@@ -123,28 +135,37 @@ export async function profilesByEmployer(db: Database, employerIds: string[]) {
 
 export async function toEmployerDtos(
   db: Database,
-  rows: EmployerRow[],
+  rawRows: EmployerRow[],
   keyring: EncryptionKeyring,
   today: string = todayIso(),
 ): Promise<EmployerDto[]> {
-  if (rows.length === 0) return [];
-  const [names, profiles] = await Promise.all([
-    entityNames(db, rows.map((r) => r.accountingEntityId)),
-    profilesByEmployer(db, rows.map((r) => r.id)),
+  if (rawRows.length === 0) return [];
+  const [rows, profiles] = await Promise.all([
+    resolveEmployers(db, rawRows, keyring),
+    profilesByEmployer(db, rawRows.map((r) => r.id)),
   ]);
   const year = yearOfDate(today);
+  const accountingNames = await entityNames(db, rows.map((r) => r.accountingEntityId));
   const out: EmployerDto[] = [];
   for (const row of rows) {
     const bank = await readEmployerBank(row, keyring);
     const active = profiles.get(row.id) ?? [];
+    const { entity, registration, booksEnabled } = row.links;
     out.push({
       id: row.id,
+      legalEntityId: row.legalEntityId,
+      legalEntityName: entity?.name ?? null,
+      registrationId: row.registrationId,
+      registrationNumber: registration?.number ?? row.nlSettings.loonheffingennummer ?? row.usSettings.ein ?? null,
+      bankAccountId: row.bankAccountId,
+      label: row.label,
+      booksEnabled,
       name: row.name,
       legalName: row.legalName,
       country: row.country as 'NL' | 'US',
       currency: row.currency,
       accountingEntityId: row.accountingEntityId,
-      accountingEntityName: row.accountingEntityId ? names.get(row.accountingEntityId) ?? null : null,
+      accountingEntityName: row.accountingEntityId ? accountingNames.get(row.accountingEntityId) ?? null : null,
       address: row.address,
       nlSettings: row.nlSettings,
       usSettings: row.usSettings,
@@ -160,14 +181,156 @@ export async function toEmployerDtos(
   return out;
 }
 
-export async function listEmployers(db: Database, keyring: EncryptionKeyring): Promise<EmployerDto[]> {
-  const rows = await db.select().from(t).where(isNull(t.deletedAt)).orderBy(t.name);
+/** `entity`: condition on `hr_payroll_employers.legal_entity_id` (the request's entity scope); undefined = every employer. */
+export async function listEmployers(db: Database, keyring: EncryptionKeyring, entity?: SQL): Promise<EmployerDto[]> {
+  const rows = await db.select().from(t).where(and(isNull(t.deletedAt), entity)).orderBy(t.name);
   return toEmployerDtos(db, rows, keyring);
 }
 
 export async function getEmployer(db: Database, id: string, keyring: EncryptionKeyring): Promise<EmployerDto> {
   const row = await requireEmployerRow(db, id);
   return (await toEmployerDtos(db, [row], keyring))[0]!;
+}
+
+// ---------------------------------------------------------------------------
+// Legal entity, registration and bank account (docs/plans/legal-entities.md)
+// ---------------------------------------------------------------------------
+
+type KeyEnv = { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };
+const keyEnvOf = (keyring: EncryptionKeyring): KeyEnv => ({
+  DATABASE_ENCRYPTION_KEY: keyring.v1,
+  DATABASE_ENCRYPTION_KEY_V2: keyring.v2,
+});
+
+/** Core errors (unknown entity, bad number…) answer as WeldHR ones. */
+async function viaCore<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (err instanceof LegalEntityError) {
+      if (err.code === 'NOT_FOUND') throw new HrNotFoundError('Legal entity', err.message, err.message);
+      if (err.code === 'CONFLICT') throw new HrConflictError(err.message);
+      throw new HrValidationError(err.message);
+    }
+    throw err;
+  }
+}
+
+async function workspaceHasEntities(db: Database): Promise<boolean> {
+  const [row] = await db.select({ id: schema.legalEntities.id }).from(schema.legalEntities).where(isNull(schema.legalEntities.deletedAt)).limit(1);
+  return Boolean(row);
+}
+
+async function requireEntity(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.legalEntities)
+    .where(and(eq(schema.legalEntities.id, id), isNull(schema.legalEntities.deletedAt)))
+    .limit(1);
+  if (!row) throw new HrNotFoundError('Legal entity', id);
+  return row;
+}
+
+function payrollCountryOf(jurisdictionCode: string): 'NL' | 'US' {
+  const country = jurisdictionCode.slice(0, 2).toUpperCase();
+  if (country !== 'NL' && country !== 'US') {
+    throw new HrValidationError(`WeldHR payroll supports the Netherlands and the United States; this legal entity is registered in ${country}`);
+  }
+  return country;
+}
+
+const REGISTRATION_TYPE: Record<'NL' | 'US', 'nl_payroll_tax' | 'ein'> = { NL: 'nl_payroll_tax', US: 'ein' };
+
+/** A registration of the entity of the right type for the country (loonheffingennummer or EIN). */
+async function requirePayrollRegistration(db: Database, entityId: string, registrationId: string, country: 'NL' | 'US') {
+  const [row] = await db
+    .select()
+    .from(schema.legalEntityRegistrations)
+    .where(
+      and(
+        eq(schema.legalEntityRegistrations.id, registrationId),
+        eq(schema.legalEntityRegistrations.entityId, entityId),
+        isNull(schema.legalEntityRegistrations.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) throw new HrValidationError('That registration does not belong to this legal entity');
+  if (row.type !== REGISTRATION_TYPE[country]) {
+    throw new HrValidationError(
+      country === 'NL' ? 'Payroll runs under a loonheffingennummer (nl_payroll_tax registration)' : 'Payroll runs under an EIN registration',
+    );
+  }
+  return row;
+}
+
+async function requireEntityBankAccount(db: Database, entityId: string, accountId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.bankAccounts)
+    .where(and(eq(schema.bankAccounts.id, accountId), eq(schema.bankAccounts.entityId, entityId), isNull(schema.bankAccounts.deletedAt)))
+    .limit(1);
+  if (!row) throw new HrValidationError('That bank account does not belong to this legal entity');
+  return row;
+}
+
+/** Check inline bank details with the payroll validators before they become a core bank account. */
+function checkBankInput(input: HrPayrollEmployerBankInput) {
+  if (input.iban && input.iban.trim() !== '' && !isValidIban(normalizeIban(input.iban))) throw new HrValidationError('The IBAN is not valid');
+  if (input.bic && input.bic.trim() !== '' && !normalizeBic(input.bic)) throw new HrValidationError('The BIC is not valid');
+  if (input.routingNumber && !isValidRoutingNumber(input.routingNumber)) throw new HrValidationError('The routing number is not valid (checksum)');
+}
+
+/** Inline salary account → a core bank account of the entity. */
+async function createEntityBankAccount(
+  db: Database,
+  entityId: string,
+  input: HrPayrollEmployerBankInput,
+  keyring: EncryptionKeyring,
+) {
+  checkBankInput(input);
+  const account = await viaCore(() =>
+    createBankAccount(db, keyEnvOf(keyring), entityId, {
+      name: input.bankName?.trim() || input.accountHolder?.trim() || 'Payroll account',
+      accountHolderName: input.accountHolder ?? null,
+      iban: input.iban ? normalizeIban(input.iban) : null,
+      bic: input.bic ? normalizeBic(input.bic) : null,
+      bankName: input.bankName ?? null,
+      accountType: input.accountType ?? null,
+      routingNumber: input.routingNumber ?? null,
+      accountNumber: input.accountNumber ?? null,
+      achSettings: input.nachaCompanyId ? { companyIdentification: input.nachaCompanyId } : null,
+    }),
+  );
+  return account.id;
+}
+
+/**
+ * Release 1 mirror: the deprecated columns an employer keeps are written from
+ * the entity, the registration and the bank account, so a reader that still
+ * uses them (the Rust backend, an older worker) sees the same facts.
+ */
+async function mirrorFromLinks(db: Database, employerId: string, keyring: EncryptionKeyring): Promise<void> {
+  const [raw] = await db.select().from(t).where(eq(t.id, employerId)).limit(1);
+  if (!raw?.legalEntityId) return;
+  const [merged] = await resolveEmployers(db, [raw], keyring);
+  if (!merged?.links.entity) return;
+  const { entity, registration, booksEnabled } = merged.links;
+  const patch: Partial<typeof t.$inferInsert> = {
+    // The label is the registration's own name; the mirrored `name` is the entity's.
+    name: entity.name,
+    legalName: entity.legalName?.trim() || entity.name,
+    country: merged.country,
+    currency: merged.currency,
+    address: merged.address,
+    accountingEntityId: booksEnabled ? entity.id : null,
+    updatedAt: new Date(),
+  };
+  if (registration?.type === 'nl_payroll_tax') patch.nlSettings = { ...raw.nlSettings, loonheffingennummer: registration.number };
+  if (registration?.type === 'ein') patch.usSettings = { ...raw.usSettings, ein: registration.number };
+  if (merged.linkedBank && (keyring.v1 || keyring.v2)) {
+    patch.bankEncrypted = await encryptField(JSON.stringify(merged.linkedBank), keyring);
+  }
+  await db.update(t).set(patch).where(eq(t.id, employerId));
 }
 
 async function assertAccountingEntity(db: Database, entityId: string, country: string) {
@@ -187,6 +350,65 @@ export async function createEmployer(
   input: CreateHrPayrollEmployerInput,
   ctx: { createdBy: string; keyring: EncryptionKeyring },
 ): Promise<EmployerDto> {
+  if (!input.legalEntityId) {
+    // Release 1: the pre-entity shape (name, legal name, country, optional accounting entity) is still
+    // accepted from clients that predate legal entities; the platform always sends legalEntityId.
+    if (!input.name && !input.legalName && !input.country && (await workspaceHasEntities(db))) {
+      throw new HrValidationError('Choose the legal entity this employer belongs to');
+    }
+    return createLegacyEmployer(db, input, ctx);
+  }
+
+  const entity = await requireEntity(db, input.legalEntityId);
+  const country = payrollCountryOf(entity.jurisdictionCode);
+  if (input.registrationId && input.registrationNumber) {
+    throw new HrValidationError('Give a registrationId or a registrationNumber, not both');
+  }
+  if (input.bankAccountId && input.bank) throw new HrValidationError('Give a bankAccountId or bank details, not both');
+
+  let registrationId: string | null = null;
+  if (input.registrationId) {
+    registrationId = (await requirePayrollRegistration(db, entity.id, input.registrationId, country)).id;
+  } else if (input.registrationNumber) {
+    const number = input.registrationNumber;
+    registrationId = (await viaCore(() => createRegistration(db, entity.id, { type: REGISTRATION_TYPE[country], number, country }))).id;
+  }
+  let bankAccountId: string | null = null;
+  if (input.bankAccountId) {
+    bankAccountId = (await requireEntityBankAccount(db, entity.id, input.bankAccountId)).id;
+  } else if (input.bank) {
+    bankAccountId = await createEntityBankAccount(db, entity.id, input.bank, ctx.keyring);
+  }
+
+  const id = generateId('hrpe');
+  await db.insert(t).values({
+    id,
+    name: entity.name,
+    legalName: entity.legalName?.trim() || entity.name,
+    country,
+    currency: entity.baseCurrency,
+    legalEntityId: entity.id,
+    registrationId,
+    bankAccountId,
+    label: input.label?.trim() || null,
+    address: input.address ?? {},
+    nlSettings: country === 'NL' ? (input.nlSettings ?? {}) : {},
+    usSettings: country === 'US' ? (input.usSettings ?? {}) : {},
+    requireSeparateApprover: input.requireSeparateApprover ?? false,
+    createdBy: ctx.createdBy,
+  });
+  await mirrorFromLinks(db, id, ctx.keyring);
+  return getEmployer(db, id, ctx.keyring);
+}
+
+async function createLegacyEmployer(
+  db: Database,
+  input: CreateHrPayrollEmployerInput,
+  ctx: { createdBy: string; keyring: EncryptionKeyring },
+): Promise<EmployerDto> {
+  if (!input.name || !input.legalName || !input.country) {
+    throw new HrValidationError('Give the employer a name, legal name and country, or a legal entity');
+  }
   if (input.accountingEntityId) await assertAccountingEntity(db, input.accountingEntityId, input.country);
   const currency = (input.currency ?? (input.country === 'NL' ? 'EUR' : 'USD')).toUpperCase();
   const id = generateId('hrpe');
@@ -197,6 +419,7 @@ export async function createEmployer(
     country: input.country,
     currency,
     accountingEntityId: input.accountingEntityId ?? null,
+    label: input.label?.trim() || null,
     address: input.address ?? {},
     nlSettings: input.country === 'NL' ? (input.nlSettings ?? {}) : {},
     usSettings: input.country === 'US' ? (input.usSettings ?? {}) : {},
@@ -226,14 +449,50 @@ export async function updateEmployer(
   keyring: EncryptionKeyring,
 ): Promise<EmployerDto> {
   const row = await requireEmployerRow(db, id);
-  if (input.accountingEntityId) await assertAccountingEntity(db, input.accountingEntityId, row.country);
+  const wasLinked = Boolean(row.legalEntityId);
+
+  // Moving an employer to another entity is only possible while nothing runs under it.
+  let entityId = row.legalEntityId;
+  if (input.legalEntityId && input.legalEntityId !== row.legalEntityId) {
+    await requireEntity(db, input.legalEntityId);
+    if (row.legalEntityId) await assertNothingRunsUnder(db, id);
+    entityId = input.legalEntityId;
+  }
+  const country = entityId ? payrollCountryOf((await requireEntity(db, entityId)).jurisdictionCode) : (row.country as 'NL' | 'US');
+  if (entityId && entityId !== row.legalEntityId && country !== row.country) {
+    throw new HrValidationError(`This employer is in ${row.country}; the legal entity is in ${country}`);
+  }
+
+  let registrationId = row.registrationId;
+  let bankAccountId = row.bankAccountId;
+  if (entityId !== row.legalEntityId) {
+    // Links belong to the entity they were chosen on.
+    registrationId = null;
+    bankAccountId = null;
+  }
+  if (input.registrationId !== undefined) {
+    if (input.registrationId && !entityId) throw new HrValidationError('Choose a legal entity before linking a registration');
+    registrationId = input.registrationId ? (await requirePayrollRegistration(db, entityId!, input.registrationId, country)).id : null;
+  }
+  if (input.bankAccountId !== undefined) {
+    if (input.bankAccountId && !entityId) throw new HrValidationError('Choose a legal entity before linking a bank account');
+    bankAccountId = input.bankAccountId ? (await requireEntityBankAccount(db, entityId!, input.bankAccountId)).id : null;
+  }
+  if (!entityId && input.accountingEntityId) await assertAccountingEntity(db, input.accountingEntityId, row.country);
+
+  // The copied company facts are the entity's once there is one; an employer with an entity ignores them.
+  const ownFacts = !wasLinked && !entityId;
   await db
     .update(t)
     .set({
-      ...(input.name !== undefined && { name: input.name.trim() }),
-      ...(input.legalName !== undefined && { legalName: input.legalName.trim() }),
-      ...(input.accountingEntityId !== undefined && { accountingEntityId: input.accountingEntityId }),
-      ...(input.address !== undefined && { address: { ...row.address, ...input.address } }),
+      ...(entityId !== row.legalEntityId && { legalEntityId: entityId }),
+      ...(registrationId !== row.registrationId && { registrationId }),
+      ...(bankAccountId !== row.bankAccountId && { bankAccountId }),
+      ...(input.label !== undefined && { label: input.label?.trim() || null }),
+      ...(ownFacts && input.name !== undefined && { name: input.name.trim() }),
+      ...(ownFacts && input.legalName !== undefined && { legalName: input.legalName.trim() }),
+      ...(ownFacts && input.accountingEntityId !== undefined && { accountingEntityId: input.accountingEntityId }),
+      ...(ownFacts && input.address !== undefined && { address: { ...row.address, ...input.address } }),
       ...(input.nlSettings !== undefined && row.country === 'NL' && { nlSettings: mergeSettings(row.nlSettings, input.nlSettings, ['years']) }),
       ...(input.usSettings !== undefined && row.country === 'US' && { usSettings: mergeSettings(row.usSettings, input.usSettings, ['states']) }),
       ...(input.requireSeparateApprover !== undefined && { requireSeparateApprover: input.requireSeparateApprover }),
@@ -241,12 +500,27 @@ export async function updateEmployer(
       updatedAt: new Date(),
     })
     .where(eq(t.id, id));
+  if (entityId) await mirrorFromLinks(db, id, keyring);
   return getEmployer(db, id, keyring);
+}
+
+async function assertNothingRunsUnder(db: Database, employerId: string) {
+  const [run] = await db.select({ id: schema.hrPayRuns.id }).from(schema.hrPayRuns).where(eq(schema.hrPayRuns.employerId, employerId)).limit(1);
+  const [profile] = await db
+    .select({ id: schema.hrPayrollProfiles.id })
+    .from(schema.hrPayrollProfiles)
+    .where(and(eq(schema.hrPayrollProfiles.employerId, employerId), sql`${schema.hrPayrollProfiles.status} <> 'ended'`))
+    .limit(1);
+  if (run || profile) {
+    throw new HrConflictError('This employer has pay runs or employees on its payroll, so it cannot move to another legal entity.');
+  }
 }
 
 /**
  * Store the salary account. Fields not mentioned are kept, `null` clears one.
- * Returns which fields changed (names only: the caller audits them).
+ * Returns which fields changed (names only: the caller audits them). An
+ * employer linked to a core bank account changes that account (and its copy);
+ * any other keeps the sealed copy on the employer.
  */
 export async function setEmployerBank(
   db: Database,
@@ -256,7 +530,8 @@ export async function setEmployerBank(
 ): Promise<{ employer: EmployerDto; changedFields: string[] }> {
   const row = await requireEmployerRow(db, id);
   if (!keyring.v1 && !keyring.v2) throw new HrValidationError('Bank details cannot be stored: the worker has no encryption key');
-  const current = (await readEmployerBank(row, keyring)) ?? {};
+  const [resolved] = await resolveEmployers(db, [row], keyring);
+  const current = (await readEmployerBank(resolved!, keyring)) ?? {};
   const next: HrPayrollEmployerBank = { ...current };
   const changedFields: string[] = [];
 
@@ -297,10 +572,30 @@ export async function setEmployerBank(
   apply('bankName', input.bankName);
 
   if (changedFields.length > 0) {
-    await db
-      .update(t)
-      .set({ bankEncrypted: await encryptField(JSON.stringify(next), keyring), updatedAt: new Date() })
-      .where(eq(t.id, id));
+    const account = resolved!.links.bankAccount;
+    if (account && row.legalEntityId) {
+      const ach = { ...((account.achSettings ?? {}) as Record<string, unknown>) };
+      if (next.nachaCompanyId) ach.companyIdentification = next.nachaCompanyId;
+      else delete ach.companyIdentification;
+      // The core update re-seals the copy on every employer that pays from this account.
+      await viaCore(() =>
+        updateBankAccount(db, keyEnvOf(keyring), row.legalEntityId!, account.id, {
+          accountHolderName: next.accountHolder ?? null,
+          iban: next.iban ?? null,
+          bic: next.bic ?? null,
+          bankName: next.bankName ?? null,
+          accountType: next.accountType ?? null,
+          routingNumber: next.routingNumber ?? null,
+          accountNumber: next.accountNumber ?? null,
+          achSettings: Object.keys(ach).length ? ach : null,
+        }),
+      );
+    } else {
+      await db
+        .update(t)
+        .set({ bankEncrypted: await encryptField(JSON.stringify(next), keyring), updatedAt: new Date() })
+        .where(eq(t.id, id));
+    }
   }
   return { employer: await getEmployer(db, id, keyring), changedFields };
 }

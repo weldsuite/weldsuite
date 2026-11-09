@@ -113,6 +113,8 @@ export async function createTask(
     customerId: data.customerId ?? null,
     contactId: data.contactId ?? null,
     personId: data.personId ?? null,
+    sourceType: data.sourceType ?? null,
+    sourceId: data.sourceId ?? null,
     customFields,
     dependsOn: data.dependsOn,
     blocks: data.blocks,

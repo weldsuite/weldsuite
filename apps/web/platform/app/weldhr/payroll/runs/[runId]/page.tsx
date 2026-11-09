@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import { Link as HrefLink } from '@/lib/router';
 import { toast } from 'sonner';
 import { Banknote, Calculator, CheckCheck, Download, FileSpreadsheet, History, Loader2, Pencil, RefreshCw, RotateCcw, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -336,6 +337,17 @@ function JournalNotice({
           </Button>
         )}
       </div>
+    );
+  }
+  // WeldBooks is not enabled for the employer's legal entity: say so, and where to turn it on.
+  if (run.journalReason === 'books_not_enabled') {
+    return (
+      <InfoLine>
+        {t('weldhr.payroll.run.journalBooksNotEnabled')}{' '}
+        <HrefLink href="/settings/legal-entities" className="font-medium underline underline-offset-2">
+          {t('weldhr.payroll.run.journalEnableBooks')}
+        </HrefLink>
+      </InfoLine>
     );
   }
   return <InfoLine>{t(`weldhr.payroll.journalStatus.${run.journalStatus}`)}</InfoLine>;

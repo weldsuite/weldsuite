@@ -21,6 +21,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit, ClosedPeriodError, LockedPeriodError } from '@weldsuite/books-domain/accounting-guards';
 import { isIsoDate } from '@weldsuite/books-domain/us-compliance/dates';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import { PostingError } from '../../services/accounting-posting';
 import { PayrollCsvValidationError, importPayrollCsv } from '../../services/payroll/csv-import';
@@ -30,6 +31,9 @@ import { loadSavedCsvMapping, saveCsvMapping } from '../../services/payroll/conn
 import { csvMappingSchema } from '../../services/payroll/mapping';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.payrollImports, { label: 'Payroll import' });
 const t = schema.payrollImports;
 const LOG = '[books-api/payroll]';
 

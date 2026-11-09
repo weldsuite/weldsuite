@@ -39,6 +39,7 @@ import type { DeskSlaClock, DeskSlaClockStatus, DeskSlaMetric } from '../schema/
 import type { BusinessHours, HelpdeskSla, SLACondition, SLATarget } from '../schema/helpdesk-slas';
 import type { IdGenerator } from './mail-contacts';
 import { addBusinessMs, businessMsBetween, toDeskSlaCalendar, type DeskSlaCalendar } from './desk-sla-calendar';
+import { refreshDeskEscalationCheck } from './desk-escalation-check';
 
 export type { DeskSlaClock, DeskSlaMetric, DeskSlaStatus };
 
@@ -539,10 +540,32 @@ async function clearDeskSla(db: AnyDb, conversation: DeskConversation): Promise<
 
 /**
  * Re-derive a conversation's SLA clocks from its timeline and the policy that
- * matches it now, and store them with the inbox summary. Safe to call any
+ * matches it now, and store them with the inbox summary; then when its team's
+ * escalation rules next need checking (`escalationCheckAt`,
+ * ./desk-escalation-check), which `nextCheckAt` includes. Safe to call any
  * number of times.
  */
 export async function refreshDeskSla(
+  db: AnyDb,
+  conversationOrId: DeskConversation | string,
+  options: RefreshDeskSlaOptions,
+): Promise<DeskSlaRefreshResult> {
+  const result = await refreshDeskSlaClocks(db, conversationOrId, options);
+  if (!result.conversation) return result;
+  const breaches = result.clocks
+    .filter((c) => c.status === 'running' && c.breachedAt)
+    .map((c) => c.breachedAt!.getTime());
+  const breachedAt = breaches.length ? new Date(Math.min(...breaches)) : null;
+  const escalation = await refreshDeskEscalationCheck(db, result.conversation, breachedAt);
+  const checks = [result.nextCheckAt, escalation.escalationCheckAt].filter((d): d is Date => d != null);
+  return {
+    ...result,
+    conversation: escalation.conversation,
+    nextCheckAt: checks.length ? new Date(Math.min(...checks.map((d) => d.getTime()))) : null,
+  };
+}
+
+async function refreshDeskSlaClocks(
   db: AnyDb,
   conversationOrId: DeskConversation | string,
   options: RefreshDeskSlaOptions,
@@ -685,15 +708,19 @@ export async function listDueDeskSlaConversations(db: AnyDb, now: Date, limit: n
   return rows.map((r) => r.conversationId);
 }
 
-/** When this workspace next has an SLA clock to look at; null when none. */
+/** When this workspace next has an SLA clock or an escalation rule to look at; null when none. */
 export async function nextDeskSlaCheckAt(db: AnyDb): Promise<Date | null> {
-  const [row] = await db
-    .select({ next: min(clocks.nextCheckAt) })
-    .from(clocks)
-    .where(isNotNull(clocks.nextCheckAt));
-  const next = row?.next;
-  if (next == null) return null;
-  return next instanceof Date ? next : new Date(next);
+  const [[row], [escalation]] = await Promise.all([
+    db.select({ next: min(clocks.nextCheckAt) }).from(clocks).where(isNotNull(clocks.nextCheckAt)),
+    db
+      .select({ next: min(conversations.escalationCheckAt) })
+      .from(conversations)
+      .where(isNotNull(conversations.escalationCheckAt)),
+  ]);
+  const times = ([row?.next, escalation?.next] as Array<Date | string | null | undefined>)
+    .filter((t): t is Date | string => t != null)
+    .map((t) => (t instanceof Date ? t : new Date(t)).getTime());
+  return times.length ? new Date(Math.min(...times)) : null;
 }
 
 /**

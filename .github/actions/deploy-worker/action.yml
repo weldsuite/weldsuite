@@ -1,0 +1,126 @@
+name: Deploy worker
+description: >-
+  Deploys one Cloudflare Worker from apps/workers/<worker> with its
+  `deploy:<environment>` script. `kind: module` is a module API worker
+  (<module>-api); `kind: core` is every other worker. Expects this repo
+  checked out at the workspace root.
+
+inputs:
+  worker:
+    description: Folder name under apps/workers.
+    required: true
+  kind:
+    description: module or core.
+    required: true
+  environment:
+    description: test or production.
+    required: true
+  cloudflare-api-token:
+    description: CLOUDFLARE_API_TOKEN secret.
+    required: true
+  cloudflare-account-id:
+    description: CLOUDFLARE_ACCOUNT_ID secret.
+    required: true
+  management-secret:
+    description: MANAGEMENT_SECRET secret (discord-bot-worker only).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Check inputs
+      shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        TARGET: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        case "$KIND" in module|core) ;; *) echo "::error::kind must be module or core (got '$KIND')"; exit 1 ;; esac
+        case "$TARGET" in test|production) ;; *) echo "::error::environment must be test or production (got '$TARGET')"; exit 1 ;; esac
+
+    - uses: ./.github/actions/setup-monorepo
+
+    # A queue has exactly one consumer and app-api deploys AFTER the module
+    # workers: release any queue this worker takes over from the
+    # still-deployed app-api first (otherwise: "Queue … already has a consumer
+    # [code: 11004]").
+    - name: Release queues taken over from app-api
+      if: inputs.kind == 'module'
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        WORKER: ${{ inputs.worker }}
+        TARGET: ${{ inputs.environment }}
+      run: node .github/scripts/release-queue-consumers.mjs "$WORKER" "$TARGET"
+
+    - name: Set up Docker (agent-runtime containers)
+      if: inputs.kind == 'core' && inputs.worker == 'agent-runtime'
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+    # A worker that binds a Durable Object class hosted by another module
+    # worker (`script_name`) cannot deploy until that worker exports the class,
+    # and the module workers deploy side by side. So when a PR adds a class
+    # (e.g. mail-api's OutboundLedger), its binders wait for the host instead
+    # of failing: retry only on "not exported by script" [code: 10061].
+    - name: Deploy ${{ inputs.worker }}
+      if: inputs.kind == 'module'
+      shell: bash
+      working-directory: apps/workers/${{ inputs.worker }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        WORKER: ${{ inputs.worker }}
+        TARGET: ${{ inputs.environment }}
+      run: |
+        set -o pipefail
+        LOG="$RUNNER_TEMP/deploy.log"
+        for attempt in $(seq 1 30); do
+          echo "=== Deploying $WORKER to $TARGET (attempt $attempt) ==="
+          if pnpm "deploy:${TARGET}" 2>&1 | tee "$LOG"; then exit 0; fi
+          grep -q 'code: 10061' "$LOG" || exit 1
+          echo "A Durable Object host worker has not deployed its class yet; retrying in 30s."
+          sleep 30
+        done
+        exit 1
+
+    - name: Deploy ${{ inputs.worker }}
+      if: inputs.kind == 'core'
+      shell: bash
+      working-directory: apps/workers/${{ inputs.worker }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        WORKER: ${{ inputs.worker }}
+        TARGET: ${{ inputs.environment }}
+      run: |
+        echo "=== Deploying $WORKER to $TARGET ==="
+        pnpm "deploy:${TARGET}"
+
+    # Discord Gateway DO must be connected after each deploy (session is not
+    # auto-started). Also re-register slash commands so /setup-support exists.
+    - name: Connect Discord Gateway
+      if: inputs.kind == 'core' && inputs.worker == 'discord-bot-worker'
+      shell: bash
+      env:
+        MANAGEMENT_SECRET: ${{ inputs.management-secret }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [ -z "${MANAGEMENT_SECRET:-}" ]; then
+          echo "::warning title=Discord Gateway not connected::MANAGEMENT_SECRET is unset; call POST /manage/connect manually after secrets are configured."
+          exit 0
+        fi
+        if [ "$CF_ENV" = "test" ]; then
+          BASE="https://discord-bot-worker-test.weldsuite.org"
+        else
+          BASE="https://discord-bot-worker.weldsuite.org"
+        fi
+        echo "Connecting Gateway at $BASE ..."
+        curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/connect"
+        echo
+        curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/register-commands"
+        echo
+        curl -fsS -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/status"
+        echo

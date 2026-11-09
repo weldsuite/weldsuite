@@ -4,7 +4,7 @@
 cluster_name = "weldsuite-eu"
 domain       = "eu.example.org"
 
-# Operators and the drill runner only.
+# Operators only.
 admin_cidrs = ["203.0.113.10/32"]
 
 # api_hostname = "k8s.eu.example.org"
@@ -14,3 +14,15 @@ admin_cidrs = ["203.0.113.10/32"]
 # worker_count  = 3
 # worker_type   = "cpx32"
 # postgres_type = "ccx23"
+
+# The MTA's mail nodes (README.md, "Mail"): one per pool to start, each with
+# its own primary IPv4 and reverse DNS mail<n>-<pool>.<domain>. Leave it out
+# for none. Request the outbound port 25 unblock from Hetzner first.
+mail_pools = {
+  system   = { count = 1, type = "cpx22", locations = ["fsn1"] }
+  customer = { count = 1, type = "cpx22", locations = ["nbg1"] }
+}
+
+# WeldMail's MX (Haraka) on port 25 of the ingress load balancer, to this
+# NodePort (mailInbound in flux/apps/eu/values/weldsuite.yaml uses the same).
+mx_node_port = 30025

@@ -16,9 +16,17 @@ import {
   requireCompany,
   updateAssignment,
 } from '../../services/weldhr/assignments';
+import { schema } from '@weldsuite/worker-kit/db';
+import { assertEmployeeVisible, employeeEntityCondition, guardRecord, viaEmployee } from './entity-scope';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 export const assignmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+guardRecord(
+  assignmentsRoutes,
+  'assignmentId',
+  'Assignment',
+  viaEmployee(schema.hrClientAssignments, schema.hrClientAssignments.id, schema.hrClientAssignments.employeeId),
+);
 
 assignmentsRoutes.get('/', requirePermission('employees:read'), async (c) => {
   const q = c.req.query();
@@ -28,11 +36,13 @@ assignmentsRoutes.get('/', requirePermission('employees:read'), async (c) => {
       employeeId: q.employeeId || undefined,
       companyId: q.companyId || undefined,
       activeOnly: q.active === 'true',
+      entity: await employeeEntityCondition(c),
     }),
   );
 });
 
 assignmentsRoutes.post('/', requirePermission('employees:update'), hrJson(createHrAssignmentSchema), async (c) => {
+  await assertEmployeeVisible(c, c.req.valid('json').employeeId);
   const row = await createAssignment(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_client_assignment', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId });
   return success(c, row, 201);
@@ -53,13 +63,15 @@ assignmentsRoutes.delete('/:assignmentId', requirePermission('employees:update')
 
 export const clientsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-clientsRoutes.get('/', requirePermission('employees:read'), async (c) => success(c, await listClientAccounts(db(c))));
+clientsRoutes.get('/', requirePermission('employees:read'), async (c) =>
+  success(c, await listClientAccounts(db(c), await employeeEntityCondition(c))),
+);
 
 /** One client account and everyone who works, or has worked, on it. */
 clientsRoutes.get('/:companyId', requirePermission('employees:read'), async (c) => {
   const database = db(c);
   const companyId = param(c, 'companyId');
   const company = await requireCompany(database, companyId);
-  const assignments = await listAssignments(database, { companyId });
+  const assignments = await listAssignments(database, { companyId, entity: await employeeEntityCondition(c) });
   return success(c, { company, assignments });
 });

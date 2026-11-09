@@ -166,9 +166,10 @@ config:
       ingressUrl: ""   # http://restate:8080
       adminUrl: ""     # http://restate:9070
     port: 9080
-  # System mail goes through the SMTP relay in the Secret (SMTP_URL). Mail is
-  # sent from notifications@mail.weldsuite.org unless `from` names another
-  # address, for a relay that only takes its own domain.
+  # System mail goes through the SMTP relay in the Secret (SMTP_URL), or the
+  # chart's own MTA with mta.enabled. Mail is sent from
+  # notifications@mail.weldsuite.org unless `from` names another address, for
+  # a relay that only takes its own domain.
   mail:
     from: ""
   # WeldSign: the signer portal's origin; signing links are <portalUrl>/r/<token>
@@ -229,9 +230,26 @@ config:
 #                                the key pair of the LiveKit server, signing join tokens,
 #                                room administration and its webhooks
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
-#                                the relay system mail goes through (optional; unset skips mail)
-#   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
+#                                the relay system mail goes through (optional; unset skips mail;
+#                                with mta.enabled and mta.wireServer the chart sets it)
+#   MAIL_SMTP_URL                the same for customer mail (WeldMail and the modules' sends);
+#                                unset: those sends answer 503 (with mta.wireServer the chart sets it)
+#   MTA_DATABASE_URL             the MTA's own database, weldsuite_mta, not through PgBouncer
+#                                (with mta.enabled; also mta.existingSecret, which holds the MTA_* keys)
+#   MTA_KEY                      base64 of 32 random bytes (`openssl rand -base64 32`): seals the DKIM
+#                                private keys at rest and keys the VERP tags. Losing it loses every
+#                                domain's DKIM key (with mta.enabled)
+#   MTA_API_SECRET               bearer token of the MTA's HTTP API, shared with the server (with mta.enabled)
+#   MTA_SUBMISSION_PASSWORD_<POOL>  one per mta.pools entry (…_SYSTEM, …_CUSTOMER): the pool's
+#                                submission password, its username the pool's name. Hex, it goes
+#                                into an smtp:// URL (`openssl rand -hex 32`; with mta.enabled)
+#   SIGN_SESSION_SECRET         WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   OUTBOUND_ADMIN_SECRET        shared by the server and the admin console: what the console sends
+#                                to /internal/outbound (optional; unset refuses those calls)
+#   ADMIN_OIDC_CLIENT_ID / ADMIN_OIDC_CLIENT_SECRET  the admin console's app at the OIDC provider
+#   ADMIN_SESSION_SECRET         seals the admin console's session cookies, at least 32 characters
+#                                (the three ADMIN_* with admin.enabled; without them nobody signs in)
 #   MAIL_INBOUND_SECRET          shared by the server and Haraka for the RCPT TO check
 #                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
@@ -375,6 +393,54 @@ signPortal:
     annotations: {}
     hosts:
       - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+# The staff admin console (ADR FE-018) at admin.<domain>: WeldReach access
+# requests, workspaces, the app catalog, warmup and outbound mail. Staff sign in
+# at the install's OIDC provider (Zitadel: a confidential web app with the
+# redirect URI <publicUrl>/auth/callback and the post-logout URI
+# <publicUrl>/sign-in?signed_out=1) and get in only with an active admin_users
+# row, the roster `weldsuite admin staff` manages (ADR SEC-014). Reads from the
+# Secret: DATABASE_URL_MASTER, DATABASE_ENCRYPTION_KEY(_V2) (the tenants'
+# stored URLs), SMTP_URL, OUTBOUND_ADMIN_SECRET, and its own
+# ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and ADMIN_SESSION_SECRET (at
+# least 32 characters); until those three are there, nobody gets in.
+admin:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-admin
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  # Where staff open the console (ADMIN_PUBLIC_URL), e.g. https://admin.example.org.
+  # Required: the sign-in's redirect URI is built from it, never from the Host header.
+  publicUrl: ""
+  # The issuer staff sign in at; empty: config.auth.oidc.issuer.
+  oidcIssuer: ""
+  # The platform's URL, for links in the emails the console sends.
+  platformUrl: ""
+  # Client addresses (CIDRs) that may reach the console, as a Traefik
+  # ipAllowList Middleware on its Ingress (traefik.io/v1alpha1, so Traefik
+  # only; the Ingress's own router.middlewares annotation is replaced). Empty:
+  # no allowlist. Traefik must see the client's address (PROXY protocol).
+  allowedSourceRanges: []
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: admin.example.org
         paths:
           - path: /
             pathType: Prefix
@@ -565,6 +631,9 @@ mailInbound:
       # Hetzner: load-balancer.hetzner.cloud/uses-proxyprotocol: "true",
       # load-balancer.hetzner.cloud/name, …/location.
       annotations: {}
+      # With type NodePort: the fixed port a load balancer outside the
+      # cluster forwards 25 to (empty: Kubernetes picks one).
+      nodePort: null
     # STARTTLS with a certificate for hostname: a cert-manager Certificate
     # from issuerRef, or a kubernetes.io/tls Secret you manage.
     tls:
@@ -582,6 +651,117 @@ mailInbound:
       limits:
         memory: 512Mi
 
+# The MTA (docs/plans/eu-mail-service.md, ADR MAIL-011), off by default:
+# `weldsuite mta` from the server's image, sending the platform's and the
+# customers' mail straight to the recipients' MX from the mail nodes' own
+# addresses. One DaemonSet per pool, on the nodes labelled
+# weldsuite.org/mail-pool=<pool> and tainted weldsuite.org/mail (OpenTofu's
+# mail_pools), on the host network. Submission (port 2587, the
+# <release>-mta Service on 587) and the HTTP API (8025, <release>-mta-api)
+# listen on the node's private address; the bounce MX on port 25 of every
+# address. Its queue is its own database (MTA_DATABASE_URL), which it
+# migrates at start. Needs MTA_DATABASE_URL, MTA_KEY, MTA_API_SECRET and a
+# MTA_SUBMISSION_PASSWORD_<POOL> per pool in the Secret; NATS_URL (optional)
+# carries delivery events to `weldsuite consume`. Haraka (mailInbound) stays
+# WeldMail's MX and is not involved.
+mta:
+  enabled: false
+  # A pool is a set of mail nodes; a node delivers only its pool's mail, and
+  # any node takes submissions for any pool. system: the platform's own mail
+  # (SMTP_URL); customer: what people write (MAIL_SMTP_URL). Names as in
+  # mail_pools. hostname (optional, only for a pool of one node) overrides
+  # the EHLO name, which is otherwise the PTR of the node's address.
+  pools:
+    - name: system
+    - name: customer
+  # The Secret holding the MTA_* keys. Empty: the release's (secret.existingSecret,
+  # or the chart's). Another Secret keeps the MTA's database URL and key out
+  # of the server's environment; the server then reads only MTA_API_SECRET
+  # and the submission passwords from it.
+  existingSecret: ""
+  # The namespace the MTA runs in (empty: the release's). The MTA is on the
+  # host network, which Pod Security's baseline and restricted levels forbid:
+  # where the release's namespace enforces them (the Flux clusters'
+  # `weldsuite` does), give the MTA a namespace labelled
+  # pod-security.kubernetes.io/enforce: privileged, as LiveKit has. The chart
+  # creates nothing else there: existingSecret must be in it (and the image
+  # pull Secrets, if any), and clientSecret then holds what the server needs.
+  namespace: ""
+  # A Secret in the release's namespace with MTA_API_SECRET and the
+  # submission passwords (MTA_SUBMISSION_PASSWORD_<POOL>), the same values as
+  # the MTA's: what the server, consume and the cron jobs read with
+  # wireServer. Empty: the MTA's own Secret (one namespace). Required with
+  # namespace.
+  clientSecret: ""
+  # The return-path domain (bounces.<domain>): its MX are the mail nodes, and
+  # the envelope sender becomes b+<id>-<tag>@ it, so DSNs and complaint
+  # reports come back here. Empty: senders keep their own MAIL FROM and only
+  # refusals during the SMTP session are seen.
+  bounceDomain: ""
+  # The SPF include a customer domain publishes (_spf.<domain>, the TXT
+  # record listing every mail node's IPv4), passed to the server as
+  # MAIL_SPF_INCLUDE with wireServer. Empty: SPF records say "mx".
+  spfInclude: ""
+  # The largest message submission accepts, in bytes.
+  maxMessageBytes: 26214400
+  # A recipient still deferred after this bounces (5d, 36h, 90m).
+  maxQueueAge: 5d
+  # Parallel outbound connections per node.
+  concurrency: 32
+  # Per-IP daily caps on warm-up day 1, 2, … (comma separated), unlimited
+  # after the last; "off" for an address with a history. Empty: the MTA's
+  # schedule (50 on day one up to 50,000 on day eleven).
+  warmupSchedule: ""
+  # A hard-bounced recipient is refused at submission for this many days.
+  suppressDays: 30
+  # Point the server, consume and the cron jobs at the MTA: SMTP_URL (pool
+  # system) and MAIL_SMTP_URL (pool customer) on the submission Service, and
+  # MTA_API_URL / MTA_API_SECRET for the mail domain routes, which register
+  # sending domains and their DKIM keys with it. These override the Secret's
+  # SMTP_URL and MAIL_SMTP_URL (a chart-made Secret's own are kept); false
+  # leaves both to the Secret.
+  wireServer: true
+  submission:
+    service:
+      port: 587
+    # STARTTLS on submission, with a kubernetes.io/tls Secret (empty: the
+    # bounce MX's). Traffic stays on the private network, and the chart's
+    # SMTP_URL doesn't ask for it: the certificate names the mail nodes, not
+    # the Service.
+    tls:
+      enabled: false
+      existingSecret: ""
+  # The bounce MX: DSNs and ARF complaint reports for bounceDomain, on port
+  # 25 of the mail nodes. Needs bounceDomain.
+  inbound:
+    enabled: true
+    # STARTTLS: a cert-manager Certificate for dnsNames (the mail nodes'
+    # names, `tofu output mail_nodes`; empty: bounceDomain), or a
+    # kubernetes.io/tls Secret you manage. Without an issuerRef the
+    # certificate is self-signed: senders of bounces encrypt opportunistically
+    # and don't check it, and Let's Encrypt's HTTP-01 can't reach the mail
+    # nodes (a DNS-01 issuer can).
+    tls:
+      enabled: true
+      existingSecret: ""
+      dnsNames: []
+      issuerRef: {}
+  # Extra plain environment variables (MTA_RESOLVER, MTA_SOURCE_IP,
+  # MTA_EVENTS_SUBJECT, MTA_TLSRPT_FROM, ...; the contract in the plan).
+  extraEnv: []
+  # Sessions and deliveries in flight get this long after SIGTERM.
+  terminationGracePeriodSeconds: 60
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:
   enabled: true
@@ -596,6 +776,9 @@ networkPolicy:
   # Who may call the sign portal (the ingress controller); empty allows any
   # peer. The portal's own pods may always call the server.
   signPortalFrom: []
+  # Who may call the admin console (the ingress controller); empty allows any
+  # peer. The console's own pods may always call the server.
+  adminFrom: []
 
 # Scheduled jobs (the workers' Cron Triggers), one CronJob each running
 # `weldsuite cron <name>` with the server's environment. A run that is still

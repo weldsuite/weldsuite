@@ -1,0 +1,254 @@
+# Path filters for deploy change detection (dorny/paths-filter), read by the
+# deploy-prepare action. Each key is a deploy target or a flag; the action's
+# `changes` output lists the keys a diff touched, and
+# .github/scripts/deploy-plan.mjs turns that list into the deploy plan.
+#
+# A new core worker (apps/workers/<name>, not a <module>-api) needs a key here
+# and an entry in CORE_WORKERS in deploy-plan.mjs. Module API workers and
+# Vercel apps are picked by module-workers.mjs and vercel-apps.mjs instead.
+migrations:
+  - 'packages/core/db/drizzle/**'
+  - 'packages/core/db/src/schema/**'
+  - 'apps/tools/migrate-databases/**'
+# First-party WeldApps (deploy-hosted-apps action).
+hosted_apps:
+  - 'apps/hosted-apps/**'
+  - 'packages/sdk/app-sdk/**'
+  - 'packages/sdk/cli/**'
+d1_connector_migrations:
+  - 'apps/workers/integration-sync-worker/migrations/d1/**'
+  - 'apps/workers/integration-sync-worker/wrangler.toml'
+d1_schedule_migrations:
+  - 'apps/workers/workflow-worker/migrations/d1/**'
+  - 'apps/workers/workflow-worker/wrangler.toml'
+weldmail:
+  - 'apps/mobile/weldmail-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/personal-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+weldmail-web:
+  - 'apps/web/weldmail/**'
+  - 'packages/clients/personal-api-client/**'
+  - 'packages/core/realtime/**'
+weldcalendar-web:
+  - 'apps/web/weldcalendar/**'
+  - 'packages/clients/personal-api-client/**'
+developer-web:
+  - 'apps/web/developer/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/i18n/**'
+  - 'packages/core/permissions/**'
+helpcenter:
+  - 'apps/web/helpcenter/**'
+  - 'packages/core/i18n/**'
+# The portal's own folder and the packages only it uses. Everything
+# it shares with sign-api is covered by release_sign_portal above.
+sign-portal:
+  - 'apps/web/sign-portal/**'
+  - 'packages/domains/sign/**'
+  - 'packages/domains/core/**'
+  - 'packages/domains/crm/**'
+  - 'packages/domains/mail/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/db/src/**'
+  - 'packages/core/emails/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/design/ui/**'
+project-portal:
+  - 'apps/web/project-portal/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/i18n/**'
+  - 'packages/design/ui/**'
+# The admin console and the workspace packages it bundles.
+admin:
+  - 'apps/web/admin/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/core/credits/**'
+  - 'packages/core/db/src/**'
+  - 'packages/core/emails/**'
+  - 'packages/core/feature-flags/**'
+  - 'packages/core/i18n/**'
+  - 'packages/core/realtime/**'
+  - 'packages/core/realtime-registrar/**'
+  - 'packages/core/transactional-email/**'
+  - 'packages/design/ui/**'
+weldchat:
+  - 'apps/mobile/weldchat-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+  - 'packages/core/realtime/**'
+weldbooks:
+  - 'apps/mobile/weldbooks-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+weldflow:
+  - 'apps/mobile/weldflow-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+  - 'packages/core/notifications/**'
+weldagent:
+  - 'apps/mobile/weldagent-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+  - 'packages/core/notifications/**'
+weldcalendar:
+  - 'apps/mobile/weldcalendar-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/personal-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+  - 'packages/core/notifications/**'
+weldhr:
+  - 'apps/mobile/weldhr-app/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/api-client/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/design/mobile-ui/**'
+  - 'packages/core/notifications/**'
+all_workers:
+  - 'pnpm-lock.yaml'
+  - 'pnpm-workspace.yaml'
+  - 'package.json'
+  - 'turbo.json'
+  - '.npmrc'
+  - 'packages/core/db/**'
+  - 'packages/core/permissions/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/clients/personal-api-client/**'
+  - 'packages/clients/api-client/**'
+app-api:
+  - 'apps/workers/app-api/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/api-modules/**'
+  - 'packages/core/ai/**'
+  - 'packages/core/cloudflare-realtime/**'
+  - 'packages/core/cloudflare-registrar/**'
+  - 'packages/core/cloudflare-zones/**'
+  - 'packages/clients/core-api-client/**'
+  - 'packages/core/credits/**'
+  - 'packages/core/social-publishing/**'
+  - 'packages/core/email/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/feature-flags/**'
+  - 'packages/core/connectors/**'
+  - 'packages/core/notifications/**'
+  - 'packages/core/realtime/**'
+  - 'packages/core/workflow-integrations/**'
+  - 'packages/core/transactional-email/**'
+billing-worker:
+  - 'apps/workers/billing-worker/**'
+  - 'packages/core/cloudflare-registrar/**'
+  - 'packages/core/credits/**'
+audit-log-worker:
+  - 'apps/workers/audit-log-worker/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/realtime/**'
+entity-events-worker:
+  - 'apps/workers/entity-events-worker/**'
+  - 'packages/core/entity-events/**'
+analytics-worker:
+  - 'apps/workers/analytics-worker/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/text/**'
+external-api:
+  - 'apps/workers/external-api/**'
+  - 'packages/clients/core-api-client/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/social-publishing/**'
+  - 'packages/core/credits/**'
+  - 'packages/core/realtime/**'
+  # WeldReach (/v1/reach/*) runs the reach domain code reach-api runs.
+  - 'packages/domains/reach/**'
+  - 'packages/core/smtp/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/feature-flags/**'
+integration-webhook-worker:
+  - 'apps/workers/integration-webhook-worker/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/workflow-integrations/**'
+  - 'packages/core/realtime/**'
+  - 'packages/core/connectors/**'
+  - 'packages/core/bank-feeds/**'
+integration-sync-worker:
+  - 'apps/workers/integration-sync-worker/**'
+  - 'packages/core/connectors/**'
+mail-inbound-worker:
+  - 'apps/workers/mail-inbound-worker/**'
+  - 'packages/core/email/**'
+  - 'packages/core/realtime/**'
+  - 'packages/core/db/src/schema/personal/**'
+  - 'packages/core/db/src/schema/personal.ts'
+personal-api:
+  - 'apps/workers/personal-api/**'
+  - 'packages/clients/personal-api-client/**'
+  - 'packages/core/email/**'
+  - 'packages/core/db/src/schema/personal/**'
+  - 'packages/core/db/src/schema/personal.ts'
+  - 'packages/core/db/src/schema/master.ts'
+realtime-worker:
+  - 'apps/workers/realtime-worker/**'
+  - 'packages/core/realtime/**'
+workspace-worker:
+  - 'apps/workers/workspace-worker/**'
+  - 'packages/core/cloudflare-zones/**'
+  - 'packages/core/email/**'
+  - 'packages/core/neon-provisioning/**'
+  - 'packages/core/transactional-email/**'
+workflow-worker:
+  - 'apps/workers/workflow-worker/**'
+  - 'packages/core/ai/**'
+  - 'packages/core/credits/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/workflow-integrations/**'
+  - 'packages/core/realtime/**'
+mcp-server:
+  - 'apps/workers/mcp-server/**'
+  - 'packages/clients/core-api-client/**'
+  - 'packages/core/entity-events/**'
+  - 'packages/core/social-publishing/**'
+  - 'packages/core/credits/**'
+  - 'packages/core/realtime/**'
+  # WeldReach (/v1/reach/*) runs the reach domain code reach-api runs.
+  - 'packages/domains/reach/**'
+  - 'packages/core/smtp/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/feature-flags/**'
+agent-runtime:
+  - 'apps/workers/agent-runtime/**'
+discord-bot-worker:
+  - 'apps/workers/discord-bot-worker/**'
+helpdesk-widget-api:
+  - 'apps/workers/helpdesk-widget-api/**'
+  - 'packages/core/db/**'
+  - 'packages/core/realtime/**'
+helpdesk-workflow-worker:
+  - 'apps/workers/helpdesk-workflow-worker/**'
+  - 'packages/core/db/**'
+  - 'packages/core/realtime/**'
+  - 'packages/core/entity-events/**'
+reach-warmup-worker:
+  - 'apps/workers/reach-warmup-worker/**'
+  - 'packages/domains/reach/**'
+  - 'packages/core/smtp/**'
+  - 'packages/core/imap/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/feature-flags/**'
+  - 'packages/core/ai/**'
+panel-ingest:
+  - 'apps/workers/panel-ingest/**'
+  - 'packages/domains/panel/**'
+  - 'packages/sdk/panel-sdk/**'

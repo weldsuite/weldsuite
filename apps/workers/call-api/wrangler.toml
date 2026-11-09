@@ -77,6 +77,12 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
 
+# Auto-assignment of a new phone conversation → helpdesk-workflow-worker /desk/assign.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
+remote = true
+
 # R2 bucket for files and documents (number-porting documents, r2-port-docs.ts).
 [[r2_buckets]]
 binding = "STORAGE"
@@ -113,6 +119,10 @@ queue = "entity-events-test"
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -153,6 +163,10 @@ queue = "entity-events"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

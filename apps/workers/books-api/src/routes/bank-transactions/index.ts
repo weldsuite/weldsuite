@@ -32,6 +32,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createBankTransactionSchema } from '@weldsuite/core-api-client/schemas/bank-transactions';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -79,6 +80,10 @@ function isUserFixable(err: unknown): err is Error {
 }
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.bankTransactions, { label: 'Bank transaction' });
+guardEntityRecords(app, schema.bankImportBatches, { prefix: '/import-batches', param: 'batchId', label: 'Import batch' });
 
 const reconcileSchema = z.object({
   type: z.enum(['invoice', 'bill', 'manual']),
@@ -781,6 +786,7 @@ app.post('/:id/match-deposit', requirePermission('banking:update'), zValidator('
   try {
     const txn = await findLine(c, txnId);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
+    if (!(await recordsInEntity(c, schema.bankDeposits, [depositId]))) return error.notFound(c, 'Deposit', depositId);
     const linked = await reconcileBankTransactionToDeposit(db, { txn, depositId, userId: c.get('userId') ?? null });
     await recordLinked(c, txn, { kind: 'deposit', id: depositId, journalEntryId: linked.journalEntryId });
     return success(c, { id: txnId, status: 'reconciled', depositId, journalEntryId: linked.journalEntryId });
@@ -799,6 +805,7 @@ app.post('/:id/match-payment', requirePermission('banking:update'), zValidator('
   try {
     const txn = await findLine(c, txnId);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
+    if (!(await recordsInEntity(c, schema.payments, [paymentId]))) return error.notFound(c, 'Payment', paymentId);
     const linked = await reconcileBankTransactionToPayment(db, { txn, paymentId, userId: c.get('userId') ?? null });
     await recordLinked(c, txn, { kind: 'payment', id: paymentId, journalEntryId: linked.journalEntryId });
     return success(c, { id: txnId, status: 'reconciled', paymentId, journalEntryId: linked.journalEntryId });

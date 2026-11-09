@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { eq, and, desc, lt, isNull } from 'drizzle-orm';
 import { getMasterDb, getTenantDbForWorkspace, schema, masterSchema } from './db';

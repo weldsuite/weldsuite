@@ -140,6 +140,16 @@ export interface DeskPickRequest {
   mode: Exclude<DeskAssignmentMode, 'off'>;
   candidates: DeskAssignmentCandidate[];
   maxOpen: number | null;
+  /**
+   * The team (helpdesk_departments.id) the candidates are, when the pick is
+   * among a team's members: the router keeps a rotation per team.
+   */
+  teamId?: string | null;
+}
+
+/** The AssignmentRouter's storage key for a pick: one rotation per team, one for the roster. */
+export function deskPickerStateKey(teamId: string | null | undefined): string {
+  return teamId ? `desk:team:${teamId}` : 'desk';
 }
 
 /** What the AssignmentRouter keeps per workspace between picks. */
@@ -229,13 +239,36 @@ export function deskAssignmentRouterPicker(
   };
 }
 
-/** Teammates who may take a conversation now, with their open counts. */
+/**
+ * The members of a conversation's team (`helpdesk_departments.agentIds`, Clerk
+ * user ids), or null when the conversation has no team, the team is gone or
+ * inactive, or it has no members: then the workspace roster takes the work.
+ */
+export async function deskTeamMemberIds(db: AnyDb, teamId: string | null | undefined): Promise<string[] | null> {
+  if (!teamId) return null;
+  const d = schema.helpdeskDepartments;
+  const [team] = await db
+    .select({ agentIds: d.agentIds, isActive: d.isActive })
+    .from(d)
+    .where(and(eq(d.id, teamId), isNull(d.deletedAt)))
+    .limit(1);
+  if (!team || team.isActive === false) return null;
+  const ids = idList(team.agentIds);
+  return ids.length > 0 ? ids : null;
+}
+
+/**
+ * Teammates who may take a conversation now, with their open counts: the
+ * team's members when it has any (`teamMemberIds`), else the roster; either
+ * way only active internal members who are not away.
+ */
 export async function deskAssignmentCandidates(
   db: AnyDb,
   settings: DeskAssignmentSettings,
+  teamMemberIds: string[] | null = null,
 ): Promise<DeskAssignmentCandidate[]> {
   const away = new Set(settings.awayMemberIds);
-  const ids = settings.memberIds.filter((id) => !away.has(id));
+  const ids = (teamMemberIds ?? settings.memberIds).filter((id) => !away.has(id));
   if (ids.length === 0) return [];
 
   const m = schema.workspaceMembers;
@@ -265,8 +298,10 @@ export async function deskAssignmentCandidates(
 
 /**
  * Give an open, unowned conversation to a teammate, if the workspace has
- * auto-assignment on and someone can take it. Returns the `assigned` event
- * (author `system`, `metadata.auto`) for the caller to publish, or null when
+ * auto-assignment on and someone can take it. A conversation in a team with
+ * members goes to one of them (a rotation per team); otherwise to the roster.
+ * Returns the `assigned` event (author `system`, `metadata.auto`, and
+ * `metadata.teamId` for a team pick) for the caller to publish, or null when
  * nothing changed. Safe under concurrent customer messages: the owner is
  * claimed with a conditional update before the event is written.
  */
@@ -276,7 +311,7 @@ export async function autoAssignDeskConversation(
 ): Promise<AppendDeskMessageResult | null> {
   const c = schema.deskConversations;
   const [conversation] = await db
-    .select({ id: c.id, state: c.state, assigneeId: c.assigneeId })
+    .select({ id: c.id, state: c.state, assigneeId: c.assigneeId, departmentId: c.departmentId })
     .from(c)
     .where(eq(c.id, input.conversationId))
     .limit(1);
@@ -284,10 +319,17 @@ export async function autoAssignDeskConversation(
 
   const { settings } = await getDeskAssignmentSettings(db);
   if (settings.mode === 'off') return null;
-  const candidates = await deskAssignmentCandidates(db, settings);
+  const teamMemberIds = await deskTeamMemberIds(db, conversation.departmentId);
+  const teamId = teamMemberIds ? conversation.departmentId : null;
+  const candidates = await deskAssignmentCandidates(db, settings, teamMemberIds);
   if (candidates.length === 0) return null;
 
-  const userId = await input.pick({ mode: settings.mode, candidates, maxOpen: settings.maxOpenPerMember });
+  const userId = await input.pick({
+    mode: settings.mode,
+    candidates,
+    maxOpen: settings.maxOpenPerMember,
+    ...(teamId ? { teamId } : {}),
+  });
   if (!userId || !candidates.some((x) => x.userId === userId)) return null;
 
   const claimed = await db
@@ -302,7 +344,7 @@ export async function autoAssignDeskConversation(
     conversationId: input.conversationId,
     kind: 'event',
     authorType: 'system',
-    metadata: { eventType: 'assigned', assigneeId: userId, auto: true },
+    metadata: { eventType: 'assigned', assigneeId: userId, auto: true, ...(teamId ? { teamId } : {}) },
     assigneeId: userId,
   });
 }

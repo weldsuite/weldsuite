@@ -1,8 +1,9 @@
 # Legal entities: one company record for WeldBooks, WeldHR and later apps
 
-Status (11 October 2026): **plan, nothing built.** The owner's decisions from
-11 October are in the first table. Migrations listed here still need the
-owner's go-ahead before they are generated (CLAUDE.md rule).
+Status (7 November 2026): **release 1 in progress, together with per-entity
+access.** The owner's decisions from 11 October and 7 November are in the
+first table. The owner approved generating the release 1 migration on
+7 November.
 
 ## Decisions
 
@@ -13,7 +14,10 @@ owner's go-ahead before they are generated (CLAUDE.md rule).
 | Workspace business profile (Settings → Business) | **Becomes the default legal entity.** One source of truth; `workspace_settings` legal fields are migrated into it and later dropped. |
 | Bank accounts | **Move to the legal entity.** The account itself (holder, IBAN, account number, payment-file settings) is core and shared by WeldBooks and WeldHR. Bank feeds, reconciliation, the ledger link and check printing stay WeldBooks features on top of it. |
 | Employees | **Every WeldHR employee has an employing legal entity**, not only employees on payroll. |
-| Access per entity | **Later phase, designed for now.** v1 keeps workspace-wide permissions but routes every entity lookup through one resolver where the check will go. |
+| Access per entity | **Built with release 1 (7 November).** Per entity: a list of members, each with one of the workspace's roles. Inside that entity the member acts with that role instead of their workspace role. See "Per-entity access". |
+| Entity with no access settings | **Open, as today.** Everyone who has the app sees it with their workspace role, until it is marked restricted. Owners and `legal_entities:manage` always see every entity. |
+| Where access is set | **Settings → Legal entities**, an Access tab per entity. |
+| WeldHR and several entities | **A sidebar entity switcher, like WeldBooks.** WeldHR shows one entity at a time; all HR data (employees and everything about them, payroll) belongs to the employee's entity. |
 | Other apps (Commerce, CRM quotes, WeldStash, …) | **Contract only.** This plan wires WeldBooks and WeldHR and documents how a later app attaches. |
 
 ## Where we are today
@@ -155,7 +159,8 @@ Bank connections, feed transactions, imports and reconciliations keep their
 Sensitive data: the full account number stays encrypted with the existing
 keyring (`DATABASE_ENCRYPTION_KEY`, `packages/core/db/src/lib/crypto.ts`), and
 is returned masked. Revealing it needs `legal_entities:reveal` and is logged
-in a small core table `legal_entity_reveals` (who, what, when). Building a
+in `tax_id_reveals` (subject `bank_account`, field `account_number`), the
+reveal log WeldBooks already writes, so there is one trail. Building a
 payment file decrypts on the server under the app's own permission
 (`payroll:approve`, WeldBooks payment runs), as today; the user never sees the
 number.
@@ -197,6 +202,13 @@ number.
   `schedules`, `employees`, `overview`, `approve`, self-service) goes through it.
 
 ## Core service and API
+
+**Core edits respect the apps' history.** `updateLegalEntity` asks every app
+enabled for the entity (`lockedChange` in `extensions.ts`) and answers 409 when
+one forbids the change: country and base currency once WeldBooks has postings
+or WeldHR has pay runs, the fiscal year once WeldBooks has postings or fiscal
+periods. This is the lock WeldBooks' own entity edit already applied, so
+Settings → Legal entities and the business profile cannot bypass it.
 
 **`@weldsuite/core-domain/legal-entities`** (`packages/domains/core`), imported
 by app-api, books-api, hr-api, commerce-api and connect-api:
@@ -264,7 +276,7 @@ entity from inside WeldBooks or WeldHR needs `legal_entities:create` as well.
 update) and `legal_entity_bank_account` (created, updated, deleted; ids and
 masked numbers only). `accounting_entity` stays for the WeldBooks extension.
 The new app-api mutation routes join `_event-coverage.test.ts`. Reveals are
-logged in `legal_entity_reveals`, not sent as events.
+logged in `tax_id_reveals`, not sent as events.
 
 ## How each app uses it
 
@@ -379,19 +391,89 @@ only changes their existing reads (Commerce) to the loader.
   help guide `apps/web/docs/src/app/weldbooks/us/setup` covers entity setup;
   its text and screenshots are updated with the new add-administration flow.
 
-## Per-entity access (later phase, designed now)
+## Per-entity access
 
-- Entities are open by default. `legal_entities:manage` can mark an entity
-  **restricted** and give members access to it:
-  `legal_entity_members (entity_id, user_id, granted_by, created_at)`, the
-  same shape as `weldpass_vault_members` without roles. App permissions still
-  decide what a member may do inside the entity.
-- Enforcement in two places only: `legalEntityContext()` (404 for an entity
-  the member cannot see) and `listLegalEntities({ forUserId })`. Because v1
-  sends every WeldBooks and WeldHR request through the middleware, the phase
-  adds no per-route work.
-- Owners and `legal_entities:manage` see all. WeldHR employee lists filter by
-  employing entity; external-api keys get an optional entity allow-list.
+Built with release 1 (owner decision 7 November; the October draft had
+members without roles).
+
+**Model.** `entities.access_restricted` (default false) plus
+`legal_entity_members (id 'lem', entity_id, user_id, role_id, granted_by,
+timestamps)`, unique on (entity_id, user_id). `role_id` points at a `roles`
+row (the seeded system rows Admin/Member/Viewer or a custom role, never
+Owner); null means "their workspace role".
+
+**Who sees an entity** (`canSeeEntity`):
+
+| Member | Sees | Acts with |
+|---|---|---|
+| Owner, or holds `legal_entities:manage` | every entity | their workspace role; entity rows are ignored |
+| has a `legal_entity_members` row | that entity | the row's role, else their workspace role |
+| no row, entity not restricted | that entity | their workspace role |
+| no row, entity restricted | nothing (it does not exist for them) | — |
+| `memberType = EMPLOYEE` | no entity in WeldBooks/WeldHR | My HR only, as today |
+
+**Acting with the entity role.** For a request scoped to one entity, the
+member's permissions are resolved as if their workspace role were the entity
+role: role permissions ∪ team permissions ∪ personal extras, personal denies
+still win (`resolveEffectivePermissions` with the role swapped, not cached in
+KV). The swap replaces `userPermissions` on the Hono context before any
+`requirePermission` runs. Which apps a member sees in the shell still comes
+from the workspace role: the entity role decides what they can do inside an
+entity, not whether they can open WeldBooks or WeldHR.
+
+**Enforcement points** (all in `@weldsuite/core-domain/legal-entities`):
+
+- `legalEntityContext({ app, scoped })`, the Hono middleware. Resolves
+  `X-Legal-Entity-Id`, then `X-Accounting-Entity-Id`, then `?entityId`, then
+  the default entity. An id that is unknown, deleted, not enabled for `app`
+  or not visible to the member resolves to **no entity** (null), exactly like
+  an unknown id did before, so routes list nothing or refuse, and existence is
+  never leaked. With `scoped: true` it also swaps in the entity role. Sets
+  `c.get('legalEntityId')` and `c.get('legalEntityAccess')`.
+- `listLegalEntities(db, { access })` filters to visible entities.
+- `recordInRequestEntity(c, recordEntityId)` for routes that load a record by
+  id. A member whose access is the same everywhere (owner, manager, or no
+  restricted entity and no role rows) passes, so deep links keep working.
+  Anyone else may only touch a record of the entity the request is scoped to:
+  a record of another entity answers 404. This closes "send the header of
+  entity A, PATCH a record of entity B with A's role".
+- `GET /api/legal-entities/:id/my-access` gives the platform the effective
+  role and permissions in an entity, so buttons match what the API allows.
+
+**Managing access** (`legal_entities:manage`, Owner and Admin by default):
+Settings → Legal entities → entity → Access: a Restricted switch and the
+member list (add member + role, change role, remove). Every change publishes a
+`legal_entity_member` event (created / updated / deleted) and a
+`legal_entity` `updated` event for the switch, so it lands in the audit log.
+
+**WeldBooks.** Every `/api/*` request goes through
+`legalEntityContext({ app: 'weldbooks', scoped: true })`, except the
+`/api/accounting-entities` list and create, which run on workspace
+permissions so the switcher keeps working whatever the current entity's role
+is. By-id routes check `recordInRequestEntity`.
+
+**WeldHR.** The sidebar gets the shared `LegalEntitySwitcher`. Employee
+routes and everything keyed by employee (leave, attendance, shifts,
+absences, declarations, checklists, assignments, performance, payroll
+profiles, compensations, payslips) and the payroll employer routes (employers,
+schedules, runs, filings) are scoped: lists filter on the current entity
+(`hr_employees.legal_entity_id`, `hr_payroll_employers.legal_entity_id`), by-id
+routes check the record's entity. Workspace-level HR setup (departments,
+leave types, work locations, checklist templates, evaluation forms, KPI
+definitions, announcements, HR settings) and My HR (`/api/weldhr/me`) are not
+scoped and use the workspace role. A workspace without any legal entity has no
+switcher and no filtering, as today.
+
+**Both backends.** The Rust server enforces the same rules through
+`rust/crates/legal-entities` (the twin of `@weldsuite/core-domain/legal-entities`:
+access, service, the `legal_entity_context` layer and the record guard),
+mounted on core-team (`/api/legal-entities`), hr and every books module; the
+conformance suites `core: legal-entities`, `hr` and `books: *` compare the two.
+**Not covered.** external-api keys get no entity allow-list yet.
+Realtime is not filtered per entity: the WorkspaceHub sends an entity event's
+data to every member subscribed to its topic, as it does today regardless of
+permissions. Filtering needs `accessUserIds` on those events or a per-entity
+topic.
 
 ## Migration and rollout
 
@@ -404,7 +486,7 @@ drops them.
 One tenant migration, generated with `pnpm --filter @weldsuite/db db:generate`,
 plus a custom data migration (`drizzle-kit generate --custom`, journaled):
 
-- Schema: create `legal_entity_registrations`, `legal_entity_reveals`,
+- Schema: create `legal_entity_registrations`, `legal_entity_members`,
   `accounting_entity_settings`, `accounting_bank_account_settings`; add the new
   `hr_payroll_employers` columns and `hr_employees.legal_entity_id`; add the
   partial unique index for the default entity.
@@ -448,7 +530,15 @@ cannot:
 Compatibility during release 1:
 
 - New code reads the new tables and **also writes the old columns** (mirror),
-  so rolling workers back to the previous release stays safe.
+  so rolling workers back to the previous release stays safe. Because every
+  write lands in both places, a reader still on an old column reads the same
+  value; readers move to the loaders (`loadAccountingEntity`,
+  `loadEmployerForPayroll`) where the row is loaded centrally, and the rest
+  move in release 2 before the columns are dropped. WeldBooks' own bank
+  account columns stay read from `bank_accounts` until release 2 (the
+  `accounting_bank_account_settings` copy is written, not yet read).
+- The Rust backend has the same release-1 mirror as TypeScript (it writes the
+  new tables and the old columns), so release 2 applies to both backends.
 - Until the script has run for a workspace, hr-api falls back to
   `bank_encrypted` and invoices fall back to `bank_details`.
 
@@ -459,6 +549,25 @@ everywhere: stop mirroring and drop the moved columns from `entities`,
 `bank_accounts` and `hr_payroll_employers`, the legal fields from
 `workspace_settings`, and `settings.default_entity_id`. The old
 `X-Accounting-Entity-Id` header stays accepted.
+
+Before the columns go, release 1 left these on the old columns (the mirror
+keeps them correct until then):
+
+- **WeldBooks readers** not yet on `loadAccountingEntity`: tax resolution (tax
+  identifiers, jurisdiction settings, KOR), VAT returns, reports, document
+  posting, the Brazilian services, the 1099 payer, sales-tax `document-tax.ts`
+  and `route-helpers.ts`, NACHA and checks (`entity.bankDetails`), compliance,
+  and every `accountingMethod` reader.
+- **WeldBooks bank account writers** that touch only `bank_accounts`: the
+  statement import (`lastImport*`, `currentBalance`, `importSettings`),
+  payment-run bank settings (Positive Pay, ACH), `claimCheckNumber`, bank-feed
+  link and sync, and balance increments. Resync `accounting_bank_account_settings`
+  from `bank_accounts` before reads move.
+- **WeldHR** name- and country-only lookups (schedules, run and payslip employer
+  names, self-service) still read the employer row's mirrored columns.
+- **Employer create without `legalEntityId`** is still accepted (the
+  pre-entity shape); make it required once every workspace's employers are
+  linked.
 
 ## Delivery
 

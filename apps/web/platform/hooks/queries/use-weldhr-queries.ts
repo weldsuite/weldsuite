@@ -12,8 +12,9 @@
  * keep personal data in memory after the user closed the panel.
  */
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { getHrLegalEntityId } from '@/lib/api/legal-entity-scope';
 import type {
   HrAbsenceListParams,
   HrAttendanceListParams,
@@ -55,7 +56,16 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldhr';
 
 export const weldhrKeys = {
-  all: ['weldhr'] as const,
+  /**
+   * The WeldHR root: `['weldhr']`, plus the selected legal entity once there is
+   * one, so each entity has its own cache and a switch never shows the previous
+   * entity's data. A read at render time (the WeldHR sidebar sets the mirror
+   * first); invalidating `['weldhr']` still reaches every entity.
+   */
+  get all() {
+    const entityId = getHrLegalEntityId();
+    return (entityId ? ['weldhr', entityId] : ['weldhr']) as readonly string[];
+  },
   dashboard: () => [...weldhrKeys.all, 'dashboard'] as const,
   employees: (params: HrEmployeeListParams) => [...weldhrKeys.all, 'employees', params] as const,
   employee: (id: string) => [...weldhrKeys.all, 'employee', id] as const,
@@ -78,6 +88,15 @@ export const weldhrKeys = {
   availableMembers: (params: object) => [...weldhrKeys.all, 'available-members', params] as const,
   me: (part: string, params: object = {}) => [...weldhrKeys.all, 'me', part, params] as const,
 };
+
+/**
+ * Drop every WeldHR result when the selected legal entity changes, so the previous
+ * entity's lists are never shown under the new one (mirror of
+ * `resetEntityScopedAccountingQueries`). Call it after pointing the client at the new entity.
+ */
+export function resetHrQueries(qc: QueryClient) {
+  return qc.resetQueries({ queryKey: ['weldhr'] });
+}
 
 /** Mutation hook that invalidates the whole WeldHR cache on success. */
 function useHrMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {

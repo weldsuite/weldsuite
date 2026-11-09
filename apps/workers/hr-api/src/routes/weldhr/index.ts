@@ -28,6 +28,7 @@
  */
 
 import { Hono } from 'hono';
+import { legalEntityContext } from '@weldsuite/core-domain/legal-entities';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { success } from '@weldsuite/worker-kit/response';
@@ -36,6 +37,7 @@ import { absencesRoutes } from './absences';
 import { assignmentsRoutes, clientsRoutes } from './assignments';
 import { declarationsRoutes } from './declarations';
 import { departmentsRoutes, employeesRoutes, orgChartRoutes } from './employees';
+import { employeeEntityCondition } from './entity-scope';
 import { db, ensureHrDefaults, toHrErrorResponse } from './helpers';
 import { meRoutes } from './me';
 import { checklistTemplatesRoutes, checklistsRoutes } from './lifecycle';
@@ -73,6 +75,43 @@ app.onError((err, c) => {
   return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
 });
 
+/**
+ * Workspace-level setup and My HR are not about one legal entity: they skip
+ * `legalEntityContext` (no entity resolved, no role swapped) and are never
+ * filtered. Everything else (employees, everything keyed by an employee,
+ * payroll) is scoped; see ./entity-scope.ts.
+ */
+const WORKSPACE_LEVEL_SEGMENTS = new Set([
+  'departments',
+  'leave-types',
+  'work-locations',
+  'checklist-templates',
+  'evaluation-forms',
+  'kpis',
+  'announcements',
+  'settings',
+  'me',
+]);
+
+const API_PREFIX = '/api/weldhr/';
+
+function isWorkspaceLevel(path: string): boolean {
+  const rest = path.startsWith(API_PREFIX) ? path.slice(API_PREFIX.length) : path.replace(/^\/+/, '');
+  return WORKSPACE_LEVEL_SEGMENTS.has(rest.split('/')[0] ?? '');
+}
+
+// Which entity the request is about (`X-Legal-Entity-Id`; none = every entity the member acts in
+// with their workspace role) and, when an entity role applies there, the permissions to check.
+app.use(
+  '*',
+  legalEntityContext({
+    app: 'weldhr',
+    scoped: true,
+    fallbackToDefault: false,
+    skip: (c) => isWorkspaceLevel(c.req.path),
+  }),
+);
+
 app.use('*', async (c, next) => {
   await ensureHrDefaults(c);
   await next();
@@ -81,7 +120,7 @@ app.use('*', async (c, next) => {
 app.get(
   '/dashboard',
   requirePermission('employees:read', 'attendance:read', 'leave:read', 'coaching:read', 'evaluations:read'),
-  async (c) => success(c, await hrDashboard(db(c))),
+  async (c) => success(c, await hrDashboard(db(c), await employeeEntityCondition(c))),
 );
 
 app.route('/employees', employeesRoutes);

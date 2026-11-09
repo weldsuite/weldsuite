@@ -27,11 +27,13 @@ import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { meRoutes } from './routes/me';
 import { notificationPreferencesRoutes } from './routes/notification-preferences';
 import { notificationsRoutes } from './routes/notifications';
+import { legalEntitiesRoutes } from './routes/legal-entities';
 import { rolesRoutes } from './routes/roles';
 import { settingsProfileRoutes } from './routes/settings-profile';
 import { customFieldsRoutes } from './routes/custom-fields';
 import { customObjectsRoutes } from './routes/custom-objects';
 import { customObjectRecordsRoutes } from './routes/custom-object-records';
+import { customObjectTemplateRoutes } from './routes/custom-object-templates';
 import {
   customObjectLinkDefinitionRoutes,
   customObjectLinkTraversalRoutes,
@@ -240,6 +242,7 @@ app.route('/api/notification-preferences', notificationPreferencesRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/prepaid-seats', prepaidSeatsRoutes);
 app.route('/api/roles', rolesRoutes);
+app.route('/api/legal-entities', legalEntitiesRoutes);
 // WeldCRM (companies, people, leads, opportunities, pipelines, activities,
 // lists, sequences, …) moved to crm-api; the kit's forwarder hands those paths
 // to it over the CRM_API binding (API_FORWARD_MODULES in wrangler.toml).
@@ -252,6 +255,7 @@ app.route('/api/custom-fields', customFieldsRoutes);
 // and answers with the first registered route that matches. The definition
 // links go first: their static GET /link-targets was shadowed by the base
 // routes' GET /:id (a 404 for an object called 'link-targets').
+app.route('/api/custom-objects', customObjectTemplateRoutes);
 app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
 app.route('/api/custom-objects', customObjectsRoutes);
 app.route('/api/objects', customObjectRecordsRoutes);

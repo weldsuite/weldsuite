@@ -7,7 +7,8 @@
 
 import { useMemo } from 'react';
 import { Banknote, Building2, Lock } from 'lucide-react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -29,6 +30,7 @@ export default function EntitiesSettingsPage() {
   const { t } = useI18n();
   const ts = t.settings.entities;
   const { can, isOwner, isLoading: permissionsLoading } = usePermissions();
+  const canSeeLegalEntities = can('legal_entities:read');
   const { data: apps, isLoading: appsLoading } = useInstalledApps();
   const payrollFlag = useHrPayrollFlag();
   // Not strict, so the page also renders when mounted under another route.
@@ -86,6 +88,15 @@ export default function EntitiesSettingsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
+      {canSeeLegalEntities && (
+        <InfoBanner variant="info">
+          {ts.legalEntitiesNote}{' '}
+          <Link to="/settings/legal-entities" className="font-medium underline underline-offset-2">
+            {t.settings.menu.legalEntities}
+          </Link>
+          .
+        </InfoBanner>
+      )}
       {content}
     </div>
   );

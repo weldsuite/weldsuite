@@ -22,6 +22,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::assignments::end_assignments_for;
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, change, id, int, iso_date, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, hr_json, member_names, now, query_text,
@@ -80,6 +81,16 @@ where
             "/checklists/tasks/{task_id}",
             delete(delete_task_route).route_layer(update()),
         )
+        .route_layer(guard(
+            "/checklists",
+            "Checklist",
+            via_employee!("hr_checklists"),
+        ))
+        .route_layer(guard(
+            "/checklists/tasks",
+            "Checklist task",
+            via_employee!("hr_checklist_tasks"),
+        ))
 }
 
 // ---------------------------------------------------------------------------
@@ -307,12 +318,14 @@ pub(crate) async fn require_task(db: &PgPool, id: &str) -> Result<Value, HrError
         .ok_or_else(|| HrError::not_found("Checklist task", id))
 }
 
-/// `listChecklists(db, filters)`: with their tasks, newest first.
+/// `listChecklists(db, filters)`: with their tasks, newest first; `scope` is
+/// the request's entity scope.
 pub(crate) async fn list_checklists(
     db: &PgPool,
     employee_id: Option<&str>,
     status: Option<&str>,
     kind: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let checklists: Vec<(Value, Value)> = sqlx::query_as(
         "select to_jsonb(c), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
@@ -323,11 +336,15 @@ pub(crate) async fn list_checklists(
            and ($1::text is null or c.employee_id = $1)
            and ($2::text is null or c.status = $2)
            and ($3::text is null or c.kind = $3)
+           and ($4::text[] is null or e.legal_entity_id = any($4)
+                or ($5::boolean and e.legal_entity_id is null))
          order by c.started_at desc",
     )
     .bind(employee_id)
     .bind(status)
     .bind(kind)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     if checklists.is_empty() {
@@ -405,6 +422,7 @@ async fn list_checklists_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
         query_text(&q, "employeeId").as_deref(),
         query_text(&q, "status").as_deref(),
         query_text(&q, "kind").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -750,6 +768,7 @@ async fn start_route(
         )
     })?;
     let employee_id = employee_id.into_option().unwrap_or_default();
+    caller.assert_employee_visible(Some(&employee_id)).await?;
     let checklist = start_checklist(
         &caller.db,
         &employee_id,

@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import type { AdminIdentity } from './auth';
 import { isOutboundInspect, isPlatformStatus, type OutboundInspect, type PlatformStatus } from './outbound-mail';

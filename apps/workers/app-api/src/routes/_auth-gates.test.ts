@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { authGateStatuses, type AuthGateCase } from '@weldsuite/worker-kit/testing/sweeps';
 
 import { customFieldsRoutes } from './custom-fields';
+import { legalEntitiesRoutes } from './legal-entities';
 import type { Env, Variables } from '../types';
 
 type RouteCase = AuthGateCase<Env, Variables>;
@@ -27,6 +28,7 @@ const cases: RouteCase[] = [
   // _sweeps.test.ts.)
   // custom-fields updates via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
+  { mount: '/api/legal-entities', router: legalEntitiesRoutes, prefix: 'legal_entities' },
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {

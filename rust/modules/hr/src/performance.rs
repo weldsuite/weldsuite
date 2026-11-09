@@ -31,6 +31,7 @@ use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, field_json, id, iso_date, number, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number,
@@ -154,6 +155,26 @@ where
             "/milestones/{id}",
             delete(delete_milestone).route_layer(gate.require([EVALUATIONS_DELETE])),
         )
+        .route_layer(guard(
+            "/coaching",
+            "Coaching log",
+            via_employee!("hr_coaching_logs"),
+        ))
+        .route_layer(guard(
+            "/evaluations",
+            "Evaluation",
+            via_employee!("hr_evaluations"),
+        ))
+        .route_layer(guard(
+            "/kpi-values",
+            "KPI value",
+            via_employee!("hr_kpi_values"),
+        ))
+        .route_layer(guard(
+            "/milestones",
+            "Milestone",
+            via_employee!("hr_milestones"),
+        ))
 }
 
 /// The body's present fields, keyed by column, for `jsonb_populate_record`.
@@ -215,6 +236,8 @@ pub(crate) struct CoachingFilters {
     pub(crate) to: Option<String>,
     pub(crate) follow_up_due: bool,
     pub(crate) visibilities: Option<Vec<String>>,
+    /// The request's entity scope on the employees.
+    pub(crate) entity: Scope,
 }
 
 pub(crate) async fn list_coaching_logs(
@@ -239,6 +262,8 @@ pub(crate) async fn list_coaching_logs(
            and ($6::text is null or c.session_date <= $6::date)
            and ($7::text[] is null or c.visibility = any($7))
            and (not $8 or (c.follow_up_date is not null and c.follow_up_date <= current_date and c.status <> 'closed'))
+           and ($9::text[] is null or e.legal_entity_id = any($9)
+                or ($10::boolean and e.legal_entity_id is null))
          order by c.session_date desc, c.created_at desc limit 1000",
     )
     .bind(&filters.employee_id)
@@ -249,6 +274,8 @@ pub(crate) async fn list_coaching_logs(
     .bind(&filters.to)
     .bind(&filters.visibilities)
     .bind(filters.follow_up_due)
+    .bind(filters.entity.ids())
+    .bind(filters.entity.unassigned())
     .fetch_all(db)
     .await?;
     let coaches: Vec<Option<&str>> = rows
@@ -297,6 +324,7 @@ async fn list_coaching(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         to: query_date(&q, "to"),
         follow_up_due: query_param(&q, "followUpDue").as_deref() == Some("true"),
         visibilities: None,
+        entity: caller.scope().await?,
     };
     Ok(Data(list_coaching_logs(&caller.db, &filters).await?).into_response())
 }
@@ -435,6 +463,9 @@ async fn create_coaching(
     let mut input = hr_json(&headers, &body, |issues, fields| {
         coaching_fields(issues, fields, false)
     })?;
+    caller
+        .assert_employee_visible(get_field(&input, "employee_id").and_then(Value::as_str))
+        .await?;
     let db = &caller.db;
     let session = get_field(&input, "session_date")
         .and_then(Value::as_str)
@@ -895,6 +926,8 @@ pub(crate) struct EvaluationFilters {
     pub(crate) form_id: Option<String>,
     pub(crate) from: Option<String>,
     pub(crate) to: Option<String>,
+    /// The request's entity scope on the employees.
+    pub(crate) entity: Scope,
 }
 
 pub(crate) async fn list_evaluations(
@@ -918,6 +951,8 @@ pub(crate) async fn list_evaluations(
            and ($4::text is null or ev.form_id = $4)
            and ($5::text is null or coalesce(ev.period_end, ev.created_at::date) >= $5::date)
            and ($6::text is null or coalesce(ev.period_start, ev.created_at::date) <= $6::date)
+           and ($7::text[] is null or e.legal_entity_id = any($7)
+                or ($8::boolean and e.legal_entity_id is null))
          order by ev.created_at desc limit 1000",
     )
     .bind(&filters.employee_id)
@@ -926,6 +961,8 @@ pub(crate) async fn list_evaluations(
     .bind(&filters.form_id)
     .bind(&filters.from)
     .bind(&filters.to)
+    .bind(filters.entity.ids())
+    .bind(filters.entity.unassigned())
     .fetch_all(db)
     .await?;
     let evaluators: Vec<Option<&str>> = rows
@@ -973,6 +1010,7 @@ async fn list_evaluations_route(caller: Caller, RawQuery(query): RawQuery) -> Hr
         form_id: query_text(&q, "formId"),
         from: query_date(&q, "from"),
         to: query_date(&q, "to"),
+        entity: caller.scope().await?,
     };
     Ok(Data(list_evaluations(&caller.db, &filters).await?).into_response())
 }
@@ -1053,6 +1091,9 @@ async fn create_evaluation(
     let input = hr_json(&headers, &body, |issues, fields| {
         evaluation_input(issues, fields, false)
     })?;
+    caller
+        .assert_employee_visible(input.employee_id.as_set().map(String::as_str))
+        .await?;
     let db = &caller.db;
     assert_date_order(
         input.period_start.as_set().map(String::as_str),
@@ -1442,7 +1483,7 @@ async fn delete_kpi(caller: Caller, Path(id): Path<String>) -> HrResult {
 // KPI values
 // ---------------------------------------------------------------------------
 
-/// `listKpiValues(db, filters)`.
+/// `listKpiValues(db, filters)`; `scope` is the request's entity scope.
 pub(crate) async fn list_kpi_values(
     db: &PgPool,
     employee_id: Option<&str>,
@@ -1450,6 +1491,7 @@ pub(crate) async fn list_kpi_values(
     company_id: Option<&str>,
     from: Option<&str>,
     to: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let rows: Vec<(Value, Value)> = sqlx::query_as(
         "select to_jsonb(v), jsonb_build_object('employeeFirstName', e.first_name,
@@ -1463,6 +1505,8 @@ pub(crate) async fn list_kpi_values(
            and ($3::text is null or v.company_id = $3)
            and ($4::text is null or v.period_end >= $4::date)
            and ($5::text is null or v.period_start <= $5::date)
+           and ($6::text[] is null or e.legal_entity_id = any($6)
+                or ($7::boolean and e.legal_entity_id is null))
          order by v.period_start desc, d.name asc limit 5000",
     )
     .bind(employee_id)
@@ -1470,6 +1514,8 @@ pub(crate) async fn list_kpi_values(
     .bind(company_id)
     .bind(from)
     .bind(to)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     Ok(rows
@@ -1506,6 +1552,7 @@ async fn list_kpi_values_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
         query_text(&q, "companyId").as_deref(),
         query_date(&q, "from").as_deref(),
         query_date(&q, "to").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -1572,6 +1619,9 @@ async fn create_kpi_value(
     let mut input = hr_json(&headers, &body, |issues, fields| {
         kpi_value_fields(issues, fields, false)
     })?;
+    caller
+        .assert_employee_visible(get_field(&input, "employee_id").and_then(Value::as_str))
+        .await?;
     let db = &caller.db;
     assert_date_order(
         get_field(&input, "period_start").and_then(Value::as_str),
@@ -1725,7 +1775,9 @@ async fn import_kpi_values(caller: Caller, headers: HeaderMap, body: Bytes) -> H
     assert_date_order(Some(&start), Some(&end), "KPI period")?;
     require_kpi_definition(db, &kpi_id).await?;
     let refs: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
-    let resolved = crate::timekeeping::resolve_employee_refs(db, &refs).await?;
+    // Employees outside the request's entity scope do not match, as if they did not exist.
+    let scope = caller.scope().await?;
+    let resolved = crate::timekeeping::resolve_employee_refs(db, &refs, &scope).await?;
     let (mut created, mut updated) = (0, 0);
     let mut errors: Vec<Value> = Vec::new();
     for (index, (employee, value, company)) in rows.into_iter().enumerate() {
@@ -1800,12 +1852,13 @@ async fn require_milestone(db: &PgPool, id: &str) -> Result<Value, HrError> {
         .ok_or_else(|| HrError::not_found("Milestone", id))
 }
 
-/// `listMilestones(db, filters)`.
+/// `listMilestones(db, filters)`; `scope` is the request's entity scope.
 pub(crate) async fn list_milestones(
     db: &PgPool,
     employee_id: Option<&str>,
     company_id: Option<&str>,
     status: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let statuses: Option<Vec<String>> = status
         .filter(|s| !s.is_empty())
@@ -1818,11 +1871,15 @@ pub(crate) async fn list_milestones(
            and ($1::text is null or m.employee_id = $1)
            and ($2::text is null or m.company_id = $2)
            and ($3::text[] is null or m.status = any($3))
+           and ($4::text[] is null or e.legal_entity_id = any($4)
+                or ($5::boolean and e.legal_entity_id is null))
          order by m.due_date asc nulls last, m.created_at desc limit 1000",
     )
     .bind(employee_id)
     .bind(company_id)
     .bind(&statuses)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let companies: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["company_id"].as_str()).collect();
@@ -1851,6 +1908,7 @@ async fn list_milestones_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
         query_text(&q, "employeeId").as_deref(),
         query_text(&q, "companyId").as_deref(),
         query_text(&q, "status").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -1971,6 +2029,9 @@ async fn create_milestone(
     let input = hr_json(&headers, &body, |issues, fields| {
         milestone_fields(issues, fields, false)
     })?;
+    caller
+        .assert_employee_visible(get_field(&input, "employee_id").and_then(Value::as_str))
+        .await?;
     let db = &caller.db;
     require_employee(
         db,

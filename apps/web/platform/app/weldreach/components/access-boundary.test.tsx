@@ -53,14 +53,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ReachAccessBoundary', () => {
-  it('shows the page with usage against the limits once access is approved', async () => {
+  it('shows just the page once access is approved, without a usage strip', async () => {
     api.reach.access.mockResolvedValue({ data: summary });
     renderBoundary();
 
     expect(await screen.findByText('the page')).toBeInTheDocument();
-    expect(screen.getByText('4 of 10')).toBeInTheDocument();
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
-    expect(screen.getByText('120 of 300')).toBeInTheDocument();
+    expect(screen.queryByText('Mailboxes')).not.toBeInTheDocument();
     expect(screen.queryByText('Sending is temporarily switched off')).not.toBeInTheDocument();
   });
 
@@ -72,12 +70,12 @@ describe('ReachAccessBoundary', () => {
     expect(screen.getByText('the page')).toBeInTheDocument();
   });
 
-  it('leaves out the usage and the kill-switch banner without the status strip (the settings page)', async () => {
+  it('leaves out the kill-switch banner with sendingBanner={false} (the settings page)', async () => {
     api.reach.access.mockResolvedValue({ data: { ...summary, sendingEnabled: false } });
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })}>
         <I18nProvider initialLanguage="en">
-          <ReachAccessBoundary statusStrip={false}>
+          <ReachAccessBoundary sendingBanner={false}>
             <p>the page</p>
           </ReachAccessBoundary>
         </I18nProvider>
@@ -85,7 +83,6 @@ describe('ReachAccessBoundary', () => {
     );
 
     expect(await screen.findByText('the page')).toBeInTheDocument();
-    expect(screen.queryByText('4 of 10')).not.toBeInTheDocument();
     expect(screen.queryByText('Sending is temporarily switched off')).not.toBeInTheDocument();
   });
 

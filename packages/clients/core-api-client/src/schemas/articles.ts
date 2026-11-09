@@ -7,13 +7,24 @@ export const ARTICLE_STATUSES = ['draft', 'review', 'published', 'archived', 'ou
 export type ArticleStatus = (typeof ARTICLE_STATUSES)[number];
 
 /**
- * Visibility model. The public help center is unauthenticated, so only
- * `public` articles are ever served there; `internal` articles stay
- * staff-only inside the platform. (Legacy tiers `private` / `logged_in` /
- * `specific_users` were removed — they could never be enforced.)
+ * Who may read a published article on the help center and in the widget:
+ * - `public`: everyone;
+ * - `logged_in`: a reader with a verified email (signed in on the help center,
+ *   or a widget visitor the customer's site identified);
+ * - `groups`: a reader whose verified email belongs to a CRM person at one of
+ *   `audienceCompanyIds` (CRM companies);
+ * - `internal`: the team only, never served publicly.
+ * (`specific_users` is a legacy value no write accepts.)
  */
-export const ARTICLE_VISIBILITIES = ['public', 'internal'] as const;
+export const ARTICLE_VISIBILITIES = ['public', 'logged_in', 'groups', 'internal'] as const;
 export type ArticleVisibility = (typeof ARTICLE_VISIBILITIES)[number];
+
+/** A language tag: `nl`, `en`, `pt-br`. Stored lower-cased. */
+export const ARTICLE_LOCALE_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
+export const articleLocaleSchema = z.string().regex(ARTICLE_LOCALE_PATTERN, 'Invalid locale');
+
+/** CRM company ids for visibility `groups`. */
+export const articleAudienceSchema = z.array(z.string().min(1).max(30)).max(100);
 
 export const createArticleSchema = z
   .object({
@@ -33,6 +44,9 @@ export const createArticleSchema = z
     authorName: z.string().max(255).optional(),
     status: z.enum(ARTICLE_STATUSES).optional(),
     visibility: z.enum(ARTICLE_VISIBILITIES).optional(),
+    audienceCompanyIds: articleAudienceSchema.optional(),
+    /** The article's language; null = the help center's default language. */
+    locale: articleLocaleSchema.nullish(),
     tags: z.array(z.string()).optional(),
     metadata: z.unknown().optional(),
   })
@@ -42,6 +56,35 @@ export const updateArticleSchema = createArticleSchema.partial();
 
 export type CreateArticleInput = z.infer<typeof createArticleSchema>;
 export type UpdateArticleInput = z.infer<typeof updateArticleSchema>;
+
+/**
+ * `POST /api/articles/:id/translations`: a language version of the article
+ * (`:id` may be the original or one of its versions). Title and content
+ * default to the original's, for the translator to replace; it starts as a
+ * draft with the original's visibility, audience and folder.
+ */
+export const createArticleTranslationSchema = z.object({
+  locale: articleLocaleSchema,
+  title: z.string().min(1).max(500).optional(),
+  content: z.string().optional(),
+  excerpt: z.string().optional(),
+});
+
+export type CreateArticleTranslationInput = z.infer<typeof createArticleTranslationSchema>;
+
+/** One language version of an article, as `GET /api/articles/:id/translations` lists it (the original first). */
+export const articleVersionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  slug: z.string(),
+  status: z.string(),
+  visibility: z.string(),
+  locale: z.string().nullable(),
+  translationOfId: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+export type ArticleVersion = z.infer<typeof articleVersionSchema>;
 
 /** A `helpdesk_articles` row, as /api/articles returns it. */
 export const helpdeskArticleSchema = z
@@ -67,6 +110,9 @@ export const helpdeskArticleSchema = z
     reviewerId: z.string().nullable(),
     status: z.string(),
     visibility: z.string(),
+    audienceCompanyIds: z.array(z.string()),
+    locale: z.string().nullable(),
+    translationOfId: z.string().nullable(),
     publishedAt: z.string().nullable(),
     unpublishedAt: z.string().nullable(),
     scheduledPublishAt: z.string().nullable(),

@@ -36,10 +36,11 @@ use super::common::{
     month_bounds, quarter_bounds, safe_id,
 };
 use super::employees::{decrypt_sensitive, transition_income_relationship_number};
+use super::employer_context::load_employer_for_payroll;
 use super::files::{param_text, structured_issues};
-use super::payslips::employer_by_id;
 use super::runs::{int_of, payslip_sql, s};
 use crate::employees::display_name_of;
+use crate::entity_scope::Scope;
 use crate::{HrError, add_days, locale_compare, now};
 
 const FILING_ROW: &str = "select to_jsonb(f) || jsonb_build_object('amount_due', f.amount_due::text) from hr_payroll_filings f";
@@ -130,28 +131,45 @@ pub(crate) async fn list_filings(
     year: Option<f64>,
     status: Option<&str>,
     kind: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(filing_sql(
         "($1::text is null or f.employer_id = $1) and ($2::int is null or f.tax_year = $2)
          and ($3::text[] is null or f.status = any($3)) and ($4::text[] is null or f.kind = any($4))
+         and ($5::text[] is null or f.employer_id in (select scope_p.id from hr_payroll_employers scope_p
+                where scope_p.legal_entity_id = any($5)
+                   or ($6::boolean and scope_p.legal_entity_id is null)))
          order by f.period_start desc, f.kind asc limit 500",
     ))
     .bind(employer_id.filter(|v| !v.is_empty()))
     .bind(year.filter(|y| *y != 0.0).map(|y| y as i32))
     .bind(split(status))
     .bind(split(kind))
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     to_filing_dtos(db, &rows.into_iter().map(js_row).collect::<Vec<_>>()).await
 }
 
-/// `filingsDueSoon(db, today)`: open or ready, due within 45 days or
-/// overdue, oldest due first.
-pub(crate) async fn filings_due_soon(db: &PgPool, today: &str) -> Result<Vec<Value>, HrError> {
+/// `filingsDueSoon(db, today, entity)`: open or ready, due within 45 days or
+/// overdue, oldest due first; `scope` is the request's entity scope on the
+/// employers.
+pub(crate) async fn filings_due_soon(
+    db: &PgPool,
+    today: &str,
+    scope: &Scope,
+) -> Result<Vec<Value>, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(filing_sql(
-        "f.status in ('open', 'ready') and f.due_date <= $1::date order by f.due_date asc limit 50",
+        "f.status in ('open', 'ready') and f.due_date <= $1::date
+         and ($2::text[] is null or f.employer_id in (select scope_p.id from hr_payroll_employers scope_p
+                where scope_p.legal_entity_id = any($2)
+                   or ($3::boolean and scope_p.legal_entity_id is null)))
+         order by f.due_date asc limit 50",
     ))
     .bind(add_days(today, 45))
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     to_filing_dtos(db, &rows.into_iter().map(js_row).collect::<Vec<_>>()).await
@@ -1061,12 +1079,9 @@ pub(crate) async fn generate_filing(
     user_id: &str,
 ) -> Result<Value, HrError> {
     let filing = require_filing_row(db, id).await?;
-    let Some(employer) = employer_by_id(db, s(&filing, "employerId")).await? else {
-        return Err(HrError::not_found(
-            "Payroll employer",
-            s(&filing, "employerId"),
-        ));
-    };
+    let employer = load_employer_for_payroll(db, s(&filing, "employerId"), &deps.keyring)
+        .await?
+        .row;
     let Some(bucket) = deps.bucket.clone() else {
         return Err(HrError::payroll(
             "STORAGE_UNAVAILABLE",

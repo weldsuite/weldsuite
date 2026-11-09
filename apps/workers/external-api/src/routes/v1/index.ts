@@ -87,6 +87,7 @@ import socialPosts from './social-posts';
 import webhooks from './webhooks';
 import whiteboards from './whiteboards';
 import workflows from './workflows';
+import legalEntities from './legal-entities';
 
 export const v1 = new Hono<HonoEnv>();
 
@@ -134,6 +135,7 @@ v1.get('/', (c) => {
       '/v1/knowledge-pages',
       '/v1/knowledge-spaces',
       '/v1/leads',
+      '/v1/legal-entities',
       '/v1/mail-accounts',
       '/v1/mail-attachments',
       '/v1/mail-drafts',
@@ -209,6 +211,7 @@ v1.route('/accounting-contacts', accountingContacts);
 v1.route('/accounting-documents', accountingDocuments);
 v1.route('/accounting-entities', accountingEntities);
 v1.route('/accounting-settings', accountingSettings);
+v1.route('/legal-entities', legalEntities);
 v1.route('/bank-accounts', bankAccounts);
 v1.route('/bank-transactions', bankTransactions);
 v1.route('/bills', bills);

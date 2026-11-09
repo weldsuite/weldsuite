@@ -265,12 +265,14 @@ async fn attribute_options(ctx: Ctx) -> Response {
 
 /// `updateConversationAttributesSchema`.
 fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attributes::Update {
-    const KEYS: [&str; 5] = [
+    const KEYS: [&str; 7] = [
         "ticketTypeId",
         "priority",
         "tags",
         "departmentId",
         "customFields",
+        "impact",
+        "urgency",
     ];
     let ticket_type_id = issues.text(body, "ticketTypeId", Presence::Nullish, None, Some(30));
     let priority = issues.choice(body, "priority", Presence::Nullish, attributes::PRIORITIES);
@@ -303,6 +305,9 @@ fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attribut
             }
         },
     );
+    let levels = weldsuite_desk_domain::priority_matrix::LEVELS;
+    let impact = issues.choice(body, "impact", Presence::Nullish, levels);
+    let urgency = issues.choice(body, "urgency", Presence::Nullish, levels);
     // `.refine(data => Object.values(data).some(v => v !== undefined))`.
     if KEYS.iter().all(|key| !body.contains_key(*key)) {
         issues.custom_root("Nothing to update");
@@ -313,6 +318,8 @@ fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attribut
         tags,
         department_id,
         custom_fields: Vec::new(),
+        impact,
+        urgency,
     }
 }
 
@@ -338,6 +345,11 @@ async fn update_attributes(
         input.custom_fields.clone_from(entries);
     }
     let caller = &ctx.caller;
+    let before = weldsuite_desk_domain::webchat::get(&caller.db, &id, false)
+        .await
+        .ok()
+        .flatten()
+        .map(|(row, _)| row);
     let updated = match attributes::update(&caller.db, &id, &caller.user_id, &input).await {
         Ok(updated) => updated,
         Err(attributes::UpdateError::NotFound) => {
@@ -365,13 +377,21 @@ async fn update_attributes(
         );
     }
     if let Some(message) = &updated.message {
-        publish_events(
-            &ctx,
-            &state,
+        let id = conversation["id"].as_str().unwrap_or_default().to_owned();
+        let mut updated_event = weldsuite_events::EntityEvent::new(
             ev::DESK_CONVERSATION_UPDATED,
-            &conversation,
-            message,
+            id,
+            conversation.clone(),
         );
+        if let Some(diff) = crate::routing::attribute_changes(before.as_ref(), &conversation) {
+            updated_event = updated_event.with_changes(diff);
+        }
+        let message_event = weldsuite_events::EntityEvent::new(
+            ev::DESK_MESSAGE_CREATED,
+            message["id"].as_str().unwrap_or_default().to_owned(),
+            message.clone(),
+        );
+        crate::routing::publish_in_order(&state, caller, vec![updated_event, message_event]);
         publish_change(
             &state,
             &caller.clerk_org_id,
@@ -379,6 +399,27 @@ async fn update_attributes(
             message,
             &HashMap::new(),
         );
+        // A new type or tags can route it elsewhere (a team it set itself stays).
+        if let Some(routed) =
+            crate::routing::reroute_after_attributes(&state, caller, message).await
+        {
+            for step in &routed.steps {
+                let authors =
+                    load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
+                publish_change(
+                    &state,
+                    &caller.clerk_org_id,
+                    &step.conversation,
+                    &step.message,
+                    &authors,
+                );
+            }
+            let custom_fields = conversation["customFields"].clone();
+            conversation = routed.conversation;
+            if let Some(object) = conversation.as_object_mut() {
+                object.insert("customFields".to_owned(), custom_fields);
+            }
+        }
     }
     let message = updated.message.unwrap_or(Value::Null);
     Data(json!({ "conversation": conversation, "message": message })).into_response()
@@ -602,7 +643,7 @@ async fn upload(
 // ── realtime ──────────────────────────────────────────────────────────────────
 
 /// `loadAuthor(db, userId)`: the member's first name and picture.
-async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
+pub(super) async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
     let mut authors = HashMap::new();
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
@@ -628,16 +669,24 @@ async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Auth
 
 /// `publishDeskChange`: the workspace hub (agents' inboxes, notes
 /// included) and, for public entries, the visitor's conversation room.
-fn publish_change(
+pub(super) fn publish_change(
     state: &DeskState,
     org: &str,
     conversation: &Value,
     message: &Value,
     authors: &HashMap<String, Author>,
 ) {
-    let Some(realtime) = state.realtime.clone() else {
-        return;
-    };
+    spawn_realtime(state, change_messages(org, conversation, message, authors));
+}
+
+/// The realtime messages of one change: the hub's conversation and message,
+/// and the visitor's room for a public entry.
+pub(super) fn change_messages(
+    org: &str,
+    conversation: &Value,
+    message: &Value,
+    authors: &HashMap<String, Author>,
+) -> Vec<RealtimeMessage> {
     let user = message["authorId"].as_str().unwrap_or("system");
     let mut messages = vec![
         RealtimeMessage::workspace(
@@ -689,6 +738,14 @@ fn publish_change(
         };
         messages.push(conversation_publish(id, payload));
     }
+    messages
+}
+
+/// Publish `messages` in order, in the background.
+pub(super) fn spawn_realtime(state: &DeskState, messages: Vec<RealtimeMessage>) {
+    let Some(realtime) = state.realtime.clone() else {
+        return;
+    };
     state.events.tracker().spawn(async move {
         for message in messages {
             if let Err(error) = realtime.publish_boxed(&message).await {
@@ -729,6 +786,8 @@ struct ReplyBody {
     kind: String,
     body: String,
     attachments: Option<Vec<Value>>,
+    /// `deskReplyTranslationSchema`: what the agent wrote before translating.
+    translation: Option<Map<String, Value>>,
 }
 
 /// `deskMessageAttachmentSchema`: Zod strips unknown keys.
@@ -801,6 +860,14 @@ fn reply_schema(issues: &mut Issues, body: &Map<String, Value>) -> ReplyBody {
             read_attachment,
         )
         .into_option();
+    let translation = issues
+        .nested(
+            body,
+            "translation",
+            Presence::Optional,
+            super::translation::read,
+        )
+        .into_option();
     // The refinement sees the parsed data even where an attachment failed a
     // string check, so it counts the items sent.
     let sent = body
@@ -814,6 +881,7 @@ fn reply_schema(issues: &mut Issues, body: &Map<String, Value>) -> ReplyBody {
         kind,
         body: text,
         attachments,
+        translation,
     }
 }
 
@@ -857,7 +925,12 @@ async fn reply(
             author_id: Some(&caller.user_id),
             body: (!data.body.is_empty()).then(|| data.body.clone()),
             attachments: data.attachments.clone(),
-            metadata: None,
+            // Internal only: the visitor's view of a message has no metadata.
+            metadata: data.translation.clone().map(|translation| {
+                let mut metadata = Map::new();
+                metadata.insert("translation".to_owned(), Value::Object(translation));
+                metadata
+            }),
             assignee_id: None,
         },
     )
@@ -1013,8 +1086,42 @@ fn email_text_body(body: Option<&str>, attached: &[MimeAttachment], linked: &[Va
 }
 
 /// `sendDeskEmailReply`: a failure is logged, the reply stands.
+pub(super) async fn send_email_reply(
+    ctx: &Ctx,
+    state: &DeskState,
+    conversation: &Value,
+    message: &Value,
+) {
+    let outbound = outbound(ctx, state);
+    deliver_email_reply(
+        &ctx.caller.db,
+        &ctx.caller.clerk_org_id,
+        &outbound,
+        conversation,
+        message,
+        ReplyFiles::Load(ctx, state),
+    )
+    .await;
+}
+
+/// Where a reply's files come from: the request's file stores, or none (a
+/// notice the sweep writes has no attachments).
+pub(crate) enum ReplyFiles<'a> {
+    Load(&'a Ctx, &'a DeskState),
+    None,
+}
+
+/// `sendDeskEmailReply`'s send, outside a request: the thread's headers, the
+/// outbound guard, the transport. A failure is logged, the reply stands.
 #[allow(clippy::too_many_lines)] // the TypeScript function, step by step
-async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, message: &Value) {
+pub(crate) async fn deliver_email_reply(
+    db: &PgPool,
+    clerk_org_id: &str,
+    outbound: &crate::dispatch::Outbound,
+    conversation: &Value,
+    message: &Value,
+    files_from: ReplyFiles<'_>,
+) {
     let Some(recipient) = conversation["email"].as_str().filter(|e| !e.is_empty()) else {
         return;
     };
@@ -1028,7 +1135,6 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
     if !has_text && files.is_empty() {
         return;
     }
-    let db = &ctx.caller.db;
     let id = conversation["id"].as_str().unwrap_or_default();
     let thread = match webchat::email_thread(db, id).await {
         Ok(thread) => thread,
@@ -1050,7 +1156,10 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
             .as_deref()
             .or_else(|| conversation["title"].as_str()),
     );
-    let (attached, linked) = email_attachments(ctx, state, &files).await;
+    let (attached, linked) = match files_from {
+        ReplyFiles::Load(ctx, state) => email_attachments(ctx, state, &files).await,
+        ReplyFiles::None => (Vec::new(), Vec::new()),
+    };
     let text = email_text_body(message["body"].as_str(), &attached, &linked);
     let mut headers = Vec::new();
     if let Some(last) = &thread.last_email_message_id {
@@ -1061,7 +1170,7 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
     }
     let mut input = CheckOutboundInput::new(
         SubjectInput::Workspace {
-            clerk_org_id: ctx.caller.clerk_org_id.clone(),
+            clerk_org_id: clerk_org_id.to_owned(),
             workspace_id: None,
         },
         "desk",
@@ -1090,7 +1199,6 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
         headers,
         attachments: attached,
     };
-    let outbound = outbound(ctx, state);
     let transport = outbound.transport.clone();
     let sent = guarded_send(&outbound.guard, Some(db), &input, || async {
         match &transport {
@@ -1151,7 +1259,8 @@ fn outbound(ctx: &Ctx, state: &DeskState) -> crate::dispatch::Outbound {
 // ── POST /:id/manage ──────────────────────────────────────────────────────────
 
 enum Action {
-    Close,
+    /// `closeChildren`: a major incident's open linked tickets close too.
+    Close(bool),
     Open,
     Assign(Option<String>),
 }
@@ -1159,7 +1268,10 @@ enum Action {
 fn manage_schema(issues: &mut Issues, body: &Map<String, Value>) -> Option<Action> {
     let options = ["close", "open", "assign"];
     match body.get("action").and_then(Value::as_str) {
-        Some("close") => Some(Action::Close),
+        Some("close") => {
+            let children = issues.boolean(body, "closeChildren", Presence::Optional);
+            Some(Action::Close(children.into_option().unwrap_or(false)))
+        }
         Some("open") => Some(Action::Open),
         Some("assign") => {
             let assignee = issues.text(body, "assigneeId", Presence::Nullish, None, Some(255));
@@ -1196,7 +1308,7 @@ async fn manage(
         Err(error) => return Refusal::Database(error).respond("Failed to update conversation"),
     };
     let (event_type, assignee, is_assign) = match &action {
-        Action::Close => ("closed", None, false),
+        Action::Close(_) => ("closed", None, false),
         Action::Open => ("reopened", None, false),
         Action::Assign(Some(assignee)) if !assignee.is_empty() => {
             ("assigned", Some(Some(assignee.clone())), true)
@@ -1246,15 +1358,33 @@ async fn manage(
     } else {
         ev::DESK_CONVERSATION_STATE_CHANGED
     };
-    publish_events(&ctx, &state, event, &conversation, &message);
-    let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
-    publish_change(
-        &state,
-        &caller.clerk_org_id,
-        &conversation,
-        &message,
-        &authors,
-    );
+    // A major incident's open linked tickets close with it; their events
+    // follow the incident's, in one ordered batch.
+    let children = if matches!(action, Action::Close(true)) {
+        weldsuite_desk_domain::links::close_incident_children(
+            &caller.db,
+            Some(&caller.user_id),
+            &id,
+        )
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "[app-api/desk-conversations] closing linked tickets failed");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+    if children.is_empty() {
+        publish_events(&ctx, &state, event, &conversation, &message);
+        let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
+        publish_change(
+            &state,
+            &caller.clerk_org_id,
+            &conversation,
+            &message,
+            &authors,
+        );
+    }
     if event_type == "assigned" {
         let subject = [
             &conversation["title"],
@@ -1278,6 +1408,16 @@ async fn manage(
                 by: Some(caller.user_id.clone()),
             },
         );
+    }
+    if !children.is_empty() {
+        // The incident's close first (its SLA due time is marked already).
+        let mut all = vec![weldsuite_desk_domain::webchat::Appended {
+            conversation: conversation.clone(),
+            message: message.clone(),
+            sla_check_at: None,
+        }];
+        all.extend(children);
+        super::links::publish_changes(&ctx, &state, &all).await;
     }
     Data(json!({ "conversation": conversation, "message": message })).into_response()
 }

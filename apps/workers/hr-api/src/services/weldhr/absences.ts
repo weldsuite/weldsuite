@@ -83,6 +83,8 @@ async function assertNoOverlap(
 // ---------------------------------------------------------------------------
 
 export interface AbsenceFilters {
+  /** Condition on the employees' legal entity (the request's entity scope). */
+  entity?: SQL;
   status?: AbsenceStatus;
   employeeId?: string;
   departmentId?: string;
@@ -93,6 +95,7 @@ export interface AbsenceFilters {
 export async function listAbsences(db: Database, filters: AbsenceFilters, today: string = todayIso()) {
   const limit = Math.min(filters.limit ?? 50, 200);
   const conditions: SQL[] = [isNull(emp.deletedAt)];
+  if (filters.entity) conditions.push(filters.entity);
   if (filters.employeeId) conditions.push(eq(ab.employeeId, filters.employeeId));
   if (filters.departmentId) conditions.push(eq(emp.departmentId, filters.departmentId));
   if (filters.status === 'completed') conditions.push(lt(ab.endDate, today));

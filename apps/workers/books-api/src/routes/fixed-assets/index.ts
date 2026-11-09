@@ -39,6 +39,7 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import { isIsoDate } from '@weldsuite/books-domain/us-compliance/dates';
 import { fiscalYearRange } from '@weldsuite/books-domain/us-compliance/fiscal-year';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { resolveEntityId } from '../../lib/entity-context';
 import { todayFor } from '../../services/accounting-report-periods';
 import {
@@ -75,6 +76,9 @@ import {
 } from './schemas';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.fixedAssets, { label: 'Fixed asset' });
 const t = schema.fixedAssets;
 const LOG = '[books-api/fixed-assets]';
 

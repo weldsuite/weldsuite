@@ -4,7 +4,7 @@
  * the way Sonar's "new code" quality gate did. CI runs it on every pull request
  * (.github/workflows/sonarjs.yml).
  *
- *   pnpm lint:sonar:new              against origin/develop
+ *   pnpm lint:sonar:new              against origin/main
  *   pnpm lint:sonar:new <base-ref>   against another branch or commit
  *
  * Every changed file is linted twice: as it is now, and as it was at the merge
@@ -35,7 +35,7 @@ const git = (...args) =>
     maxBuffer: 256 * 1024 * 1024,
   });
 
-const baseRef = process.argv[2] ?? 'origin/develop';
+const baseRef = process.argv[2] ?? 'origin/main';
 const mergeBase = git('merge-base', baseRef, 'HEAD').trim();
 
 // Changed files, mapped to their path at the merge base (null when added).

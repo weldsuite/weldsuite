@@ -20,6 +20,7 @@ beforeAll(async () => {
   db = handle.db;
   // A body-supplied entityId must name an entity of the workspace.
   await db.insert(schema.entities).values({ id: 'ent_e2e', name: 'E2E Bill Co', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
+  await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_e2e' });
 }, 60_000);
 
 describe('/api/bills · pglite integration', () => {
@@ -63,6 +64,7 @@ describe('/api/bills · pglite integration', () => {
       baseCurrency: 'INR',
       locale: 'en-IN',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_inr_bill' });
 
     const { request } = createTestApp('/api/bills', billsRoutes, {
       context: { permissions: permissions('bills:create'), tenantDb: db },

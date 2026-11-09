@@ -1,6 +1,12 @@
 @import "@weldsuite/ui/globals.css";
 @import "@fontsource-variable/inter";
 
+/* Tailwind finds class names by scanning this folder, minus what .gitignore
+   lists. The image build (rust/Dockerfile, ADR FE-017) has no .gitignore, so
+   the server build would also scan the client build's output in dist/, make
+   different CSS, and link a stylesheet under a hash the client never wrote. */
+@source not "./dist";
+
 body {
   font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }

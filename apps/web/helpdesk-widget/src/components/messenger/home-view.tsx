@@ -2,9 +2,11 @@ import { ChevronRight, Send, X } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import type { Messenger } from '@/hooks/use-messenger';
 import { useAvailability } from '@/hooks/use-availability';
+import { useAnnouncements } from '@/hooks/use-self-service';
 import { Avatar, AvatarStack, readableOn, timeAgo } from './parts';
 import { AwayNotice, replyTimeText } from './away-notice';
 import { EmailCapture } from './email-capture';
+import { Announcements } from './announcements';
 
 interface HomeViewProps {
   config: WidgetConfigResponse;
@@ -20,6 +22,7 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
   const recent = messenger.conversations.find((c) => c.state === 'open') ?? null;
   const firstName = messenger.profile.name.split(/\s+/)[0];
   const { away, nextOpenAt } = useAvailability(config);
+  const announcements = useAnnouncements(config.widgetId, messenger.visitorId);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home-view">
@@ -48,6 +51,7 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
       </div>
 
       <div className="-mt-10 px-4 pb-4 space-y-3">
+        <Announcements widgetId={config.widgetId} announcements={announcements} />
         {away && (
           <AwayNotice
             config={config}

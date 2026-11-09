@@ -2,26 +2,30 @@
 // Writes a cluster's secrets file from ../secrets/examples/secrets.example.yaml
 // with every value that isn't a provider's key generated: database passwords,
 // DATABASE_ENCRYPTION_KEY (64 hex), the Zitadel masterkey (32 characters) and
-// first admin password, the sign, storage and realtime secrets. Provider keys
+// first admin password, the sign, storage and realtime secrets, the MTA's key
+// (base64 of 32 bytes) and passwords. Provider keys
 // come from these environment variables when set, and stay CHANGE_ME otherwise:
 //
 //   FILES_S3_ACCESS_KEY_ID, FILES_S3_SECRET_ACCESS_KEY    the files bucket
 //   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY  the backup bucket
 //   ZITADEL_SERVICE_TOKEN                                 the weldsuite service user's PAT
+//   ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET        the admin console's Zitadel app
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
 //
-// A new cluster:
+// A new cluster (its secrets folder, next to its cluster folder: in a copy of
+// this repository rust/deploy/flux/secrets/<cluster>, in WeldSuite's deploy
+// repository eu/secrets/<cluster>):
 //
-//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // The file it writes is plaintext: fill in what it lists as left, then
 // `sops --encrypt --in-place` it before anything else. It never overwrites.
 //
 // A running cluster, once the examples gained Secrets or keys:
 //
-//   SOPS_AGE_KEY_FILE=~/weldsuite-eu-test.agekey \
-//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // decrypts the file with sops (in memory, never to disk), adds the Secrets and
 // keys the examples have and it lacks, and encrypts it again in place. Values
@@ -46,8 +50,9 @@ if (update ? !existsSync(out) : existsSync(out)) {
   process.exit(1);
 }
 
-// rust/deploy/flux: the examples, and .sops.yaml, which sops finds from its
-// working directory.
+// rust/deploy/flux: the examples. sops finds .sops.yaml from its working
+// directory up, so it runs in the secrets file's own folder (the deploy
+// repository keeps its .sops.yaml at its root).
 const flux = join(dirname(fileURLToPath(import.meta.url)), '..');
 const example = join(flux, 'secrets/examples/secrets.example.yaml');
 
@@ -62,6 +67,8 @@ const PROVIDED = {
   'postgres-backup-s3/ACCESS_KEY_ID': 'BACKUP_S3_ACCESS_KEY_ID',
   'postgres-backup-s3/ACCESS_SECRET_KEY': 'BACKUP_S3_SECRET_ACCESS_KEY',
   'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
+  'weldsuite-env/ADMIN_OIDC_CLIENT_ID': 'ADMIN_OIDC_CLIENT_ID',
+  'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET': 'ADMIN_OIDC_CLIENT_SECRET',
 };
 
 function bareValue(secret, key) {
@@ -86,6 +93,8 @@ function namedValue(token) {
   if (named.has(token)) return named.get(token);
   let value;
   if (token === 'CHANGE_ME_EXACTLY_32_CHARACTERS_') value = alnum(32);
+  // The MTA's MTA_KEY: base64 of 32 random bytes.
+  else if (token === 'CHANGE_ME_BASE64_32_BYTES') value = randomBytes(32).toString('base64');
   // Zitadel's password policy: upper, lower, digit and symbol.
   else if (token === 'CHANGE_ME_Aa1!') value = `${alnum(24)}Aa1!`;
   else if (LOGINS[token]) {
@@ -220,7 +229,7 @@ function updateFile(file) {
   const sops = (args, input) => {
     try {
       return execFileSync('sops', args, {
-        cwd: flux,
+        cwd: dirname(path),
         input,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,

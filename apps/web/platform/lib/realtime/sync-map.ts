@@ -328,6 +328,11 @@ export const platformSyncMap: EntitySyncMap = {
   tax_rate: inv(['accounting', 'tax-rates']),
   vat_return: inv(['accounting', 'vat-returns']),
   accounting_entity: inv(['accounting', 'entities']),
+  // Core legal entities (Settings → Legal entities, both entity switchers).
+  // Access changes also change which WeldBooks entities a member sees.
+  legal_entity: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
+  legal_entity_bank_account: inv(['legal-entities'], ['accounting', 'bank-accounts']),
+  legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
   purchase_order: inv(['accounting', 'purchase-orders']),

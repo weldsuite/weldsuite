@@ -17,6 +17,7 @@ import type { Database, } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../types';
 
 import { customFieldsRoutes } from './custom-fields';
+import { legalEntitiesRoutes } from './legal-entities';
 
 type SweepCase = ListSweepCase<Env, Variables>;
 
@@ -25,6 +26,7 @@ const cases: SweepCase[] = [
   // to chat-api, workflows to connect-api; their cases live in those workers'
   // _sweeps.test.ts.)
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
+  { mount: '/api/legal-entities', router: legalEntitiesRoutes, permission: 'legal_entities:read' },
 ];
 
 let db: Database;

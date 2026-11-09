@@ -10,6 +10,7 @@ pub(crate) mod books;
 mod feature_flags;
 mod host;
 pub(crate) mod integrations;
+mod mail_domains;
 mod me;
 pub(crate) mod personal;
 
@@ -843,6 +844,7 @@ fn call_state(state: &AppState) -> weldsuite_call::CallState {
         },
         realtime: state.infra.realtime.clone(),
         tenants: Some(tenants),
+        assignment: (!conformance).then(desk_assignment_router),
     }
 }
 
@@ -1160,6 +1162,7 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         doh: Some(weldsuite_mail::send::reqwest_doh()),
+        domains: mail_domains::mail_domains(),
         workspace_tenants: Some(mail_workspace_tenants(state)),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
@@ -1199,6 +1202,18 @@ pub(crate) fn mail_outbound(
     weldsuite_mail_domain::outbound::OutboundBindings,
     Arc<weldsuite_mail_domain::outbound::StoreLedger>,
 ) {
+    mail_outbound_for(state.workspaces.master(), &state.infra.flags)
+}
+
+/// [`mail_outbound`] from its parts, for processes without an [`AppState`]
+/// (the `desk-sla-sweep` cron's escalation notices).
+pub(crate) fn mail_outbound_for(
+    master: &weldsuite_db::PgPool,
+    flags: &Arc<dyn weldsuite_ports::DynFlagSource>,
+) -> &'static (
+    weldsuite_mail_domain::outbound::OutboundBindings,
+    Arc<weldsuite_mail_domain::outbound::StoreLedger>,
+) {
     use weldsuite_mail_domain::outbound::{
         LedgerDeps, OutboundBindings, StoreLedger, WindowBackstop, clock,
     };
@@ -1228,8 +1243,8 @@ pub(crate) fn mail_outbound(
         };
         let ledger = Arc::new(StoreLedger::new(LedgerDeps {
             store,
-            master: Some(state.workspaces.master().clone()),
-            flags: Some(Arc::clone(&state.infra.flags)),
+            master: Some(master.clone()),
+            flags: Some(Arc::clone(flags)),
             reviews: None,
             daily_quota: read("MAIL_DAILY_QUOTA")
                 .and_then(|v| v.parse().ok())
@@ -1408,6 +1423,7 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         // ([`deployment_outbound`]); conformance takes the test's.
         outbound: deployment_outbound(state),
         master: Some(state.workspaces.master().clone()),
+        assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
     }
 }
 
@@ -1885,6 +1901,10 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         .nest(
             "/workspace-settings",
             weldsuite_core_team::workspace_settings(team.clone(), gate),
+        )
+        .nest(
+            "/legal-entities",
+            weldsuite_core_team::legal_entities(team.clone(), gate),
         )
         .nest(
             "/settings/profile",

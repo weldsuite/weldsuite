@@ -3,14 +3,15 @@
  */
 export const weldmergeReviewing = {
   tabs: {
-    overview: 'Overview',
+    description: 'Description',
     files: 'Files changed',
-    conversation: 'Conversation',
+    issues: 'Issues',
+    merge: 'Merge',
   },
   files: {
     heading: 'Files changed',
     summary: '{count} files',
-    searchPlaceholder: 'Filter files',
+    searchPlaceholder: 'Search files',
     empty: 'No changed files',
     emptyDescription: 'The provider reports no changes for this pull request.',
     loadFailed: 'Could not load the changes from the provider.',
@@ -45,8 +46,8 @@ export const weldmergeReviewing = {
     remove: 'Remove draft',
   },
   conversation: {
+    heading: 'Conversations',
     empty: 'No comments yet',
-    emptyDescription: 'Start the conversation below.',
     loadFailed: 'Could not load the conversation from the provider.',
     onLine: '{path}, line {line}',
     resolved: 'Resolved',
@@ -55,9 +56,8 @@ export const weldmergeReviewing = {
     reply: 'Reply',
     replyPlaceholder: 'Write a reply',
     sendReply: 'Send reply',
-    newComment: 'Add a comment',
-    newCommentPlaceholder: 'Write a comment',
-    send: 'Comment',
+    newCommentPlaceholder: 'Write a comment...',
+    filesNotPosted: 'Files are not posted on the pull request, only the text.',
     sent: 'Comment posted.',
     unknownAuthor: 'Unknown',
     viewOnProvider: 'View on the provider',

@@ -40,6 +40,7 @@ use weldsuite_catalogs::entity_events::{
     FIXED_ASSET_CREATED, FIXED_ASSET_DELETED, FIXED_ASSET_DISPOSED, FIXED_ASSET_UPDATED,
 };
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_number, js_trim};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 pub use run::{EntityRun, last_completed_month_end, run_monthly_depreciation};
@@ -99,6 +100,11 @@ where
             post(dispose)
                 .route_layer(need("journal:create"))
                 .route_layer(need("accounts:update")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("fixed_assets"), "Fixed asset").layer(),
         )
         .with_state(state)
 }

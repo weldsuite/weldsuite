@@ -34,6 +34,8 @@ beforeAll(async () => {
     { id: 'ent_nl', name: 'Old BV', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
     { id: 'ent_us', name: 'Rates Inc', jurisdictionCode: 'US', baseCurrency: 'USD' },
   ]);
+  // WeldBooks is enabled for an entity by its extension row (legalEntityContext resolves only those).
+  await db.insert(schema.accountingEntitySettings).values([{ entityId: 'ent_nl' }, { entityId: 'ent_us' }]);
   // Seeded before the current template: the old EU name, box 1c, a 0% reverse charge, no ICL goods.
   await db.insert(schema.taxRates).values([
     { id: 'txr_high', entityId: 'ent_nl', jurisdictionCode: 'NL', name: 'BTW Hoog 21%', rate: '21.0000', type: 'both', taxCategoryCode: 'standard', jurisdictionMetadata: { btwRubriek: '1a' } },

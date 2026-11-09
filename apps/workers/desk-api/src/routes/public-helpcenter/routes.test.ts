@@ -265,6 +265,7 @@ describe('GET /articles', () => {
       slug: 'reset-password',
       excerpt: 'How to reset it',
       folderId: 'fold_start',
+      locale: null,
       viewCount: 5,
       helpfulCount: 2,
       notHelpfulCount: 1,
@@ -275,11 +276,13 @@ describe('GET /articles', () => {
     expect(body.data[2]).toMatchObject({ folderId: null, viewCount: 0, helpfulCount: 0, notHelpfulCount: 0, tags: [], excerpt: null });
   });
 
-  it('filters by folder and searches title, content and excerpt (case-sensitively, wildcards included)', async () => {
+  it('filters by folder and searches title, excerpt and content as words, last updated first', async () => {
     expect(await listIds(await get(`/articles?${q}&folderId=fold_billing`))).toEqual(['art_invoice']);
-    expect(await listIds(await get(`/articles?${q}&search=password`))).toEqual(['art_reset']);
-    expect(await listIds(await get(`/articles?${q}&search=Password`))).toEqual(['art_contact']);
+    expect(await listIds(await get(`/articles?${q}&search=password`))).toEqual(['art_reset', 'art_contact']);
+    expect(await listIds(await get(`/articles?${q}&search=PASSWORD`))).toEqual(['art_reset', 'art_contact']);
     expect(await listIds(await get(`/articles?${q}&search=reset%20it`))).toEqual(['art_reset']);
+    expect(await listIds(await get(`/articles?${q}&search=answ`))).toEqual(['art_contact']);
+    // No words: nothing to search for, so no filter.
     expect(await listIds(await get(`/articles?${q}&search=%25`))).toEqual(['art_invoice', 'art_reset', 'art_contact']);
     expect(await listIds(await get(`/articles?${q}&search=password&folderId=fold_billing`))).toEqual([]);
   });
@@ -317,12 +320,14 @@ describe('GET /articles/:slug', () => {
         content: 'Open settings and choose Reset.',
         excerpt: 'How to reset it',
         folderId: 'fold_start',
+        locale: null,
         viewCount: 6,
         helpfulCount: 2,
         notHelpfulCount: 1,
         tags: ['account', 'login'],
         createdAt: at(10).toISOString(),
         updatedAt: at(10).toISOString(),
+        versions: [{ locale: null, slug: 'reset-password', title: 'Reset your password' }],
       },
     });
     const [row] = await tenantDb.select({ viewCount: articles.viewCount }).from(articles).where(eq(articles.id, 'art_reset'));
@@ -394,20 +399,24 @@ describe('GET /search', () => {
     }
   });
 
-  it('searches published public articles, last updated first, paged', async () => {
+  it('searches published public articles, best match first, paged', async () => {
     const res = await get(`/search?${q}&q=%20invoice%20`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as ArticleList;
     expect(body).toEqual({
-      data: [{ id: 'art_invoice', title: 'Pay an invoice', slug: 'pay-invoice', excerpt: null, folderId: 'fold_billing', tags: [], updatedAt: at(20).toISOString() }],
+      data: [{ id: 'art_invoice', title: 'Pay an invoice', slug: 'pay-invoice', excerpt: null, folderId: 'fold_billing', locale: null, tags: [], updatedAt: at(20).toISOString() }],
       pagination: { page: 1, pageSize: 20, totalCount: 1, totalPages: 1, hasMore: false },
     });
 
-    expect(await listIds(await get(`/search?${q}&q=o`))).toEqual(['art_invoice', 'art_reset', 'art_contact']);
-    const paged = (await (await get(`/search?${q}&q=o&page=2&pageSize=1`)).json()) as ArticleList;
-    expect(paged.data.map((a) => a.id)).toEqual(['art_reset']);
-    expect(paged.pagination).toEqual({ page: 2, pageSize: 1, totalCount: 3, totalPages: 3, hasMore: true });
-    expect(await listIds(await get(`/search?${q}&q=Password`))).toEqual(['art_contact']);
-    expect(await listIds(await get(`/search?${q}&q=_`))).toEqual(['art_invoice', 'art_reset', 'art_contact']);
+    // A title match (weight A) ranks above a content match (weight C).
+    expect(await listIds(await get(`/search?${q}&q=Password`))).toEqual(['art_reset', 'art_contact']);
+    const paged = (await (await get(`/search?${q}&q=password&page=2&pageSize=1`)).json()) as ArticleList;
+    expect(paged.data.map((a) => a.id)).toEqual(['art_contact']);
+    expect(paged.pagination).toEqual({ page: 2, pageSize: 1, totalCount: 2, totalPages: 2, hasMore: false });
+    // Typeahead: the last word is a prefix.
+    expect(await listIds(await get(`/search?${q}&q=passw`))).toEqual(['art_reset', 'art_contact']);
+    expect(await listIds(await get(`/search?${q}&q=%22reset%20your%22`))).toEqual(['art_reset']);
+    expect(await listIds(await get(`/search?${q}&q=runbook`))).toEqual([]);
+    expect(await listIds(await get(`/search?${q}&q=_`))).toEqual([]);
   });
 });

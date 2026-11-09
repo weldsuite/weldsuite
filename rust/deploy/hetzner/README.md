@@ -1,4 +1,4 @@
-# WeldSuite EU on Hetzner: runbook
+# WeldSuite on Hetzner: install guide
 
 The Kubernetes edition of WeldSuite (the Rust backend, ADRs API-014 and
 OPS-012/013) on Hetzner Cloud: **Talos** Kubernetes across Falkenstein (FSN1)
@@ -7,13 +7,20 @@ CloudNativePG on a dedicated local-NVMe pool, and everything else in the
 cluster. Design: "EU: Kubernetes on Hetzner, then own servers" in
 `design/platform/editions-and-self-hosting.md` (docs repo), phase P5.
 
+This guide installs it on a cluster of your own: the self-hosted
+distribution of [ADR OPS-014](https://github.com/weldsuite/weldsuite-documentation/blob/main/adr/OPS-014-self-hosted-distribution.md).
+Your cluster's folder starts as a copy of `flux/clusters/example`, in your
+own copy of this repository. WeldSuite runs its own clusters (EU production,
+its test cluster and a monthly restore drill) with this module, the same
+base layers and the same chart, but from a private repository that holds
+their settings, secrets and runbooks (ADR OPS-018).
+
 | Layer | What | Where |
 |---|---|---|
 | Servers, network, firewall, load balancers, Talos bootstrap | OpenTofu (`hetznercloud/hcloud` 1.70.0, `siderolabs/talos` 0.12.0) | `rust/deploy/hetzner` |
 | Everything in the cluster | Flux (v2.9.6), Helm, kustomize, SOPS (age) | `rust/deploy/flux` |
 | The application | the `weldsuite` chart | `rust/deploy/helm/weldsuite` |
 | Checks without a cloud account | `rust/deploy/validate.sh` (CI: `Rust · deploy config`) | |
-| Monthly build, restore, teardown | `scripts/drill.sh`, [DRILL.md](DRILL.md) | |
 
 Nothing here uses a Hetzner-only managed service: no Cloud Volumes (local
 NVMe through OpenEBS LocalPV), no managed Postgres, no cloud controller
@@ -38,6 +45,8 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
+| weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
+| Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -56,17 +65,20 @@ differ.
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
   `sops`, `age` and `hcloud-upload-image`.
-- **No GitHub credentials.** The repository is public and the organisation
-  doesn't allow deploy keys, so Flux reads it over anonymous HTTPS (step 6);
-  it never pushes.
-- **A release** to run: `WELDSUITE_VERSION` (step 4), made by the "Rust
-  release" workflow from a develop build the test cluster ran ("Releases"
-  below). Its images (`weldsuite`, `weldsuite-sign-portal`,
-  `weldsuite-collab-rooms`) and chart are public packages on ghcr.io today,
-  the EU registry later. All three images build from `rust/Dockerfile` at
-  the repo root: `docker build -f rust/Dockerfile .` (the server, with the
-  platform SPA in `/srv/spa`), `--target sign-portal` and
-  `--target collab-rooms`.
+- **Your copy of this repository** (a fork or a mirror) for your cluster's
+  folder and its encrypted secrets. Flux reads it (step 6) and never
+  pushes: a public copy needs no credentials, a private one a read-only
+  credential (a GitHub App, `flux create secret githubapp`, or a deploy key).
+- **A release** to run: `WELDSUITE_VERSION` (step 4), a `weldsuite-vX.Y.Z`
+  release of this repository ("Releases" below). Its images (`weldsuite`, `weldsuite-sign-portal`,
+  `weldsuite-collab-rooms`, `weldsuite-haraka`) and chart are public
+  packages on ghcr.io today, the EU registry later. The first three build
+  from `rust/Dockerfile` at the repo root: `docker build -f rust/Dockerfile .`
+  (the server, with the platform SPA in `/srv/spa`; also the MTA, `weldsuite
+  mta`), `--target sign-portal` and `--target collab-rooms`; Haraka from
+  `rust/deploy/haraka`.
+- For mail: a **paid first invoice** on the Hetzner project before the
+  outbound port 25 unblock can be requested ("Mail" below).
 
 ## 1. Talos image
 
@@ -82,12 +94,12 @@ talos_version=v1.14.3`; `servers.tf` picks the newest one with that label.
 ```bash
 cd rust/deploy/hetzner
 cp terraform.tfvars.example terraform.tfvars   # git-ignored
-# domain, admin_cidrs (your address and the drill runner's), sizes
+# domain, admin_cidrs (your address), sizes
 ```
 
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
-defaults, not facts: check availability in the console first, and expect the
-drill to report substitutions. `livekit_worker_count` (2) is how many general
+defaults, not facts: check availability in the console first (Hetzner has
+listed "limited availability" of cloud instances since April 2026). `livekit_worker_count` (2) is how many general
 workers also run LiveKit ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
@@ -111,7 +123,7 @@ tofu init
 tofu apply
 tofu output -raw kubeconfig  > kubeconfig  && export KUBECONFIG=$PWD/kubeconfig
 tofu output -raw talosconfig > talosconfig && export TALOSCONFIG=$PWD/talosconfig
-kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool,node.weldsuite.org/livekit
+kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool,node.weldsuite.org/livekit,weldsuite.org/mail-pool
 ```
 
 This creates the private network, a spread placement group per location,
@@ -121,8 +133,11 @@ nodes, the general workers, the two Postgres nodes (tainted
 Kubernetes and Talos APIs, one for HTTP(S) to Traefik with the PROXY
 protocol. The first `livekit_worker_count` workers also get the
 `node.weldsuite.org/livekit` label and a second firewall with LiveKit's media
-ports (UDP 7882, TCP 7881, UDP 3478). Talos boots from the machine config in
-the server's user data; OpenTofu bootstraps etcd and writes the kubeconfig.
+ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
+come too, each with its own primary IPv4, reverse DNS and the mail firewall
+(TCP 25), and with `mx_node_port` the ingress load balancer also listens on
+25 ("Mail" below). Talos boots from the machine config in the server's user
+data; OpenTofu bootstraps etcd and writes the kubeconfig.
 
 Later changes to a machine config: `talosctl apply-config` (OpenTofu ignores
 `user_data` after creation, so it never replaces a running node). Talos and
@@ -131,18 +146,31 @@ a time.
 
 ## 4. Settings and secrets for Flux
 
-- `rust/deploy/flux/clusters/eu/cluster-settings.yaml`: domain, ACME email,
-  the backup and files endpoints and buckets, and the release
-  (`WELDSUITE_VERSION`, "Releases" below; the drill's settings pin the same
-  one). Not secret; commit it.
-- Secrets: put your age public key in `rust/deploy/flux/.sops.yaml`, then
+- Your cluster's folder: copy `rust/deploy/flux/clusters/example` to
+  `clusters/<cluster>` and `secrets/example` to `secrets/<cluster>`, and in
+  its `layers.yaml` change the two paths that name `example` (the secrets
+  layer and `configs-extra`). Then `cluster-settings.yaml`: domain, ACME
+  email, the backup and files endpoints and buckets, and the release
+  (`WELDSUITE_VERSION`, "Releases" below). Not secret; commit it. Sizing or
+  other changes to a base layer go in that layer's `patches` in
+  `layers.yaml`.
+- Secrets: a `rust/deploy/flux/.sops.yaml` with your age public key:
+
+  ```yaml
+  creation_rules:
+    - path_regex: secrets[/\\]<cluster>[/\\].*\.sops\.yaml$
+      encrypted_regex: ^(data|stringData)$
+      age: age1…   # the "public key" line of your .agekey
+  ```
+
+  then
 
   ```bash
   cd rust/deploy/flux
-  cp secrets/examples/secrets.example.yaml secrets/eu/secrets.sops.yaml
+  cp secrets/examples/secrets.example.yaml secrets/<cluster>/secrets.sops.yaml
   # replace every CHANGE_ME (openssl rand -base64 32 …)
-  sops --encrypt --in-place secrets/eu/secrets.sops.yaml
-  # list secrets.sops.yaml in secrets/eu/kustomization.yaml, commit
+  sops --encrypt --in-place secrets/<cluster>/secrets.sops.yaml
+  # list secrets.sops.yaml in secrets/<cluster>/kustomization.yaml, commit
   ```
 
   `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`;
@@ -151,7 +179,10 @@ a time.
   Zitadel masterkey is exactly 32 characters. Losing either makes stored data
   unreadable: keep them in the password manager too. The LiveKit key pair
   appears twice (`weldsuite-env` and `livekit-env`) and must match, as must
-  `livekit-env`'s `REDIS_PASSWORD` and the Valkey password.
+  `livekit-env`'s `REDIS_PASSWORD` and the Valkey password. `MTA_KEY`
+  (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
+  and the MTA's database password matches in `weldsuite-mta` and
+  `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -159,31 +190,38 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `livekit.`, `turn.` → the ingress load balancer) at
-the DNS provider. cert-manager issues certificates once they resolve.
-(external-dns is not installed: a handful of static records doesn't need it.)
-Media needs no record: LiveKit gives clients the nodes' addresses itself.
+`api.`, `auth.`, `sign.`, `admin.`, `livekit.`, `turn.`, and `mx.` with
+`mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
+issues certificates once they resolve. (external-dns is not installed: a
+handful of static records doesn't need it.) Media needs no record: LiveKit
+gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
 ## 6. Flux
 
-Read only: the cluster pulls from the repository, nothing is pushed. The
-configuration comes from `main`; the chart and images come from the release
-`WELDSUITE_VERSION` names. The flux CLI must be the version it installs
-(v2.9.6; a newer CLI refuses).
+Read only: the cluster pulls from your copy of the repository, nothing is
+pushed. The configuration comes from its branch; the chart and images come
+from the release `WELDSUITE_VERSION` names. The flux CLI must be the version
+it installs (v2.9.6; a newer CLI refuses).
 
 ```bash
 flux install --version=v2.9.6
-kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=eu.agekey
+kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=<cluster>.agekey
 flux create source git flux-system \
-  --url=https://github.com/weldsuite/weldsuite --branch=main
+  --url=https://github.com/<you>/weldsuite --branch=main
 flux create kustomization flux-system \
-  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/eu --prune=true
+  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/<cluster> --prune=true
 flux get kustomizations --watch
 ```
 
+A private copy needs a credential first, e.g. a GitHub App with read access
+to it (`flux create secret githubapp <name> --app-id=… --app-installation-id=…
+--app-private-key=<pem>`, then `--provider=github --secret-ref=<name>` on the
+source; Flux 2.5 or later).
+
 The layers come up in order: `sources` → `controllers` (namespaces, OpenEBS,
 cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
-`configs` (Postgres clusters, poolers, backups, the issuer) → `services`
+`configs` (Postgres clusters, poolers, backups, the issuer; then
+`configs-extra`, the MTA's database) → `services`
 (NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite), with `video`
 (LiveKit) beside `apps`: a missing `livekit.` or `turn.` record holds up
 calls only.
@@ -202,7 +240,7 @@ default) organisation:
    refuses their first sign-in. Workspace access is the server's check (a
    token names only organisations that granted the person a role). Its **resource id** is
    the tokens' audience: `ZITADEL_PROJECT_ID` in
-   `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
+   `flux/clusters/<cluster>/cluster-settings.yaml` (quoted; it is 18 digits).
 2. **Web application** `platform` in the project: type *User Agent*,
    authentication *PKCE*, redirect URIs on `https://app.<domain>` (the auth
    facade's callback, P4 4.F5), and **Auth token type: JWT**: the server
@@ -284,16 +322,18 @@ those.
 
 ## Staff work
 
-The admin console is Global's. Here staff work is `weldsuite admin`, run in
-a server pod (ADR SEC-014; `weldsuite admin --help`, and "Staff work" in
-`rust/README.md`). Access to it is access to the cluster's API, which only
-`admin_cidrs` reach. Once per cluster, add the first superadmin (allowed
-without `--as` only while the staff list is empty):
+Staff work in the admin console at `https://admin.<domain>` (ADR FE-018) or
+with `weldsuite admin`, run in a server pod (ADR SEC-014;
+`weldsuite admin --help`, and "Staff work" in `rust/README.md`). Both let in
+only the cluster's staff list, master `admin_users`. The commands need the
+cluster's API, which only `admin_cidrs` reach. Once per cluster, add the first
+superadmin with a command (allowed without `--as` only while the staff list is
+empty):
 
 ```bash
 A="kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin"
-$A staff add you@weldsuite.org --role superadmin --name "Your Name" --reason "first superadmin"
-$A staff add colleague@weldsuite.org --role admin --as you@weldsuite.org --reason "support"
+$A staff add you@example.com --role superadmin --name "Your Name" --reason "first superadmin"
+$A staff add colleague@example.com --role admin --as you@example.com --reason "support"
 ```
 
 Then, for example, WeldReach's access requests (REACH-003; the module answers
@@ -302,17 +342,51 @@ Then, for example, WeldReach's access requests (REACH-003; the module answers
 ```bash
 $A access list --status requested
 $A access show <workspace>               # id, slug or organization id
-$A access approve <workspace> --as you@weldsuite.org --reason "B2B, own customer list"
-$A access limits <workspace> --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
-$A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
+$A access approve <workspace> --as you@example.com --reason "B2B, own customer list"
+$A access limits <workspace> --max-mailboxes 20 --as you@example.com --reason "launch"
+$A access suspend <workspace> --as you@example.com --reason "complaints"
 ```
 
 Every change is a row in `admin_audit_events`. Approval installs WeldReach in
 the workspace and emails the requester through `SMTP_URL`, with links to
 `PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
-command warns and you tell them yourself. Feature flags, the app catalog's
-flags and plan rows are still SQL against `weldsuite_master` (flags:
-`feature_flag_overrides`; plans: TEST-CLUSTER.md, "Prices").
+command warns and you tell them yourself. Feature flags (`feature_flag_overrides`)
+and plan rows (`plans`) are the console's **Feature flags**
+and **Plans** pages; the staff list is its **Staff** page too, for
+superadmins.
+
+### The admin console
+
+The chart runs it (`admin` in `flux/apps/eu/values/weldsuite.yaml`), but it
+lets nobody in until these are done, once per cluster:
+
+1. **Zitadel.** In `https://auth.<domain>/ui/console`, an organization
+   `WeldSuite Staff` for the staff's own accounts (MFA required in its login
+   policy), a project `WeldSuite Staff`, and in it a web application `admin`:
+   code flow, authentication method Basic (a client secret), redirect URI
+   `https://admin.<domain>/auth/callback`, post-logout URI
+   `https://admin.<domain>/sign-in?signed_out=1`. Keep its client id and
+   secret.
+2. **Secrets.** `ADMIN_OIDC_CLIENT_ID` and `ADMIN_OIDC_CLIENT_SECRET` from that
+   app, plus a generated `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`, in
+   `weldsuite-env`:
+
+   ```bash
+   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+   ```
+
+3. **Who may reach it.** `ADMIN_CIDRS` in `flux/clusters/<cluster>/cluster-settings.yaml`:
+   the staff's addresses as an unquoted YAML list (`[203.0.113.7/32]`). The
+   default, `[127.0.0.1/32]`, refuses everyone; Traefik checks it with the
+   client's own address, which the load balancer passes on (PROXY protocol).
+4. **DNS.** `admin.` is in `tofu output dns_records`.
+
+A person on the staff list then signs in with their Zitadel account. Their row
+matches the account (`user_id`, which `staff add` fills when they also use the
+platform) or, the first time, their verified email, and is then bound to that
+account. `staff remove`, or `staff add` again with another `--role`, takes
+effect on their next click.
 
 ## 8. The master database schema
 
@@ -337,47 +411,28 @@ environment (the image has no shell):
 
 ## Releases
 
-Production runs a release, never a develop build. A release is a develop
-build the test cluster ([TEST-CLUSTER.md](TEST-CLUSTER.md)) already ran,
-promoted unchanged: the same image digests under a version tag, and the chart
-of the same commit.
+A cluster runs a release, never a development build. WeldSuite cuts a
+release with the "Rust release" workflow (`.github/workflows/rust-release.yml`)
+from a build its own test cluster already ran, promoted unchanged: the four
+images under the version tag (`ghcr.io/weldsuite/weldsuite:X.Y.Z`, `-sign-portal`,
+`-collab-rooms`, `-haraka`; the same digests as the build), the chart of the
+same commit as `oci://ghcr.io/weldsuite/releases/weldsuite` X.Y.Z (its
+appVersion names those images), and the tag `weldsuite-vX.Y.Z` on that
+commit. A release is never replaced: a fix is the next version.
 
-1. **Pick the build.** The test cluster runs the newest develop build; its
-   tag (`sha-<12 characters>`) is in the "Rust images" run's summary, or
-   `kubectl -n weldsuite get deploy weldsuite -o jsonpath='{..image}'` on the
-   test cluster. Try what the customers use there first.
-2. **Release it** with the "Rust release" workflow
-   (`.github/workflows/rust-release.yml`), the build and the next version:
-
-   ```bash
-   gh workflow run rust-release.yml -f build=sha-0123456789ab -f version=0.2.0
-   ```
-
-   It checks that the commit is on `develop`, that its `Rust` check didn't
-   fail, and that the version is newer than the last release; copies the
-   three images to `:0.2.0` (same digests, nothing rebuilt); publishes the
-   chart as `oci://ghcr.io/weldsuite/releases/weldsuite` 0.2.0, whose
-   appVersion names those images; and tags the commit `weldsuite-v0.2.0`,
-   last. A release is never replaced: a fix is the next version. The first
-   release creates the chart package `releases/weldsuite` as private: make
-   it public in its package settings on GitHub, as the test cluster's
-   packages were.
-3. **Deploy it.** Set `WELDSUITE_VERSION: "0.2.0"` in
-   `rust/deploy/flux/clusters/eu/cluster-settings.yaml` and in
-   `clusters/drill/cluster-settings.yaml` (`validate.sh` fails when they
-   differ), in a pull request to `develop`. Production takes it when it
-   reaches `main`, with the next merge of `develop` into `main`, which also
-   deploys Global. Flux runs the release's migration Job first, then rolls
-   the pods (step 8): `flux get helmreleases -A`.
-4. **Roll back** by putting the previous version back the same way. Its
+1. **Take the release's base layers.** Merge the tag `weldsuite-vX.Y.Z` into
+   your copy's branch, so the layers and `apps/eu/values/weldsuite.yaml`
+   are the ones the release was tested with.
+2. **Deploy it.** Set `WELDSUITE_VERSION: "X.Y.Z"` in your cluster's
+   `cluster-settings.yaml` and push. Flux runs the release's migration Job
+   first, then rolls the pods (step 8): `flux get helmreleases -A`.
+3. **Roll back** by putting the previous version back the same way. Its
    migrations stay applied, so the older release runs on the newer schema:
    check that the release's migrations only add before rolling back.
 
-The rest of the configuration (`apps/eu/values/weldsuite.yaml`, the layers,
-the secrets) comes from `main`, not from the release. The chart ignores
-values it doesn't know, so a value for a newer release can land before it;
-but don't remove or rename a value until production runs a release that no
-longer reads it.
+The chart ignores values it doesn't know, so a value for a newer release can
+land before it; but don't remove or rename a value until the cluster runs a
+release that no longer reads it.
 
 ## Tenant databases
 
@@ -460,25 +515,228 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
   belong on these shared nodes.
 
+## Mail
+
+The EU edition sends and receives its own mail (plan:
+`docs/plans/eu-mail-service.md`; ADRs MAIL-010 and MAIL-011). No relay, no
+mail provider:
+
+| Path | What | Where |
+|---|---|---|
+| Out | The MTA (`weldsuite mta`, the chart's `mta`): every message the platform (pool `system`, `SMTP_URL`) and its customers (pool `customer`, `MAIL_SMTP_URL`) send, straight to the recipients' MX | Mail nodes (`mail_pools`), one DaemonSet per pool, host network, each node sending from its own IPv4 |
+| Back | The MTA's bounce MX: DSNs and complaint reports (ARF) for `bounces.<domain>` | Port 25 on the mail nodes |
+| In | Haraka (`mailInbound`): the MX of WeldMail mailboxes and WeldReach replies | `mx.<domain>`, port 25 on the ingress load balancer → NodePort 30025 (`mx_node_port`) |
+
+The MTA's queue is its own database, `weldsuite_mta` on `master`
+(`flux/infrastructure/configs/eu/mta-database.yaml`, role `mta`), which it
+migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
+Security `privileged`: the host network), with its keys in the
+`weldsuite-mta` Secret there; the server reads the API secret and the
+submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
+events reach `weldsuite consume` over NATS (`mail.sending-events`).
+
+Nothing below is optional: a new address that sends without its DNS in
+place, or too much on its first days, lands in spam folders for weeks.
+
+### 1. Outbound port 25
+
+Hetzner blocks outbound ports 25 and 465 on every new Cloud project. The
+unblock is a request to Hetzner support, possible **once the project's first
+invoice is paid**, one request per project (it covers all its servers, now
+and later). In the Cloud Console's support/limit request form, name the
+project and say what the mail is: transactional and user-written mail of a
+business platform, sent by our own MTA from dedicated servers, with SPF, DKIM
+and DMARC, bounce and complaint processing, suppression of hard bounces and
+complaints, and a warm-up. Inbound 25 (the bounce MX, Haraka) is not blocked.
+
+Check from a mail node once it is granted (a debug pod shares the node's
+network):
+
+```bash
+kubectl debug node/weldsuite-eu-mail-system-1 -it --image=busybox:1.37 -- \
+  nc -w 5 gmail-smtp-in.l.google.com 25     # a 220 banner, not a timeout
+```
+
+### 2. Mail nodes, addresses, reverse DNS
+
+`mail_pools` in `terraform.tfvars` (one `system` and one `customer` node to
+start), then `tofu apply`. Each node gets a **primary IPv4**, which outlives
+the server (rebuilding a node keeps the address and its reputation; `tofu
+destroy` still deletes it), its **PTR** `mail<n>-<pool>.<domain>`, the mail
+firewall (inbound TCP 25; submission 2587 and the MTA's API 8025 listen on
+the private address only), the label `weldsuite.org/mail-pool=<pool>` and
+the taint `weldsuite.org/mail` (nothing else runs there). Port 25 is
+unprivileged in the host network on these nodes only (`talos/mail.yaml`), as
+the MTA runs as a non-root user.
+
+```bash
+tofu output mail_nodes        # name, pool, location, IPv4 of each
+tofu output mail_dns_records  # the A records and _spf.<domain>
+dig -x <ipv4> +short          # mail1-system.<domain>.
+```
+
+The MTA's EHLO is that PTR name. More nodes for a pool (`count`) is another
+`tofu apply`; the chart's DaemonSet starts on them, and their addresses join
+`_spf.<domain>` (`tofu output mail_dns_records` again) **before** they send.
+
+### 3. DNS
+
+With `<domain>` the EU domain, `bounces.<domain>` the bounce domain
+(`mta.bounceDomain`) and the **system domain** the domain of the platform's
+sender (`config.mail.from`; the chart's default is
+`notifications@mail.weldsuite.org`, set it to an address at the EU domain to
+send from there):
+
+| Name | Type | Value |
+|---|---|---|
+| `mail<n>-<pool>.<domain>` | A | the node's IPv4 (`mail_dns_records`); its PTR is OpenTofu's |
+| `mail<n>-<pool>.<domain>` | TXT | `v=spf1 a -all` (the EHLO name's own SPF) |
+| `_spf.<domain>` | TXT | `v=spf1 ip4:<each mail IPv4> -all` (`mail_dns_records`) |
+| `bounces.<domain>` | MX | `10 mail<n>-<pool>.<domain>`, one per mail node |
+| `bounces.<domain>` | TXT | `v=spf1 include:_spf.<domain> -all` |
+| system domain | TXT | `v=spf1 include:_spf.<domain> -all` |
+| `<selector>._domainkey.<system domain>` | TXT | what `weldsuite mta domains add` prints (below) |
+| `_dmarc.<system domain>` | TXT | `v=DMARC1; p=none; rua=mailto:<an address you read>` first; `p=quarantine`, then `p=reject`, once the reports show only your own mail passing |
+| `mx.<domain>` | A, AAAA | the ingress load balancer (`dns_records`) |
+
+The system domain's DKIM key is the MTA's; register it once the MTA runs,
+for the `system` pool only:
+
+```bash
+M="kubectl -n weldsuite-mail exec ds/weldsuite-mta-system -- weldsuite mta"
+$M domains add mail.<domain> --pool system   # prints the TXT record to publish
+$M domains list
+```
+
+Customers' sending domains are registered by the server (the mail domain
+routes, `MTA_API_URL`) for the `customer` pool; their DNS needs that DKIM
+record and `include:_spf.<domain>` in their SPF. Until a domain has a key
+the pool can use, submission refuses its mail (`550 5.7.1`).
+
+Check with a message to a Gmail and an Outlook address ("Show original":
+SPF, DKIM and DMARC `pass`, the PTR name in the first `Received`) and with
+mail-tester.com.
+
+### 4. Warm-up
+
+Receivers trust an address by its history, and a new one has none. The MTA
+caps each address's deliveries per day (`MTA_WARMUP_SCHEDULE`, default 50,
+100, 200, 400, 800, 1,500, 3,000, 6,000, 12,000, 25,000, 50,000 on days 1 to
+11, unlimited after); what is over the cap waits in the queue, it is not
+lost, but it still bounces after `mta.maxQueueAge` (5 days). So:
+
+- Send the platform's own mail (the `system` pool) first; move customer
+  mail over as the `customer` addresses warm up. Expect some deferrals
+  (421/451 from Microsoft and Yahoo) the first week: the MTA retries.
+- Keep complaints under 0.1% (Gmail's and Yahoo's sender rules refuse bulk
+  mail above 0.3%) and hard bounces low: the MTA suppresses a hard-bounced
+  recipient per pool for `mta.suppressDays` (30).
+- Watch the queue: `$M queue` (counts by pool and status). A growing
+  `deferred` count on day one is the cap, not a fault.
+- A new address (a node added, a primary IP replaced) starts again at day
+  one. An address with history can skip it: `mta.warmupSchedule: "off"`.
+
+### 5. Postmaster tools and feedback loops
+
+Complaint reports go to `fbl@bounces.<domain>`, which the bounce MX takes
+and turns into `complained` events (as `abuse@` and `postmaster@`).
+
+- **Google Postmaster Tools** (postmaster.google.com): add the system domain
+  and `bounces.<domain>`, verified by a TXT record. Gmail sends no complaint
+  reports; it shows spam rate, reputation and authentication per domain,
+  and per `Feedback-ID` (the MTA sets `<pool>:weldsuite`).
+- **Microsoft SNDS** (sendersupport.olc.protection.outlook.com/snds): request
+  access for each mail IPv4 (confirmed by mail to an address at the PTR's
+  domain, e.g. `postmaster@<domain>`), then enroll the same addresses in
+  **JMRP** (the Junk Mail Reporting Program) with `fbl@bounces.<domain>` as
+  the report address. A blocked address is delisted through Microsoft's
+  sender support form.
+- **Yahoo Complaint Feedback Loop** (senders.yahooinc.com): register the
+  DKIM domains (the system domain, then the larger customer domains) with
+  `fbl@bounces.<domain>` as the report address; Yahoo matches complaints by
+  DKIM domain, not by IP.
+
+### 6. Blocklists
+
+Check every mail IPv4 before it sends for the first time and weekly after:
+Spamhaus (check.spamhaus.org), Barracuda, SpamCop, and a multi-list lookup
+(multirbl.valli.org, MXToolbox). Hetzner Cloud ranges sometimes carry old
+listings; a listed fresh address is cheaper to replace than to delist,
+before it has sent anything: replace the address and the node together
+(`tofu apply -replace='hcloud_primary_ip.mail["mail-system-1"]'
+-replace='hcloud_server.mail["mail-system-1"]'`; the PTR follows), then
+update its A record and `_spf.<domain>`. Spamhaus refuses lookups through
+public resolvers (the nodes use Quad9), so check from its website, not with
+`dig` on a node.
+
+### Inbound: Haraka
+
+`mx_node_port = 30025` in `terraform.tfvars` makes the ingress load balancer
+pass port 25 to Haraka's NodePort with the PROXY protocol; `mx.<domain>`
+points at the load balancer, so cert-manager's HTTP-01 issues Haraka's
+certificate through Traefik. It needs the mail bucket
+(`FILES_BUCKET_MAIL`, created next to the private one, same keys) and
+`MAIL_INBOUND_SECRET` in `weldsuite-env`. A WeldMail domain's MX is
+`mx.<domain>`.
+
 ## Backups and restores
 
 Every Postgres cluster archives WAL continuously and takes a nightly base
 backup to the second provider (`postgres/*-backups` ObjectStores, 30 days).
-Restore a cluster the way the drill does (`flux/infrastructure/configs/drill`):
-a new `Cluster` with `bootstrap.recovery` from the ObjectStore. Run the drill
-monthly ([DRILL.md](DRILL.md)).
+Restore a cluster into a new `Cluster` with `bootstrap.recovery` from the
+ObjectStore: a patch on the `configs` layer in your cluster's `layers.yaml`,
+per Postgres cluster, that turns `initdb` off, recovers from the backups'
+ObjectStore and `serverName`, and archives its own WAL under a new
+`serverName` (or another ObjectStore), since barman refuses to archive into
+a path that holds another server's WAL. For `master`:
+
+```yaml
+    - target:
+        kind: Cluster
+        name: master
+      patch: |-
+        apiVersion: postgresql.cnpg.io/v1
+        kind: Cluster
+        metadata:
+          name: master
+        spec:
+          bootstrap:
+            initdb: null
+            recovery:
+              source: previous
+          externalClusters:
+            - name: previous
+              plugin:
+                name: barman-cloud.cloudnative-pg.io
+                parameters:
+                  barmanObjectName: master-backups
+                  serverName: master
+          plugins:
+            - name: barman-cloud.cloudnative-pg.io
+              isWALArchiver: true
+              parameters:
+                barmanObjectName: master-backups
+                serverName: master-2
+```
+
+The bootstrap only matters when the `Cluster` is created. Practise it: build
+a throwaway cluster from the backups now and then, check the data, and tear
+it down (WeldSuite does this monthly).
 
 ## Cost
 
-Estimates from the design doc, at Hetzner list prices: dormant ≈ €70/month
-(registry, backups, the drill), launch ≈ €310/month, ten times the launch load
-≈ €1,300/month.
+Estimates at Hetzner list prices: the default topology ≈ €310/month, ten
+times its load ≈ €1,300/month.
 
 LiveKit adds no servers at launch: it runs on two of the general workers. If
 those two need more CPU, making them `cpx42` instead of `cpx32` costs about
 €70/month more. Traffic stays within what the servers include (20 TB a month
 each): a participant in a video call sends out about 9 MB a minute, so half a
 million participant-minutes a month is about 4.5 TB.
+
+Mail adds a small server per mail node (`cpx22` by default, one per pool to
+start) and a primary IPv4 each; Haraka and the MTA's database run on what is
+already there.
 
 ## Not yet: what's missing before production
 
@@ -522,10 +780,14 @@ Be clear about this before anyone signs a contract:
   the help center and a CDN (Bunny.net) in front of `app.<domain>`.
 - **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
   runs here.
-- **Other EU services** in the design: system email goes out over SMTP
-  (`SMTP_URL`). The chart has the Haraka MX for inbound mail and WeldReach
-  replies (`mailInbound`, ADR MAIL-010), but no workflow publishes its image
-  or the collab-rooms one yet, and the EU values don't turn it on. WeldMeet
+- **Other EU services** in the design: mail goes out through the cluster's
+  own MTA (`mta`, ADR MAIL-011), system mail (`SMTP_URL`) and customer mail
+  (`MAIL_SMTP_URL`) from separate IP pools, and comes in through the Haraka
+  MX for WeldMail mailboxes and WeldReach replies (`mailInbound`, ADR
+  MAIL-010), whose image the "Rust images" workflow publishes with the
+  others; the EU values turn both on ("Mail" above). Neither sends a byte
+  before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
+  sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
   MEET-007; "Video" above), without recording and transcripts. Not here yet:
   Mistral or an in-cluster model for embeddings (without

@@ -3,10 +3,11 @@
  * complete, the next period of each schedule, recent runs and filings due.
  */
 
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, type SQL } from 'drizzle-orm';
 import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { HrPayrollOverview } from '@weldsuite/app-api-client/domains/weldhr-payroll';
+import { employerIdIn } from '../entity-scope';
 import { listPayrollEmployees } from './employees';
 import { listEmployers } from './employers';
 import { filingsDueSoon } from './filings';
@@ -16,12 +17,18 @@ import { listSchedules } from './schedules';
 export async function payrollOverview(
   db: Database,
   keyring: EncryptionKeyring,
-  opts: { today: string; digipoortAvailable: boolean },
+  opts: {
+    today: string;
+    digipoortAvailable: boolean;
+    /** The request's entity scope: a condition on the employers' and on the employees' legal entity (undefined = all). */
+    employerEntity?: SQL;
+    employeeEntity?: SQL;
+  },
 ): Promise<HrPayrollOverview> {
-  const employers = (await listEmployers(db, keyring)).filter((e) => e.isActive);
+  const employers = (await listEmployers(db, keyring, opts.employerEntity)).filter((e) => e.isActive);
   const employerById = new Map(employers.map((e) => [e.id, e]));
-  const schedules = (await listSchedules(db)).filter((x) => x.isActive && employerById.has(x.employerId));
-  const onPayroll = await listPayrollEmployees(db, { onPayroll: true }, keyring, opts.today);
+  const schedules = (await listSchedules(db, { entity: opts.employerEntity })).filter((x) => x.isActive && employerById.has(x.employerId));
+  const onPayroll = await listPayrollEmployees(db, { onPayroll: true, entity: opts.employeeEntity }, keyring, opts.today);
 
   // The live regular run of each upcoming period, if one exists.
   const r = schema.hrPayRuns;
@@ -51,7 +58,7 @@ export async function payrollOverview(
   }
   upcoming.sort((a, b) => a.period.payDate.localeCompare(b.period.payDate));
 
-  const recent = await db.select().from(r).where(ne(r.status, 'cancelled')).orderBy(desc(r.periodStart), desc(r.createdAt)).limit(6);
+  const recent = await db.select().from(r).where(and(ne(r.status, 'cancelled'), employerIdIn(r.employerId, opts.employerEntity))).orderBy(desc(r.periodStart), desc(r.createdAt)).limit(6);
 
   return {
     employers: employers.map((e) => ({ id: e.id, name: e.name, country: e.country, employeeCount: e.employeeCount, issues: e.issues })),
@@ -63,7 +70,7 @@ export async function payrollOverview(
     },
     upcoming,
     recentRuns: await toRunDtos(db, recent),
-    filingsDue: await filingsDueSoon(db, opts.today, opts.digipoortAvailable),
+    filingsDue: await filingsDueSoon(db, opts.today, opts.digipoortAvailable, opts.employerEntity),
   };
 }
 

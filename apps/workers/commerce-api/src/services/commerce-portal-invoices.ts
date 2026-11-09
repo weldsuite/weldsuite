@@ -6,6 +6,7 @@
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateInvoiceHtml } from '@weldsuite/books-domain/accounting-invoice-html';
+import { loadInvoiceEntity } from '@weldsuite/books-domain/accounting-entity';
 import {
   buildComplianceNotices,
   collectInvoiceTaxCategories,
@@ -47,11 +48,8 @@ export async function renderPortalInvoiceHtml(
     .where(and(eq(schema.invoiceItems.invoiceId, invoiceId), isNull(schema.invoiceItems.deletedAt)))
     .orderBy(schema.invoiceItems.sortOrder);
 
-  const [entityRow] = await db
-    .select()
-    .from(schema.entities)
-    .where(and(eq(schema.entities.id, invoice.entityId), isNull(schema.entities.deletedAt)))
-    .limit(1);
+  // Extension values merged in, and the bank account chosen for invoices when there is one.
+  const entityRow = await loadInvoiceEntity(db, invoice.entityId);
 
   if (!entityRow) return null;
 

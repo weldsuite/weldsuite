@@ -25,6 +25,8 @@ import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } fro
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent, computeChanges } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
+import { loadInvoiceEntity } from '@weldsuite/books-domain/accounting-entity';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -80,6 +82,9 @@ import { orderInvoiceLines } from '../../services/sales-tax/order-invoice';
 import { resolveInvoiceTemplate, templateBelongsToEntity } from '../../services/invoice-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.invoices, { label: 'Invoice' });
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -743,11 +748,8 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
       .where(and(eq(invoiceItems.invoiceId, invoiceId), isNull(invoiceItems.deletedAt)))
       .orderBy(invoiceItems.sortOrder);
 
-    const [entityRow] = await db
-      .select()
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, invoice.entityId), isNull(schema.entities.deletedAt)))
-      .limit(1);
+    // Extension values merged in; the bank account printed is the one chosen for invoices, else bank_details.
+    const entityRow = await loadInvoiceEntity(db, invoice.entityId, c.env);
 
     if (!entityRow) return error.notFound(c, 'Entity', invoice.entityId);
 
@@ -1697,6 +1699,7 @@ app.post(
     try {
       const amount = data.amount !== undefined ? Number.parseFloat(data.amount) : null;
       if (amount !== null && !(amount > 0)) return error.badRequest(c, 'The amount must be greater than zero');
+      if (!(await recordsInEntity(c, schema.invoices, [data.invoiceId]))) return error.notFound(c, 'Invoice', data.invoiceId);
       const applied = await applyCreditNote(db, creditNoteId, { invoiceId: data.invoiceId ?? null, amount });
       if (!applied) return error.badRequest(c, 'Nothing left to apply: the credit note or the invoice has no open balance');
 

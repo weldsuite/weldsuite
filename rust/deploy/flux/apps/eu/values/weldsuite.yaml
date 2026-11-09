@@ -82,8 +82,9 @@ config:
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET:
-# secrets/examples/secrets.example.yaml.
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET:
+# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
+# (mta below).
 secret:
   existingSecret: weldsuite-env
 
@@ -163,6 +164,37 @@ signPortal:
         hosts:
           - sign.${DOMAIN}
 
+# The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
+# workspaces, the app catalog, warmup and outbound mail. Its image is the
+# `admin` target of rust/Dockerfile, released with the server's. Staff sign in
+# with Zitadel's `WeldSuite Staff` project and get in only with an active
+# admin_users row (`weldsuite admin staff add`, Hetzner runbook "Staff work").
+# Only ADMIN_CIDRS (cluster settings) reach it; the console's keys
+# (ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET, ADMIN_SESSION_SECRET) and
+# OUTBOUND_ADMIN_SECRET are in weldsuite-env. Without them nobody gets in.
+admin:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-admin
+    tag: ${WELDSUITE_IMAGE_TAG}
+  publicUrl: https://admin.${DOMAIN}
+  platformUrl: https://app.${DOMAIN}
+  allowedSourceRanges: ${ADMIN_CIDRS}
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: admin.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-admin-tls
+        hosts:
+          - admin.${DOMAIN}
+
 # WeldDocs' and WeldSheets' live editing: the workers' rooms on Node beside
 # the server (rust/docs/collab-rooms.md), released with the server's image.
 # Without it /config.json lists `collab-rooms` as unavailable and the
@@ -206,3 +238,53 @@ consume:
       memory: 192Mi
     limits:
       memory: 512Mi
+
+# WeldMail's MX (ADR MAIL-010): Haraka at mx.${DOMAIN}, released with the
+# server's image. The ingress load balancer passes port 25 to this NodePort
+# with the PROXY protocol (hetzner mx_node_port); mx.${DOMAIN} points at the
+# load balancer, so cert-manager's HTTP-01 issues its certificate through
+# Traefik. Haraka spools to the mail bucket (FILES_BUCKET_MAIL, made next to
+# the private one with the same keys) and consume stores the messages.
+# MAIL_INBOUND_SECRET is in weldsuite-env. No public bucket here, so
+# inbound attachments aren't kept yet (mailInbound.publicUrl).
+mailInbound:
+  enabled: true
+  bucket: ${FILES_BUCKET_MAIL}
+  haraka:
+    image:
+      repository: ghcr.io/weldsuite/weldsuite-haraka
+      tag: ${WELDSUITE_IMAGE_TAG}
+    hostname: mx.${DOMAIN}
+    # The load balancer's private address; Traefik trusts the same range.
+    proxyProtocolHosts: ["10.10.0.0/16"]
+    service:
+      type: NodePort
+      nodePort: 30025
+      # Only nodes with a Haraka pod pass the load balancer's health check.
+      externalTrafficPolicy: Local
+
+# The MTA (docs/plans/eu-mail-service.md): system and customer mail from the
+# mail nodes' own addresses (hetzner mail_pools, one node each to start),
+# its queue in weldsuite_mta on master (clusters/example/configs). Bounces
+# and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
+# nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
+# Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's
+# certificate is self-signed for the mail nodes' names (the chart's default).
+# Before it sends: the port 25 unblock, DNS and the warm-up in the Hetzner
+# runbook, "Mail".
+mta:
+  enabled: true
+  # Its own namespace: the host network is forbidden in weldsuite (restricted).
+  namespace: weldsuite-mail
+  existingSecret: weldsuite-mta
+  clientSecret: weldsuite-mta-client
+  bounceDomain: bounces.${DOMAIN}
+  spfInclude: _spf.${DOMAIN}
+  pools:
+    - name: system
+    - name: customer
+  inbound:
+    tls:
+      dnsNames:
+        - mail1-system.${DOMAIN}
+        - mail1-customer.${DOMAIN}

@@ -8,7 +8,9 @@
 //! - [`http`]: the request glue of the books routes (state, caller,
 //!   refusals, validation, list envelopes).
 //! - [`table`], [`tables`]: rows as Drizzle returns them, passthrough writes.
-//! - [`entity_context`]: which accounting entity a request is about, numbering.
+//! - [`entity_context`]: which accounting entity a request is about, numbering,
+//!   per-entity access; [`accounting_entity`]: the entity as WeldBooks reads it
+//!   (core row, extension and registrations merged).
 //! - [`guards`]: closed periods, lock dates, the audit trail.
 //! - [`posting`]: the ledger's one way in.
 //! - [`document_posting`], [`payments`], [`bad_debt`], [`catch_up`]: what
@@ -36,6 +38,7 @@
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
+pub mod accounting_entity;
 pub mod address;
 pub mod attachments;
 pub mod backup_withholding;

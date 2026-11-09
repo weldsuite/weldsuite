@@ -161,7 +161,29 @@ fn news_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial)
     strings(issues, body, "tags", OPT);
 }
 
-fn announcement_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
+pub(crate) const ANNOUNCEMENT_TYPES: [&str; 4] = ["info", "warning", "success", "error"];
+pub(crate) const ANNOUNCEMENT_STATUSES: [&str; 3] = ["draft", "published", "archived"];
+pub(crate) const ANNOUNCEMENT_VISIBILITIES: [&str; 3] = ["public", "internal", "specific_groups"];
+
+/// `z.string().datetime()` with `presence`.
+fn datetime(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence) {
+    issues.text_with(
+        body,
+        key,
+        presence,
+        Text {
+            format: Some(Format::Datetime),
+            ..Text::default()
+        },
+    );
+}
+
+/// `createHelpdeskAnnouncementSchema`: the real columns only, no passthrough.
+pub(crate) fn announcement_schema(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: Partial,
+) {
     string(
         issues,
         body,
@@ -170,11 +192,24 @@ fn announcement_schema(issues: &mut Issues, body: &Map<String, Value>, partial: 
         Some(1),
         Some(500),
     );
-    string(issues, body, "body", OPT, None, None);
-    string(issues, body, "startsAt", OPT, None, None);
-    string(issues, body, "endsAt", OPT, None, None);
-    issues.boolean(body, "isPublished", OPT);
-    string(issues, body, "audience", OPT, None, Some(50));
+    string(issues, body, "content", partial.required(), None, None);
+    string(issues, body, "excerpt", NULLISH, None, None);
+    issues.choice(body, "type", OPT, &ANNOUNCEMENT_TYPES);
+    issues.choice(body, "status", OPT, &ANNOUNCEMENT_STATUSES);
+    issues.choice(body, "visibility", OPT, &ANNOUNCEMENT_VISIBILITIES);
+    issues.list(
+        body,
+        "targetGroups",
+        NULLISH,
+        None,
+        Some(100),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+    );
+    string(issues, body, "featuredImage", NULLISH, None, Some(500));
+    string(issues, body, "authorName", NULLISH, None, Some(255));
+    datetime(issues, body, "publishedAt", NULLISH);
+    datetime(issues, body, "expiresAt", NULLISH);
+    issues.boolean(body, "isPinned", OPT);
 }
 
 fn feedback_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {

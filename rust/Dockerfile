@@ -15,10 +15,11 @@
 #   docker buildx build -f rust/Dockerfile --platform linux/amd64,linux/arm64 .
 #   docker run --env-file .env -p 8080:8080 weldsuite:dev   (command defaults to `serve`)
 #
-# The WeldSign signer portal's Node container (ADR FE-017) is a target of the
-# same file:
+# The WeldSign signer portal's Node container (ADR FE-017) and the staff admin
+# console's (ADR FE-018) are targets of the same file:
 #
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target admin -t weldsuite-admin:dev .
 #   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 
 ARG RUST_VERSION=1.99.1
@@ -26,7 +27,8 @@ ARG NODE_VERSION=22
 
 # ── The frontends' dependencies ─────────────────────────────────────────────
 # The manifests alone first, so the install stays cached until a dependency
-# changes. Only the platform's and the portal's (`--filter <app>...`).
+# changes. Only the platform's, the portal's and the admin console's
+# (`--filter <app>...`).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS web-deps
 ENV CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -35,10 +37,10 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json packages/*/*/package.json ./
+COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/admin/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal... --filter @weldsuite/panel-sdk
+      --filter platform... --filter sign-portal... --filter admin... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -127,6 +129,35 @@ COPY --from=sign-portal-build /portal /app
 ENV NODE_ENV=production \
     PORT=3000 \
     SIGN_PORTAL_BACKEND=rust
+USER nonroot:nonroot
+EXPOSE 3000
+CMD ["node/server.mjs"]
+
+# ── The staff admin console, TanStack Start's Node build (ADR FE-018) ───────
+# `build:node` also checks the bundle carries no Clerk, Neon driver or
+# Cloudflare runtime module (apps/web/admin/scripts/check-node-build.mjs).
+FROM web-deps AS admin-build
+COPY apps/web/admin apps/web/admin
+RUN set -eux; \
+    cd apps/web/admin; \
+    pnpm build:node; \
+    echo '{"type":"module"}' > dist/package.json; \
+    mkdir /admin; \
+    mv dist node /admin/
+
+# The console's container: Node and the build (every dependency is bundled).
+# Configured by the Helm chart's admin values: the master database and the
+# keys that open the tenants' stored URLs, OIDC sign-in (ADMIN_OIDC_*,
+# ADMIN_PUBLIC_URL, ADMIN_SESSION_SECRET) and the SMTP relay.
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS admin
+LABEL org.opencontainers.image.title="weldsuite-admin" \
+      org.opencontainers.image.description="The staff admin console for the Kubernetes editions" \
+      org.opencontainers.image.source="https://github.com/weldsuite/weldsuite" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+WORKDIR /app
+COPY --from=admin-build /admin /app
+ENV NODE_ENV=production \
+    PORT=3000
 USER nonroot:nonroot
 EXPOSE 3000
 CMD ["node/server.mjs"]

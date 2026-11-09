@@ -278,12 +278,17 @@ fn syncs_list(issues: &mut Issues, b: &Map<String, Value>) -> Option<Vec<String>
         .into_option()
 }
 
+/// `accountingEntityExists(db, id)`: a live legal entity WeldBooks is
+/// enabled for (it has an extension row).
 async fn entity_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from entities where id = $1 and deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let found: Option<String> = sqlx::query_scalar(
+        "select e.id from entities e \
+         join accounting_entity_settings s on s.entity_id = e.id \
+         where e.id = $1 and e.deleted_at is null limit 1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
     Ok(found.is_some())
 }
 

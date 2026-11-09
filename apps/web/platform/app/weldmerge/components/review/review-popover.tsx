@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { MessageSquareDiff } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import { Textarea } from '@weldsuite/ui/components/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import type { MergeReviewEvent } from '@weldsuite/app-api-client/schemas/weldmerge-review';
 import { useI18n } from '@/lib/i18n/provider';
 import { fill } from '../../lib/format';
@@ -18,7 +19,11 @@ interface ReviewPopoverProps {
 
 const EVENTS: readonly MergeReviewEvent[] = ['comment', 'approve', 'request_changes'];
 
-/** The Review changes popover: a summary, the decision, and the pending line comments that go with it. */
+/**
+ * The Review changes popover: a summary, the decision, and the pending line
+ * comments that go with it. Opened from a 28px icon button, like every button
+ * in a record panel's header.
+ */
 export function ReviewPopover({ pendingCount, submitting, onSubmit }: Readonly<ReviewPopoverProps>) {
   const { t } = useI18n();
   const tr = t.weldmerge.reviewing.review;
@@ -47,17 +52,29 @@ export function ReviewPopover({ pendingCount, submitting, onSubmit }: Readonly<R
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button>
-          {tr.button}
-          {pendingCount > 0 && (
-            <span className="rounded-full bg-primary-foreground/20 px-1.5 text-xs tabular-nums" aria-hidden>
-              {pendingCount}
-            </span>
-          )}
-          <ChevronDown />
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
+              aria-label={tr.button}
+            >
+              <MessageSquareDiff className="size-4 text-muted-foreground" />
+              {pendingCount > 0 && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-primary px-1 text-[10px] leading-3.5 text-primary-foreground tabular-nums"
+                  aria-hidden
+                >
+                  {pendingCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{tr.button}</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" className="w-[min(26rem,calc(100vw-2rem))] space-y-3">
         <p className="text-sm font-semibold">{tr.title}</p>
         <Textarea

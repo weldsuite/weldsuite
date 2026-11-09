@@ -26,6 +26,8 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import type { Env, Variables } from '../../types';
+import { upsertAccountingEntitySettings } from '@weldsuite/books-domain/accounting-entity';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -57,6 +59,9 @@ import {
 } from '../../services/br-fiscal/settings';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.fiscalDocuments, { label: 'Fiscal document' });
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type EntityRow = typeof schema.entities.$inferSelect;
@@ -286,6 +291,11 @@ app.put('/settings', requirePermission('accounts:update'), zValidator('json', up
         updatedAt: new Date(),
       })
       .where(eq(schema.entities.id, entity.id));
+    // Release 1 mirror: the WeldBooks extension holds the same values.
+    await upsertAccountingEntitySettings(db, entity.id, {
+      jurisdictionSettings: nextSettings as Record<string, unknown>,
+      ...(credentialsChanged ? { fiscalCredentialsEncrypted: sealed } : {}),
+    });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entity.id,
@@ -367,6 +377,7 @@ app.post('/issue', requirePermission('invoices:update'), zValidator('json', issu
   const { invoiceId } = c.req.valid('json');
   try {
     const entity = await requireEntity(c, db);
+    if (!(await recordsInEntity(c, schema.invoices, [invoiceId]))) return error.notFound(c, 'Invoice', invoiceId);
     const { document } = await issueFiscalDocument(db, c.env, { entityId: entity.id, invoiceId, userId: c.get('userId') });
     await auditAndPublish(c, db, document, 'created', 'issued', { status: { old: null, new: document.status } });
     return success(c, document, 201);

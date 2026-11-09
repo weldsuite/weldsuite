@@ -14,6 +14,8 @@
  *   - myTasks shorthand (assigneeId = current user)
  *   - includeSubtasks (attach full descendant tree)
  *   - enrichment (assignee display fields + scheduled calendar slot)
+ *   - sourceType + sourceId: the tasks created from a WeldDesk ticket (both
+ *     creates store them; the ticket's details panel lists them)
  *
  * Additional endpoints:
  *   PATCH /api/tasks/reorder              — batch reorder (registered BEFORE /:id)
@@ -42,11 +44,12 @@ import {
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 import {
-  createTaskSchema,
+  createFlowTaskSchema,
   updateTaskSchema,
   moveTaskSchema,
   taskStatusAliases,
   taskStatusSchema,
+  taskSourceTypeSchema,
 } from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -1100,6 +1103,9 @@ const listQuerySchema = z.object({
   // When true, restrict to CRM-linked tasks (a company/person/contact is set),
   // excluding project tasks and fully-unlinked standalone tasks.
   crmLinked: queryBoolean.optional(),
+  // The tasks created from a record (a WeldDesk ticket): `sourceType=desk_conversation&sourceId=<id>`.
+  sourceType: taskSourceTypeSchema.optional(),
+  sourceId: z.string().optional(),
   parentTaskId: z.string().optional(),
   // Filters
   status: z.string().optional(),
@@ -1163,6 +1169,8 @@ function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
   if (q.customerId) filters.push(eq(t.customerId, q.customerId));
   if (q.contactId) filters.push(eq(t.contactId, q.contactId));
   if (q.personId) filters.push(eq((t as any).personId, q.personId));
+  if (q.sourceType) filters.push(eq(t.sourceType, q.sourceType));
+  if (q.sourceId) filters.push(eq(t.sourceId, q.sourceId));
 
   // CRM-linked only: at least one of the company/person link columns is set.
   if (q.crmLinked) {
@@ -1629,7 +1637,7 @@ app.patch(
 app.post(
   '/projects/:projectId',
   requirePermission('tasks:create'),
-  zValidator('json', createTaskSchema),
+  zValidator('json', createFlowTaskSchema),
   async (c) => {
     const db = c.get('tenantDb');
     const userId = c.get('userId');
@@ -1953,7 +1961,7 @@ app.get('/:id/subtasks', requirePermission('tasks:read'), async (c) => {
 // POST / — Global task create (My Tasks, cross-project)
 // ============================================================================
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskSchema), async (c) => {
+app.post('/', requirePermission('tasks:create'), zValidator('json', createFlowTaskSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json') as Record<string, any>;

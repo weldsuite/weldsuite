@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import type { SsoAdminView } from '@weldsuite/app-api-client/schemas/sso';
 import type { AdminIdentity } from './auth';

@@ -410,6 +410,8 @@ export function KnowledgeClient({
       label: kn.colVisibility,
       options: [
         { value: 'public', label: kn.filterPublic },
+        { value: 'logged_in', label: t.helpdesk.knowledgeInbox.visibility.logged_in },
+        { value: 'groups', label: t.helpdesk.knowledgeInbox.visibility.groups },
         { value: 'internal', label: kn.filterInternal },
       ],
     },
@@ -418,7 +420,7 @@ export function KnowledgeClient({
       label: kn.category,
       options: uniqueCategories.map(c => ({ value: c, label: c })),
     }] : []),
-  ], [uniqueCategories, kn]);
+  ], [uniqueCategories, kn, t.helpdesk.knowledgeInbox]);
 
   // Group configs by status
   const groupConfigs: GroupConfig<FlatNode>[] = useMemo(() => [], []);
@@ -607,7 +609,9 @@ export function KnowledgeClient({
 
         {/* Visibility */}
         <div className="w-[100px] flex items-center gap-1.5">
-          <span className="capitalize text-sm text-gray-600 dark:text-muted-foreground">{article.visibility}</span>
+          <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
+            {t.helpdesk.knowledgeInbox.visibility[article.visibility as keyof typeof t.helpdesk.knowledgeInbox.visibility] ?? article.visibility}
+          </span>
         </div>
 
         {/* Category */}

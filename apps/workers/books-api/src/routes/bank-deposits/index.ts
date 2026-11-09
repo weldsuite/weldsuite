@@ -26,6 +26,7 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -39,6 +40,9 @@ import {
 } from '../../services/accounting-bank-deposits';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.bankDeposits, { label: 'Bank deposit' });
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use a YYYY-MM-DD date');
 

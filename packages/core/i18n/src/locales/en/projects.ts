@@ -1,6 +1,11 @@
 export const projects = {
     title: 'Projects',
     description: 'Manage projects, tasks, and timelines',
+    // A task created from a WeldDesk ticket links back to it.
+    fromTicket: {
+      label: 'Ticket',
+      value: 'From ticket #{number}',
+    },
 
     dashboard: {
       title: 'Dashboard',
@@ -821,6 +826,12 @@ export const projects = {
         residual: 'After mitigation',
         residualHint: 'Where you expect the risk to be once the response is in place. Optional.',
         residualNotSet: 'Not set',
+        pickDate: 'Pick a date',
+        score: 'Score',
+        ifItHappens: 'If it happens',
+        delayDays: 'Delay (days)',
+        cost: 'Cost',
+        milestone: 'Milestone',
         threatensMilestone: 'Threatens milestone',
         noMilestone: 'None',
         alsoCreateTask: 'Also create a mitigation task, assigned to the owner',

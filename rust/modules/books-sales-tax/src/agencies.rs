@@ -34,6 +34,7 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
+use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{changes, iso_date, keep, merged, refuse, text, today};
@@ -57,6 +58,12 @@ where
         .route(
             "/{id}",
             axum::routing::delete(remove).route_layer(need("taxes:delete")),
+        )
+        // A record of an entity the request may not touch answers 404
+        // (per-entity access; books-api `guardEntityRecords`).
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("sales_tax_agencies"), "Sales tax agency")
+                .layer(),
         )
         .with_state(state)
 }

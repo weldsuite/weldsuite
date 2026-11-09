@@ -19,7 +19,7 @@ import type { ResolvedPermissions } from '../types';
  * that rewrites `roles.permissions` or member permission columns. The
  * code-defined catalog is covered without a bump, see below.
  */
-const RESOLVER_LOGIC_VERSION = 1;
+const RESOLVER_LOGIC_VERSION = 2;
 
 /** 32-bit FNV-1a, hex: a short, stable fingerprint, not a security hash. */
 function fingerprint(text: string): string {

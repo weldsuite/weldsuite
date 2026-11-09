@@ -158,6 +158,8 @@ export interface SyncBillingMirrorParams {
   clerkOrgId: string;
   data: UpdateWorkspaceSettingsInput;
   stripeSecretKey?: string;
+  /** The default legal entity carries the Stripe mirror (see `mirrorStripeCustomer`); only sync the digest. */
+  skipStripe?: boolean;
 }
 
 async function syncDigestTimezone(
@@ -175,27 +177,82 @@ async function syncDigestTimezone(
   }
 }
 
+/** What the Stripe customer mirrors: the invoice name, email and address of the business. */
+export interface StripeCustomerProfile {
+  name?: string;
+  email?: string;
+  address: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
+}
+
+/** The Stripe profile of a settings save: only the fields the body carries. */
+export function stripeProfileFromSettings(data: UpdateWorkspaceSettingsInput): StripeCustomerProfile {
+  return {
+    name: data.legalName || data.tradingName || undefined,
+    email: data.email || undefined,
+    address: {
+      line1: data.addressLine1 || undefined,
+      line2: data.addressLine2 || undefined,
+      city: data.city || undefined,
+      state: data.state || undefined,
+      postalCode: data.postalCode || undefined,
+      country: data.country || undefined,
+    },
+  };
+}
+
 async function syncStripeCustomer(
   stripeSecretKey: string,
   stripeCustomerId: string,
-  data: UpdateWorkspaceSettingsInput,
+  profile: StripeCustomerProfile,
 ): Promise<void> {
   try {
-    const customerName = data.legalName || data.tradingName || undefined;
     await updateStripeCustomer(stripeSecretKey, stripeCustomerId, {
-      ...(customerName && { name: customerName }),
-      ...(data.email && { email: data.email }),
+      ...(profile.name && { name: profile.name }),
+      ...(profile.email && { email: profile.email }),
       address: {
-        ...(data.addressLine1 && { line1: data.addressLine1 }),
-        ...(data.addressLine2 && { line2: data.addressLine2 }),
-        ...(data.city && { city: data.city }),
-        ...(data.state && { state: data.state }),
-        ...(data.postalCode && { postal_code: data.postalCode }),
-        ...(data.country && { country: data.country }),
+        ...(profile.address.line1 && { line1: profile.address.line1 }),
+        ...(profile.address.line2 && { line2: profile.address.line2 }),
+        ...(profile.address.city && { city: profile.address.city }),
+        ...(profile.address.state && { state: profile.address.state }),
+        ...(profile.address.postalCode && { postal_code: profile.address.postalCode }),
+        ...(profile.address.country && { country: profile.address.country }),
       },
     });
   } catch (err) {
     console.error('[app-api/workspace-settings] Stripe customer sync failed:', err);
+  }
+}
+
+/**
+ * Push a business profile onto the workspace's Stripe customer. Best-effort:
+ * failures are logged, never thrown. Shared by the settings save and by every
+ * change to the default legal entity (docs/plans/legal-entities.md).
+ */
+export async function mirrorStripeCustomer(params: {
+  masterDb: MasterDatabase;
+  /** `workspaces.id` or the Clerk org id (`matchWorkspaceRef` takes either). */
+  workspaceRef: string;
+  profile: StripeCustomerProfile;
+  stripeSecretKey?: string;
+}): Promise<void> {
+  if (!params.stripeSecretKey) return;
+  try {
+    const [workspace] = await params.masterDb
+      .select({ stripeCustomerId: masterSchema.workspaces.stripeCustomerId })
+      .from(masterSchema.workspaces)
+      .where(matchWorkspaceRef(params.workspaceRef))
+      .limit(1);
+    if (!workspace?.stripeCustomerId) return;
+    await syncStripeCustomer(params.stripeSecretKey, workspace.stripeCustomerId, params.profile);
+  } catch (err) {
+    console.error('[app-api/workspace-settings] Stripe mirror failed:', err);
   }
 }
 
@@ -209,6 +266,7 @@ export async function syncBillingMirror({
   clerkOrgId,
   data,
   stripeSecretKey,
+  skipStripe,
 }: SyncBillingMirrorParams): Promise<void> {
   try {
     const [workspace] = await masterDb
@@ -228,8 +286,8 @@ export async function syncBillingMirror({
     }
 
     // Stripe invoices render the legal entity + address from the customer.
-    if (workspace.stripeCustomerId && stripeSecretKey) {
-      await syncStripeCustomer(stripeSecretKey, workspace.stripeCustomerId, data);
+    if (!skipStripe && workspace.stripeCustomerId && stripeSecretKey) {
+      await syncStripeCustomer(stripeSecretKey, workspace.stripeCustomerId, stripeProfileFromSettings(data));
     }
   } catch (err) {
     console.error('[app-api/workspace-settings] billing mirror sync failed:', err);

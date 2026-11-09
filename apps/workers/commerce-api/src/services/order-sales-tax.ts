@@ -14,7 +14,7 @@
  * keep whatever the order held before.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { decryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
@@ -218,13 +218,27 @@ interface TaxEntity {
 const entityColumns = {
   id: schema.entities.id,
   jurisdictionCode: schema.entities.jurisdictionCode,
-  salesTaxEngine: schema.entities.salesTaxEngine,
+  // The WeldBooks extension's engine, else the old column (release 1 mirrors both).
+  salesTaxEngine: sql<string | null>`coalesce(${schema.accountingEntitySettings.salesTaxEngine}, ${schema.entities.salesTaxEngine})`,
   address: schema.entities.address,
 };
 
-/** The WeldBooks entity orders are taxed under: the workspace default, else the one flagged default, else the only one. */
+/**
+ * The WeldBooks entity orders are taxed under: `settings.default_entity_id`
+ * when WeldBooks is enabled for it (an `accounting_entity_settings` row), else
+ * the legal entity flagged default when it is, else the only WeldBooks entity.
+ * Release 1 keeps both defaults equal (`setDefaultLegalEntity` mirrors them);
+ * `defaultEntityIdFor(db, 'weldbooks')` in `@weldsuite/core-domain/legal-entities`
+ * is the same idea (commerce-api does not depend on it). No member is involved,
+ * so no per-entity access applies.
+ */
 export async function resolveOrderTaxEntity(db: Database): Promise<TaxEntity | null> {
   const live = isNull(schema.entities.deletedAt);
+  const select = () =>
+    db
+      .select(entityColumns)
+      .from(schema.entities)
+      .innerJoin(schema.accountingEntitySettings, eq(schema.accountingEntitySettings.entityId, schema.entities.id));
   const toEntity = (row: { id: string; jurisdictionCode: string; salesTaxEngine: string | null; address: unknown }): TaxEntity => ({
     id: row.id,
     jurisdictionCode: row.jurisdictionCode,
@@ -234,22 +248,16 @@ export async function resolveOrderTaxEntity(db: Database): Promise<TaxEntity | n
 
   const [settings] = await db.select({ defaultEntityId: schema.settings.defaultEntityId }).from(schema.settings).limit(1);
   if (settings?.defaultEntityId) {
-    const [row] = await db
-      .select(entityColumns)
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, settings.defaultEntityId), live))
-      .limit(1);
+    const [row] = await select().where(and(eq(schema.entities.id, settings.defaultEntityId), live)).limit(1);
     if (row) return toEntity(row);
   }
 
-  const [flagged] = await db
-    .select(entityColumns)
-    .from(schema.entities)
+  const [flagged] = await select()
     .where(and(eq(schema.entities.isDefault, true), eq(schema.entities.isActive, true), live))
     .limit(1);
   if (flagged) return toEntity(flagged);
 
-  const rows = await db.select(entityColumns).from(schema.entities).where(live).limit(2);
+  const rows = await select().where(live).limit(2);
   return rows.length === 1 ? toEntity(rows[0]) : null;
 }
 

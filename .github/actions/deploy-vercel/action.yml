@@ -1,0 +1,106 @@
+name: Deploy Vercel app
+description: >-
+  Builds one Vercel-hosted app on the runner with the Vercel CLI and uploads
+  the prebuilt output. Vercel's Git integration is off for every branch
+  (git.deploymentEnabled in each app's vercel.json), so this is the only
+  releaser. Env vars, domains and Root Directory stay on the Vercel project.
+    production → Production target (the project's production domains)
+    test       → Preview target with develop's branch env vars, then the
+                 project's `develop` branch domains (e.g. partner-test.weldsuite.org)
+                 are pointed at the new deployment.
+  Apps and projects are listed in .github/scripts/vercel-apps.mjs. Expects
+  this repo checked out at the workspace root.
+
+inputs:
+  app:
+    description: Folder name under apps/web.
+    required: true
+  project:
+    description: Vercel project name.
+    required: true
+  environment:
+    description: test or production.
+    required: true
+  vercel-token:
+    description: VERCEL_TOKEN secret.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-monorepo
+
+    - name: Install Vercel CLI
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        VERCEL_PROJECT: ${{ inputs.project }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        if [ -z "$VERCEL_TOKEN" ]; then
+          echo "::error title=VERCEL_TOKEN missing::Set VERCEL_TOKEN on the '$CF_ENV' environment (Settings -> Environments -> $CF_ENV -> Secrets). Vercel no longer builds develop/main itself, so without it $VERCEL_PROJECT does not deploy."
+          exit 1
+        fi
+        npm install --global vercel@60.1.3
+
+    # Run from the repo root: the Vercel project's Root Directory
+    # (apps/web/<app>) is applied on top of the working directory.
+    # Not VERCEL_ORG_ID: the CLI rejects that without VERCEL_PROJECT_ID too.
+    - name: Link ${{ inputs.project }}
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        VERCEL_TEAM_ID: team_CmvR3M30MAIJPwioy1zvRVTb
+        VERCEL_PROJECT: ${{ inputs.project }}
+      run: vercel link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_TEAM_ID" --token "$VERCEL_TOKEN"
+
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages.
+    - name: Build ${{ inputs.app }}
+      shell: bash
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        VERCEL_TEAM_ID: team_CmvR3M30MAIJPwioy1zvRVTb
+        VERCEL_PROJECT: ${{ inputs.project }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        # Sensitive vars come down as "[SENSITIVE]"; the script unsets them.
+        if [ "$CF_ENV" = "production" ]; then
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          bash .github/scripts/vercel-unset-sensitive.sh .vercel/.env.production.local
+          vercel build --prod --token "$VERCEL_TOKEN"
+        else
+          vercel pull --yes --environment=preview --git-branch=develop --token "$VERCEL_TOKEN"
+          bash .github/scripts/vercel-unset-sensitive.sh .vercel/.env.preview.local
+          vercel build --token "$VERCEL_TOKEN"
+        fi
+
+    - name: Deploy ${{ inputs.app }}
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        VERCEL_TEAM_ID: team_CmvR3M30MAIJPwioy1zvRVTb
+        VERCEL_PROJECT: ${{ inputs.project }}
+        CF_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [ "$CF_ENV" = "production" ]; then
+          URL=$(vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN")
+          echo "Deployed $VERCEL_PROJECT to production: $URL"
+          exit 0
+        fi
+
+        URL=$(vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+        echo "Deployed $VERCEL_PROJECT preview: $URL"
+        # Only domains bound to the develop branch: never a production domain.
+        DOMAINS=$(curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+          "https://api.vercel.com/v9/projects/$VERCEL_PROJECT/domains?teamId=$VERCEL_TEAM_ID&gitBranch=develop&limit=100" \
+          | jq -r '.domains[] | select(.gitBranch == "develop") | .name')
+        if [ -z "$DOMAINS" ]; then
+          echo "::warning title=No test domain::$VERCEL_PROJECT has no domain bound to the develop branch; the test deploy is only reachable at $URL"
+          exit 0
+        fi
+        for DOMAIN in $DOMAINS; do
+          vercel alias set "$URL" "$DOMAIN" --scope "$VERCEL_TEAM_ID" --token "$VERCEL_TOKEN"
+        done

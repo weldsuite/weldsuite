@@ -70,7 +70,10 @@ async function assertNoOverlappingAssignment(
   if (clash) throw new HrConflictError('This employee is already assigned to this client for (part of) these dates');
 }
 
-export async function listAssignments(db: Database, filters: { employeeId?: string; companyId?: string; activeOnly?: boolean }) {
+export async function listAssignments(
+  db: Database,
+  filters: { employeeId?: string; companyId?: string; activeOnly?: boolean; entity?: SQL },
+) {
   const today = todayIso();
   const conditions = [];
   if (filters.employeeId) conditions.push(eq(a.employeeId, filters.employeeId));
@@ -92,7 +95,7 @@ export async function listAssignments(db: Database, filters: { employeeId?: stri
     })
     .from(a)
     .innerJoin(schema.hrEmployees, eq(schema.hrEmployees.id, a.employeeId))
-    .where(and(isNull(schema.hrEmployees.deletedAt), ...conditions))
+    .where(and(isNull(schema.hrEmployees.deletedAt), filters.entity, ...conditions))
     .orderBy(desc(a.startDate), asc(schema.hrEmployees.lastName));
 
   const companyIds = rows.map((r) => r.assignment.companyId);
@@ -190,7 +193,7 @@ async function clearPrimary(db: Database, employeeId: string, exceptId?: string)
 }
 
 /** Client accounts that have (or had) anyone assigned, with live headcount. */
-export async function listClientAccounts(db: Database) {
+export async function listClientAccounts(db: Database, entity?: SQL) {
   const today = todayIso();
   const rows = await db
     .select({
@@ -203,7 +206,7 @@ export async function listClientAccounts(db: Database) {
     .innerJoin(schema.hrEmployees, eq(schema.hrEmployees.id, a.employeeId))
     // A company deleted in WeldCRM is no longer a client account; its assignments stay as history.
     .innerJoin(schema.companies, eq(schema.companies.id, a.companyId))
-    .where(and(isNull(schema.hrEmployees.deletedAt), isNull(schema.companies.deletedAt)))
+    .where(and(isNull(schema.hrEmployees.deletedAt), isNull(schema.companies.deletedAt), entity))
     .groupBy(a.companyId);
   const names = await companyNames(db, rows.map((r) => r.companyId));
   return rows

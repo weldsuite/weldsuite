@@ -18,7 +18,7 @@ beforeAll(async () => {
   db = handle.db;
 }, 60_000);
 
-const PERMS = ['entities:read', 'entities:create', 'entities:update'];
+const PERMS = ['entities:read', 'entities:create', 'legal_entities:create', 'entities:update'];
 
 function request(path: string, init?: { method?: string; body?: unknown; userId?: string }) {
   const { request: send } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {

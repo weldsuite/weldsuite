@@ -128,3 +128,26 @@ resource "hcloud_load_balancer_service" "https" {
     retries  = 3
   }
 }
+
+# WeldMail's MX (Haraka) through the same load balancer: port 25 passed
+# through with the PROXY protocol, so Haraka sees the sender's address (SPF),
+# to its NodePort (mx_node_port). mx.<domain> points at this load balancer,
+# which also lets cert-manager's HTTP-01 issue Haraka's certificate. Inbound
+# 25 is not what Hetzner blocks; outbound is (mail.tf).
+resource "hcloud_load_balancer_service" "smtp" {
+  count = var.mx_node_port > 0 ? 1 : 0
+
+  load_balancer_id = hcloud_load_balancer.ingress.id
+  protocol         = "tcp"
+  listen_port      = 25
+  destination_port = var.mx_node_port
+  proxyprotocol    = true
+
+  health_check {
+    protocol = "tcp"
+    port     = var.mx_node_port
+    interval = 10
+    timeout  = 5
+    retries  = 3
+  }
+}

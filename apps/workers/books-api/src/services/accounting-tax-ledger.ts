@@ -103,6 +103,14 @@ export function fileTaxPeriodStatements(
   if (!args.currentTaxLockDate || args.currentTaxLockDate < end) {
     statements.push(
       h.update(schema.entities).set({ taxLockDate: end, updatedAt: new Date() }).where(eq(schema.entities.id, args.entityId)),
+      // Release 1 mirror: the WeldBooks extension holds the lock date too.
+      h
+        .insert(schema.accountingEntitySettings)
+        .values({ entityId: args.entityId, taxLockDate: end })
+        .onConflictDoUpdate({
+          target: schema.accountingEntitySettings.entityId,
+          set: { taxLockDate: end, updatedAt: new Date() },
+        }),
     );
   }
   return statements;

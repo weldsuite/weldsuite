@@ -188,7 +188,9 @@ spec:
 ---
 # Port 25 from the internet. A LoadBalancer passing TCP through with the
 # PROXY protocol (Hetzner: load-balancer.hetzner.cloud/uses-proxyprotocol) and
-# externalTrafficPolicy Local; list its addresses in proxyProtocolHosts.
+# externalTrafficPolicy Local; list its addresses in proxyProtocolHosts. Or a
+# NodePort that a load balancer outside the cluster forwards 25 to (the EU
+# cluster's ingress load balancer, hetzner/loadbalancer.tf mx_node_port).
 apiVersion: v1
 kind: Service
 metadata:
@@ -201,7 +203,8 @@ metadata:
   {{- end }}
 spec:
   type: {{ .service.type }}
-  {{- if and (eq .service.type "LoadBalancer") .service.externalTrafficPolicy }}
+  {{- /* NodePort too: with Local, a node without a Haraka pod fails the load balancer's health check and gets no connections, and Haraka sees the load balancer's own address, not a node's. */}}
+  {{- if and (has .service.type (list "LoadBalancer" "NodePort")) .service.externalTrafficPolicy }}
   externalTrafficPolicy: {{ .service.externalTrafficPolicy }}
   {{- end }}
   ports:
@@ -209,6 +212,9 @@ spec:
       port: {{ .service.port }}
       targetPort: smtp
       protocol: TCP
+      {{- if and (eq .service.type "NodePort") .service.nodePort }}
+      nodePort: {{ .service.nodePort }}
+      {{- end }}
   selector:
     {{- include "weldsuite.mx.selectorLabels" $ | nindent 4 }}
 {{- if gt (int .replicaCount) 1 }}

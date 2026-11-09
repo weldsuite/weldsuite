@@ -1,0 +1,148 @@
+name: Deploy Pages app
+description: >-
+  Builds one Vite SPA (apps/web/<app>) and uploads it to its Cloudflare Pages
+  project. Each app's build env is set here, so a new app changes only this
+  repo: add a build step and a project below, and the app to PAGES_APPS in
+  .github/scripts/deploy-plan.mjs. Expects this repo checked out at the
+  workspace root.
+
+inputs:
+  app:
+    description: platform, weldmail, weldcalendar or developer.
+    required: true
+  environment:
+    description: test or production.
+    required: true
+  cloudflare-api-token:
+    description: CLOUDFLARE_API_TOKEN secret.
+    required: true
+  cloudflare-account-id:
+    description: CLOUDFLARE_ACCOUNT_ID secret.
+    required: true
+  booking-portal-url:
+    description: VITE_BOOKING_PORTAL_URL secret (platform, weldcalendar). Falls back to the environment's booking portal.
+    required: false
+    default: ''
+  meeting-portal-url:
+    description: VITE_MEETING_PORTAL_URL secret (platform).
+    required: false
+    default: ''
+  mapbox-access-token:
+    description: VITE_MAPBOX_ACCESS_TOKEN secret (platform).
+    required: false
+    default: ''
+  mixpanel-token:
+    description: VITE_MIXPANEL_TOKEN secret (platform).
+    required: false
+    default: ''
+  betterstack-source-token:
+    description: VITE_BETTERSTACK_SOURCE_TOKEN secret (platform).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # The Pages project and the branch name each environment deploys as.
+    - name: Resolve Pages project
+      id: project
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        TARGET: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        case "$APP" in
+          platform) BASE=weldsuite ;;
+          weldmail) BASE=weldmail-web ;;
+          weldcalendar) BASE=weldcalendar-web ;;
+          developer) BASE=developer-web ;;
+          *) echo "::error::unknown Pages app '$APP' (add it to deploy-pages and deploy-plan.mjs)"; exit 1 ;;
+        esac
+        case "$TARGET" in
+          test) PROJECT="$BASE-test"; BRANCH=develop ;;
+          production) PROJECT="$BASE"; BRANCH=main ;;
+          *) echo "::error::environment must be test or production (got '$TARGET')"; exit 1 ;;
+        esac
+        { echo "name=$PROJECT"; echo "branch=$BRANCH"; } >> "$GITHUB_OUTPUT"
+
+    - uses: ./.github/actions/setup-monorepo
+
+    # Every build step sets NODE_OPTIONS itself. A private repo's GitHub-hosted
+    # runner has 7 GB (a public repo's 16 GB), and Node sizes its default heap
+    # from that: the Vite builds ran out of memory there. 5 GB fits the runner
+    # and the builds. It can't be set once through $GITHUB_ENV: GitHub refuses
+    # NODE_OPTIONS there.
+    - name: Build platform
+      if: inputs.app == 'platform'
+      shell: bash
+      working-directory: apps/web/platform
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
+        VITE_APP_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        VITE_CORE_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        VITE_REALTIME_URL: ${{ inputs.environment == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
+        # Modules the SPA calls directly on <module>-api(-test).weldsuite.org
+        # (docs/plans/app-api-module-split.md); everything else goes through
+        # app-api's forwarder. `all` = every module worker; `all,-crm` sends one
+        # module back through app-api.
+        VITE_API_MODULES: all
+        VITE_ENVIRONMENT: ${{ inputs.environment }}
+        VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+        # Non-secret per-environment default: a build without the secret must never fall back to the SPA origin.
+        VITE_BOOKING_PORTAL_URL: ${{ inputs.booking-portal-url || (inputs.environment == 'test' && 'https://book-test.weldsuite.org' || 'https://book.weldsuite.org') }}
+        VITE_MEETING_PORTAL_URL: ${{ inputs.meeting-portal-url }}
+        VITE_MAPBOX_ACCESS_TOKEN: ${{ inputs.mapbox-access-token }}
+        VITE_MIXPANEL_TOKEN: ${{ inputs.mixpanel-token }}
+        VITE_BETTERSTACK_SOURCE_TOKEN: ${{ inputs.betterstack-source-token }}
+      run: pnpm build
+
+    - name: Build WeldMail web
+      if: inputs.app == 'weldmail'
+      shell: bash
+      working-directory: apps/web/weldmail
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
+        VITE_PERSONAL_API_URL: ${{ inputs.environment == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
+        VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+        VITE_ENVIRONMENT: ${{ inputs.environment }}
+      run: pnpm build
+
+    - name: Build WeldCalendar web
+      if: inputs.app == 'weldcalendar'
+      shell: bash
+      working-directory: apps/web/weldcalendar
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
+        VITE_PERSONAL_API_URL: ${{ inputs.environment == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
+        VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+        VITE_ENVIRONMENT: ${{ inputs.environment }}
+        # Non-secret per-environment default: a build without the secret must never fall back to the SPA origin.
+        VITE_BOOKING_PORTAL_URL: ${{ inputs.booking-portal-url || (inputs.environment == 'test' && 'https://book-test.weldsuite.org' || 'https://book.weldsuite.org') }}
+      run: pnpm build
+
+    - name: Build Developer portal
+      if: inputs.app == 'developer'
+      shell: bash
+      working-directory: apps/web/developer
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
+        VITE_APP_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        VITE_PLATFORM_URL: ${{ inputs.environment == 'test' && 'https://app-test.weldsuite.org' || 'https://app.weldsuite.org' }}
+        VITE_CLERK_PUBLISHABLE_KEY: ${{ inputs.environment == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}  # pragma: allowlist secret
+        VITE_ENVIRONMENT: ${{ inputs.environment }}
+      run: pnpm build
+
+    - name: Deploy to Pages
+      shell: bash
+      working-directory: apps/web/${{ inputs.app }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        PROJECT: ${{ steps.project.outputs.name }}
+        BRANCH: ${{ steps.project.outputs.branch }}
+      run: |
+        pnpm exec wrangler pages deploy dist \
+          --project-name "$PROJECT" \
+          --branch "$BRANCH" \
+          --commit-dirty=true

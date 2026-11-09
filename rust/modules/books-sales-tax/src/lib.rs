@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use axum::Router;
 pub use weldsuite_books_domain::http::BooksState;
+use weldsuite_legal_entities::{LegalEntityApp, LegalEntityContextOptions, legal_entity_context};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 /// The routers, by `/api` prefix (`app.route(prefix, routes)` in
@@ -38,6 +39,15 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    // Which legal entity the request is about, and per-entity access
+    // (books-api's `legalEntityContext({ app: 'weldbooks', scoped: true })`
+    // on `/api/*`): outside every route's gates and record guards.
+    let context = legal_entity_context(
+        gate,
+        LegalEntityContextOptions::new()
+            .app(LegalEntityApp::Weldbooks)
+            .scoped(),
+    );
     vec![
         (
             "/sales-tax",
@@ -59,4 +69,7 @@ where
             certificates::router(state.clone(), gate),
         ),
     ]
+    .into_iter()
+    .map(|(prefix, router)| (prefix, router.layer(context.clone())))
+    .collect()
 }

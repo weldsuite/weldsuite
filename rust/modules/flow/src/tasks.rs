@@ -267,6 +267,8 @@ struct ListQuery {
     contact_id: Option<String>,
     person_id: Option<String>,
     crm_linked: bool,
+    source_type: Option<String>,
+    source_id: Option<String>,
     parent_task_id: Option<String>,
     status: Option<String>,
     priority: Option<String>,
@@ -301,6 +303,15 @@ fn read_list_query(issues: &mut Issues, f: &Map<String, Value>) -> ListQuery {
     let contact_id = query_text(issues, f, "contactId");
     let person_id = query_text(issues, f, "personId");
     let crm_linked = query_boolean(issues, f, "crmLinked").unwrap_or(false);
+    let source_type = issues
+        .choice(
+            f,
+            "sourceType",
+            Presence::Optional,
+            &crate::task_writes::TASK_SOURCE_TYPES,
+        )
+        .into_option();
+    let source_id = query_text(issues, f, "sourceId");
     let parent_task_id = query_text(issues, f, "parentTaskId");
     let status = query_text(issues, f, "status");
     let priority = query_text(issues, f, "priority");
@@ -344,6 +355,8 @@ fn read_list_query(issues: &mut Issues, f: &Map<String, Value>) -> ListQuery {
         contact_id,
         person_id,
         crm_linked,
+        source_type,
+        source_id,
         parent_task_id,
         status,
         priority,
@@ -405,7 +418,9 @@ macro_rules! task_list_filters {
             due_bucket!("$26"),
             "), true))",
             " and ($30::text is null or t.due_date >= $30::timestamp)",
-            " and ($31::text is null or t.due_date < $31::timestamp)"
+            " and ($31::text is null or t.due_date < $31::timestamp)",
+            " and ($32::text is null or t.source_type = $32)",
+            " and ($33::text is null or t.source_id = $33)"
         )
     };
 }
@@ -432,7 +447,7 @@ macro_rules! due_bucket {
 macro_rules! cursor_on {
     ($col:literal) => {
         concat!(
-            "(case when $34 = 'asc' then (case when cur.",
+            "(case when $36 = 'asc' then (case when cur.",
             $col,
             " is null then (t.",
             $col,
@@ -469,13 +484,13 @@ macro_rules! cursor_on {
 macro_rules! order_on {
     ($name:literal, $col:literal) => {
         concat!(
-            "(case when $33 = '",
+            "(case when $35 = '",
             $name,
-            "' and $34 = 'asc' then t.",
+            "' and $36 = 'asc' then t.",
             $col,
-            " end) asc, (case when $33 = '",
+            " end) asc, (case when $35 = '",
             $name,
-            "' and $34 = 'desc' then t.",
+            "' and $36 = 'desc' then t.",
             $col,
             " end) desc, "
         )
@@ -498,7 +513,7 @@ struct ListParams {
     due_to: Option<String>,
 }
 
-/// Binds `$1`–`$31` (the filters) on a query.
+/// Binds `$1`–`$33` (the filters) on a query.
 macro_rules! bind_filters {
     ($query:expr, $q:expr, $p:expr) => {{
         let bound = |ms: Option<i64>| ms.and_then(weldsuite_flow_domain::js::iso_from_millis);
@@ -534,6 +549,8 @@ macro_rules! bind_filters {
             .bind(bound($p.bounds.map(|b| b.start_of_next_week)))
             .bind($p.due_from.as_deref())
             .bind($p.due_to.as_deref())
+            .bind(present(&$q.source_type))
+            .bind(present(&$q.source_id))
     }};
 }
 
@@ -664,12 +681,12 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
                 "with cur as (select id, title, status, priority, assignee_id,",
                 " date_trunc('milliseconds', due_date) as due_date,",
                 " date_trunc('milliseconds', created_at) as created_at, position",
-                " from tasks where id = $32)",
+                " from tasks where id = $34)",
                 " select ",
                 task_json!("t"),
                 " from tasks t where ",
                 task_list_filters!(),
-                " and ($32::text is null or exists (select 1 from cur where (case $33",
+                " and ($34::text is null or exists (select 1 from cur where (case $35",
                 " when 'title' then ",
                 cursor_on!("title"),
                 " when 'status' then ",
@@ -693,10 +710,10 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
                 order_on!("assignee", "assignee_id"),
                 order_on!("createdAt", "created_at"),
                 order_on!("position", "position"),
-                "(case when $35 then t.id end) desc,",
-                " (case when not $35 then t.created_at end) asc,",
-                " (case when not $35 then t.id end) asc",
-                " limit $36 offset $37"
+                "(case when $37 then t.id end) desc,",
+                " (case when not $37 then t.created_at end) asc,",
+                " (case when not $37 then t.id end) asc",
+                " limit $38 offset $39"
             )),
             q,
             params

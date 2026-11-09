@@ -20,7 +20,7 @@ beforeAll(async () => {
 
 function request(path: string, init?: { method?: string; body?: unknown }) {
   const { request: send } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
-    context: { permissions: permissions('entities:read', 'entities:create', 'entities:update'), tenantDb: db },
+    context: { permissions: permissions('entities:read', 'entities:create', 'legal_entities:create', 'entities:update'), tenantDb: db },
   });
   return send(path, {
     method: init?.method ?? 'GET',

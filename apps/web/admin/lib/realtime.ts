@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { REALTIME_INTERNAL_SECRET_HEADER, RealtimePublisher } from '@weldsuite/realtime/server';
 

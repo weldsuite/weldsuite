@@ -27,6 +27,8 @@ import {
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { guardEntityRecords } from '../../lib/entity-access';
+import { schema } from '@weldsuite/worker-kit/db';
 import { entityExists, resolveEntityId } from '../../lib/entity-context';
 import {
   createInvoiceTemplate,
@@ -40,6 +42,9 @@ import {
 } from '../../services/invoice-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// A record of an entity the request may not touch answers 404 (per-entity access).
+guardEntityRecords(app, schema.invoiceTemplates, { label: 'Invoice template' });
 
 /** Event payload: the document is bulky and belongs to the template, not the event. */
 function eventData(row: InvoiceTemplateRow) {

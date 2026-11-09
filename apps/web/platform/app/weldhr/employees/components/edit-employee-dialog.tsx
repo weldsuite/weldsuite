@@ -32,6 +32,7 @@ import { useHrDepartments, useUpdateHrEmployee } from '@/hooks/queries/use-weldh
 import { EmployeePicker, errorMessage } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
 import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
+import { EmployerField } from './employer-field';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildFormSchema(t: (path: string) => string) {
@@ -51,6 +52,7 @@ function buildFormSchema(t: (path: string) => string) {
     weeklyHours: z.union([z.string(), z.number()]).optional(),
     departmentId: z.string().optional(),
     managerId: z.string().optional(),
+    legalEntityId: z.string().optional(),
   });
 }
 
@@ -87,6 +89,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
       weeklyHours: employee.weeklyHours ?? undefined,
       departmentId: employee.departmentId ?? undefined,
       managerId: employee.managerId ?? undefined,
+      legalEntityId: employee.legalEntityId ?? undefined,
     },
   });
 
@@ -113,6 +116,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
         weeklyHours: values.weeklyHours === '' || values.weeklyHours === undefined ? null : Number(values.weeklyHours),
         departmentId: values.departmentId || null,
         managerId: values.managerId || null,
+        ...(values.legalEntityId ? { legalEntityId: values.legalEntityId } : {}),
         // A location that was deleted since is no longer a valid assignment.
         workLocationIds: workLocationOptions.length > 0 ? workLocationIds.filter((id) => workLocationOptions.some((o) => o.value === id)) : undefined,
       });
@@ -299,6 +303,16 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="legalEntityId"
+              render={({ field }) => (
+                <FormItem>
+                  <EmployerField value={field.value} onChange={field.onChange} disabled={updateEmployee.isPending} />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-3 gap-3">
               <FormField

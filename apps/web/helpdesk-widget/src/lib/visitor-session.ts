@@ -107,6 +107,15 @@ export class VisitorSession implements VisitorAuth {
     return this.open();
   }
 
+  /**
+   * The visitor token this session holds right now, without opening one:
+   * for reads that work for anyone but show more to a known visitor (article
+   * search, announcements). Null while no session is open.
+   */
+  currentToken(): string | null {
+    return this.snapshot.status === 'ready' ? this.token : null;
+  }
+
   markIdentityRequired(): void {
     if (this.snapshot.status !== 'identity-required') this.update({ status: 'identity-required', visitor: null });
   }

@@ -1,8 +1,28 @@
 # One branch (`main`), deploys in a private repo
 
-Status: plan, not started. Once accepted it supersedes ADR OPS-004
-("`develop` → test, `main` → production") with a new ADR (OPS-018), and
-amends OPS-005 (change-detected deploys) and the EU deploy notes in OPS-012/013.
+Status: done (2026-11-08). All four phases landed in one day instead of
+over weeks (two committers, so the plan-only week and the read-only fortnight
+for `develop` were skipped). ADR OPS-018 is accepted and supersedes OPS-004
+("`develop` → test, `main` → production"); it amends OPS-005 and the EU deploy
+notes in OPS-012/013. Left open: rotating the EU test cluster's secrets
+(deferred on purpose), cleaning up the ~48,000 old public deployment records
+(rate limits make it a slow job of its own), and deleting the public
+`production` environment once the desktop signing secrets are on
+`desktop-release`.
+
+How it differs from the text below, which is the plan as written:
+- **Minutes:** measured at about 40,000 job-minutes a month. Decision: run
+  on GitHub-hosted runners and revisit in a month; a self-hosted runner on
+  Hetzner is the fallback. Private repos get 7 GB runners (public ones get
+  16 GB), so the frontend and mobile deploy builds set a 5 GB Node heap.
+- **Checks:** the private workflows check the commit inline, before any
+  public code runs.
+- **Workspace:** the public repo is checked out as the workspace, not into
+  `./src`.
+- **Diff base:** each environment's deployment records.
+- **EU clusters:** their `configs` overlays became inline patches over the
+  public `configs/base` in the private layers, because a Flux layer can't
+  build across two sources.
 
 Decided (2026-11-07):
 - **One branch for the whole repo.** `develop` goes away for Global
@@ -87,14 +107,22 @@ PR ──► CI (public, required checks) ──► merge to main
    its defaults, the Flux base, and the deploy logic itself. A code PR never
    needs a second PR in the private repo.
 2. **The private workflows are thin.** They check out the public repo at
-   the exact commit (`./src`) and run its deploy logic from there
-   (`uses: ./src/.github/actions/…`, `node ./src/.github/scripts/…`). Adding
-   a worker or an app changes only the public repo.
+   the exact commit as their workspace and run its deploy logic from there
+   (`uses: ./.github/actions/deploy-…`, `node .github/scripts/…`). Not into
+   a subfolder: composite actions call each other by workspace path
+   (`./.github/actions/setup-monorepo`), which a subfolder breaks. Every
+   deploy target is named in `.github/scripts/deploy-plan.mjs` and the
+   per-app jobs are matrices over its lists, so adding a worker or an app
+   changes only the public repo.
 3. **New chart values get a default in the chart.** The private cluster
    settings only override (domain, sizes, IDs, version).
 4. **The private repo changes rarely**: a new cluster, a secret, sizing, a
    promotion. If more than about one in twenty code PRs needs a private PR
    too, something is in the wrong repo.
+5. **Check the commit before any public code runs.** A commit from a fork
+   can be checked out through the parent repo by its sha, so the private
+   workflows check inline (with the API, not with a script from the commit)
+   that it is on the branch and its CI passed, and only then check it out.
 
 ## Phases
 
@@ -111,12 +139,15 @@ PR ──► CI (public, required checks) ──► merge to main
 
 - Create `weldsuite/weldsuite-deploy` (private). Archive `deployment-overlay`.
 - Two GitHub Apps, least privilege:
-  - `weldsuite-deploy-bot`: Actions read/write, installed on both repos.
-    The public hand-off uses it to start the private `deploy` workflow
-    (`workflow_dispatch`), and Promote uses it to start the public
-    `rust-release`. Both workflows check their inputs: the sha is on `main`
-    and its CI passed. A leaked key can only start a deploy of a commit that
-    is already on `main`.
+  - `weldsuite-deploy-bot`: Actions read/write, installed on
+    `weldsuite-deploy` only. The public hand-off uses it to start the private
+    `deploy-test` workflow (`workflow_dispatch`), which checks its input: the
+    sha is on the branch and its CI passed. Never on the public repo: Actions
+    write would let it start `publish-cli`, `mobile-build` or
+    `release-desktop` with any inputs. A leaked key can deploy a commit
+    already on the branch to test, or cancel and disable private runs;
+    Promote refuses bots. The public `rust-release` stays a maintainer's
+    button (phase 4).
   - `weldsuite-flux-reader`: Contents read, on `weldsuite-deploy` only. Flux
     uses it in phase 4 (no deploy keys needed).
 - Create Environments `test` and `production` in the private repo. Fill them
@@ -126,11 +157,20 @@ PR ──► CI (public, required checks) ──► merge to main
   under `.github/actions/deploy-*` and `.github/scripts/`. The public
   `deploy.yml` keeps working on top of them, so this is a refactor with no
   change in behaviour.
-- Add the private `deploy.yml` (inputs `sha`, `environment`), with
-  concurrency per environment so the newest commit wins. The diff base is the
-  last successful run for that environment in the private repo. First run it
-  in plan-only mode next to the public deploys and compare what each would
-  deploy.
+- Add the private `deploy.yml` (reusable, inputs `sha`, `environment`), and
+  `deploy-test.yml` and `promote.yml` on top of it, with concurrency per
+  environment so the newest commit wins. The diff base is the last
+  successful deploy of that environment: each live deploy records its
+  commit as a deployment in the private repo (task `deploy:weldsuite`, the
+  commit in `payload.sha`), which works for Promote too, where the commit
+  can be picked inside the run. Until the private repo has one, the public
+  `deploy.yml` history is the fallback.
+- First run them in plan-only mode next to the public deploys and compare
+  what each would deploy. In phase 1 nothing hands commits over yet, so a
+  private `plan-watch` workflow polls every 30 minutes: it plans each commit
+  the public `deploy.yml` deployed, with the diff base that run used, and
+  compares the plan with the jobs the public run ran (a red run is a
+  mismatch). It goes away in phase 2.
 
 ### 2. Move Global's deploy runs to the private repo (branch mapping unchanged)
 
@@ -249,8 +289,8 @@ PR ──► CI (public, required checks) ──► merge to main
   - Accept it.
   - Collapse merge bursts harder (one test deploy per few minutes).
   - Run the private deploy jobs on a self-hosted runner on Hetzner, about
-    €20–36 a month for a CPX22/CPX32. Check GitHub's current policy on
-    self-hosted runner charges first.
+    €20–36 a month for a CPX22/CPX32. Allowed and free of GitHub charges
+    today (see the answered questions below).
 
   Measure for a week in phase 1 before choosing.
 - **No second pair of eyes on production.** Anyone with write access to the
@@ -264,10 +304,28 @@ PR ──► CI (public, required checks) ──► merge to main
 - **Cutover.** Phase 3 needs a short merge freeze, and every open branch
   must be rebased or retargeted onto `main`.
 
-## Open questions
+## Open questions, answered (2026-11-08)
 
-- Should the EU release version (`X.Y.Z`) follow every promotion, or only
-  some, with self-hosted `stable`/`lts` channels cut separately (OPS-014)?
-- Can deploy jobs run on a self-hosted runner, or only GitHub-hosted?
-- `release-desktop.yml` and `mobile-build.yml`: keep them public, or move
-  them with the deploys?
+- **Does every promotion cut an EU release version (`X.Y.Z`)?** Yes. Every
+  EU Promote cuts a new `X.Y.Z`. The self-hosted `stable` (monthly) and `lts`
+  (yearly) channels of OPS-014 are cut separately and point at chosen
+  versions, so EU production's cadence and the self-hosted channels don't
+  hold each other up.
+- **Can deploy jobs run on a self-hosted runner?** Yes, and today it costs
+  nothing extra. GitHub announced a $0.002 per minute platform charge for
+  self-hosted runners from 2026-03-01, then postponed it. As of
+  October 2026 it is not in effect and has no new date, and GitHub's billing
+  docs still list self-hosted runner use as free. Hosted runner prices went
+  down by up to 39% on 2026-01-01. Whether to use one is still the phase 1
+  measurement's call (task "Plan-only week"); re-check GitHub's billing docs
+  before choosing, since the charge may come back.
+- **`release-desktop.yml` and `mobile-build.yml`: public or private?**
+  Public. They build public artifacts and run by hand. They use the public
+  `production`/`test` environments today (`release-desktop`: the Apple and
+  Windows signing secrets and `R2_DOWNLOADS_API_TOKEN`; `mobile-build`:
+  `EXPO_TOKEN`), which the phase 2 cut-over deletes. So before that, they
+  get their own public environments, holding only their secrets, limited to
+  the branch they release from: `desktop-release` (main), and for
+  `mobile-build` `mobile-release` (production channel, main) and
+  `mobile-preview` (preview channel), all limited to `main` once `develop`
+  is gone.

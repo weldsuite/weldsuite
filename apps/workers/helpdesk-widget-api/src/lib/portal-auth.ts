@@ -22,6 +22,7 @@ import {
   sha256Hex,
   type RateLimitOutcome,
 } from '@weldsuite/commerce-domain/portal-tokens';
+import { deskPortalSessionKey, readDeskPortalSession } from '@weldsuite/db/lib/desk-portal-session';
 import type { Env } from '../index';
 
 export const CODE_TTL_SECONDS = 15 * 60;
@@ -61,7 +62,8 @@ export interface PortalSession {
 }
 
 const challengeKey = (workspaceId: string, email: string) => `dportal:code:${workspaceId}:${email}`;
-const sessionKey = (tokenHash: string) => `dportal:sess:${tokenHash}`;
+/** desk-api reads the same key (@weldsuite/db/lib/desk-portal-session) for help-center audiences. */
+const sessionKey = deskPortalSessionKey;
 
 /** Count one hit against a limit of this workspace. `unavailable` means the counter could not be reached. */
 export function hitLimit(env: Env, workspaceId: string, key: string, max: number): Promise<RateLimitOutcome> {
@@ -115,11 +117,7 @@ export async function createSession(
 
 /** The session a token names, if it is live and for this workspace. */
 export async function readSession(env: Env, workspaceId: string, token: string): Promise<PortalSession | null> {
-  if (!/^[0-9a-f]{64}$/.test(token)) return null;
-  const session = await kvGetJson<PortalSession>(env, sessionKey(await sha256Hex(token)));
-  if (!session || session.workspaceId !== workspaceId) return null;
-  if (Date.parse(session.expiresAt) <= Date.now()) return null;
-  return session;
+  return readDeskPortalSession(env.WORKSPACE_CACHE, workspaceId, token);
 }
 
 export async function endSession(env: Env, token: string): Promise<void> {

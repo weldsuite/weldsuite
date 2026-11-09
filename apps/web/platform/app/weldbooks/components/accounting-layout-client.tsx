@@ -12,6 +12,7 @@ import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency'
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { EntityPermissionScope } from '@/components/legal-entity/entity-permission-scope';
 
 interface EntityRow {
   id: string;
@@ -99,6 +100,7 @@ export function AccountingLayoutClient({ children }: Readonly<{ children: React.
 
   const hasEntity = (entities?.length ?? 0) > 0;
   const entityValid = useValidAccountingEntity(entities);
+  const { entityId: selectedEntityId } = useCurrentAccountingEntity();
 
   let content: React.ReactNode;
   // Pages wait while a stale selection is replaced, so no request goes out for an entity of another workspace.
@@ -123,10 +125,13 @@ export function AccountingLayoutClient({ children }: Readonly<{ children: React.
     content = <EntityEmptyState />;
   }
 
+  // Permission checks inside WeldBooks use the member's role in the selected entity.
   return (
-    <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
-      <WeldbooksHeader />
-      <ModuleContent className="overflow-auto">{content}</ModuleContent>
-    </div>
+    <EntityPermissionScope entityId={hasEntity && entityValid ? selectedEntityId : null}>
+      <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <WeldbooksHeader />
+        <ModuleContent className="overflow-auto">{content}</ModuleContent>
+      </div>
+    </EntityPermissionScope>
   );
 }

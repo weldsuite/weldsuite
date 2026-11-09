@@ -41,7 +41,19 @@ export interface Env extends KitEnv {
   DNS_SANDBOX?: D1Database;
 
   // --- Helpdesk analytics (R2 SQL / Iceberg, @weldsuite/core-domain/analytics-query) ---
+  /** Also the account `@weldsuite/ai` reaches the AI Gateway on (inbox translation). */
   CF_ACCOUNT_ID?: string;
+
+  // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, inbox translation ---------
+  // See packages/core/ai/src/config.ts for the full list of recognised keys.
+  /** Cloudflare API token (Workers AI + AI Gateway Run) → `Authorization`; else CLOUDFLARE_API_TOKEN. */
+  AI_GATEWAY_API_TOKEN?: string;
+  /** AI Gateway id (`cf-aig-gateway-id`). Omit to use the account default. */
+  CF_AI_GATEWAY?: string;
+  /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
+  CF_AIG_TOKEN?: string;
+  /** Providers whose calls the ops ledger books without the Unified Billing fee. */
+  AI_BYOK_PROVIDERS?: string;
   /** Bearer token for the Cloudflare R2 SQL REST API. */
   R2_SQL_API_TOKEN?: string;
   /** Name of the R2 bucket that holds the Iceberg analytics catalog. */

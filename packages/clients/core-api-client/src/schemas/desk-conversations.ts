@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { deskReplyTranslationSchema } from './desk-translation';
+import { DESK_IMPACTS, DESK_URGENCIES, deskPriorityMatrixSchema } from './desk-priority-matrix';
 
 export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 'api', 'portal'] as const;
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
@@ -69,6 +71,8 @@ export const replyToConversationSchema = z
     kind: z.enum(['message', 'note']).default('message'),
     body: z.string().trim().max(20_000).default(''),
     attachments: z.array(deskMessageAttachmentSchema).max(10).optional(),
+    /** The agent's own words before "Translate to …" (internal metadata). */
+    translation: deskReplyTranslationSchema.optional(),
   })
   .refine((data) => data.body.length > 0 || (data.attachments?.length ?? 0) > 0, {
     message: 'A reply needs a message or an attachment',
@@ -76,7 +80,8 @@ export const replyToConversationSchema = z
   });
 
 export const manageConversationSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('close') }),
+  /** `closeChildren`: on a major incident, also close its open linked tickets. */
+  z.object({ action: z.literal('close'), closeChildren: z.boolean().optional() }),
   z.object({ action: z.literal('open') }),
   z.object({
     action: z.literal('assign'),
@@ -165,6 +170,8 @@ export const deskConversationAttributeOptionsSchema = z.object({
     }),
   ),
   tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
+  /** The workspace's impact × urgency grid (priority matrix). */
+  priorityMatrix: deskPriorityMatrixSchema,
 });
 
 /** PATCH /api/desk/conversations/:id: the conversation with its custom fields, and the `attributes_changed` event (null when nothing changed). */
@@ -199,6 +206,9 @@ export const updateConversationAttributesSchema = z
     tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
     departmentId: z.string().max(30).nullable().optional(),
     customFields: z.record(z.string().max(100), z.unknown()).optional(),
+    /** ITIL impact and urgency; with the priority matrix on they set the priority. */
+    impact: z.enum(DESK_IMPACTS).nullable().optional(),
+    urgency: z.enum(DESK_URGENCIES).nullable().optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: 'Nothing to update',

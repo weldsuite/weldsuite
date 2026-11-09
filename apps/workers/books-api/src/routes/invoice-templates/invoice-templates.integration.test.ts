@@ -97,6 +97,7 @@ beforeAll(async () => {
       locale: 'en-IN',
       timezone: 'Asia/Kolkata',
     });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: id });
   }
 }, 60_000);
 
@@ -122,6 +123,7 @@ describe('/api/invoice-templates', () => {
   it('flips the default when a second template is created or patched as the default', async () => {
     const entity = 'ent_tpl_flip';
     await db.insert(schema.entities).values({ id: entity, name: 'Flip Co', jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: entity });
 
     const a = await createTemplate(entity, 'A');
     const b = await createTemplate(entity, 'B', { isDefault: true });
@@ -137,6 +139,7 @@ describe('/api/invoice-templates', () => {
   it('lists the default first, then by name, for the entity in the query or header', async () => {
     const entity = 'ent_tpl_list';
     await db.insert(schema.entities).values({ id: entity, name: 'List Co', jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: entity });
     await createTemplate(entity, 'Zeta');
     await createTemplate(entity, 'Alpha');
     await createTemplate(entity, 'Mid', { isDefault: true });
@@ -190,6 +193,7 @@ describe('/api/invoice-templates', () => {
   it('duplicates as "<name> (copy)", never as the default', async () => {
     const entity = 'ent_tpl_dup';
     await db.insert(schema.entities).values({ id: entity, name: 'Dup Co', jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: entity });
     const source = await createTemplate(entity, 'Original');
     expect(source.data.isDefault).toBe(true);
 
@@ -205,6 +209,7 @@ describe('/api/invoice-templates', () => {
   it('deleting a template clears invoices.template_id and promotes no new default', async () => {
     const entity = 'ent_tpl_del';
     await db.insert(schema.entities).values({ id: entity, name: 'Delete Co', jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: entity });
     const keep = await createTemplate(entity, 'Keep');
     const doomed = await createTemplate(entity, 'Doomed', { isDefault: true });
 
@@ -236,6 +241,7 @@ describe('resolveInvoiceTemplate', () => {
   beforeAll(async () => {
     for (const id of [entity, otherEntity]) {
       await db.insert(schema.entities).values({ id, name: id, jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+      await db.insert(schema.accountingEntitySettings).values({ entityId: id });
     }
   });
 
@@ -286,6 +292,7 @@ describe('/api/invoices · templateId', () => {
   beforeAll(async () => {
     for (const id of [entity, otherEntity]) {
       await db.insert(schema.entities).values({ id, name: id, jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+      await db.insert(schema.accountingEntitySettings).values({ entityId: id });
     }
     own = (await createTemplate(entity, 'Mine')).data.id;
     foreign = (await createTemplate(otherEntity, 'Not mine')).data.id;
@@ -342,6 +349,7 @@ describe('/api/invoices · templateId', () => {
 
     const plainEntity = 'ent_tpl_plain';
     await db.insert(schema.entities).values({ id: plainEntity, name: plainEntity, jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: plainEntity });
     const plain = await invoices('', { method: 'POST', entityId: plainEntity, body: invoiceBody() });
     expect(await printed(plain.data.id)).not.toContain('<svg');
   });

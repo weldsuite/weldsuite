@@ -86,6 +86,33 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('roles',         'Roles & Permissions',  ['read', 'create', 'update', 'delete']),
   objectPermissions('apikeys',       'API Keys',             ['read', 'create', 'delete']),
   objectPermissions('billing',       'Billing',              ['read', 'manage']),
+  // Legal entities are core (docs/plans/legal-entities.md): registered in no
+  // app, like `team` and `roles`. WeldBooks' `entities` object stays for the
+  // WeldBooks settings of an entity.
+  {
+    key: 'legal_entities',
+    label: 'Legal Entities',
+    permissions: [
+      { key: 'legal_entities:read',   label: 'View legal entities' },
+      { key: 'legal_entities:create', label: 'Create legal entities' },
+      {
+        key: 'legal_entities:update',
+        label: 'Edit legal entities',
+        description: 'Change company details, registrations and bank accounts, and make an entity the default.',
+      },
+      { key: 'legal_entities:delete', label: 'Archive and delete legal entities' },
+      {
+        key: 'legal_entities:reveal',
+        label: 'Reveal full bank account numbers',
+        description: 'Show the full account number of a bank account of a legal entity. Every reveal is logged.',
+      },
+      {
+        key: 'legal_entities:manage',
+        label: 'Manage access per legal entity',
+        description: 'Restrict a legal entity and choose who sees it, and with which role. Holders always see every legal entity.',
+      },
+    ],
+  },
   {
     key: 'sso',
     label: 'Single Sign-On',
@@ -832,6 +859,9 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'settings:working-hours:edit-self',
   // Single sign-on configuration (buying the add-on still takes billing:manage)
   'sso:read', 'sso:manage',
+  // Legal entities, including who sees which one
+  'legal_entities:read', 'legal_entities:create', 'legal_entities:update', 'legal_entities:delete',
+  'legal_entities:reveal', 'legal_entities:manage',
   // All app modules (full access)
   'weldcrm:*', 'weldstash:*', 'weldbooks:*',
   'welddesk:*', 'weldparcel:*', 'weldflow:*', 'weldmail:*', 'weldhost:*',
@@ -915,6 +945,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // Settings (read-only)
   'settings:general:read', 'settings:team:read', 'settings:teams:read',
+  'legal_entities:read',
   'settings:working-hours:edit-self',
   // WeldCRM
   'weldcrm:leads:read', 'weldcrm:leads:create', 'weldcrm:leads:update',
@@ -1055,6 +1086,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'settings:general:read', 'settings:team:read', 'settings:teams:read',
+  'legal_entities:read',
   'weldcrm:*:read', 'weldstash:*:read', 'weldbooks:*:read',
   'welddesk:*:read', 'weldparcel:*:read', 'weldflow:*:read', 'weldmail:*:read',
   'weldhost:*:read', 'weldchat:*:read', 'weldconnect:*:read', 'welddrive:*:read',

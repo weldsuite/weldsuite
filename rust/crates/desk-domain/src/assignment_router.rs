@@ -73,6 +73,17 @@ pub struct PickRequest {
     pub mode: PickMode,
     pub candidates: Vec<PickCandidate>,
     pub max_open: Option<i64>,
+    /// The team the candidates are (`teamId`): a pick among a team's members
+    /// keeps that team's own rotation.
+    pub team_id: Option<String>,
+}
+
+/// `deskPickerStateKey(teamId)`: the record field a pick's rotation lives in.
+pub fn picker_state_key(team_id: Option<&str>) -> String {
+    match team_id.filter(|id| !id.is_empty()) {
+        Some(id) => format!("desk:team:{id}"),
+        None => "desk".to_owned(),
+    }
 }
 
 /// One pick of the last 30 seconds.
@@ -385,14 +396,16 @@ impl AssignmentRouter {
         )))
     }
 
-    /// `pickDeskAssignee(request)` on the workspace's record.
+    /// `pickDeskAssignee(request)` on the workspace's record: the roster's
+    /// rotation, or the team's (`request.team_id`).
     pub async fn pick_desk_assignee(
         &self,
         workspace_id: &str,
         request: &PickRequest,
     ) -> Result<Option<String>, PortError> {
         let now = (self.clock)();
-        self.update(&format!("desk:{workspace_id}"), "desk", |stored| {
+        let field = picker_state_key(request.team_id.as_deref());
+        self.update(&format!("desk:{workspace_id}"), &field, |stored| {
             let state: PickerState = stored
                 .and_then(|text| serde_json::from_str(text).ok())
                 .unwrap_or_default();
@@ -485,6 +498,7 @@ mod tests {
                 })
                 .collect(),
             max_open,
+            team_id: None,
         }
     }
 
@@ -538,5 +552,27 @@ mod tests {
         assert_eq!(pick("ws_1").await.as_deref(), Some("user_b"));
         assert_eq!(pick("ws_2").await.as_deref(), Some("user_a"));
         assert_eq!(pick("ws_1").await.as_deref(), Some("user_a"));
+    }
+
+    #[tokio::test]
+    async fn teams_rotate_apart_from_the_roster() {
+        let router = AssignmentRouter::new(Arc::new(MemoryLedgerStore::new()));
+        let pick = |team: Option<&'static str>| {
+            let router = router.clone();
+            let mut ask = request(PickMode::RoundRobin, &[("user_b", 0), ("user_a", 0)], None);
+            ask.team_id = team.map(str::to_owned);
+            async move {
+                router
+                    .pick_desk_assignee("ws_1", &ask)
+                    .await
+                    .expect("a pick")
+            }
+        };
+        assert_eq!(pick(Some("dep_a")).await.as_deref(), Some("user_a"));
+        assert_eq!(pick(Some("dep_a")).await.as_deref(), Some("user_b"));
+        assert_eq!(pick(Some("dep_b")).await.as_deref(), Some("user_a"));
+        assert_eq!(pick(None).await.as_deref(), Some("user_a"));
+        assert_eq!(picker_state_key(Some("dep_a")), "desk:team:dep_a");
+        assert_eq!(picker_state_key(Some("")), "desk");
     }
 }

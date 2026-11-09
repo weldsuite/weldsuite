@@ -12,6 +12,9 @@
 #   CLOUDFLARE_API_TOKEN (help center custom domains: DNS records in zones),
 #   DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN (helpdesk
 #     Discord channel OAuth callback + outbound REST: ticket panel, agent replies),
+#   AI_GATEWAY_API_TOKEN (inbox translation through @weldsuite/ai; without it
+#     the token falls back to CLOUDFLARE_API_TOKEN, and with neither the
+#     translate routes answer 503 ai_unavailable),
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns

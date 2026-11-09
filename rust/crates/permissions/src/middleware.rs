@@ -112,6 +112,53 @@ impl<Q: PermissionQueries + 'static> PermissionGate<Q> {
         }
     }
 
+    /// The per-request lookups (on the request's tenant database), for a
+    /// layer that resolves more than the member's own permissions (a legal
+    /// entity's role, `weldsuite-legal-entities`).
+    pub fn queries(&self, extensions: &Extensions) -> Result<Q, ApiError> {
+        (self.make_queries)(extensions)
+    }
+
+    /// Whether per-app refusals are enforced ([`PermissionGate::app_enforced`]).
+    pub fn is_app_enforced(&self) -> bool {
+        self.app_enforced
+    }
+
+    /// The caller's permissions as a gate layer would settle them, without
+    /// requiring a key and without storing anything: the request's
+    /// [`Permissions`] when an earlier layer set them, else its
+    /// [`PresetPermissions`], else resolved now (`ensurePermissionsResolved`).
+    /// `None` without a session. A layer that runs before the routes' gates
+    /// (`legalEntityContext`) inserts the result as a [`PresetPermissions`] so
+    /// the gates don't resolve the member a second time.
+    pub async fn settle(&self, extensions: &Extensions) -> Result<Option<Permissions>, ApiError> {
+        if let Some(permissions) = extensions.get::<Permissions>() {
+            return Ok(Some(permissions.clone()));
+        }
+        if let Some(PresetPermissions(preset)) = extensions.get::<PresetPermissions>() {
+            return Ok(Some(preset.clone()));
+        }
+        let Some(user_id) = extensions
+            .get::<AuthContext>()
+            .map(|auth| auth.user_id.clone())
+        else {
+            return Ok(None);
+        };
+        let queries = (self.make_queries)(extensions)?;
+        let resolved = resolve_effective_permissions(&queries, &user_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "permissions: resolving the member failed");
+                ApiError::internal()
+            })?;
+        Ok(Some(Permissions {
+            resolved: Arc::new(resolved),
+            app: extensions.get::<AppContext>().map(|app| app.0),
+            app_enforced: self.app_enforced,
+            user_id,
+        }))
+    }
+
     /// The request's [`Permissions`], resolved now or taken from an earlier
     /// layer on the same request (or from a [`PresetPermissions`]).
     async fn permissions_for(&self, request: &mut Request) -> Result<Permissions, Box<Response>> {
@@ -196,6 +243,23 @@ impl Permissions {
 
     pub fn resolved(&self) -> &ResolvedPermissions {
         &self.resolved
+    }
+
+    /// The member these permissions were resolved for.
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
+    /// The same caller, app context and enforcement with another resolution:
+    /// the permissions of a legal entity's role swapped in for the request.
+    #[must_use]
+    pub fn with_resolved(&self, resolved: ResolvedPermissions) -> Self {
+        Self {
+            resolved: Arc::new(resolved),
+            app: self.app,
+            app_enforced: self.app_enforced,
+            user_id: self.user_id.clone(),
+        }
     }
 
     /// The request's app, if it named one.

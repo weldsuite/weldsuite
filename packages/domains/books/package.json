@@ -7,6 +7,7 @@
   "exports": {
     "./accounting-address": "./src/accounting-address.ts",
     "./accounting-compliance": "./src/accounting-compliance.ts",
+    "./accounting-entity": "./src/accounting-entity.ts",
     "./accounting-guards": "./src/accounting-guards.ts",
     "./accounting-invoice-html": "./src/accounting-invoice-html.ts",
     "./accounting-roles": "./src/accounting-roles.ts",

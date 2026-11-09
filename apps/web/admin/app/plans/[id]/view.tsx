@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/link';
 import { ArrowLeft } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -8,6 +8,7 @@ import { ActivityTable } from '@/components/billing/activity-table';
 import { adminCopy } from '@/lib/i18n';
 import { PlanForm } from '../plan-form';
 import type { PlanDetailPageData } from './data';
+import { GLOBAL } from '@/lib/edition';
 import { SyncPlanButton } from './sync-plan-button';
 
 export function PlanDetailPage({ plan, history, canWrite }: Readonly<PlanDetailPageData>) {
@@ -43,6 +44,9 @@ export function PlanDetailPage({ plan, history, canWrite }: Readonly<PlanDetailP
           />
         </div>
 
+        {/* Stripe is Global's; on Kubernetes a plan is its row alone. */}
+        {!GLOBAL && <p className="text-sm text-muted-foreground">{t.plans.noStripe}</p>}
+        {GLOBAL && (
         <Card className="py-4">
           <CardContent className="space-y-3 px-4">
             <div className="flex items-center justify-between gap-2">
@@ -59,6 +63,7 @@ export function PlanDetailPage({ plan, history, canWrite }: Readonly<PlanDetailP
             </dl>
           </CardContent>
         </Card>
+        )}
 
         <PlanForm key={plan.updatedAt} plan={plan} canWrite={canWrite} />
 

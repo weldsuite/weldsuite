@@ -28,6 +28,7 @@ use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{
     Fields, change, color, id, int, iso_date, iso_date_time, number, short_text, text_max,
 };
@@ -138,6 +139,17 @@ where
             "/leave-requests/{id}",
             delete(delete_leave_route).route_layer(gate.require([LEAVE_DELETE])),
         )
+        .route_layer(guard("/shifts", "Shift", via_employee!("hr_shifts")))
+        .route_layer(guard(
+            "/attendance",
+            "Attendance record",
+            via_employee!("hr_attendance_records"),
+        ))
+        .route_layer(guard(
+            "/leave-requests",
+            "Leave request",
+            via_employee!("hr_leave_requests"),
+        ))
 }
 
 // ---------------------------------------------------------------------------
@@ -220,13 +232,14 @@ fn employee_name_of(row: &Value) -> String {
 // Shifts
 // ---------------------------------------------------------------------------
 
-/// `listShifts(db, { from, to, employeeId, companyId })`.
+/// `listShifts(db, { from, to, employeeId, companyId, entity })`.
 pub(crate) async fn list_shifts(
     db: &PgPool,
     from: &str,
     to: &str,
     employee_id: Option<&str>,
     company_id: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let rows: Vec<(Value, Value)> = sqlx::query_as(
         "select to_jsonb(s), jsonb_build_object('employeeFirstName', e.first_name,
@@ -235,6 +248,8 @@ pub(crate) async fn list_shifts(
          where s.starts_at >= $1::timestamptz and s.starts_at <= $2::timestamptz and e.deleted_at is null
            and ($3::text is null or s.employee_id = $3)
            and ($4::text is null or s.company_id = $4)
+           and ($5::text[] is null or e.legal_entity_id = any($5)
+                or ($6::boolean and e.legal_entity_id is null))
          order by s.starts_at asc
          limit 2000",
     )
@@ -242,6 +257,8 @@ pub(crate) async fn list_shifts(
     .bind(format!("{to}T23:59:59Z"))
     .bind(employee_id)
     .bind(company_id)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let companies: Vec<Option<&str>> = rows.iter().map(|(s, _)| s["company_id"].as_str()).collect();
@@ -450,6 +467,7 @@ async fn list_shifts_route(caller: Caller, RawQuery(query): RawQuery) -> HrResul
         &to,
         query_text(&q, "employeeId").as_deref(),
         query_text(&q, "companyId").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -459,6 +477,9 @@ async fn create_shift_route(caller: Caller, headers: HeaderMap, body: Bytes) -> 
     let input = hr_json(&headers, &body, |issues, fields| {
         shift_input(issues, fields, false)
     })?;
+    caller
+        .assert_employee_visible(input.employee_id.as_set().map(String::as_str))
+        .await?;
     let details = ShiftDetails {
         company_id: input.company_id.as_set().map(String::as_str),
         work_type: work_type_value(&input.work_type),
@@ -716,6 +737,8 @@ pub(crate) struct AttendanceFilters {
     pub(crate) unapproved: bool,
     pub(crate) limit: Option<f64>,
     pub(crate) cursor: Option<String>,
+    /// The request's entity scope on the employees.
+    pub(crate) entity: Scope,
 }
 
 /// `listAttendance(db, filters)`: `(data, totalCount, hasMore, cursor)`.
@@ -752,6 +775,8 @@ pub(crate) async fn list_attendance(
            and ($5::text[] is null or a.status = any($5))
            and (not $6 or a.approved_at is null)
            and ($7::text is null or (a.date, a.id) < ($7::date, $8))
+           and ($10::text[] is null or e.legal_entity_id = any($10)
+                or ($11::boolean and e.legal_entity_id is null))
          order by a.date desc, a.id desc
          limit $9",
     )
@@ -764,6 +789,8 @@ pub(crate) async fn list_attendance(
     .bind(cursor.as_ref().map(|c| c.0.clone()))
     .bind(cursor.as_ref().map(|c| c.1.clone()))
     .bind(limit + 1)
+    .bind(filters.entity.ids())
+    .bind(filters.entity.unassigned())
     .fetch_all(db)
     .await?;
     let total: i64 = sqlx::query_scalar(
@@ -774,7 +801,9 @@ pub(crate) async fn list_attendance(
            and ($3::text is null or a.date >= $3::date)
            and ($4::text is null or a.date <= $4::date)
            and ($5::text[] is null or a.status = any($5))
-           and (not $6 or a.approved_at is null)",
+           and (not $6 or a.approved_at is null)
+           and ($7::text[] is null or e.legal_entity_id = any($7)
+                or ($8::boolean and e.legal_entity_id is null))",
     )
     .bind(&filters.employee_id)
     .bind(&filters.company_id)
@@ -782,6 +811,8 @@ pub(crate) async fn list_attendance(
     .bind(&filters.to)
     .bind(&statuses)
     .bind(filters.unapproved)
+    .bind(filters.entity.ids())
+    .bind(filters.entity.unassigned())
     .fetch_one(db)
     .await?;
     let page_size = usize::try_from(limit).unwrap_or(0);
@@ -1074,6 +1105,7 @@ async fn list_attendance_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
         unapproved: query_param(&q, "unapproved").as_deref() == Some("true"),
         limit: query_text(&q, "limit").map(|l| crate::js_number_of(&l)),
         cursor: query_text(&q, "cursor"),
+        entity: caller.scope().await?,
     };
     let (data, total, has_more, cursor) = list_attendance(&caller.db, &filters).await?;
     Ok(List::new(
@@ -1083,13 +1115,14 @@ async fn list_attendance_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
     .into_response())
 }
 
-/// `attendanceSummary(db, filters)`.
+/// `attendanceSummary(db, filters)`; `scope` is the request's entity scope.
 pub(crate) async fn attendance_summary(
     db: &PgPool,
     from: &str,
     to: &str,
     employee_ids: Option<&[String]>,
     company_id: Option<&str>,
+    scope: &Scope,
 ) -> Result<Value, HrError> {
     if employee_ids.is_some_and(<[String]>::is_empty) {
         return Ok(
@@ -1102,12 +1135,17 @@ pub(crate) async fn attendance_summary(
          where date >= $1::date and date <= $2::date
            and ($3::text[] is null or employee_id = any($3))
            and ($4::text is null or company_id = $4)
+           and ($5::text[] is null or employee_id in (select scope_e.id from hr_employees scope_e
+                where scope_e.legal_entity_id = any($5)
+                   or ($6::boolean and scope_e.legal_entity_id is null)))
          group by status",
     )
     .bind(from)
     .bind(to)
     .bind(employee_ids.map(<[String]>::to_vec))
     .bind(company_id)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let mut by_status = Map::new();
@@ -1142,6 +1180,7 @@ async fn summary_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         &to,
         employee_ids.as_deref(),
         query_text(&q, "companyId").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(summary).into_response())
@@ -1157,6 +1196,9 @@ async fn create_attendance_route(
         let employee = id(issues, fields, "employeeId", Presence::Required);
         (employee, attendance_write(issues, fields, false))
     })?;
+    caller
+        .assert_employee_visible(employee_id.as_set().map(String::as_str))
+        .await?;
     let date = write.date.as_set().cloned().unwrap_or_default();
     let row = create_attendance(
         &caller.db,
@@ -1223,16 +1265,24 @@ async fn approve_route(
         )
     })?;
     let ids = ids.into_option().unwrap_or_default();
+    // Only records of employees the request may touch; the rest are left alone.
+    let scope = caller.scope().await?;
     let approved: Vec<(String, String)> = if ids.is_empty() {
         Vec::new()
     } else {
         sqlx::query_as(
             "update hr_attendance_records set approved_at = $3::timestamp, approved_by = $2, updated_at = $3::timestamp
-             where id = any($1) and approved_at is null returning id, employee_id",
+             where id = any($1) and approved_at is null
+           and ($4::text[] is null or employee_id in (select scope_e.id from hr_employees scope_e
+                where scope_e.legal_entity_id = any($4)
+                   or ($5::boolean and scope_e.legal_entity_id is null)))
+             returning id, employee_id",
         )
         .bind(&ids)
         .bind(&caller.user_id)
         .bind(now())
+        .bind(scope.ids())
+        .bind(scope.unassigned())
         .fetch_all(&caller.db)
         .await?
     };
@@ -1251,6 +1301,7 @@ async fn approve_route(
 pub(crate) async fn resolve_employee_refs(
     db: &PgPool,
     refs: &[String],
+    scope: &Scope,
 ) -> Result<HashMap<String, String>, HrError> {
     let mut unique: Vec<String> = Vec::new();
     for r in refs {
@@ -1266,10 +1317,14 @@ pub(crate) async fn resolve_employee_refs(
     let lowered: Vec<String> = unique.iter().map(|r| r.to_lowercase()).collect();
     let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
         "select id, email, employee_number from hr_employees
-         where deleted_at is null and (lower(email) = any($1) or employee_number = any($2))",
+         where deleted_at is null and (lower(email) = any($1) or employee_number = any($2))
+           and ($3::text[] is null or legal_entity_id = any($3)
+                or ($4::boolean and legal_entity_id is null))",
     )
     .bind(&lowered)
     .bind(&unique)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     for (id, email, number) in rows {
@@ -1401,7 +1456,8 @@ async fn import_route(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResu
     let dry_run = dry_run.as_set() == Some(&true);
     let db = &caller.db;
     let refs: Vec<String> = rows.iter().map(|r| r.employee.clone()).collect();
-    let resolved = resolve_employee_refs(db, &refs).await?;
+    // Employees outside the request's entity scope do not match, as if they did not exist.
+    let resolved = resolve_employee_refs(db, &refs, &caller.scope().await?).await?;
     let (mut created, mut updated) = (0, 0);
     let mut errors: Vec<Value> = Vec::new();
     for (index, row) in rows.into_iter().enumerate() {
@@ -1803,6 +1859,7 @@ async fn set_allowance_route(caller: Caller, headers: HeaderMap, body: Bytes) ->
     })?;
     let db = &caller.db;
     let employee = employee.into_option().unwrap_or_default();
+    caller.assert_employee_visible(Some(&employee)).await?;
     let leave_type = leave_type.into_option().unwrap_or_default();
     let year = int_of(year.into_option().unwrap_or_default());
     let days = days.into_option().unwrap_or_default();
@@ -1915,6 +1972,7 @@ async fn balances_route(
     Path(employee_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> HrResult {
+    caller.assert_employee_visible(Some(&employee_id)).await?;
     let year = query_param(&query_values(query.as_deref()), "year")
         .map(|y| crate::js_number_of(&y))
         .filter(|y| *y != 0.0 && !y.is_nan())
@@ -1980,6 +2038,7 @@ pub(crate) async fn list_leave_requests(
     status: Option<&str>,
     from: Option<&str>,
     to: Option<&str>,
+    scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let statuses: Option<Vec<String>> = status
         .filter(|s| !s.is_empty())
@@ -1995,6 +2054,8 @@ pub(crate) async fn list_leave_requests(
            and ($2::text[] is null or r.status = any($2))
            and ($3::text is null or r.end_date >= $3::date)
            and ($4::text is null or r.start_date <= $4::date)
+           and ($5::text[] is null or e.legal_entity_id = any($5)
+                or ($6::boolean and e.legal_entity_id is null))
          order by r.start_date desc
          limit 1000",
     )
@@ -2002,6 +2063,8 @@ pub(crate) async fn list_leave_requests(
     .bind(&statuses)
     .bind(from)
     .bind(to)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     let reviewers: Vec<Option<&str>> = rows
@@ -2036,6 +2099,7 @@ async fn list_leave_requests_route(caller: Caller, RawQuery(query): RawQuery) ->
         query_text(&q, "status").as_deref(),
         query_date(&q, "from").as_deref(),
         query_date(&q, "to").as_deref(),
+        &caller.scope().await?,
     )
     .await?;
     Ok(Data(rows).into_response())
@@ -2169,6 +2233,9 @@ async fn create_leave_request_route(
                 text_max(issues, fields, "reason", Presence::Nullish, 2000),
             )
         })?;
+    caller
+        .assert_employee_visible(employee.as_set().map(String::as_str))
+        .await?;
     let input = LeaveRequestInput {
         employee_id: employee.as_set().map_or("", String::as_str),
         leave_type_id: leave_type.as_set().map_or("", String::as_str),
@@ -2316,7 +2383,11 @@ async fn delete_leave_route(
 }
 
 /// `onLeaveOn(db, date)`: who is on approved leave that day.
-pub(crate) async fn on_leave_on(db: &PgPool, date: &str) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn on_leave_on(
+    db: &PgPool,
+    date: &str,
+    scope: &Scope,
+) -> Result<Vec<Value>, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('employeeId', lr.employee_id, 'firstName', e.first_name,
              'lastName', e.last_name, 'preferredName', e.preferred_name,
@@ -2325,9 +2396,13 @@ pub(crate) async fn on_leave_on(db: &PgPool, date: &str) -> Result<Vec<Value>, H
          join hr_employees e on e.id = lr.employee_id
          left join hr_leave_types lt on lt.id = lr.leave_type_id
          where lr.status = 'approved' and lr.start_date <= $1::date and lr.end_date >= $1::date
-           and e.deleted_at is null and e.status <> 'terminated'",
+           and e.deleted_at is null and e.status <> 'terminated'
+           and ($2::text[] is null or e.legal_entity_id = any($2)
+                or ($3::boolean and e.legal_entity_id is null))",
     )
     .bind(date)
+    .bind(scope.ids())
+    .bind(scope.unassigned())
     .fetch_all(db)
     .await?;
     Ok(rows

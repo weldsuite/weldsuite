@@ -36,6 +36,7 @@
 )]
 
 mod defaults;
+mod entity_scope;
 mod fields;
 mod shared;
 mod validation;
@@ -77,6 +78,7 @@ use weldsuite_catalogs::permission_keys::EMPLOYEES_SELF;
 use weldsuite_db::{Keyring, PgPool, Tenant};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext};
 use weldsuite_kit::{ApiError, RequestEnv};
+use weldsuite_legal_entities::{LegalEntityContextOptions, RequestEntity, legal_entity_context};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, FileStores, OutboundHttp, PresenceReader, StorageBuckets,
@@ -161,6 +163,18 @@ where
         .nest("/payroll", payroll::routes(gate))
         .nest("/me", me)
         .layer(axum::middleware::from_fn(defaults::ensure_hr_defaults))
+        // Which entity the request is about (`X-Legal-Entity-Id`; none = every
+        // entity the member acts in with their workspace role) and, when an
+        // entity role applies there, the permissions to check. Workspace-level
+        // setup and My HR skip it ([`entity_scope::is_workspace_level`]).
+        .layer(legal_entity_context(
+            gate,
+            LegalEntityContextOptions::new()
+                .app(entity_scope::HR_APP)
+                .scoped()
+                .fallback_to_default(false)
+                .skip(|request| entity_scope::is_workspace_level(request.uri().path())),
+        ))
         .with_state(state)
 }
 
@@ -178,6 +192,9 @@ pub(crate) struct Caller {
     /// `c.get('workspaceId')`: `workspaces.id` (the payroll billing ledger).
     pub(crate) workspace_id: String,
     pub(crate) permissions: Permissions,
+    /// What `legal_entity_context` settled (the member's entity access and
+    /// the request's entity); `None` on the workspace-level routes it skips.
+    pub(crate) entity: Option<RequestEntity>,
     pub(crate) events: EventContext,
     /// `CF-Connecting-IP`, else the first `X-Forwarded-For` entry (`clientIp`).
     pub(crate) ip: Option<String>,
@@ -372,6 +389,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                         .unwrap_or_else(|| tenant.workspace_id.clone()),
                     workspace_id: tenant.workspace_id.clone(),
                     permissions: permissions.clone(),
+                    entity: RequestEntity::of(&parts.extensions).cloned(),
                     events: EventContext::for_request(auth, tenant),
                     ip: client_ip(&parts.headers),
                     env: parts.extensions.get::<RequestEnv>().cloned(),

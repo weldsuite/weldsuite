@@ -18,16 +18,32 @@ export type DeskEventType =
   | 'rated'
   | 'attributes_changed'
   | 'sla_warning'
-  | 'sla_breached';
+  | 'sla_breached'
+  | 'escalated'
+  // Linked tickets (internal): parent/child links, merges, major incidents.
+  | 'linked'
+  | 'unlinked'
+  | 'merged_into'
+  | 'merged_from'
+  | 'incident_marked'
+  | 'incident_unmarked';
 export type DeskSlaMetric = 'first_response' | 'next_response' | 'resolution';
 /** What the inbox shows for a conversation's SLA clocks; null when no policy applies. */
 export type DeskSlaStatus = 'active' | 'warning' | 'breached' | 'paused' | 'achieved';
 export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export const DESK_PRIORITIES: DeskPriority[] = ['urgent', 'high', 'medium', 'low'];
+/** ITIL impact and urgency: the priority matrix's two axes. */
+export type DeskLevel = 'low' | 'medium' | 'high';
+export const DESK_LEVELS: DeskLevel[] = ['high', 'medium', 'low'];
+/** impact → urgency → priority, and whether the inbox applies it. */
+export interface DeskPriorityMatrix {
+  enabled: boolean;
+  matrix: Record<DeskLevel, Record<DeskLevel, DeskPriority>>;
+}
 
 /** One ticket field an `attributes_changed` event changed (display values). */
 export interface DeskAttributeChange {
-  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField' | 'impact' | 'urgency';
   key?: string;
   label?: string;
   from: unknown;
@@ -69,6 +85,13 @@ export interface DeskConversation {
   slaStatus?: DeskSlaStatus | null;
   slaDueAt?: string | null;
   slaMetric?: DeskSlaMetric | null;
+  /** ITIL impact and urgency; with the priority matrix on they set the priority. */
+  impact?: DeskLevel | null;
+  urgency?: DeskLevel | null;
+  /** Linked tickets: the parent (one level), whether this is a major incident, the conversation it was merged into. */
+  parentConversationId?: string | null;
+  isMajorIncident?: boolean;
+  mergedIntoId?: string | null;
 }
 
 export interface DeskMessageAttachment {
@@ -371,6 +394,8 @@ export interface DeskReplyInput {
   kind: 'message' | 'note';
   body: string;
   attachments?: DeskMessageAttachment[];
+  /** What the agent wrote before translating the reply (internal metadata). */
+  translation?: { original: string; sourceLocale: string; targetLocale: string };
 }
 
 type DeskDetailData = { data: DeskConversation & { messages: DeskMessage[] } };
@@ -500,6 +525,7 @@ export interface DeskAttributeOptions {
   teams: Array<{ id: string; name: string }>;
   fields: DeskTicketField[];
   tags: Array<{ tag: string; count: number }>;
+  priorityMatrix?: DeskPriorityMatrix;
 }
 
 /** What the details panel can pick: types, their fields, teams, tags in use. */
@@ -522,6 +548,8 @@ export interface DeskAttributesUpdate {
   tags?: string[];
   departmentId?: string | null;
   customFields?: Record<string, unknown>;
+  impact?: DeskLevel | null;
+  urgency?: DeskLevel | null;
 }
 
 const ATTRIBUTES_MUTATION = [...deskKeys.all, 'update-attributes'] as const;

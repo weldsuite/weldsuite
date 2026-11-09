@@ -531,9 +531,30 @@ async function activeSalesChannelCount(db: Database, productId: string): Promise
   return rows.length;
 }
 
+/**
+ * The default WeldBooks entity: the workspace's default legal entity when
+ * WeldBooks is enabled for it (an `accounting_entity_settings` row), else the
+ * deprecated `settings.default_entity_id` when it is. Same rule as
+ * `defaultEntityIdFor(db, 'weldbooks')` in `@weldsuite/core-domain/legal-entities`
+ * (this package does not depend on it). No member is involved.
+ */
 async function loadDefaultEntityId(db: Database): Promise<string | null> {
+  const enabled = async (id: string): Promise<boolean> => {
+    const [row] = await db
+      .select({ id: schema.accountingEntitySettings.entityId })
+      .from(schema.accountingEntitySettings)
+      .where(eq(schema.accountingEntitySettings.entityId, id))
+      .limit(1);
+    return Boolean(row);
+  };
+  const [core] = await db
+    .select({ id: schema.legalEntities.id })
+    .from(schema.legalEntities)
+    .where(and(eq(schema.legalEntities.isDefault, true), isNull(schema.legalEntities.deletedAt)))
+    .limit(1);
+  if (core && (await enabled(core.id))) return core.id;
   const [settings] = await db.select({ defaultEntityId: schema.settings.defaultEntityId }).from(schema.settings).limit(1);
-  return settings?.defaultEntityId ?? null;
+  return settings?.defaultEntityId && (await enabled(settings.defaultEntityId)) ? settings.defaultEntityId : null;
 }
 
 async function resolveIngestEntityId(args: IngestArgs): Promise<string | null> {

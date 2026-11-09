@@ -1,25 +1,30 @@
 name: Rust release
 
-# Releases a develop build of the Rust backend for the EU production cluster
+# Releases a main build of the Rust backend for the EU production cluster
 # (rust/deploy/hetzner/README.md, "Releases"). A release is not a new build:
 # it promotes one the test cluster already ran.
 #
 # Given the build's image tag (sha-<12 characters of the commit>, as the
 # "Rust images" workflow published it) and a version (X.Y.Z), it
-#   - checks the commit is on develop, its `Rust` check passed, and the
+#   - checks the commit is on main, its `Rust` check passed, and the
 #     version is newer than every earlier release;
-#   - copies the three images to the version's tag, digest for digest:
+#   - copies the four images to the version's tag, digest for digest:
 #       ghcr.io/weldsuite/weldsuite:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-sign-portal:X.Y.Z
+#       ghcr.io/weldsuite/weldsuite-admin:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-collab-rooms:X.Y.Z
+#       ghcr.io/weldsuite/weldsuite-haraka:X.Y.Z (a build from before it
+#       existed can't be released)
 #   - publishes that commit's chart as
 #       oci://ghcr.io/weldsuite/releases/weldsuite:X.Y.Z (appVersion X.Y.Z),
 #     a repository of its own, so the test cluster, which takes the newest
 #     chart in oci://ghcr.io/weldsuite/charts, never picks up a release;
 #   - tags the commit weldsuite-vX.Y.Z, last, so a failed run can be run
 #     again and the tag always means a finished release.
-# Production moves to it when WELDSUITE_VERSION in
-# rust/deploy/flux/clusters/eu/cluster-settings.yaml says X.Y.Z on main.
+# Production moves to it when Promote in the private repo weldsuite-deploy
+# writes WELDSUITE_VERSION X.Y.Z and the base-layer tag weldsuite-vX.Y.Z into
+# eu/clusters/eu (ADR OPS-018). A maintainer runs this workflow first; no
+# GitHub App can start it.
 #
 # The registry is ghcr.io until the EU registry (P5 work package 5.4). The
 # packages are public, so the cluster pulls without credentials.
@@ -28,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       build:
-        description: 'The develop build to release: its image tag, sha-<12 characters> (the test cluster runs it)'
+        description: 'The main build to release: its image tag, sha-<12 characters> (the test cluster runs it)'
         required: true
       version:
         description: 'The release version, X.Y.Z, newer than the last release'
@@ -51,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
           fetch-depth: 0
 
       # Inputs reach the scripts through env, never through ${{ }} in a
@@ -70,7 +75,7 @@ jobs:
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail "version must be X.Y.Z, got '$VERSION'"
 
           commit="$(git rev-parse --verify --quiet "${BUILD#sha-}^{commit}")" || fail "no commit $BUILD in this repository"
-          git merge-base --is-ancestor "$commit" origin/develop || fail "$commit is not on develop"
+          git merge-base --is-ancestor "$commit" origin/main || fail "$commit is not on main"
 
           tag="weldsuite-v$VERSION"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
@@ -85,7 +90,7 @@ jobs:
             fi
           fi
 
-          # The `Rust` check of the develop push that built it. A newer push
+          # The `Rust` check of the main push that built it. A newer push
           # cancels an older one's CI (ci.yml's concurrency), so it may never
           # have finished; branch protection required it on the pull request
           # either way. Only a check that ran and failed stops the release.
@@ -94,7 +99,7 @@ jobs:
           case "$rust" in
             success) ;;
             failure|timed_out|action_required) fail "the Rust check of $commit is '$rust'" ;;
-            *) echo "::warning::the Rust check of $commit on develop is '$rust' (cancelled by a newer push, or never ran)" ;;
+            *) echo "::warning::the Rust check of $commit on main is '$rust' (cancelled by a newer push, or never ran)" ;;
           esac
 
           {
@@ -118,7 +123,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-collab-rooms)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
           digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
           for image in "${images[@]}"; do
             digest "$image:$BUILD" >/dev/null || { echo "::error::$image:$BUILD not found"; exit 1; }
@@ -173,6 +178,6 @@ jobs:
             echo
             echo "Tagged \`$TAG\` at $COMMIT (previous release: $LATEST)."
             echo
-            echo "To put it in production, set \`WELDSUITE_VERSION: \"$VERSION\"\` in"
-            echo "\`rust/deploy/flux/clusters/eu/cluster-settings.yaml\` and get it to \`main\`."
+            echo "To put it in production, run **Promote** in weldsuite-deploy with target \`eu\`"
+            echo "and version \`$VERSION\`: it sets WELDSUITE_VERSION and the base-layer tag there."
           } >> "$GITHUB_STEP_SUMMARY"

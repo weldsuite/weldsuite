@@ -3,14 +3,15 @@
  */
 export const weldmergeReviewing = {
   tabs: {
-    overview: 'Overzicht',
+    description: 'Beschrijving',
     files: 'Gewijzigde bestanden',
-    conversation: 'Gesprek',
+    issues: 'Issues',
+    merge: 'Samenvoegen',
   },
   files: {
     heading: 'Gewijzigde bestanden',
     summary: '{count} bestanden',
-    searchPlaceholder: 'Bestanden filteren',
+    searchPlaceholder: 'Bestanden zoeken',
     empty: 'Geen gewijzigde bestanden',
     emptyDescription: 'De provider meldt geen wijzigingen voor deze pull request.',
     loadFailed: 'De wijzigingen konden niet bij de provider worden opgehaald.',
@@ -45,8 +46,8 @@ export const weldmergeReviewing = {
     remove: 'Concept verwijderen',
   },
   conversation: {
+    heading: 'Gesprekken',
     empty: 'Nog geen reacties',
-    emptyDescription: 'Begin het gesprek hieronder.',
     loadFailed: 'Het gesprek kon niet bij de provider worden opgehaald.',
     onLine: '{path}, regel {line}',
     resolved: 'Opgelost',
@@ -55,9 +56,8 @@ export const weldmergeReviewing = {
     reply: 'Beantwoorden',
     replyPlaceholder: 'Schrijf een antwoord',
     sendReply: 'Antwoord versturen',
-    newComment: 'Reactie toevoegen',
-    newCommentPlaceholder: 'Schrijf een reactie',
-    send: 'Reageren',
+    newCommentPlaceholder: 'Schrijf een reactie...',
+    filesNotPosted: 'Bestanden worden niet bij de pull request geplaatst, alleen de tekst.',
     sent: 'Reactie geplaatst.',
     unknownAuthor: 'Onbekend',
     viewOnProvider: 'Bekijk bij de provider',

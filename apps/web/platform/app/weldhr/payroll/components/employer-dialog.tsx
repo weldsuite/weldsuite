@@ -1,8 +1,10 @@
 /**
- * Create or edit a payroll employer: the legal entity that pays the salaries.
- * Netherlands: loonheffingennummer, sector, per-year Whk and Aof, holiday
- * allowance, payslip language. United States: EIN, deposit schedule, workweek,
- * and per-state account numbers with the SUI rate of each year.
+ * Create or edit a payroll employer: a payroll registration of a legal entity.
+ * Netherlands: sector, per-year Whk and Aof, holiday allowance, payslip
+ * language. United States: deposit schedule, workweek, and per-state account
+ * numbers with the SUI rate of each year. The registration number
+ * (loonheffingennummer, EIN) and the salary account are picked from the
+ * entity's, or added.
  */
 
 import { useState } from 'react';
@@ -15,12 +17,16 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Form } from '@weldsuite/ui/components/form';
 import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCan } from '@weldsuite/permissions/react';
 import { SUPPORTED_STATES, stateModule } from '@weldsuite/payroll-domain/us/states';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrPayrollEmployerSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
-import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
+import { normalizeRegistrationNumber, registrationNumberError } from '@weldsuite/app-api-client/schemas/legal-entities';
+import { LegalEntityPicker } from '@/components/legal-entity/legal-entity-picker';
+import { useLegalEntities, useLegalEntityBankAccounts, useLegalEntityRegistrations } from '@/hooks/queries/use-legal-entities-queries';
+import { useRouter } from '@/lib/router';
 import { useCreateHrPayrollEmployer, useUpdateHrPayrollEmployer } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { errorMessage } from '../../components/shared';
 import { currentYear, humanizeKey } from '../lib/format';
@@ -54,44 +60,110 @@ function withoutEmptyRates(values: Values): Values {
 const employerResolver = zodResolver(createHrPayrollEmployerSchema);
 const resolver: Resolver<Values, unknown, Parsed> = (values, context, options) => employerResolver(withoutEmptyRates(values), context, options);
 
+/** The payroll registration of each country: loonheffingennummer (NL), EIN (US). */
+const REGISTRATION_TYPE = { NL: 'nl_payroll_tax', US: 'ein' } as const;
+const NEW_REGISTRATION = '__new';
+const NO_BANK = '__none';
+
+function isPayrollCountry(code: string | null | undefined): code is 'NL' | 'US' {
+  return code === 'NL' || code === 'US';
+}
+
+/**
+ * An employer is a payroll registration of a legal entity. Name, country,
+ * currency and address come from the entity (Settings → Legal entities); here
+ * you pick the entity, the registration payroll runs under (or type a new
+ * number), the salary account and the payroll settings.
+ */
 export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPayrollEmployer; onClose: () => void }>) {
   const t = useTranslations();
+  const router = useRouter();
   const createEmployer = useCreateHrPayrollEmployer();
   const updateEmployer = useUpdateHrPayrollEmployer();
-  // The WeldBooks link needs entities:read; without it the picker only offers "Not linked".
-  const canReadEntities = useCan('entities:read');
-  const { data: entities } = useAccountingEntities({ enabled: canReadEntities });
   const saving = createEmployer.isPending || updateEmployer.isPending;
 
   const form = useForm<Values, unknown, Parsed>({
     resolver,
     defaultValues: {
-      name: employer?.name ?? '',
-      legalName: employer?.legalName ?? '',
+      legalEntityId: employer?.legalEntityId ?? null,
+      registrationId: employer?.registrationId ?? null,
+      bankAccountId: employer?.bankAccountId ?? null,
+      label: employer?.label ?? null,
       country: employer?.country ?? 'NL',
-      accountingEntityId: employer?.accountingEntityId ?? null,
-      address: employer?.address ?? {},
       nlSettings: employer?.nlSettings ?? {},
       usSettings: employer?.usSettings ?? {},
       requireSeparateApprover: employer?.requireSeparateApprover ?? false,
     },
   });
-  const country = useWatch({ control: form.control, name: 'country' });
+  const country = useWatch({ control: form.control, name: 'country' }) ?? 'NL';
+  const legalEntityId = useWatch({ control: form.control, name: 'legalEntityId' });
+  const bankAccountId = useWatch({ control: form.control, name: 'bankAccountId' });
   const failure = form.formState.errors.root?.message ?? null;
 
+  // An existing registration, or a new number typed here.
+  const [registrationChoice, setRegistrationChoice] = useState<string>(employer?.registrationId ?? NEW_REGISTRATION);
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+
+  const { data: entities } = useLegalEntities({ app: 'weldhr' });
+  const { data: registrations } = useLegalEntityRegistrations(legalEntityId);
+  const { data: bankAccounts } = useLegalEntityBankAccounts(legalEntityId);
+  const pickedEntity = entities?.find((e) => e.id === legalEntityId);
+  const registrationType = isPayrollCountry(country) ? REGISTRATION_TYPE[country] : null;
+  const registrationOptions = (registrations ?? []).filter((r) => r.type === registrationType);
+  const bankOptions = (bankAccounts ?? []).filter((b) => b.isActive);
+  const unsupportedCountry = Boolean(pickedEntity) && !isPayrollCountry(pickedEntity?.jurisdictionCode);
+
+  function pickEntity(id: string) {
+    const entity = entities?.find((e) => e.id === id);
+    form.setValue('legalEntityId', id, { shouldDirty: true });
+    form.clearErrors('legalEntityId');
+    if (isPayrollCountry(entity?.jurisdictionCode)) form.setValue('country', entity.jurisdictionCode);
+    form.setValue('registrationId', null);
+    form.setValue('bankAccountId', null);
+    setRegistrationChoice(NEW_REGISTRATION);
+    setRegistrationNumber('');
+    setRegistrationError(null);
+  }
+
   async function onSubmit(values: Parsed) {
+    if (!values.legalEntityId) {
+      form.setError('legalEntityId', { message: t('weldhr.payroll.settings.employers.legalEntityRequired') });
+      return;
+    }
+    // A new registration number is checked against the format of its type before it is created on the entity.
+    let registration: { registrationId: string | null; registrationNumber?: string } = { registrationId: null };
+    if (registrationChoice === NEW_REGISTRATION) {
+      const typed = registrationNumber.trim();
+      if (typed && registrationType) {
+        const normalized = normalizeRegistrationNumber(registrationType, typed);
+        const problem = registrationNumberError(registrationType, normalized);
+        if (problem) {
+          setRegistrationError(problem);
+          return;
+        }
+        registration = { registrationId: null, registrationNumber: normalized };
+      }
+    } else {
+      registration = { registrationId: registrationChoice };
+    }
+    setRegistrationError(null);
+
     // Only the settings of the employer's own country are sent.
     const base = {
-      name: values.name,
-      legalName: values.legalName,
-      accountingEntityId: values.accountingEntityId ?? null,
-      address: values.address,
+      legalEntityId: values.legalEntityId,
+      bankAccountId: values.bankAccountId ?? null,
+      label: values.label ?? null,
       requireSeparateApprover: values.requireSeparateApprover,
-      ...(values.country === 'NL' ? { nlSettings: values.nlSettings } : { usSettings: values.usSettings }),
+      ...(country === 'NL' ? { nlSettings: values.nlSettings } : { usSettings: values.usSettings }),
     };
     try {
-      if (employer) await updateEmployer.mutateAsync({ id: employer.id, ...base });
-      else await createEmployer.mutateAsync({ ...base, country: values.country });
+      if (employer) {
+        // An edit picks an existing registration; a number typed here is only for creating one.
+        await updateEmployer.mutateAsync({ id: employer.id, ...base, registrationId: registration.registrationId });
+      } else {
+        await createEmployer.mutateAsync({ ...base, ...registration, country });
+      }
       toast.success(employer ? t('weldhr.payroll.settings.employers.updated') : t('weldhr.payroll.settings.employers.created'));
       onClose();
     } catch (err) {
@@ -99,7 +171,7 @@ export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPa
     }
   }
 
-  const entityOptions = (entities ?? []).map((entity) => ({ value: entity.id, label: entity.name ?? entity.id }));
+  const entityLabel = employer?.legalEntityName ?? pickedEntity?.name ?? employer?.name;
 
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
@@ -114,31 +186,106 @@ export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPa
             <ErrorBanner error={failure} />
 
             <FormSection title={t('weldhr.payroll.settings.employers.sections.general')}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextField control={form.control} name="name" label={t('weldhr.payroll.settings.employers.name')} emptyAs="string" maxLength={160} />
-                <TextField control={form.control} name="legalName" label={t('weldhr.payroll.settings.employers.legalName')} emptyAs="string" maxLength={255} />
+              <div className="space-y-2">
+                <Label htmlFor="employer-legal-entity">{t('weldhr.payroll.settings.employers.legalEntity')}</Label>
+                {employer?.legalEntityId ? (
+                  <p className="text-sm" data-testid="employer-legal-entity-locked">
+                    {entityLabel}
+                    <span className="block text-xs text-muted-foreground">{t('weldhr.payroll.settings.employers.legalEntityLocked')}</span>
+                  </p>
+                ) : (
+                  <LegalEntityPicker id="employer-legal-entity" app="weldhr" value={legalEntityId} onChange={pickEntity} />
+                )}
+                <p className="text-xs text-muted-foreground">{t('weldhr.payroll.settings.employers.fromEntityNotice')}</p>
+                {form.formState.errors.legalEntityId?.message && (
+                  <p className="text-sm text-destructive">{form.formState.errors.legalEntityId.message}</p>
+                )}
+                {unsupportedCountry && (
+                  <p className="text-sm text-destructive">{t('weldhr.payroll.settings.employers.unsupportedCountry')}</p>
+                )}
               </div>
+
               <div className="grid gap-3 sm:grid-cols-2">
-                <SelectField
+                <div className="space-y-2">
+                  <Label htmlFor="employer-registration">
+                    {country === 'NL' ? t('weldhr.payroll.settings.employers.loonheffingennummer') : t('weldhr.payroll.settings.employers.ein')}
+                  </Label>
+                  <Select
+                    value={registrationChoice}
+                    onValueChange={(v) => {
+                      setRegistrationChoice(v);
+                      setRegistrationError(null);
+                    }}
+                    disabled={!legalEntityId}
+                  >
+                    <SelectTrigger id="employer-registration">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {registrationOptions.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.number}
+                          {r.label ? <span className="ml-2 text-xs text-muted-foreground">{r.label}</span> : null}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={NEW_REGISTRATION}>{t('weldhr.payroll.settings.employers.registrationNew')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {registrationChoice === NEW_REGISTRATION && !employer && (
+                    <Input
+                      aria-label={t('weldhr.payroll.settings.employers.registrationNumber')}
+                      value={registrationNumber}
+                      onChange={(e) => setRegistrationNumber(e.target.value)}
+                      placeholder={country === 'NL' ? '123456789L01' : '12-3456789'}
+                      maxLength={20}
+                    />
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {country === 'NL' ? t('weldhr.payroll.settings.employers.loonheffingennummerHint') : t('weldhr.payroll.settings.employers.registrationHintUs')}
+                  </p>
+                  {registrationError && <p className="text-sm text-destructive">{registrationError}</p>}
+                </div>
+
+                <TextField
                   control={form.control}
-                  name="country"
-                  label={t('weldhr.payroll.common.country')}
-                  disabled={Boolean(employer)}
-                  options={[
-                    { value: 'NL', label: t('weldhr.payroll.country.NL') },
-                    { value: 'US', label: t('weldhr.payroll.country.US') },
-                  ]}
-                  description={employer ? t('weldhr.payroll.settings.employers.countryLocked') : undefined}
-                />
-                <SelectField
-                  control={form.control}
-                  name="accountingEntityId"
-                  label={t('weldhr.payroll.settings.employers.accountingEntity')}
-                  options={entityOptions}
-                  emptyLabel={t('weldhr.payroll.settings.employers.notLinked')}
-                  description={t('weldhr.payroll.settings.employers.accountingEntityHint')}
+                  name="label"
+                  label={t('weldhr.payroll.settings.employers.label')}
+                  description={t('weldhr.payroll.settings.employers.labelHint')}
+                  maxLength={160}
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="employer-bank-account">{t('weldhr.payroll.settings.employers.bankAccount')}</Label>
+                <Select
+                  value={bankAccountId ?? NO_BANK}
+                  onValueChange={(v) => form.setValue('bankAccountId', v === NO_BANK ? null : v, { shouldDirty: true })}
+                  disabled={!legalEntityId}
+                >
+                  <SelectTrigger id="employer-bank-account">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_BANK}>{t('weldhr.payroll.settings.employers.bankNone')}</SelectItem>
+                    {bankOptions.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                        <span className="ml-2 text-xs text-muted-foreground">{b.iban ?? (b.accountNumberLast4 ? `••••${b.accountNumberLast4}` : '')}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('weldhr.payroll.settings.employers.bankAccountHint')}</p>
+              </div>
+
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                onClick={() => router.push(legalEntityId ? `/settings/legal-entities/${legalEntityId}` : '/settings/legal-entities')}
+              >
+                {t('weldhr.payroll.settings.employers.manageEntity')}
+              </button>
+
               <SwitchField
                 control={form.control}
                 name="requireSeparateApprover"
@@ -147,33 +294,13 @@ export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPa
               />
             </FormSection>
 
-            <FormSection title={t('weldhr.payroll.settings.employers.sections.address')}>
-              {country === 'NL' ? (
-                <div className="grid gap-3 sm:grid-cols-6">
-                  <TextField control={form.control} name="address.line1" label={t('weldhr.payroll.settings.employers.street')} className="sm:col-span-3" maxLength={255} />
-                  <TextField control={form.control} name="address.houseNumber" label={t('weldhr.payroll.settings.employers.houseNumber')} className="sm:col-span-1" maxLength={20} />
-                  <TextField control={form.control} name="address.houseNumberAddition" label={t('weldhr.payroll.settings.employers.houseNumberAddition')} className="sm:col-span-2" maxLength={20} />
-                  <TextField control={form.control} name="address.postalCode" label={t('weldhr.payroll.settings.employers.postalCode')} className="sm:col-span-2" maxLength={20} />
-                  <TextField control={form.control} name="address.city" label={t('weldhr.payroll.settings.employers.city')} className="sm:col-span-4" maxLength={120} />
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-6">
-                  <TextField control={form.control} name="address.line1" label={t('weldhr.payroll.settings.employers.addressLine1')} className="sm:col-span-3" maxLength={255} />
-                  <TextField control={form.control} name="address.line2" label={t('weldhr.payroll.settings.employers.addressLine2')} className="sm:col-span-3" maxLength={255} />
-                  <TextField control={form.control} name="address.city" label={t('weldhr.payroll.settings.employers.city')} className="sm:col-span-3" maxLength={120} />
-                  <TextField control={form.control} name="address.region" label={t('weldhr.payroll.settings.employers.state')} className="sm:col-span-1" maxLength={120} />
-                  <TextField control={form.control} name="address.postalCode" label={t('weldhr.payroll.settings.employers.zip')} className="sm:col-span-2" maxLength={20} />
-                </div>
-              )}
-            </FormSection>
-
             {country === 'NL' ? <NlSettings form={form} /> : <UsSettings form={form} />}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || unsupportedCountry}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t('weldhr.common.save')}
               </Button>
@@ -217,14 +344,6 @@ function NlSettings({ form }: Readonly<{ form: EmployerForm }>) {
     <>
       <FormSection title={t('weldhr.payroll.settings.employers.sections.nl')} description={t('weldhr.payroll.settings.employers.nlDescription')}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField
-            control={control}
-            name="nlSettings.loonheffingennummer"
-            label={t('weldhr.payroll.settings.employers.loonheffingennummer')}
-            placeholder="123456789L01"
-            description={t('weldhr.payroll.settings.employers.loonheffingennummerHint')}
-            maxLength={12}
-          />
           <NumberField control={control} name="nlSettings.sectorCode" label={t('weldhr.payroll.settings.employers.sectorCode')} description={t('weldhr.payroll.settings.employers.sectorCodeHint')} />
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -293,7 +412,6 @@ function UsSettings({ form }: Readonly<{ form: EmployerForm }>) {
     <>
       <FormSection title={t('weldhr.payroll.settings.employers.sections.us')} description={t('weldhr.payroll.settings.employers.usDescription')}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField control={control} name="usSettings.ein" label={t('weldhr.payroll.settings.employers.ein')} placeholder="12-3456789" maxLength={10} />
           <NumberField control={control} name="usSettings.employeeCountEstimate" label={t('weldhr.payroll.settings.employers.employeeCountEstimate')} description={t('weldhr.payroll.settings.employers.employeeCountEstimateHint')} />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
