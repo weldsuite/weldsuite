@@ -1,7 +1,7 @@
 # Self-hosted edition (Self-hosted 1.0)
 
-Status: **Draft, 2026-11-09.** Nothing below is built yet beyond what "Where
-we are" lists. This plan implements P7 of the phase plan
+Status: **Decided, implementation starting, 2026-11-09.** Nothing below is
+built yet beyond what "Where we are" lists. This plan implements P7 of the phase plan
 (`design/platform/editions-and-self-hosting-phases.md` in
 `weldsuite/weldsuite-documentation`) under ADR OPS-014 (self-hosted
 distribution, Proposed), on the Rust backend (API-014) and the one image and
@@ -86,13 +86,15 @@ master `system_settings` key-value table, and the DATA-016 move workflow's
 table-by-table copy (`apps/workers/workspace-worker/src/services/database-move/`)
 as the model for backup and export.
 
-## Decisions to take first
+## Decisions (taken 2026-11-09)
 
-Each has a recommendation. The ones marked **(ADR)** get an ADR in
-`weldsuite-documentation` before their track starts.
+All eight were taken on 2026-11-09 as this plan recommended; the
+alternatives stay here for the ADRs. The ones marked **(ADR)** get an ADR
+(Proposed) in `weldsuite-documentation` with their track's first PR, Accepted
+when the track lands.
 
 1. **What the community edition gets (ADR, amends OPS-014).**
-   - *Recommended:* no caps. Without a licence file the install runs every
+   - *Decided:* no caps. Without a licence file the install runs every
      ported module for any number of users, labelled "Community". A licence
      file adds support tier, the `lts` channel's entitlement and the contract's
      seats and modules, which the gate shows and enforces for that install.
@@ -103,7 +105,7 @@ Each has a recommendation. The ones marked **(ADR)** get an ADR in
      lifts. A revenue lever, patchable under the AGPL, and a reason for small
      teams not to try it.
 2. **Bundled dependencies (ADR, amends OPS-013/014).**
-   - *Recommended:* toggles in the one `weldsuite` chart, as the design doc
+   - *Decided:* toggles in the one `weldsuite` chart, as the design doc
      says: Valkey, NATS, Restate, Zitadel, object storage and LiveKit as
      subchart dependencies with a `condition`, Postgres as a CloudNativePG
      `Cluster` and `Pooler` the chart renders when `postgres.bundled`.
@@ -114,14 +116,14 @@ Each has a recommendation. The ones marked **(ADR)** get an ADR in
      layers with self-hosted values. One tested path, but every customer has
      to learn Flux to troubleshoot, and OPS-014 says Helm only.
 3. **Registry and signing for 1.0 (amends OPS-014).**
-   - *Recommended:* ship on ghcr.io (public, free, already built), signed with
+   - *Decided:* ship on ghcr.io (public, free, already built), signed with
      cosign keyless from GitHub Actions, SBOM and provenance attached. Mirror
      to the EU registry when P5 5.4 builds it; the signatures travel with the
      images.
    - *Alternative:* wait for the EU registry. Blocks 1.0 on EU infrastructure
      that is dormant until the first EU customer.
 4. **Identity in 1.0 (ADR, amends SEC-012).**
-   - *Recommended:* bundled Zitadel is the default and the tested path (the
+   - *Decided:* bundled Zitadel is the default and the tested path (the
      same adapter and sync as EU). Bring-your-own OIDC ships in 1.0 in
      **membership mode**: the provider only authenticates; workspaces,
      members and invites live in WeldSuite's databases, and the active
@@ -134,14 +136,14 @@ Each has a recommendation. The ones marked **(ADR)** get an ADR in
      needs a group per workspace in the customer's directory and can't say
      which of several workspaces a request is for.
 5. **Web surfaces in 1.0.**
-   - *Recommended:* the helpdesk widget app and the meeting portal (guests
+   - *Decided:* the helpdesk widget app and the meeting portal (guests
      can't join a meeting without it) in 1.0; the help center and booking
      portal when a design partner needs them, shared with P6's EU work. The
      mobile apps' server address at sign-in (4.F4) and the push relay in 1.1.
    - *Alternative:* all portals and mobile in 1.0, which roughly doubles the
      web track.
 6. **Backup and export format (ADR, DATA).**
-   - *Recommended:* our own logical format, the DATA-016 move's approach: per
+   - *Decided:* our own logical format, the DATA-016 move's approach: per
      database, table by table, rows as text through `COPY`, with a manifest
      (schema migration tag, row counts, checksums, edition, version). No
      `pg_dump` binary in the distroless image, no Postgres major-version
@@ -150,10 +152,10 @@ Each has a recommendation. The ones marked **(ADR)** get an ADR in
      barman-cloud backups to the customer's S3, configured by the profiles.
    - *Alternative:* `pg_dump`/`pg_restore` in a tools image. Proven, but
      version-coupled and not usable for moving a workspace between editions.
-7. **personal-api.** *Recommended:* off on self-hosted (no
+7. **personal-api.** *Decided:* off on self-hosted (no
    `DATABASE_URL_PERSONAL`); consumer WeldMail and WeldCalendar stay Global.
    Its authorized parties and web hosts are hard-coded to Global's anyway.
-8. **Versions and channels.** *Recommended:* the `X.Y.Z` releases
+8. **Versions and channels.** *Decided:* the `X.Y.Z` releases
    `rust-release.yml` already cuts. `stable` is a chosen release each month,
    `lts` one each year with 12 months of fixes on a `release/X.Y` branch,
    published as a `channels.json` with the GitHub release. The skip guard
@@ -255,8 +257,14 @@ Beta (partners)    A3 A4 A6 · B1–B6 · C2 C4 · E1 E2 E3 · F1 F2 F3 · G (dr
 
 D6 goes first: every later test would otherwise pass against Global
 defaults. Within the alpha, D1 is the long pole and C1 grows with it (every
-bundled dependency gets its check). Decisions 1, 2, 4 and 6 gate B, D1, E1
-and C2/C3 respectively; take them before those tracks start.
+bundled dependency gets its check).
+
+The tracks run in parallel, one session and branch each: D6 then D1–D5
+(packaging), A1/A3–A6 with B (versions and licence), C (operator commands),
+E (identity), F with A5/A6 (supply chain and release engineering). Chart
+changes other tracks need (an env var, a hook) are small and merge after the
+packaging track's. A2, cutting the first public release, waits for an
+explicit go-ahead, since it publishes.
 
 ## Tests
 
