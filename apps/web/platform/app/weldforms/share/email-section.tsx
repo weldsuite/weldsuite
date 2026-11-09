@@ -1,4 +1,4 @@
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { BellRing, Mail, UserX } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -48,8 +48,13 @@ export function lastActivity(invitation: FormInvitation): string | null {
   );
 }
 
+/** Whether an invitation can still be reminded or revoked. */
+function remindable(invitation: FormInvitation): boolean {
+  return invitation.status !== 'completed' && invitation.status !== 'revoked';
+}
+
 export function EmailSection({ form, shareable }: Readonly<{ form: FormDetail; shareable: boolean }>) {
-  const { t, format, language } = useI18n();
+  const { t, format } = useI18n();
   const te = t.weldformsResults.share.email;
   const [status, setStatus] = useState<FormInvitationStatus | ''>('');
   const [search, setSearch] = useState('');
@@ -65,10 +70,7 @@ export function EmailSection({ form, shareable }: Readonly<{ form: FormDetail; s
   const remind = useRemindInvitations(form.id);
   const revoke = useRevokeInvitation(form.id);
 
-  const date = new Intl.DateTimeFormat(language, { dateStyle: 'medium' });
   const { invitations } = list;
-  const remindable = (invitation: FormInvitation) => invitation.status !== 'completed' && invitation.status !== 'revoked';
-  const allSelected = invitations.length > 0 && invitations.every((i) => selected.includes(i.id));
 
   async function sendReminders(invitationIds?: string[]) {
     try {
@@ -111,6 +113,17 @@ export function EmailSection({ form, shareable }: Readonly<{ form: FormDetail; s
         ['revoked', s.revoked],
       ]
     : [];
+
+  let listContent: ReactNode;
+  if (list.isLoading) listContent = <PageLoader fullScreen={false} className="min-h-40" />;
+  else if (list.error) listContent = <ErrorState onRetry={() => void list.refetch()} />;
+  else if (invitations.length > 0) {
+    listContent = <InvitationsTable invitations={invitations} selected={selected} onSelectedChange={setSelected} onRevoke={setRevoking} />;
+  } else if (deferredSearch || status) {
+    listContent = <EmptyState icon={Mail} title={te.noResultsTitle} description={te.noResultsDescription} />;
+  } else {
+    listContent = <EmptyState icon={Mail} title={te.emptyTitle} description={te.emptyDescription} />;
+  }
 
   return (
     <SectionCard
@@ -177,93 +190,7 @@ export function EmailSection({ form, shareable }: Readonly<{ form: FormDetail; s
           </div>
         </div>
 
-        {list.isLoading ? (
-          <PageLoader fullScreen={false} className="min-h-40" />
-        ) : list.error ? (
-          <ErrorState onRetry={() => void list.refetch()} />
-        ) : invitations.length === 0 ? (
-          deferredSearch || status ? (
-            <EmptyState icon={Mail} title={te.noResultsTitle} description={te.noResultsDescription} />
-          ) : (
-            <EmptyState icon={Mail} title={te.emptyTitle} description={te.emptyDescription} />
-          )
-        ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      aria-label={te.table.selectAll}
-                      checked={allSelected}
-                      onCheckedChange={(checked) =>
-                        setSelected(checked === true ? invitations.filter(remindable).map((i) => i.id) : [])
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>{te.table.recipient}</TableHead>
-                  <TableHead>{te.table.status}</TableHead>
-                  <TableHead className="hidden md:table-cell">{te.table.reminders}</TableHead>
-                  <TableHead className="hidden md:table-cell">{te.table.sent}</TableHead>
-                  <TableHead className="hidden lg:table-cell">{te.table.activity}</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invitations.map((invitation) => {
-                  const activity = lastActivity(invitation);
-                  return (
-                    <TableRow key={invitation.id}>
-                      <TableCell>
-                        <Checkbox
-                          aria-label={format(te.table.selectRow, { email: invitation.email })}
-                          disabled={!remindable(invitation)}
-                          checked={selected.includes(invitation.id)}
-                          onCheckedChange={(checked) =>
-                            setSelected((current) =>
-                              checked === true ? [...new Set([...current, invitation.id])] : current.filter((id) => id !== invitation.id),
-                            )
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{invitation.name ?? invitation.email}</p>
-                          {invitation.name && <p className="truncate text-xs text-muted-foreground">{invitation.email}</p>}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <SoftBadge tone={STATUS_TONE[invitation.status]}>{te.status[invitation.status]}</SoftBadge>
-                      </TableCell>
-                      <TableCell className="hidden text-sm tabular-nums md:table-cell" title={invitation.lastRemindedAt ? format(te.lastReminded, { date: date.format(new Date(invitation.lastRemindedAt)) }) : undefined}>
-                        {invitation.remindersSent}
-                      </TableCell>
-                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                        {invitation.sentAt ? date.format(new Date(invitation.sentAt)) : t.weldformsResults.common.noValue}
-                      </TableCell>
-                      <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                        {activity ? date.format(new Date(activity)) : t.weldformsResults.common.noValue}
-                      </TableCell>
-                      <TableCell>
-                        {remindable(invitation) && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`${te.revoke} ${invitation.email}`}
-                            onClick={() => setRevoking(invitation)}
-                          >
-                            <UserX className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        {listContent}
 
         {list.hasNextPage && (
           <div className="flex justify-center">
@@ -289,5 +216,100 @@ export function EmailSection({ form, shareable }: Readonly<{ form: FormDetail; s
         }}
       />
     </SectionCard>
+  );
+}
+
+function InvitationsTable({
+  invitations,
+  selected,
+  onSelectedChange,
+  onRevoke,
+}: Readonly<{
+  invitations: FormInvitation[];
+  selected: string[];
+  onSelectedChange: Dispatch<SetStateAction<string[]>>;
+  onRevoke: (invitation: FormInvitation) => void;
+}>) {
+  const { t, format, language } = useI18n();
+  const te = t.weldformsResults.share.email;
+  const date = new Intl.DateTimeFormat(language, { dateStyle: 'medium' });
+  const allSelected = invitations.length > 0 && invitations.every((i) => selected.includes(i.id));
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                aria-label={te.table.selectAll}
+                checked={allSelected}
+                onCheckedChange={(checked) =>
+                  onSelectedChange(checked === true ? invitations.filter(remindable).map((i) => i.id) : [])
+                }
+              />
+            </TableHead>
+            <TableHead>{te.table.recipient}</TableHead>
+            <TableHead>{te.table.status}</TableHead>
+            <TableHead className="hidden md:table-cell">{te.table.reminders}</TableHead>
+            <TableHead className="hidden md:table-cell">{te.table.sent}</TableHead>
+            <TableHead className="hidden lg:table-cell">{te.table.activity}</TableHead>
+            <TableHead className="w-12" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {invitations.map((invitation) => {
+            const activity = lastActivity(invitation);
+            return (
+              <TableRow key={invitation.id}>
+                <TableCell>
+                  <Checkbox
+                    aria-label={format(te.table.selectRow, { email: invitation.email })}
+                    disabled={!remindable(invitation)}
+                    checked={selected.includes(invitation.id)}
+                    onCheckedChange={(checked) =>
+                      onSelectedChange((current) =>
+                        checked === true ? [...new Set([...current, invitation.id])] : current.filter((id) => id !== invitation.id),
+                      )
+                    }
+                  />
+                </TableCell>
+                <TableCell>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{invitation.name ?? invitation.email}</p>
+                    {invitation.name && <p className="truncate text-xs text-muted-foreground">{invitation.email}</p>}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <SoftBadge tone={STATUS_TONE[invitation.status]}>{te.status[invitation.status]}</SoftBadge>
+                </TableCell>
+                <TableCell className="hidden text-sm tabular-nums md:table-cell" title={invitation.lastRemindedAt ? format(te.lastReminded, { date: date.format(new Date(invitation.lastRemindedAt)) }) : undefined}>
+                  {invitation.remindersSent}
+                </TableCell>
+                <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                  {invitation.sentAt ? date.format(new Date(invitation.sentAt)) : t.weldformsResults.common.noValue}
+                </TableCell>
+                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+                  {activity ? date.format(new Date(activity)) : t.weldformsResults.common.noValue}
+                </TableCell>
+                <TableCell>
+                  {remindable(invitation) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`${te.revoke} ${invitation.email}`}
+                      onClick={() => onRevoke(invitation)}
+                    >
+                      <UserX className="h-4 w-4" />
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

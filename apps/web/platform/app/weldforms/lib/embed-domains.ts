@@ -4,16 +4,21 @@
  * server's rule), so no wildcard syntax is needed.
  */
 
-const HOSTNAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$|^localhost$/;
+const DOTTED_HOSTNAME = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+function isHostname(value: string): boolean {
+  return value === 'localhost' || (value.length <= 253 && DOTTED_HOSTNAME.test(value));
+}
 
 export function normalizeDomain(input: string): string | null {
   let value = input.trim().toLowerCase();
   if (value === '') return null;
   value = value.replace(/^[a-z][a-z0-9+.-]*:\/\//, '');
-  value = value.replace(/[/?#].*$/, '');
+  // Drops the path, query and fragment. A line break is never dropped, so such a value fails below.
+  value = value.replace(/^([^/?#]*)[/?#].*$/, '$1');
   value = value.replace(/:\d+$/, '');
   value = value.replace(/^\*\./, '');
-  return HOSTNAME.test(value) ? value : null;
+  return isHostname(value) ? value : null;
 }
 
 export interface ParsedDomains {

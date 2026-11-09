@@ -70,6 +70,14 @@ export function rightInputFor(kind: OperandKind, operator: ConditionOperator): R
   }
 }
 
+/** The kind of a constant, from its value. */
+function constantKind(value: unknown): OperandKind {
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'string') return 'text';
+  return 'list';
+}
+
 /** The kind of a left operand, or null when it points at nothing. */
 export function operandKind(def: FormDefinition, operand: Operand, variableTypes: Map<string, 'number' | 'text'>): OperandKind | null {
   switch (operand.type) {
@@ -82,7 +90,7 @@ export function operandKind(def: FormDefinition, operand: Operand, variableTypes
     case 'variable':
       return variableTypes.get(operand.name) ?? null;
     case 'constant':
-      return typeof operand.value === 'number' ? 'number' : typeof operand.value === 'boolean' ? 'boolean' : typeof operand.value === 'string' ? 'text' : 'list';
+      return constantKind(operand.value);
   }
 }
 

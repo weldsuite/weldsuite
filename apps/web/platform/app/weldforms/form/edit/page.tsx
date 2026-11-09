@@ -14,13 +14,20 @@ import { useI18n } from '@/lib/i18n/provider';
 import { FormPreview, type PreviewDevice } from '../../components/form-preview';
 import { topLevelIndex } from '../../lib/blocks';
 import { useEffectiveTheme } from '../../lib/use-effective-theme';
-import { useFormEditor } from '../editor-context';
+import { useFormEditor, type Selection } from '../editor-context';
 import { AiSuggestDialog } from './ai-suggest-dialog';
 import { DataDialog } from './data-dialog';
 import { Outline } from './outline';
 import { PropertiesPanel } from './properties-panel';
 
 type Pane = 'outline' | 'preview' | 'properties';
+
+/** Changes with the selection, so the preview restarts at what was picked. */
+function selectionKey(selection: Selection): string {
+  if (!selection) return '';
+  const id = 'id' in selection ? selection.id : '';
+  return `${selection.kind}:${id}`;
+}
 
 export default function CreateTab() {
   const { t } = useI18n();
@@ -88,7 +95,7 @@ export default function CreateTab() {
             {definition.blocks.length === 0 && !definition.welcome ? (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">{te.previewEmpty}</div>
             ) : (
-              <FormPreview definition={definition} theme={tokens} layout={layout} device={device} startAtBlockId={startAt} resetKey={selection ? `${selection.kind}:${'id' in selection ? selection.id : ''}` : ''} />
+              <FormPreview definition={definition} theme={tokens} layout={layout} device={device} startAtBlockId={startAt} resetKey={selectionKey(selection)} />
             )}
           </div>
         </main>

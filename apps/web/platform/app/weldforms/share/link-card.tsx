@@ -12,12 +12,9 @@ export function LinkCard({ form, shareable }: Readonly<{ form: FormDetail; share
   const copy = useCopy();
   const url = shareable ? form.publicUrl : null;
 
-  const restriction =
-    form.respondentMode === 'verified_email'
-      ? ts.restrictionVerified
-      : form.respondentMode === 'members'
-        ? ts.restrictionMembers
-        : '';
+  let restriction = '';
+  if (form.respondentMode === 'verified_email') restriction = ts.restrictionVerified;
+  else if (form.respondentMode === 'members') restriction = ts.restrictionMembers;
 
   return (
     <SectionCard title={ts.title} description={format(ts.description, { restriction })}>

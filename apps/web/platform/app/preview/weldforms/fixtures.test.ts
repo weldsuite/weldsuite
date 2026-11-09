@@ -49,6 +49,12 @@ function parse<T extends ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
   return result.data;
 }
 
+/** Asserts that the value passes the schema; a failure lists the first issues. */
+function expectValid(schema: ZodTypeAny, value: unknown): void {
+  const result = schema.safeParse(value);
+  expect(result.success, result.success ? undefined : JSON.stringify(result.error.issues.slice(0, 5), null, 2)).toBe(true);
+}
+
 const F = '/api/forms/forms';
 const FEEDBACK = PREVIEW_FORM_IDS.feedback;
 
@@ -101,16 +107,16 @@ describe('WeldForms preview fixtures', () => {
   });
 
   it('validates the workspace pieces', () => {
-    for (const f of fx.folders) parse(formFolderSchema, f);
-    for (const t of fx.themes) parse(formThemeSchema, t);
-    parse(formsWorkspaceSettingsSchema, fx.settings);
-    parse(formsUsageSchema, fx.usage);
+    for (const f of fx.folders) expectValid(formFolderSchema, f);
+    for (const t of fx.themes) expectValid(formThemeSchema, t);
+    expectValid(formsWorkspaceSettingsSchema, fx.settings);
+    expectValid(formsUsageSchema, fx.usage);
     for (const record of fx.records) {
-      for (const i of record.invitations) parse(formInvitationSchema, i);
+      for (const i of record.invitations) expectValid(formInvitationSchema, i);
       for (const i of record.integrations) {
-        parse(formIntegrationSchema, i);
-        if (i.kind === 'crm') parse(crmIntegrationConfigSchema, i.config);
-        if (i.kind === 'desk') parse(deskIntegrationConfigSchema, i.config);
+        expectValid(formIntegrationSchema, i);
+        if (i.kind === 'crm') expectValid(crmIntegrationConfigSchema, i.config);
+        if (i.kind === 'desk') expectValid(deskIntegrationConfigSchema, i.config);
       }
     }
   });

@@ -310,9 +310,12 @@ function ValueInput({
     );
   }
   const numeric = ['number', 'rating', 'opinion_scale', 'nps'].includes(type);
+  let inputType = 'text';
+  if (type === 'date') inputType = 'date';
+  else if (numeric) inputType = 'number';
   return (
     <Input
-      type={type === 'date' ? 'date' : numeric ? 'number' : 'text'}
+      type={inputType}
       value={typeof draft.value === 'string' || typeof draft.value === 'number' ? String(draft.value) : ''}
       placeholder={placeholder}
       aria-label={placeholder}

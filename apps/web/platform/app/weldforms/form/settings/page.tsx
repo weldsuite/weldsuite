@@ -46,6 +46,9 @@ export default function FormSettingsTab() {
   const { settings, canEdit, form } = editor;
   const disabled = !canEdit;
   const mode = settings.respondentMode;
+  let onePerLabel = ts.onePerBrowser;
+  if (mode === 'members') onePerLabel = ts.onePerMember;
+  else if (mode === 'verified_email') onePerLabel = ts.onePerEmail;
 
   const [domainsText, setDomainsText] = useState<string | null>(null);
   const domainsShown = domainsText ?? settings.allowedEmbedDomains.join('\n');
@@ -75,7 +78,7 @@ export default function FormSettingsTab() {
           />
           <ToggleRow
             id="settings-one-per"
-            label={mode === 'members' ? ts.onePerMember : mode === 'verified_email' ? ts.onePerEmail : ts.onePerBrowser}
+            label={onePerLabel}
             description={mode === 'anyone' ? ts.onePerBrowserNote : undefined}
             checked={settings.onePerRespondent}
             disabled={disabled}

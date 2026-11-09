@@ -136,7 +136,8 @@ export function ResponsesTab({ form }: Readonly<{ form: FormDetail }>) {
   async function runExport(kind: 'csv' | 'xlsx') {
     const toastId = toast.loading(trr.exporting);
     try {
-      const { sort: _sort, ...rest } = query;
+      const rest = { ...query };
+      delete rest.sort;
       const file = await exporter.mutateAsync({ ...rest, format: kind });
       saveBlob(file.blob, file.filename);
       toast.success(trr.export, { id: toastId });
@@ -169,7 +170,8 @@ export function ResponsesTab({ form }: Readonly<{ form: FormDetail }>) {
         case 'duration':
           return formatDuration(meta.value, tr.insights.durationFormat, format) ?? dash;
         case 'status':
-          return meta.value === 'completed' ? trr.completed : meta.value === 'abandoned' ? trr.abandoned : trr.inProgress;
+          if (meta.value === 'completed') return trr.completed;
+          return meta.value === 'abandoned' ? trr.abandoned : trr.inProgress;
         default:
           return String(meta.value);
       }
@@ -186,6 +188,28 @@ export function ResponsesTab({ form }: Readonly<{ form: FormDetail }>) {
   }
 
   const noResponsesAtAll = responses.length === 0 && filterCount === 0;
+  const emptyState = noResponsesAtAll ? (
+    <EmptyState icon={Inbox} title={trr.emptyTitle} description={trr.emptyDescription} />
+  ) : (
+    <EmptyState
+      icon={Inbox}
+      title={trr.noResultsTitle}
+      description={trr.noResultsDescription}
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSearch('');
+            setFilters(EMPTY_FILTERS);
+          }}
+        >
+          {trr.clearFilters}
+        </Button>
+      }
+    />
+  );
 
   return (
     <div className="space-y-4">
@@ -262,28 +286,7 @@ export function ResponsesTab({ form }: Readonly<{ form: FormDetail }>) {
       </div>
 
       {responses.length === 0 ? (
-        noResponsesAtAll ? (
-          <EmptyState icon={Inbox} title={trr.emptyTitle} description={trr.emptyDescription} />
-        ) : (
-          <EmptyState
-            icon={Inbox}
-            title={trr.noResultsTitle}
-            description={trr.noResultsDescription}
-            action={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearch('');
-                  setFilters(EMPTY_FILTERS);
-                }}
-              >
-                {trr.clearFilters}
-              </Button>
-            }
-          />
-        )
+        emptyState
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border">

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Clock, Eye, MousePointerClick, Percent, SquareCheck } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
-import type { FormDetail } from '@weldsuite/app-api-client/schemas/weldforms';
+import type { FormDetail, FormInsights } from '@weldsuite/app-api-client/schemas/weldforms';
 import {
   ChartContainer,
   ChartTooltip,
@@ -52,7 +52,6 @@ export function InsightsTab({ form }: Readonly<{ form: FormDetail }>) {
   };
 
   const maxReached = useMemo(() => Math.max(0, ...(insights?.dropOff ?? []).map((d) => d.reached)), [insights]);
-  const dash = t.weldformsResults.common.noValue;
 
   return (
     <div className="space-y-6">
@@ -62,23 +61,7 @@ export function InsightsTab({ form }: Readonly<{ form: FormDetail }>) {
         <ErrorState onRetry={() => void query.refetch()} message={t.weldformsResults.common.loadFailed} />
       ) : (
         <>
-          <KpiGrid className="lg:grid-cols-5">
-            <KpiCard label={ti.views} value={insights ? number.format(insights.views) : dash} icon={Eye} loading={query.isLoading} />
-            <KpiCard label={ti.starts} value={insights ? number.format(insights.starts) : dash} icon={MousePointerClick} loading={query.isLoading} />
-            <KpiCard label={ti.completions} value={insights ? number.format(insights.completions) : dash} icon={SquareCheck} loading={query.isLoading} />
-            <KpiCard
-              label={ti.completionRate}
-              value={insights?.completionRate == null ? dash : `${percentOf(insights.completionRate, 1)}%`}
-              icon={Percent}
-              loading={query.isLoading}
-            />
-            <KpiCard
-              label={ti.averageTime}
-              value={(insights && formatDuration(insights.averageDurationMs, ti.durationFormat, format)) ?? dash}
-              icon={Clock}
-              loading={query.isLoading}
-            />
-          </KpiGrid>
+          <InsightsKpis insights={insights} loading={query.isLoading} />
 
           <SectionCard title={ti.byDayTitle} description={ti.byDayDescription}>
             {insights && insights.byDay.length > 0 ? (
@@ -165,6 +148,34 @@ export function InsightsTab({ form }: Readonly<{ form: FormDetail }>) {
         </>
       )}
     </div>
+  );
+}
+
+/** The five headline numbers; a dash while there is nothing to show. */
+function InsightsKpis({ insights, loading }: Readonly<{ insights: FormInsights | undefined; loading: boolean }>) {
+  const { t, format, language } = useI18n();
+  const ti = t.weldformsResults.results.insights;
+  const number = new Intl.NumberFormat(language);
+  const dash = t.weldformsResults.common.noValue;
+
+  return (
+    <KpiGrid className="lg:grid-cols-5">
+      <KpiCard label={ti.views} value={insights ? number.format(insights.views) : dash} icon={Eye} loading={loading} />
+      <KpiCard label={ti.starts} value={insights ? number.format(insights.starts) : dash} icon={MousePointerClick} loading={loading} />
+      <KpiCard label={ti.completions} value={insights ? number.format(insights.completions) : dash} icon={SquareCheck} loading={loading} />
+      <KpiCard
+        label={ti.completionRate}
+        value={insights?.completionRate == null ? dash : `${percentOf(insights.completionRate, 1)}%`}
+        icon={Percent}
+        loading={loading}
+      />
+      <KpiCard
+        label={ti.averageTime}
+        value={(insights && formatDuration(insights.averageDurationMs, ti.durationFormat, format)) ?? dash}
+        icon={Clock}
+        loading={loading}
+      />
+    </KpiGrid>
   );
 }
 

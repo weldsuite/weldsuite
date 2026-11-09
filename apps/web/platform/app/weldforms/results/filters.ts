@@ -73,6 +73,18 @@ export function operatorsFor(fieldType: string): AnswerOperator[] {
   return ['is_answered', 'is_empty'];
 }
 
+/** Typed text as a filter value: trimmed, or a number where it compares as one; null when blank. */
+function textFilterValue(operator: AnswerOperator, value: string): string | number | null {
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  if (operator === 'greater_than' || operator === 'less_than') {
+    const n = Number(trimmed);
+    // A date compares as text, a number as a number.
+    return Number.isFinite(n) ? n : trimmed;
+  }
+  return trimmed.slice(0, 500);
+}
+
 /** A draft with a usable value, as the API's filter; null while it is still incomplete. */
 export function toAnswerFilter(draft: AnswerFilterDraft): ResponseAnswerFilter | null {
   if (!draft.blockId) return null;
@@ -89,14 +101,8 @@ export function toAnswerFilter(draft: AnswerFilterDraft): ResponseAnswerFilter |
     return Number.isFinite(value) ? { ...base, operator: draft.operator, value } : null;
   }
   if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed === '') return null;
-    if (draft.operator === 'greater_than' || draft.operator === 'less_than') {
-      const n = Number(trimmed);
-      // A date compares as text, a number as a number.
-      return { ...base, operator: draft.operator, value: Number.isFinite(n) ? n : trimmed };
-    }
-    return { ...base, operator: draft.operator, value: trimmed.slice(0, 500) };
+    const text = textFilterValue(draft.operator, value);
+    return text === null ? null : { ...base, operator: draft.operator, value: text };
   }
   return null;
 }

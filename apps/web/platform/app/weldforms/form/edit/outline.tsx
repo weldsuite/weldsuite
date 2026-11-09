@@ -88,7 +88,8 @@ function BlockRow({ block, depth, number, selected, issueCount, canEdit, first, 
   const Icon = BLOCK_ICONS[block.type as BlockKind];
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id, disabled: !canEdit });
 
-  const title = block.title.trim() === '' ? (block.type === 'page_break' ? names.page_break : to.untitled) : block.title;
+  const untitled = block.type === 'page_break' ? names.page_break : to.untitled;
+  const title = block.title.trim() === '' ? untitled : block.title;
 
   return (
     <div

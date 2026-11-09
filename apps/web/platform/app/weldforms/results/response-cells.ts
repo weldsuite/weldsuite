@@ -23,13 +23,30 @@ export function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** A number column's cell; none when the response has no value. */
+function numericCell(type: 'number' | 'score' | 'duration', value: number | null): MetaCell | undefined {
+  return value === null ? undefined : { type, value };
+}
+
+/** A text column's cell; none for a missing or empty value. */
+function textCell(value: string | undefined): MetaCell | undefined {
+  return value ? { type: 'text', value } : undefined;
+}
+
+/** Who answered: the email they gave, else the signed-in member. */
+function respondentCell(response: FormResponseDto): MetaCell | undefined {
+  if (response.respondentEmail) return { type: 'text', value: response.respondentEmail };
+  if (response.respondent) return { type: 'text', value: response.respondent.name ?? response.respondent.email ?? '' };
+  return undefined;
+}
+
 /** The metadata value a column stands for, or undefined when the key is not one we know. */
 export function metaCell(response: FormResponseDto, key: string): MetaCell | undefined {
   switch (normalizeKey(key)) {
     case 'number':
     case 'responsenumber':
     case 'no':
-      return response.number === null ? undefined : { type: 'number', value: response.number };
+      return numericCell('number', response.number);
     case 'status':
       return { type: 'status', value: response.abandoned ? 'abandoned' : response.status };
     case 'submittedat':
@@ -41,28 +58,24 @@ export function metaCell(response: FormResponseDto, key: string): MetaCell | und
     case 'email':
     case 'respondentemail':
     case 'respondent':
-      return response.respondentEmail
-        ? { type: 'text', value: response.respondentEmail }
-        : response.respondent
-          ? { type: 'text', value: response.respondent.name ?? response.respondent.email ?? '' }
-          : undefined;
+      return respondentCell(response);
     case 'score':
-      return response.score === null ? undefined : { type: 'score', value: response.score };
+      return numericCell('score', response.score);
     case 'duration':
     case 'durationms':
     case 'timetaken':
-      return response.durationMs === null ? undefined : { type: 'duration', value: response.durationMs };
+      return numericCell('duration', response.durationMs);
     case 'version':
     case 'versionnumber':
       return { type: 'number', value: response.versionNumber };
     case 'source':
-      return response.metadata.source ? { type: 'text', value: response.metadata.source } : undefined;
+      return textCell(response.metadata.source);
     case 'device':
-      return response.metadata.device ? { type: 'text', value: response.metadata.device } : undefined;
+      return textCell(response.metadata.device);
     case 'country':
-      return response.metadata.country ? { type: 'text', value: response.metadata.country } : undefined;
+      return textCell(response.metadata.country);
     case 'referrer':
-      return response.metadata.referrer ? { type: 'text', value: response.metadata.referrer } : undefined;
+      return textCell(response.metadata.referrer);
     default: {
       const hidden = response.hidden[key];
       return hidden === undefined ? undefined : { type: 'text', value: hidden };

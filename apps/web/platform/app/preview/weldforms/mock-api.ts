@@ -37,6 +37,7 @@ import {
   PREVIEW_FORM_IDS,
   PREVIEW_OWNER,
   publicUrlFor,
+  seededRng,
   templateDefinition,
   type FormRecord,
   type WeldFormsFixtures,
@@ -91,13 +92,43 @@ function toSummary(detail: FormDetail): FormSummary {
   return copy as unknown as FormSummary;
 }
 
+/** The plain fields of a form update: everything but the definition. */
+function applyFormFields(d: FormDetail, body: Obj): void {
+  if (typeof body.title === 'string') d.title = body.title;
+  if ('folderId' in body) d.folderId = typeof body.folderId === 'string' ? body.folderId : null;
+  if ('themeId' in body) d.themeId = typeof body.themeId === 'string' ? body.themeId : null;
+  if (body.access === 'workspace' || body.access === 'restricted') d.access = body.access;
+  if (body.settings) {
+    d.settings = { ...d.settings, ...asObj(body.settings) } as FormDetail['settings'];
+    d.respondentMode = d.settings.respondentMode;
+  }
+}
+
+/** An answer (or part of one) as CSV text, before quoting. */
+function csvValue(value: unknown): string {
+  if (value === undefined) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/** The record an integration makes from a response. */
+function actionEntityType(kind: FormIntegration['kind']): string {
+  if (kind === 'crm') return 'person';
+  if (kind === 'desk') return 'ticket';
+  return 'task';
+}
+
 const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtures(), clock: () => Date = () => new Date()) {
   const fx = fixtures;
   const now = () => clock().toISOString();
   let counter = 0;
-  const nextId = (prefix: string) => `${prefix}_preview_${Date.now().toString(36)}${(counter += 1)}`;
+  // Seeded, so a preview run hands out the same public links every time.
+  const publicIdRng = seededRng(4404);
+  const nextId = (prefix: string) => {
+    counter += 1;
+    return `${prefix}_preview_${Date.now().toString(36)}${counter}`;
+  };
 
   const record = (id: string): FormRecord | undefined => {
     const found = fx.records.find((r) => r.detail.id === id);
@@ -192,14 +223,7 @@ export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtur
         return fail(409, 'REVISION_CONFLICT', 'Someone saved this form in the meantime');
       }
       const d = r.detail;
-      if (typeof body.title === 'string') d.title = body.title;
-      if ('folderId' in body) d.folderId = typeof body.folderId === 'string' ? body.folderId : null;
-      if ('themeId' in body) d.themeId = typeof body.themeId === 'string' ? body.themeId : null;
-      if (body.access === 'workspace' || body.access === 'restricted') d.access = body.access;
-      if (body.settings) {
-        d.settings = { ...d.settings, ...asObj(body.settings) } as FormDetail['settings'];
-        d.respondentMode = d.settings.respondentMode;
-      }
+      applyFormFields(d, body);
       if (body.definition !== undefined) {
         const parsed = formDefinitionSchema.safeParse(body.definition);
         if (!parsed.success) return fail(422, 'VALIDATION_FAILED', 'The definition is not valid', parsed.error.issues);
@@ -263,7 +287,7 @@ export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtur
         theme: fx.themes.find((t) => t.id === d.themeId)?.tokens ?? null,
       };
       r.versions.push(version);
-      const publicId = d.publicId ?? Math.random().toString(36).slice(2, 10);
+      const publicId = d.publicId ?? publicIdRng().toString(36).slice(2, 10);
       d.status = 'published';
       d.publicId = publicId;
       d.publicUrl = publicUrlFor(publicId);
@@ -361,7 +385,7 @@ export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtur
             if (c.blockId) {
               const raw = resp.answers[c.blockId];
               const value = c.part ? asObj(raw)[c.part] : raw;
-              return csvCell(value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value));
+              return csvCell(csvValue(value));
             }
             if (c.key === 'number') return String(resp.number ?? '');
             if (c.key === 'submittedAt') return resp.submittedAt ?? '';
@@ -386,7 +410,7 @@ export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtur
           integrationId: i.id,
           kind: i.kind,
           status: 'done' as const,
-          entityType: i.kind === 'crm' ? 'person' : i.kind === 'desk' ? 'ticket' : 'task',
+          entityType: actionEntityType(i.kind),
           entityId: `${i.kind}_preview_${resp.number ?? 0}`,
           error: null,
           attempts: 1,
@@ -629,7 +653,9 @@ export function createWeldFormsMockApi(fixtures: WeldFormsFixtures = buildFixtur
 
   const settings: Handler = () => ok(fx.settings);
   const updateSettings: Handler = (req) => {
-    const { canHideBadge: _ignored, ...rest } = asObj(req.body);
+    // Whether the badge can be hidden comes from the plan, never from the request.
+    const rest = { ...asObj(req.body) };
+    delete rest.canHideBadge;
     fx.settings = { ...fx.settings, ...rest };
     return ok(fx.settings);
   };

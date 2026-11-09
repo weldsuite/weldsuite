@@ -8,7 +8,20 @@ export interface ParsedRecipients {
   invalid: string[];
 }
 
-const ANGLE_RE = /^(.*?)<\s*([^<>]+?)\s*>$/;
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/**
+ * `Name <a@b.nl>` split at its last `<`: the text before it and the text
+ * inside the brackets. Null when the entry is not in that form.
+ */
+function splitAngle(entry: string): { label: string; address: string } | null {
+  const open = entry.lastIndexOf('<');
+  if (open === -1 || !entry.endsWith('>')) return null;
+  const label = entry.slice(0, open);
+  const address = entry.slice(open + 1, -1);
+  if (address === '' || address.includes('>') || LINE_BREAK.test(label)) return null;
+  return { label, address };
+}
 
 /**
  * Splits on commas, semicolons and line breaks. An entry is `a@b.nl` or
@@ -25,10 +38,10 @@ export function parseRecipientText(text: string): ParsedRecipients {
 
     let name: string | undefined;
     let address = entry;
-    const angle = ANGLE_RE.exec(entry);
+    const angle = splitAngle(entry);
     if (angle) {
-      address = angle[2]?.trim() ?? '';
-      const label = angle[1]?.trim().replace(/^"|"$/g, '').trim();
+      address = angle.address.trim();
+      const label = angle.label.trim().replace(/^"|"$/g, '').trim();
       if (label) name = label;
     }
 

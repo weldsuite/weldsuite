@@ -41,7 +41,9 @@ function RefField({ def, id, value, onCommit, disabled, locked }: Readonly<{ def
   const shown = focused ? text : value;
   const taken = uniqueRef(def, shown, id) !== shown;
   const invalid = shown !== '' && !REF_PATTERN.test(shown);
-  const error = invalid ? tp.refInvalid : taken ? tp.refTaken : null;
+  let error: string | null = null;
+  if (invalid) error = tp.refInvalid;
+  else if (taken) error = tp.refTaken;
 
   return (
     <FormField label={tp.ref} helpText={locked ? tp.refPublishedHelp : tp.refHelp} error={error ?? undefined}>
@@ -220,10 +222,13 @@ function BlockProperties({ block, disabled }: Readonly<{ block: Block; disabled:
   const logicCount = def.logic.find((l) => l.blockId === (def.blocks[topIndex]?.id ?? block.id));
   const logicRules = (logicCount?.jumps.length ?? 0) + (logicCount?.calculations.length ?? 0) + (logicCount?.otherwise ? 1 : 0);
   const field: FieldBlock | null = isFieldBlock(block) ? block : null;
+  let sectionTitle = tp.question;
+  if (block.type === 'statement') sectionTitle = tp.statement;
+  else if (block.type === 'group') sectionTitle = tp.group;
 
   return (
     <div>
-      <PropSection title={block.type === 'statement' ? tp.statement : block.type === 'group' ? tp.group : tp.question}>
+      <PropSection title={sectionTitle}>
         <FormField label={tp.title}>
           <RecallInput value={block.title} onChange={setTitle} definition={def} sourceIndex={topIndex} multiline rows={2} maxLength={1000} disabled={disabled} ariaLabel={tp.title} />
         </FormField>

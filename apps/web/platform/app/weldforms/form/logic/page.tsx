@@ -61,6 +61,9 @@ export default function LogicTab() {
   }
 
   const ctx: LogicContext = { def, sourceIndex: isEndings ? null : sourceIndex, disabled: !editor.canEdit };
+  let rulesEditor: React.ReactNode = null;
+  if (isEndings) rulesEditor = <EndingRulesEditor ctx={ctx} />;
+  else if (block) rulesEditor = <BlockLogicEditor key={block.id} ctx={ctx} block={block} />;
 
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
@@ -106,7 +109,7 @@ export default function LogicTab() {
             <TabsTrigger value="flow">{tl.flow}</TabsTrigger>
           </TabsList>
           <TabsContent value="rules" className="mt-4 space-y-6">
-            {isEndings ? <EndingRulesEditor ctx={ctx} /> : block ? <BlockLogicEditor key={block.id} ctx={ctx} block={block} /> : null}
+            {rulesEditor}
           </TabsContent>
           <TabsContent value="flow" className="mt-4 space-y-3">
             <p className="text-sm text-muted-foreground">{tl.flowHelp}</p>
@@ -274,6 +277,9 @@ function CalculationRow({ ctx, calc, isTextVariable, onChange, onRemove }: Reado
   const ops = (isTextVariable ? ['set', 'add'] : ['add', 'subtract', 'multiply', 'divide', 'set']) as Calculation['op'][];
   const opNames = tl.calcOps as Record<string, string>;
   const conditional = calc.when !== null;
+  let joiner = tl.calcBy;
+  if (calc.op === 'set' || calc.op === 'add') joiner = tl.calcTo;
+  else if (calc.op === 'subtract') joiner = tl.calcFrom;
 
   return (
     <div className="space-y-2 rounded-md border bg-background p-3">
@@ -302,12 +308,13 @@ function CalculationRow({ ctx, calc, isTextVariable, onChange, onRemove }: Reado
           ariaLabel={tl.calcValue}
           constantInput={isTextVariable ? 'text' : 'number'}
         />
-        <span className="text-sm text-muted-foreground">{calc.op === 'set' ? tl.calcTo : calc.op === 'subtract' ? tl.calcFrom : calc.op === 'add' ? tl.calcTo : tl.calcBy}</span>
+        <span className="text-sm text-muted-foreground">{joiner}</span>
         <Select
           value={calc.variable}
           onValueChange={(variable) => {
             const nextText = ctx.def.variables.find((v) => v.name === variable)?.type === 'text';
-            onChange({ ...calc, variable, op: nextText && calc.op !== 'set' && calc.op !== 'add' ? 'set' : calc.op, value: nextText !== isTextVariable ? defaultConstant(nextText ? 'text' : 'number') : calc.value });
+            const nextInput = nextText ? 'text' : 'number';
+            onChange({ ...calc, variable, op: nextText && calc.op !== 'set' && calc.op !== 'add' ? 'set' : calc.op, value: nextText !== isTextVariable ? defaultConstant(nextInput) : calc.value });
           }}
           disabled={ctx.disabled}
         >

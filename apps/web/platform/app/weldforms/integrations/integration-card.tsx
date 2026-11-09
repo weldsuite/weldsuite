@@ -53,6 +53,8 @@ export function IntegrationCard({
   const ti = t.weldformsResults.integrations;
   const [confirmRemove, setConfirmRemove] = useState(false);
   const switchId = `integration-${title}-enabled`;
+  let saveLabel = integration ? ti.save : ti.setUp;
+  if (saving) saveLabel = t.weldformsResults.common.saving;
 
   return (
     <Card>
@@ -86,7 +88,7 @@ export function IntegrationCard({
         {children}
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <Button type="button" disabled={!canSave || saving} onClick={onSave}>
-            {saving ? t.weldformsResults.common.saving : integration ? ti.save : ti.setUp}
+            {saveLabel}
           </Button>
           {integration && (
             <>

@@ -170,16 +170,13 @@ export function FormEditorProvider({ form, children }: Readonly<ProviderProps>) 
           toast.warning(t.weldforms.editor.conflict);
           return false;
         case 'invalid':
+        case 'retry':
           setSaveState('error');
           setSaveError(outcome.message);
           return false;
         case 'gone':
           setSaveState('error');
           setSaveError(t.weldforms.editor.gone);
-          return false;
-        case 'retry':
-          setSaveState('error');
-          setSaveError(outcome.message);
           return false;
       }
     })();

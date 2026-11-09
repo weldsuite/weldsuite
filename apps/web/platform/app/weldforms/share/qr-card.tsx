@@ -71,6 +71,7 @@ function slug(title: string): string {
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    // The line above leaves at most one dash at either end.
+    .replace(/^-|-$/g, '');
   return s || 'form';
 }

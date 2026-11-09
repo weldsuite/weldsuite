@@ -7,7 +7,7 @@
 import { useState, type ReactNode } from 'react';
 import { Download, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { fieldsOf, isFileField } from '@weldsuite/forms-engine';
+import { fieldsOf, isFileField, type FieldBlock } from '@weldsuite/forms-engine';
 import type {
   FormDetail,
   FormResponseAction,
@@ -49,6 +49,11 @@ export function ResponseDrawer({
   const query = useFormResponse(form.id, responseId);
   const response = query.data;
 
+  let body: ReactNode;
+  if (query.isLoading) body = <PageLoader fullScreen={false} className="min-h-60" />;
+  else if (query.error || !response) body = <ErrorState message={td.loadFailed} onRetry={() => void query.refetch()} />;
+  else body = <DrawerBody form={form} response={response} onDeleted={onClose} />;
+
   return (
     <Sheet open={responseId !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
@@ -58,15 +63,7 @@ export function ResponseDrawer({
           </SheetTitle>
           <SheetDescription className="sr-only">{td.title}</SheetDescription>
         </SheetHeader>
-        <div className="px-4 pb-6">
-          {query.isLoading ? (
-            <PageLoader fullScreen={false} className="min-h-60" />
-          ) : query.error || !response ? (
-            <ErrorState message={td.loadFailed} onRetry={() => void query.refetch()} />
-          ) : (
-            <DrawerBody form={form} response={response} onDeleted={onClose} />
-          )}
-        </div>
+        <div className="px-4 pb-6">{body}</div>
       </SheetContent>
     </Sheet>
   );
@@ -144,49 +141,7 @@ function DrawerBody({
       <section aria-label={td.answers} className="space-y-4">
         <h3 className="text-sm font-semibold">{td.answers}</h3>
         {definition ? (
-          fields.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{tr.responses.noAnswers}</p>
-          ) : (
-            <dl className="space-y-4">
-              {fields.map((field) => {
-                const files = isFileField(field) ? response.files.filter((f) => f.blockId === field.id) : [];
-                const text = isFileField(field) ? '' : answerText(field, response.answers[field.id]);
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">{field.title}</dt>
-                    <dd className="text-sm">
-                      {files.length > 0 ? (
-                        <ul className="space-y-1">
-                          {files.map((file) => (
-                            <li key={file.fileId} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5">
-                              <span className="min-w-0 flex-1 truncate">
-                                {file.kind === 'signature' ? td.signature : file.name}
-                                <span className="ml-2 text-xs text-muted-foreground">{formatBytes(file.size, language)}</span>
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={download.isPending}
-                                onClick={() => void onDownload(file.fileId, file.name)}
-                              >
-                                <Download className="mr-1.5 h-4 w-4" />
-                                {td.download}
-                              </Button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : text ? (
-                        <span className="whitespace-pre-wrap break-words">{text}</span>
-                      ) : (
-                        <span className="text-muted-foreground">{td.unanswered}</span>
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          )
+          <AnswerList fields={fields} response={response} downloading={download.isPending} onDownload={(fileId, name) => void onDownload(fileId, name)} />
         ) : (
           <PageLoader fullScreen={false} className="min-h-24" />
         )}
@@ -288,6 +243,62 @@ function DrawerBody({
         onConfirm={() => void onDelete()}
       />
     </div>
+  );
+}
+
+/** Every question of the version the response was given under, with its answer or files. */
+function AnswerList({
+  fields,
+  response,
+  downloading,
+  onDownload,
+}: Readonly<{ fields: FieldBlock[]; response: FormResponseDetail; downloading: boolean; onDownload: (fileId: string, name: string) => void }>) {
+  const { t, language } = useI18n();
+  const tr = t.weldformsResults.results;
+  const td = tr.drawer;
+
+  if (fields.length === 0) return <p className="text-sm text-muted-foreground">{tr.responses.noAnswers}</p>;
+
+  return (
+    <dl className="space-y-4">
+      {fields.map((field) => {
+        const files = isFileField(field) ? response.files.filter((f) => f.blockId === field.id) : [];
+        const text = isFileField(field) ? '' : answerText(field, response.answers[field.id]);
+        let value: ReactNode = <span className="text-muted-foreground">{td.unanswered}</span>;
+        if (files.length > 0) {
+          value = (
+            <ul className="space-y-1">
+              {files.map((file) => (
+                <li key={file.fileId} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 truncate">
+                    {file.kind === 'signature' ? td.signature : file.name}
+                    <span className="ml-2 text-xs text-muted-foreground">{formatBytes(file.size, language)}</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={downloading}
+                    onClick={() => onDownload(file.fileId, file.name)}
+                  >
+                    <Download className="mr-1.5 h-4 w-4" />
+                    {td.download}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          );
+        } else if (text) {
+          value = <span className="whitespace-pre-wrap break-words">{text}</span>;
+        }
+        return (
+          <div key={field.id} className="space-y-1">
+            <dt className="text-xs font-medium text-muted-foreground">{field.title}</dt>
+            <dd className="text-sm">{value}</dd>
+          </div>
+        );
+      })}
+    </dl>
   );
 }
 

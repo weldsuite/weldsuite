@@ -143,8 +143,8 @@ export function FormActions() {
     }
   }
 
-  const publishLabel =
-    form.status === 'published' ? (form.hasUnpublishedChanges ? tf.publishChanges : tf.published) : tf.publish;
+  let publishLabel = tf.publish;
+  if (form.status === 'published') publishLabel = form.hasUnpublishedChanges ? tf.publishChanges : tf.published;
 
   return (
     <>

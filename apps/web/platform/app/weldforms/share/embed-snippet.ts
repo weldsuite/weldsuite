@@ -94,7 +94,7 @@ export function embedScriptUrl(origin: string): string {
   return `${origin}/embed.js`;
 }
 
-const HIDDEN_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const HIDDEN_NAME_RE = /^[a-zA-Z_]\w*$/;
 
 /** Entries with a valid, unique name; a value may be empty. */
 export function cleanHidden(entries: readonly HiddenFieldValue[]): HiddenFieldValue[] {

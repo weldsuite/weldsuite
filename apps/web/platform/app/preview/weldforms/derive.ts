@@ -184,6 +184,13 @@ export function buildSummary(definition: FormDefinition, all: FormResponseDto[],
 
 const dayOf = (at: string) => at.slice(0, 10);
 
+/** The first day of the chart: the range start, else the first event, else today. */
+function firstDayOf(range: DateRange, events: FormActivityEvent[], now: Date): string {
+  if (range.from) return dayOf(range.from);
+  if (events[0]) return dayOf(events[0].at);
+  return dayOf(now.toISOString());
+}
+
 export function buildInsights(
   definition: FormDefinition,
   responses: FormResponseDto[],
@@ -199,7 +206,7 @@ export function buildInsights(
   // Visitors who looked at the form: a bit more than twice the starts.
   const viewsFor = (n: number, date: string) => (n === 0 ? date.charCodeAt(9) % 2 : n * 2 + (date.charCodeAt(9) % 3));
 
-  const firstDay = range.from ? dayOf(range.from) : events[0] ? dayOf(events[0].at) : dayOf(now.toISOString());
+  const firstDay = firstDayOf(range, events, now);
   const lastDay = range.to ? dayOf(range.to) : dayOf(now.toISOString());
   const byDay: FormInsights['byDay'] = [];
   for (let t = Date.parse(`${firstDay}T00:00:00Z`); t <= Date.parse(`${lastDay}T00:00:00Z`) && byDay.length < 400; t += 24 * 60 * 60 * 1000) {

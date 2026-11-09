@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useI18n } from '@/lib/i18n/provider';
 import { useFormEditor } from '../editor-context';
 
-const HIDDEN_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const HIDDEN_PATTERN = /^[a-zA-Z_]\w*$/;
 const VARIABLE_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 /** A name not used yet: `base`, `base_2`, … */

@@ -39,6 +39,18 @@ function loadView(): ViewMode {
   }
 }
 
+/** The list filter for a folder choice: every form, the forms outside a folder, or one folder. */
+function folderFilter(folder: string): string | undefined {
+  if (folder === ALL_FOLDERS) return undefined;
+  if (folder === NO_FOLDER) return 'none';
+  return folder;
+}
+
+/** The folder a new form goes into: the one picked, if any. */
+function folderForNewForm(folder: string): string | null {
+  return folder === ALL_FOLDERS || folder === NO_FOLDER ? null : folder;
+}
+
 export default function WeldFormsHome() {
   const { t, format, language } = useI18n();
   const th = t.weldforms.home;
@@ -58,7 +70,7 @@ export default function WeldFormsHome() {
   const [moving, setMoving] = useState<FormSummary | null>(null);
 
   const params: Omit<ListFormsQuery, 'cursor'> = {
-    folderId: folder === ALL_FOLDERS ? undefined : folder === NO_FOLDER ? 'none' : folder,
+    folderId: folderFilter(folder),
     status,
     q: deferredSearch || undefined,
     sort,
@@ -280,7 +292,7 @@ export default function WeldFormsHome() {
         </div>
       </div>
 
-      <NewFormDialog open={creating} onOpenChange={setCreating} folderId={folder === ALL_FOLDERS || folder === NO_FOLDER ? null : folder} />
+      <NewFormDialog open={creating} onOpenChange={setCreating} folderId={folderForNewForm(folder)} />
       <MoveDialog form={moving} folders={folders.data ?? []} onClose={() => setMoving(null)} />
       <ConfirmDialog
         open={deleting !== null}
