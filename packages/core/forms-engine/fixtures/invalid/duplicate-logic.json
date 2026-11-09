@@ -1,0 +1,37 @@
+{
+  "name": "Two logic entries for one block",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_1"
+      },
+      {
+        "blockId": "b_1"
+      }
+    ]
+  },
+  "expectIssues": [
+    "duplicate_logic"
+  ]
+}
