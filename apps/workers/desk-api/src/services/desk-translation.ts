@@ -10,6 +10,14 @@
  *   in KV (`WORKSPACE_CACHE`) by message id and language for 30 days, so
  *   opening the conversation again costs nothing: with the language known and
  *   every message cached there is no model call and no charge.
+ *
+ *   While the language is unknown, or stored as the agent's own, it is judged
+ *   on the customer's newest messages only (a small call): the same language
+ *   means nothing to translate, and those messages are remembered as judged,
+ *   so a thread in the agent's language never pays for a full translation,
+ *   and a wrong guess from a first "Hallo" is put right by the next message.
+ *   The rest goes to the model in batches: one call for a long thread would
+ *   cut its answer short of valid JSON.
  * - `translateReply` puts the agent's draft into the conversation's language.
  *
  * One model, `recommended.translate.free` (Llama 3.3 70B on Workers AI), via
@@ -40,8 +48,20 @@ const TRANSLATE_MODEL = recommended.translate.free;
 export const DESK_TRANSLATION_CACHE_TTL = 30 * 24 * 60 * 60;
 /** Messages translated by default: the customer's latest. */
 const DEFAULT_MESSAGE_LIMIT = 50;
-/** Messages shown to the model to detect a language when all are cached. */
+/** The customer's newest messages a language is judged on. */
 const DETECTION_SAMPLE = 5;
+/** Messages per model call. */
+const TRANSLATE_BATCH = 12;
+/** Characters per model call; one longer message goes alone. */
+const TRANSLATE_BATCH_CHARS = 6_000;
+/** Room for a batch's translations as JSON. */
+const TRANSLATE_MAX_OUTPUT_TOKENS = 8_000;
+/**
+ * Cached for a message judged to be in the agent's language: nothing to
+ * show, and no reason to judge it again. A marker no translation can be (the
+ * model writes no NUL), and not empty, so it reads as a hit.
+ */
+const SAME_LANGUAGE = '\u0000';
 
 export class DeskTranslationError extends Error {
   constructor(
@@ -246,14 +266,9 @@ export async function translateConversation(
 ): Promise<DeskTranslationResult & { languageChange: LanguageChange | null }> {
   const { env, db, workspaceId, conversationId, targetLocale } = opts;
   const conversation = await loadConversation(db, conversationId);
-  let language = conversation.language ?? null;
+  const stored = conversation.language ?? null;
+  let language = stored;
   const target = normalizeLocale(targetLocale) ?? targetLocale;
-
-  // The customer already writes the agent's language: nothing to translate.
-  if (sameLanguage(language, target)) {
-    return { language, targetLocale: target, translations: [], languageChange: null };
-  }
-
   const messages = await loadMessages(db, conversationId, opts.messageIds);
 
   const cache = translationCache(env, workspaceId, target);
@@ -262,24 +277,41 @@ export async function translateConversation(
     const text = await cache.get(message.id);
     if (text !== null) cached.set(message.id, text);
   }
-  let pending = messages.filter((message) => !cached.has(message.id));
-  if (!language && pending.length === 0) pending = messages.slice(0, DETECTION_SAMPLE);
-  if (pending.length === 0) {
-    return {
-      language,
-      targetLocale: target,
-      translations: messages.map((message) => ({ messageId: message.id, text: cached.get(message.id)! })),
-      languageChange: null,
-    };
+
+  let languageChange: LanguageChange | null = null;
+  const result = () => ({
+    language,
+    targetLocale: target,
+    // The customer writes the agent's language: nothing to show.
+    translations: sameLanguage(language, target)
+      ? []
+      : messages.flatMap((message) => {
+          const text = cached.get(message.id);
+          return text === undefined || text === SAME_LANGUAGE ? [] : [{ messageId: message.id, text }];
+        }),
+    languageChange,
+  });
+
+  /** A language to translate from: known, and not the agent's own. */
+  const foreign = () => !!language && !sameLanguage(language, target);
+
+  let queue = messages.filter((message) => !cached.has(message.id));
+  if (queue.length === 0) {
+    if (language || messages.length === 0) return result();
+    // Every message is cached but the language was never stored: judge it.
+    queue = detectionSample(messages);
   }
 
   const ai = getAi(env);
   const metering = await opts.metering();
   await assertAiCredits(metering);
-  const res = await callModel(() =>
-    generateObject({
+
+  /** One model call for a batch, charged for the model that served it. */
+  const translate = async (batch: DeskMessage[]) => {
+    const res = await generateObject({
       model: ai.model(TRANSLATE_MODEL),
       schema: translationsSchema,
+      maxOutputTokens: TRANSLATE_MAX_OUTPUT_TOKENS,
       system: [
         'You translate customer support conversations.',
         "First name the language the customer writes in, as an ISO 639-1 code (for example 'de'): judge it from the messages whose role is customer.",
@@ -288,47 +320,123 @@ export async function translateConversation(
         'Return each translation with the id of its message.',
       ].join('\n'),
       prompt: JSON.stringify(
-        pending.map((message) => ({
+        batch.map((message) => ({
           id: message.id,
           role: message.authorType === 'visitor' ? 'customer' : 'support',
           text: message.body ?? '',
         })),
       ),
-    }),
-  );
-  await chargeAiUsage(metering, {
-    modelId: billedModelId(TRANSLATE_MODEL, res),
-    usage: res.usage,
-    op: 'desk_translate',
-  });
+    });
+    await chargeAiUsage(metering, {
+      modelId: billedModelId(TRANSLATE_MODEL, res),
+      usage: res.usage,
+      op: 'desk_translate',
+    });
+    return res.object;
+  };
 
-  const detected = normalizeLocale(res.object.language);
-  let languageChange: LanguageChange | null = null;
-  if (detected && detected !== language) {
+  /** Store what a call named as the customer's language, when it is news. */
+  const adopt = async (raw: string | null | undefined) => {
+    const detected = normalizeLocale(raw);
+    if (!detected || detected === language) return;
     if (await setDeskConversationLanguage(db, conversationId, detected)) {
-      languageChange = { old: language, new: detected };
+      languageChange = { old: stored, new: detected };
     }
     language = detected;
-  }
-  if (sameLanguage(language, target)) {
-    return { language, targetLocale: target, translations: [], languageChange };
+  };
+
+  const keep = async (batch: DeskMessage[], items: { id: string; text: string }[] | undefined) => {
+    const wanted = new Set(batch.map((message) => message.id));
+    for (const item of items ?? []) {
+      if (!wanted.has(item.id) || typeof item.text !== 'string') continue;
+      // An empty answer is nothing to show; remembered, so it is not asked for again.
+      const text = item.text || SAME_LANGUAGE;
+      cached.set(item.id, text);
+      await cache.put(item.id, text);
+    }
+  };
+
+  let probed = false;
+  if (!foreign()) {
+    // Unknown, or the agent's own language as far as we know: judge it on the
+    // customer's newest messages before paying for anything more.
+    const probe = detectionSample(queue);
+    const answer = await callModel(() => translate(probe));
+    await adopt(answer.language);
+    if (sameLanguage(language, target)) {
+      for (const message of queue) {
+        cached.set(message.id, SAME_LANGUAGE);
+        await cache.put(message.id, SAME_LANGUAGE);
+      }
+      return result();
+    }
+    await keep(probe, answer.translations);
+    probed = true;
+    // Everything else not translated yet, the messages judged "same language"
+    // before the conversation turned out foreign included.
+    const judged = new Set(probe.map((message) => message.id));
+    queue = messages.filter(
+      (message) => !judged.has(message.id) && (cached.get(message.id) ?? SAME_LANGUAGE) === SAME_LANGUAGE,
+    );
   }
 
-  const wanted = new Set(pending.map((message) => message.id));
-  for (const item of res.object.translations ?? []) {
-    if (!wanted.has(item.id) || typeof item.text !== 'string') continue;
-    cached.set(item.id, item.text);
-    await cache.put(item.id, item.text);
-  }
-  return {
-    language,
-    targetLocale: target,
-    translations: messages.flatMap((message) => {
-      const text = cached.get(message.id);
-      return text === undefined ? [] : [{ messageId: message.id, text }];
+  // The rest, a batch per call. Without a probe, the batch with the newest
+  // messages also says whether the customer changed language.
+  const batches = batchesOf(queue);
+  const settled = await Promise.allSettled(
+    batches.map(async (batch, index) => {
+      const answer = await translate(batch);
+      if (!probed && index === batches.length - 1) await adopt(answer.language);
+      await keep(batch, answer.translations);
     }),
-    languageChange,
-  };
+  );
+  const failures = settled.filter((outcome) => outcome.status === 'rejected');
+  if (failures.length > 0) {
+    console.error('[desk-translation] model call failed:', failures[0]!.reason);
+    // Nothing came back at all: say so. Otherwise show what did; the rest is
+    // translated on the next request.
+    if (!probed && failures.length === settled.length) {
+      throw new DeskTranslationError('ai_request_failed', 'Translation failed, try again', 502);
+    }
+  }
+  return result();
+}
+
+/**
+ * The messages a language is judged on: the customer's newest (any author's
+ * when none are the customer's), a handful and within one call's size.
+ */
+function detectionSample(messages: DeskMessage[]): DeskMessage[] {
+  const fromCustomer = messages.filter((message) => message.authorType === 'visitor');
+  const pool = fromCustomer.length > 0 ? fromCustomer : messages;
+  const sample: DeskMessage[] = [];
+  let chars = 0;
+  for (let i = pool.length - 1; i >= 0 && sample.length < DETECTION_SAMPLE; i--) {
+    const size = pool[i]!.body?.length ?? 0;
+    if (sample.length > 0 && chars + size > TRANSLATE_BATCH_CHARS) break;
+    sample.unshift(pool[i]!);
+    chars += size;
+  }
+  return sample;
+}
+
+/** Messages split into calls: at most `TRANSLATE_BATCH` each, and `TRANSLATE_BATCH_CHARS` unless one message is longer. */
+function batchesOf(messages: DeskMessage[]): DeskMessage[][] {
+  const batches: DeskMessage[][] = [];
+  let batch: DeskMessage[] = [];
+  let chars = 0;
+  for (const message of messages) {
+    const size = message.body?.length ?? 0;
+    if (batch.length > 0 && (batch.length === TRANSLATE_BATCH || chars + size > TRANSLATE_BATCH_CHARS)) {
+      batches.push(batch);
+      batch = [];
+      chars = 0;
+    }
+    batch.push(message);
+    chars += size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
 }
 
 export interface TranslateReplyOptions {
@@ -359,6 +467,7 @@ export async function translateReply(opts: TranslateReplyOptions): Promise<DeskR
     generateObject({
       model: ai.model(TRANSLATE_MODEL),
       schema: replySchema,
+      maxOutputTokens: TRANSLATE_MAX_OUTPUT_TOKENS,
       system: [
         `You translate a support agent's reply to a customer into ${languageName(target)}.`,
         'Keep the meaning, tone, names, numbers, links, placeholders and line breaks. Translate only; add nothing.',
