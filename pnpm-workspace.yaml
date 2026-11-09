@@ -72,6 +72,12 @@ overrides:
 # above and dropping their grouping); add entries by hand instead.
 # Patches race pnpm 10's hoisted linker; see child-concurrency in .npmrc.
 patchedDependencies:
+  # Types only. ExtractTablesWithRelations looked for each table's relations()
+  # in every export of the schema, a tables x exports scan that left `typeof
+  # schema` (536 tables) at TypeScript's instantiation limit (TS2589 in
+  # packages/core/db/src/lib). It now filters the relations once. Same result
+  # types. Re-check on a drizzle-orm upgrade.
+  drizzle-orm@0.45.2: patches/drizzle-orm@0.45.2.patch
   # decode-uri-component 0.5 is ESM-only; take its default export.
   query-string@7.1.3: patches/query-string@7.1.3.patch
   # Security backports for alerts with no fixed release yet. Drop each once

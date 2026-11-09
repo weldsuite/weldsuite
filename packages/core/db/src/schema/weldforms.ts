@@ -34,36 +34,36 @@ import {
 // Value types
 // ---------------------------------------------------------------------------
 
-export const FORM_STATUSES = ['draft', 'published', 'closed'] as const;
+const FORM_STATUSES = ['draft', 'published', 'closed'] as const;
 export type FormStatus = (typeof FORM_STATUSES)[number];
 
 /** Who sees a form in the workspace: everyone with `forms:read`, or only its access list. */
-export const FORM_ACCESS_LEVELS = ['workspace', 'restricted'] as const;
+const FORM_ACCESS_LEVELS = ['workspace', 'restricted'] as const;
 export type FormAccessLevel = (typeof FORM_ACCESS_LEVELS)[number];
 
-export const FORM_ACCESS_ROLES = ['editor', 'results'] as const;
+const FORM_ACCESS_ROLES = ['editor', 'results'] as const;
 export type FormAccessRole = (typeof FORM_ACCESS_ROLES)[number];
 
 /** How a respondent is identified (docs/plans/weldforms.md, "Respondent modes"). */
-export const FORM_RESPONDENT_MODES = ['anyone', 'verified_email', 'members'] as const;
+const FORM_RESPONDENT_MODES = ['anyone', 'verified_email', 'members'] as const;
 export type FormRespondentMode = (typeof FORM_RESPONDENT_MODES)[number];
 
-export const FORM_RESPONSE_STATUSES = ['in_progress', 'completed'] as const;
+const FORM_RESPONSE_STATUSES = ['in_progress', 'completed'] as const;
 export type FormResponseStatus = (typeof FORM_RESPONSE_STATUSES)[number];
 
-export const FORM_FILE_KINDS = ['upload', 'signature'] as const;
+const FORM_FILE_KINDS = ['upload', 'signature'] as const;
 export type FormFileKind = (typeof FORM_FILE_KINDS)[number];
 
-export const FORM_INVITATION_STATUSES = ['sent', 'opened', 'started', 'completed', 'revoked'] as const;
+const FORM_INVITATION_STATUSES = ['sent', 'opened', 'started', 'completed', 'revoked'] as const;
 export type FormInvitationStatus = (typeof FORM_INVITATION_STATUSES)[number];
 
-export const FORM_INTEGRATION_KINDS = ['crm', 'desk', 'flow'] as const;
+const FORM_INTEGRATION_KINDS = ['crm', 'desk', 'flow'] as const;
 export type FormIntegrationKind = (typeof FORM_INTEGRATION_KINDS)[number];
 
-export const FORM_ACTION_STATUSES = ['pending', 'done', 'failed', 'skipped'] as const;
+const FORM_ACTION_STATUSES = ['pending', 'done', 'failed', 'skipped'] as const;
 export type FormActionStatus = (typeof FORM_ACTION_STATUSES)[number];
 
-export const FORM_SUBSCRIPTION_MODES = ['instant', 'daily', 'off'] as const;
+const FORM_SUBSCRIPTION_MODES = ['instant', 'daily', 'off'] as const;
 export type FormSubscriptionMode = (typeof FORM_SUBSCRIPTION_MODES)[number];
 
 /**

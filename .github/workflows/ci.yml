@@ -521,10 +521,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      # A cold platform check (no tsbuildinfo cache) peaks near 6 GB of heap;
-      # 5 GB ran out of memory. ubuntu-latest runners have 16 GB for this
-      # public repo.
-      NODE_OPTIONS: --max-old-space-size=8192
+      # A cold platform check (no tsbuildinfo cache, e.g. after a lockfile
+      # change) compiles the Drizzle schema too and needed close to 9 GB by
+      # November 2026; 8 GB ran out of memory. ubuntu-latest runners have
+      # 16 GB for this public repo.
+      NODE_OPTIONS: --max-old-space-size=12288
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
