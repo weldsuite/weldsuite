@@ -7,7 +7,9 @@
  *
  * Keys come from `weldformsKeys` in `use-weldforms-queries.ts`, so the realtime
  * sync map's invalidation of `weldformsKeys.all` refreshes these too, and a
- * mutation here only has to invalidate the form it touched.
+ * mutation here only has to invalidate the form it touched. The one exception
+ * is the members-only fill (`weldformsResultsKeys.fill`), kept outside the root
+ * on purpose: see `useMemberFill`.
  */
 
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,7 +36,8 @@ export const weldformsResultsKeys = {
   aiSummary: (id: string, blockId: string | null) => [...weldformsKeys.form(id), 'ai-summary', blockId ?? 'form'] as const,
   invitationList: (id: string, params: unknown) => [...weldformsKeys.invitations(id), 'list', params] as const,
   invitationStats: (id: string) => [...weldformsKeys.invitations(id), 'stats'] as const,
-  fill: (publicId: string) => [...weldformsKeys.all, 'fill', publicId] as const,
+  /** Not under `weldformsKeys.all`: no realtime event may refetch it (see `useMemberFill`). */
+  fill: (publicId: string) => ['weldforms-fill', publicId] as const,
   person: (personId: string) => [...weldformsKeys.all, 'person', personId] as const,
 };
 
@@ -340,6 +343,18 @@ export function useTestFormIntegration(id: string) {
 // Members-only forms
 // ---------------------------------------------------------------------------
 
+/**
+ * The form a member is filling in, loaded once. Its key sits outside
+ * `weldformsKeys.all` because the realtime sync map invalidates that root on
+ * every `form*` event, the member's own submit included, and an invalidation
+ * refetches an active query whatever its `staleTime`: the refetch would bring
+ * `alreadyResponded: true` on a one-per-member form and swap the ending
+ * (thanks, score, quiz review) for "already answered", or swap the definition
+ * under someone filling it in when anyone edits the form or answers it.
+ * Nothing is kept once the page closes (`gcTime: 0`), so the next visit loads
+ * afresh: the published version of the moment, and "already answered" after a
+ * submit.
+ */
 export function useMemberFill(publicId: string) {
   const { weldforms } = useAppApi();
   return useQuery({
@@ -349,6 +364,7 @@ export function useMemberFill(publicId: string) {
     enabled: publicId !== '',
     // The definition must not change under someone who is filling it in.
     staleTime: Infinity,
+    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }

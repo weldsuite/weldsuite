@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formDefinitionSchema, type FormDefinitionInput } from './definition';
+import { ENDING_URL_MESSAGE, formDefinitionSchema, isEndingUrl, type FormDefinitionInput } from './definition';
 import { operatorAllowed, parseDefinition, validateDefinition } from './validate';
 
 function issues(input: FormDefinitionInput) {
@@ -22,6 +22,29 @@ describe('parseDefinition', () => {
     expect(result).toEqual({
       ok: false,
       issues: [expect.objectContaining({ code: 'schema', path: 'blocks.0.ref' })],
+    });
+  });
+
+  it('takes only web links as ending links, recall after the scheme', () => {
+    for (const url of ['', 'https://example.com/?e={{field:end}}', 'HTTP://EXAMPLE.COM', 'Https://example.com', 'http://']) {
+      expect(isEndingUrl(url)).toBe(true);
+    }
+    for (const url of ['javascript:alert(1)', ' https://example.com', '{{hidden:next}}', '//example.com', 'example.com', 'https:example.com', 'ſttps://example.com']) {
+      expect(isEndingUrl(url)).toBe(false);
+    }
+    const result = parseDefinition({
+      blocks: [],
+      endings: [
+        { ...ending, redirectUrl: 'javascript:alert(1)', button: { text: 'Go', url: 'mailto:x@example.com' } },
+        { id: 'e_2', ref: 'two', title: 'Two', redirectUrl: 'https://example.com/?n={{var:score}}', button: { text: 'Go', url: '' } },
+      ],
+    });
+    expect(result).toEqual({
+      ok: false,
+      issues: [
+        { code: 'schema', path: 'endings.0.redirectUrl', message: ENDING_URL_MESSAGE },
+        { code: 'schema', path: 'endings.0.button.url', message: ENDING_URL_MESSAGE },
+      ],
     });
   });
 });

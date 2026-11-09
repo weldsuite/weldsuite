@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import {
+  isEndingUrl,
   isFieldBlock,
   uniqueRef,
   type Block,
@@ -158,10 +159,11 @@ function EndingProperties({ ending, disabled }: Readonly<{ ending: FormEnding; d
         <FormField label={tp.buttonText}>
           <Input value={ending.button?.text ?? ''} onChange={(e) => patch({ button: e.target.value || ending.button?.url ? { text: e.target.value, url: ending.button?.url ?? '' } : undefined }, `${ending.id}-btn-text`)} maxLength={60} disabled={disabled} />
         </FormField>
-        <FormField label={tp.buttonUrl}>
+        {/* The schema refuses any other link, and with it every save of the draft: say so at the field. */}
+        <FormField label={tp.buttonUrl} error={isEndingUrl(ending.button?.url ?? '') ? undefined : tp.linkScheme}>
           <Input value={ending.button?.url ?? ''} onChange={(e) => patch({ button: e.target.value || ending.button?.text ? { text: ending.button?.text ?? '', url: e.target.value } : undefined }, `${ending.id}-btn-url`)} maxLength={2000} placeholder="https://" disabled={disabled} />
         </FormField>
-        <FormField label={tp.redirectUrl} helpText={tp.redirectHelp}>
+        <FormField label={tp.redirectUrl} helpText={tp.redirectHelp} error={isEndingUrl(ending.redirectUrl ?? '') ? undefined : tp.linkScheme}>
           <RecallInput value={ending.redirectUrl ?? ''} onChange={(redirectUrl) => patch({ redirectUrl: redirectUrl || undefined }, `${ending.id}-redirect`)} definition={def} sourceIndex={null} maxLength={2000} placeholder="https://" disabled={disabled} ariaLabel={tp.redirectUrl} />
         </FormField>
       </PropSection>

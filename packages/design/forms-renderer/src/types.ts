@@ -123,6 +123,14 @@ export interface QuizResultItem {
   fieldId: string;
   correct: boolean | null;
   points: number;
+  /**
+   * The right answer as text (the correct choices' labels joined with `, `),
+   * from forms-api, whose public definition leaves out which choices are
+   * correct; null for a field without choices. Absent in a result worked out
+   * in the browser (the builder preview), which reads the definition's
+   * `correct` flags instead.
+   */
+  correctAnswer?: string | null;
 }
 
 export interface SubmitResult {

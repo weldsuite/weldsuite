@@ -119,6 +119,11 @@ or array (equality and the set operators); ranking, files, a matrix without
 
 ### Definition checks
 
+The schema: an ending's `redirectUrl` and `button.url` are empty or start with
+`http://` or `https://` (any case), checked on the text as written, so recall
+may follow the scheme but never stand in for it (`schema` issue, message
+`must start with http:// or https://`).
+
 `validateDefinition`, one issue per occurrence: `duplicate_id` (top-level
 blocks, group children and endings share one namespace; choice, row and column
 ids are unique per field), `duplicate_ref` (blocks, children, endings),
@@ -185,7 +190,8 @@ spaces, lowercased, cut at 10,000 code points.
 
 `expect` is the exact `evaluateSubmission` result (`computePath` must give the
 same path, ending and variables). `fixtures/invalid/*.json`:
-`{ name, definition, expectIssues: [code, …] }`; the issue codes compared as a
-sorted list, one issue per occurrence (a duplicate is reported on every
-occurrence after the first). Vitest runs them here; the Rust module's tests
+`{ name, definition, expectIssues: [code, …], expectDetails?: [{ code, path, message }, …] }`;
+the issue codes compared as a sorted list, one issue per occurrence (a
+duplicate is reported on every occurrence after the first); `expectDetails`,
+when given, is the exact issue list in order. Vitest runs them here; the Rust module's tests
 run the same files, so both backends decide alike.

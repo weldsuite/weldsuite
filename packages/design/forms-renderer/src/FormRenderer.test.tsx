@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FormChoice, FormDefinitionInput } from '@weldsuite/forms-engine';
 import { FormRenderer } from './FormRenderer';
 import { ageBlock, colorBlock, makeDefinition, nameBlock, TEST_LABELS, yesNoBlock } from './test-utils';
-import type { FormRendererProps } from './types';
+import type { FormRendererProps, SubmitResult } from './types';
 
 function renderForm(props: Partial<FormRendererProps> & Pick<FormRendererProps, 'definition'>) {
   return render(<FormRenderer labels={TEST_LABELS} mode="preview" {...props} />);
@@ -196,6 +197,75 @@ describe('live submit', () => {
     fireEvent.change(input, { target: { files: [new File(['abc'], 'cv.pdf', { type: 'application/pdf' })] } });
     await waitFor(() => expect(screen.getByText('cv.pdf')).toBeTruthy());
     expect(onUpload).toHaveBeenCalledWith('b_file', expect.any(File), expect.any(Function));
+  });
+});
+
+describe('live ending', () => {
+  const lyon: FormChoice = { id: 'c_l', label: 'Lyon', score: 0 };
+  function quizField(paris: FormChoice): FormDefinitionInput['blocks'][number] {
+    return { id: 'b_quiz', ref: 'quiz', type: 'multiple_choice', title: 'Capital of France?', properties: { choices: [paris, lyon] } };
+  }
+  /** As forms-api serves it: no `correct` flags. */
+  const quizBlock = quizField({ id: 'c_p', label: 'Paris', score: 1 });
+
+  function serverEnding(over: Partial<SubmitResult['ending']> = {}): SubmitResult['ending'] {
+    return { id: 'e_done', title: 'Done', description: null, redirectUrl: null, button: null, showScore: false, showAnswers: true, ...over };
+  }
+
+  async function answerLyonAndSubmit() {
+    fireEvent.click(screen.getByRole('radio', { name: /Lyon/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Done' })).toBeTruthy());
+  }
+
+  it("shows the server's correct answer: the public definition has no correct flags", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({
+      ending: serverEnding(),
+      score: 0,
+      quiz: [{ fieldId: 'b_quiz', correct: false, points: 0, correctAnswer: 'Paris' }],
+    } satisfies SubmitResult);
+    renderForm({ definition: makeDefinition({ blocks: [quizBlock] }), mode: 'live', onSubmit });
+    await answerLyonAndSubmit();
+    expect(screen.getByText(/Your answer: Lyon/)).toBeTruthy();
+    expect(screen.getByText(/Correct answer: Paris/)).toBeTruthy();
+  });
+
+  it("falls back to the definition's correct flags when the result has no correct answer text", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({
+      ending: serverEnding(),
+      score: 0,
+      quiz: [{ fieldId: 'b_quiz', correct: false, points: 0 }],
+    } satisfies SubmitResult);
+    const def = makeDefinition({ blocks: [quizField({ id: 'c_p', label: 'Paris', score: 1, correct: true })] });
+    renderForm({ definition: def, mode: 'live', onSubmit });
+    await answerLyonAndSubmit();
+    expect(screen.getByText(/Correct answer: Paris/)).toBeTruthy();
+  });
+
+  it('redirects to a web link', async () => {
+    const onRedirect = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue({ ending: serverEnding({ redirectUrl: 'https://example.com/thanks' }), score: 0, quiz: null } satisfies SubmitResult);
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [quizBlock] }), mode: 'live', onSubmit, onRedirect });
+    await answerLyonAndSubmit();
+    await waitFor(() => expect(container.querySelector('.wf-ending .wf-hint')?.textContent).toBe('Redirecting'));
+    expect(onRedirect).toHaveBeenCalledWith('https://example.com/thanks');
+  });
+
+  it('never redirects to a javascript: link and shows the ending as if it had no redirect', async () => {
+    const onRedirect = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue({
+      ending: serverEnding({ redirectUrl: 'javascript:alert(document.domain)' }),
+      score: 0,
+      quiz: null,
+    } satisfies SubmitResult);
+    const onEnding = vi.fn();
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [quizBlock] }), mode: 'live', onSubmit, onRedirect, onEnding });
+    await answerLyonAndSubmit();
+    // The ending's effect has run: it tells the host first, then would redirect.
+    await waitFor(() => expect(onEnding).toHaveBeenCalledTimes(1));
+    expect(onRedirect).not.toHaveBeenCalled();
+    expect(screen.queryByText('Redirecting')).toBeNull();
+    expect(container.querySelector('.wf-ending .wf-hint')).toBeNull();
   });
 });
 

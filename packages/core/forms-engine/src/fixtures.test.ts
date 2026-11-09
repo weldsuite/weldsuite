@@ -60,6 +60,8 @@ interface InvalidFixture {
   name: string;
   definition: unknown;
   expectIssues: string[];
+  /** Optional: the issues exactly, in order (code, path, message). */
+  expectDetails?: Array<{ code: string; path: string; message: string }>;
 }
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
@@ -139,8 +141,12 @@ describe('invalid fixtures', () => {
     const fixture = readJson<InvalidFixture>(join(dir, file));
     it(`${file}: ${fixture.name}`, () => {
       const parsed = parseDefinition(fixture.definition);
-      const codes = parsed.ok ? [] : parsed.issues.map((i) => i.code);
+      const issues = parsed.ok ? [] : parsed.issues;
+      const codes = issues.map((i) => i.code);
       expect([...codes].sort()).toEqual([...fixture.expectIssues].sort());
+      if (fixture.expectDetails) {
+        expect(issues.map(({ code, path, message }) => ({ code, path, message }))).toEqual(fixture.expectDetails);
+      }
     });
   }
 

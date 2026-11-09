@@ -4,7 +4,7 @@ import type { FormDefinition, WelcomeScreen } from '@weldsuite/forms-engine';
 import { InlineMedia } from './blocks';
 import { quizTexts, type EndingState } from './controller';
 import type { FormRendererLabels } from './types';
-import { fill, isSafeHref } from './utils';
+import { fill, isSafeHref, safeRedirectUrl } from './utils';
 
 export function Welcome({
   welcome,
@@ -60,6 +60,7 @@ export function Ending({
 }) {
   const { result } = state;
   const { ending } = result;
+  const redirectUrl = safeRedirectUrl(ending.redirectUrl);
   const media = def.endings.find((e) => e.id === ending.id)?.media;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -79,7 +80,7 @@ export function Ending({
           <h2 className="wf-quiz-heading">{labels.quizHeading}</h2>
           <ol className="wf-quiz-list">
             {result.quiz.map((item) => {
-              const texts = quizTexts(def, item.fieldId, state.answers);
+              const texts = quizTexts(def, item, state.answers);
               if (!texts) return null;
               const wrong = item.correct === false;
               return (
@@ -109,9 +110,9 @@ export function Ending({
           </a>
         </div>
       ) : null}
-      {ending.redirectUrl ? (
+      {redirectUrl ? (
         <p className="wf-hint" role="status">
-          {redirectNote(labels, ending.redirectUrl, preview, redirecting)}
+          {redirectNote(labels, redirectUrl, preview, redirecting)}
         </p>
       ) : null}
     </div>

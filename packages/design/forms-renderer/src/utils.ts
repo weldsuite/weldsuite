@@ -173,3 +173,11 @@ export function isSafeHref(url: string): boolean {
     return false;
   }
 }
+
+/**
+ * The ending's redirect target, or null when there is none or it is not a link
+ * `isSafeHref` allows: such an ending is shown as if it had no redirect.
+ */
+export function safeRedirectUrl(url: string | null | undefined): string | null {
+  return url && isSafeHref(url) ? url : null;
+}

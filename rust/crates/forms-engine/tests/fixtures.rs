@@ -7,8 +7,9 @@
 //!   gives the same path, ending and variables; the optional `recall`,
 //!   `display` and `searchText` cases give exactly their `expect` text.
 //! - `fixtures/invalid/*.json`: `parse_definition` fails with exactly the
-//!   issue codes of `expectIssues` (compared sorted), and together the files
-//!   cover every issue code.
+//!   issue codes of `expectIssues` (compared sorted), and with exactly the
+//!   issues of the optional `expectDetails` (code, path and message, in
+//!   order); together the files cover every issue code.
 //!
 //! Results are compared as JSON after serialising them as the TypeScript
 //! result serialises (whole numbers as integers, absent keys left out).
@@ -185,13 +186,27 @@ fn invalid_fixtures() {
     for path in &files {
         let fixture = read_json(path);
         let what = format!("{}: {}", name_of(path), text(&fixture["name"]));
-        let mut got: Vec<String> = match parse_definition(&fixture["definition"]) {
-            Ok(_) => Vec::new(),
-            Err(issues) => issues
+        let issues = parse_definition(&fixture["definition"])
+            .err()
+            .unwrap_or_default();
+        if let Some(details) = fixture.get("expectDetails") {
+            let got_details: Vec<Value> = issues
                 .iter()
-                .map(|issue| issue.code.as_str().to_owned())
-                .collect(),
-        };
+                .map(|issue| {
+                    json!({ "code": issue.code.as_str(), "path": issue.path, "message": issue.message })
+                })
+                .collect();
+            expect_eq(
+                &mut failures,
+                &format!("{what} (details)"),
+                &Value::from(got_details),
+                details,
+            );
+        }
+        let mut got: Vec<String> = issues
+            .iter()
+            .map(|issue| issue.code.as_str().to_owned())
+            .collect();
         got.sort();
         let mut want: Vec<String> = fixture["expectIssues"]
             .as_array()

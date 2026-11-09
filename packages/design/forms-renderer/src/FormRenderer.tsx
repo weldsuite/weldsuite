@@ -15,7 +15,7 @@ import { FieldEnvProvider, type FieldEnv } from './env';
 import { Ending, Welcome } from './screens';
 import { DEFAULT_THEME, themeStyle } from './theme';
 import type { FormRendererLabels, FormRendererProps } from './types';
-import { classNames, fill, isEditableTarget, randomSeed } from './utils';
+import { classNames, fill, isEditableTarget, randomSeed, safeRedirectUrl } from './utils';
 
 type Step = { type: 'welcome' } | { type: 'block'; id: string } | { type: 'page'; index: number } | { type: 'empty' };
 type Direction = 'forward' | 'back';
@@ -480,9 +480,10 @@ export function FormRenderer(props: FormRendererProps) {
     setAnnounce(proportionText(labels, classic, position, total));
   }, [step.type, position, total, core.ending, classic, labels]);
 
-  // The ending: tell the host, and redirect (live only).
+  // The ending: tell the host, and redirect (live only). An unsafe link (a
+  // `javascript:` URL from the author) is no redirect at all, whatever the host.
   const endingId = core.ending?.result.ending.id;
-  const redirectUrl = core.ending?.result.ending.redirectUrl ?? null;
+  const redirectUrl = safeRedirectUrl(core.ending?.result.ending.redirectUrl);
   const [redirecting, setRedirecting] = useState(false);
   const { onEnding, onRedirect } = props;
   useEffect(() => {

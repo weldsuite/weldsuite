@@ -21,7 +21,7 @@ import {
   type FormDefinition,
   type PathResult,
 } from '@weldsuite/forms-engine';
-import type { FormRendererProps, FormTimings, SubmitResult } from './types';
+import type { FormRendererProps, FormTimings, QuizResultItem, SubmitResult } from './types';
 
 export interface Numbering {
   /** Question number by field id, in path order (group children included). */
@@ -264,17 +264,20 @@ export function topBlockOfField(def: FormDefinition, fieldId: string): Block | u
 /** Text of a quiz item for the ending: the respondent's answer and the right one. */
 export function quizTexts(
   def: FormDefinition,
-  fieldId: string,
+  item: QuizResultItem,
   answers: Answers,
 ): { field: FieldBlock; answer: string; correct: string } | null {
-  const field = fieldsOf(def).find((f) => f.id === fieldId);
+  const field = fieldsOf(def).find((f) => f.id === item.fieldId);
   if (!field) return null;
-  const correct =
-    field.type === 'multiple_choice' || field.type === 'dropdown' || field.type === 'picture_choice'
-      ? field.properties.choices
-          .filter((c) => c.correct === true)
-          .map((c) => c.label)
-          .join(', ')
-      : '';
-  return { field, answer: displayAnswer(field, answers[fieldId]), correct };
+  return { field, answer: displayAnswer(field, answers[item.fieldId]), correct: correctAnswerText(field, item) };
+}
+
+/** The server's text of the right answer; else (a result worked out in the browser) the definition's `correct` choices. */
+function correctAnswerText(field: FieldBlock, item: QuizResultItem): string {
+  if (typeof item.correctAnswer === 'string') return item.correctAnswer;
+  if (field.type !== 'multiple_choice' && field.type !== 'dropdown' && field.type !== 'picture_choice') return '';
+  return field.properties.choices
+    .filter((c) => c.correct === true)
+    .map((c) => c.label)
+    .join(', ');
 }

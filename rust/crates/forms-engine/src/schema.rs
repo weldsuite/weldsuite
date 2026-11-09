@@ -406,13 +406,25 @@ fn is_ref(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// `/^[a-zA-Z_][a-zA-Z0-9_]*$/`.
+/// `/^[a-zA-Z_]\w*$/` (`\w` without the `u` flag is `[A-Za-z0-9_]`).
 fn is_hidden_name(text: &str) -> bool {
     let mut chars = text.chars();
     chars
         .next()
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// `/^(?:https?:\/\/|$)/i` (`ENDING_URL_RE`): an ending's redirect or button
+/// link is empty or starts with `http://` or `https://`, any case.
+/// JavaScript's case-insensitive match never maps a non-ASCII character onto
+/// an ASCII letter, so ASCII case folding is the same test.
+pub fn is_ending_url(text: &str) -> bool {
+    text.is_empty()
+        || ["http://", "https://"].iter().any(|scheme| {
+            text.get(..scheme.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(scheme))
+        })
 }
 
 /// `/^\d{4}-\d{2}-\d{2}$/`.
@@ -435,6 +447,8 @@ fn is_color(text: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 const REF_MESSAGE: &str = "lowercase letters, digits and underscores, starting with a letter";
+/// `ENDING_URL_MESSAGE`.
+pub const ENDING_URL_MESSAGE: &str = "must start with http:// or https://";
 
 const ID: Z = Z::Str(&[S::Min(1), S::Max(30)]);
 const REF: Z = Z::Str(&[S::Min(1), S::Max(64), S::Regex(is_ref, Some(REF_MESSAGE))]);
@@ -732,6 +746,12 @@ const WELCOME: Z = Z::Obj(&[
     ("buttonText", Z::Opt(&Z::Str(&[S::Max(60)]))),
 ]);
 
+/// `endingUrlSchema`: an ending's redirect or button link.
+const ENDING_URL: Z = Z::Str(&[
+    S::Max(2000),
+    S::Regex(is_ending_url, Some(ENDING_URL_MESSAGE)),
+]);
+
 const ENDING: Z = Z::Obj(&[
     ("id", ID),
     ("ref", REF),
@@ -740,12 +760,12 @@ const ENDING: Z = Z::Obj(&[
     ("media", Z::Opt(&MEDIA)),
     ("showScore", FLAG),
     ("showAnswers", FLAG),
-    ("redirectUrl", Z::Opt(&Z::Str(&[S::Max(2000)]))),
+    ("redirectUrl", Z::Opt(&ENDING_URL)),
     (
         "button",
         Z::Opt(&Z::Obj(&[
             ("text", Z::Str(&[S::Max(60)])),
-            ("url", Z::Str(&[S::Max(2000)])),
+            ("url", ENDING_URL),
         ])),
     ),
 ]);
@@ -1040,6 +1060,53 @@ mod tests {
                 (
                     "variables.0.type".to_owned(),
                     "Invalid discriminator value. Expected 'number' | 'text'".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn ending_links_are_web_links() {
+        for ok in [
+            "",
+            "https://example.com/?e={{field:email}}",
+            "HTTP://EXAMPLE.COM",
+            "Https://example.com",
+            "http://",
+        ] {
+            assert!(is_ending_url(ok), "{ok:?}");
+        }
+        for bad in [
+            "javascript:alert(1)",
+            " https://example.com",
+            "{{hidden:next}}",
+            "//example.com",
+            "example.com",
+            "https:example.com",
+            "data:text/html,x",
+            "ſttps://example.com",
+            "é",
+        ] {
+            assert!(!is_ending_url(bad), "{bad:?}");
+        }
+
+        let value = json!({
+            "blocks": [],
+            "endings": [
+                { "id": "e_1", "ref": "a", "title": "A", "redirectUrl": "javascript:alert(1)", "button": { "text": "Go", "url": "mailto:x@example.com" } },
+                { "id": "e_2", "ref": "b", "title": "B", "redirectUrl": "https://example.com/?n={{field:name}}", "button": { "text": "Go", "url": "" } },
+            ],
+        });
+        assert_eq!(
+            messages(&value),
+            [
+                (
+                    "endings.0.redirectUrl".to_owned(),
+                    ENDING_URL_MESSAGE.to_owned()
+                ),
+                (
+                    "endings.0.button.url".to_owned(),
+                    ENDING_URL_MESSAGE.to_owned()
                 ),
             ]
         );

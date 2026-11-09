@@ -283,6 +283,7 @@ export const weldforms = {
     endingNext: 'What happens next',
     redirectUrl: 'Redirect to a link',
     redirectHelp: 'Send the respondent to this link instead of showing the ending. Recall is allowed.',
+    linkScheme: 'Start the link with https:// or http://',
     removeEnding: 'Remove ending',
     removeBlock: 'Remove',
     logic: 'Logic',

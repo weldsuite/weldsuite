@@ -283,6 +283,7 @@ export const weldforms = {
     endingNext: 'Wat gebeurt er daarna',
     redirectUrl: 'Doorsturen naar een link',
     redirectHelp: 'Stuur de respondent naar deze link in plaats van de afsluiting te tonen. Terugverwijzingen zijn toegestaan.',
+    linkScheme: 'Begin de link met https:// of http://',
     removeEnding: 'Afsluiting verwijderen',
     removeBlock: 'Verwijderen',
     logic: 'Logica',

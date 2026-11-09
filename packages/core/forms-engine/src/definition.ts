@@ -375,6 +375,24 @@ export const welcomeScreenSchema = z.object({
 });
 export type WelcomeScreen = z.infer<typeof welcomeScreenSchema>;
 
+/**
+ * An ending's link (redirect, button) is a web link: empty (the builder keeps a
+ * button whose link is still to be typed) or starting with `http://` or
+ * `https://`, any case. The text as written is checked, recall placeholders
+ * included: they may follow the scheme (`https://x.com/?e={{field:email}}`),
+ * never stand in for it, so no author or respondent can make a `javascript:`
+ * link out of it.
+ */
+const ENDING_URL_RE = /^(?:https?:\/\/|$)/i;
+export const ENDING_URL_MESSAGE = 'must start with http:// or https://';
+
+/** Whether an ending's redirect or button link passes the schema (see `ENDING_URL_RE`). */
+export function isEndingUrl(url: string): boolean {
+  return ENDING_URL_RE.test(url);
+}
+
+const endingUrlSchema = z.string().max(2000).regex(ENDING_URL_RE, ENDING_URL_MESSAGE);
+
 export const endingSchema = z.object({
   id: idSchema,
   ref: refSchema,
@@ -386,8 +404,9 @@ export const endingSchema = z.object({
   /** Show each scored question with the respondent's answer and the right one. */
   showAnswers: z.boolean().default(false),
   /** Go straight to this URL after submit; recall allowed (URL-encoded). */
-  redirectUrl: z.string().max(2000).optional(),
-  button: z.object({ text: z.string().max(60), url: z.string().max(2000) }).optional(),
+  redirectUrl: endingUrlSchema.optional(),
+  /** A link under the ending; recall allowed. */
+  button: z.object({ text: z.string().max(60), url: endingUrlSchema }).optional(),
 });
 export type FormEnding = z.infer<typeof endingSchema>;
 

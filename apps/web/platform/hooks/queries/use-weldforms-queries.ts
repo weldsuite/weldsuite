@@ -228,16 +228,18 @@ export function useSetFormAccess(id: string) {
   });
 }
 
-export function useFormSubscription(id: string) {
+/** Pass `enabled` false when the member can't read the form's responses (`permissions.readResponses`): there is nothing to subscribe to. */
+export function useFormSubscription(id: string, enabled = true) {
   const { weldforms } = useAppApi();
   return useQuery({
     queryKey: weldformsKeys.subscription(id),
     queryFn: () => weldforms.subscription(id),
     select: (res) => res.data,
-    enabled: id !== '',
+    enabled: enabled && id !== '',
   });
 }
 
+/** forms-api refuses it (403) unless the member can read the form's responses (`permissions.readResponses`). */
 export function useSetFormSubscription(id: string) {
   const { weldforms } = useAppApi();
   const queryClient = useQueryClient();

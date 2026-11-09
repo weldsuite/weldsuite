@@ -248,9 +248,11 @@ function NotificationsSection() {
   const { t } = useI18n();
   const ts = t.weldforms.formSettings;
   const { form } = useFormEditor();
-  const subscription = useFormSubscription(form.id);
+  // Notifications are about responses: forms-api refuses the setting to a member who can't read them.
+  const canReadResponses = form.permissions.readResponses;
+  const subscription = useFormSubscription(form.id, canReadResponses);
   const setSubscription = useSetFormSubscription(form.id);
-  if (!form.permissions.readResponses) return null;
+  if (!canReadResponses) return null;
   const mode = subscription.data?.mode ?? 'off';
   return (
     <Section title={ts.notifications} description={ts.notificationsDescription}>
