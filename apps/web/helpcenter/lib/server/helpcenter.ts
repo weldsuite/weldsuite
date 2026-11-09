@@ -93,10 +93,12 @@ export async function searchArticles(
   page = '1',
   reader: Reader = {},
   pageSize?: string,
+  /** `any`: articles with any of the longer words of a question (request form suggestions). */
+  match?: 'any',
 ): Promise<PaginatedArticles> {
   try {
     return await getJson<PaginatedArticles>('/search', domain, {
-      params: { q: query, page, pageSize, locale: reader.locale },
+      params: { q: query, page, pageSize, locale: reader.locale, match },
       ttl: CONTENT_TTL,
       session: reader.session,
     })

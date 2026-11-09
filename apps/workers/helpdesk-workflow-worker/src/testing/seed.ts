@@ -44,13 +44,14 @@ export const AGENTS = `insert into helpdesk_agents
   ('hag_3', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_cy', 'Cy', 'cy@example.com', 'active', 'dep_2', 0, 4),
   ('hag_4', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_dee', 'Dee', 'dee@example.com', 'inactive', 'dep_1', 0, 0)`;
 
-/** Published and draft articles for `suggest_articles`. */
+/** Published, draft and internal articles for `suggest_articles`: a customer only gets published public ones. */
 export const ARTICLES = `insert into helpdesk_articles
-  (id, created_at, updated_at, title, slug, content, excerpt, author_id, status)
+  (id, created_at, updated_at, title, slug, content, excerpt, author_id, status, visibility)
   values
-  ('har_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Reset your password', 'reset-password', 'x', 'Forgot it? 100% fixable', 'user_ann', 'published'),
-  ('har_2', '2026-10-02T09:00:00Z', '2026-10-02T09:00:00Z', 'Shipping times', 'shipping', 'x', null, 'user_ann', 'published'),
-  ('har_3', '2026-10-03T09:00:00Z', '2026-10-03T09:00:00Z', 'Password policy (draft)', 'policy', 'x', 'password rules', 'user_ann', 'draft')`;
+  ('har_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Reset your password', 'reset-password', 'x', 'Forgot it? 100% fixable', 'user_ann', 'published', 'public'),
+  ('har_2', '2026-10-02T09:00:00Z', '2026-10-02T09:00:00Z', 'Shipping times', 'shipping', 'x', null, 'user_ann', 'published', 'public'),
+  ('har_3', '2026-10-03T09:00:00Z', '2026-10-03T09:00:00Z', 'Password policy (draft)', 'policy', 'x', 'password rules', 'user_ann', 'draft', 'public'),
+  ('har_4', '2026-10-04T09:00:00Z', '2026-10-04T09:00:00Z', 'Password vault runbook', 'vault-runbook', 'x', 'staff only', 'user_ann', 'published', 'internal')`;
 
 /** A connected Slack integration with a bot token. */
 export const SLACK = `insert into helpdesk_channel_integrations

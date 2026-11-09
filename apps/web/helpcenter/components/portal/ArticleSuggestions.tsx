@@ -9,9 +9,9 @@ const MAX_QUERY = 200
 
 /**
  * What to search for while the reader fills in the request form: the title
- * once it says something, else the start of the description. A whole
- * description makes a poor search (every word has to match), the title is
- * usually the question itself.
+ * once it says something, else the start of the description. The title is
+ * usually the question itself; the search takes any of its longer words, so
+ * a whole sentence still finds the article about it.
  */
 export function suggestionQuery(title: string, description: string): string {
   const head = title.trim()
