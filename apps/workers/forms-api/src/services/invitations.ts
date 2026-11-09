@@ -133,54 +133,63 @@ interface Candidate {
 }
 
 type Skip = CreateFormInvitationsResult['skipped'][number];
+type Recipients = CreateFormInvitationsInput['recipients'];
+type CrmPerson = { id: string; email: string | null; name: string };
 
-async function resolveRecipients(ctx: Pick<WorkspaceCtx, 'db'>, recipients: CreateFormInvitationsInput['recipients']): Promise<{ candidates: Candidate[]; skipped: Skip[] }> {
+/** Workspace members by user id; one without an email address is skipped. */
+async function memberRecipients(ctx: Pick<WorkspaceCtx, 'db'>, userIds: string[], candidates: Candidate[], skipped: Skip[]): Promise<void> {
+  const rows = await ctx.db
+    .select({ userId: workspaceMembers.userId, email: workspaceMembers.email, name: workspaceMembers.name })
+    .from(workspaceMembers)
+    .where(and(inArray(workspaceMembers.userId, userIds), isNull(workspaceMembers.deletedAt)));
+  const byId = new Map(rows.map((r) => [r.userId, r]));
+  for (const id of userIds) {
+    const row = byId.get(id);
+    if (row?.email) candidates.push({ email: row.email, name: row.name ?? null, personId: null, userId: id });
+    else skipped.push({ email: id, reason: 'no_email' });
+  }
+}
+
+/** The people of a static CRM list of people; 404 for an unknown list, 422 for any other kind. */
+async function listRecipients(ctx: Pick<WorkspaceCtx, 'db'>, listId: string): Promise<CrmPerson[]> {
+  const [list] = await ctx.db.select().from(lists).where(and(eq(lists.id, listId), isNull(lists.deletedAt))).limit(1);
+  if (!list) throw notFound('List');
+  if (list.kind !== 'person') throw new FormsError(422, 'LIST_NOT_PEOPLE', 'Pick a list of people.');
+  if (list.type !== 'static') throw new FormsError(422, 'LIST_NOT_STATIC', 'Smart lists cannot be used here yet. Pick a list you fill by hand.');
+  return ctx.db
+    .select({ id: people.id, email: people.email, name: people.displayName })
+    .from(listMembers)
+    .innerJoin(people, eq(people.id, listMembers.entityId))
+    .where(and(eq(listMembers.listId, list.id), isNull(people.deletedAt)));
+}
+
+/** CRM people by id, added to `found`; an unknown id is skipped. */
+async function peopleRecipients(ctx: Pick<WorkspaceCtx, 'db'>, personIds: string[], found: CrmPerson[], skipped: Skip[]): Promise<void> {
+  const rows = await ctx.db
+    .select({ id: people.id, email: people.email, name: people.displayName })
+    .from(people)
+    .where(and(inArray(people.id, personIds), isNull(people.deletedAt)));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const id of personIds) {
+    const row = byId.get(id);
+    if (row) found.push(row);
+    else skipped.push({ email: id, reason: 'no_email' });
+  }
+}
+
+async function resolveRecipients(ctx: Pick<WorkspaceCtx, 'db'>, recipients: Recipients): Promise<{ candidates: Candidate[]; skipped: Skip[] }> {
   const candidates: Candidate[] = [];
   const skipped: Skip[] = [];
 
   for (const e of recipients.emails ?? []) candidates.push({ email: e.email, name: e.name ?? null, personId: null, userId: null });
-
-  if (recipients.userIds?.length) {
-    const rows = await ctx.db
-      .select({ userId: workspaceMembers.userId, email: workspaceMembers.email, name: workspaceMembers.name })
-      .from(workspaceMembers)
-      .where(and(inArray(workspaceMembers.userId, recipients.userIds), isNull(workspaceMembers.deletedAt)));
-    const byId = new Map(rows.map((r) => [r.userId, r]));
-    for (const id of recipients.userIds) {
-      const row = byId.get(id);
-      if (!row?.email) skipped.push({ email: id, reason: 'no_email' });
-      else candidates.push({ email: row.email, name: row.name ?? null, personId: null, userId: id });
-    }
-  }
+  if (recipients.userIds?.length) await memberRecipients(ctx, recipients.userIds, candidates, skipped);
 
   const personIds = [...(recipients.personIds ?? [])];
-  let listPeople: Array<{ id: string; email: string | null; name: string }> = [];
-  if (recipients.listId) {
-    const [list] = await ctx.db.select().from(lists).where(and(eq(lists.id, recipients.listId), isNull(lists.deletedAt))).limit(1);
-    if (!list) throw notFound('List');
-    if (list.kind !== 'person') throw new FormsError(422, 'LIST_NOT_PEOPLE', 'Pick a list of people.');
-    if (list.type !== 'static') throw new FormsError(422, 'LIST_NOT_STATIC', 'Smart lists cannot be used here yet. Pick a list you fill by hand.');
-    listPeople = await ctx.db
-      .select({ id: people.id, email: people.email, name: people.displayName })
-      .from(listMembers)
-      .innerJoin(people, eq(people.id, listMembers.entityId))
-      .where(and(eq(listMembers.listId, list.id), isNull(people.deletedAt)));
-  }
-  if (personIds.length) {
-    const rows = await ctx.db
-      .select({ id: people.id, email: people.email, name: people.displayName })
-      .from(people)
-      .where(and(inArray(people.id, personIds), isNull(people.deletedAt)));
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    for (const id of personIds) {
-      const row = byId.get(id);
-      if (row) listPeople.push(row);
-      else skipped.push({ email: id, reason: 'no_email' });
-    }
-  }
-  for (const p of listPeople) {
-    if (!p.email) skipped.push({ email: p.name || p.id, reason: 'no_email' });
-    else candidates.push({ email: p.email, name: p.name || null, personId: p.id, userId: null });
+  const crmPeople = recipients.listId ? await listRecipients(ctx, recipients.listId) : [];
+  if (personIds.length) await peopleRecipients(ctx, personIds, crmPeople, skipped);
+  for (const p of crmPeople) {
+    if (p.email) candidates.push({ email: p.email, name: p.name || null, personId: p.id, userId: null });
+    else skipped.push({ email: p.name || p.id, reason: 'no_email' });
   }
   return { candidates, skipped };
 }
@@ -218,42 +227,12 @@ export async function createInvitations(
     throw new FormsError(422, 'TOO_MANY_RECIPIENTS', `At most ${FORM_LIMITS.maxInvitationsPerBatch} people can be invited at once.`);
   }
 
-  const existing = await ctx.db
-    .select({ email: formInvitations.email, status: formInvitations.status })
-    .from(formInvitations)
-    .where(and(eq(formInvitations.formId, form.id), sql`${formInvitations.status} <> 'revoked'`));
-  const known = new Map(existing.map((e) => [e.email.toLowerCase(), e.status]));
-  const answered = settingsOf(form).onePerRespondent
-    ? new Set(
-        (
-          await ctx.db
-            .select({ email: formResponses.respondentEmail })
-            .from(formResponses)
-            .where(and(eq(formResponses.formId, form.id), eq(formResponses.status, 'completed')))
-        )
-          .map((r) => r.email?.toLowerCase())
-          .filter((e): e is string => Boolean(e)),
-      )
-    : new Set<string>();
-
-  const fresh: Candidate[] = [];
-  const seen = new Set<string>();
-  for (const c of candidates) {
-    const email = c.email.trim().toLowerCase();
-    if (!isValidEmail(email)) skipped.push({ email: c.email, reason: 'invalid' });
-    else if (known.get(email) === 'completed' || answered.has(email)) skipped.push({ email, reason: 'already_responded' });
-    else if (known.has(email) || seen.has(email)) skipped.push({ email, reason: 'duplicate' });
-    else {
-      seen.add(email);
-      fresh.push({ ...c, email });
-    }
-  }
+  const known = await invitedEmails(ctx, form.id);
+  const answered = settingsOf(form).onePerRespondent ? await respondedEmails(ctx, form.id) : new Set<string>();
+  const fresh = freshCandidates(candidates, known, answered, skipped);
   if (fresh.length === 0) return { result: { created: 0, skipped }, created: [], nextReminderAt: null };
 
-  const definition = form.publishedVersionId
-    ? await ctx.db.select({ definition: formVersions.definition }).from(formVersions).where(eq(formVersions.id, form.publishedVersionId)).limit(1)
-    : [];
-  const language = definition[0] ? formDefinitionSchema.parse(definition[0].definition).presentation.language : 'en';
+  const language = await formLanguage(ctx, form);
   const locale = input.locale ?? language;
 
   // The guard decides on the whole batch before anything is written.
@@ -267,7 +246,7 @@ export async function createInvitations(
     throw new FormsError(422, 'EMAIL_REFUSED', 'Your workspace cannot send these emails right now. Nothing was sent.');
   }
 
-  const plan = input.reminders === undefined ? await workspaceReminderPlan(ctx) : input.reminders === null ? null : fromInput(input.reminders);
+  const plan = await chosenPlan(ctx, input.reminders);
   const rows = fresh.map((c) => ({
     id: generateId('fin'),
     formId: form.id,
@@ -295,28 +274,95 @@ export async function createInvitations(
   );
   const sentTo = new Set(mail === 'refused' ? [] : mail.map((e) => e.toLowerCase()));
 
-  const sentAt = now;
-  const next = plan ? new Date(sentAt.getTime() + plan.afterDays * DAY_MS) : null;
+  const next = plan ? new Date(now.getTime() + plan.afterDays * DAY_MS) : null;
+  const created = await keepSent(ctx, rows, sentTo, { sentAt: now, next }, skipped);
+  return { result: { created: created.length, skipped }, created, nextReminderAt: created.length ? next : null };
+}
+
+/** The addresses already invited to the form (revoked invitations aside), lower-cased, with their status. */
+async function invitedEmails(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<Map<string, InvitationRow['status']>> {
+  const existing = await ctx.db
+    .select({ email: formInvitations.email, status: formInvitations.status })
+    .from(formInvitations)
+    .where(and(eq(formInvitations.formId, formId), sql`${formInvitations.status} <> 'revoked'`));
+  return new Map(existing.map((e) => [e.email.toLowerCase(), e.status]));
+}
+
+/** The addresses that completed the form, lower-cased. */
+async function respondedEmails(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<Set<string>> {
+  const rows = await ctx.db
+    .select({ email: formResponses.respondentEmail })
+    .from(formResponses)
+    .where(and(eq(formResponses.formId, formId), eq(formResponses.status, 'completed')));
+  return new Set(rows.map((r) => r.email?.toLowerCase()).filter((e): e is string => Boolean(e)));
+}
+
+/** The candidates to invite now, each address once; the others go to `skipped` with the reason. */
+function freshCandidates(candidates: readonly Candidate[], known: ReadonlyMap<string, string>, answered: ReadonlySet<string>, skipped: Skip[]): Candidate[] {
+  const fresh: Candidate[] = [];
+  const seen = new Set<string>();
+  for (const c of candidates) {
+    const email = c.email.trim().toLowerCase();
+    if (!isValidEmail(email)) skipped.push({ email: c.email, reason: 'invalid' });
+    else if (known.get(email) === 'completed' || answered.has(email)) skipped.push({ email, reason: 'already_responded' });
+    else if (known.has(email) || seen.has(email)) skipped.push({ email, reason: 'duplicate' });
+    else {
+      seen.add(email);
+      fresh.push({ ...c, email });
+    }
+  }
+  return fresh;
+}
+
+/** The language of the published version, which the invitation mails default to. */
+async function formLanguage(ctx: Pick<WorkspaceCtx, 'db'>, form: FormRow): Promise<string> {
+  const definition = form.publishedVersionId
+    ? await ctx.db.select({ definition: formVersions.definition }).from(formVersions).where(eq(formVersions.id, form.publishedVersionId)).limit(1)
+    : [];
+  return definition[0] ? formDefinitionSchema.parse(definition[0].definition).presentation.language : 'en';
+}
+
+/** The reminder schedule of a new batch: the request's, none (`null`), or the workspace defaults (not given). */
+async function chosenPlan(ctx: Pick<WorkspaceCtx, 'db'>, reminders: CreateFormInvitationsInput['reminders']): Promise<ReminderPlan | null> {
+  if (reminders === undefined) return workspaceReminderPlan(ctx);
+  if (reminders === null) return null;
+  return fromInput(reminders);
+}
+
+/**
+ * Marks the invitations whose mail went out as sent and removes the others:
+ * the person is not invited, so no half-made invitation is left. Returns the
+ * sent ones, oldest first.
+ */
+async function keepSent(
+  ctx: WorkspaceCtx,
+  rows: ReadonlyArray<{ id: string; email: string }>,
+  sentTo: ReadonlySet<string>,
+  opts: { sentAt: Date; next: Date | null },
+  skipped: Skip[],
+): Promise<InvitationRow[]> {
+  const { sentAt, next } = opts;
   const ok = rows.filter((r) => sentTo.has(r.email));
   const failed = rows.filter((r) => !sentTo.has(r.email));
   if (ok.length > 0) {
     await ctx.db.update(formInvitations).set({ sentAt, nextReminderAt: next, updatedAt: sentAt }).where(inArray(formInvitations.id, ok.map((r) => r.id)));
   }
   if (failed.length > 0) {
-    // The mail did not go out: the person is not invited, so no half-made invitation is left.
     await ctx.db.delete(formInvitations).where(inArray(formInvitations.id, failed.map((r) => r.id)));
     await ctx.master.delete(formInvitationRegistry).where(and(eq(formInvitationRegistry.workspaceId, ctx.workspaceId), inArray(formInvitationRegistry.invitationId, failed.map((r) => r.id))));
     for (const r of failed) skipped.push({ email: r.email, reason: 'invalid' });
   }
-  const created = ok.length ? await ctx.db.select().from(formInvitations).where(inArray(formInvitations.id, ok.map((r) => r.id))).orderBy(asc(formInvitations.createdAt)) : [];
-  return { result: { created: created.length, skipped }, created, nextReminderAt: created.length ? next : null };
+  if (ok.length === 0) return [];
+  return ctx.db.select().from(formInvitations).where(inArray(formInvitations.id, ok.map((r) => r.id))).orderBy(asc(formInvitations.createdAt));
 }
 
 // ---------------------------------------------------------------------------
 // List, stats
 // ---------------------------------------------------------------------------
 
-const likePattern = (text: string) => `%${text.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+/** `%`, `_` and `\` taken literally in a LIKE pattern. */
+const escapeLike = (text: string) => text.replace(/[%_\\]/g, (m) => `\\${m}`);
+const likePattern = (text: string) => `%${escapeLike(text)}%`;
 
 export async function listInvitations(
   ctx: Pick<WorkspaceCtx, 'db'>,
@@ -379,14 +425,8 @@ async function remindBatch(
   const tokens = new Map(rows.map((r) => [r.id, newInvitationToken()]));
   for (const r of rows) await registerToken(ctx, form.id, r.id, tokens.get(r.id)!);
 
-  // One mail call per sender, so Reply-To is the person who invited.
-  const groups = new Map<string, InvitationRow[]>();
-  for (const r of rows) {
-    const key = opts.replyToUserId ?? r.invitedByUserId;
-    groups.set(key, [...(groups.get(key) ?? []), r]);
-  }
   const sentTo = new Set<string>();
-  for (const [sender, group] of groups) {
+  for (const [sender, group] of groupBySender(rows, opts.replyToUserId)) {
     const mail = await sendInvitationMails(
       { ...ctx, form, definition: null, senderEmail: (await memberRef(ctx.db, sender)).email, closesAt: settings.closesAt },
       group.map((r): InviteMail => ({ email: r.email, name: r.name, locale: r.locale, url: invitationUrl(ctx.env, form.publicId!, tokens.get(r.id)!), subject: r.subject, message: r.message })),
@@ -398,16 +438,32 @@ async function remindBatch(
   const sent = rows.filter((r) => sentTo.has(r.email.toLowerCase()));
   await settleOutboundMail(ctx.env, ctx.db, reservation, sent.map((r) => r.email), rows.length);
 
+  const nextAny = await recordReminders(ctx, sent, opts.now);
+  const updated = sent.length ? await ctx.db.select().from(formInvitations).where(inArray(formInvitations.id, sent.map((r) => r.id))) : [];
+  return { outcome: { reminded: updated, skipped: rows.length - sent.length, nextReminderAt: nextAny }, refused: false };
+}
+
+/** The invitations by who the mail is from: one mail call per sender, so Reply-To is the person who invited. */
+function groupBySender(rows: readonly InvitationRow[], replyToUserId: string | null): Map<string, InvitationRow[]> {
+  const groups = new Map<string, InvitationRow[]>();
+  for (const r of rows) {
+    const key = replyToUserId ?? r.invitedByUserId;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return groups;
+}
+
+/** Counts the reminder on each invitation and schedules its next one; returns the earliest next reminder. */
+async function recordReminders(ctx: Pick<WorkspaceCtx, 'db'>, sent: readonly InvitationRow[], now: Date): Promise<Date | null> {
   let nextAny: Date | null = null;
   for (const r of sent) {
     const plan = planOf(r);
     const count = r.remindersSent + 1;
-    const next = plan && count < plan.maxCount ? new Date(opts.now.getTime() + plan.everyDays * DAY_MS) : null;
-    await ctx.db.update(formInvitations).set({ remindersSent: count, lastRemindedAt: opts.now, nextReminderAt: next, updatedAt: opts.now }).where(eq(formInvitations.id, r.id));
+    const next = plan && count < plan.maxCount ? new Date(now.getTime() + plan.everyDays * DAY_MS) : null;
+    await ctx.db.update(formInvitations).set({ remindersSent: count, lastRemindedAt: now, nextReminderAt: next, updatedAt: now }).where(eq(formInvitations.id, r.id));
     if (next && (!nextAny || next < nextAny)) nextAny = next;
   }
-  const updated = sent.length ? await ctx.db.select().from(formInvitations).where(inArray(formInvitations.id, sent.map((r) => r.id))) : [];
-  return { outcome: { reminded: updated, skipped: rows.length - sent.length, nextReminderAt: nextAny }, refused: false };
+  return nextAny;
 }
 
 /**

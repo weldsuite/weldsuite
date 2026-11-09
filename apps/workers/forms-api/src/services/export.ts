@@ -158,8 +158,16 @@ function sheetCell(cell: Cell, ref: string, style?: number): string {
   return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlText(String(cell))}</t></is></c>`;
 }
 
+/** Row `index` (0 = the header, in bold) of the sheet. */
+function sheetRow(cells: Cell[], index: number): string {
+  const rowNumber = index + 1;
+  const style = index === 0 ? 1 : undefined;
+  const xml = cells.map((cell, c) => sheetCell(cell, columnName(c) + rowNumber, style)).join('');
+  return `<row r="${rowNumber}">${xml}</row>`;
+}
+
 export async function toXlsx(header: string[], rows: Cell[][], now = new Date()): Promise<Uint8Array> {
-  const sheetRows = [header, ...rows].map((cells, r) => `<row r="${r + 1}">${cells.map((cell, c) => sheetCell(cell, `${columnName(c)}${r + 1}`, r === 0 ? 1 : undefined)).join('')}</row>`);
+  const sheetRows = [header, ...rows].map((cells, r) => sheetRow(cells, r));
   const files = [
     {
       name: '[Content_Types].xml',
@@ -193,7 +201,16 @@ export async function toXlsx(header: string[], rows: Cell[][], now = new Date())
 // Entry
 // ---------------------------------------------------------------------------
 
-const safeFilename = (title: string) => title.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'form';
+/** Drops leading and trailing hyphens (a linear scan, not `/^-+|-+$/`, which backtracks). */
+function trimHyphens(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === '-') start++;
+  while (end > start && text[end - 1] === '-') end--;
+  return text.slice(start, end);
+}
+
+const safeFilename = (title: string) => trimHyphens(title.replace(/[^A-Za-z0-9._-]+/g, '-')).slice(0, 60) || 'form';
 
 export async function exportResponses(
   ctx: Pick<WorkspaceCtx, 'db' | 'env'>,

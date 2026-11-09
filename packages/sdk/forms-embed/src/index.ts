@@ -18,7 +18,6 @@
  */
 
 import {
-  DEFAULT_BASE_URL,
   embedUrl,
   isPortalMessage,
   type EmbedMode,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FormRenderer, themeStyle, type ProgressEvent, type SubmitFieldErrors, type SubmitPayload, type SubmitResult } from '@weldsuite/forms-renderer'
+import { FormRenderer, themeStyle, type FormRendererProps, type ProgressEvent, type SubmitFieldErrors, type SubmitPayload, type SubmitResult } from '@weldsuite/forms-renderer'
 import { postToHost, type EmbedMode } from '@weldsuite/forms-embed/protocol'
 import type { AnswerError, Answers, FileAnswerItem, FormDefinition } from '@weldsuite/forms-engine'
 import type { PublicForm, StartSessionInput, StartSessionResult } from '@weldsuite/app-api-client/schemas/weldforms'
@@ -56,6 +56,28 @@ function cleanTimings(timings: Record<string, number>): Record<string, number> {
 function initialPhase(form: PublicForm, invitationToken: string | undefined): Phase {
   if (invitationToken) return 'resuming'
   return form.respondentMode === 'verified_email' ? 'verify' : 'ready'
+}
+
+/** Whether this browser's stored session may be picked up again: only forms that keep, limit or verify responses resume. */
+function canResume(form: PublicForm): boolean {
+  return form.collectPartial || form.allowEdit || form.onePerRespondent || form.respondentMode === 'verified_email'
+}
+
+/** The screen a failed page open ends on. */
+function openErrorPhase(err: unknown): Phase {
+  if (err instanceof ApiError && err.code === 'INVITATION_REVOKED') return 'invitation_revoked'
+  if (err instanceof ApiError && err.status === 404) return 'invitation_invalid'
+  return 'error'
+}
+
+/** Where the renderer starts after a resumed session or for an edit: the earlier answers, and the block the respondent was on. */
+function rendererStart(start: StartState | null): Pick<FormRendererProps, 'initialAnswers' | 'skipWelcome' | 'startAtBlockId'> {
+  if (!start) return {}
+  return {
+    initialAnswers: start.answers,
+    ...(start.editing ? { skipWelcome: true } : {}),
+    ...(start.lastBlockId && !start.editing ? { startAtBlockId: start.lastBlockId } : {}),
+  }
 }
 
 /**
@@ -147,6 +169,19 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
     if (fresh) void formsApi.recordView(publicId, { viewKey: key, source }).catch(() => undefined)
 
     let cancelled = false
+    /** Picks up the session this browser stored; when that fails, the form starts over. */
+    async function resumeStored() {
+      const stored = loadStoredSession(publicId)
+      if (!stored || !canResume(form)) return
+      if (!cancelled) setPhase('resuming')
+      try {
+        const result = await formsApi.startSession(publicId, startInput({ resume: stored.session }))
+        if (!cancelled) await applyStart(result, true)
+      } catch {
+        clearStoredSession(publicId)
+        if (!cancelled) setPhase(initialPhase(form, undefined))
+      }
+    }
     async function open() {
       try {
         if (invitationToken) {
@@ -154,24 +189,9 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
           if (!cancelled) await applyStart(result, true)
           return
         }
-        const stored = loadStoredSession(publicId)
-        const canResume = form.collectPartial || form.allowEdit || form.onePerRespondent || form.respondentMode === 'verified_email'
-        if (stored && canResume) {
-          if (!cancelled) setPhase('resuming')
-          try {
-            const result = await formsApi.startSession(publicId, startInput({ resume: stored.session }))
-            if (!cancelled) await applyStart(result, true)
-            return
-          } catch {
-            clearStoredSession(publicId)
-            if (!cancelled) setPhase(form.respondentMode === 'verified_email' ? 'verify' : 'ready')
-          }
-        }
+        await resumeStored()
       } catch (err) {
-        if (cancelled) return
-        if (err instanceof ApiError && err.code === 'INVITATION_REVOKED') setPhase('invitation_revoked')
-        else if (err instanceof ApiError && err.status === 404) setPhase('invitation_invalid')
-        else setPhase('error')
+        if (!cancelled) setPhase(openErrorPhase(err))
       }
     }
     void open()
@@ -338,6 +358,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
   // ----- render -----
 
   const openReport = () => setReporting(true)
+  const dataEmbed = embed === 'inline' ? 'inline' : undefined
   const screen = (title: string, body?: string | null, children?: React.ReactNode) => (
     <MessageScreen title={title} body={body} form={form} embedded={embedded} onReport={openReport}>
       {children}
@@ -372,7 +393,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
     content = screen(t.loading)
   } else if (phase === 'verify') {
     content = (
-      <div className="wf-page-shell" style={themeStyle(form.theme)} data-embed={embed === 'inline' ? 'inline' : undefined}>
+      <div className="wf-page-shell" style={themeStyle(form.theme)} data-embed={dataEmbed}>
         <main className="flex flex-1 items-center justify-center p-6">
           <VerifyEmail publicId={publicId} takeBotToken={bot.take} onVerified={(proof) => void onVerified(proof)} />
         </main>
@@ -381,7 +402,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
     )
   } else {
     content = (
-      <div ref={shell} className="wf-page-shell" style={themeStyle(form.theme)} data-embed={embed === 'inline' ? 'inline' : undefined}>
+      <div ref={shell} className="wf-page-shell" style={themeStyle(form.theme)} data-embed={dataEmbed}>
         <FormRenderer
           key={rendererKey}
           definition={definition}
@@ -391,9 +412,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
           mode="live"
           hidden={{ ...queryHidden, ...(start?.hidden ?? {}) }}
           labels={t.renderer}
-          {...(start ? { initialAnswers: start.answers } : {})}
-          {...(start?.editing ? { skipWelcome: true } : {})}
-          {...(start?.lastBlockId && !start.editing ? { startAtBlockId: start.lastBlockId } : {})}
+          {...rendererStart(start)}
           onProgress={onProgress}
           onUpload={onUpload}
           onSubmit={onSubmit}

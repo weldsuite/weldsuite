@@ -12,8 +12,15 @@ import type * as Workers from './runtime'
 
 const PREFIX = '/public/forms'
 
+/** Drops every trailing slash with a single scan (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') end--
+  return value.slice(0, end)
+}
+
 export const backend: typeof Workers.backend = () => {
-  const origin = (process.env.FORMS_PORTAL_BACKEND_URL ?? '').replace(/\/+$/, '')
+  const origin = stripTrailingSlashes(process.env.FORMS_PORTAL_BACKEND_URL ?? '')
   if (!origin) throw new Error('FORMS_PORTAL_BACKEND_URL is not set: the forms portal has no backend to talk to (ADR FE-017).')
   return { base: `${origin}${PREFIX}`, secret: process.env.FORMS_PORTAL_SECRET, send: (url, init) => fetch(url, init) }
 }

@@ -52,9 +52,16 @@ const PASSIVE_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ]);
 
+/** `https://host/` → `https://host` (a linear scan, not `/\/+$/`, which backtracks). */
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 /** Copies the response's uploads to the public bucket (unguessable path) and returns them in the desk message shape. */
 async function copyAttachments(ctx: ProcessContext): Promise<Attachment[]> {
-  const base = ctx.env.R2_PUBLIC_URL?.trim().replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(ctx.env.R2_PUBLIC_URL?.trim() ?? '');
   if (!base || ctx.files.length === 0) return [];
   const out: Attachment[] = [];
   for (const file of ctx.files.slice(0, 10)) {

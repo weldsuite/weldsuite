@@ -41,6 +41,9 @@ import {
   type EmbedHandle,
   type LayerOptions,
   type OpenTrigger,
+  type PopoverOptions,
+  type PopupOptions,
+  type SliderOptions,
 } from './index';
 import { isEmbedMode, parseHiddenAttribute, type EmbedMode } from './protocol';
 
@@ -78,14 +81,20 @@ function callback<A extends unknown[]>(name: string | null): ((...args: A) => vo
   };
 }
 
-/** The options an element's attributes describe. Exported for tests. */
-export function readElementOptions(el: HTMLElement): { mode: EmbedMode; base: BaseOptions; layer: Omit<LayerOptions, keyof BaseOptions>; raw: Record<string, string | null> } | null {
-  const publicId = el.getAttribute('data-wf');
-  if (!publicId) return null;
-  const modeAttr = el.getAttribute('data-wf-mode');
-  const mode: EmbedMode = modeAttr === 'widget' ? 'inline' : isEmbedMode(modeAttr) ? modeAttr : 'inline';
-  const get = (name: string) => el.getAttribute(`data-wf-${name}`);
+/** Reads one `data-wf-<name>` attribute. */
+type ReadAttribute = (name: string) => string | null;
 
+/** The attributes that only some modes use, as written (`data-wf-position` is `position`). */
+type RawAttributes = Record<string, string | null>;
+
+/** `data-wf-mode`: `widget` is another name for `inline`, and a missing or unknown mode is `inline` too. */
+function readMode(value: string | null): EmbedMode {
+  if (value === 'widget') return 'inline';
+  return isEmbedMode(value) ? value : 'inline';
+}
+
+/** The options every mode takes: base URL, hidden fields and the callbacks. */
+function readBaseOptions(publicId: string, get: ReadAttribute): BaseOptions {
   const base: BaseOptions = { publicId };
   const baseUrl = get('base-url');
   if (baseUrl) base.baseUrl = baseUrl;
@@ -97,7 +106,11 @@ export function readElementOptions(el: HTMLElement): { mode: EmbedMode; base: Ba
   if (onSubmit) base.onSubmit = onSubmit;
   const onClose = callback<[]>(get('on-close'));
   if (onClose) base.onClose = onClose;
+  return base;
+}
 
+/** The options of the layers (popup, slider, popover): when to open, and what happens after a submit. */
+function readLayerOptions(get: ReadAttribute): Omit<LayerOptions, keyof BaseOptions> {
   const layer: Omit<LayerOptions, keyof BaseOptions> = {};
   const open = trigger(get('open'));
   if (open) {
@@ -112,8 +125,18 @@ export function readElementOptions(el: HTMLElement): { mode: EmbedMode; base: Ba
   if (hide !== undefined) layer.hideAfterSubmit = hide;
   const closeAfter = num(get('close-after-submit'));
   if (closeAfter !== undefined) layer.closeAfterSubmit = closeAfter;
+  return layer;
+}
 
-  const raw: Record<string, string | null> = {
+/** The options an element's attributes describe. Exported for tests. */
+export function readElementOptions(el: HTMLElement): { mode: EmbedMode; base: BaseOptions; layer: Omit<LayerOptions, keyof BaseOptions>; raw: RawAttributes } | null {
+  const publicId = el.getAttribute('data-wf');
+  if (!publicId) return null;
+  const mode = readMode(el.getAttribute('data-wf-mode'));
+  const get: ReadAttribute = (name) => el.getAttribute(`data-wf-${name}`);
+  const base = readBaseOptions(publicId, get);
+  const layer = readLayerOptions(get);
+  const raw: RawAttributes = {
     position: get('position'),
     buttonText: get('button-text'),
     buttonColor: get('button-color'),
@@ -124,6 +147,55 @@ export function readElementOptions(el: HTMLElement): { mode: EmbedMode; base: Ba
     size: get('size'),
   };
   return { mode, base, layer, raw };
+}
+
+/** `inline`: the form in the element; a set height turns `autoResize` off. */
+function startInline(el: HTMLElement, base: BaseOptions, raw: RawAttributes, height: number | undefined): EmbedHandle {
+  const fixed = height !== undefined;
+  return createWidget({
+    ...base,
+    container: el,
+    autoResize: fixed ? false : bool(raw.autoResize) !== false,
+    ...(fixed ? { height } : {}),
+  });
+}
+
+/** `popover`: a floating button; its label is `data-wf-button-text`, else the element's own text. */
+function startPopover(el: HTMLElement, options: LayerOptions, raw: RawAttributes, width: number | undefined, height: number | undefined): EmbedHandle {
+  const popover: PopoverOptions = { ...options };
+  if (raw.position === 'bottom-left' || raw.position === 'bottom-right') popover.position = raw.position;
+  const buttonText = raw.buttonText || el.textContent?.trim();
+  if (buttonText) popover.buttonText = buttonText;
+  if (raw.buttonColor) popover.buttonColor = raw.buttonColor;
+  if (raw.buttonTextColor) popover.buttonTextColor = raw.buttonTextColor;
+  if (width !== undefined) popover.width = width;
+  if (height !== undefined) popover.height = height;
+  return createPopover(popover);
+}
+
+/** `popup`: a modal. */
+function startPopup(options: LayerOptions, width: number | undefined, height: number | undefined): EmbedHandle {
+  const popup: PopupOptions = { ...options };
+  if (width !== undefined) popup.width = width;
+  if (height !== undefined) popup.height = height;
+  return createPopup(popup);
+}
+
+/** `slider`: a side panel, `left` or `right`. */
+function startSlider(options: LayerOptions, raw: RawAttributes, width: number | undefined): EmbedHandle {
+  const slider: SliderOptions = { ...options };
+  if (raw.position === 'left' || raw.position === 'right') slider.position = raw.position;
+  if (width !== undefined) slider.width = width;
+  return createSlider(slider);
+}
+
+/** A popup or slider opens when its element is clicked: the element is the trigger. */
+function openOnClick(el: HTMLElement, handle: EmbedHandle): EmbedHandle {
+  el.addEventListener('click', (event) => {
+    event.preventDefault();
+    handle.open();
+  });
+  return handle;
 }
 
 /** Starts the embed an element describes; null when it has no `data-wf` or already runs. */
@@ -137,49 +209,19 @@ export function initElement(el: HTMLElement): EmbedHandle | null {
   const dims = SIZES[size];
   const width = num(raw.width) ?? (mode === 'popup' || mode === 'slider' ? dims.width : undefined);
   const heightPx = num(raw.height) ?? (mode === 'popup' ? dims.height : undefined);
-  const options = { ...base, ...layer };
+  const options: LayerOptions = { ...base, ...layer };
 
   switch (mode) {
-    case 'inline': {
-      const fixed = heightPx !== undefined;
-      return createWidget({
-        ...base,
-        container: el,
-        autoResize: fixed ? false : bool(raw.autoResize) !== false,
-        ...(fixed ? { height: heightPx } : {}),
-      });
-    }
+    case 'inline':
+      return startInline(el, base, raw, heightPx);
     case 'fullpage':
       return createFullPage({ ...base, container: el });
-    case 'popover': {
-      const handle = createPopover({
-        ...options,
-        ...(raw.position === 'bottom-left' || raw.position === 'bottom-right' ? { position: raw.position } : {}),
-        ...(raw.buttonText || el.textContent?.trim() ? { buttonText: raw.buttonText || el.textContent?.trim() || '' } : {}),
-        ...(raw.buttonColor ? { buttonColor: raw.buttonColor } : {}),
-        ...(raw.buttonTextColor ? { buttonTextColor: raw.buttonTextColor } : {}),
-        ...(width !== undefined ? { width } : {}),
-        ...(heightPx !== undefined ? { height: heightPx } : {}),
-      });
-      return handle;
-    }
+    case 'popover':
+      return startPopover(el, options, raw, width, heightPx);
     case 'popup':
-    case 'slider': {
-      const handle =
-        mode === 'popup'
-          ? createPopup({ ...options, ...(width !== undefined ? { width } : {}), ...(heightPx !== undefined ? { height: heightPx } : {}) })
-          : createSlider({
-              ...options,
-              ...(raw.position === 'left' || raw.position === 'right' ? { position: raw.position } : {}),
-              ...(width !== undefined ? { width } : {}),
-            });
-      // The element is the trigger.
-      el.addEventListener('click', (event) => {
-        event.preventDefault();
-        handle.open();
-      });
-      return handle;
-    }
+      return openOnClick(el, startPopup(options, width, heightPx));
+    case 'slider':
+      return openOnClick(el, startSlider(options, raw, width));
   }
 }
 

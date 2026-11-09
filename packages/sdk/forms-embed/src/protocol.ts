@@ -83,14 +83,21 @@ export function postToHost<T extends PortalMessageType>(
 
 export const DEFAULT_BASE_URL = 'https://forms.weldsuite.org';
 
+/** Drops every trailing slash with a single scan (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** The iframe URL of a form: `<base>/f/<publicId>?embed=<mode>&<hidden fields>`. */
 export function embedUrl(options: {
-  baseUrl?: string | undefined;
+  baseUrl?: string;
   publicId: string;
   mode: EmbedMode;
-  hidden?: Record<string, string> | undefined;
+  hidden?: Record<string, string>;
 }): string {
-  const base = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const base = stripTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL);
   const url = new URL(`${base}/f/${encodeURIComponent(options.publicId)}`);
   url.searchParams.set('embed', options.mode);
   for (const [name, value] of Object.entries(options.hidden ?? {})) {
@@ -108,7 +115,7 @@ export function parseHiddenAttribute(text: string | null | undefined): Record<st
     const at = part.indexOf('=');
     if (at < 1) continue;
     const name = part.slice(0, at).trim();
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) continue;
+    if (!/^[a-zA-Z_]\w*$/.test(name)) continue;
     out[name] = part.slice(at + 1).trim();
   }
   return out;

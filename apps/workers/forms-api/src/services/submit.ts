@@ -27,6 +27,7 @@ import {
   recall,
   searchText,
   type AnswerError,
+  type FileField,
 } from '@weldsuite/forms-engine';
 import { formDefinitionSchema, type Answers, type FileAnswerItem, type FormDefinition } from '@weldsuite/forms-engine/definition';
 import type { SubmitSessionResult } from '@weldsuite/app-api-client/schemas/weldforms';
@@ -44,6 +45,7 @@ const { formLinkRegistry } = masterSchema;
 
 type ResponseRow = typeof formResponses.$inferSelect;
 type VersionRow = typeof schema.formVersions.$inferSelect;
+type FileRow = typeof formResponseFiles.$inferSelect;
 
 export interface SubmitIdentity {
   /** Verified email (code or invitation) or the member's email. */
@@ -136,11 +138,7 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
   const def = formDefinitionSchema.parse(version.definition);
 
   const [existing] = await ctx.db.select().from(formResponses).where(eq(formResponses.id, responseId)).limit(1);
-  if (existing && existing.formId !== form.id) throw new FormsError(404, 'NOT_FOUND', 'Response not found');
-  const edited = existing?.status === 'completed';
-  if (edited && !(settings.allowEdit && (identity.email || identity.invitationId))) {
-    throw new FormsError(409, 'ALREADY_SUBMITTED', 'This form was already submitted.');
-  }
+  const edited = assertSubmittable(existing, form, identity);
   await assertAcceptingSubmissions(ctx, form, edited, now);
   if (!edited && settings.onePerRespondent) await assertFirstResponse(ctx, form.id, responseId, identity);
 
@@ -148,97 +146,22 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
   const hiddenNames = new Set(def.hidden.map((h) => h.name));
   const hidden = Object.fromEntries(Object.entries(args.hidden).filter(([name]) => hiddenNames.has(name)));
   const result = evaluateSubmission(def, { answers: args.answers as Answers, hidden });
-  const errors: Record<string, AnswerError> = { ...result.errors };
 
   // 3. Files: an answer may only name this response's own uploads, for its own field.
   const files = await ctx.db.select().from(formResponseFiles).where(eq(formResponseFiles.responseId, responseId));
-  const fileRows = new Map(files.map((f) => [f.id, f]));
-  const answers: Answers = { ...result.answers };
-  const used = new Set<string>();
-  for (const field of fieldsOf(def)) {
-    if (!isFileField(field)) continue;
-    const value = result.answers[field.id];
-    if (value === undefined) continue;
-    const items = (field.type === 'signature' ? [value] : value) as FileAnswerItem[];
-    const resolved: FileAnswerItem[] = [];
-    for (const item of items) {
-      const row = fileRows.get(item.fileId);
-      if (!row || row.blockId !== field.id || row.formId !== form.id) {
-        errors[field.id] = { code: 'invalid' };
-        break;
-      }
-      used.add(row.id);
-      resolved.push({ fileId: row.id, name: row.name, size: row.sizeBytes, type: row.contentType });
-    }
-    answers[field.id] = (field.type === 'signature' ? resolved[0] : resolved) as Answers[string];
-  }
-  if (Object.keys(errors).length > 0) {
-    throw new FormsError(422, 'VALIDATION_FAILED', 'Some answers are missing or not valid.', { fields: errors });
-  }
+  const { answers, used } = checkedAnswers(def, result, files, form.id);
 
   // 4a. The files move from the pending prefix to the form's own folder before the rows say so.
   const bucket = ctx.env.PRIVATE_STORAGE;
-  const moves: Array<{ id: string; from: string; to: string }> = [];
-  for (const row of files) {
-    if (!used.has(row.id) || !row.storageKey.startsWith(PENDING_PREFIX)) continue;
-    const to = finalKey(ctx, form.id, responseId, row);
-    const object = await bucket.get(row.storageKey);
-    if (!object) {
-      const field = fieldsOf(def).find((f) => f.id === row.blockId);
-      throw new FormsError(422, 'VALIDATION_FAILED', 'An uploaded file is no longer available. Upload it again.', { fields: { [field?.id ?? row.blockId]: { code: 'invalid' } } });
-    }
-    await bucket.put(to, object.body, { httpMetadata: { contentType: row.contentType } });
-    moves.push({ id: row.id, from: row.storageKey, to });
-  }
+  const moves = await moveUploads(ctx, def, files.filter((f) => used.has(f.id)), form.id, responseId);
   const unused = files.filter((f) => !used.has(f.id));
 
   // 4b. The number, then one batch.
-  let number = existing?.number ?? null;
-  if (number === null) {
-    const [counter] = await ctx.db
-      .update(forms)
-      .set({ responseCounter: sql`${forms.responseCounter} + 1` })
-      .where(eq(forms.id, form.id))
-      .returning({ n: forms.responseCounter });
-    number = counter?.n ?? 1;
-  }
-  // An invited CRM person: the response is theirs (the CRM Forms tab lists it by `personId`).
-  let invitedPersonId: string | null = null;
-  if (identity.invitationId) {
-    const [invited] = await ctx.db.select({ personId: formInvitations.personId }).from(formInvitations).where(eq(formInvitations.id, identity.invitationId)).limit(1);
-    invitedPersonId = invited?.personId ?? null;
-  }
+  const number = existing?.number ?? (await nextResponseNumber(ctx, form.id));
+  const invitedPersonId = await invitedPerson(ctx, identity.invitationId);
   const startedAt = existing?.startedAt ?? (args.seed ? new Date(args.seed.startedAt) : now);
-  const base = existing?.metadata ?? { ...(args.seed?.metadata ?? {}) };
-  const timings = { ...(existing?.metadata?.timings ?? {}) };
-  for (const [blockId, ms] of Object.entries(args.timings ?? {})) timings[blockId] = (timings[blockId] ?? 0) + ms;
-  const values = {
-    id: responseId,
-    formId: form.id,
-    versionId: version.id,
-    number,
-    status: 'completed' as const,
-    answers: answers as Record<string, unknown>,
-    hidden,
-    variables: result.variables,
-    endingId: result.endingId,
-    score: result.score,
-    respondentEmail: identity.email,
-    respondentUserId: identity.userId,
-    respondentHash: identity.hash,
-    invitationId: identity.invitationId ?? existing?.invitationId ?? null,
-    personId: existing?.personId ?? invitedPersonId,
-    lastBlockId: result.path[result.path.length - 1] ?? existing?.lastBlockId ?? null,
-    answeredCount: Object.keys(result.answers).length,
-    searchText: searchText(def, answers),
-    metadata: { ...base, ...(Object.keys(timings).length ? { timings } : {}) },
-    ipHash: existing?.ipHash ?? args.seed?.ipHash ?? null,
-    startedAt,
-    submittedAt: now,
-    durationMs: Math.max(0, now.getTime() - startedAt.getTime()),
-    updatedAt: now,
-  };
-  const { id: _id, startedAt: _startedAt, ...update } = values;
+  const update = completedColumns(args, existing, { def, result, answers, hidden, number, invitedPersonId, startedAt, now });
+  const values = { id: responseId, ...update, startedAt };
   await atomically(ctx.db, (db) => [
     db.insert(formResponses).values(values).onConflictDoUpdate({ target: formResponses.id, set: update }),
     ...moves.map((m) => db.update(formResponseFiles).set({ storageKey: m.to }).where(eq(formResponseFiles.id, m.id))),
@@ -276,31 +199,7 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
     hidden,
     submittedAt: now.toISOString(),
   };
-  const workspaceId = ctx.clerkOrgId;
-  await publishEntityEventRaw({
-    env: ctx.env,
-    workspaceId,
-    userId: args.actor,
-    entityType: 'form_response',
-    action: edited ? 'updated' : 'submitted',
-    entityId: responseId,
-    data: eventData as unknown as Record<string, unknown>,
-    source: 'api',
-  });
-  if (identity.invitationId && !edited) {
-    await publishEntityEventRaw({
-      env: ctx.env,
-      workspaceId,
-      userId: args.actor,
-      entityType: 'form_invitation',
-      action: 'completed',
-      entityId: identity.invitationId,
-      data: { id: identity.invitationId, formId: form.id, ...(identity.email ? { email: identity.email } : {}) },
-      source: 'api',
-    });
-    // The reminder sweep re-derives this workspace's next reminder: this person needs none now.
-    args.waitUntil(markWorkspaceDue(ctx.env.SCHEDULE_INDEX, 'forms_reminders', ctx.clerkOrgId));
-  }
+  await publishSubmitted(args, eventData, edited);
   try {
     await startProcessing(ctx.env, { clerkOrgId: ctx.clerkOrgId, workspaceId: ctx.workspaceId, formId: form.id, responseId, mode: edited ? 'update' : 'submit' }, args.waitUntil);
   } catch (err) {
@@ -308,16 +207,185 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
     console.error(`[forms-api] could not start processing ${responseId}:`, err);
   }
   // The form's own limit and the plan quota may have been crossed by this response.
-  if (!edited) {
-    args.waitUntil(
-      (async () => {
-        const [fresh] = await ctx.db.select().from(forms).where(eq(forms.id, form.id)).limit(1);
-        if (fresh) await refreshPublicCache(ctx, fresh);
-      })().catch((err) => console.error('[forms-api] could not refresh the public cache:', err)),
-    );
-  }
+  if (!edited) args.waitUntil(refreshFormCache(ctx, form.id));
 
   return { result: buildResult(def, result, responseId, number, hidden), edited, number };
+}
+
+/** Whether the submission edits a completed response: 404 for another form's response, 409 when it may not be edited. */
+function assertSubmittable(existing: ResponseRow | undefined, form: FormRow, identity: SubmitIdentity): boolean {
+  if (existing && existing.formId !== form.id) throw new FormsError(404, 'NOT_FOUND', 'Response not found');
+  const edited = existing?.status === 'completed';
+  if (edited && !(settingsOf(form).allowEdit && (identity.email || identity.invitationId))) {
+    throw new FormsError(409, 'ALREADY_SUBMITTED', 'This form was already submitted.');
+  }
+  return edited;
+}
+
+/** The uploads a file answer names, as stored; null when one is not this response's own upload for this field. */
+function resolveUploads(field: FileField, value: unknown, fileRows: ReadonlyMap<string, FileRow>, formId: string): FileAnswerItem[] | null {
+  const items = (field.type === 'signature' ? [value] : value) as FileAnswerItem[];
+  const resolved: FileAnswerItem[] = [];
+  for (const item of items) {
+    const row = fileRows.get(item.fileId);
+    if (!row || row.blockId !== field.id || row.formId !== formId) return null;
+    resolved.push({ fileId: row.id, name: row.name, size: row.sizeBytes, type: row.contentType });
+  }
+  return resolved;
+}
+
+/**
+ * The engine's answers with each file answer resolved to its uploads, and the
+ * ids of the uploads they use; 422 `VALIDATION_FAILED` with every field's error
+ * when an answer is missing or not valid.
+ */
+function checkedAnswers(def: FormDefinition, result: ReturnType<typeof evaluateSubmission>, files: readonly FileRow[], formId: string): { answers: Answers; used: Set<string> } {
+  const errors: Record<string, AnswerError> = { ...result.errors };
+  const fileRows = new Map(files.map((f) => [f.id, f]));
+  const answers: Answers = { ...result.answers };
+  const used = new Set<string>();
+  for (const field of fieldsOf(def).filter(isFileField)) {
+    const value = result.answers[field.id];
+    if (value === undefined) continue;
+    const resolved = resolveUploads(field, value, fileRows, formId);
+    if (!resolved) {
+      errors[field.id] = { code: 'invalid' };
+      continue;
+    }
+    for (const item of resolved) used.add(item.fileId);
+    answers[field.id] = (field.type === 'signature' ? resolved[0] : resolved) as Answers[string];
+  }
+  if (Object.keys(errors).length > 0) {
+    throw new FormsError(422, 'VALIDATION_FAILED', 'Some answers are missing or not valid.', { fields: errors });
+  }
+  return { answers, used };
+}
+
+/** Copies the used pending uploads to the form's own folder; 422 when one is gone. Returns the moves for the batch. */
+async function moveUploads(
+  ctx: WorkspaceCtx,
+  def: FormDefinition,
+  used: readonly FileRow[],
+  formId: string,
+  responseId: string,
+): Promise<Array<{ id: string; from: string; to: string }>> {
+  const bucket = ctx.env.PRIVATE_STORAGE;
+  const moves: Array<{ id: string; from: string; to: string }> = [];
+  for (const row of used) {
+    if (!row.storageKey.startsWith(PENDING_PREFIX)) continue;
+    const to = finalKey(ctx, formId, responseId, row);
+    const object = await bucket.get(row.storageKey);
+    if (!object) {
+      const field = fieldsOf(def).find((f) => f.id === row.blockId);
+      throw new FormsError(422, 'VALIDATION_FAILED', 'An uploaded file is no longer available. Upload it again.', { fields: { [field?.id ?? row.blockId]: { code: 'invalid' } } });
+    }
+    await bucket.put(to, object.body, { httpMetadata: { contentType: row.contentType } });
+    moves.push({ id: row.id, from: row.storageKey, to });
+  }
+  return moves;
+}
+
+/** The form's next response number, from `forms.response_counter`. */
+async function nextResponseNumber(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<number> {
+  const [counter] = await ctx.db
+    .update(forms)
+    .set({ responseCounter: sql`${forms.responseCounter} + 1` })
+    .where(eq(forms.id, formId))
+    .returning({ n: forms.responseCounter });
+  return counter?.n ?? 1;
+}
+
+/** An invited CRM person: the response is theirs (the CRM Forms tab lists it by `personId`). */
+async function invitedPerson(ctx: Pick<WorkspaceCtx, 'db'>, invitationId: string | null): Promise<string | null> {
+  if (!invitationId) return null;
+  const [invited] = await ctx.db.select({ personId: formInvitations.personId }).from(formInvitations).where(eq(formInvitations.id, invitationId)).limit(1);
+  return invited?.personId ?? null;
+}
+
+/** The earlier metadata (or what the session arrived with) plus the time spent per block, added up. */
+function mergedMetadata(existing: ResponseRow | undefined, seed: SubmitArgs['seed'], spent: SubmitArgs['timings']) {
+  const base = existing?.metadata ?? { ...(seed?.metadata ?? {}) };
+  const timings = { ...(existing?.metadata?.timings ?? {}) };
+  for (const [blockId, ms] of Object.entries(spent ?? {})) timings[blockId] = (timings[blockId] ?? 0) + ms;
+  return { ...base, ...(Object.keys(timings).length ? { timings } : {}) };
+}
+
+interface Completion {
+  def: FormDefinition;
+  result: ReturnType<typeof evaluateSubmission>;
+  answers: Answers;
+  hidden: Record<string, string>;
+  number: number;
+  invitedPersonId: string | null;
+  startedAt: Date;
+  now: Date;
+}
+
+/** The columns the completed response is written with, on insert and on update alike (all but `id` and `started_at`). */
+function completedColumns(args: SubmitArgs, existing: ResponseRow | undefined, c: Completion) {
+  const { form, version, identity, seed } = args;
+  const { result, now } = c;
+  return {
+    formId: form.id,
+    versionId: version.id,
+    number: c.number,
+    status: 'completed' as const,
+    answers: c.answers as Record<string, unknown>,
+    hidden: c.hidden,
+    variables: result.variables,
+    endingId: result.endingId,
+    score: result.score,
+    respondentEmail: identity.email,
+    respondentUserId: identity.userId,
+    respondentHash: identity.hash,
+    invitationId: identity.invitationId ?? existing?.invitationId ?? null,
+    personId: existing?.personId ?? c.invitedPersonId,
+    lastBlockId: result.path[result.path.length - 1] ?? existing?.lastBlockId ?? null,
+    answeredCount: Object.keys(result.answers).length,
+    searchText: searchText(c.def, c.answers),
+    metadata: mergedMetadata(existing, seed, args.timings),
+    ipHash: existing?.ipHash ?? seed?.ipHash ?? null,
+    submittedAt: now,
+    durationMs: Math.max(0, now.getTime() - c.startedAt.getTime()),
+    updatedAt: now,
+  };
+}
+
+/** The entity events of a submission: the response, and the invitation it completes. */
+async function publishSubmitted(args: SubmitArgs, eventData: FormResponseEventData, edited: boolean): Promise<void> {
+  const { ctx, form, identity } = args;
+  const workspaceId = ctx.clerkOrgId;
+  await publishEntityEventRaw({
+    env: ctx.env,
+    workspaceId,
+    userId: args.actor,
+    entityType: 'form_response',
+    action: edited ? 'updated' : 'submitted',
+    entityId: eventData.id,
+    data: eventData as unknown as Record<string, unknown>,
+    source: 'api',
+  });
+  if (!identity.invitationId || edited) return;
+  await publishEntityEventRaw({
+    env: ctx.env,
+    workspaceId,
+    userId: args.actor,
+    entityType: 'form_invitation',
+    action: 'completed',
+    entityId: identity.invitationId,
+    data: { id: identity.invitationId, formId: form.id, ...(identity.email ? { email: identity.email } : {}) },
+    source: 'api',
+  });
+  // The reminder sweep re-derives this workspace's next reminder: this person needs none now.
+  args.waitUntil(markWorkspaceDue(ctx.env.SCHEDULE_INDEX, 'forms_reminders', ctx.clerkOrgId));
+}
+
+/** Refreshes the public cache entry from the form as it is now; a failure is only logged. */
+function refreshFormCache(ctx: WorkspaceCtx, formId: string): Promise<void> {
+  return (async () => {
+    const [fresh] = await ctx.db.select().from(forms).where(eq(forms.id, formId)).limit(1);
+    if (fresh) await refreshPublicCache(ctx, fresh);
+  })().catch((err) => console.error('[forms-api] could not refresh the public cache:', err));
 }
 
 /** One response per person: another completed response of the same identity refuses this one (409 `ALREADY_SUBMITTED`). */
@@ -329,10 +397,11 @@ async function assertFirstResponse(ctx: Pick<WorkspaceCtx, 'db'>, formId: string
     identity.invitationId ? eq(formResponses.invitationId, identity.invitationId) : undefined,
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
   if (same.length === 0) return;
+  const anyOf = sql.join(same, sql` or `);
   const rows = await ctx.db
     .select({ id: formResponses.id })
     .from(formResponses)
-    .where(and(eq(formResponses.formId, formId), eq(formResponses.status, 'completed'), ne(formResponses.id, responseId), sql`(${sql.join(same, sql` or `)})`))
+    .where(and(eq(formResponses.formId, formId), eq(formResponses.status, 'completed'), ne(formResponses.id, responseId), sql`(${anyOf})`))
     .limit(1);
   if (rows.length > 0) throw new FormsError(409, 'ALREADY_SUBMITTED', 'You already submitted this form.');
 }

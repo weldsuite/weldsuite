@@ -14,6 +14,42 @@ interface VerifyEmailProps {
   onVerified: (verification: string) => void
 }
 
+/** A step's error line, under its field. */
+function StepError({ error }: Readonly<{ error: string | null }>) {
+  return error ? (
+    <p role="alert" className="text-sm text-destructive">
+      {error}
+    </p>
+  ) : null
+}
+
+/** A step's confirmation line (the code was sent again). */
+function StepNotice({ notice }: Readonly<{ notice: string | null }>) {
+  return notice ? (
+    <p role="status" className="text-sm text-emerald-700">
+      {notice}
+    </p>
+  ) : null
+}
+
+interface SubmitButtonProps {
+  busy: boolean
+  disabled: boolean
+  label: string
+  /** Shown, with a spinner, while the request runs. */
+  busyLabel: string
+}
+
+/** A step's submit button. */
+function SubmitButton({ busy, disabled, label, busyLabel }: Readonly<SubmitButtonProps>) {
+  return (
+    <Button type="submit" size="lg" disabled={disabled}>
+      {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+      {busy ? busyLabel : label}
+    </Button>
+  )
+}
+
 /** Verified-email forms: address, then the 6-digit code, then a verification token. */
 export function VerifyEmail({ publicId, takeBotToken, onVerified }: Readonly<VerifyEmailProps>) {
   const { t, fill } = usePortal()
@@ -98,15 +134,8 @@ export function VerifyEmail({ publicId, takeBotToken, onVerified }: Readonly<Ver
               aria-invalid={error ? true : undefined}
             />
           </div>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <Button type="submit" size="lg" disabled={busy || !email.trim()}>
-            {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-            {busy ? t.verify.sending : t.verify.sendCode}
-          </Button>
+          <StepError error={error} />
+          <SubmitButton busy={busy} disabled={busy || !email.trim()} label={t.verify.sendCode} busyLabel={t.verify.sending} />
         </form>
       ) : (
         <form onSubmit={onCode} className="flex flex-col gap-3">
@@ -124,20 +153,9 @@ export function VerifyEmail({ publicId, takeBotToken, onVerified }: Readonly<Ver
               aria-invalid={error ? true : undefined}
             />
           </div>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-          {notice ? (
-            <p role="status" className="text-sm text-emerald-700">
-              {notice}
-            </p>
-          ) : null}
-          <Button type="submit" size="lg" disabled={busy || locked || code.length !== 6}>
-            {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-            {busy ? t.verify.verifying : t.verify.verify}
-          </Button>
+          <StepError error={error} />
+          <StepNotice notice={notice} />
+          <SubmitButton busy={busy} disabled={busy || locked || code.length !== 6} label={t.verify.verify} busyLabel={t.verify.verifying} />
           <div className="flex justify-between">
             <Button type="button" variant="ghost" onClick={onResend} disabled={busy || locked}>
               {t.verify.resend}

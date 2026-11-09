@@ -10,6 +10,13 @@ import type { Env } from '../types';
 import type { ProcessResponseParams } from '../workflows/process-params';
 import { inlineSteps, runProcessResponse } from '../workflows/process-response';
 
+/** What sets a run's instance id apart from the response id: a retry, an edit, or nothing for the first run. */
+function instanceSuffix(params: ProcessResponseParams): 'retry' | 'update' | null {
+  if (params.retryIntegrationId) return 'retry';
+  if (params.mode === 'update') return 'update';
+  return null;
+}
+
 export async function startProcessing(env: Env, params: ProcessResponseParams, waitUntil: (p: Promise<unknown>) => void): Promise<void> {
   const workflow = env.PROCESS_RESPONSE;
   if (!workflow) {
@@ -20,7 +27,7 @@ export async function startProcessing(env: Env, params: ProcessResponseParams, w
     );
     return;
   }
-  const suffix = params.retryIntegrationId ? 'retry' : params.mode === 'update' ? 'update' : null;
+  const suffix = instanceSuffix(params);
   const id = suffix ? `${params.responseId}-${suffix}-${Date.now().toString(36)}` : params.responseId;
   try {
     await workflow.create({ id, params });

@@ -13,29 +13,36 @@ export interface ParsedAgent {
   os: string
 }
 
+/** Tablet, phone or desktop; a narrow viewport counts as a phone unless it is a Mac. */
+function guessDevice(ua: string, viewportWidth: number | undefined): Device {
+  if (/ipad|tablet|playbook|silk/i.test(ua) || (/android/i.test(ua) && !/mobile/i.test(ua))) return 'tablet'
+  if (/mobi|iphone|ipod|android/i.test(ua)) return 'phone'
+  if (viewportWidth !== undefined && viewportWidth > 0 && viewportWidth < 600 && /Macintosh/.test(ua) === false) return 'phone'
+  return 'desktop'
+}
+
+function guessBrowser(ua: string): string {
+  if (/edg(e|a|ios)?\//i.test(ua)) return 'Edge'
+  if (/opr\/|opera/i.test(ua)) return 'Opera'
+  if (/firefox\/|fxios\//i.test(ua)) return 'Firefox'
+  if (/chrome\/|crios\//i.test(ua)) return 'Chrome'
+  if (/safari\//i.test(ua)) return 'Safari'
+  return 'Other'
+}
+
+function guessOs(ua: string): string {
+  if (/windows/i.test(ua)) return 'Windows'
+  if (/iphone|ipad|ipod/i.test(ua)) return 'iOS'
+  if (/android/i.test(ua)) return 'Android'
+  if (/cros/i.test(ua)) return 'ChromeOS'
+  if (/mac os x|macintosh/i.test(ua)) return 'macOS'
+  if (/linux/i.test(ua)) return 'Linux'
+  return 'Other'
+}
+
 /** A deliberately small user-agent reader: enough for "Chrome on Windows, desktop" in the results. */
 export function parseUserAgent(ua: string, viewportWidth?: number): ParsedAgent {
-  let device: Device = 'desktop'
-  if (/ipad|tablet|playbook|silk/i.test(ua) || (/android/i.test(ua) && !/mobile/i.test(ua))) device = 'tablet'
-  else if (/mobi|iphone|ipod|android/i.test(ua)) device = 'phone'
-  else if (viewportWidth !== undefined && viewportWidth > 0 && viewportWidth < 600 && /Macintosh/.test(ua) === false) device = 'phone'
-
-  let browser = 'Other'
-  if (/edg(e|a|ios)?\//i.test(ua)) browser = 'Edge'
-  else if (/opr\/|opera/i.test(ua)) browser = 'Opera'
-  else if (/firefox\/|fxios\//i.test(ua)) browser = 'Firefox'
-  else if (/chrome\/|crios\//i.test(ua)) browser = 'Chrome'
-  else if (/safari\//i.test(ua)) browser = 'Safari'
-
-  let os = 'Other'
-  if (/windows/i.test(ua)) os = 'Windows'
-  else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS'
-  else if (/android/i.test(ua)) os = 'Android'
-  else if (/cros/i.test(ua)) os = 'ChromeOS'
-  else if (/mac os x|macintosh/i.test(ua)) os = 'macOS'
-  else if (/linux/i.test(ua)) os = 'Linux'
-
-  return { device, browser, os }
+  return { device: guessDevice(ua, viewportWidth), browser: guessBrowser(ua), os: guessOs(ua) }
 }
 
 /** Query-string names that belong to the portal, never to a hidden field. */

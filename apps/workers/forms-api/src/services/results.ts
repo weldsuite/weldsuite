@@ -17,7 +17,10 @@ import {
   isChoiceField,
   isFileField,
   isNumericField,
+  type ChoiceField,
   type FieldBlock,
+  type FieldBlockOf,
+  type FileField,
 } from '@weldsuite/forms-engine';
 import type { Block } from '@weldsuite/forms-engine/definition';
 import {
@@ -45,113 +48,130 @@ interface Answered {
   at: Date;
 }
 
-function summariseField(field: FieldBlock, rows: Answered[]): FormFieldSummary {
-  const base = { blockId: field.id, type: field.type, title: field.title || field.ref };
-  const answered = rows.filter((r) => isAnswered(field, r.value));
-  const n = answered.length;
-  const newest = [...answered].sort((a, b) => b.at.getTime() - a.at.getTime());
+/** What every field summary starts with. */
+type SummaryBase = { blockId: string; type: FieldBlock['type']; title: string; answered: number };
 
-  if (field.type === 'nps') {
-    const counts = new Map<number, number>();
-    for (const r of answered) counts.set(r.value as number, (counts.get(r.value as number) ?? 0) + 1);
-    const promoters = answered.filter((r) => (r.value as number) >= 9).length;
-    const detractors = answered.filter((r) => (r.value as number) <= 6).length;
-    return {
-      kind: 'nps',
-      ...base,
-      answered: n,
-      score: n === 0 ? null : Math.round(((promoters - detractors) / n) * 100),
-      promoters,
-      passives: n - promoters - detractors,
-      detractors,
-      distribution: Array.from({ length: 11 }, (_, value) => ({ value, count: counts.get(value) ?? 0 })),
-    };
+const newestFirst = (a: Answered, b: Answered) => b.at.getTime() - a.at.getTime();
+
+function npsSummary(base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const n = answered.length;
+  const counts = new Map<number, number>();
+  for (const r of answered) counts.set(r.value as number, (counts.get(r.value as number) ?? 0) + 1);
+  const promoters = answered.filter((r) => (r.value as number) >= 9).length;
+  const detractors = answered.filter((r) => (r.value as number) <= 6).length;
+  return {
+    kind: 'nps',
+    ...base,
+    score: n === 0 ? null : Math.round(((promoters - detractors) / n) * 100),
+    promoters,
+    passives: n - promoters - detractors,
+    detractors,
+    distribution: Array.from({ length: 11 }, (_, value) => ({ value, count: counts.get(value) ?? 0 })),
+  };
+}
+
+function numericSummary(base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const n = answered.length;
+  const values = answered.map((r) => r.value as number);
+  const counts = new Map<number, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  const distribution = [...counts].sort((a, b) => a[0] - b[0]).map(([value, count]) => ({ value, count }));
+  return {
+    kind: 'numeric',
+    ...base,
+    average: n === 0 ? null : Math.round((values.reduce((a, b) => a + b, 0) / n) * 100) / 100,
+    min: n === 0 ? null : Math.min(...values),
+    max: n === 0 ? null : Math.max(...values),
+    distribution: distribution.length <= MAX_DISTINCT ? distribution : [],
+  };
+}
+
+function choiceSummary(field: ChoiceField, base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const n = answered.length;
+  const counts = new Map<string, number>();
+  const others: Answered[] = [];
+  for (const r of answered) {
+    const a = r.value as { choiceIds: string[]; other?: string };
+    for (const id of a.choiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+    if (a.other !== undefined) others.push({ ...r, value: a.other });
   }
-  if (isNumericField(field)) {
-    const values = answered.map((r) => r.value as number);
-    const counts = new Map<number, number>();
-    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-    const distribution = [...counts].sort((a, b) => a[0] - b[0]).map(([value, count]) => ({ value, count }));
-    return {
-      kind: 'numeric',
-      ...base,
-      answered: n,
-      average: n === 0 ? null : Math.round((values.reduce((a, b) => a + b, 0) / n) * 100) / 100,
-      min: n === 0 ? null : Math.min(...values),
-      max: n === 0 ? null : Math.max(...values),
-      distribution: distribution.length <= MAX_DISTINCT ? distribution : [],
-    };
+  return {
+    kind: 'choice',
+    ...base,
+    choices: field.properties.choices.map((c) => ({ id: c.id, label: c.label, count: counts.get(c.id) ?? 0, percent: percentOf(counts.get(c.id) ?? 0, n) })),
+    other: others.length,
+    otherLatest: others
+      .sort(newestFirst)
+      .slice(0, LATEST)
+      .map((r) => ({ responseId: r.responseId, value: String(r.value), submittedAt: r.at.toISOString() })),
+  };
+}
+
+function rankingSummary(field: FieldBlockOf<'ranking'>, base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const r of answered) {
+    (r.value as string[]).forEach((id, index) => {
+      const s = sums.get(id) ?? { total: 0, count: 0 };
+      sums.set(id, { total: s.total + index + 1, count: s.count + 1 });
+    });
   }
-  if (isBooleanField(field)) {
-    const yes = answered.filter((r) => r.value === true).length;
-    return { kind: 'boolean', ...base, answered: n, yes, no: n - yes };
-  }
-  if (isChoiceField(field)) {
-    const counts = new Map<string, number>();
-    const others: Answered[] = [];
-    for (const r of answered) {
-      const a = r.value as { choiceIds: string[]; other?: string };
-      for (const id of a.choiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
-      if (a.other !== undefined) others.push({ ...r, value: a.other });
+  return {
+    kind: 'ranking',
+    ...base,
+    choices: field.properties.choices.map((c) => {
+      const s = sums.get(c.id);
+      return { id: c.id, label: c.label, averageRank: s ? Math.round((s.total / s.count) * 100) / 100 : null };
+    }),
+  };
+}
+
+function matrixSummary(field: FieldBlockOf<'matrix'>, base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const cells = new Map<string, Record<string, number>>();
+  for (const r of answered) {
+    for (const [rowId, columnIds] of Object.entries(r.value as Record<string, string[]>)) {
+      const row = cells.get(rowId) ?? {};
+      for (const columnId of columnIds) row[columnId] = (row[columnId] ?? 0) + 1;
+      cells.set(rowId, row);
     }
-    return {
-      kind: 'choice',
-      ...base,
-      answered: n,
-      choices: field.properties.choices.map((c) => ({ id: c.id, label: c.label, count: counts.get(c.id) ?? 0, percent: percentOf(counts.get(c.id) ?? 0, n) })),
-      other: others.length,
-      otherLatest: others
-        .sort((a, b) => b.at.getTime() - a.at.getTime())
-        .slice(0, LATEST)
-        .map((r) => ({ responseId: r.responseId, value: String(r.value), submittedAt: r.at.toISOString() })),
-    };
   }
-  if (field.type === 'ranking') {
-    const sums = new Map<string, { total: number; count: number }>();
-    for (const r of answered) {
-      (r.value as string[]).forEach((id, index) => {
-        const s = sums.get(id) ?? { total: 0, count: 0 };
-        sums.set(id, { total: s.total + index + 1, count: s.count + 1 });
-      });
-    }
-    return {
-      kind: 'ranking',
-      ...base,
-      answered: n,
-      choices: field.properties.choices.map((c) => {
-        const s = sums.get(c.id);
-        return { id: c.id, label: c.label, averageRank: s ? Math.round((s.total / s.count) * 100) / 100 : null };
-      }),
-    };
-  }
-  if (field.type === 'matrix') {
-    const cells = new Map<string, Record<string, number>>();
-    for (const r of answered) {
-      for (const [rowId, columnIds] of Object.entries(r.value as Record<string, string[]>)) {
-        const row = cells.get(rowId) ?? {};
-        for (const columnId of columnIds) row[columnId] = (row[columnId] ?? 0) + 1;
-        cells.set(rowId, row);
-      }
-    }
-    return {
-      kind: 'matrix',
-      ...base,
-      answered: n,
-      columns: field.properties.columns.map((c) => ({ id: c.id, label: c.label })),
-      rows: field.properties.rows.map((row) => ({ id: row.id, label: row.label, counts: cells.get(row.id) ?? {} })),
-    };
-  }
-  if (isFileField(field)) {
-    const files = answered.reduce((sum, r) => sum + (field.type === 'signature' ? 1 : (r.value as unknown[]).length), 0);
-    return { kind: 'files', ...base, answered: n, files };
-  }
-  // Text, dates, contact info, address.
+  return {
+    kind: 'matrix',
+    ...base,
+    columns: field.properties.columns.map((c) => ({ id: c.id, label: c.label })),
+    rows: field.properties.rows.map((row) => ({ id: row.id, label: row.label, counts: cells.get(row.id) ?? {} })),
+  };
+}
+
+function filesSummary(field: FileField, base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const files = answered.reduce((sum, r) => sum + (field.type === 'signature' ? 1 : (r.value as unknown[]).length), 0);
+  return { kind: 'files', ...base, files };
+}
+
+/** Text, dates, contact info, address: the newest answers as text. */
+function textSummary(field: FieldBlock, base: SummaryBase, answered: readonly Answered[]): FormFieldSummary {
+  const newest = [...answered].sort(newestFirst);
   return {
     kind: 'text',
     ...base,
-    answered: n,
     latest: newest.slice(0, LATEST).map((r) => ({ responseId: r.responseId, value: displayAnswer(field, r.value), submittedAt: r.at.toISOString() })),
   };
+}
+
+function summariseField(field: FieldBlock, rows: Answered[]): FormFieldSummary {
+  const answered = rows.filter((r) => isAnswered(field, r.value));
+  const base: SummaryBase = { blockId: field.id, type: field.type, title: field.title || field.ref, answered: answered.length };
+
+  if (field.type === 'nps') return npsSummary(base, answered);
+  if (isNumericField(field)) return numericSummary(base, answered);
+  if (isBooleanField(field)) {
+    const yes = answered.filter((r) => r.value === true).length;
+    return { kind: 'boolean', ...base, yes, no: answered.length - yes };
+  }
+  if (isChoiceField(field)) return choiceSummary(field, base, answered);
+  if (field.type === 'ranking') return rankingSummary(field, base, answered);
+  if (field.type === 'matrix') return matrixSummary(field, base, answered);
+  if (isFileField(field)) return filesSummary(field, base, answered);
+  return textSummary(field, base, answered);
 }
 
 /** Per field of the form (every version, the newest definition of each), over the completed responses. */
@@ -200,6 +220,57 @@ function stops(version: VersionInfo): Array<{ id: string; title: string }> {
     .map((b) => ({ id: b.id, title: ('title' in b && typeof b.title === 'string' && b.title) || ('ref' in b && typeof b.ref === 'string' ? b.ref : b.id) }));
 }
 
+interface InsightRow {
+  status: string;
+  startedAt: Date;
+  submittedAt: Date | null;
+  lastBlockId: string | null;
+  source: string | null;
+}
+
+type DayCounts = { views: number; starts: number; completions: number };
+
+/** Views, starts and completions per UTC day, every day of the range included. */
+function countByDay(range: { from: Date; to: Date }, views: Record<string, number>, rows: readonly InsightRow[], completed: readonly InsightRow[]): Map<string, DayCounts> {
+  const { from, to } = range;
+  const days = new Map<string, DayCounts>();
+  const bump = (day: string, key: keyof DayCounts, by: number) => {
+    const d = days.get(day) ?? { views: 0, starts: 0, completions: 0 };
+    d[key] += by;
+    days.set(day, d);
+  };
+  for (let t = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()); t <= to.getTime(); t += DAY_MS) days.set(dayOf(new Date(t)), { views: 0, starts: 0, completions: 0 });
+  for (const [day, count] of Object.entries(views)) bump(day, 'views', count);
+  for (const r of rows) bump(dayOf(r.startedAt), 'starts', 1);
+  for (const r of completed) if (r.submittedAt) bump(dayOf(r.submittedAt), 'completions', 1);
+  return days;
+}
+
+/** Starts and completions per source (`link` when the response has none). */
+function countBySource(rows: readonly InsightRow[]): Map<string, { starts: number; completions: number }> {
+  const bySource = new Map<string, { starts: number; completions: number }>();
+  for (const r of rows) {
+    const key = r.source || 'link';
+    const s = bySource.get(key) ?? { starts: 0, completions: 0 };
+    s.starts += 1;
+    if (r.status === 'completed') s.completions += 1;
+    bySource.set(key, s);
+  }
+  return bySource;
+}
+
+/** How many reached each block and how many left there; completed responses reached every block. */
+function dropOffOf(blocks: ReadonlyArray<{ id: string; title: string }>, rows: readonly InsightRow[], completedCount: number): FormInsights['dropOff'] {
+  const leftAt = new Map<string, number>();
+  for (const r of rows) if (r.status === 'in_progress' && r.lastBlockId) leftAt.set(r.lastBlockId, (leftAt.get(r.lastBlockId) ?? 0) + 1);
+  return blocks.map((block, index) => {
+    const beyond = blocks.slice(index).reduce((sum, b) => sum + (leftAt.get(b.id) ?? 0), 0);
+    const reached = completedCount + beyond;
+    const leftHere = leftAt.get(block.id) ?? 0;
+    return { blockId: block.id, title: block.title, reached, leftHere, dropOffRate: reached === 0 ? 0 : Math.round((leftHere / reached) * 1000) / 1000 };
+  });
+}
+
 /**
  * Views per day come from the form's counters; everything else from the
  * responses started in the range. `completions` and `completionRate` count
@@ -232,38 +303,11 @@ export async function insights(
     .where(and(eq(formResponses.formId, formId), sql`${formResponses.startedAt} >= ${from.toISOString()}::timestamptz`, sql`${formResponses.startedAt} <= ${to.toISOString()}::timestamptz`));
 
   const views = await counters.viewsByDay(dayOf(from), dayOf(to));
-  const days = new Map<string, { views: number; starts: number; completions: number }>();
-  const bump = (day: string, key: 'views' | 'starts' | 'completions', by: number) => {
-    const d = days.get(day) ?? { views: 0, starts: 0, completions: 0 };
-    d[key] += by;
-    days.set(day, d);
-  };
-  for (let t = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()); t <= to.getTime(); t += DAY_MS) days.set(dayOf(new Date(t)), { views: 0, starts: 0, completions: 0 });
-  for (const [day, count] of Object.entries(views)) bump(day, 'views', count);
-
   const completed = rows.filter((r) => r.status === 'completed');
-  for (const r of rows) bump(dayOf(r.startedAt), 'starts', 1);
-  for (const r of completed) if (r.submittedAt) bump(dayOf(r.submittedAt), 'completions', 1);
-
+  const days = countByDay({ from, to }, views, rows, completed);
   const durations = completed.map((r) => r.durationMs).filter((d): d is number => d !== null);
-  const bySource = new Map<string, { starts: number; completions: number }>();
-  for (const r of rows) {
-    const key = r.source || 'link';
-    const s = bySource.get(key) ?? { starts: 0, completions: 0 };
-    s.starts += 1;
-    if (r.status === 'completed') s.completions += 1;
-    bySource.set(key, s);
-  }
-
-  const blocks = latest ? stops(latest) : [];
-  const leftAt = new Map<string, number>();
-  for (const r of rows) if (r.status === 'in_progress' && r.lastBlockId) leftAt.set(r.lastBlockId, (leftAt.get(r.lastBlockId) ?? 0) + 1);
-  const dropOff = blocks.map((block, index) => {
-    const beyond = blocks.slice(index).reduce((sum, b) => sum + (leftAt.get(b.id) ?? 0), 0);
-    const reached = completed.length + beyond;
-    const leftHere = leftAt.get(block.id) ?? 0;
-    return { blockId: block.id, title: block.title, reached, leftHere, dropOffRate: reached === 0 ? 0 : Math.round((leftHere / reached) * 1000) / 1000 };
-  });
+  const bySource = countBySource(rows);
+  const dropOff = dropOffOf(latest ? stops(latest) : [], rows, completed.length);
 
   return {
     views: Object.values(views).reduce((a, b) => a + b, 0),

@@ -688,11 +688,9 @@ const rowAt = (row: string, i: number) => row.replaceAll('⟦r_', `⟦r${i}_`);
 function loop(bodies: Map<string, string>, mode: Mode, convert: (text: string) => string): string {
   const fill = (row: string) =>
     convert(row.replace(/⟦r_(\w+)⟧/g, (_, name: string) => (mode === 'text' ? `{{ row.${name}|collapse }}` : `{{ row.${name} }}`)));
+  const branch = ([key, row]: [string, string], i: number) => `{% ${i === 0 ? 'if' : 'elif'} row.v == "${key}" %}${fill(row)}`;
   const entries = [...bodies];
-  const body =
-    entries.length === 1
-      ? fill(entries[0]![1])
-      : `${entries.map(([key, row], i) => `{% ${i === 0 ? 'if' : 'elif'} row.v == "${key}" %}${fill(row)}`).join('')}{% endif %}`;
+  const body = entries.length === 1 ? fill(entries[0]![1]) : `${entries.map(branch).join('')}{% endif %}`;
   return `{% for row in rows %}${body}{% endfor %}`;
 }
 
@@ -738,6 +736,48 @@ async function listSentinels(spec: Spec, list: ListSpec, locale: EmailLocale, fl
   return { shared: shared!, frame: frame!, content, text };
 }
 
+/** The parts of a variant every brand must render alike, placeholders in. */
+type VariantParts = { subject: string; preview: string; footer: string | null; content: string };
+
+/** What a variant's renders share across the brands. */
+interface VariantContext {
+  spec: Spec;
+  /** The list, when this variant has one. */
+  list: ListSpec | undefined;
+  locale: EmailLocale;
+  flags: Set<string>;
+  where: string;
+  /** Turns the sentinels in a rendered part into template placeholders. */
+  ph: (value: string, mode: Mode) => string;
+}
+
+/** One brand's render of a variant, placeholders in: the brand-independent parts, and the text. */
+async function brandVariant(ctx: VariantContext, brand: BrandKey): Promise<{ variant: VariantParts; text: string }> {
+  const { spec, list, locale, flags, where, ph } = ctx;
+  if (list) {
+    const derived = await listSentinels(spec, list, locale, flags, brand, where);
+    const variant: VariantParts = {
+      subject: ph(derived.shared.subject, 'plain'),
+      preview: ph(derived.shared.preview, 'plain'),
+      footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
+      content:
+        ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
+    };
+    return {
+      variant,
+      text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
+    };
+  }
+  const parts = await sentinels(spec, locale, flags, brand, [], where);
+  const variant: VariantParts = {
+    subject: ph(parts.subject, 'plain'),
+    preview: ph(parts.preview, 'plain'),
+    footer: parts.footer === null ? null : ph(parts.footer, 'plain'),
+    content: ph(parts.content, 'html'),
+  };
+  return { variant, text: ph(parts.text, 'text') };
+}
+
 async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>): Promise<Variant> {
   const multiline = spec.multiline ?? [];
   const dates = Object.fromEntries(Object.entries(spec.dates ?? {}).filter(([flag]) => flags.has(flag)));
@@ -745,32 +785,15 @@ async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>
   const texts = spec.texts?.(locale, flags) ?? {};
   const ph = (value: string, mode: Mode) => placeholders(value, mode, multiline, dates, locale, texts);
   const list = spec.list && flags.has(spec.list.flag) ? spec.list : undefined;
+  const ctx: VariantContext = { spec, list, locale, flags, where, ph };
 
   const text = {} as Record<BrandKey, string>;
-  let canonical: { subject: string; preview: string; footer: string | null; content: string } | undefined;
+  let canonical: VariantParts | undefined;
   // The workspace brand first: its content carries the {{ accent }} placeholder.
   for (const brand of ['workspace', 'workspace_logo', 'weldsuite'] as const) {
-    let variant: { subject: string; preview: string; footer: string | null; content: string };
-    if (list) {
-      const derived = await listSentinels(spec, list, locale, flags, brand, where);
-      variant = {
-        subject: ph(derived.shared.subject, 'plain'),
-        preview: ph(derived.shared.preview, 'plain'),
-        footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
-        content:
-          ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
-      };
-      text[brand] = ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text');
-    } else {
-      const parts = await sentinels(spec, locale, flags, brand, [], where);
-      variant = {
-        subject: ph(parts.subject, 'plain'),
-        preview: ph(parts.preview, 'plain'),
-        footer: parts.footer === null ? null : ph(parts.footer, 'plain'),
-        content: ph(parts.content, 'html'),
-      };
-      text[brand] = ph(parts.text, 'text');
-    }
+    const rendered = await brandVariant(ctx, brand);
+    const variant = rendered.variant;
+    text[brand] = rendered.text;
     // The WeldSuite brand has the theme accent where the others have the
     // placeholder; Rust passes the theme accent for it.
     const expected =

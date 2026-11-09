@@ -30,8 +30,9 @@ app.patch('/settings', requirePermission('forms:manage'), zValidator('json', upd
 
 app.get('/usage', requirePermission('forms:read'), (c) =>
   handle(c, async () => {
-    const { workspacePlan: _plan, ...usage } = await loadUsage(workspaceCtx(c));
-    return success(c, usage);
+    // Everything but `workspacePlan`, which is for the server's own checks.
+    const { periodStart, periodEnd, used, limit, plan } = await loadUsage(workspaceCtx(c));
+    return success(c, { periodStart, periodEnd, used, limit, plan });
   }),
 );
 

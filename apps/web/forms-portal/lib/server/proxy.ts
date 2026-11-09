@@ -45,6 +45,12 @@ function isCrossSite(request: Request): boolean {
   return request.headers.get('sec-fetch-site') === 'cross-site'
 }
 
+/** `?versionId=…` when the page asked for a given version of the form; nothing otherwise. */
+function versionQuery(url: URL): string {
+  const versionId = url.searchParams.get('versionId')
+  return versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''
+}
+
 export async function proxyToFormsApi(request: Request, rest: string): Promise<Response> {
   const path = `/${rest.replace(/^\/+/, '')}`
   const method = request.method.toUpperCase()
@@ -53,7 +59,7 @@ export async function proxyToFormsApi(request: Request, rest: string): Promise<R
   if (method !== 'GET' && isCrossSite(request)) return errorResponse(403, 'FORBIDDEN', 'Forbidden')
 
   const url = new URL(request.url)
-  const search = path.startsWith('/f/') && method === 'GET' ? (url.searchParams.get('versionId') ? `?versionId=${encodeURIComponent(url.searchParams.get('versionId') ?? '')}` : '') : ''
+  const search = path.startsWith('/f/') && method === 'GET' ? versionQuery(url) : ''
 
   let body: BodyInit | null = null
   if (method !== 'GET') {

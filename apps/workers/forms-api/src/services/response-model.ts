@@ -106,27 +106,40 @@ const PART_LABELS: Record<string, string> = {
  * first, then every field of every version (a field removed later stays),
  * the hidden fields, then the rest of the metadata.
  */
+/** The answer columns of a field: one, or one per enabled part of a contact or address field. */
+function fieldParts(field: FieldBlock): Array<{ part: string | undefined }> {
+  return isCompositeField(field) ? partsOf(field).filter((p) => p.enabled) : [{ part: undefined }];
+}
+
+function columnLabel(field: FieldBlock, part: string | undefined): string {
+  const title = field.title || field.ref;
+  return part ? `${title} · ${PART_LABELS[part] ?? part}` : title;
+}
+
+/**
+ * Adds a field's answer columns of one version to `columns` (a Map keeps the
+ * order of first appearance); a later version renames and retypes a column.
+ */
+function addFieldColumns(columns: Map<string, FormResponseColumn>, field: FieldBlock, versionNumber: number): void {
+  for (const { part } of fieldParts(field)) {
+    const key = columnKey(field.id, part);
+    const label = columnLabel(field, part);
+    const existing = columns.get(key);
+    if (existing) {
+      existing.versions.push(versionNumber);
+      existing.label = label;
+      existing.type = field.type;
+    } else {
+      columns.set(key, { key, blockId: field.id, ...(part ? { part } : {}), label, type: field.type, versions: [versionNumber] });
+    }
+  }
+}
+
 export function buildColumns(versions: readonly VersionInfo[]): FormResponseColumn[] {
   const answers = new Map<string, FormResponseColumn>();
-  const order: string[] = [];
   const hidden = new Map<string, number[]>();
   for (const version of versions) {
-    for (const field of version.fields.values()) {
-      const parts = isCompositeField(field) ? partsOf(field).filter((p) => p.enabled) : [{ part: undefined as string | undefined }];
-      for (const { part } of parts) {
-        const key = columnKey(field.id, part);
-        const label = part ? `${field.title || field.ref} · ${PART_LABELS[part] ?? part}` : field.title || field.ref;
-        const existing = answers.get(key);
-        if (existing) {
-          existing.versions.push(version.number);
-          existing.label = label;
-          existing.type = field.type;
-        } else {
-          answers.set(key, { key, blockId: field.id, ...(part ? { part } : {}), label, type: field.type, versions: [version.number] });
-          order.push(key);
-        }
-      }
-    }
+    for (const field of version.fields.values()) addFieldColumns(answers, field, version.number);
     for (const { name } of version.definition.hidden) {
       const list = hidden.get(name) ?? [];
       list.push(version.number);
@@ -139,7 +152,7 @@ export function buildColumns(versions: readonly VersionInfo[]): FormResponseColu
     meta('number', all),
     meta('submittedAt', all),
     meta('email', all),
-    ...order.map((key) => answers.get(key)!),
+    ...answers.values(),
     // A hidden field named like a metadata column would be shadowed by it in the table: it stays out.
     ...[...hidden].filter(([name]) => !RESERVED.has(normalise(name))).map(([name, v]): FormResponseColumn => ({ key: name, label: name, type: 'hidden', versions: v })),
     meta('score', all),
@@ -233,7 +246,12 @@ export function answerCell(field: FieldBlock | undefined, raw: unknown, part?: s
 // Conditions
 // ---------------------------------------------------------------------------
 
-const likePattern = (text: string) => `%${text.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+/** `%`, `_` and `\` taken literally in a LIKE pattern. */
+const escapeLike = (text: string) => text.replace(/[%_\\]/g, (m) => `\\${m}`);
+const likePattern = (text: string) => `%${escapeLike(text)}%`;
+
+/** `a, b, c` as bound parameters. */
+const paramList = (values: readonly string[]): SQL => sql.join(values.map((v) => sql`${v}`), sql`, `);
 
 export function parseAnswerFilters(raw: string | undefined): ResponseAnswerFilter[] {
   if (!raw) return [];
@@ -266,7 +284,86 @@ function kindOf(field: FieldBlock | undefined, part: string | undefined): Kind {
   return 'presence';
 }
 
-const asArray = (value: ResponseAnswerFilter['value']): string[] => (Array.isArray(value) ? value : value === undefined ? [] : [String(value)]);
+function asArray(value: ResponseAnswerFilter['value']): string[] {
+  if (Array.isArray(value)) return value;
+  if (value === undefined) return [];
+  return [String(value)];
+}
+
+type Operator = ResponseAnswerFilter['operator'];
+type FilterValue = NonNullable<ResponseAnswerFilter['value']>;
+
+/** The stored answer of a filter's field: `node` the jsonb value, `text` it (or the part) as text. */
+interface AnswerRef {
+  blockId: string;
+  node: SQL;
+  text: SQL;
+}
+
+const notApplicable = (operator: Operator) => new FormsError(400, 'BAD_REQUEST', `Operator "${operator}" does not apply to this field.`);
+
+/** `is_answered` / `is_empty`: what counts as an answer depends on the kind of field. */
+function answeredSql(kind: Kind, { node, text }: AnswerRef, operator: Operator): SQL {
+  let answered: SQL;
+  if (kind === 'text') answered = sql`(${text} is not null and btrim(${text}) <> '')`;
+  else if (kind === 'presence') answered = sql`(${node} is not null and ${node} <> 'null'::jsonb and ${node} <> '[]'::jsonb and ${node} <> '{}'::jsonb)`;
+  else answered = sql`(${node} is not null and ${node} <> 'null'::jsonb)`;
+  return operator === 'is_answered' ? answered : sql`(not ${answered})`;
+}
+
+function choiceFilterSql({ node }: AnswerRef, operator: Operator, value: FilterValue): SQL {
+  const ids = sql`(${node} -> 'choiceIds')`;
+  const other = sql`(${node} ->> 'other')`;
+  const list = asArray(value);
+  const array = sql`ARRAY[${paramList(list)}]::text[]`;
+  const any = sql`coalesce(jsonb_exists_any(${ids}, ${array}), false)`;
+  if (operator === 'any_of' || operator === 'is') return list.length === 0 ? sql`false` : any;
+  if (operator === 'none_of' || operator === 'is_not') return list.length === 0 ? sql`true` : sql`(not ${any})`;
+  if (operator === 'contains') return sql`${other} ilike ${likePattern(String(value))}`;
+  throw notApplicable(operator);
+}
+
+function numericFilterSql({ blockId, node }: AnswerRef, operator: Operator, value: FilterValue): SQL {
+  const num = sql`(case when jsonb_typeof(${node}) = 'number' then (${formResponses.answers} ->> ${blockId}::text)::numeric end)`;
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw new FormsError(400, 'BAD_REQUEST', 'A number is needed for this filter.');
+  if (operator === 'is') return sql`coalesce(${num} = ${n}, false)`;
+  if (operator === 'is_not') return sql`coalesce(${num} <> ${n}, true)`;
+  if (operator === 'greater_than') return sql`coalesce(${num} > ${n}, false)`;
+  if (operator === 'less_than') return sql`coalesce(${num} < ${n}, false)`;
+  throw notApplicable(operator);
+}
+
+function booleanFilterSql({ node }: AnswerRef, operator: Operator, value: FilterValue): SQL {
+  const wanted = value === true || value === 'true' || value === 'yes' || value === 1;
+  const bool = sql`coalesce(${node} = ${JSON.stringify(wanted)}::jsonb, false)`;
+  if (operator === 'is') return bool;
+  if (operator === 'is_not') return sql`(not ${bool})`;
+  throw notApplicable(operator);
+}
+
+/** The values of an `is` / `is_not` (one) or `any_of` / `none_of` (a list) text filter, trimmed and lower-cased. */
+function textValues(operator: Operator, value: FilterValue): string[] {
+  const list = operator === 'is' || operator === 'is_not' ? [String(value)] : asArray(value);
+  return list.map((x) => x.trim().toLowerCase());
+}
+
+function textFilterSql({ text }: AnswerRef, operator: Operator, value: FilterValue): SQL {
+  const v = String(value);
+  const lowered = sql`lower(btrim(${text}))`;
+  if (operator === 'is' || operator === 'any_of') {
+    const list = textValues(operator, value);
+    return list.length === 0 ? sql`false` : sql`coalesce(${lowered} in (${paramList(list)}), false)`;
+  }
+  if (operator === 'is_not' || operator === 'none_of') {
+    const list = textValues(operator, value);
+    return list.length === 0 ? sql`true` : sql`coalesce(${lowered} not in (${paramList(list)}), true)`;
+  }
+  if (operator === 'contains') return sql`coalesce(lower(${text}) like ${likePattern(v.toLowerCase())}, false)`;
+  if (operator === 'greater_than') return sql`coalesce(${text} > ${v}, false)`;
+  if (operator === 'less_than') return sql`coalesce(${text} < ${v}, false)`;
+  throw notApplicable(operator);
+}
 
 /** One answer filter as SQL on `form_responses.answers`. `fields` decides how the stored value is read. */
 export function answerFilterSql(filter: ResponseAnswerFilter, fields: ReadonlyMap<string, FieldBlock>): SQL {
@@ -275,62 +372,21 @@ export function answerFilterSql(filter: ResponseAnswerFilter, fields: ReadonlyMa
   const kind = kindOf(field, filter.part);
   const node = sql`(${answers} -> ${filter.blockId}::text)`;
   const text = filter.part ? sql`(${node} ->> ${filter.part}::text)` : sql`(${answers} ->> ${filter.blockId}::text)`;
+  const ref: AnswerRef = { blockId: filter.blockId, node, text };
   const { operator, value } = filter;
 
-  if (operator === 'is_answered' || operator === 'is_empty') {
-    let answered: SQL;
-    if (kind === 'text') answered = sql`(${text} is not null and btrim(${text}) <> '')`;
-    else if (kind === 'presence') answered = sql`(${node} is not null and ${node} <> 'null'::jsonb and ${node} <> '[]'::jsonb and ${node} <> '{}'::jsonb)`;
-    else answered = sql`(${node} is not null and ${node} <> 'null'::jsonb)`;
-    return operator === 'is_answered' ? answered : sql`(not ${answered})`;
-  }
-
+  if (operator === 'is_answered' || operator === 'is_empty') return answeredSql(kind, ref, operator);
   if (value === undefined) throw new FormsError(400, 'BAD_REQUEST', 'A filter needs a value.');
 
   switch (kind) {
-    case 'choice': {
-      const ids = sql`(${node} -> 'choiceIds')`;
-      const other = sql`(${node} ->> 'other')`;
-      const list = asArray(value);
-      const any = sql`coalesce(jsonb_exists_any(${ids}, ${sql`ARRAY[${sql.join(list.map((v) => sql`${v}`), sql`, `)}]::text[]`}), false)`;
-      if (operator === 'any_of' || operator === 'is') return list.length === 0 ? sql`false` : any;
-      if (operator === 'none_of' || operator === 'is_not') return list.length === 0 ? sql`true` : sql`(not ${any})`;
-      if (operator === 'contains') return sql`${other} ilike ${likePattern(String(value))}`;
-      throw new FormsError(400, 'BAD_REQUEST', `Operator "${operator}" does not apply to this field.`);
-    }
-    case 'numeric': {
-      const num = sql`(case when jsonb_typeof(${node}) = 'number' then (${answers} ->> ${filter.blockId}::text)::numeric end)`;
-      const n = Number(value);
-      if (!Number.isFinite(n)) throw new FormsError(400, 'BAD_REQUEST', 'A number is needed for this filter.');
-      if (operator === 'is') return sql`coalesce(${num} = ${n}, false)`;
-      if (operator === 'is_not') return sql`coalesce(${num} <> ${n}, true)`;
-      if (operator === 'greater_than') return sql`coalesce(${num} > ${n}, false)`;
-      if (operator === 'less_than') return sql`coalesce(${num} < ${n}, false)`;
-      throw new FormsError(400, 'BAD_REQUEST', `Operator "${operator}" does not apply to this field.`);
-    }
-    case 'boolean': {
-      const wanted = value === true || value === 'true' || value === 'yes' || value === 1;
-      const bool = sql`coalesce(${node} = ${JSON.stringify(wanted)}::jsonb, false)`;
-      if (operator === 'is') return bool;
-      if (operator === 'is_not') return sql`(not ${bool})`;
-      throw new FormsError(400, 'BAD_REQUEST', `Operator "${operator}" does not apply to this field.`);
-    }
-    case 'text': {
-      const v = String(value);
-      const lowered = sql`lower(btrim(${text}))`;
-      if (operator === 'is' || operator === 'any_of') {
-        const list = operator === 'is' ? [v] : asArray(value);
-        return list.length === 0 ? sql`false` : sql`coalesce(${lowered} in (${sql.join(list.map((x) => sql`${x.trim().toLowerCase()}`), sql`, `)}), false)`;
-      }
-      if (operator === 'is_not' || operator === 'none_of') {
-        const list = operator === 'is_not' ? [v] : asArray(value);
-        return list.length === 0 ? sql`true` : sql`coalesce(${lowered} not in (${sql.join(list.map((x) => sql`${x.trim().toLowerCase()}`), sql`, `)}), true)`;
-      }
-      if (operator === 'contains') return sql`coalesce(lower(${text}) like ${likePattern(v.toLowerCase())}, false)`;
-      if (operator === 'greater_than') return sql`coalesce(${text} > ${v}, false)`;
-      if (operator === 'less_than') return sql`coalesce(${text} < ${v}, false)`;
-      throw new FormsError(400, 'BAD_REQUEST', `Operator "${operator}" does not apply to this field.`);
-    }
+    case 'choice':
+      return choiceFilterSql(ref, operator, value);
+    case 'numeric':
+      return numericFilterSql(ref, operator, value);
+    case 'boolean':
+      return booleanFilterSql(ref, operator, value);
+    case 'text':
+      return textFilterSql(ref, operator, value);
     default:
       throw new FormsError(400, 'BAD_REQUEST', 'This field can only be filtered on whether it was answered.');
   }

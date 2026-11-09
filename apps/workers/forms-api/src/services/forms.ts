@@ -125,6 +125,38 @@ export async function moderationOf(ctx: Pick<WorkspaceCtx, 'master'>, row: Pick<
 
 const DEFAULT_LIMIT = 50;
 
+/** `%`, `_` and `\` taken literally in a LIKE pattern. */
+const escapeLike = (text: string) => text.replace(/[%_\\]/g, (m) => `\\${m}`);
+
+/** The forms a member without `forms:manage` sees: workspace-wide ones, their own, and those shared with them. */
+async function visibleTo(ctx: Pick<WorkspaceCtx, 'db'>, userId: string): Promise<SQL | undefined> {
+  const mine = await ctx.db.select({ formId: formAccess.formId }).from(formAccess).where(eq(formAccess.userId, userId));
+  return or(eq(forms.access, 'workspace'), eq(forms.ownerUserId, userId), mine.length ? inArray(forms.id, mine.map((m) => m.formId)) : undefined);
+}
+
+/** The folder, status and title filters of the list. */
+function listFilters(query: ListFormsQuery): SQL[] {
+  const conditions: SQL[] = [];
+  if (query.folderId === 'none') conditions.push(isNull(forms.folderId));
+  else if (query.folderId) conditions.push(eq(forms.folderId, query.folderId));
+  if (query.status) conditions.push(eq(forms.status, query.status));
+  if (query.q) conditions.push(ilike(forms.title, `%${escapeLike(query.q)}%`));
+  return conditions;
+}
+
+function listOrder(sort: ListFormsQuery['sort']): SQL[] {
+  switch (sort) {
+    case 'created':
+      return [desc(forms.createdAt)];
+    case 'title':
+      return [asc(forms.title), asc(forms.id)];
+    case 'responses':
+      return [desc(forms.responseCount), desc(forms.updatedAt)];
+    default:
+      return [desc(forms.updatedAt), desc(forms.id)];
+  }
+}
+
 export async function listForms(
   ctx: Pick<WorkspaceCtx, 'env' | 'db'>,
   userId: string,
@@ -133,21 +165,12 @@ export async function listForms(
 ): Promise<{ rows: FormSummary[]; total: number; next: string | null }> {
   const conditions: SQL[] = [];
   if (!grants.manage) {
-    const mine = await ctx.db.select({ formId: formAccess.formId }).from(formAccess).where(eq(formAccess.userId, userId));
-    const visible = or(eq(forms.access, 'workspace'), eq(forms.ownerUserId, userId), mine.length ? inArray(forms.id, mine.map((m) => m.formId)) : undefined);
+    const visible = await visibleTo(ctx, userId);
     if (visible) conditions.push(visible);
   }
-  if (query.folderId === 'none') conditions.push(isNull(forms.folderId));
-  else if (query.folderId) conditions.push(eq(forms.folderId, query.folderId));
-  if (query.status) conditions.push(eq(forms.status, query.status));
-  if (query.q) conditions.push(ilike(forms.title, `%${query.q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`));
+  conditions.push(...listFilters(query));
   const where = conditions.length ? and(...conditions) : undefined;
-
-  const order =
-    query.sort === 'created' ? [desc(forms.createdAt)]
-    : query.sort === 'title' ? [asc(forms.title), asc(forms.id)]
-    : query.sort === 'responses' ? [desc(forms.responseCount), desc(forms.updatedAt)]
-    : [desc(forms.updatedAt), desc(forms.id)];
+  const order = listOrder(query.sort);
 
   const limit = query.limit ?? DEFAULT_LIMIT;
   const offset = query.cursor ? Math.max(0, Number(query.cursor) || 0) : 0;
@@ -232,35 +255,47 @@ async function requireFolder(ctx: Pick<WorkspaceCtx, 'db'>, folderId: string): P
  * `REVISION_CONFLICT` (CRM-004), and the builder reloads. Operational settings
  * (and the title) apply to the live form at once, so they refresh the public cache.
  */
+async function requireTheme(ctx: Pick<WorkspaceCtx, 'db'>, themeId: string): Promise<void> {
+  const [theme] = await ctx.db.select({ id: formThemes.id }).from(formThemes).where(eq(formThemes.id, themeId)).limit(1);
+  if (!theme) throw notFound('Theme');
+}
+
+/** The columns a save changes: only what the input carries, and the unpublished-changes flag when the content of a published form changes. */
+function draftChanges(form: FormRow, input: UpdateFormInput, settings: FormSettings | undefined) {
+  const changesContent = input.definition !== undefined || input.themeId !== undefined;
+  return {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
+    ...(input.definition !== undefined ? { definition: input.definition } : {}),
+    ...(settings ? { settings } : {}),
+    ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+    ...(input.access !== undefined ? { access: input.access } : {}),
+    ...(changesContent && form.publishedVersionId ? { hasUnpublishedChanges: true } : {}),
+  };
+}
+
+/** 409 `REVISION_CONFLICT` with the revision now stored, or 404 when the form is gone. */
+async function revisionConflict(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<FormsError> {
+  const [current] = await ctx.db.select({ revision: forms.revision }).from(forms).where(eq(forms.id, formId)).limit(1);
+  if (!current) return notFound('Form');
+  return new FormsError(409, 'REVISION_CONFLICT', 'Somebody else saved this form. Reload it to continue.', { currentRevision: current.revision });
+}
+
 export async function updateForm(ctx: WorkspaceCtx, form: FormRow, input: UpdateFormInput): Promise<FormRow> {
   if (input.folderId) await requireFolder(ctx, input.folderId);
-  if (input.themeId) {
-    const [theme] = await ctx.db.select({ id: formThemes.id }).from(formThemes).where(eq(formThemes.id, input.themeId)).limit(1);
-    if (!theme) throw notFound('Theme');
-  }
+  if (input.themeId) await requireTheme(ctx, input.themeId);
   const settings = input.settings ? formSettingsSchema.parse({ ...settingsOf(form), ...input.settings }) : undefined;
-  const changesContent = input.definition !== undefined || input.themeId !== undefined;
 
   const [row] = await ctx.db
     .update(forms)
     .set({
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
-      ...(input.definition !== undefined ? { definition: input.definition } : {}),
-      ...(settings ? { settings } : {}),
-      ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
-      ...(input.access !== undefined ? { access: input.access } : {}),
-      ...(changesContent && form.publishedVersionId ? { hasUnpublishedChanges: true } : {}),
+      ...draftChanges(form, input, settings),
       revision: sql`${forms.revision} + 1`,
       updatedAt: new Date(),
     })
     .where(and(eq(forms.id, form.id), eq(forms.revision, input.revision)))
     .returning();
-  if (!row) {
-    const [current] = await ctx.db.select({ revision: forms.revision }).from(forms).where(eq(forms.id, form.id)).limit(1);
-    if (!current) throw notFound('Form');
-    throw new FormsError(409, 'REVISION_CONFLICT', 'Somebody else saved this form. Reload it to continue.', { currentRevision: current.revision });
-  }
+  if (!row) throw await revisionConflict(ctx, form.id);
   if (row.publicId && (settings || input.title !== undefined)) await refreshPublicCache(ctx, row);
   return row;
 }

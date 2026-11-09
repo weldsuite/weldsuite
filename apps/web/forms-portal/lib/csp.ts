@@ -18,7 +18,9 @@ function toSource(entry: string): string | null {
       return null
     }
   }
-  const host = value.replace(/\/.*$/, '')
+  // The host is everything before the first `/` (a path after it is dropped).
+  const slash = value.indexOf('/')
+  const host = slash === -1 ? value : value.slice(0, slash)
   if (!/^(\*\.)?[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) return null
   return /^localhost(:\d+)?$/i.test(host) ? `http://${host} https://${host}` : `https://${host}`
 }

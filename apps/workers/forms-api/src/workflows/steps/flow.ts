@@ -19,7 +19,7 @@ import { createFile } from '@weldsuite/core-domain/files';
 import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
 import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
 import { createTask } from '@weldsuite/flow-domain/tasks';
-import { CreatorForbiddenError, loadCreatorAccess } from '../../services/creator-access';
+import { CreatorForbiddenError, loadCreatorAccess, type CreatorAccess } from '../../services/creator-access';
 import { answerText, emitRecordEvent, readResponseFile, recordedEntity, rememberEntity, renderTemplate, safeFileName } from '../../services/integration-support';
 import type { IntegrationStep, ProcessContext, StepResult } from './types';
 
@@ -61,6 +61,50 @@ async function taskExists(db: Database, id: string): Promise<boolean> {
   return Boolean(row);
 }
 
+type FlowConfig = ReturnType<typeof flowIntegrationConfigSchema.parse>;
+
+/** The task an earlier run made, when it still exists. */
+async function recordedTask(ctx: ProcessContext, integration: Integration): Promise<string | null> {
+  const recorded = await recordedEntity(ctx.db, ctx, integration);
+  return recorded?.entityType === 'task' && (await taskExists(ctx.db, recorded.entityId)) ? recorded.entityId : null;
+}
+
+/** What the task is made with: title and description from the templates, the assignee, a due date from the date question, labels. */
+function taskInput(ctx: ProcessContext, config: FlowConfig, userId: string): Parameters<typeof createTask>[1] {
+  const template = { env: ctx.env, form: ctx.form, response: ctx.response, definition: ctx.definition };
+  const title = renderTemplate(config.title, template).trim() || `${ctx.form.title} #${ctx.response.number ?? ''}`.trim();
+  const description = renderTemplate(config.description, template).trim();
+  const due = config.dueDateFieldId ? answerText(ctx.definition, ctx.response, config.dueDateFieldId) : '';
+  // A personal task belongs to someone: the assignee, else the member who set the integration up.
+  const assigneeId = config.assigneeUserId ?? (config.projectId ? undefined : userId);
+  return {
+    title: title.slice(0, 500),
+    description: description || undefined,
+    assigneeId,
+    dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : undefined,
+    labels: config.labels.length ? config.labels : undefined,
+    sourceType: 'form_response',
+    sourceId: ctx.response.id,
+  };
+}
+
+/** A new task, as the member who set the integration up: their right to create tasks and to write to the project are checked first. */
+async function createFlowTask(ctx: ProcessContext, integration: Integration, config: FlowConfig, access: CreatorAccess): Promise<StepResult> {
+  const userId = integration.createdByUserId;
+  access.require('tasks:create', 'weldflow', 'create tasks');
+  if (config.projectId) {
+    const project = await resolveProjectAccess(ctx.db, userId, { scopeAll: access.can('projects:scope:all', 'weldflow') }, config.projectId);
+    if (project.deleted) return { status: 'skipped', reason: 'The project of this integration no longer exists' };
+    if (!project.canWrite) throw new CreatorForbiddenError('The member who set up this integration does not have write access to the project');
+  }
+
+  const { row } = await createTask(ctx.db, taskInput(ctx, config, userId), { projectId: config.projectId, userId });
+  await rememberEntity(ctx.db, ctx, integration, 'task', row.id);
+  await emitRecordEvent(ctx, integration, 'project_task', 'created', row.id, taskAnalyticsPayload(row as unknown as Record<string, unknown>, { projectId: config.projectId }) as unknown as Record<string, unknown>);
+  if (config.attachFiles) await attachFiles(ctx, row.id, userId);
+  return { status: 'done', entityType: 'task', entityId: row.id };
+}
+
 export async function runFlowStep(ctx: ProcessContext, integration: Integration): Promise<StepResult> {
   const parsed = flowIntegrationConfigSchema.safeParse(integration.config);
   if (!parsed.success) return { status: 'skipped', reason: 'The Flow integration is not set up correctly' };
@@ -68,48 +112,15 @@ export async function runFlowStep(ctx: ProcessContext, integration: Integration)
   const userId = integration.createdByUserId;
 
   try {
-    const recorded = await recordedEntity(ctx.db, ctx, integration);
-    const known = recorded?.entityType === 'task' && (await taskExists(ctx.db, recorded.entityId)) ? recorded.entityId : null;
+    const known = await recordedTask(ctx, integration);
     // An edited response leaves the task as the team found it.
     if (known && ctx.params.mode === 'update') return { status: 'done', entityType: 'task', entityId: known };
 
     const access = await loadCreatorAccess(ctx.db, ctx.env, userId);
-    if (known) {
-      // Resumed after a failure: only what is missing (the attachments) is still to do.
-      if (config.attachFiles) await attachFiles(ctx, known, userId);
-      return { status: 'done', entityType: 'task', entityId: known };
-    }
-    access.require('tasks:create', 'weldflow', 'create tasks');
-    if (config.projectId) {
-      const project = await resolveProjectAccess(ctx.db, userId, { scopeAll: access.can('projects:scope:all', 'weldflow') }, config.projectId);
-      if (project.deleted) return { status: 'skipped', reason: 'The project of this integration no longer exists' };
-      if (!project.canWrite) throw new CreatorForbiddenError('The member who set up this integration does not have write access to the project');
-    }
-
-    const template = { env: ctx.env, form: ctx.form, response: ctx.response, definition: ctx.definition };
-    const title = renderTemplate(config.title, template).trim() || `${ctx.form.title} #${ctx.response.number ?? ''}`.trim();
-    const description = renderTemplate(config.description, template).trim();
-    const due = config.dueDateFieldId ? answerText(ctx.definition, ctx.response, config.dueDateFieldId) : '';
-    // A personal task belongs to someone: the assignee, else the member who set the integration up.
-    const assigneeId = config.assigneeUserId ?? (config.projectId ? undefined : userId);
-
-    const { row } = await createTask(
-      ctx.db,
-      {
-        title: title.slice(0, 500),
-        description: description || undefined,
-        assigneeId,
-        dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : undefined,
-        labels: config.labels.length ? config.labels : undefined,
-        sourceType: 'form_response',
-        sourceId: ctx.response.id,
-      },
-      { projectId: config.projectId, userId },
-    );
-    await rememberEntity(ctx.db, ctx, integration, 'task', row.id);
-    await emitRecordEvent(ctx, integration, 'project_task', 'created', row.id, taskAnalyticsPayload(row as unknown as Record<string, unknown>, { projectId: config.projectId }) as unknown as Record<string, unknown>);
-    if (config.attachFiles) await attachFiles(ctx, row.id, userId);
-    return { status: 'done', entityType: 'task', entityId: row.id };
+    if (!known) return await createFlowTask(ctx, integration, config, access);
+    // Resumed after a failure: only what is missing (the attachments) is still to do.
+    if (config.attachFiles) await attachFiles(ctx, known, userId);
+    return { status: 'done', entityType: 'task', entityId: known };
   } catch (err) {
     if (err instanceof CreatorForbiddenError) return { status: 'skipped', reason: err.message };
     throw err;

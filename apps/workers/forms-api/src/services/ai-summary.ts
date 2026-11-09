@@ -49,24 +49,67 @@ export async function getAiSummary(ctx: WorkspaceCtx, formId: string, blockId: s
   return { blockId, summary: row.summary as unknown as AiSummaryContent, stale: row.responseCount !== now, responseCount: row.responseCount, createdAt: row.createdAt.toISOString() };
 }
 
-/** The answers of the open-text questions (one, or all) across versions, newest responses first. */
-async function collectAnswers(ctx: WorkspaceCtx, formId: string, blockId: string | null): Promise<{ sets: AnswerSet[]; language: string; title: string | null }> {
+/** The definitions of every version of the form that still parses, by version id, newest first. */
+async function loadDefinitions(ctx: WorkspaceCtx, formId: string): Promise<Map<string, FormDefinition>> {
   const versions = await ctx.db.select({ id: formVersions.id, definition: formVersions.definition }).from(formVersions).where(eq(formVersions.formId, formId)).orderBy(desc(formVersions.number));
   const definitions = new Map<string, FormDefinition>();
   for (const v of versions) {
     const parsed = formDefinitionSchema.safeParse(v.definition);
     if (parsed.success) definitions.set(v.id, parsed.data);
   }
-  const latest = [...definitions.values()][0];
+  return definitions;
+}
 
-  if (blockId !== null) {
-    // The question must be open text, not sensitive, in some version: else there is nothing to summarise.
-    const known = [...definitions.values()].flatMap((d) => fieldsOf(d)).find((f) => f.id === blockId);
-    if (!known) throw new FormsError(404, 'NOT_FOUND', 'Question not found');
-    if (!isOpenText(known) || [...definitions.values()].some((d) => fieldsOf(d).some((f) => f.id === blockId && f.sensitive))) {
-      throw new FormsError(422, 'NOT_SUMMARISABLE', 'Only open text questions that are not marked sensitive can be summarised.');
+/** The question must be open text, not sensitive, in some version: else there is nothing to summarise. */
+function assertSummarisable(definitions: readonly FormDefinition[], blockId: string): void {
+  const known = definitions.flatMap((d) => fieldsOf(d)).find((f) => f.id === blockId);
+  if (!known) throw new FormsError(404, 'NOT_FOUND', 'Question not found');
+  if (!isOpenText(known) || definitions.some((d) => fieldsOf(d).some((f) => f.id === blockId && f.sensitive))) {
+    throw new FormsError(422, 'NOT_SUMMARISABLE', 'Only open text questions that are not marked sensitive can be summarised.');
+  }
+}
+
+/** Titles come from the latest version that still has the question. */
+function latestTitles(definitions: readonly FormDefinition[]): Map<string, string> {
+  const titles = new Map<string, string>();
+  for (const d of definitions) for (const f of fieldsOf(d)) if (!titles.has(f.id)) titles.set(f.id, f.title);
+  return titles;
+}
+
+interface AnswerRow {
+  versionId: string;
+  answers: Parameters<typeof ownValue>[0];
+}
+
+/** The answers of the rows grouped per question, for the fields `wanted` keeps. */
+function groupAnswers(
+  rows: readonly AnswerRow[],
+  definitions: ReadonlyMap<string, FormDefinition>,
+  titles: ReadonlyMap<string, string>,
+  wanted: (field: FieldBlock) => boolean,
+): AnswerSet[] {
+  const sets = new Map<string, AnswerSet>();
+  for (const row of rows) {
+    const definition = definitions.get(row.versionId);
+    if (!definition) continue;
+    for (const field of fieldsOf(definition).filter(wanted)) {
+      const text = displayAnswer(field, ownValue(row.answers, field.id)).trim();
+      if (!text) continue;
+      const set = sets.get(field.id) ?? { blockId: field.id, title: titles.get(field.id) ?? field.title, answers: [] };
+      set.answers.push(text);
+      sets.set(field.id, set);
     }
   }
+  return [...sets.values()];
+}
+
+/** The answers of the open-text questions (one, or all) across versions, newest responses first. */
+async function collectAnswers(ctx: WorkspaceCtx, formId: string, blockId: string | null): Promise<{ sets: AnswerSet[]; language: string; title: string | null }> {
+  const definitions = await loadDefinitions(ctx, formId);
+  const all = [...definitions.values()];
+  const latest = all[0];
+
+  if (blockId !== null) assertSummarisable(all, blockId);
 
   const rows = await ctx.db
     .select({ versionId: formResponses.versionId, answers: formResponses.answers })
@@ -75,24 +118,11 @@ async function collectAnswers(ctx: WorkspaceCtx, formId: string, blockId: string
     .orderBy(desc(formResponses.submittedAt))
     .limit(MAX_RESPONSES);
 
-  const sets = new Map<string, AnswerSet>();
-  const titles = new Map<string, string>();
-  // Titles come from the latest version that still has the question.
-  for (const d of definitions.values()) for (const f of fieldsOf(d)) if (!titles.has(f.id)) titles.set(f.id, f.title);
-  const sensitive = new Set([...definitions.values()].flatMap((d) => fieldsOf(d).filter((f) => f.sensitive).map((f) => f.id)));
-  for (const row of rows) {
-    const definition = definitions.get(row.versionId);
-    if (!definition) continue;
-    for (const field of fieldsOf(definition)) {
-      if (!isOpenText(field) || sensitive.has(field.id) || (blockId !== null && field.id !== blockId)) continue;
-      const text = displayAnswer(field, ownValue(row.answers, field.id)).trim();
-      if (!text) continue;
-      const set = sets.get(field.id) ?? { blockId: field.id, title: titles.get(field.id) ?? field.title, answers: [] };
-      set.answers.push(text);
-      sets.set(field.id, set);
-    }
-  }
-  return { sets: [...sets.values()], language: latest?.presentation.language ?? 'en', title: blockId === null ? null : (titles.get(blockId) ?? null) };
+  const titles = latestTitles(all);
+  const sensitive = new Set(all.flatMap((d) => fieldsOf(d).filter((f) => f.sensitive).map((f) => f.id)));
+  const wanted = (field: FieldBlock) => isOpenText(field) && !sensitive.has(field.id) && (blockId === null || field.id === blockId);
+  const sets = groupAnswers(rows, definitions, titles, wanted);
+  return { sets, language: latest?.presentation.language ?? 'en', title: blockId === null ? null : (titles.get(blockId) ?? null) };
 }
 
 /** Makes a new summary (replacing the cached one), charges it and stores it. */

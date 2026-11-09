@@ -24,7 +24,7 @@ export interface WeldFormsEmbedInput {
   portalUrl?: string;
 }
 
-const HIDDEN_KEY = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const HIDDEN_KEY = /^[a-zA-Z_]\w*$/;
 const PUBLIC_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 export function isEmbedMode(value: unknown): value is WeldFormsEmbedMode {

@@ -95,12 +95,17 @@ function checkFieldType(label: string, definition: FormDefinition, blockId: stri
   else if (!types.includes(field.type)) problems[label] = `Use a ${types.join(' or ')} question`;
 }
 
+/** The ids of the CRM custom fields of the target's entity, read only when a mapping names one. */
+async function customFieldIds(ctx: WorkspaceCtx, config: ReturnType<typeof crmIntegrationConfigSchema.parse>): Promise<Set<string>> {
+  if (!config.mappings.some((m) => m.crmField.startsWith('custom:'))) return new Set<string>();
+  const entityType = config.target === 'lead' ? 'lead' : 'person';
+  return new Set((await getDefinitionsForEntityType(ctx.db, entityType)).map((d) => d.id));
+}
+
 async function checkCrm(ctx: WorkspaceCtx, config: ReturnType<typeof crmIntegrationConfigSchema.parse>, definition: FormDefinition, problems: Problems): Promise<void> {
   checkFieldType('emailFieldId', definition, config.emailFieldId, ['email', 'contact_info'], problems);
   if (config.createCompany) checkFieldType('companyFieldId', definition, config.companyFieldId, ['short_text', 'contact_info'], problems);
-  const custom = config.mappings.some((m) => m.crmField.startsWith('custom:'))
-    ? new Set((await getDefinitionsForEntityType(ctx.db, config.target === 'lead' ? 'lead' : 'person')).map((d) => d.id))
-    : new Set<string>();
+  const custom = await customFieldIds(ctx, config);
   config.mappings.forEach((mapping, i) => {
     const key = `mappings.${i}`;
     const field = findField(definition, mapping.blockId);

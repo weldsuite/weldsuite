@@ -347,6 +347,64 @@ function requirePermissions(access: CreatorAccess, config: CrmIntegrationConfig,
   if (config.logActivity) access.require('activities:create', 'weldcrm', 'log activities');
 }
 
+/** What a run of the step works with once the config and the email are known. */
+interface CrmRun {
+  ctx: ProcessContext;
+  integration: Integration;
+  config: CrmIntegrationConfig;
+  email: string;
+  userId: string;
+  access: CreatorAccess;
+  recorded: Awaited<ReturnType<typeof recordedEntity>>;
+}
+
+/** The lead an earlier run made, when it still exists. */
+async function recordedLead(ctx: ProcessContext, recorded: CrmRun['recorded']): Promise<string | null> {
+  if (recorded?.entityType !== 'lead') return null;
+  const [lead] = await ctx.db.select({ id: crmLeads.id }).from(crmLeads).where(and(eq(crmLeads.id, recorded.entityId), isNull(crmLeads.deletedAt))).limit(1);
+  return lead?.id ?? null;
+}
+
+/** The answer to the company question, when the integration makes companies from one. */
+function companyAnswer(ctx: ProcessContext, config: CrmIntegrationConfig): string | null {
+  if (!config.createCompany || !config.companyFieldId) return null;
+  return answerText(ctx.definition, ctx.response, config.companyFieldId, 'company') || null;
+}
+
+/** Target `lead`: a new lead, once; an edit of the response leaves it as it was. */
+async function runLeadTarget(run: CrmRun): Promise<StepResult> {
+  const { ctx, integration, config, email, userId, access } = run;
+  const existingLead = await recordedLead(ctx, run.recorded);
+  if (existingLead) {
+    return ctx.params.mode === 'update'
+      ? { status: 'skipped', reason: 'A lead is not changed when the response is edited' }
+      : { status: 'done', entityType: 'lead', entityId: existingLead };
+  }
+  requirePermissions(access, config, false);
+  const mapped = await mapAnswers(ctx, config, 'lead');
+  const lead = await createLeadFor(ctx, integration, email, mapped, companyAnswer(ctx, config), userId);
+  if (config.logActivity) await logActivity(ctx, integration, { leadId: lead.id, name: lead.name });
+  return { status: 'done', entityType: 'lead', entityId: lead.id };
+}
+
+/** Target `person`: the person found or made, with the company, the list, the response's `person_id` and the activity. */
+async function runPersonTarget(run: CrmRun): Promise<StepResult> {
+  const { ctx, integration, config, email, userId, access, recorded } = run;
+  const known = (recorded?.entityType === 'person' ? await personById(ctx.db, recorded.entityId) : null) ?? (await findPersonByEmail(ctx.db, email));
+  requirePermissions(access, config, known !== null);
+
+  const mapped = await mapAnswers(ctx, config, 'person');
+  const person = await upsertPerson(ctx, integration, config, email, mapped, userId, recorded);
+  if (config.createCompany) {
+    const companyId = await ensureCompany(ctx, config, email, userId);
+    if (companyId) await linkCompany(ctx.db, person.id, companyId);
+  }
+  if (config.listId) await addToList(ctx.db, config.listId, person.id, userId);
+  await ctx.db.update(formResponses).set({ personId: person.id }).where(eq(formResponses.id, ctx.response.id));
+  if (config.logActivity) await logActivity(ctx, integration, { personId: person.id, name: person.displayName ?? email });
+  return { status: 'done', entityType: 'person', entityId: person.id };
+}
+
 export async function runCrmStep(ctx: ProcessContext, integration: Integration): Promise<StepResult> {
   const parsed = crmIntegrationConfigSchema.safeParse(integration.config);
   if (!parsed.success) return { status: 'skipped', reason: 'The CRM integration is not set up correctly' };
@@ -359,37 +417,8 @@ export async function runCrmStep(ctx: ProcessContext, integration: Integration):
   try {
     const access = await loadCreatorAccess(ctx.db, ctx.env, userId);
     const recorded = await recordedEntity(ctx.db, ctx, integration);
-
-    if (config.target === 'lead') {
-      if (recorded?.entityType === 'lead') {
-        const [lead] = await ctx.db.select({ id: crmLeads.id }).from(crmLeads).where(and(eq(crmLeads.id, recorded.entityId), isNull(crmLeads.deletedAt))).limit(1);
-        if (lead) {
-          return ctx.params.mode === 'update'
-            ? { status: 'skipped', reason: 'A lead is not changed when the response is edited' }
-            : { status: 'done', entityType: 'lead', entityId: lead.id };
-        }
-      }
-      requirePermissions(access, config, false);
-      const mapped = await mapAnswers(ctx, config, 'lead');
-      const companyName = config.createCompany && config.companyFieldId ? answerText(ctx.definition, ctx.response, config.companyFieldId, 'company') || null : null;
-      const lead = await createLeadFor(ctx, integration, email, mapped, companyName, userId);
-      if (config.logActivity) await logActivity(ctx, integration, { leadId: lead.id, name: lead.name });
-      return { status: 'done', entityType: 'lead', entityId: lead.id };
-    }
-
-    const known = (recorded?.entityType === 'person' ? await personById(ctx.db, recorded.entityId) : null) ?? (await findPersonByEmail(ctx.db, email));
-    requirePermissions(access, config, known !== null);
-
-    const mapped = await mapAnswers(ctx, config, 'person');
-    const person = await upsertPerson(ctx, integration, config, email, mapped, userId, recorded);
-    if (config.createCompany) {
-      const companyId = await ensureCompany(ctx, config, email, userId);
-      if (companyId) await linkCompany(ctx.db, person.id, companyId);
-    }
-    if (config.listId) await addToList(ctx.db, config.listId, person.id, userId);
-    await ctx.db.update(formResponses).set({ personId: person.id }).where(eq(formResponses.id, ctx.response.id));
-    if (config.logActivity) await logActivity(ctx, integration, { personId: person.id, name: person.displayName ?? email });
-    return { status: 'done', entityType: 'person', entityId: person.id };
+    const run: CrmRun = { ctx, integration, config, email, userId, access, recorded };
+    return config.target === 'lead' ? await runLeadTarget(run) : await runPersonTarget(run);
   } catch (err) {
     if (err instanceof CreatorForbiddenError) return { status: 'skipped', reason: err.message };
     throw err;

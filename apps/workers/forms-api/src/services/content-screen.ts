@@ -48,8 +48,36 @@ const CREDENTIAL = new RegExp(
   'i',
 );
 
-const BRANDS =
-  /\b(microsoft|office ?365|outlook|google|gmail|paypal|apple ?id|icloud|amazon|netflix|facebook|instagram|whatsapp|linkedin|dhl|ups|fedex|postnl|ing|rabobank|abn ?amro|bunq|docusign|wetransfer|dropbox|digid|belastingdienst)\b/i;
+const BRAND_NAMES = [
+  'microsoft',
+  'office ?365',
+  'outlook',
+  'google',
+  'gmail',
+  'paypal',
+  'apple ?id',
+  'icloud',
+  'amazon',
+  'netflix',
+  'facebook',
+  'instagram',
+  'whatsapp',
+  'linkedin',
+  'dhl',
+  'ups',
+  'fedex',
+  'postnl',
+  'ing',
+  'rabobank',
+  'abn ?amro',
+  'bunq',
+  'docusign',
+  'wetransfer',
+  'dropbox',
+  'digid',
+  'belastingdienst',
+];
+const BRANDS = new RegExp(`\\b(${BRAND_NAMES.join('|')})\\b`, 'i');
 const TAKEOVER = /\b(verify|verification|sign ?in|log ?in|login|account|suspended|locked|confirm|security alert|unusual activity|update your|bevestig|inloggen|geblokkeerd)\b/i;
 
 /** Why the form is held, or null when it looks fine. */

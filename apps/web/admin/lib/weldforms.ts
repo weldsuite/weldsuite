@@ -42,9 +42,16 @@ export function reasonLabel(reason: string): string {
   return REPORT_REASON_LABELS[reason] ?? reason;
 }
 
+/** Drops every trailing slash with a single scan (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** The public link of a published form, without a trailing slash on the portal. */
 export function publicFormUrl(portalUrl: string, publicId: string): string {
-  return `${portalUrl.replace(/\/+$/, '')}/f/${encodeURIComponent(publicId)}`;
+  return `${stripTrailingSlashes(portalUrl)}/f/${encodeURIComponent(publicId)}`;
 }
 
 export type FormState = 'suspended' | 'held' | 'live';

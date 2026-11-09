@@ -840,7 +840,7 @@ const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
  * (`<responseId>-update-<Date.now().toString(36)>`): new per run. Any
  * response id: tests seed their own (`frs_r1`).
  */
-const FORMS_RUN_STAMP = /^(frs_[0-9A-Za-z_]+-(?:update|retry))-[0-9a-z]{8}$/;
+const FORMS_RUN_STAMP = /^(frs_\w+-(?:update|retry))-[0-9a-z]{8}$/;
 /** A WeldForms public link id (10 random base62 characters, drawn on first publish). */
 const FORMS_PUBLIC_ID = /^[A-Za-z0-9]{10}$/;
 /** A link to a WeldForms public id (`<portal>/f/<publicId>`). */
