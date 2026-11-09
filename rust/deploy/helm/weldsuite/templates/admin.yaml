@@ -96,7 +96,7 @@ spec:
             {{- range $optional }}
             - name: {{ . }}
               valueFrom:
-                secretKeyRef: { name: {{ $secret }}, key: {{ . }}, optional: true }
+                {{- include "weldsuite.secretKeyRef" (dict "root" $ "key" . "optional" true) | nindent 16 }}
             {{- end }}
             {{- with .Values.admin.extraEnv }}
             {{- toYaml . | nindent 12 }}
