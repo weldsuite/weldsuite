@@ -1,4 +1,4 @@
-{{- if .Values.config.jobs.restate.ingressUrl }}
+{{- if include "weldsuite.restate.ingressUrl" . }}
 # The jobs service Restate calls (HTTP/2 without TLS). Restate holds long
 # HTTP/2 connections, so its calls may favour one pod; every pod can run any
 # job.

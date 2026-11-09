@@ -153,9 +153,9 @@ cron jobs and the migration Job read the same settings
 - name: NATS_ENTITY_EVENTS_SUBJECT
   value: {{ .Values.config.nats.entityEventsSubject | quote }}
 - name: NATS_ENSURE_STREAMS
-  value: {{ .Values.config.nats.ensureStreams | toString | quote }}
+  value: {{ or .Values.config.nats.ensureStreams .Values.bundle.nats | toString | quote }}
 {{- with .Values.config.files }}
-{{- if .endpoint }}
+{{- if and .endpoint (not $.Values.bundle.objectStorage) }}
 - name: S3_ENDPOINT
   value: {{ .endpoint | quote }}
 - name: S3_REGION
@@ -175,19 +175,22 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 {{- end }}
 {{- with .Values.config.jobs }}
-{{- if .restate.ingressUrl }}
+{{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
+{{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
+{{- if $ingressUrl }}
 - name: RESTATE_INGRESS_URL
-  value: {{ .restate.ingressUrl | quote }}
+  value: {{ $ingressUrl | quote }}
 - name: JOBS_PORT
   value: {{ .port | quote }}
-{{- if .restate.adminUrl }}
+{{- if $adminUrl }}
 - name: RESTATE_ADMIN_URL
-  value: {{ .restate.adminUrl | quote }}
+  value: {{ $adminUrl | quote }}
 - name: RESTATE_DEPLOYMENT_URI
   value: {{ printf "http://%s-jobs.%s.svc:%v" (include "weldsuite.fullname" $) $.Release.Namespace .port | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- include "weldsuite.bundleEnv" . }}
 {{- if .Values.collabRooms.enabled }}
 - name: COLLAB_ROOMS_URLS
   value: {{ include "weldsuite.collabRooms.urls" . | quote }}
@@ -327,6 +330,139 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the admin console reaches the server (its outbound-mail API): the server's Service. */ -}}
 {{- define "weldsuite.admin.serverUrl" -}}
 {{- printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port }}
+{{- end }}
+
+{{- define "weldsuite.objectStorage.fullname" -}}
+{{- printf "%s-s3" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.objectStorage.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: object-storage
+{{- end }}
+
+{{- define "weldsuite.objectStorage.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.objectStorage.selectorLabels" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Restate's URLs: config.jobs.restate's, else the bundled Restate's. */}}
+{{- define "weldsuite.restate.ingressUrl" -}}
+{{- if .Values.config.jobs.restate.ingressUrl }}
+{{- .Values.config.jobs.restate.ingressUrl }}
+{{- else if .Values.bundle.restate }}
+{{- printf "http://%s:8080" (include "weldsuite.restate.host" .) }}
+{{- end }}
+{{- end }}
+
+{{- /* The bundled Restate's Service: its chart names it after nameOverride
+(restate-helm's own default), without the release name. */}}
+{{- define "weldsuite.restate.host" -}}
+{{- default "restate" .Values.restate.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.restate.adminUrl" -}}
+{{- if .Values.config.jobs.restate.adminUrl }}
+{{- .Values.config.jobs.restate.adminUrl }}
+{{- else if .Values.bundle.restate }}
+{{- printf "http://%s:9070" (include "weldsuite.restate.host" .) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The settings of the bundled dependencies (bundle in values.yaml), from the
+generated Secret. Explicit env entries, so they win over the same keys in the
+release's Secret.
+*/}}
+{{- define "weldsuite.bundleEnv" -}}
+{{- $bundle := .Values.bundle }}
+{{- if and (or $bundle.valkey $bundle.nats $bundle.objectStorage) (not .Values.secret.generate) }}
+{{- fail "bundle.valkey, bundle.nats and bundle.objectStorage take their credentials from the generated Secret: set secret.generate" }}
+{{- end }}
+{{- $secret := .Values.secret.generatedName }}
+{{- if $bundle.valkey }}
+- name: VALKEY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: VALKEY_PASSWORD
+- name: VALKEY_URL
+  value: {{ printf "redis://default:$(VALKEY_PASSWORD)@%s:6379" (include "weldsuite.subchartHost" (list . "valkey")) | quote }}
+{{- end }}
+{{- if $bundle.nats }}
+- name: NATS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: NATS_TOKEN
+- name: NATS_URL
+  value: {{ printf "nats://%s:4222" (include "weldsuite.subchartHost" (list . "nats")) | quote }}
+{{- end }}
+{{- if $bundle.objectStorage }}
+- name: S3_ENDPOINT
+  value: {{ printf "http://%s:9000" (include "weldsuite.objectStorage.fullname" .) | quote }}
+- name: S3_REGION
+  value: "us-east-1"
+- name: S3_BUCKET_PRIVATE
+  value: {{ .Values.objectStorage.buckets.private | quote }}
+- name: S3_BUCKET_PUBLIC
+  value: {{ .Values.objectStorage.buckets.public | quote }}
+- name: S3_FORCE_PATH_STYLE
+  value: "true"
+- name: S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: S3_ACCESS_KEY_ID
+- name: S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: S3_SECRET_ACCESS_KEY
+- name: S3_ENSURE_BUCKETS
+  value: "true"
+{{- if not .Values.config.files.publicUrl }}
+{{- /* No public endpoint of its own: this server serves the public bucket. */}}
+- name: S3_PUBLIC_VIA_SERVER
+  value: "true"
+{{- with .Values.config.publicUrl }}
+- name: S3_PUBLIC_URL
+  value: {{ printf "%s/api/storage/public" (trimSuffix "/" .) | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A bundled subchart's Service name: its chart's usual fullname (the release
+name, or <release>-<name> when the release name doesn't contain it).
+Called with (list $ "valkey").
+*/}}
+{{- define "weldsuite.subchartHost" -}}
+{{- $root := index . 0 }}
+{{- $name := index . 1 }}
+{{- if contains $name $root.Release.Name }}
+{{- $root.Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" $root.Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Every pod that runs the binary loads the generated Secret (when there is
+one) before the release's own, so a key set in the latter wins.
+*/}}
+{{- define "weldsuite.envFrom" -}}
+{{- if .Values.secret.generate }}
+- secretRef:
+    name: {{ .Values.secret.generatedName }}
+    optional: true
+{{- end }}
+- secretRef:
+    name: {{ include "weldsuite.secretName" . }}
 {{- end }}
 
 {{- define "weldsuite.collabRooms.fullname" -}}

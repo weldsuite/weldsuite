@@ -42,7 +42,7 @@ spec:
               {{- include "weldsuite.admin.selectorLabels" $ | nindent 14 }}
         {{- end }}
       {{- end }}
-    {{- if .Values.config.jobs.restate.ingressUrl }}
+    {{- if include "weldsuite.restate.ingressUrl" $ }}
     - ports:
         - port: jobs
           protocol: TCP

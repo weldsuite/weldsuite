@@ -1775,6 +1775,7 @@ fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
             signing_key: state.storage_signing_key.clone(),
             environment: Arc::from(state.environment.as_str()),
             jobs: Some(Arc::clone(&state.infra.jobs)),
+            serve_public_objects: state.files_public_via_server,
         },
     }
 }
