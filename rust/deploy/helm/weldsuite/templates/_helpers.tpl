@@ -481,6 +481,47 @@ Called with (list $ "valkey").
 {{- end }}
 {{- end }}
 
+{{- /* The keys the generated Secret makes (secret-generated.yaml), as JSON. */}}
+{{- define "weldsuite.generatedHexKeys" -}}
+{{- toJson (list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "WELDPASS_ROOT_KEY" "WELDREACH_WARMUP_KEY" "ADMIN_SESSION_SECRET") }}
+{{- end }}
+
+{{- define "weldsuite.generatedSecretKeys" -}}
+{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET") }}
+{{- end }}
+
+{{- /*
+A secretKeyRef for one key, for the pods that take single keys rather than
+the whole environment (the sign portal, the admin console, collab-rooms). It
+names the Secret the server's value comes from, as weldsuite.envFrom orders
+them: the release's Secret when it has the key (secret.values, or the
+existing Secret as lookup sees it), else the generated one for a key it
+makes. Called with (dict "root" $ "key" "NAME" "optional" true).
+*/}}
+{{- define "weldsuite.secretKeyRef" -}}
+{{- $root := .root }}
+{{- $key := .key }}
+{{- $name := include "weldsuite.secretName" $root }}
+{{- $made := concat (include "weldsuite.generatedHexKeys" $root | fromJsonArray) (include "weldsuite.generatedSecretKeys" $root | fromJsonArray) }}
+{{- if and $root.Values.secret.generate (has $key $made) }}
+{{- if hasKey ($root.Values.secret.values | default dict) $key }}
+{{- else if $root.Values.secret.existingSecret }}
+{{- $existing := lookup "v1" "Secret" $root.Release.Namespace $root.Values.secret.existingSecret }}
+{{- if not (and $existing $existing.data (hasKey $existing.data $key)) }}
+{{- $name = $root.Values.secret.generatedName }}
+{{- end }}
+{{- else }}
+{{- $name = $root.Values.secret.generatedName }}
+{{- end }}
+{{- end }}
+secretKeyRef:
+  name: {{ $name }}
+  key: {{ $key }}
+  {{- if .optional }}
+  optional: true
+  {{- end }}
+{{- end }}
+
 {{- /*
 Every pod that runs the binary loads the generated Secret (when there is
 one) before the release's own, so a key set in the latter wins.
