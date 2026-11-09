@@ -916,6 +916,7 @@ export const mail = {
       addLabel: 'Add label',
       noEmailAccountConnected: 'No email account connected.',
       allAccounts: 'All Accounts',
+      accountCount: '{count} accounts',
       setAsDefault: 'Set as default',
       defaultAccount: 'Default',
       emailAccounts: 'Email accounts',

@@ -12,7 +12,7 @@ export default function FinanceLayout({ children }: Readonly<{ children: ReactNo
     { id: 'forecast', label: copy.forecast, path: '/forecast' },
   ];
   return (
-    <ProjectSubNavLayout section="finance" label={copy.label} items={items}>
+    <ProjectSubNavLayout section="finance" label={copy.label} items={items} flushIds={['costs']}>
       {children}
     </ProjectSubNavLayout>
   );

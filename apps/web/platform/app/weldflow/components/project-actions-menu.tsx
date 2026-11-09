@@ -12,7 +12,7 @@ import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useProject } from '@/hooks/queries/use-projects-queries';
-import { SaveTemplateDialog } from '@/app/weldflow/templates/_components/save-template-dialog';
+import { SaveTemplateDialog } from './save-template-dialog';
 
 /**
  * The project header's action menu:
