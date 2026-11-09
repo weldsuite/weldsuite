@@ -424,5 +424,8 @@ export * from './weldpanel';
 // WeldMerge (pull requests and issues across git providers)
 export * from './weldmerge';
 
+// WeldForms (forms and surveys)
+export * from './weldforms';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

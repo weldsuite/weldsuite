@@ -49,6 +49,8 @@ export const OUTBOUND_SOURCES = [
   'meet',
   // WeldSign signing requests and codes (sign-api), from WeldSuite's address.
   'sign',
+  // WeldForms invitations and reminders (forms-api), from WeldSuite's address.
+  'forms',
   'personal',
   'subscription',
 ] as const;
