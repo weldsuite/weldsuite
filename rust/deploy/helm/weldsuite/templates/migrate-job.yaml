@@ -54,7 +54,7 @@ spec:
             - --concurrency
             - {{ .Values.migrations.concurrency | quote }}
           env:
-            {{- include "weldsuite.env" . | nindent 12 }}
+            {{- include "weldsuite.envBase" . | nindent 12 }}
           envFrom:
             {{- if .Values.secret.generate }}
             {{- /* Absent on a first install (it is made after the hooks), when there

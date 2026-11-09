@@ -48,9 +48,10 @@ app.kubernetes.io/component: api
 {{/*
 The environment of every container that runs the binary: the server, the
 cron jobs and the migration Job read the same settings
-(rust/bins/weldsuite/src/config.rs).
+(rust/bins/weldsuite/src/config.rs). Without the bundled dependencies'
+settings, which weldsuite.env adds.
 */}}
-{{- define "weldsuite.env" -}}
+{{- define "weldsuite.envBase" -}}
 - name: PORT
   value: "8080"
 - name: ENVIRONMENT
@@ -190,7 +191,6 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 {{- end }}
 {{- end }}
-{{- include "weldsuite.bundleEnv" . }}
 {{- if .Values.collabRooms.enabled }}
 - name: COLLAB_ROOMS_URLS
   value: {{ include "weldsuite.collabRooms.urls" . | quote }}
@@ -237,6 +237,18 @@ cron jobs and the migration Job read the same settings
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
 {{- end }}
+{{- end }}
+
+{{- /*
+The environment of the server, the consume role and the cron jobs:
+weldsuite.envBase plus the bundled dependencies' settings (weldsuite.bundleEnv),
+which read the generated Secret. The migration hook Job takes envBase alone:
+it runs before that Secret (or a key a newly enabled bundle adds to it)
+exists, and needs only the databases.
+*/}}
+{{- define "weldsuite.env" -}}
+{{- include "weldsuite.envBase" . }}
+{{- include "weldsuite.bundleEnv" . }}
 {{- end }}
 
 {{- /*
