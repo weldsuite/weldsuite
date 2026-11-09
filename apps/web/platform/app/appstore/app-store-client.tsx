@@ -314,6 +314,13 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
 
             <CustomAppsSection />
 
+            {/* Below md the categories column (and the page's top bar) is hidden, so the console link sits under the apps. */}
+            {canDevelop && (
+              <Button asChild variant="outline" size="sm" className="mt-8 md:hidden">
+                <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
+              </Button>
+            )}
+
             <div className="pb-8" />
           </div>
         </div>
