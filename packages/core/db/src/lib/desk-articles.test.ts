@@ -5,6 +5,7 @@ import {
   deskArticleUrl,
   deskRelatedSearch,
   deskSearchWords,
+  deskSuggestSearch,
   deskTypedSearch,
   normalizeDeskLocale,
 } from './desk-articles';
@@ -33,6 +34,26 @@ describe('desk article search terms', () => {
     const many = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
     expect(deskRelatedSearch(many)?.tsquery?.split(' | ')).toHaveLength(12);
     expect(deskRelatedSearch('hi to me')).toBeNull();
+  });
+
+  it('suggests on the longer words of a question, any of them, with the word being typed as a prefix', () => {
+    expect(deskSuggestSearch('How do I reset my password')).toEqual({
+      websearch: null,
+      tsquery: "'reset' | 'password':*",
+    });
+    // The text ends after the word (a question mark, a full stop): no prefix.
+    expect(deskSuggestSearch('How do I reset my password? ')?.tsquery).toBe("'reset' | 'password'");
+    // The word being typed is short or a repeat: the longer words as they are.
+    expect(deskSuggestSearch('reset password for my vpn')?.tsquery).toBe("'reset' | 'password'");
+    expect(deskSuggestSearch('password reset password')?.tsquery).toBe("'password' | 'reset'");
+    const many = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
+    expect(deskSuggestSearch(many)?.tsquery?.split(' | ')).toHaveLength(12);
+    expect(deskSuggestSearch(many)?.tsquery).not.toContain(':*');
+  });
+
+  it('suggests as typed when every word is short', () => {
+    expect(deskSuggestSearch('vpn 2fa')).toEqual({ websearch: 'vpn 2fa', tsquery: "'vpn' & '2fa':*" });
+    expect(deskSuggestSearch(' ?! ')).toBeNull();
   });
 });
 

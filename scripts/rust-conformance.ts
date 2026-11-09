@@ -435,7 +435,7 @@ async function main(): Promise<void> {
     const workspaces =
       coverageIndex >= 0
         ? args.slice(coverageIndex + 1).filter((a) => !a.startsWith('--'))
-        : changedWorkers(args[coverageChangedIndex + 1] ?? 'origin/develop');
+        : changedWorkers(args[coverageChangedIndex + 1] ?? 'origin/main');
     if (workspaces.length === 0) {
       console.log('No worker changed: no coverage report.');
       return;

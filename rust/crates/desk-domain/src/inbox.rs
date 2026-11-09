@@ -483,6 +483,8 @@ fn has_ticket_fields(fields: &Update) -> bool {
         || fields.tags.is_some()
         || !matches!(fields.department_id, Field::Absent)
         || !fields.custom_fields.is_empty()
+        || !matches!(fields.impact, Field::Absent)
+        || !matches!(fields.urgency, Field::Absent)
 }
 
 /// `assertUsableReferences(db, fields)`: a ticket type or team that doesn't
@@ -1360,6 +1362,14 @@ mod tests {
         }));
         assert!(has_ticket_fields(&Update {
             tags: Some(Vec::new()),
+            ..Update::default()
+        }));
+        assert!(has_ticket_fields(&Update {
+            impact: Field::Set("high".into()),
+            ..Update::default()
+        }));
+        assert!(has_ticket_fields(&Update {
+            urgency: Field::Null,
             ..Update::default()
         }));
     }

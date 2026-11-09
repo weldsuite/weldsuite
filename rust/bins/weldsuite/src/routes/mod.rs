@@ -1895,6 +1895,7 @@ pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
         jobs: Some(Arc::clone(&state.infra.jobs)),
         portal_url: state.sign_portal_url.clone(),
         environment: Some(Arc::from(state.environment.as_str())),
+        app_url: state.public_app_url.clone(),
     }
 }
 

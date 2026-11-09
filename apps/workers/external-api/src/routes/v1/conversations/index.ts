@@ -101,12 +101,12 @@ app.get('/:id', requireScope('conversations:read'), zValidator('query', getConve
  * `externalId`: 201 when it is new, 200 when it landed on an existing one.
  */
 app.post('/', requireScope('conversations:write'), zValidator('json', openDeskConversationSchema), async (c) => {
-  const { ticketTypeId, priority, tags, departmentId, ...message } = c.req.valid('json');
+  const { ticketTypeId, priority, tags, departmentId, impact, urgency, ...message } = c.req.valid('json');
   try {
     const result = await openDeskApiConversation(deskInboxDeps(c), {
       ...message,
       via: VIA,
-      fields: { ticketTypeId, priority, tags, departmentId },
+      fields: { ticketTypeId, priority, tags, departmentId, impact, urgency },
       actor: deskInboxActor(c),
     });
     return success(c, result.conversation, result.created ? 201 : 200);

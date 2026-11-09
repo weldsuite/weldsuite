@@ -169,6 +169,10 @@ cron jobs and the migration Job read the same settings
 - name: S3_FORCE_PATH_STYLE
   value: {{ .forcePathStyle | toString | quote }}
 {{- end }}
+{{- with .publicUrl }}
+- name: S3_PUBLIC_URL
+  value: {{ trimSuffix "/" . | quote }}
+{{- end }}
 {{- end }}
 {{- with .Values.config.jobs }}
 {{- if .restate.ingressUrl }}
@@ -238,8 +242,36 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 - name: FIELD_ENCRYPTION_AAD_WRITES
   value: {{ .Values.config.aadWrites | toString | quote }}
+{{- include "weldsuite.publicUrlEnv" . }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}
+
+{{- /*
+config.publicUrl as PUBLIC_URL, and every URL setting that names the
+install's own host (the platform, /api, /v1, the webhooks and the WeldPanel
+collector are all served there) set to it, unless extraEnv names the setting:
+extraEnv wins, without a duplicate entry in the container's env.
+*/}}
+{{- define "weldsuite.publicUrlEnv" -}}
+{{- with .Values.config.publicUrl }}
+{{- if not (regexMatch "^https?://[^/?#]+/?$" .) }}
+{{- fail (printf "config.publicUrl must be an origin such as https://weldsuite.example.com, got %q" .) }}
+{{- end }}
+{{- $url := trimSuffix "/" . }}
+{{- $named := dict }}
+{{- range $.Values.config.extraEnv }}
+{{- $_ := set $named (toString .name) true }}
+{{- end }}
+- name: PUBLIC_URL
+  value: {{ $url | quote }}
+{{- range list "PUBLIC_APP_URL" "APP_URL" "PLATFORM_URL" "APP_API_PUBLIC_URL" "PUBLIC_API_URL" "CONNECT_API_URL" "CONNECTOR_WEBHOOK_BASE_URL" "WEBHOOK_BASE_URL" "PANEL_COLLECTOR_URL" }}
+{{- if not (hasKey $named .) }}
+- name: {{ . }}
+  value: {{ $url | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 

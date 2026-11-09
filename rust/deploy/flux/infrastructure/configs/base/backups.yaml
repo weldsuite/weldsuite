@@ -1,7 +1,8 @@
 # Backups to object storage at a second EU provider (not the cluster's own
 # Hetzner location: Hetzner Object Storage was degraded for ~145 hours in
-# August 2026). WAL is archived continuously; base backups run nightly. The
-# monthly drill restores from here (rust/deploy/hetzner/DRILL.md).
+# August 2026). WAL is archived continuously; base backups run nightly. A
+# restore drill starts a new cluster from here (rust/deploy/hetzner/README.md,
+# "Backups and restores").
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:

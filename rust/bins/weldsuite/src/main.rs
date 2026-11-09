@@ -120,6 +120,10 @@ fn serve() -> ExitCode {
         }
     };
     let telemetry = telemetry::init(config.log_format, "info");
+    // An EU or self-hosted install should have none of these.
+    for line in &config.global_defaults {
+        tracing::warn!("Global default: {line}");
+    }
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -192,6 +196,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
+        public_app_url: config.public_app_url.as_deref().map(Arc::from),
         project_portal_url: config.project_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
         collab: (!config.collab_rooms_urls.is_empty()).then(|| {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { AlertCircle, Check, CloudOff, Eye, FileText, Loader2 } from 'lucide-react';
+import { AlertCircle, ChevronLeft, CloudOff, Eye, Loader2 } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -13,18 +14,16 @@ export function DocHeader({
   canRename,
   onRename,
   status,
-  menubar,
   children,
 }: {
   name: string;
   canRename: boolean;
   onRename: (name: string) => void;
   status: DocStatus;
-  /** The menu bar, under the name (as in Google Docs). */
-  menubar?: ReactNode;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
+  const preview = usePreviewMode();
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
 
@@ -34,27 +33,29 @@ export function DocHeader({
     if (canRename && trimmed !== name) onRename(trimmed);
   };
 
+  // The editors' header row (WeldBoard, WeldSign): back chevron and name on the left, actions on the right.
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b px-3 py-1">
-      <FileText className="size-7 shrink-0 text-blue-600" aria-hidden />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-w-0 items-center gap-3">
-          <input
-            value={draft}
-            readOnly={!canRename}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={(e) => commit(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-            }}
-            aria-label={t.welddocs.home.rename}
-            className="min-w-0 max-w-md flex-1 rounded px-1 text-base font-medium outline-none hover:bg-muted focus:bg-muted"
-          />
-          <StatusLabel status={status} />
-        </div>
-        {menubar}
+    <div className="flex h-[53px] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 md:px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <Button variant="ghost" size="icon" className="size-[30px] shrink-0 text-muted-foreground" asChild>
+          <Link to={preview ? '/preview/welddocs' : '/welddocs'} aria-label={t.welddocs.home.backHome} title={t.welddocs.home.backHome}>
+            <ChevronLeft className="!size-[18px]" />
+          </Link>
+        </Button>
+        <input
+          value={draft}
+          readOnly={!canRename}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          aria-label={t.welddocs.home.rename}
+          className="h-7 min-w-0 max-w-md flex-1 rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
+        />
+        <StatusLabel status={status} />
       </div>
-      <div className="ml-auto flex items-center gap-2">{children}</div>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
 }
@@ -62,22 +63,21 @@ export function DocHeader({
 function StatusLabel({ status }: { status: DocStatus }) {
   const { t } = useI18n();
   const te = t.welddocs.editor;
+  // Saved and saving are routine and not shown, as in the other editors; only what needs attention is.
+  if (status === 'saved' || status === 'saving') return null;
   const label = {
-    saved: te.saved,
-    saving: te.saving,
     failed: te.notSaved,
     reconnecting: te.reconnecting,
     'offline-pending': te.offlinePending,
     'view-only': te.viewOnly,
   }[status];
   const warn = status === 'failed' || status === 'offline-pending';
-  let icon = <Check className="size-3.5" />;
-  if (status === 'saving' || status === 'reconnecting') icon = <Loader2 className="size-3.5 animate-spin" />;
+  let icon = <Eye className="size-3.5" />;
+  if (status === 'reconnecting') icon = <Loader2 className="size-3.5 animate-spin" />;
   else if (status === 'failed') icon = <AlertCircle className="size-3.5" />;
   else if (status === 'offline-pending') icon = <CloudOff className="size-3.5" />;
-  else if (status === 'view-only') icon = <Eye className="size-3.5" />;
   return (
-    <span className={`flex min-w-0 items-center gap-1 truncate text-xs ${warn ? 'text-destructive' : 'text-muted-foreground'}`} aria-live="polite">
+    <span className={`ml-2 flex min-w-0 items-center gap-1 truncate text-xs ${warn ? 'text-destructive' : 'text-muted-foreground'}`} aria-live="polite">
       {icon}
       {label}
     </span>

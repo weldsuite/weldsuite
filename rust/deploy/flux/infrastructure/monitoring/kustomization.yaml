@@ -1,7 +1,8 @@
-# A small Prometheus for Lens's CPU, memory and disk charts. Only the test
-# cluster applies this layer so far (clusters/test/layers.yaml); its values
-# are sized for that one node. The metrics API (metrics-server) is in
-# ../controllers, since the server's autoscaler needs it everywhere.
+# A small Prometheus for Lens's CPU, memory and disk charts. Only WeldSuite's
+# test cluster applies this layer so far (its layers are in the deploy
+# repository); its values are sized for that one node. The metrics API
+# (metrics-server) is in ../controllers, since the server's autoscaler needs
+# it everywhere.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

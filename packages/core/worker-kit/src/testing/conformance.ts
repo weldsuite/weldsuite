@@ -28,8 +28,10 @@
  *    both start from the same state and only Rust's writes reach the test's
  *    database and stubs, which its own assertions then check.
  * 4. Status and JSON are compared (ids, timestamps and cursors normalised for
- *    writes), the body is validated against the route's Zod schema when one is
- *    registered (./conformance-schemas.ts), and the outcome is recorded.
+ *    writes, seconds counted to each run's own "now" aligned within what the
+ *    runs' clocks differ by), the body is validated against the route's Zod
+ *    schema when one is registered (./conformance-schemas.ts), and the
+ *    outcome is recorded.
  * 5. Side effects are compared too: the Hono app gets recording
  *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
  *    Rust records through its port doubles, and both lists must match. The
@@ -1049,6 +1051,47 @@ function firstObjectDifference(a: Record<string, unknown>, b: Record<string, unk
   return null;
 }
 
+/**
+ * Whole seconds counted up to the moment a write ran, each next to the
+ * instant it was counted to: WeldDesk's reporting times (ADR DESK-011),
+ * from the conversation's creation to its close and from the visitor's
+ * first message to the first agent reply.
+ */
+const CLOCK_SECONDS: ReadonlyArray<{ seconds: string; at: string }> = [
+  { seconds: 'resolutionSeconds', at: 'resolvedAt' },
+  { seconds: 'firstResponseSeconds', at: 'firstResponseAt' },
+];
+
+/**
+ * Rust's answer with each value of {@link CLOCK_SECONDS} set to TypeScript's
+ * where the two runs' own clocks explain the difference. The runs read "now"
+ * milliseconds apart, so `floor((now - from) / 1000)` can fall either side of
+ * a second: with the two instants `d` ms apart, the seconds may differ by
+ * `floor(d / 1000)` or `ceil(d / 1000)`, nothing else. Equal instants (one
+ * stored before the request) keep the comparison exact, and so do seconds
+ * without their instant or a difference the instants do not account for.
+ */
+export function alignClockSeconds(ts: unknown, rust: unknown): unknown {
+  if (Array.isArray(ts) && Array.isArray(rust)) return rust.map((item, i) => alignClockSeconds(ts[i], item));
+  if (!isPlainObject(ts) || !isPlainObject(rust)) return rust;
+  const aligned = Object.fromEntries(Object.entries(rust).map(([key, value]) => [key, alignClockSeconds(ts[key], value)]));
+  for (const { seconds, at } of CLOCK_SECONDS) {
+    if (clockExplains(ts[seconds], rust[seconds], ts[at], rust[at])) aligned[seconds] = ts[seconds];
+  }
+  return aligned;
+}
+
+/** Whether two whole-seconds counts differ by no more than their instants do. */
+function clockExplains(tsSeconds: unknown, rustSeconds: unknown, tsAt: unknown, rustAt: unknown): boolean {
+  if (!Number.isInteger(tsSeconds) || !Number.isInteger(rustSeconds)) return false;
+  if (typeof tsAt !== 'string' || typeof rustAt !== 'string' || !ISO_TIMESTAMP.test(tsAt) || !ISO_TIMESTAMP.test(rustAt)) {
+    return false;
+  }
+  const apart = (Date.parse(rustAt) - Date.parse(tsAt)) / 1000;
+  const drift = (rustSeconds as number) - (tsSeconds as number);
+  return drift >= Math.floor(apart) && drift <= Math.ceil(apart);
+}
+
 interface Captured {
   status: number;
   headers: Headers;
@@ -1391,10 +1434,11 @@ function compareRuns(
     if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
   }
   if (ts.json !== undefined || rust.json !== undefined) {
-    // Values a route draws per run (./conformance-volatile.ts) are masked first.
+    // Values a route draws per run (./conformance-volatile.ts) are masked
+    // first, and seconds counted to each run's own "now" aligned.
     const body = firstDifference(
       normalizeForDiff(maskVolatile(method, route, ts.json), isWrite),
-      normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
+      normalizeForDiff(maskVolatile(method, route, alignClockSeconds(ts.json, rust.json)), isWrite),
     );
     if (body) return body;
   } else if (!sameBody(route, ts.bytes, rust.bytes)) {
@@ -1421,7 +1465,12 @@ function compareRuns(
       ...(outbound ? { outbound } : {}),
     };
   };
-  const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
+  // An event or a publish carries the row the answer does, reporting times included.
+  const tsPrepared = prepare(tsEffects);
+  const effects = firstDifference(
+    normalizeForDiff(tsPrepared, true),
+    normalizeForDiff(alignClockSeconds(tsPrepared, prepare(rustEffects)), true),
+  );
   return effects ? `side effects: ${effects}` : null;
 }
 

@@ -9,7 +9,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCloseChecklist } from '@/hooks/queries/use-project-closing-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { intlLocaleOf } from '@/app/weldflow/project/[projectId]/raid/_lib/locale';
-import { SaveTemplateDialog } from '@/app/weldflow/templates/_components/save-template-dialog';
+import { SaveTemplateDialog } from '@/app/weldflow/components/save-template-dialog';
 import { CloseContext, type CloseAbilities, type CloseContextValue } from './_components/close-context';
 import { CloseErrorState, CloseLoadingState } from './_components/close-states';
 import { ChecklistCard } from './_components/checklist-card';

@@ -73,11 +73,11 @@ config:
     livekit:
       url: wss://livekit.${DOMAIN}
       apiUrl: http://livekit.livekit.svc:7880
-  # The platform's origin, for links the server writes into email: the W-9
-  # requests of WeldBooks and the WeldReach access decisions of
-  # `weldsuite admin access` (ADR SEC-014).
-  extraEnv:
-    - { name: PLATFORM_URL, value: "https://app.${DOMAIN}" }
+  # The platform's origin: links in mail (invites, WeldSign, the W-9 requests
+  # of WeldBooks, the WeldReach access decisions of `weldsuite admin access`),
+  # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
+  # every URL setting that names this host from it.
+  publicUrl: https://app.${DOMAIN}
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
@@ -265,7 +265,7 @@ mailInbound:
 
 # The MTA (docs/plans/eu-mail-service.md): system and customer mail from the
 # mail nodes' own addresses (hetzner mail_pools, one node each to start),
-# its queue in weldsuite_mta on master (infrastructure/configs/eu). Bounces
+# its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
 # nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
 # Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's
