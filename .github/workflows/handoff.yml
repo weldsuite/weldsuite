@@ -34,7 +34,12 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    environment: handoff
+    # deployment: false: the job still gets the environment's secrets and
+    # branch rule, but GitHub writes no deployment record for it, so the
+    # public repo lists no deployments (TASK-1399).
+    environment:
+      name: handoff
+      deployment: false
     steps:
       - name: Token for weldsuite-deploy
         id: token
