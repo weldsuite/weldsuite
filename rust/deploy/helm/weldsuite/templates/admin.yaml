@@ -81,9 +81,7 @@ spec:
             - name: SYSTEM_EMAIL_FROM
               value: {{ . | quote }}
             {{- end }}
-            - name: DATABASE_URL_MASTER
-              valueFrom:
-                secretKeyRef: { name: {{ $secret }}, key: DATABASE_URL_MASTER }
+            {{- include "weldsuite.masterDatabaseEnv" $ | nindent 12 }}
             {{- /* System email (WeldReach decisions, deletion notices): the MTA's system pool when the chart wires it (mta.wireServer), as the server sends; else SMTP_URL from the Secret. */}}
             {{- $optional := list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "OUTBOUND_ADMIN_SECRET" "ADMIN_SESSION_SECRET" "ADMIN_OIDC_CLIENT_ID" "ADMIN_OIDC_CLIENT_SECRET" }}
             {{- $smtp := include "weldsuite.mta.poolSmtpEnv" (dict "root" . "pool" "system" "url" "SMTP_URL") | trim }}

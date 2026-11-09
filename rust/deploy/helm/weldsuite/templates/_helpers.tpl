@@ -395,6 +395,18 @@ release's Secret.
 {{- fail "bundle.valkey, bundle.nats and bundle.objectStorage take their credentials from the generated Secret: set secret.generate" }}
 {{- end }}
 {{- $secret := .Values.secret.generatedName }}
+{{- if $bundle.postgres }}
+{{- $cluster := include "weldsuite.postgres.fullname" . }}
+{{- include "weldsuite.masterDatabaseEnv" . }}
+- name: POSTGRES_TENANT_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $cluster }}-tenant
+      key: password
+{{- /* One shard, the same cluster; workspaces reach its primary directly. */}}
+- name: TENANT_SHARDS
+  value: {{ printf `[{"name":"%s","adminUrl":"postgres://tenant:$(POSTGRES_TENANT_PASSWORD)@%s-rw:5432/postgres?sslmode=require","poolerHost":"%s-rw"}]` $cluster $cluster $cluster | quote }}
+{{- end }}
 {{- if $bundle.valkey }}
 - name: VALKEY_PASSWORD
   valueFrom:
@@ -514,8 +526,53 @@ one) before the release's own, so a key set in the latter wins.
     name: {{ .Values.secret.generatedName }}
     optional: true
 {{- end }}
+{{- if include "weldsuite.hasSecret" . }}
 - secretRef:
     name: {{ include "weldsuite.secretName" . }}
+{{- end }}
+{{- end }}
+
+{{- /* Whether the release has a Secret of its own (existing or chart-made). */}}
+{{- define "weldsuite.hasSecret" -}}
+{{- if or .Values.secret.existingSecret .Values.secret.values }}true{{ end }}
+{{- end }}
+
+{{- /*
+Whether the migrations run in an init container of the server's pods
+instead of the pre-install/pre-upgrade hook Job: with the bundled Postgres,
+which doesn't exist yet when the hooks run. Each pod migrates before it
+serves; migrate's advisory lock lets one run at a time.
+*/}}
+{{- define "weldsuite.migrateInPod" -}}
+{{- if and .Values.migrations.enabled .Values.bundle.postgres }}true{{ end }}
+{{- end }}
+
+{{- /*
+DATABASE_URL_MASTER for any pod that opens the master database (the
+server's environment, the admin console, collab-rooms): the bundled
+Postgres's, from its owner password, else the release's Secret's key.
+*/}}
+{{- define "weldsuite.masterDatabaseEnv" -}}
+{{- if .Values.bundle.postgres }}
+{{- $cluster := include "weldsuite.postgres.fullname" . }}
+- name: POSTGRES_OWNER_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $cluster }}-owner
+      key: password
+- name: DATABASE_URL_MASTER
+  value: {{ printf "postgres://weldsuite:$(POSTGRES_OWNER_PASSWORD)@%s-rw:5432/weldsuite_master?sslmode=require" $cluster | quote }}
+{{- else }}
+- name: DATABASE_URL_MASTER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "weldsuite.secretName" . }}
+      key: DATABASE_URL_MASTER
+{{- end }}
+{{- end }}
+
+{{- define "weldsuite.postgres.fullname" -}}
+{{- printf "%s-pg" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{- define "weldsuite.collabRooms.fullname" -}}

@@ -1,4 +1,4 @@
-{{- if .Values.migrations.enabled }}
+{{- if and .Values.migrations.enabled (not (include "weldsuite.migrateInPod" .)) }}
 {{- if and (not .Values.secret.existingSecret) (not .Values.secret.values) }}
 {{- fail "set secret.existingSecret (or secret.values for a test cluster): the migrations need DATABASE_URL_MASTER" }}
 {{- end }}
