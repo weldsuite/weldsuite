@@ -20,6 +20,15 @@ secret:
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
 config:
   edition: eu
+  publicUrl: https://app.example.org/
+  auth:
+    provider: oidc
+    oidc:
+      issuer: https://auth.example.org
+      audience: "123456789012345678"
+  extraEnv:
+    # Wins over the value config.publicUrl derives, without a duplicate.
+    - { name: PUBLIC_API_URL, value: "https://api.example.org" }
   publicEnv:
     VITE_MAPBOX_ACCESS_TOKEN: pk.example
   sign:
@@ -37,6 +46,7 @@ config:
   files:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public
+    publicUrl: https://files.example.org
 ingress:
   enabled: true
 autoscaling:
