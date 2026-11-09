@@ -284,27 +284,16 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
       emptyState={{
         icon: (
           <EmptyStateIllustration>
-            <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <clipPath id="globe-clip">
-                  <circle cx="60" cy="56" r="35.5" />
-                </clipPath>
-              </defs>
-              {/* Globe */}
-              <circle cx="60" cy="56" r="36" className="fill-white dark:fill-secondary" />
-              <g clipPath="url(#globe-clip)">
-                {/* Center meridian */}
-                <line x1="60" y1="20" x2="60" y2="92" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" />
-                {/* Meridians */}
-                <ellipse cx="60" cy="56" rx="12" ry="36" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" fill="none" />
-                <ellipse cx="60" cy="56" rx="24" ry="36" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" fill="none" />
-                {/* Equator */}
-                <line x1="24" y1="56" x2="96" y2="56" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" />
-                {/* Parallels */}
-                <ellipse cx="60" cy="56" rx="36" ry="12" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" fill="none" />
-                <ellipse cx="60" cy="56" rx="36" ry="24" className="stroke-gray-200 dark:stroke-border" strokeWidth="0.7" fill="none" />
-              </g>
-              <circle cx="60" cy="56" r="36" className="stroke-gray-300 dark:stroke-border" strokeWidth="1.2" fill="none" />
+            <svg width="140" height="120" viewBox="50 21 140 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Two plain solid tags stacked straight behind the front one, each 8px higher and 8px narrower a side */}
+              <rect x="82.5" y="56.5" width="75" height="28" rx="7" className="fill-white stroke-gray-300 dark:fill-card dark:stroke-white/25" />
+              <rect x="74.5" y="64.5" width="91" height="28" rx="7" className="fill-white stroke-gray-300 dark:fill-card dark:stroke-white/25" />
+              {/* The front tag: an example domain (the same in every language) */}
+              <rect x="66.5" y="72.5" width="107" height="32" rx="8" className="fill-white stroke-gray-300 dark:fill-card dark:stroke-white/30" />
+              <text x="120" y="93" textAnchor="middle" className="text-[13px] font-medium">
+                <tspan className="fill-gray-500 dark:fill-white/70">website</tspan>
+                <tspan className="fill-gray-400 dark:fill-white/40">.com</tspan>
+              </text>
             </svg>
           </EmptyStateIllustration>
         ),
