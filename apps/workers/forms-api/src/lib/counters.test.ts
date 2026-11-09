@@ -32,6 +32,46 @@ describe('CounterRules', () => {
     expect(Object.keys(await rules.viewsByDay('2026-01-01', '2028-01-01'))).toEqual(['2027-12-14', '2027-12-15']);
   });
 
+  it('drops past days\' view markers on the first view of a day, without listing them on every view', async () => {
+    const time = clock();
+    const store = memoryStore();
+    const lists: string[] = [];
+    const counted: typeof store = {
+      ...store,
+      list: (options) => {
+        lists.push(options.prefix);
+        return store.list(options);
+      },
+    };
+    const rules = new CounterRules(counted, time.now);
+    for (let i = 0; i < 20; i++) await rules.recordView('2026-11-09', `tab-${i}`);
+    expect(lists.filter((prefix) => prefix.startsWith('vk'))).toEqual(['vk:']);
+
+    time.advance(86_400_000);
+    lists.length = 0;
+    await rules.recordView('2026-11-10', 'tab-a');
+    expect(lists.filter((prefix) => prefix.startsWith('vk'))).toEqual(['vk:2026-11-09:']);
+    lists.length = 0;
+    for (let i = 0; i < 20; i++) await rules.recordView('2026-11-10', `tab-${i}`);
+    expect(lists.filter((prefix) => prefix.startsWith('vk'))).toEqual([]);
+    expect([...store.data.keys()].filter((key) => key.startsWith('vk:2026-11-09'))).toEqual([]);
+    expect(await rules.recordView('2026-11-10', 'tab-a')).toBe(false);
+    expect(await rules.viewsByDay('2026-11-01', '2026-11-30')).toEqual({ '2026-11-09': 20, '2026-11-10': 21 });
+  });
+
+  it('picks up markers written before the day index, once', async () => {
+    const time = clock();
+    const store = memoryStore();
+    store.data.set('vk:2026-11-07:old-a', 1);
+    store.data.set('vk:2026-11-08:old-b', 1);
+    store.data.set('vk:2026-11-09:today', 1);
+    const rules = new CounterRules(store, time.now);
+    expect(await rules.recordView('2026-11-09', 'today')).toBe(false);
+    expect(await rules.recordView('2026-11-09', 'fresh')).toBe(true);
+    expect([...store.data.keys()].filter((key) => key.startsWith('vk:')).sort()).toEqual(['vk:2026-11-09:fresh', 'vk:2026-11-09:today']);
+    expect(store.data.get('vk-days')).toEqual(['2026-11-09']);
+  });
+
   it('limits hits per fixed window and opens again in the next one', async () => {
     const time = clock(Date.UTC(2026, 10, 9, 12, 0, 10));
     const rules = new CounterRules(memoryStore(), time.now);

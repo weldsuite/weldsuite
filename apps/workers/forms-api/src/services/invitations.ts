@@ -48,7 +48,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 /** Live statuses: the person has not completed and the link was not revoked. */
 const LIVE = ['sent', 'opened', 'started'] as const;
-/** After the guard refuses a reminder, the sweep tries again later. */
+/** After the guard refuses a reminder, or its mail could not be sent, the sweep tries again later. */
 const REFUSED_RETRY_MS = 6 * HOUR_MS;
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -94,6 +94,13 @@ async function registerToken(ctx: Pick<WorkspaceCtx, 'master' | 'workspaceId' | 
     formId,
     invitationId,
   });
+}
+
+/** Takes tokens out of the registry again: their links were never sent. */
+async function forgetTokens(ctx: Pick<WorkspaceCtx, 'master' | 'workspaceId'>, tokens: readonly string[]): Promise<void> {
+  if (tokens.length === 0) return;
+  const hashes = await Promise.all(tokens.map((t) => sha256Hex(t)));
+  await ctx.master.delete(formInvitationRegistry).where(and(eq(formInvitationRegistry.workspaceId, ctx.workspaceId), inArray(formInvitationRegistry.tokenHash, hashes)));
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +444,9 @@ async function remindBatch(
   // `reservation: null` above: the batch was reserved once, here, and is settled once.
   const sent = rows.filter((r) => sentTo.has(r.email.toLowerCase()));
   await settleOutboundMail(ctx.env, ctx.db, reservation, sent.map((r) => r.email), rows.length);
+  // A link whose mail did not go out is not kept: nobody has it, and a retry mints its own.
+  const unsent = rows.filter((r) => !sentTo.has(r.email.toLowerCase()));
+  await forgetTokens(ctx, unsent.map((r) => tokens.get(r.id)!));
 
   const nextAny = await recordReminders(ctx, sent, opts.now);
   const updated = sent.length ? await ctx.db.select().from(formInvitations).where(inArray(formInvitations.id, sent.map((r) => r.id))) : [];
@@ -545,10 +555,14 @@ export async function sendDueReminders(ctx: WorkspaceCtx, now = new Date()): Pro
       await ctx.db.update(formInvitations).set({ nextReminderAt: null, updatedAt: now }).where(inArray(formInvitations.id, rows.map((r) => r.id)));
       continue;
     }
-    const { outcome, refused } = await remindBatch(ctx, form, rows, { replyToUserId: null, now, defaults });
+    const { outcome } = await remindBatch(ctx, form, rows, { replyToUserId: null, now, defaults });
     reminded.push(...outcome.reminded);
-    if (refused) {
-      await ctx.db.update(formInvitations).set({ nextReminderAt: new Date(now.getTime() + REFUSED_RETRY_MS), updatedAt: now }).where(inArray(formInvitations.id, rows.map((r) => r.id)));
+    // Refused by the guard or not sent (the provider said no, or no transport): tried
+    // again later, not on every tick, and with nothing kept from this attempt.
+    const done = new Set(outcome.reminded.map((r) => r.id));
+    const unsent = rows.filter((r) => !done.has(r.id));
+    if (unsent.length > 0) {
+      await ctx.db.update(formInvitations).set({ nextReminderAt: new Date(now.getTime() + REFUSED_RETRY_MS), updatedAt: now }).where(inArray(formInvitations.id, unsent.map((r) => r.id)));
     }
   }
 

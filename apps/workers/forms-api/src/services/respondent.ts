@@ -32,9 +32,10 @@ import {
   type RespondentSession,
   type SessionSeed,
 } from './sessions';
-import { pendingKey } from './submit';
+import { settingsOf } from './forms';
+import { PENDING_PREFIX, pendingKey } from './submit';
 
-const { formResponses, formResponseFiles, formInvitations } = schema;
+const { formResponses, formResponseFiles, formInvitations, forms } = schema;
 const { formInvitationRegistry } = masterSchema;
 
 /** Sessions one IP may start per form per minute. */
@@ -312,7 +313,8 @@ export async function saveProgress(args: ProgressArgs): Promise<void> {
       metadata: sql`${formResponses.metadata} || ${JSON.stringify(Object.keys(timings).length ? { timings } : {})}::jsonb`,
       updatedAt: now,
     })
-    .where(eq(formResponses.id, session.resp));
+    // A save still in flight when the submit commits must not overwrite the completed answers.
+    .where(and(eq(formResponses.id, session.resp), eq(formResponses.status, 'in_progress')));
   await markInvitationStarted(ctx, session, now);
 }
 
@@ -362,20 +364,18 @@ function accepted(accept: 'any' | 'images' | 'documents' | 'pdf', type: string):
 export interface UploadArgs {
   env: Env;
   ctx: WorkspaceCtx;
-  /** What an upload is bound to: the response, its form and the version it runs on (a respondent session, or the member's in-progress response). */
-  session: Pick<RespondentSession, 'resp' | 'form' | 'ver'>;
+  /**
+   * What an upload is bound to: the response, its form and the version it runs
+   * on (a respondent session, or the member's in-progress response), and who
+   * the respondent is (a verified email or an invitation may edit a completed
+   * response when the form allows it).
+   */
+  session: Pick<RespondentSession, 'resp' | 'form' | 'ver'> & Partial<Pick<RespondentSession, 'email' | 'inv'>>;
   counters: FormCountersPort;
   blockId: string;
   file: File;
 }
 
-/**
- * Stores a file or a drawn signature for one field of the version the session
- * runs on: size, type and count limits come from the field (capped at 25 MB).
- * The object goes under `weldforms/pending/<responseId>/<fileId>` in the private
- * bucket and moves to the form's folder on submit; one never submitted expires
- * with the prefix's lifecycle rule. A new signature replaces the old one.
- */
 /** The largest file the field takes: a signature 2 MB, an upload its own limit, never more than 25 MB. */
 function maxBytesOf(field: FileField): number {
   if (field.type === 'signature') return SIGNATURE_MAX_BYTES;
@@ -399,12 +399,19 @@ function checkFile(field: FileField, file: File): string {
   return type;
 }
 
-/** Room for one more file of the field: a new signature replaces the old one, an upload field holds at most `maxFiles` (422). */
+/**
+ * Room for one more file of the field: a new signature replaces the old one, an
+ * upload field holds at most `maxFiles` (422). Only the files staged since the
+ * last submit count (under the pending prefix): an edit's new files sit next to
+ * the submitted ones, which the submit drops once the answers no longer name them.
+ */
 async function makeRoom(env: Env, ctx: WorkspaceCtx, responseId: string, field: FileField): Promise<void> {
-  const existing = await ctx.db
-    .select()
-    .from(formResponseFiles)
-    .where(and(eq(formResponseFiles.responseId, responseId), eq(formResponseFiles.blockId, field.id)));
+  const existing = (
+    await ctx.db
+      .select()
+      .from(formResponseFiles)
+      .where(and(eq(formResponseFiles.responseId, responseId), eq(formResponseFiles.blockId, field.id)))
+  ).filter((f) => f.storageKey.startsWith(PENDING_PREFIX));
   if (field.type === 'signature') {
     if (existing.length === 0) return;
     await ctx.db.delete(formResponseFiles).where(inArray(formResponseFiles.id, existing.map((f) => f.id)));
@@ -418,9 +425,36 @@ async function makeRoom(env: Env, ctx: WorkspaceCtx, responseId: string, field: 
   }
 }
 
+/**
+ * 409 `ALREADY_SUBMITTED` once the response is completed, unless the
+ * respondent may edit it (the form allows edits, and a verified email or an
+ * invitation says who they are), as the submit decides.
+ */
+async function assertTakesUploads(ctx: WorkspaceCtx, session: UploadArgs['session']): Promise<void> {
+  const [response] = await ctx.db
+    .select({ status: formResponses.status, invitationId: formResponses.invitationId })
+    .from(formResponses)
+    .where(eq(formResponses.id, session.resp))
+    .limit(1);
+  if (response?.status !== 'completed') return;
+  const [form] = await ctx.db.select({ settings: forms.settings }).from(forms).where(eq(forms.id, session.form)).limit(1);
+  const identified = Boolean(session.email || session.inv || response.invitationId);
+  if (!form || !settingsOf(form).allowEdit || !identified) {
+    throw new FormsError(409, 'ALREADY_SUBMITTED', 'This form was already submitted.');
+  }
+}
+
+/**
+ * Stores a file or a drawn signature for one field of the version the session
+ * runs on: size, type and count limits come from the field (capped at 25 MB).
+ * The object goes under `weldforms/pending/<responseId>/<fileId>` in the private
+ * bucket and moves to the form's folder on submit; one never submitted expires
+ * with the prefix's lifecycle rule. A new signature replaces the old one.
+ */
 export async function uploadFile(args: UploadArgs): Promise<FileAnswerItem> {
   const { env, ctx, session, file } = args;
   await rateLimited(args.counters, `up:${session.resp}`, UPLOADS_PER_SESSION_PER_MINUTE);
+  await assertTakesUploads(ctx, session);
   const version = await loadVersion(ctx, session.form, session.ver);
   const field = fieldsOf(formDefinitionSchema.parse(version.definition)).find((f) => f.id === args.blockId);
   if (!field || !isFileField(field)) throw new FormsError(400, 'BAD_REQUEST', 'This field does not take files.');

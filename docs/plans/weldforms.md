@@ -82,7 +82,10 @@ choices) and, in quizzes, a correct answer and points per choice.
 - **Recall**: `{{field:company_size}}`, `{{hidden:utm_source}}` and
   `{{var:score}}` in titles, descriptions, endings, redirect URLs and emails.
 - **Quizzes**: correct answers and points per choice add to `score`; the
-  ending can show the score and, optionally, the correct answers.
+  ending can show the score and, optionally, the correct answers. The form a
+  respondent's browser gets never carries the answer key (`correct` is taken
+  off every choice; `score` stays for logic and recall): the submit's result
+  names each question's right answer (`quiz[].correctAnswer`).
 
 ### One engine, run on every side
 

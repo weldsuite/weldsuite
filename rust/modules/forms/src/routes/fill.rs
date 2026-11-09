@@ -202,6 +202,8 @@ async fn uploads(member: Member, Path(public_id): Path<String>, request: Request
                 response: &response_id,
                 form: &link.form_id,
                 version: &version_id,
+                email: None,
+                invitation: None,
             };
             let uploaded = upload_file(
                 ctx,

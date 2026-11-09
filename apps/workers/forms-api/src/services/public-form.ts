@@ -14,7 +14,8 @@ import {
   schema,
   type MasterDatabase,
 } from '@weldsuite/worker-kit/db';
-import { formDefinitionSchema } from '@weldsuite/forms-engine/definition';
+import { isChoiceField, isFieldBlock } from '@weldsuite/forms-engine';
+import { formDefinitionSchema, type Block, type FormChoice, type FormDefinition } from '@weldsuite/forms-engine/definition';
 import type { PublicForm, PublicFormState } from '@weldsuite/app-api-client/schemas/weldforms';
 import { FormsError, notFound } from '../lib/errors';
 import type { Env } from '../types';
@@ -87,7 +88,30 @@ export interface PublicFormOptions {
   inPlatform?: boolean;
 }
 
-/** The `PublicForm` of a link. The definition is only given out while the form is open. */
+const withoutCorrect = (choice: FormChoice): FormChoice => {
+  const copy = { ...choice };
+  delete copy.correct;
+  return copy;
+};
+
+/** A block with the `correct` mark taken off its choices (a group's questions too). */
+function stripAnswerKey(block: Block): Block {
+  if (block.type === 'group') return { ...block, children: block.children.map((child) => stripAnswerKey(child) as typeof child) };
+  if (!isFieldBlock(block) || !isChoiceField(block)) return block;
+  return { ...block, properties: { ...block.properties, choices: block.properties.choices.map(withoutCorrect) } } as Block;
+}
+
+/**
+ * The definition a respondent's browser gets: without the quiz's answer key
+ * (`correct` on a choice), which the submit's result names per question
+ * instead. A choice's `score` stays: logic and `{score}` recall run in the
+ * browser.
+ */
+export function withoutAnswerKey(def: FormDefinition): FormDefinition {
+  return { ...def, blocks: def.blocks.map(stripAnswerKey) };
+}
+
+/** The `PublicForm` of a link. The definition is only given out while the form is open, and without the answer key. */
 export function toPublicForm(env: Env, link: LinkRow, entry: PublicCacheEntry, options: PublicFormOptions = {}): PublicForm {
   const state = stateOf(link, entry);
   const live = state === 'open';
@@ -100,7 +124,7 @@ export function toPublicForm(env: Env, link: LinkRow, entry: PublicCacheEntry, o
     state,
     closedMessage: settings.closedMessage,
     versionId: options.version?.id ?? entry.versionId,
-    definition: live ? definition : null,
+    definition: live && definition ? withoutAnswerKey(definition) : null,
     theme: entry.theme,
     respondentMode: settings.respondentMode,
     onePerRespondent: settings.onePerRespondent,

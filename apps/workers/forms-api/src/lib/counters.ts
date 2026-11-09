@@ -52,6 +52,8 @@ const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** How long a day's view count is kept (the Rust twin's Valkey TTL). */
 const VIEW_DAYS_KEPT = 400;
+/** The days that have view markers (`vk:<day>:…`). */
+const MARKER_DAYS = 'vk-days';
 
 export class CounterRules implements FormCountersPort {
   constructor(
@@ -63,14 +65,10 @@ export class CounterRules implements FormCountersPort {
     const marker = `vk:${day}:${viewKey}`;
     if (await this.store.get(marker)) return false;
     await this.store.put(marker, 1);
+    await this.noteMarkerDay(day);
     const key = `views:${day}`;
     const before = await this.store.get<number>(key);
     await this.store.put(key, (before ?? 0) + 1);
-    // Markers only dedupe within a day; older ones are dead weight.
-    const today = dayOf(this.now());
-    for (const old of (await this.store.list<number>({ prefix: 'vk:' })).keys()) {
-      if (old.slice(3, 13) < today) await this.store.delete(old);
-    }
     // A day's count is kept 400 days; the first view of a day drops older ones.
     if (before === undefined) {
       const cutoff = dayOf(this.now() - VIEW_DAYS_KEPT * 86_400_000);
@@ -79,6 +77,27 @@ export class CounterRules implements FormCountersPort {
       }
     }
     return true;
+  }
+
+  /**
+   * Markers only dedupe within a day; older ones are dead weight. `vk-days`
+   * lists the days that have markers, so a view reads one key here and the
+   * first marker of a new day drops the past days' markers, a day's prefix at
+   * a time. Without the index (markers written before it) every marker is
+   * looked at once.
+   */
+  private async noteMarkerDay(day: string): Promise<void> {
+    const known = await this.store.get<string[]>(MARKER_DAYS);
+    if (known?.includes(day)) return;
+    const today = dayOf(this.now());
+    const days = known ?? [...new Set([...(await this.store.list<number>({ prefix: 'vk:' })).keys()].map((key) => key.slice(3, 13)))];
+    const kept = days.filter((d) => d >= today || d === day);
+    for (const old of days.filter((d) => !kept.includes(d))) await this.dropMarkers(old);
+    await this.store.put(MARKER_DAYS, kept.includes(day) ? kept : [...kept, day]);
+  }
+
+  private async dropMarkers(day: string): Promise<void> {
+    for (const key of (await this.store.list<number>({ prefix: `vk:${day}:` })).keys()) await this.store.delete(key);
   }
 
   async viewsByDay(from: string, to: string): Promise<Record<string, number>> {

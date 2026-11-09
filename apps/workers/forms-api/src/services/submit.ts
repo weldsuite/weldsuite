@@ -9,12 +9,14 @@
  *   1. checks (form still open, one per respondent, response limit)
  *   2. engine validation (422 VALIDATION_FAILED, `details.fields`)
  *   3. files: the answers may only reference this response's own uploads
- *   4. number from `forms.response_counter`, then one batch: the response is
- *      completed, files re-keyed, the invitation completed, the form's counters bumped
+ *   4. one batch: the response is claimed (completed only while it was not), files
+ *      re-keyed, the invitation completed, the form's counters bumped and the
+ *      number taken from `forms.response_counter`; a submit that loses the claim
+ *      to another one of the same response runs again as an edit, or is refused
  *   5. entity events, ProcessResponse, public cache refresh
  */
 
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
@@ -23,6 +25,7 @@ import {
   displayAnswer,
   evaluateSubmission,
   fieldsOf,
+  isChoiceField,
   isFileField,
   recall,
   searchText,
@@ -97,6 +100,19 @@ export function answersByRef(def: FormDefinition, answers: Answers): Record<stri
   return out;
 }
 
+/**
+ * The right answer of a quiz question, for the review on the ending: the
+ * labels of its correct choices, joined. Null when none is marked. The public
+ * definition leaves `correct` out, so this is the only place a respondent
+ * learns it, and only after submitting.
+ */
+function correctAnswerOf(def: FormDefinition, fieldId: string): string | null {
+  const field = fieldsOf(def).find((f) => f.id === fieldId);
+  if (!field || !isChoiceField(field)) return null;
+  const labels = field.properties.choices.filter((c) => c.correct === true).map((c) => c.label);
+  return labels.length > 0 ? labels.join(', ') : null;
+}
+
 /** The ending a respondent sees, with recall filled in. */
 export function buildResult(def: FormDefinition, result: ReturnType<typeof evaluateSubmission>, responseId: string, number: number, hidden: Record<string, string>): SubmitSessionResult {
   const ending = def.endings.find((e) => e.id === result.endingId) ?? def.endings[0]!;
@@ -114,7 +130,9 @@ export function buildResult(def: FormDefinition, result: ReturnType<typeof evalu
       showAnswers: ending.showAnswers,
     },
     score: result.score,
-    quiz: ending.showAnswers ? result.quiz.map((q) => ({ fieldId: q.fieldId, correct: q.correct, points: q.points })) : null,
+    quiz: ending.showAnswers
+      ? result.quiz.map((q) => ({ fieldId: q.fieldId, correct: q.correct, points: q.points, correctAnswer: correctAnswerOf(def, q.fieldId) }))
+      : null,
   };
 }
 
@@ -131,7 +149,20 @@ export async function assertAcceptingSubmissions(ctx: Pick<WorkspaceCtx, 'master
   if (!edited && settings.responseLimit !== null && form.responseCount >= settings.responseLimit) throw closedError('limit_reached');
 }
 
-export async function submitResponse(args: SubmitArgs): Promise<{ result: SubmitSessionResult; edited: boolean; number: number }> {
+type Submitted = { result: SubmitSessionResult; edited: boolean; number: number };
+
+export async function submitResponse(args: SubmitArgs): Promise<Submitted> {
+  // A call that loses the race to a submit of the same response (a double click)
+  // runs once more, now on the completed response: as an edit, or refused.
+  return (await submitOnce(args)) ?? (await submitOnce(args)) ?? alreadySubmitted();
+}
+
+function alreadySubmitted(): never {
+  throw new FormsError(409, 'ALREADY_SUBMITTED', 'This form was already submitted.');
+}
+
+/** One attempt at the submit; null when another call completed the response after this one read it. */
+async function submitOnce(args: SubmitArgs): Promise<Submitted | null> {
   const { ctx, form, version, responseId, identity } = args;
   const now = args.now ?? new Date();
   const settings = settingsOf(form);
@@ -156,28 +187,14 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
   const moves = await moveUploads(ctx, def, files.filter((f) => used.has(f.id)), form.id, responseId);
   const unused = files.filter((f) => !used.has(f.id));
 
-  // 4b. The number, then one batch.
-  const number = existing?.number ?? (await nextResponseNumber(ctx, form.id));
+  // 4b. One batch: an edit rewrites the response; a new one is claimed first and numbered last.
   const invitedPersonId = await invitedPerson(ctx, identity.invitationId);
   const startedAt = existing?.startedAt ?? (args.seed ? new Date(args.seed.startedAt) : now);
-  const update = completedColumns(args, existing, { def, result, answers, hidden, number, invitedPersonId, startedAt, now });
+  const update = completedColumns(args, existing, { def, result, answers, hidden, number: edited ? (existing?.number ?? null) : null, invitedPersonId, startedAt, now });
   const values = { id: responseId, ...update, startedAt };
-  await atomically(ctx.db, (db) => [
-    db.insert(formResponses).values(values).onConflictDoUpdate({ target: formResponses.id, set: update }),
-    ...moves.map((m) => db.update(formResponseFiles).set({ storageKey: m.to }).where(eq(formResponseFiles.id, m.id))),
-    ...(unused.length ? [db.delete(formResponseFiles).where(inArray(formResponseFiles.id, unused.map((f) => f.id)))] : []),
-    ...(edited
-      ? []
-      : [db.update(forms).set({ responseCount: sql`${forms.responseCount} + 1`, lastResponseAt: now }).where(eq(forms.id, form.id))]),
-    ...(identity.invitationId
-      ? [
-          db
-            .update(formInvitations)
-            .set({ status: 'completed', completedAt: now, responseId, nextReminderAt: null, updatedAt: now })
-            .where(and(eq(formInvitations.id, identity.invitationId), ne(formInvitations.status, 'revoked'))),
-        ]
-      : []),
-  ]);
+  const writes: Writes = { values, update, moves, unused, now };
+  const number = edited ? await commitEdit(args, writes) : await commitNew(args, writes);
+  if (number === null) return null;
 
   // Leftovers go after the commit; a failed delete only costs storage (the pending prefix expires on its own).
   const dead = [...moves.map((m) => m.from), ...unused.map((f) => f.storageKey)];
@@ -216,9 +233,7 @@ export async function submitResponse(args: SubmitArgs): Promise<{ result: Submit
 function assertSubmittable(existing: ResponseRow | undefined, form: FormRow, identity: SubmitIdentity): boolean {
   if (existing && existing.formId !== form.id) throw new FormsError(404, 'NOT_FOUND', 'Response not found');
   const edited = existing?.status === 'completed';
-  if (edited && !(settingsOf(form).allowEdit && (identity.email || identity.invitationId))) {
-    throw new FormsError(409, 'ALREADY_SUBMITTED', 'This form was already submitted.');
-  }
+  if (edited && !(settingsOf(form).allowEdit && (identity.email || identity.invitationId))) alreadySubmitted();
   return edited;
 }
 
@@ -285,14 +300,79 @@ async function moveUploads(
   return moves;
 }
 
-/** The form's next response number, from `forms.response_counter`. */
-async function nextResponseNumber(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<number> {
-  const [counter] = await ctx.db
-    .update(forms)
-    .set({ responseCounter: sql`${forms.responseCounter} + 1` })
-    .where(eq(forms.id, formId))
-    .returning({ n: forms.responseCounter });
-  return counter?.n ?? 1;
+type Move = { id: string; from: string; to: string };
+type Completed = ReturnType<typeof completedColumns>;
+
+/** What the batch of a submit writes. */
+interface Writes {
+  values: Completed & { id: string; startedAt: Date };
+  update: Completed;
+  moves: readonly Move[];
+  unused: readonly FileRow[];
+  now: Date;
+}
+
+/**
+ * The writes besides the response itself: the files re-keyed, the unused ones
+ * dropped, the invitation completed. `when` holds each to the claim.
+ */
+function sideWrites(db: WorkspaceCtx['db'], args: SubmitArgs, w: Writes, when?: SQL) {
+  const { invitationId } = args.identity;
+  return [
+    ...w.moves.map((m) => db.update(formResponseFiles).set({ storageKey: m.to }).where(and(eq(formResponseFiles.id, m.id), when))),
+    ...(w.unused.length ? [db.delete(formResponseFiles).where(and(inArray(formResponseFiles.id, w.unused.map((f) => f.id)), when))] : []),
+    ...(invitationId
+      ? [
+          db
+            .update(formInvitations)
+            .set({ status: 'completed', completedAt: w.now, responseId: args.responseId, nextReminderAt: null, updatedAt: w.now })
+            .where(and(eq(formInvitations.id, invitationId), ne(formInvitations.status, 'revoked'), when)),
+        ]
+      : []),
+  ];
+}
+
+/** An edit: the completed response is written again, under its own number. */
+async function commitEdit(args: SubmitArgs, w: Writes): Promise<number> {
+  await atomically(args.ctx.db, (db) => [
+    db.insert(formResponses).values(w.values).onConflictDoUpdate({ target: formResponses.id, set: w.update }),
+    ...sideWrites(db, args, w),
+  ]);
+  return w.update.number ?? 0;
+}
+
+/**
+ * A new response, in one batch. Its first statement claims the response: it
+ * writes it completed (not numbered yet) only while it is not completed, so
+ * of two submits of one response only one gets past it. Every later statement
+ * takes effect only on that claim (completed with no number, which only the
+ * claiming batch sees); the last one numbers the response from
+ * `forms.response_counter`. Null when another call had completed it.
+ */
+async function commitNew(args: SubmitArgs, w: Writes): Promise<number | null> {
+  const { form, responseId } = args;
+  const claimed = sql`exists (select 1 from ${formResponses} where ${formResponses.id} = ${responseId} and ${formResponses.status} = 'completed' and ${formResponses.number} is null)`;
+  const results = await atomically(args.ctx.db, (db) => [
+    db
+      .insert(formResponses)
+      .values(w.values)
+      .onConflictDoUpdate({ target: formResponses.id, set: w.update, setWhere: ne(formResponses.status, 'completed') })
+      .returning({ id: formResponses.id }),
+    ...sideWrites(db, args, w, claimed),
+    db
+      .update(forms)
+      .set({ responseCounter: sql`${forms.responseCounter} + 1`, responseCount: sql`${forms.responseCount} + 1`, lastResponseAt: w.now })
+      .where(and(eq(forms.id, form.id), claimed)),
+    db
+      .update(formResponses)
+      .set({ number: sql`(select ${forms.responseCounter} from ${forms} where ${forms.id} = ${form.id})` })
+      .where(and(eq(formResponses.id, responseId), eq(formResponses.status, 'completed'), isNull(formResponses.number)))
+      .returning({ number: formResponses.number }),
+  ]);
+  const claim = results[0] as Array<{ id: string }>;
+  if (claim.length === 0) return null;
+  const [numbered] = results.at(-1) as Array<{ number: number | null }>;
+  return numbered?.number ?? 1;
 }
 
 /** An invited CRM person: the response is theirs (the CRM Forms tab lists it by `personId`). */
@@ -315,7 +395,8 @@ interface Completion {
   result: ReturnType<typeof evaluateSubmission>;
   answers: Answers;
   hidden: Record<string, string>;
-  number: number;
+  /** An edit keeps its number; a new response is numbered last in its batch. */
+  number: number | null;
   invitedPersonId: string | null;
   startedAt: Date;
   now: Date;

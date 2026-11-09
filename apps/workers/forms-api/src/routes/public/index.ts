@@ -9,7 +9,7 @@
  * keyed hash.
  *
  *   GET  /f/:publicId             → the published form, state and bot-check settings (from the cache)
- *   POST /f/:publicId/view        → counts a view (counter store, no tenant DB)
+ *   POST /f/:publicId/view        → counts a view (counter store, no tenant DB; rate limited per IP)
  *   POST /f/:publicId/sessions    → starts or resumes a response: bot check, invitation or verified email
  *   POST /f/:publicId/send-code   → emails a 6-digit code (verified-email forms)
  *   POST /f/:publicId/verify      → checks the code, answers a verification token
@@ -72,6 +72,8 @@ const app = new Hono<{ Bindings: Env; Variables: PublicVariables }>();
 const SUBMITS_PER_FORM_PER_MINUTE = 120;
 const CODES_PER_IP_PER_MINUTE = 5;
 const REPORTS_PER_IP_PER_MINUTE = 5;
+/** Views one address counts per form per minute: an office behind one address opens a form many times, a script far more. */
+const VIEWS_PER_IP_PER_MINUTE = 30;
 
 const guard = createMiddleware<{ Bindings: Env; Variables: PublicVariables }>(async (c, next) => {
   const secret = c.env.FORMS_PORTAL_SECRET;
@@ -133,7 +135,11 @@ app.get('/f/:publicId', (c) =>
 app.post('/f/:publicId/view', zValidator('json', recordViewSchema), (c) =>
   handle(c, async () => {
     const link = await resolveLink(getMasterDb(c.env), c.req.param('publicId'));
-    const counted = await countersFor(c.env.FORM_COUNTERS, link.formId).recordView(today(), c.req.valid('json').viewKey);
+    const counters = countersFor(c.env.FORM_COUNTERS, link.formId);
+    // The view key is the browser's own choice: without a limit a script could count views at will.
+    const ipHash = await ipHashOf(c).catch(() => null);
+    await rateLimited(counters, `view:${ipHash ?? 'unknown'}`, VIEWS_PER_IP_PER_MINUTE);
+    const counted = await counters.recordView(today(), c.req.valid('json').viewKey);
     return success(c, { counted });
   }),
 );

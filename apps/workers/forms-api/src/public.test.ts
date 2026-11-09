@@ -18,7 +18,7 @@ import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
 import type { FormDetail, PublicForm, StartSessionResult, SubmitSessionResult } from '@weldsuite/app-api-client/schemas/weldforms';
-import type { FormDefinition } from '@weldsuite/forms-engine/definition';
+import { formDefinitionSchema, type FormDefinition } from '@weldsuite/forms-engine/definition';
 import { createAltchaChallenge } from './services/bot-check';
 import { sha256Hex } from './lib/crypto';
 import fillRoutes from './routes/fill';
@@ -110,6 +110,107 @@ async function start(p: ReturnType<typeof portal>, publicId: string, body: Recor
 
 const submit = (p: ReturnType<typeof portal>, session: StartSessionResult, answers: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
   p.post('/sessions/submit', { answers, ...extra }, p.authed(session.session), 'POST');
+
+/** A quiz: a scored question with its answer marked, and a group with a multi-select one and a scored one without an answer. */
+function quizDefinition(): FormDefinition {
+  return formDefinitionSchema.parse({
+    blocks: [
+      {
+        id: 'b_planet',
+        ref: 'planet',
+        type: 'multiple_choice',
+        title: 'Closest to the sun?',
+        required: true,
+        properties: { choices: [{ id: 'c_mercury', label: 'Mercury', score: 1, correct: true }, { id: 'c_mars', label: 'Mars', score: 0 }] },
+      },
+      {
+        id: 'g_more',
+        ref: 'more',
+        type: 'group',
+        title: 'Two more',
+        children: [
+          {
+            id: 'b_rocky',
+            ref: 'rocky',
+            type: 'multiple_choice',
+            title: 'Which are rocky?',
+            properties: { multiple: true, choices: [{ id: 'c_venus', label: 'Venus', correct: true }, { id: 'c_earth', label: 'Earth', correct: true }, { id: 'c_saturn', label: 'Saturn' }] },
+          },
+          { id: 'b_fun', ref: 'fun', type: 'dropdown', title: 'Was this fun?', properties: { choices: [{ id: 'c_yes', label: 'Yes', score: 1 }] } },
+        ],
+      },
+    ],
+    endings: [{ id: 'e_done', ref: 'done', title: 'Score {{var:score}}', showScore: true, showAnswers: true }],
+  });
+}
+
+/** Runs on TypeScript only in conformance mode (parallel requests, or a race set up inside the service). */
+const itTypeScriptOnly = it.skipIf(Boolean(conformanceTarget()));
+
+/** A session of a verified-email form, as `email` (the code is read from the last mail). */
+async function verifiedSession(p: ReturnType<typeof portal>, publicId: string, email: string): Promise<StartSessionResult> {
+  await p.post(`/f/${publicId}/send-code`, { email });
+  const code = /\b(\d{6})\b/.exec(mail.transport!.sent.at(-1)!.text ?? '')![1]!;
+  const { verification } = await data<{ verification: string }>(await p.post(`/f/${publicId}/verify`, { email, code }));
+  return start(p, publicId, { verification });
+}
+
+/**
+ * Runs `call` on a tenant handle that, right before its first transaction
+ * (the submit's write), lets `other` run to the end on the real one: as if
+ * both arrived together and `other` committed in between.
+ */
+async function whileRacing<T>(other: () => Promise<unknown>, call: () => Promise<T>): Promise<T> {
+  let raced = false;
+  const handle = new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value !== 'function') return value;
+      if (prop !== 'transaction' || raced) return value.bind(target);
+      return async (...args: unknown[]) => {
+        raced = true;
+        dbs.tenant = db;
+        await other();
+        return value.apply(target, args);
+      };
+    },
+  });
+  dbs.tenant = handle;
+  try {
+    return await call();
+  } finally {
+    dbs.tenant = db;
+  }
+}
+
+/**
+ * A tenant handle whose first read of a response answers `row` as it was:
+ * a read taken before another call (a submit) wrote it.
+ */
+function staleRead(row: unknown): Database {
+  let used = false;
+  return new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value !== 'function') return value;
+      if (prop !== 'select') return value.bind(target);
+      return (...args: unknown[]) => {
+        const real = value.apply(target, args) as { from: (table: unknown) => unknown };
+        return {
+          from: (table: unknown) => {
+            if (used || table !== schema.formResponses) return real.from(table);
+            used = true;
+            const read: Promise<unknown[]> & { where: () => unknown; limit: () => unknown } = Object.assign(Promise.resolve([row]), {
+              where: () => read,
+              limit: () => read,
+            });
+            return read;
+          },
+        };
+      };
+    },
+  });
+}
 
 // ── The portal key ───────────────────────────────────────────────────────────
 
@@ -228,6 +329,17 @@ describe('POST /f/:publicId/view', () => {
     expect(await data(await p.post(`/f/${publicId}/view`, { viewKey: 'tab-key-0002' }))).toEqual({ counted: true });
     expect((await p.post(`/f/${publicId}/view`, { viewKey: 'short' })).status).toBe(400);
     expect(await db.select().from(schema.formResponses)).toHaveLength(0);
+  });
+
+  it('rate limits views per IP, since the view key is the browser\'s own choice', async () => {
+    const { publicId } = await publish(simpleDefinition());
+    const p = portal();
+    for (let i = 0; i < 30; i++) expect((await p.post(`/f/${publicId}/view`, { viewKey: `script-key-${i}` })).status).toBe(200);
+    const limited = await p.post(`/f/${publicId}/view`, { viewKey: 'script-key-30' });
+    expect(limited.status).toBe(429);
+    expect((await errorOf(limited)).code).toBe('RATE_LIMITED');
+    // Another address is not affected.
+    expect(await data(await p.post(`/f/${publicId}/view`, { viewKey: 'office-key-1' }, { 'X-Respondent-Ip': '198.51.100.9' }))).toEqual({ counted: true });
   });
 });
 
@@ -498,6 +610,27 @@ describe('PUT /sessions/progress', () => {
     const [row] = await db.select().from(schema.formResponses);
     expect(row!.answers).toEqual({ b_name: 'Ada' });
   });
+
+  itTypeScriptOnly('leaves the completed answers alone when a save that read the response before the submit writes after it', async () => {
+    const { publicId } = await publish(surveyDefinition(), { collectPartial: true });
+    const p = portal();
+    const session = await start(p, publicId);
+    await p.post('/sessions/progress', { lastBlockId: 'b_plan', answers: { b_name: 'Draft' } }, p.authed(session.session), 'PUT');
+    const [inProgress] = await db.select().from(schema.formResponses);
+    expect((await submit(p, session, { b_name: 'Ada', b_plan: { choiceIds: ['c_free'] } })).status).toBe(200);
+    await p.settled();
+
+    dbs.tenant = staleRead(inProgress!);
+    try {
+      const late = await p.post('/sessions/progress', { lastBlockId: 'b_extra', answers: { b_name: 'Late' } }, p.authed(session.session), 'PUT');
+      expect(late.status).toBe(200);
+    } finally {
+      dbs.tenant = db;
+    }
+    const [row] = await db.select().from(schema.formResponses);
+    expect(row).toMatchObject({ status: 'completed', answers: { b_name: 'Ada', b_plan: { choiceIds: ['c_free'] } } });
+    expect(row!.lastBlockId).not.toBe('b_extra');
+  });
 });
 
 describe('POST /sessions/uploads', () => {
@@ -545,6 +678,60 @@ describe('POST /sessions/uploads', () => {
     expect((await upload(p, session, 'b_sign', png('two.png'))).status).toBe(201);
     const rows = await db.select().from(schema.formResponseFiles);
     expect(rows.map((r) => [r.kind, r.name])).toEqual([['signature', 'two.png']]);
+  });
+
+  const pngFile = (name: string) => new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' });
+  const uploaded = async (p: ReturnType<typeof portal>, session: StartSessionResult, blockId: string, file: File) => {
+    const res = await upload(p, session, blockId, file);
+    expect(res.status).toBe(201);
+    return (await data<{ file: { fileId: string; name: string; size: number; type: string } }>(res)).file;
+  };
+
+  it('refuses an upload once the response is submitted, and leaves the submitted files alone', async () => {
+    const { publicId } = await publish(uploadDefinition());
+    const p = portal();
+    const session = await start(p, publicId);
+    const cv = await uploaded(p, session, 'b_cv', pdf('cv.pdf'));
+    const sign = await uploaded(p, session, 'b_sign', pngFile('sign.png'));
+    expect((await submit(p, session, { b_name: 'Ada', b_cv: [cv], b_sign: sign })).status).toBe(200);
+    await p.settled();
+    const submitted = await db.select().from(schema.formResponseFiles);
+
+    for (const [blockId, file] of [['b_sign', pngFile('again.png')], ['b_cv', pdf('more.pdf')]] as const) {
+      const late = await upload(p, session, blockId, file);
+      expect([late.status, (await errorOf(late)).code]).toEqual([409, 'ALREADY_SUBMITTED']);
+    }
+    expect(await db.select().from(schema.formResponseFiles)).toEqual(submitted);
+    for (const row of submitted) expect(await world.privateBucket.get(row.storageKey)).not.toBeNull();
+  });
+
+  it('stages an edit\'s files next to the submitted ones, and the edit drops the ones it replaced', async () => {
+    const definition = uploadDefinition();
+    definition.blocks = definition.blocks.map((b) => (b.id === 'b_cv' ? { ...b, properties: { ...(b as { properties: object }).properties, maxFiles: 1 } } : b)) as FormDefinition['blocks'];
+    const { form, publicId } = await publish(definition, { respondentMode: 'verified_email', allowEdit: true });
+    const p = portal();
+    const session = await verifiedSession(p, publicId, 'ed@example.com');
+    const cv = await uploaded(p, session, 'b_cv', pdf('cv.pdf'));
+    const sign = await uploaded(p, session, 'b_sign', pngFile('one.png'));
+    expect((await submit(p, session, { b_name: 'Ed', b_cv: [cv], b_sign: sign })).status).toBe(200);
+    await p.settled();
+    const submitted = await db.select().from(schema.formResponseFiles);
+    expect(submitted).toHaveLength(2);
+
+    // The field takes one file: the new one is staged next to the submitted one, which stays until the edit is in.
+    const newCv = await uploaded(p, session, 'b_cv', pdf('cv-2.pdf'));
+    const newSign = await uploaded(p, session, 'b_sign', pngFile('two.png'));
+    expect(await db.select().from(schema.formResponseFiles)).toHaveLength(4);
+    for (const row of submitted) expect(await world.privateBucket.get(row.storageKey)).not.toBeNull();
+
+    expect((await submit(p, session, { b_name: 'Ed', b_cv: [newCv], b_sign: newSign })).status).toBe(200);
+    await p.settled();
+    const rows = await db.select().from(schema.formResponseFiles);
+    expect(rows.map((r) => r.id).sort()).toEqual([newCv.fileId, newSign.fileId].sort());
+    expect(rows.every((r) => r.storageKey.startsWith(`workspaces/${ORG}/weldforms/${form.id}/${session.responseId}/`))).toBe(true);
+    for (const row of submitted) expect(await world.privateBucket.get(row.storageKey)).toBeNull();
+    const [response] = await db.select().from(schema.formResponses);
+    expect(response!.answers).toMatchObject({ b_cv: [{ fileId: newCv.fileId }], b_sign: { fileId: newSign.fileId } });
   });
 });
 
@@ -646,6 +833,42 @@ describe('POST /sessions/submit', () => {
     expect(counted).toMatchObject({ responseCount: 2, responseCounter: 2 });
   });
 
+  // The race is set up inside the TypeScript service (a tenant handle that lets the other call in).
+  itTypeScriptOnly('counts a double submit of one session once: the call that loses the race is refused', async () => {
+    const { publicId } = await publish(simpleDefinition(), { responseLimit: 5 });
+    const p = portal();
+    const session = await start(p, publicId);
+    let first: Response | undefined;
+    const late = await whileRacing(async () => void (first = await submit(p, session, { b_name: 'Ada' })), () => submit(p, session, { b_name: 'Ada' }));
+    await p.settled();
+    expect([first!.status, late.status]).toEqual([200, 409]);
+    expect((await errorOf(late)).code).toBe('ALREADY_SUBMITTED');
+    const [counted] = await db.select().from(schema.forms);
+    expect(counted).toMatchObject({ responseCount: 1, responseCounter: 1 });
+    const [row] = await db.select().from(schema.formResponses);
+    expect(row).toMatchObject({ status: 'completed', number: 1 });
+    expect(eventNames(world.sent)).toEqual(['form_response:submitted']);
+    expect(world.processed).toHaveLength(1);
+  });
+
+  itTypeScriptOnly('turns the call that loses a double submit into an edit when the form allows edits', async () => {
+    const { publicId } = await publish(simpleDefinition(), { respondentMode: 'verified_email', allowEdit: true });
+    const p = portal();
+    const session = await verifiedSession(p, publicId, 'ed@example.com');
+    world.sent.length = 0;
+    let first: Response | undefined;
+    const late = await whileRacing(async () => void (first = await submit(p, session, { b_name: 'Ed' })), () => submit(p, session, { b_name: 'Edward' }));
+    await p.settled();
+    expect([first!.status, late.status]).toEqual([200, 200]);
+    expect((await data<SubmitSessionResult>(late)).number).toBe(1);
+    const [counted] = await db.select().from(schema.forms);
+    expect(counted).toMatchObject({ responseCount: 1, responseCounter: 1 });
+    const [row] = await db.select().from(schema.formResponses);
+    expect(row).toMatchObject({ number: 1, answers: { b_name: 'Edward' } });
+    expect(eventNames(world.sent)).toEqual(['form_response:submitted', 'form_response:updated']);
+    expect(world.processed.map((r) => (r.params as { mode: string }).mode)).toEqual(['submit', 'update']);
+  });
+
   it('rejects a filled honeypot and a submission faster than a person', async () => {
     const { publicId } = await publish(simpleDefinition());
     const p = portal();
@@ -739,7 +962,36 @@ describe('POST /sessions/submit', () => {
       redirectUrl: 'https://example.com/thanks?n=Ada%20Lovelace&s=5',
       button: { text: 'More', url: 'https://example.com/a%20b' },
     });
-    expect(result.quiz).toEqual([{ fieldId: 'b_plan', correct: true, points: 5 }]);
+    expect(result.quiz).toEqual([{ fieldId: 'b_plan', correct: true, points: 5, correctAnswer: 'Pro' }]);
+  });
+
+  it('gives respondents the form without the quiz\'s answer key, and names the right answer in the result', async () => {
+    const { publicId } = await publish(quizDefinition());
+    const p = portal();
+    const form = await data<PublicForm>(await p.call(`/f/${publicId}`));
+    expect(JSON.stringify(form.definition)).not.toContain('"correct"');
+    // The scores stay: logic and {score} recall run in the browser.
+    expect((form.definition!.blocks[0] as { properties: { choices: unknown[] } }).properties.choices).toEqual([
+      { id: 'c_mercury', label: 'Mercury', score: 1 },
+      { id: 'c_mars', label: 'Mars', score: 0 },
+    ]);
+
+    const session = await start(p, publicId);
+    const result = await data<SubmitSessionResult>(
+      await submit(p, session, { b_planet: { choiceIds: ['c_mars'] }, b_rocky: { choiceIds: ['c_venus', 'c_earth'] }, b_fun: { choiceIds: ['c_yes'] } }),
+    );
+    expect(result.quiz).toEqual([
+      { fieldId: 'b_planet', correct: false, points: 0, correctAnswer: 'Mercury' },
+      { fieldId: 'b_rocky', correct: true, points: 0, correctAnswer: 'Venus, Earth' },
+      { fieldId: 'b_fun', correct: null, points: 1, correctAnswer: null },
+    ]);
+
+    // The members-only page gets the same payload.
+    const members = await publish(quizDefinition(), { respondentMode: 'members' });
+    const fill = memberApp('/api/forms/fill', fillRoutes, world, db, { userId: 'user_a', permissions: [] });
+    const filled = await data<{ form: PublicForm }>(await fill.request(`/api/forms/fill/${members.publicId}`));
+    expect(filled.form.definition).not.toBeNull();
+    expect(JSON.stringify(filled.form.definition)).not.toContain('"correct"');
   });
 });
 

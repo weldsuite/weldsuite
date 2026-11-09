@@ -141,7 +141,41 @@ pub(crate) fn closed_error(state: &str) -> Fail {
     )
 }
 
-/// `toPublicForm(env, link, entry, options)`.
+/// The `correct` mark taken off a block's choices (a group's questions too).
+fn strip_answer_key(block: &mut Value) {
+    if let Some(children) = block.get_mut("children").and_then(Value::as_array_mut) {
+        children.iter_mut().for_each(strip_answer_key);
+    }
+    let is_choice = matches!(
+        block["type"].as_str(),
+        Some("multiple_choice" | "dropdown" | "picture_choice")
+    );
+    if !is_choice {
+        return;
+    }
+    if let Some(choices) = block
+        .pointer_mut("/properties/choices")
+        .and_then(Value::as_array_mut)
+    {
+        for choice in choices.iter_mut().filter_map(Value::as_object_mut) {
+            choice.remove("correct");
+        }
+    }
+}
+
+/// `withoutAnswerKey(def)`: the definition a respondent's browser gets,
+/// without the quiz's answer key (`correct` on a choice), which the submit's
+/// result names per question instead. A choice's `score` stays: logic and
+/// `{score}` recall run in the browser.
+pub(crate) fn without_answer_key(mut definition: Value) -> Value {
+    if let Some(blocks) = definition.get_mut("blocks").and_then(Value::as_array_mut) {
+        blocks.iter_mut().for_each(strip_answer_key);
+    }
+    definition
+}
+
+/// `toPublicForm(env, link, entry, options)`: the definition only while the
+/// form is open, and without the answer key.
 pub(crate) fn to_public_form(
     env: &Env,
     link: &Link,
@@ -176,7 +210,7 @@ pub(crate) fn to_public_form(
         "state": state,
         "closedMessage": settings.closed_message,
         "versionId": version.map_or_else(|| entry.version_id.clone(), |(id, _)| Some(id.to_owned())),
-        "definition": if live { definition } else { None },
+        "definition": if live { definition.map(without_answer_key) } else { None },
         "theme": entry.theme,
         "respondentMode": settings.respondent_mode,
         "onePerRespondent": settings.one_per_respondent,

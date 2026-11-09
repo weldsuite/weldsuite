@@ -639,6 +639,43 @@ describe('automatic reminders', () => {
     expect(after!.nextReminderAt!.getTime()).toBe(at.getTime() + 6 * 60 * 60 * 1000);
     expect(sentMail()).toHaveLength(1);
   });
+
+  itTypeScriptOnly('tries a reminder whose mail did not go out again later, and keeps no link for it', async () => {
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    const { form } = await publish();
+    await invite(form.id, { recipients: { emails: [{ email: 'ann@example.com' }, { email: 'bob@example.com' }] }, reminders: { afterDays: 1, everyDays: 2, maxCount: 3 } });
+    const invited = await rows();
+    const links = async (email: string) =>
+      (await master.select().from(masterSchema.formInvitationRegistry).where(eq(masterSchema.formInvitationRegistry.invitationId, invited.find((r) => r.email === email)!.id))).length;
+    const real = mail.transport!;
+    const flaky = { ...real, send: async (email: Parameters<typeof real.send>[0]) => (email.to[0]!.email === 'bob@example.com' ? Promise.reject(new Error('rejected')) : real.send(email)) };
+    mail.transport = flaky as unknown as typeof mail.transport;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const at = new Date(invited[0]!.nextReminderAt!.getTime() + 1000);
+      expect(await remindersSweep(at)).toMatchObject({ processed: 1, reminded: 1 });
+      const [ann, bob] = await rows();
+      expect(ann!.remindersSent).toBe(1);
+      expect(ann!.nextReminderAt!.getTime()).toBe(at.getTime() + 2 * DAY);
+      expect(bob!.remindersSent).toBe(0);
+      expect(bob!.nextReminderAt!.getTime()).toBe(at.getTime() + SIX_HOURS);
+      expect([await links('ann@example.com'), await links('bob@example.com')]).toEqual([2, 1]);
+
+      // Not picked up again on the next tick, and no transport at all adds no link either.
+      await remindersSweep(new Date(at.getTime() + 15 * 60 * 1000));
+      mail.transport = null;
+      const later = new Date(at.getTime() + SIX_HOURS + 1000);
+      await remindersSweep(later);
+      expect(await links('bob@example.com')).toBe(1);
+      const [, retried] = await rows();
+      expect(retried!.remindersSent).toBe(0);
+      expect(retried!.nextReminderAt!.getTime()).toBe(later.getTime() + SIX_HOURS);
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('the code email', () => {

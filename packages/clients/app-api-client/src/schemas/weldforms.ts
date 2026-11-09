@@ -938,7 +938,21 @@ export const submitSessionResultSchema = z.object({
   }),
   score: z.number(),
   /** Only when the ending shows answers. */
-  quiz: z.array(z.object({ fieldId: z.string(), correct: z.boolean().nullable(), points: z.number() })).nullable(),
+  quiz: z
+    .array(
+      z.object({
+        fieldId: z.string(),
+        correct: z.boolean().nullable(),
+        points: z.number(),
+        /**
+         * The labels of the question's correct choices, joined with ', '; null
+         * when none is marked. The public definition leaves `correct` out, so
+         * the review on the ending reads the right answer from here.
+         */
+        correctAnswer: z.string().nullable(),
+      }),
+    )
+    .nullable(),
 });
 export type SubmitSessionResult = z.infer<typeof submitSessionResultSchema>;
 

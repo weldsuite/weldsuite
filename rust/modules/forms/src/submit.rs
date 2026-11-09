@@ -261,9 +261,45 @@ pub(crate) struct Submitted {
     pub(crate) result: Value,
 }
 
-/// `submitResponse(args)`.
-#[allow(clippy::too_many_lines)] // the worker's steps, in its order
+fn already_submitted() -> Fail {
+    forms_error(409, "ALREADY_SUBMITTED", "This form was already submitted.")
+}
+
+/// The completed response's columns, on insert and on update alike. A new
+/// response's upsert is its claim (`CLAIM_GUARD`).
+const UPSERT_RESPONSE: &str = "insert into form_responses (id, form_id, version_id, number, status, answers, hidden, variables, \
+     ending_id, score, respondent_email, respondent_user_id, respondent_hash, invitation_id, last_block_id, \
+     answered_count, search_text, metadata, ip_hash, started_at, submitted_at, duration_ms, updated_at, person_id) \
+     values ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
+     $19::timestamptz, $20::timestamptz, $21, $20::timestamptz, $22) \
+     on conflict (id) do update set form_id = excluded.form_id, version_id = excluded.version_id, \
+     number = excluded.number, status = excluded.status, answers = excluded.answers, hidden = excluded.hidden, \
+     variables = excluded.variables, ending_id = excluded.ending_id, score = excluded.score, \
+     respondent_email = excluded.respondent_email, respondent_user_id = excluded.respondent_user_id, \
+     respondent_hash = excluded.respondent_hash, invitation_id = excluded.invitation_id, \
+     last_block_id = excluded.last_block_id, answered_count = excluded.answered_count, \
+     search_text = excluded.search_text, metadata = excluded.metadata, ip_hash = excluded.ip_hash, \
+     submitted_at = excluded.submitted_at, duration_ms = excluded.duration_ms, updated_at = excluded.updated_at, \
+     person_id = excluded.person_id";
+
+/// A new response is only written while it is not completed: of two submits
+/// of one response (a double click), one gets past it.
+const CLAIM_GUARD: &str = " where form_responses.status <> 'completed'";
+
+/// `submitResponse(args)`: a call that loses the race to a submit of the
+/// same response runs once more, now on the completed response: as an
+/// edit, or refused.
 pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsResult<Submitted> {
+    if let Some(submitted) = submit_once(ctx, &args).await? {
+        return Ok(submitted);
+    }
+    submit_once(ctx, &args).await?.ok_or_else(already_submitted)
+}
+
+/// One attempt at the submit; `None` when another call completed the
+/// response after this one read it.
+#[allow(clippy::too_many_lines)] // the worker's steps, in its order
+async fn submit_once(ctx: &Ctx, args: &SubmitArgs<'_>) -> FormsResult<Option<Submitted>> {
     let now_ms = ctx.now_ms();
     let now = iso(now_ms);
     let form = args.form;
@@ -285,11 +321,7 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
     if edited
         && !(settings.allow_edit && (identity.email.is_some() || identity.invitation_id.is_some()))
     {
-        return Err(forms_error(
-            409,
-            "ALREADY_SUBMITTED",
-            "This form was already submitted.",
-        ));
+        return Err(already_submitted());
     }
     assert_accepting(ctx, form, edited, now_ms).await?;
     if !edited && settings.one_per_respondent {
@@ -422,17 +454,12 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
         .filter(|f| !used.contains(text(f, "id")))
         .collect();
 
-    // 4b. The number, then one transaction.
-    let number = if let Some(number) = existing.as_ref().and_then(|e| e["number"].as_i64()) {
-        number
+    // 4b. One transaction: an edit rewrites the response under its number; a
+    // new one is claimed first and numbered last.
+    let kept_number = if edited {
+        existing.as_ref().and_then(|e| e["number"].as_i64())
     } else {
-        let counter: Option<i32> = sqlx::query_scalar(
-            "update forms set response_counter = response_counter + 1 where id = $1 returning response_counter",
-        )
-        .bind(&form_id)
-        .fetch_optional(&ctx.db)
-        .await?;
-        counter.map_or(1, i64::from)
+        None
     };
     // An invited CRM person: the response is theirs (the CRM Forms tab lists it by `personId`).
     let invited_person_id: Option<String> = match &identity.invitation_id {
@@ -493,26 +520,14 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
     let duration = (now_ms - started_ms).max(0);
 
     let mut tx = ctx.db.begin().await?;
-    sqlx::query(
-        "insert into form_responses (id, form_id, version_id, number, status, answers, hidden, variables, \
-         ending_id, score, respondent_email, respondent_user_id, respondent_hash, invitation_id, last_block_id, \
-         answered_count, search_text, metadata, ip_hash, started_at, submitted_at, duration_ms, updated_at, person_id) \
-         values ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
-         $19::timestamptz, $20::timestamptz, $21, $20::timestamptz, $22) \
-         on conflict (id) do update set form_id = excluded.form_id, version_id = excluded.version_id, \
-         number = excluded.number, status = excluded.status, answers = excluded.answers, hidden = excluded.hidden, \
-         variables = excluded.variables, ending_id = excluded.ending_id, score = excluded.score, \
-         respondent_email = excluded.respondent_email, respondent_user_id = excluded.respondent_user_id, \
-         respondent_hash = excluded.respondent_hash, invitation_id = excluded.invitation_id, \
-         last_block_id = excluded.last_block_id, answered_count = excluded.answered_count, \
-         search_text = excluded.search_text, metadata = excluded.metadata, ip_hash = excluded.ip_hash, \
-         submitted_at = excluded.submitted_at, duration_ms = excluded.duration_ms, updated_at = excluded.updated_at, \
-         person_id = excluded.person_id",
-    )
+    let guard = if edited { "" } else { CLAIM_GUARD };
+    let claimed: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "{UPSERT_RESPONSE}{guard} returning id"
+    )))
     .bind(args.response_id)
     .bind(&form_id)
     .bind(text(args.version, "id"))
-    .bind(i32::try_from(number).unwrap_or(i32::MAX))
+    .bind(kept_number.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
     .bind(Json(Value::Object(answers.clone())))
     .bind(Json(Value::Object(hidden.clone())))
     .bind(Json(Value::Object(variables.clone())))
@@ -531,8 +546,12 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
     .bind(&now)
     .bind(i32::try_from(duration).unwrap_or(i32::MAX))
     .bind(&person_id)
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    if claimed.is_none() {
+        tx.rollback().await?;
+        return Ok(None);
+    }
     for (id, _, to) in &moves {
         sqlx::query("update form_response_files set storage_key = $2 where id = $1")
             .bind(id)
@@ -547,15 +566,25 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
             .execute(&mut *tx)
             .await?;
     }
-    if !edited {
-        sqlx::query(
-            "update forms set response_count = response_count + 1, last_response_at = $2::timestamptz where id = $1",
+    let number = if edited {
+        kept_number.unwrap_or(0)
+    } else {
+        let counter: Option<i32> = sqlx::query_scalar(
+            "update forms set response_counter = response_counter + 1, response_count = response_count + 1, \
+             last_response_at = $2::timestamptz where id = $1 returning response_counter",
         )
         .bind(&form_id)
         .bind(&now)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-    }
+        let number = counter.map_or(1, i64::from);
+        sqlx::query("update form_responses set number = $2 where id = $1")
+            .bind(args.response_id)
+            .bind(i32::try_from(number).unwrap_or(i32::MAX))
+            .execute(&mut *tx)
+            .await?;
+        number
+    };
     if let Some(invitation) = &identity.invitation_id {
         sqlx::query(
             "update form_invitations set status = 'completed', completed_at = $2::timestamptz, response_id = $3, \
@@ -662,9 +691,22 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
         });
     }
 
-    let quiz = serde_json::to_value(&result.quiz).unwrap_or(Value::Null);
+    let quiz = Value::Array(
+        result
+            .quiz
+            .iter()
+            .map(|item| {
+                json!({
+                    "fieldId": item.field_id,
+                    "correct": item.correct,
+                    "points": crate::engine::js::number_value(item.points),
+                    "correctAnswer": correct_answer_of(&def, &item.field_id),
+                })
+            })
+            .collect(),
+    );
     let engine_variables = variables;
-    Ok(Submitted {
+    Ok(Some(Submitted {
         result: build_result(
             &def,
             &result.ending_id,
@@ -676,7 +718,24 @@ pub(crate) async fn submit_response(ctx: &Ctx, args: SubmitArgs<'_>) -> FormsRes
             result.score,
             &quiz,
         ),
-    })
+    }))
+}
+
+/// `correctAnswerOf(def, fieldId)`: the right answer of a quiz question, for
+/// the review on the ending: the labels of its correct choices, joined;
+/// `None` when none is marked. The public definition leaves `correct` out.
+fn correct_answer_of(def: &FormDefinition, field_id: &str) -> Option<String> {
+    let field = fields_of(def).into_iter().find(|f| f.id == field_id)?;
+    if !field.kind.is_choice() {
+        return None;
+    }
+    let labels: Vec<&str> = field
+        .choices()
+        .iter()
+        .filter(|choice| choice.correct == Some(true))
+        .map(|choice| choice.label.as_str())
+        .collect();
+    (!labels.is_empty()).then(|| labels.join(", "))
 }
 
 /// A response row of a form by id (`existing`), for the routes.

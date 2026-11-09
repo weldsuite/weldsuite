@@ -456,12 +456,15 @@ pub(crate) async fn save_progress(
             .push(", answered_count = ")
             .push_bind(i32::try_from(valid.len()).unwrap_or(i32::MAX));
     }
+    // A save still in flight when the submit commits must not overwrite the
+    // completed answers.
     q.push(", metadata = metadata || ")
         .push_bind(Json(timings_patch))
         .push(", updated_at = ")
         .push_bind(now.clone())
         .push("::timestamptz where id = ")
-        .push_bind(session.resp.clone());
+        .push_bind(session.resp.clone())
+        .push(" and status = 'in_progress'");
     q.build().execute(&ctx.db).await?;
     mark_invitation_started(ctx, session, &now).await
 }
@@ -524,11 +527,46 @@ pub(crate) struct UploadedFile {
     pub(crate) bytes: Vec<u8>,
 }
 
-/// What an upload is bound to: the response, its form and version.
+/// What an upload is bound to: the response, its form and version, and who
+/// the respondent is (a verified email or an invitation may edit a completed
+/// response when the form allows it).
 pub(crate) struct UploadTarget<'a> {
     pub(crate) response: &'a str,
     pub(crate) form: &'a str,
     pub(crate) version: &'a str,
+    pub(crate) email: Option<&'a str>,
+    pub(crate) invitation: Option<&'a str>,
+}
+
+/// `assertTakesUploads(ctx, session)`: 409 `ALREADY_SUBMITTED` once the
+/// response is completed, unless the respondent may edit it, as the submit
+/// decides.
+async fn assert_takes_uploads(ctx: &Ctx, target: &UploadTarget<'_>) -> FormsResult<()> {
+    let response: Option<(String, Option<String>)> =
+        sqlx::query_as("select status, invitation_id from form_responses where id = $1 limit 1")
+            .bind(target.response)
+            .fetch_optional(&ctx.db)
+            .await?;
+    let Some((status, invitation_id)) = response else {
+        return Ok(());
+    };
+    if status != "completed" {
+        return Ok(());
+    }
+    let form = crate::access::form_row(&ctx.db, target.form).await?;
+    let identified = target.email.is_some_and(|e| !e.is_empty())
+        || target.invitation.is_some_and(|i| !i.is_empty())
+        || invitation_id.is_some_and(|i| !i.is_empty());
+    let editable =
+        form.is_some_and(|form| crate::model::FormSettings::parse(&form["settings"]).allow_edit);
+    if editable && identified {
+        return Ok(());
+    }
+    Err(forms_error(
+        409,
+        "ALREADY_SUBMITTED",
+        "This form was already submitted.",
+    ))
 }
 
 /// `name.replace(/[\u0000-\u001f/\\]+/g, '_').slice(0, 255)`.
@@ -565,6 +603,7 @@ pub(crate) async fn upload_file(
         UPLOADS_PER_SESSION_PER_MINUTE,
     )
     .await?;
+    assert_takes_uploads(ctx, target).await?;
     let version = load_version(ctx, target.form, target.version).await?;
     let def = definition_of(&version)?;
     let Some(field) = fields_of(&def)
@@ -630,13 +669,19 @@ pub(crate) async fn upload_file(
         .files
         .clone()
         .ok_or_else(|| Fail::Internal("forms: no private bucket".to_owned()))?;
-    let existing: Vec<(String, String)> = sqlx::query_as(
+    // Only the files staged since the last submit count (`makeRoom`): an
+    // edit's new files sit next to the submitted ones, which the submit drops
+    // once the answers no longer name them.
+    let existing: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>(
         "select id, storage_key from form_response_files where response_id = $1 and block_id = $2",
     )
     .bind(target.response)
     .bind(&field.id)
     .fetch_all(&ctx.db)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|(_, key)| key.starts_with(crate::submit::PENDING_PREFIX))
+    .collect();
     if is_signature {
         if !existing.is_empty() {
             let ids: Vec<String> = existing.iter().map(|(id, _)| id.clone()).collect();

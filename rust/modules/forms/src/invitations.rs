@@ -34,7 +34,8 @@ use crate::usage::load_usage;
 
 const HOUR_MS: i64 = 60 * 60 * 1000;
 const DAY_MS: i64 = 24 * HOUR_MS;
-/// After the guard refuses a reminder, the sweep tries again later.
+/// After the guard refuses a reminder, or its mail could not be sent, the
+/// sweep tries again later.
 const REFUSED_RETRY_MS: i64 = 6 * HOUR_MS;
 /// `FORM_LIMITS.maxInvitationsPerBatch`.
 pub(crate) const MAX_INVITATIONS_PER_BATCH: usize = 500;
@@ -108,6 +109,26 @@ async fn register_token(
     .bind(&ctx.clerk_org_id)
     .bind(form_id)
     .bind(invitation_id)
+    .execute(ctx.master()?)
+    .await?;
+    Ok(())
+}
+
+/// `forgetTokens(ctx, tokens)`: takes tokens out of the registry again,
+/// their links were never sent.
+async fn forget_tokens(ctx: &Ctx, tokens: &[&String]) -> FormsResult<()> {
+    if tokens.is_empty() {
+        return Ok(());
+    }
+    let hashes: Vec<String> = tokens
+        .iter()
+        .map(|token| sha256_hex(token.as_bytes()))
+        .collect();
+    sqlx::query(
+        "delete from form_invitation_registry where workspace_id = $1 and token_hash = any($2)",
+    )
+    .bind(&ctx.workspace_id)
+    .bind(&hashes)
     .execute(ctx.master()?)
     .await?;
     Ok(())
@@ -826,6 +847,15 @@ async fn remind_batch(
         .collect();
     let sent_emails: Vec<String> = sent.iter().map(|r| text(r, "email").to_owned()).collect();
     settle_outbound_mail(ctx, &guard, &reservation, &sent_emails, rows.len()).await;
+    // A link whose mail did not go out is not kept: nobody has it, and a
+    // retry mints its own.
+    let unsent: Vec<&String> = rows
+        .iter()
+        .zip(&tokens)
+        .filter(|(row, _)| !sent_to.contains(&text(row, "email").to_lowercase()))
+        .map(|(_, token)| token)
+        .collect();
+    forget_tokens(ctx, &unsent).await?;
 
     let mut next_any: Option<i64> = None;
     for row in &sent {
@@ -1009,18 +1039,26 @@ pub(crate) async fn send_due_reminders(
             .await?;
             continue;
         };
-        let (outcome, refused) = remind_batch(ctx, &form, &rows, None, now).await?;
-        reminded.extend(outcome.reminded);
-        if refused {
+        let (outcome, _) = remind_batch(ctx, &form, &rows, None, now).await?;
+        // Refused by the guard or not sent (the provider said no, or no
+        // transport): tried again later, not on every tick, and with nothing
+        // kept from this attempt.
+        let done: HashSet<&str> = outcome.reminded.iter().map(|r| text(r, "id")).collect();
+        let unsent: Vec<&String> = ids
+            .iter()
+            .filter(|id| !done.contains(id.as_str()))
+            .collect();
+        if !unsent.is_empty() {
             sqlx::query(
                 "update form_invitations set next_reminder_at = $2::timestamptz, updated_at = $3::timestamptz where id = any($1)",
             )
-            .bind(&ids)
+            .bind(&unsent)
             .bind(iso(now + REFUSED_RETRY_MS))
             .bind(iso(now))
             .execute(&ctx.db)
             .await?;
         }
+        reminded.extend(outcome.reminded);
     }
     let upcoming: Option<String> = sqlx::query_scalar(
         "select to_char(min(next_reminder_at) at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \

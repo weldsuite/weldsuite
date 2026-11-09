@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! GET  /f/:publicId             the published form, state and bot-check settings (from the cache)
-//! POST /f/:publicId/view        counts a view
+//! POST /f/:publicId/view        counts a view (rate limited per IP)
 //! POST /f/:publicId/sessions    starts or resumes a response
 //! POST /f/:publicId/send-code   emails a 6-digit code (verified-email forms)
 //! POST /f/:publicId/verify      checks the code, answers a verification token
@@ -66,6 +66,9 @@ const RESPONDENT_COUNTRY_HEADER: &str = "x-respondent-country";
 const SUBMITS_PER_FORM_PER_MINUTE: i64 = 120;
 const CODES_PER_IP_PER_MINUTE: i64 = 5;
 const REPORTS_PER_IP_PER_MINUTE: i64 = 5;
+/// Views one address counts per form per minute: an office behind one
+/// address opens a form many times, a script far more.
+const VIEWS_PER_IP_PER_MINUTE: i64 = 30;
 
 /// `/public/forms`, outside the member pipeline, behind the portal's key.
 pub fn public_router<S>(state: FormsState) -> Router<S>
@@ -308,8 +311,17 @@ async fn view(
         async {
             let view_key = input::json(&headers, &body, input::record_view)?;
             let link = resolve_link(portal.master()?, &public_id).await?;
-            let counted = portal
-                .counters(&link.form_id)
+            let counters = portal.counters(&link.form_id);
+            // The view key is the browser's own choice: without a limit a
+            // script could count views at will.
+            let ip_hash = portal.ip_hash().unwrap_or(None);
+            rate_limited(
+                &counters,
+                &format!("view:{}", ip_hash.as_deref().unwrap_or("unknown")),
+                VIEWS_PER_IP_PER_MINUTE,
+            )
+            .await?;
+            let counted = counters
                 .record_view(&today(portal.now_ms()), &view_key)
                 .await?;
             Ok(Data(json!({ "counted": counted })).into_response())
@@ -540,6 +552,8 @@ async fn uploads(portal: Portal, request: Request) -> Response {
                 response: &session.resp,
                 form: &session.form,
                 version: &session.ver,
+                email: session.email.as_deref(),
+                invitation: session.inv.as_deref(),
             };
             let uploaded = upload_file(
                 &ctx,
