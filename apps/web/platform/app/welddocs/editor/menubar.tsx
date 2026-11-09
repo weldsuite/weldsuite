@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +64,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
   };
 
   return (
-    <div className="-ml-1 flex items-center text-sm" role="menubar">
+    <div className="flex shrink-0 items-center gap-0.5" role="menubar">
       <TopMenu label={tm.file}>
         <Item onSelect={() => navigate({ to: home }).catch(() => undefined)}>{tm.openHome}</Item>
         {onRename && !ro && <Item onSelect={onRename}>{tm.rename}</Item>}
@@ -315,9 +316,9 @@ function TopMenu({ label, children }: { label: string; children: ReactNode }) {
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="rounded px-1.5 py-0.5 hover:bg-accent data-[state=open]:bg-accent" onMouseDown={(e) => e.preventDefault()}>
+        <Button variant="ghost" size="sm" className="px-2.5 font-normal data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50" onMouseDown={(e) => e.preventDefault()}>
           {label}
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={(e) => e.preventDefault()}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>{children}</CloseMenuContext.Provider>
