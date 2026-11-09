@@ -85,6 +85,8 @@ const START_APPS = [
   // and the lockfile, which the path filter cannot follow.
   { app: 'sign-portal', name: 'Sign portal', filter: 'sign-portal', alsoWithModule: 'sign-api' },
   { app: 'project-portal', name: 'Project portal', filter: 'project-portal' },
+  // Calls forms-api over the FORMS_API service binding; bundles the embed SDK as /embed.js.
+  { app: 'forms-portal', name: 'Forms portal', filter: 'forms-portal' },
   // Switched on per environment by ADMIN_WORKER_ENVS. Until it names an
   // environment, that environment's console stays on Vercel (apps/web/admin/README.md).
   { app: 'admin', name: 'Admin console', filter: 'admin', adminWorkerEnvsOnly: true },

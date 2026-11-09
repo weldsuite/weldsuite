@@ -33,6 +33,7 @@ on:
       - 'apps/web/helpcenter/**'
       - 'apps/web/sign-portal/**'
       - 'apps/web/project-portal/**'
+      - 'apps/web/forms-portal/**'
       - 'apps/web/admin/**'
       # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
       - 'apps/web/api-docs/**'

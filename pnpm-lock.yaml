@@ -3271,6 +3271,94 @@ importers:
         specifier: 0.35.5
         version: 0.35.5(@types/node@24.10.6)
 
+  apps/web/forms-portal:
+    dependencies:
+      '@fontsource-variable/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@tanstack/react-router':
+        specifier: ^1.170.46
+        version: 1.170.46(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@tanstack/react-start':
+        specifier: ^1.169.4
+        version: 1.169.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rolldown@1.2.15)(rollup@4.64.12)(vite@8.3.5(@types/node@20.19.43)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))(webpack@5.105.4(lightningcss@1.33.0))
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
+      '@weldsuite/forms-embed':
+        specifier: workspace:*
+        version: link:../../../packages/sdk/forms-embed
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/forms-engine
+      '@weldsuite/forms-renderer':
+        specifier: workspace:*
+        version: link:../../../packages/design/forms-renderer
+      '@weldsuite/i18n':
+        specifier: workspace:*
+        version: link:../../../packages/core/i18n
+      '@weldsuite/ui':
+        specifier: workspace:*
+        version: link:../../../packages/design/ui
+      lucide-react:
+        specifier: ^0.544.0
+        version: 0.544.0(react@19.2.3)
+      react:
+        specifier: 19.2.3
+        version: 19.2.3
+      react-dom:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.3)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/vite-plugin':
+        specifier: ^1.65.0
+        version: 1.65.0(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vite@8.3.5(@types/node@20.19.43)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))(workerd@1.20261019.1)(wrangler@4.152.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.5(@types/node@20.19.43)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.7)
+      '@vitejs/plugin-react':
+        specifier: ^6.1.2
+        version: 6.1.2(babel-plugin-react-compiler@1.0.0)(vite@8.3.5(@types/node@20.19.43)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      '@weldsuite/eslint-config':
+        specifier: workspace:*
+        version: link:../../../packages/config/eslint-config
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../../packages/config/typescript-config
+      eslint:
+        specifier: ^9.32.0
+        version: 9.39.2(jiti@2.7.0)
+      tailwindcss:
+        specifier: ^4.1.11
+        version: 4.3.3
+      typescript:
+        specifier: ^5
+        version: 5.9.2
+      vite:
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      wrangler:
+        specifier: ^4.152.0
+        version: 4.152.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+
   apps/web/helpcenter:
     dependencies:
       '@fontsource-variable/inter':
@@ -3882,6 +3970,12 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/forms-engine
+      '@weldsuite/forms-renderer':
+        specifier: workspace:*
+        version: link:../../../packages/design/forms-renderer
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
@@ -5913,6 +6007,88 @@ importers:
         specifier: ^4.95.0
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
+  apps/workers/forms-api:
+    dependencies:
+      '@hono/zod-validator':
+        specifier: ^0.4.0
+        version: 0.4.3(hono@4.13.13)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
+      '@weldsuite/crm-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/crm
+      '@weldsuite/db':
+        specifier: workspace:*
+        version: link:../../../packages/core/db
+      '@weldsuite/desk-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/desk
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
+      '@weldsuite/entity-events':
+        specifier: workspace:*
+        version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
+      '@weldsuite/forms-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/forms
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/forms-engine
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
+      '@weldsuite/permissions':
+        specifier: workspace:*
+        version: link:../../../packages/core/permissions
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
+      '@weldsuite/zip-xml':
+        specifier: workspace:*
+        version: link:../../../packages/core/zip-xml
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      typescript:
+        specifier: ^5.7
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      wrangler:
+        specifier: ^4.95.0
+        version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+
   apps/workers/helpdesk-widget-api:
     dependencies:
       '@hono/zod-validator':
@@ -7113,6 +7289,12 @@ importers:
       '@weldsuite/flow-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/flow
+      '@weldsuite/forms-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/forms
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/forms-engine
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications
@@ -7511,6 +7693,9 @@ importers:
       '@weldsuite/api-client':
         specifier: workspace:*
         version: link:../api-client
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../core/forms-engine
       '@weldsuite/text':
         specifier: workspace:*
         version: link:../../core/text
@@ -8074,6 +8259,25 @@ importers:
         specifier: ^5.9.2
         version: 5.9.2
 
+  packages/core/forms-engine:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@26.2.0)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+
   packages/core/i18n:
     devDependencies:
       '@types/react':
@@ -8488,6 +8692,49 @@ importers:
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@26.2.0)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+
+  packages/design/forms-renderer:
+    dependencies:
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../core/forms-engine
+      lucide-react:
+        specifier: ^0.544.0
+        version: 0.544.0(react@19.2.3)
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.2(@testing-library/dom@10.4.0)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.7)
+      '@weldsuite/eslint-config':
+        specifier: workspace:*
+        version: link:../../config/eslint-config
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      eslint:
+        specifier: ^9.32.0
+        version: 9.39.2(jiti@2.7.0)
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+      react:
+        specifier: 19.2.3
+        version: 19.2.3
+      react-dom:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.3)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   packages/design/mobile-ui:
     dependencies:
@@ -9368,6 +9615,37 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
+  packages/domains/forms:
+    dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../clients/app-api-client
+      '@weldsuite/db':
+        specifier: workspace:*
+        version: link:../../core/db
+      '@weldsuite/forms-engine':
+        specifier: workspace:*
+        version: link:../../core/forms-engine
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../core/worker-kit
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+
   packages/domains/host:
     dependencies:
       '@weldsuite/cloudflare-registrar':
@@ -9767,6 +10045,24 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.2
+
+  packages/sdk/forms-embed:
+    devDependencies:
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vite:
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   packages/sdk/helpdesk-widget-sdk:
     dependencies:

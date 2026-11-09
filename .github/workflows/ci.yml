@@ -239,6 +239,16 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # The WeldForms respondent portal's Node container (ADR FORMS-002).
+      - name: Build the forms portal's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: forms-portal
+          load: true
+          tags: weldsuite-forms-portal:dev
+          cache-from: type=gha,scope=rust-image
       # The staff admin console's Node container (ADR FE-018).
       - name: Build the admin console's image
         uses: docker/build-push-action@v6
