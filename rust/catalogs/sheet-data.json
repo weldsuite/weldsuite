@@ -79,7 +79,8 @@
     "tasks",
     "products",
     "orders",
-    "invoices"
+    "invoices",
+    "form_responses"
   ],
   "objects": {
     "companies": {
@@ -166,6 +167,39 @@
         }
       ],
       "permission": "companies:read"
+    },
+    "form_responses": {
+      "fields": [
+        {
+          "key": "number",
+          "type": "number"
+        },
+        {
+          "key": "submittedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "respondentEmail",
+          "type": "text"
+        },
+        {
+          "key": "startedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "score",
+          "type": "number"
+        },
+        {
+          "key": "durationSeconds",
+          "type": "number"
+        },
+        {
+          "key": "personId",
+          "type": "text"
+        }
+      ],
+      "permission": "form_responses:read"
     },
     "invoices": {
       "fields": [

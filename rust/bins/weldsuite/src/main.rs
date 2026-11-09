@@ -15,6 +15,8 @@ mod conformance_books;
 #[cfg(feature = "conformance")]
 mod conformance_files;
 #[cfg(feature = "conformance")]
+mod conformance_forms;
+#[cfg(feature = "conformance")]
 mod conformance_kv;
 #[cfg(feature = "conformance")]
 mod conformance_mail;
@@ -64,7 +66,7 @@ commands:
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
-             moneybird-push, merge-digest-sweep
+             moneybird-push, merge-digest-sweep, forms-reminders, forms-digest
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue

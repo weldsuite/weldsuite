@@ -64,6 +64,7 @@ weldsuite-mail-inbound = { workspace = true }
 weldsuite-mta = { workspace = true }
 weldsuite-meet = { workspace = true }
 weldsuite-merge = { workspace = true }
+weldsuite-forms = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }

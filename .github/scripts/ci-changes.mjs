@@ -116,6 +116,8 @@ const RUST_PATHS = [
   'rust/',
   'scripts/rust-',
   'packages/core/db/drizzle/',
+  // The WeldForms engine's fixtures are also run by rust/modules/forms (ADR FORMS-003).
+  'packages/core/forms-engine/',
   'apps/workers/docs-api/src/room/',
   'apps/workers/docs-api/src/engine-ops',
   'apps/workers/sheets-api/src/room/',

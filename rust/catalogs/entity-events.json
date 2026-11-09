@@ -394,12 +394,44 @@
     "shared",
     "unshared"
   ],
+  "form": [
+    "created",
+    "updated",
+    "deleted",
+    "published",
+    "closed"
+  ],
   "form_1099_filing": [
     "created",
     "updated",
     "deleted",
     "generated",
     "filed"
+  ],
+  "form_folder": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "form_integration": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "form_invitation": [
+    "sent",
+    "completed",
+    "revoked"
+  ],
+  "form_response": [
+    "submitted",
+    "updated",
+    "deleted"
+  ],
+  "form_theme": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "fx_rate": [
     "created",

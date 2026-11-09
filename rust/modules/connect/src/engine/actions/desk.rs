@@ -140,6 +140,7 @@ pub(super) async fn create_conversation(
             name: text(inputs.get("name")).or_else(|| text(inputs.get("customerName"))),
             email: text(inputs.get("email")).or_else(|| text(inputs.get("customerEmail"))),
             contact_id: text(inputs.get("contactId")),
+            attachments: None,
             metadata,
         },
         ..OpenConversation::default()

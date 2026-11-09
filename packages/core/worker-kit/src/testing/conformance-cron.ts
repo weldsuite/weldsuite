@@ -23,6 +23,11 @@
  * leaves `dueIndex`, `kv` and `masterDb` out and passes what it runs with
  * as `input`; its result carries what the test checks (the notices sent,
  * the markers afterwards).
+ *
+ * The job's buckets and outbound-guard ledgers are the test's, served over
+ * HTTP like a request's (`files`, `ledgers`): Rust reads and writes the
+ * same objects (WeldForms' integration steps copy a response's uploads) and
+ * asks the same ledger stub. Its KV stays its own seed scope, as above.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -42,6 +47,8 @@ import {
   type PGliteClient,
 } from './conformance';
 import { createMailCollector, mailRecord } from './conformance-mail';
+import { bucketUrls } from './bucket-bridge';
+import { ledgerUrls, takeRustLedgerCalls } from './ledger-bridge';
 
 /** The part of a D1 binding the comparison reads. */
 interface D1Like {
@@ -52,7 +59,16 @@ interface D1Like {
 
 export interface ConformanceSweep<R> {
   /** The job as the Rust server names it: `/__conformance/cron/<job>`. */
-  job: 'sign-lifecycle' | 'calendar-replan' | 'desk-sla-sweep' | 'books-tax-reminders' | 'flow-approval-due';
+  job:
+    | 'sign-lifecycle'
+    | 'calendar-replan'
+    | 'desk-sla-sweep'
+    | 'books-tax-reminders'
+    | 'flow-approval-due'
+    // WeldForms: the invitation reminder and digest sweeps, and one ProcessResponse run (`input`: its params and steps).
+    | 'forms-reminders'
+    | 'forms-digest'
+    | 'forms-process-response';
   now: Date;
   tenantDb: Database;
   /** The master database, for a job that keeps a due index. */
@@ -116,6 +132,16 @@ function eventShape(event: Record<string, unknown>) {
   };
 }
 
+/**
+ * Events sorted by their normalised form: both runtimes publish fire and
+ * forget, so a tick's events (one per reminded invitation, say) reach the
+ * bus in either order, as a request's do.
+ */
+function byContent(events: unknown): unknown {
+  if (!Array.isArray(events)) return events;
+  return [...events].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 async function dueTimes(opts: ConformanceSweep<unknown>, master: PGliteClient | null) {
   if (!opts.dueIndex || !master) return { typescript: [], rust: [] };
   const d1 = await opts.dueIndex.d1
@@ -163,6 +189,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
         databaseUrl: await databaseUrlFor(tenant),
         ...(master ? { masterDatabaseUrl: await databaseUrlFor(master) } : {}),
         env: forwardedEnv(opts.env),
+        files: (await bucketUrls(opts.env)) ?? {},
+        ledgers: (await ledgerUrls(opts.env)) ?? {},
         workspaces: opts.workspaces,
         ...(opts.kv ? { seedScope: seedScope(opts.kv) } : {}),
         seeded: opts.seeded ?? false,
@@ -172,6 +200,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);
     rust = (await response.json()) as R;
     rustSide = await rustSideEffects(target);
+    // Rust's calls to the test's ledgers belong to this job, not to the next request's comparison.
+    takeRustLedgerCalls();
     typescript = await opts.runTypeScript(clone.db);
     tsMail = mail.take();
     tsEvents = opts.takeTypeScriptEvents();
@@ -184,8 +214,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   const difference =
     firstDifference(picked, rust, '$result') ??
     firstDifference(
-      normalizeForDiff(tsEvents.map(eventShape), true),
-      normalizeForDiff((rustSide.effects.events as Array<Record<string, unknown>>).map(eventShape), true),
+      byContent(normalizeForDiff(tsEvents.map(eventShape), true)),
+      byContent(normalizeForDiff((rustSide.effects.events as Array<Record<string, unknown>>).map(eventShape), true)),
       '$events',
     ) ??
     firstDifference(

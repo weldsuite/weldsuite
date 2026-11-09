@@ -319,6 +319,7 @@ async fn open_conversation(
             name: opt_text(body, "name"),
             email: opt_text(body, "email"),
             contact_id: opt_text(body, "contactId"),
+            attachments: None,
             metadata: Map::new(),
         },
         fields: open_fields(
@@ -556,6 +557,7 @@ async fn open_ticket(State(state): S, caller: Caller, headers: HeaderMap, body: 
             name: opt_text(body, "customerName"),
             email: opt_text(body, "customerEmail"),
             contact_id: opt_text(body, "contactId"),
+            attachments: None,
             metadata,
         },
         fields: open_fields(

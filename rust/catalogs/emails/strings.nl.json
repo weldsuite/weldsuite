@@ -149,6 +149,71 @@
     "user": "Clerk-gebruiker",
     "workspace": "Werkruimte"
   },
+  "forms": {
+    "code": {
+      "body": "Vul deze code in op het formulier:",
+      "expires": "De code verloopt over {minutes} minuten.",
+      "footer": "Heb je deze code niet aangevraagd, dan kun je deze e-mail negeren.",
+      "kicker": "Je code om het formulier te openen",
+      "preview": "Je code is {code}.",
+      "subject": "Je code om \"{title}\" te openen: {code}"
+    },
+    "digest": {
+      "anonymous": "Anoniem",
+      "button": "Bekijk alle reacties",
+      "footer": "Je krijgt dit dagelijkse overzicht van {workspace} omdat je dit formulier volgt.",
+      "intro": "Er kwamen {count} nieuwe reacties binnen sinds het vorige overzicht.",
+      "kicker": "Dagelijks overzicht",
+      "latest": "Laatste reacties",
+      "more": "En nog {count} meer.",
+      "preview": "{count} nieuwe reacties op \"{title}\" sinds het vorige overzicht.",
+      "subject": "{count} nieuwe reacties op \"{title}\""
+    },
+    "invite": {
+      "button": "Open het formulier",
+      "closes": "Het formulier sluit op {date}.",
+      "footer": "Deze link is persoonlijk. Stuur hem liever niet door.",
+      "kicker": "{sender} nodigt je uit een formulier in te vullen",
+      "messageFrom": "Een bericht van {sender}",
+      "preview": "{title}: je persoonlijke link staat erin.",
+      "reminderKicker": "Een herinnering van {sender}: je hebt nog niet gereageerd",
+      "reminderPreview": "Je hebt \"{title}\" nog niet ingevuld.",
+      "reminderSubject": "Herinnering: \"{title}\"",
+      "subject": "{sender} nodigt je uit om \"{title}\" in te vullen"
+    },
+    "quota": {
+      "bodyFull": "Je formulieren tonen nieuwe bezoekers \"neemt nu geen reacties aan\". Wie al bezig is met een formulier kan het nog wel versturen.",
+      "bodyNear": "Formulieren blijven reacties aannemen tot de limiet is bereikt.",
+      "button": "Bekijk abonnementen",
+      "footer": "Je krijgt dit omdat je beheerder van de werkruimte bent.",
+      "headingFull": "Je hebt al je maandelijkse reacties gebruikt",
+      "headingNear": "Je hebt {percent}% van je maandelijkse reacties gebruikt",
+      "kicker": "WeldForms-gebruik",
+      "previewFull": "Alle {limit} reacties van deze maand zijn gebruikt ({used}).",
+      "previewNear": "{used} van {limit} reacties deze maand gebruikt.",
+      "resets": "De teller begint opnieuw op {date}.",
+      "subjectFull": "{workspace} heeft de maandelijkse limiet voor formulierreacties bereikt",
+      "subjectNear": "{workspace} heeft 80% van de maandelijkse formulierreacties gebruikt",
+      "usage": "{used} van {limit} voltooide reacties deze maand."
+    },
+    "receipt": {
+      "body": "Hier is een kopie van je antwoorden.",
+      "footer": "Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.",
+      "kicker": "Bedankt voor je reactie",
+      "preview": "Een kopie van wat je hebt ingestuurd bij \"{title}\".",
+      "reference": "Reactie #{number}",
+      "subject": "Je antwoorden op \"{title}\""
+    },
+    "response": {
+      "button": "Open de reactie",
+      "footer": "Je krijgt dit omdat je dit formulier volgt. Wijzig dat in de meldingsinstellingen van het formulier.",
+      "kicker": "Nieuwe reactie",
+      "kickerFrom": "Nieuwe reactie van {respondent}",
+      "linkOnly": "Dit formulier heeft privévelden, dus de antwoorden staan niet in deze e-mail. Open de reactie om ze te lezen.",
+      "preview": "Iemand heeft \"{title}\" ingevuld.",
+      "subject": "Nieuwe reactie op \"{title}\""
+    }
+  },
   "hrBank": {
     "byHr": "De bankgegevens waarop {employer} je salaris betaalt zijn door HR gewijzigd, op {when}.",
     "byYou": "Je hebt de bankgegevens waarop {employer} je salaris betaalt gewijzigd, op {when}.",

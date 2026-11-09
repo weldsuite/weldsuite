@@ -1,0 +1,114 @@
+{
+  "fields": [
+    "title",
+    "number"
+  ],
+  "flags": [
+    "rows",
+    "number"
+  ],
+  "id": "forms.receipt",
+  "list": {
+    "fields": [
+      "question",
+      "answer"
+    ],
+    "flag": "rows",
+    "flags": []
+  },
+  "multiline": [],
+  "variants": {
+    "en": {
+      "": {
+        "footer": "You get this copy because you verified this address on the form.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Thanks for your response</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Here is a copy of your answers.</p>",
+        "preview": "A copy of what you sent in \"{{ title }}\".",
+        "subject": "Your answers to \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nYou get this copy because you verified this address on the form.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nThanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "number": {
+        "footer": "You get this copy because you verified this address on the form.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Thanks for your response</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Here is a copy of your answers.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Response #{{ number }}</p>",
+        "preview": "A copy of what you sent in \"{{ title }}\".",
+        "subject": "Your answers to \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nThanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "rows": {
+        "footer": "You get this copy because you verified this address on the form.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Thanks for your response</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Here is a copy of your answers.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px;padding:10px 0;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7\"><tbody><tr><td>{% for row in rows %}<table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-text=\"label\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;width:96px;color:#71717a\">{{ row.question }}</td><td data-text=\"value\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;color:#09090b\">{{ row.answer }}</td></tr></tbody></table>{% endfor %}</td></tr></tbody></table>",
+        "preview": "A copy of what you sent in \"{{ title }}\".",
+        "subject": "Your answers to \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nYou get this copy because you verified this address on the form.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nThanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "rows+number": {
+        "footer": "You get this copy because you verified this address on the form.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Thanks for your response</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Here is a copy of your answers.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px;padding:10px 0;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7\"><tbody><tr><td>{% for row in rows %}<table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-text=\"label\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;width:96px;color:#71717a\">{{ row.question }}</td><td data-text=\"value\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;color:#09090b\">{{ row.answer }}</td></tr></tbody></table>{% endfor %}</td></tr></tbody></table><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Response #{{ number }}</p>",
+        "preview": "A copy of what you sent in \"{{ title }}\".",
+        "subject": "Your answers to \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nThanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Thanks for your response\n\n{{ title|collapse }}\n\nHere is a copy of your answers.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nResponse #{{ number|collapse }}\n\nYou get this copy because you verified this address on the form.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": "Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Bedankt voor je reactie</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hier is een kopie van je antwoorden.</p>",
+        "preview": "Een kopie van wat je hebt ingestuurd bij \"{{ title }}\".",
+        "subject": "Je antwoorden op \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nBedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "number": {
+        "footer": "Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Bedankt voor je reactie</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hier is een kopie van je antwoorden.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Reactie #{{ number }}</p>",
+        "preview": "Een kopie van wat je hebt ingestuurd bij \"{{ title }}\".",
+        "subject": "Je antwoorden op \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nBedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "rows": {
+        "footer": "Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Bedankt voor je reactie</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hier is een kopie van je antwoorden.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px;padding:10px 0;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7\"><tbody><tr><td>{% for row in rows %}<table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-text=\"label\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;width:96px;color:#71717a\">{{ row.question }}</td><td data-text=\"value\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;color:#09090b\">{{ row.answer }}</td></tr></tbody></table>{% endfor %}</td></tr></tbody></table>",
+        "preview": "Een kopie van wat je hebt ingestuurd bij \"{{ title }}\".",
+        "subject": "Je antwoorden op \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nBedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "rows+number": {
+        "footer": "Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Bedankt voor je reactie</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hier is een kopie van je antwoorden.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px;padding:10px 0;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7\"><tbody><tr><td>{% for row in rows %}<table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-text=\"label\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;width:96px;color:#71717a\">{{ row.question }}</td><td data-text=\"value\" data-id=\"__react-email-column\" style=\"padding:6px 0;vertical-align:top;font-size:14px;line-height:1.6;color:#09090b\">{{ row.answer }}</td></tr></tbody></table>{% endfor %}</td></tr></tbody></table><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Reactie #{{ number }}</p>",
+        "preview": "Een kopie van wat je hebt ingestuurd bij \"{{ title }}\".",
+        "subject": "Je antwoorden op \"{{ title }}\"",
+        "text": {
+          "weldsuite": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nBedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Bedankt voor je reactie\n\n{{ title|collapse }}\n\nHier is een kopie van je antwoorden.{% for row in rows %}\n\n{{ row.question|collapse }}: {{ row.answer|collapse }}{% endfor %}\n\nReactie #{{ number|collapse }}\n\nJe krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

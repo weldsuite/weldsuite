@@ -1,0 +1,18 @@
+[package]
+name = "weldsuite-forms-engine"
+description = "The WeldForms engine (@weldsuite/forms-engine): the definition and its checks, answer validation, logic, the path, the submission result, recall and display"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-kit = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

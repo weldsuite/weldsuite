@@ -157,6 +157,18 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/books-tax-reminders",
             axum::routing::post(crate::conformance::books_tax_reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-process-response",
+            axum::routing::post(crate::conformance_forms::process_response),
+        )
+        .route(
+            "/__conformance/cron/forms-reminders",
+            axum::routing::post(crate::conformance_forms::reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-digest",
+            axum::routing::post(crate::conformance_forms::digest),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.
@@ -183,6 +195,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/config.json", get(config_json))
         .nest("/api", api)
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
+        .nest("/public/forms", crate::routes::forms_public(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(

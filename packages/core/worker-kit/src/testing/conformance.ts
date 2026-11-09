@@ -333,6 +333,18 @@ export const FORWARDED_ENV = [
   'AZURE_DEVOPS_CLIENT_ID',
   'AZURE_DEVOPS_CLIENT_SECRET',
   'WEBHOOK_BASE_URL',
+  // WeldForms: the portal's key, the respondent sessions' secret, the portal
+  // origin public links point at, the bot check (provider, Turnstile's keys,
+  // ALTCHA's HMAC key) and the minimum fill time the tests lower
+  // (PLATFORM_URL and R2_PUBLIC_URL are forwarded above).
+  'FORMS_PORTAL_SECRET',
+  'FORMS_SESSION_SECRET',
+  'FORMS_PORTAL_URL',
+  'BOT_CHECK_PROVIDER',
+  'TURNSTILE_SITE_KEY',
+  'TURNSTILE_SECRET_KEY',
+  'ALTCHA_HMAC_KEY',
+  'FORMS_MIN_FILL_MS',
 ] as const;
 
 /**
@@ -404,6 +416,9 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/merge\/connections\/github\/install-url(\?|$)/,
   /^\/api\/workflow-github\/install-url(\?|$)/,
   /^\/api\/weldconnect\/github\/callback(\?|$)/,
+  // WeldForms: the published form, its public cache entry rebuilt and
+  // stored on a miss.
+  /^\/public\/forms\/f\/[^/?]+(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -818,6 +833,16 @@ const RECORDING_TOKEN = /\/public\/meeting-recordings\/[A-Za-z0-9_-]{32}(?![A-Za
 const MEETING_RUN_STAMP = /^((?:summarize|bf)-.+)-[0-9a-z]{8}$/;
 /** A WeldMeet Whisper Workflow instance (`whisper-<transcription id>`). */
 const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
+/**
+ * A WeldForms ProcessResponse run of an edited response or a retry
+ * (`<responseId>-update-<Date.now().toString(36)>`): new per run. Any
+ * response id: tests seed their own (`frs_r1`).
+ */
+const FORMS_RUN_STAMP = /^(frs_[0-9A-Za-z_]+-(?:update|retry))-[0-9a-z]{8}$/;
+/** A WeldForms public link id (10 random base62 characters, drawn on first publish). */
+const FORMS_PUBLIC_ID = /^[A-Za-z0-9]{10}$/;
+/** A link to a WeldForms public id (`<portal>/f/<publicId>`). */
+const FORMS_PUBLIC_URL = /\/f\/[A-Za-z0-9]{10}$/;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -903,6 +928,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (MEETING_RUN_STAMP.test(value)) return value.replace(MEETING_RUN_STAMP, '$1-<stamp>');
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
+  // WeldForms: an edit's ProcessResponse run, and the public link the first
+  // publish draws (the form's `publicId`, its URL and its event's).
+  if (FORMS_RUN_STAMP.test(value)) return value.replace(FORMS_RUN_STAMP, '$1-<stamp>');
+  if (key === 'publicId' && FORMS_PUBLIC_ID.test(value)) return '<public-id>';
+  if (key === 'publicUrl' && FORMS_PUBLIC_URL.test(value)) return value.replace(FORMS_PUBLIC_URL, '/f/<public-id>');
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   // A collaborative room's ticket: the room's id, then a secret new per call.
   if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');

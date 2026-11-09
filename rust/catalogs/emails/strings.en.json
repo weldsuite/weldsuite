@@ -149,6 +149,71 @@
     "user": "Clerk user",
     "workspace": "Workspace"
   },
+  "forms": {
+    "code": {
+      "body": "Enter this code on the form:",
+      "expires": "The code expires in {minutes} minutes.",
+      "footer": "If you didn't ask for this code, you can ignore this email.",
+      "kicker": "Your code to open the form",
+      "preview": "Your code is {code}.",
+      "subject": "Your code to open \"{title}\": {code}"
+    },
+    "digest": {
+      "anonymous": "Anonymous",
+      "button": "See all responses",
+      "footer": "You get this daily digest from {workspace} because you follow this form.",
+      "intro": "{count} new responses came in since the last digest.",
+      "kicker": "Daily digest",
+      "latest": "Latest responses",
+      "more": "And {count} more.",
+      "preview": "{count} new responses to \"{title}\" since the last digest.",
+      "subject": "{count} new responses to \"{title}\""
+    },
+    "invite": {
+      "button": "Open the form",
+      "closes": "The form closes on {date}.",
+      "footer": "This link is personal. Please do not forward it.",
+      "kicker": "{sender} invited you to fill in a form",
+      "messageFrom": "A message from {sender}",
+      "preview": "{title}: your personal link is inside.",
+      "reminderKicker": "A reminder from {sender}: you have not answered yet",
+      "reminderPreview": "You have not filled in \"{title}\" yet.",
+      "reminderSubject": "Reminder: \"{title}\"",
+      "subject": "{sender} invited you to fill in \"{title}\""
+    },
+    "quota": {
+      "bodyFull": "Your forms show \"not accepting responses right now\" to new visitors. People already filling in a form can still send it.",
+      "bodyNear": "Forms keep accepting responses until the limit is reached.",
+      "button": "View plans",
+      "footer": "You get this because you are an admin of the workspace.",
+      "headingFull": "You have used all your monthly responses",
+      "headingNear": "You have used {percent}% of your monthly responses",
+      "kicker": "WeldForms usage",
+      "previewFull": "All {limit} responses for this month are used ({used}).",
+      "previewNear": "{used} of {limit} responses used this month.",
+      "resets": "The count starts again on {date}.",
+      "subjectFull": "{workspace} reached its monthly form response limit",
+      "subjectNear": "{workspace} has used 80% of its monthly form responses",
+      "usage": "{used} of {limit} completed responses this month."
+    },
+    "receipt": {
+      "body": "Here is a copy of your answers.",
+      "footer": "You get this copy because you verified this address on the form.",
+      "kicker": "Thanks for your response",
+      "preview": "A copy of what you sent in \"{title}\".",
+      "reference": "Response #{number}",
+      "subject": "Your answers to \"{title}\""
+    },
+    "response": {
+      "button": "Open the response",
+      "footer": "You get this because you follow this form. Change it in the form's notification settings.",
+      "kicker": "New response",
+      "kickerFrom": "New response from {respondent}",
+      "linkOnly": "This form has private fields, so the answers are not in this email. Open the response to read them.",
+      "preview": "Someone answered \"{title}\".",
+      "subject": "New response to \"{title}\""
+    }
+  },
   "hrBank": {
     "byHr": "The bank details {employer} pays your salary to were changed by HR, on {when}.",
     "byYou": "You changed the bank details {employer} pays your salary to, on {when}.",
