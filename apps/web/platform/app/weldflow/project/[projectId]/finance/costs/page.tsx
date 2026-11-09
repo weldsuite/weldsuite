@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { isApiError } from '@weldsuite/api-client';
 import type { ActiveFilter, FilterConfig } from '@weldsuite/ui/components/list-toolbar';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -14,6 +14,8 @@ import { FinanceListIllustration } from '../_components/finance-list-illustratio
 import { FinanceErrorState, PercentOnlyNotice, SourceBadge, useFinanceEnv } from '../_components/finance-parts';
 import { COST_FILTER_FIELDS, toCostQuery } from '../_lib/cost-filters';
 import { formatMoney } from '../_lib/finance';
+
+const PAGE_SIZE = 25;
 
 const COLUMN_WIDTHS = {
   description: 'min-w-[100px] flex-1',
@@ -116,11 +118,18 @@ export default function FinanceCostsPage() {
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const query = useMemo(() => toCostQuery(filters), [filters]);
   const canSee = finance.data?.canSeeAmounts ?? false;
-  const costs = useProjectCosts(projectId, query.filters, 25, canSee);
+  const costs = useProjectCosts(projectId, query.filters, PAGE_SIZE, canSee);
   const lines = useMemo(() => {
     const loaded = costs.data?.pages.flatMap((page) => page.data) ?? [];
     return query.excludedSource ? loaded.filter((line) => line.source !== query.excludedSource) : loaded;
   }, [costs.data, query.excludedSource]);
+  // "Source is not" drops lines after they load, so a page can come back short or empty, and an empty list
+  // has no scroll trigger to load more: keep loading until a page's worth shows or there is no more.
+  const { hasNextPage, isFetchingNextPage, isError: costsFailed, fetchNextPage } = costs;
+  const short = !!query.excludedSource && lines.length < PAGE_SIZE;
+  useEffect(() => {
+    if (short && hasNextPage && !isFetchingNextPage && !costsFailed) void fetchNextPage();
+  }, [short, hasNextPage, isFetchingNextPage, costsFailed, fetchNextPage]);
   const filtered = filters.some((filter) => filter.value);
   const denied = !canSee || (isApiError(costs.error) && costs.error.status === 403);
 
