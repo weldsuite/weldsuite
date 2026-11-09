@@ -11,8 +11,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { templateFromProjectSchema, type ProjectTemplateDetail } from '@weldsuite/app-api-client/schemas/project-closing';
-import { useRouter } from '@/lib/router';
+import { templateFromProjectSchema } from '@weldsuite/app-api-client/schemas/project-closing';
 import { useI18n } from '@/lib/i18n/provider';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
 import { useSaveProjectAsTemplate } from '@/hooks/queries/use-project-closing-queries';
@@ -36,13 +35,11 @@ interface SaveTemplateDialogProps {
   projectId?: string;
   /** The name to start with (the project's name). */
   defaultName?: string;
-  onSaved?: (template: ProjectTemplateDetail) => void;
 }
 
-function SaveForm({ projectId, defaultName, onClose, onSaved }: Readonly<Omit<SaveTemplateDialogProps, 'open'>>) {
+function SaveForm({ projectId, defaultName, onClose }: Readonly<Omit<SaveTemplateDialogProps, 'open'>>) {
   const { t, format } = useI18n();
   const copy = t.flowClosing.templates.saveDialog;
-  const router = useRouter();
   const save = useSaveProjectAsTemplate();
   const projects = useProjects({ pageSize: 100 });
   const options = useMemo(() => closingResolverOptions(t.flowClosing.shared.validation, format), [t, format]);
@@ -57,10 +54,7 @@ function SaveForm({ projectId, defaultName, onClose, onSaved }: Readonly<Omit<Sa
         projectId: values.projectId,
         data: { name: values.name, description: values.description.trim() || null, shared: values.shared },
       });
-      toast.success(format(copy.saved, { name: res.data.name }), {
-        action: { label: copy.openTemplates, onClick: () => router.push('/weldflow/templates') },
-      });
-      onSaved?.(res.data);
+      toast.success(format(copy.saved, { name: res.data.name }));
       onClose();
     } catch (error) {
       toast.error(apiMessage(error, copy.failed));
@@ -165,7 +159,7 @@ function SaveForm({ projectId, defaultName, onClose, onSaved }: Readonly<Omit<Sa
 }
 
 /** "Save as template": one project becomes a template. */
-export function SaveTemplateDialog({ open, onClose, projectId, defaultName, onSaved }: Readonly<SaveTemplateDialogProps>) {
+export function SaveTemplateDialog({ open, onClose, projectId, defaultName }: Readonly<SaveTemplateDialogProps>) {
   const { t } = useI18n();
   const copy = t.flowClosing.templates.saveDialog;
   return (
@@ -175,7 +169,7 @@ export function SaveTemplateDialog({ open, onClose, projectId, defaultName, onSa
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
-        {open ? <SaveForm projectId={projectId} defaultName={defaultName} onClose={onClose} onSaved={onSaved} /> : null}
+        {open ? <SaveForm projectId={projectId} defaultName={defaultName} onClose={onClose} /> : null}
       </DialogContent>
     </Dialog>
   );
