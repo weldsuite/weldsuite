@@ -10,10 +10,14 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_catalogs::permission_keys::FORM_RESPONSES_READ;
 use weldsuite_emails::forms::DigestItem;
 use weldsuite_notifications::{EmailOverride, NewNotification, Notifier, create_and_deliver};
 
-use crate::common::{Ctx, FormsResult, day_of, iso, js_slice, month_of, opt_text, parse_ms, text};
+use crate::common::{
+    Ctx, Env, FormsResult, day_of, iso, js_slice, month_of, opt_text, parse_ms, text,
+};
+use crate::creator_access::load_creator_access;
 use crate::engine::FormDefinition;
 use crate::mail::{
     MemberRecipient, results_url, send_digest_mail, send_quota_mail,
@@ -28,10 +32,15 @@ pub(crate) const DIGEST_KIND: &str = "forms_digest";
 const LISTED: i64 = 10;
 const SUMMARY_CHARS: usize = 80;
 
-/// `subscribersOf(db, form, mode)`: members following the form in `mode`;
-/// on a restricted form only those who may still see it (owner, access list).
+/// `subscribersOf(db, env, form, mode)`: members following the form in
+/// `mode` who may still read its answers, which the instant mail and the
+/// digest carry: on a restricted form only the owner and its access list,
+/// and anywhere only members who hold `form_responses:read` now (resolved
+/// as the steps resolve an integration's creator), so a member who lost it
+/// after subscribing gets nothing.
 pub(crate) async fn subscribers_of(
     db: &PgPool,
+    env: &Env,
     form: &Value,
     mode: &str,
 ) -> FormsResult<Vec<MemberRecipient>> {
@@ -54,6 +63,16 @@ pub(crate) async fn subscribers_of(
         allowed.extend(listed);
         user_ids.retain(|id| allowed.contains(id));
     }
+    let mut readers = Vec::with_capacity(user_ids.len());
+    for user_id in user_ids {
+        if load_creator_access(db, env, &user_id)
+            .await?
+            .can(FORM_RESPONSES_READ, "weldforms")
+        {
+            readers.push(user_id);
+        }
+    }
+    let user_ids = readers;
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -94,8 +113,8 @@ pub(crate) async fn notify_subscribers(
     definition: &FormDefinition,
 ) -> FormsResult<()> {
     let now = ctx.now_ms();
-    let instant = subscribers_of(&ctx.db, form, "instant").await?;
-    let daily = subscribers_of(&ctx.db, form, "daily").await?;
+    let instant = subscribers_of(&ctx.db, ctx.env(), form, "instant").await?;
+    let daily = subscribers_of(&ctx.db, ctx.env(), form, "daily").await?;
     let respondent = opt_text(response, "respondentEmail");
     let answers = if has_sensitive_fields(definition) {
         None
@@ -225,7 +244,7 @@ pub(crate) async fn send_due_digests(ctx: &Ctx, now: i64) -> FormsResult<i64> {
         let Some(form) = crate::access::form_row(&ctx.db, &form_id).await? else {
             continue;
         };
-        let members = subscribers_of(&ctx.db, &form, "daily").await?;
+        let members = subscribers_of(&ctx.db, ctx.env(), &form, "daily").await?;
         if members.is_empty() {
             continue;
         }

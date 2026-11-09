@@ -9,6 +9,7 @@
  *
  * Changing an integration needs `forms:update` and the right to edit the form;
  * the steps then act as the member who last changed its settings (ADR FORMS-006).
+ * The test also needs the right to read the form's responses: it shows one.
  * 422 `INVALID_CONFIG` (`details.fields`) when the settings do not fit the form.
  */
 
@@ -70,9 +71,11 @@ app.delete('/:id/integrations/:integrationId', requirePermission('forms:update')
   }),
 );
 
+// The dry run renders the settings against the latest response (the ticket's
+// subject, the respondent's address), so it also takes the right to read answers.
 app.post('/:id/integrations/:integrationId/test', requirePermission('forms:update'), (c) =>
   handle(c, async () => {
-    const loaded = await loadForm(c, c.req.param('id'), 'edit');
+    const loaded = await loadForm(c, c.req.param('id'), ['edit', 'readResponses']);
     const row = await getIntegration(loaded.ctx, loaded.form.id, c.req.param('integrationId'));
     return success(c, await testIntegration(loaded.ctx, row));
   }),

@@ -281,6 +281,18 @@ describe('integration routes', () => {
     expect(await data(await api().request(`${API}/${crm.id}/test`, json({})))).toMatchObject({ ok: false });
   });
 
+  it('tests only for a member who may also read the answers the test shows', async () => {
+    const crm = await addIntegration('crm', crmConfig);
+    const editor = { userId: 'user_other', permissions: ['forms:read', 'forms:update'] };
+    const refused = await api(editor).request(`${API}/${crm.id}/test`, json({}));
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+    // Changing it stays theirs.
+    expect((await api(editor).request(`${API}/${crm.id}`, json({ enabled: false }, 'PATCH'))).status).toBe(200);
+    const reader = { userId: 'user_other', permissions: ['forms:read', 'forms:update', 'form_responses:read'] };
+    expect(await data(await api(reader).request(`${API}/${crm.id}/test`, json({})))).toMatchObject({ ok: true });
+  });
+
   it('says in the test when the member who set it up may not do it', async () => {
     await insertIntegration('fig_v', 'desk', { subject: 'x' }, 'user_viewer');
     const result = await data<{ ok: boolean; message: string }>(await api().request(`${API}/fig_v/test`, json({})));
@@ -376,6 +388,18 @@ describe('CRM step', () => {
     expect(await db.select().from(schema.people)).toEqual([]);
     expect(await db.select().from(schema.crmActivities)).toMatchObject([{ leadId: leads[0]!.id, relatedTo: 'lead' }]);
     expect(await actions()).toMatchObject([{ entityType: 'lead', entityId: leads[0]!.id }]);
+  });
+
+  it('leaves its lead as it was on an edited response, with nothing to show on the integration', async () => {
+    await insertIntegration('fig_lead', 'crm', { target: 'lead', emailFieldId: 'b_email', mappings: [{ blockId: 'b_name', crmField: 'firstName' }] });
+    await run();
+    await respond({ b_name: 'Augusta' });
+    await run({ mode: 'update' });
+    const leads = await db.select().from(schema.crmLeads);
+    expect(leads).toMatchObject([{ firstName: 'Ada' }]);
+    expect(await actions()).toMatchObject([{ status: 'done', entityType: 'lead', entityId: leads[0]!.id, error: null }]);
+    const [row] = await db.select().from(schema.formIntegrations);
+    expect(row!.lastError).toBeNull();
   });
 
   it('skips with the reason, shown on the integration, when its creator may not create people', async () => {

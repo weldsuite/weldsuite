@@ -13,6 +13,7 @@ import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { FormDefinition } from '@weldsuite/forms-engine/definition';
 import type { Env } from '../types';
+import { loadCreatorAccess } from './creator-access';
 import { resultsUrl, type MemberRecipient } from './mail';
 import { answerPairs, hasSensitiveFields } from './response-text';
 
@@ -21,14 +22,22 @@ const { formSubscriptions, formAccess, workspaceMembers } = schema;
 type FormRow = typeof schema.forms.$inferSelect;
 type ResponseRow = typeof schema.formResponses.$inferSelect;
 
-/** Members following the form in `mode`; on a restricted form only those who may still see it (owner, access list). */
-export async function subscribersOf(db: Database, form: FormRow, mode: 'instant' | 'daily'): Promise<MemberRecipient[]> {
+/**
+ * Members following the form in `mode` who may still read its answers, which
+ * the instant mail and the digest carry: on a restricted form only the owner
+ * and its access list, and anywhere only members who hold `form_responses:read`
+ * now (resolved as the steps resolve an integration's creator), so a member who
+ * lost it after subscribing gets nothing.
+ */
+export async function subscribersOf(db: Database, env: Pick<Env, 'PERMISSIONS_APP_ENFORCE'>, form: FormRow, mode: 'instant' | 'daily'): Promise<MemberRecipient[]> {
   const subs = await db.select({ userId: formSubscriptions.userId }).from(formSubscriptions).where(and(eq(formSubscriptions.formId, form.id), eq(formSubscriptions.mode, mode)));
   let userIds = subs.map((s) => s.userId);
   if (userIds.length > 0 && form.access === 'restricted') {
     const allowed = new Set([form.ownerUserId, ...(await db.select({ userId: formAccess.userId }).from(formAccess).where(eq(formAccess.formId, form.id))).map((a) => a.userId)]);
     userIds = userIds.filter((id) => allowed.has(id));
   }
+  const reads = await Promise.all(userIds.map(async (id) => (await loadCreatorAccess(db, env, id)).can('form_responses:read', 'weldforms')));
+  userIds = userIds.filter((_, i) => reads[i]);
   if (userIds.length === 0) return [];
   const members = await db
     .select({ userId: workspaceMembers.userId, email: workspaceMembers.email, name: workspaceMembers.name })
@@ -55,7 +64,7 @@ export interface NotifyContext {
 /** One platform notification per instant subscriber, and the digest marked due when anyone follows daily. */
 export async function notifySubscribers(ctx: NotifyContext, now = new Date()): Promise<{ notified: number; digestDue: boolean }> {
   const { env, form, response, definition } = ctx;
-  const [instant, daily] = await Promise.all([subscribersOf(ctx.db, form, 'instant'), subscribersOf(ctx.db, form, 'daily')]);
+  const [instant, daily] = await Promise.all([subscribersOf(ctx.db, env, form, 'instant'), subscribersOf(ctx.db, env, form, 'daily')]);
 
   const respondent = response.respondentEmail ?? null;
   const answers = hasSensitiveFields(definition) ? null : answerPairs(definition, response.answers, { skipSensitive: false });

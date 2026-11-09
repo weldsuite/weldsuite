@@ -340,6 +340,26 @@ describe('insights', () => {
     for (const d of insights.dropOff) expect(d.dropOffRate).toBeGreaterThanOrEqual(0), expect(d.dropOffRate).toBeLessThanOrEqual(1);
   });
 
+  it('reads at most 400 days back from the end of the range, however early it starts', async () => {
+    const form = await publishForm();
+    const counters = countersFor(world.env.FORM_COUNTERS, form.id);
+    await counters.recordView('2026-10-01', 'a');
+    await counters.recordView('2025-01-01', 'b');
+    if (conformanceTarget()) {
+      await world.kv.put(`forms:counters:${form.id}:views:2026-10-01`, '1');
+      await world.kv.put(`forms:counters:${form.id}:views:2025-01-01`, '1');
+    }
+    await addResponse(form, { startedAt: new Date(Date.UTC(2026, 0, 5, 9)), submittedAt: new Date(Date.UTC(2026, 0, 5, 10)) });
+    await addResponse(form, { startedAt: new Date(Date.UTC(2024, 5, 1, 9)), submittedAt: new Date(Date.UTC(2024, 5, 1, 10)) });
+
+    const to = new Date(Date.UTC(2026, 10, 10, 12)).toISOString();
+    const insights = await data<FormInsights>(await results().request(`${FORMS}/${form.id}/insights?from=2000-01-01T00:00:00.000Z&to=${to}`));
+    expect(insights.byDay).toHaveLength(400);
+    expect(insights.byDay[0]!.date).toBe('2025-10-07');
+    expect(insights.byDay.at(-1)!.date).toBe('2026-11-10');
+    expect(insights).toMatchObject({ views: 1, starts: 1, completions: 1 });
+  });
+
   it('has no rate without starts', async () => {
     const form = await publishForm();
     const insights = await data<FormInsights>(await results().request(`${FORMS}/${form.id}/insights`));

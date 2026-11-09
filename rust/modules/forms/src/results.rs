@@ -4,7 +4,7 @@
 //! `FORM_LIMITS.maxExportRows` answers, as the worker does, with
 //! JavaScript's arithmetic (`Math.round`, the same order of operations).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::js_number_of;
@@ -437,15 +437,15 @@ pub(crate) async fn summarise(
 // Insights
 // ---------------------------------------------------------------------------
 
+/// `MAX_INSIGHT_DAYS`: the most days one insights range covers, `to` back.
+/// A day's view count is kept this long (`counters.rs`), and a wider range
+/// only costs work (a day each, read from the counters). An earlier `from`
+/// is moved up.
+const MAX_INSIGHT_DAYS: i64 = 400;
+
 /// `bump(day, key, by)`: one of a day's counts (views, starts, completions).
-fn bump(days: &mut Vec<(String, [i64; 3])>, day: String, slot: usize, by: i64) {
-    if let Some((_, counts)) = days.iter_mut().find(|(d, _)| *d == day) {
-        counts[slot] += by;
-    } else {
-        let mut counts = [0; 3];
-        counts[slot] = by;
-        days.push((day, counts));
-    }
+fn bump(days: &mut BTreeMap<String, [i64; 3]>, day: String, slot: usize, by: i64) {
+    days.entry(day).or_default()[slot] += by;
 }
 
 /// `stops(version)`: the top-level blocks a respondent can leave on.
@@ -479,7 +479,11 @@ pub(crate) async fn insights(
 ) -> FormsResult<Value> {
     let now = ctx.now_ms();
     let to = to.and_then(parse_ms).unwrap_or(now);
-    let from = from.and_then(parse_ms).unwrap_or(to - 29 * DAY_MS);
+    let earliest = to - (MAX_INSIGHT_DAYS - 1) * DAY_MS;
+    let from = from
+        .and_then(parse_ms)
+        .unwrap_or(to - 29 * DAY_MS)
+        .max(earliest);
     let versions = load_versions(&ctx.db, form_id).await?;
     let latest = versions.last();
 
@@ -496,13 +500,14 @@ pub(crate) async fn insights(
     )
     .await?;
 
-    // Every UTC day of the range, prefilled (`views`, `starts`, `completions`).
-    let mut days: Vec<(String, [i64; 3])> = Vec::new();
+    // Every UTC day of the range, prefilled (`views`, `starts`, `completions`),
+    // in date order.
+    let mut days: BTreeMap<String, [i64; 3]> = BTreeMap::new();
     let mut t = from.div_euclid(DAY_MS) * DAY_MS;
     let mut range_days = Vec::new();
     while t <= to {
         range_days.push(day_of(t));
-        days.push((day_of(t), [0; 3]));
+        days.insert(day_of(t), [0; 3]);
         t += DAY_MS;
     }
     // `viewsByDay(dayOf(from), dayOf(to))`.
@@ -581,7 +586,6 @@ pub(crate) async fn insights(
         })
         .collect();
 
-    days.sort_by(|a, b| a.0.cmp(&b.0));
     let views_total: i64 = views.iter().map(|(_, c)| c).sum();
     let average_duration = if durations.is_empty() {
         Value::Null

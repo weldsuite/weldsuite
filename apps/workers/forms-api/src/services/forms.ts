@@ -304,9 +304,16 @@ export async function updateForm(ctx: WorkspaceCtx, form: FormRow, input: Update
 // Duplicate, delete
 // ---------------------------------------------------------------------------
 
+/**
+ * A copy of the form as a new draft owned by `userId`, seen by the same people:
+ * the original's `access` and its access list come along (less the new owner,
+ * who needs no entry), so copying a restricted form never opens it up.
+ */
 export async function duplicateForm(ctx: WorkspaceCtx, source: FormRow, userId: string, title?: string): Promise<FormRow> {
   const id = generateId('frm');
   const copyTitle = (title ?? `${source.title} (copy)`).slice(0, 255);
+  const listed = await ctx.db.select({ userId: formAccess.userId, role: formAccess.role }).from(formAccess).where(eq(formAccess.formId, source.id)).orderBy(asc(formAccess.userId));
+  const entries = listed.filter((e) => e.userId !== userId);
   await atomically(ctx.db, (db) => [
     db.insert(forms).values({
       id,
@@ -315,9 +322,11 @@ export async function duplicateForm(ctx: WorkspaceCtx, source: FormRow, userId: 
       definition: source.definition,
       settings: source.settings,
       themeId: source.themeId,
+      access: source.access,
       ownerUserId: userId,
     }),
     db.insert(formSubscriptions).values({ id: generateId('fsb'), formId: id, userId, mode: 'instant' }),
+    ...(entries.length ? [db.insert(formAccess).values(entries.map((e) => ({ id: generateId('fac'), formId: id, userId: e.userId, role: e.role })))] : []),
   ]);
   const [row] = await ctx.db.select().from(forms).where(eq(forms.id, id)).limit(1);
   if (!row) throw notFound('Form');

@@ -486,7 +486,10 @@ pub(crate) async fn update_form(
 // Duplicate, delete
 // ---------------------------------------------------------------------------
 
-/// `duplicateForm(ctx, source, userId, title)`.
+/// `duplicateForm(ctx, source, userId, title)`: a copy as a new draft owned
+/// by `user_id`, seen by the same people: the original's `access` and its
+/// access list come along (less the new owner, who needs no entry), so
+/// copying a restricted form never opens it up.
 pub(crate) async fn duplicate_form(
     ctx: &Ctx,
     source: &Value,
@@ -501,29 +504,44 @@ pub(crate) async fn duplicate_form(
         ),
         255,
     );
-    weldsuite_db::atomically(
-        &ctx.db,
-        [
-            sqlx::query(
-                "insert into forms (id, folder_id, title, definition, settings, theme_id, owner_user_id) \
-                 values ($1, $2, $3, $4, $5, $6, $7)",
-            )
-            .bind(id.clone())
-            .bind(opt_text(source, "folderId"))
-            .bind(copy_title)
-            .bind(Json(source["definition"].clone()))
-            .bind(Json(source["settings"].clone()))
-            .bind(opt_text(source, "themeId"))
-            .bind(user_id.to_owned()),
-            sqlx::query(
-                "insert into form_subscriptions (id, form_id, user_id, mode) values ($1, $2, $3, 'instant')",
-            )
-            .bind(weldsuite_kit::generate_id("fsb"))
-            .bind(id.clone())
-            .bind(user_id.to_owned()),
-        ],
+    let listed: Vec<(String, String)> = sqlx::query_as(
+        "select user_id, role from form_access where form_id = $1 order by user_id asc",
     )
+    .bind(text(source, "id"))
+    .fetch_all(&ctx.db)
     .await?;
+    let mut statements = vec![
+        sqlx::query(
+            "insert into forms (id, folder_id, title, definition, settings, theme_id, access, owner_user_id) \
+             values ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(id.clone())
+        .bind(opt_text(source, "folderId"))
+        .bind(copy_title)
+        .bind(Json(source["definition"].clone()))
+        .bind(Json(source["settings"].clone()))
+        .bind(opt_text(source, "themeId"))
+        .bind(text(source, "access").to_owned())
+        .bind(user_id.to_owned()),
+        sqlx::query(
+            "insert into form_subscriptions (id, form_id, user_id, mode) values ($1, $2, $3, 'instant')",
+        )
+        .bind(weldsuite_kit::generate_id("fsb"))
+        .bind(id.clone())
+        .bind(user_id.to_owned()),
+    ];
+    for (member, role) in listed.into_iter().filter(|(member, _)| member != user_id) {
+        statements.push(
+            sqlx::query(
+                "insert into form_access (id, form_id, user_id, role) values ($1, $2, $3, $4)",
+            )
+            .bind(weldsuite_kit::generate_id("fac"))
+            .bind(id.clone())
+            .bind(member)
+            .bind(role),
+        );
+    }
+    weldsuite_db::atomically(&ctx.db, statements).await?;
     load_row(ctx, &id).await
 }
 

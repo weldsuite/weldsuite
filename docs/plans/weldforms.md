@@ -121,7 +121,7 @@ Member routes (Clerk, `apiAuth()`), organised by object:
 | `/api/forms/forms/:id/access` | the member list of a restricted form |
 | `/api/forms/forms/:id/responses` | list (status, date, answer filters, search, cursor), get, delete, bulk delete, export; `POST` for members-only forms |
 | `/api/forms/forms/:id/summary` | per-question aggregates for the summary charts |
-| `/api/forms/forms/:id/insights` | views, starts, completions, completion rate, average time, drop-off per block, per day and per source |
+| `/api/forms/forms/:id/insights` | views, starts, completions, completion rate, average time, drop-off per block, per day and per source; a range covers at most 400 days (how long a day's view count is kept), an earlier `from` is moved up |
 | `/api/forms/forms/:id/invitations` | invite (members, CRM people, a CRM list, pasted addresses), list with status, remind, revoke |
 | `/api/forms/forms/:id/integrations` | CRUD per kind, test run; `/responses/:rid/actions` log and retry |
 | `/api/forms/forms/:id/subscription` | the member's own notification setting for this form |
@@ -500,6 +500,11 @@ App `weldforms` in `packages/core/permissions/src/apps.ts`; objects in
   without reading answers.
 - A restricted form is a 404 to anyone not on its access list, short of
   `forms:manage`.
+- Whatever shows answers outside the Results tab takes the right to read
+  them on that form too: following a form (its mails carry answers; a
+  subscriber who loses `form_responses:read` stops getting them) and an
+  integration's test run. Copying a form takes the right to edit it, and the
+  copy keeps the original's audience (`access` and the access list).
 - Defaults: OWNER/ADMIN all; MEMBER everything except `forms:manage`; VIEWER
   `forms:read` and `form_responses:read`.
 

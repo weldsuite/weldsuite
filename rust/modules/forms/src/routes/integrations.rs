@@ -11,7 +11,8 @@
 //! Changing an integration needs `forms:update` and the right to edit the
 //! form; the steps then act as the member who last changed its settings
 //! (ADR FORMS-006). 422 `INVALID_CONFIG` (`details.fields`) when the settings
-//! do not fit the form.
+//! do not fit the form. The test also needs the right to read the form's
+//! responses: it shows one.
 
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use super::{Member, load_form};
+use super::{Member, load_form, load_form_needing};
 use crate::FormsState;
 use crate::access::Need;
 use crate::common::{answer, text};
@@ -230,7 +231,9 @@ async fn remove(member: Member, Path((id, integration_id)): Path<(String, String
 async fn dry_run(member: Member, Path((id, integration_id)): Path<(String, String)>) -> Response {
     answer(
         async {
-            let loaded = load_form(&member, &id, Some(Need::Edit)).await?;
+            // The dry run renders the settings against the latest response.
+            let loaded =
+                load_form_needing(&member, &id, &[Need::Edit, Need::ReadResponses]).await?;
             let row =
                 get_integration(&member.ctx, text(&loaded.form, "id"), &integration_id).await?;
             Ok(Data(test_integration(&member.ctx, &row).await?).into_response())

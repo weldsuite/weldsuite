@@ -11,7 +11,9 @@ import { eq } from 'drizzle-orm';
 import { createPgliteDb, createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { conformanceMasterDb, conformanceTenantDb } from '@weldsuite/worker-kit/testing';
 import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { memoryTransport } from '@weldsuite/emails/transports/memory';
 import type { FormDetail, FormSummary, FormTheme, FormVersionSummary } from '@weldsuite/app-api-client/schemas/weldforms';
 import { formThemeTokensSchema } from '@weldsuite/forms-engine/definition';
 import { readPublicCache } from './services/public-cache';
@@ -20,16 +22,25 @@ import formsRoutes from './routes/forms';
 import mediaRoutes from './routes/media';
 import settingsRoutes from './routes/settings';
 import themesRoutes from './routes/themes';
+import { inlineSteps, runProcessResponse } from './workflows/process-response';
+import { notifyStep } from './workflows/steps/notify';
 import { ORG, WS, eventNames, json, memberApp, newWorld, resetForms, seedWorkspace, shareMasterDb, simpleDefinition, surveyDefinition, type World } from './test/support';
 
+// System mail (the response notifications) lands in a memory transport; in
+// conformance mode the harness compares it with Rust's.
+const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
+vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
+
 // The conformance handles: in conformance mode the TypeScript run of a write
-// gets the transaction it is rolled back in (the Rust run writes for real).
+// gets the transaction it is rolled back in (the Rust run writes for real),
+// and a ProcessResponse run on TypeScript gets a copy of the tenant (`dbs.tenant`).
 const dbs = vi.hoisted(() => ({ master: null as unknown, tenant: null as unknown }));
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
   return {
     ...actual,
     getMasterDb: () => conformanceMasterDb(dbs.master),
+    getTenantDbForWorkspace: async () => conformanceTenantDb(dbs.tenant),
     getWorkspaceContextForOrg: async () => ({ id: WS, clerkOrgId: ORG, db: conformanceTenantDb(dbs.tenant), suspended: false, licensedApps: null, readOnly: false, readOnlyReason: null }),
   };
 });
@@ -48,9 +59,37 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   world = newWorld();
+  mail.transport = memoryTransport();
   await resetForms(db, master);
   await seedWorkspace(master);
 });
+
+/**
+ * One ProcessResponse run with the notify step only, on Rust too in
+ * conformance mode (the test then reads Rust's rows and mail).
+ */
+async function notifyRun(formId: string, responseId: string): Promise<void> {
+  const params = { clerkOrgId: ORG, workspaceId: WS, formId, responseId, mode: 'submit' as const };
+  await conformanceSweep({
+    job: 'forms-process-response',
+    now: new Date(),
+    tenantDb: db,
+    masterDb: master as unknown as Database,
+    env: world.env as unknown as Record<string, unknown>,
+    workspaces: { [WS]: ORG },
+    input: { params, steps: [notifyStep.name] },
+    runTypeScript: async (tenantDb) => {
+      dbs.tenant = tenantDb;
+      try {
+        await runProcessResponse(world.env, params, inlineSteps, [notifyStep]);
+        return {};
+      } finally {
+        dbs.tenant = db;
+      }
+    },
+    takeTypeScriptEvents: () => world.sent.splice(0).map((m) => JSON.parse(JSON.stringify(m)) as Record<string, unknown>),
+  });
+}
 
 const FORMS = '/api/forms/forms';
 const data = async <T>(res: Response): Promise<T> => ((await res.json()) as { data: T }).data;
@@ -324,11 +363,72 @@ describe('permissions and restricted forms', () => {
 
   it('keeps the member own subscription per form', async () => {
     const form = await createForm();
-    const mine = { userId: 'user_other', permissions: ['forms:read'] };
+    const mine = { userId: 'user_other', permissions: ['forms:read', 'form_responses:read'] };
     expect(await data(await forms(mine).request(`${FORMS}/${form.id}/subscription`))).toEqual({ mode: 'off' });
     const put = await forms(mine).request(`${FORMS}/${form.id}/subscription`, json({ mode: 'daily' }, 'PUT'));
     expect(await data(put)).toEqual({ mode: 'daily' });
     expect(await data(await forms().request(`${FORMS}/${form.id}/subscription`))).toEqual({ mode: 'instant' });
+  });
+
+  it('lets only a member who may read the answers follow a form: the mails carry them', async () => {
+    const form = await createForm();
+    const blind = { userId: 'user_blind', permissions: ['forms:read', 'forms:update'] };
+    const refused = await forms(blind).request(`${FORMS}/${form.id}/subscription`, json({ mode: 'instant' }, 'PUT'));
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+    expect(await data(await forms(blind).request(`${FORMS}/${form.id}/subscription`))).toEqual({ mode: 'off' });
+    expect(await db.select().from(schema.formSubscriptions).where(eq(schema.formSubscriptions.userId, 'user_blind'))).toEqual([]);
+
+    // On a restricted form the `results` role reads answers, so it may follow.
+    await forms().request(`${FORMS}/${form.id}`, json({ revision: 1, access: 'restricted' }, 'PATCH'));
+    await forms().request(`${FORMS}/${form.id}/access`, json({ entries: [{ userId: 'user_results', role: 'results' }] }, 'PUT'));
+    const results = { userId: 'user_results', permissions: ['forms:read', 'form_responses:read'] };
+    expect(await data(await forms(results).request(`${FORMS}/${form.id}/subscription`, json({ mode: 'daily' }, 'PUT')))).toEqual({ mode: 'daily' });
+  });
+
+  it('notifies only subscribers who may still read the answers', async () => {
+    await db.delete(schema.notifications);
+    await db.insert(schema.workspaceMembers).values([
+      { id: 'wm_owner', userId: 'user_owner', email: 'owner@acme.test', name: 'Olivia', role: 'OWNER' },
+      { id: 'wm_dan', userId: 'user_dan', email: 'dan@acme.test', name: 'Dan', role: 'MEMBER' },
+      // Followed the form while allowed, then lost the right to read answers.
+      { id: 'wm_lou', userId: 'user_lou', email: 'lou@acme.test', name: 'Lou', role: 'MEMBER', permissionDenies: ['form_responses:read'] },
+    ]);
+    const draft = await saveDefinition(await createForm(), simpleDefinition());
+    const { form } = await data<{ form: FormDetail }>(await forms().request(`${FORMS}/${draft.id}/publish`, json({})));
+    await db.insert(schema.formSubscriptions).values([
+      { id: 'fsb_dan', formId: form.id, userId: 'user_dan', mode: 'instant' },
+      { id: 'fsb_lou', formId: form.id, userId: 'user_lou', mode: 'instant' },
+    ]);
+    await db.insert(schema.formResponses).values({ id: 'frs_n', formId: form.id, versionId: form.publishedVersion!.id, status: 'completed', number: 1, answers: { b_name: 'Ann' }, submittedAt: new Date() });
+
+    await notifyRun(form.id, 'frs_n');
+    const notified = await db.select({ userId: schema.notifications.userId }).from(schema.notifications);
+    expect(notified.map((n) => n.userId).sort()).toEqual(['user_dan', 'user_owner']);
+    expect(mail.transport!.sent.map((m) => m.to[0]!.email).sort()).toEqual(['dan@acme.test', 'owner@acme.test']);
+  });
+
+  it('copies a form only for a member who may edit it, and keeps who sees it', async () => {
+    const form = await createForm('Board survey');
+    await forms().request(`${FORMS}/${form.id}`, json({ revision: 1, access: 'restricted' }, 'PATCH'));
+    await forms().request(`${FORMS}/${form.id}/access`, json({ entries: [{ userId: 'user_results', role: 'results' }, { userId: 'user_editor', role: 'editor' }] }, 'PUT'));
+
+    // A `results` member may not make a copy everyone sees.
+    const results = { userId: 'user_results', permissions: ['forms:read', 'forms:create', 'forms:update', 'form_responses:read'] };
+    const refused = await forms(results).request(`${FORMS}/${form.id}/duplicate`, json({}));
+    expect(refused.status).toBe(403);
+    expect(await db.select().from(schema.forms)).toHaveLength(1);
+
+    const editor = { userId: 'user_editor', permissions: ['forms:read', 'forms:create', 'forms:update'] };
+    const res = await forms(editor).request(`${FORMS}/${form.id}/duplicate`, json({}));
+    expect(res.status).toBe(201);
+    const copy = await data<FormDetail>(res);
+    expect(copy).toMatchObject({ title: 'Board survey (copy)', access: 'restricted', permissions: { edit: true, manageAccess: true } });
+    expect(copy.owner.userId).toBe('user_editor');
+    const entries = await data<Array<{ user: { userId: string }; role: string }>>(await forms(editor).request(`${FORMS}/${copy.id}/access`));
+    expect(entries.map((e) => [e.user.userId, e.role])).toEqual([['user_results', 'results']]);
+    expect((await forms({ userId: 'user_stranger', permissions: ['forms:read'] }).request(`${FORMS}/${copy.id}`)).status).toBe(404);
+    expect((await forms(results).request(`${FORMS}/${copy.id}`)).status).toBe(200);
   });
 });
 

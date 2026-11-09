@@ -212,6 +212,12 @@ export async function summarise(ctx: Pick<WorkspaceCtx, 'db'>, formId: string, q
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+/**
+ * The most days one insights range covers, `to` back: a day's view count is
+ * kept this long (`lib/counters.ts`), and a wider range only costs work
+ * (a day each, read from the counters). An earlier `from` is moved up.
+ */
+const MAX_INSIGHT_DAYS = 400;
 
 /** The top-level blocks a respondent can leave on: fields and groups. */
 function stops(version: VersionInfo): Array<{ id: string; title: string }> {
@@ -276,7 +282,8 @@ function dropOffOf(blocks: ReadonlyArray<{ id: string; title: string }>, rows: r
  * responses started in the range. `completions` and `completionRate` count
  * the started responses that were completed, so the rate stays within 0..1.
  * A response's drop-off point is its `last_block_id`; completed responses
- * count as having reached every block.
+ * count as having reached every block. The range is the last 30 days unless
+ * asked, and never more than `MAX_INSIGHT_DAYS`.
  */
 export async function insights(
   ctx: Pick<WorkspaceCtx, 'db'>,
@@ -286,7 +293,8 @@ export async function insights(
   now = new Date(),
 ): Promise<FormInsights> {
   const to = range.to ? new Date(range.to) : now;
-  const from = range.from ? new Date(range.from) : new Date(to.getTime() - 29 * DAY_MS);
+  const earliest = to.getTime() - (MAX_INSIGHT_DAYS - 1) * DAY_MS;
+  const from = new Date(Math.max(range.from ? new Date(range.from).getTime() : to.getTime() - 29 * DAY_MS, earliest));
   const versions = await loadVersions(ctx.db, formId);
   const latest = versions[versions.length - 1];
 

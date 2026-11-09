@@ -25,17 +25,21 @@ export interface Loaded extends AccessibleForm {
   userId: string;
 }
 
+/** One of the form's `permissions` a route needs the member to have. */
+export type FormNeed = keyof FormDetail['permissions'];
+
 /**
  * The form with the member's relation to it. 404 when it does not exist or is
  * restricted and the member is not on it; 403 when `need` (one of the form's
- * `permissions`) is not theirs.
+ * `permissions`, or several that all must be theirs) is not theirs.
  */
-export async function loadForm(c: Ctx, id: string, need?: keyof FormDetail['permissions']): Promise<Loaded> {
+export async function loadForm(c: Ctx, id: string, need?: FormNeed | readonly FormNeed[]): Promise<Loaded> {
   const ctx = workspaceCtx(c);
   const userId = c.get('userId');
   const grants = await resolveGrants(c);
   const accessible = await loadAccessibleForm(ctx.db, id, userId, grants);
-  if (need && !accessible.permissions[need]) throw new FormsError(403, 'FORBIDDEN', 'You do not have access to do this on this form.');
+  const needs: readonly FormNeed[] = typeof need === 'string' ? [need] : (need ?? []);
+  if (needs.some((n) => !accessible.permissions[n])) throw new FormsError(403, 'FORBIDDEN', 'You do not have access to do this on this form.');
   return { ...accessible, ctx, grants, userId };
 }
 

@@ -892,14 +892,10 @@ async fn crm_body(
             .fetch_optional(&ctx.db)
             .await
             .map_err(Fail::from)?;
+            // Already made: a retry, or an edit of the response, which leaves
+            // the lead as it was. Done, as Desk and Flow answer.
             if let Some(lead) = lead {
-                return Ok(if ctx.params.mode == "update" {
-                    StepResult::Skipped(
-                        "A lead is not changed when the response is edited".to_owned(),
-                    )
-                } else {
-                    done("lead", lead)
-                });
+                return Ok(done("lead", lead));
             }
         }
         require_permissions(&access, config, false)?;

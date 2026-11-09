@@ -225,11 +225,19 @@ pub(crate) async fn load_form(
     id: &str,
     need: Option<Need>,
 ) -> FormsResult<AccessibleForm> {
+    load_form_needing(member, id, need.as_slice()).await
+}
+
+/// `loadForm(c, id, [needs])`: as [`load_form`], 403 unless every one of
+/// `needs` is theirs.
+pub(crate) async fn load_form_needing(
+    member: &Member,
+    id: &str,
+    needs: &[Need],
+) -> FormsResult<AccessibleForm> {
     let loaded =
         load_accessible_form(&member.ctx.db, id, &member.user_id, &member.grants()).await?;
-    if let Some(need) = need
-        && !loaded.permissions.allows(need)
-    {
+    if needs.iter().any(|need| !loaded.permissions.allows(*need)) {
         return Err(forms_error(
             403,
             "FORBIDDEN",
@@ -344,7 +352,8 @@ async fn duplicate(
     answer(
         async {
             let title = input::json(&headers, &body, input::duplicate_form)?;
-            let loaded = load_form(&member, &id, None).await?;
+            // Only who may edit the original copies it; the copy keeps its audience.
+            let loaded = load_form(&member, &id, Some(Need::Edit)).await?;
             let copy = duplicate_form(&member.ctx, &loaded.form, &member.user_id, title.as_deref())
                 .await?;
             member.publish(FORM_CREATED, text(&copy, "id"), &form_event_data(&copy));
@@ -477,7 +486,8 @@ async fn set_subscription(
     answer(
         async {
             let mode = input::json(&headers, &body, input::subscription)?;
-            let loaded = load_form(&member, &id, None).await?;
+            // Instant mails and the digest carry answers: following takes reading them.
+            let loaded = load_form(&member, &id, Some(Need::ReadResponses)).await?;
             let set = workspace::set_subscription(
                 &member.ctx,
                 text(&loaded.form, "id"),

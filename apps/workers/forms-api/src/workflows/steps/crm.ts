@@ -374,12 +374,10 @@ function companyAnswer(ctx: ProcessContext, config: CrmIntegrationConfig): strin
 /** Target `lead`: a new lead, once; an edit of the response leaves it as it was. */
 async function runLeadTarget(run: CrmRun): Promise<StepResult> {
   const { ctx, integration, config, email, userId, access } = run;
+  // Already made: a retry, or an edit of the response, which leaves the lead as
+  // it was. Done, as Desk and Flow answer: nothing to show on the integration.
   const existingLead = await recordedLead(ctx, run.recorded);
-  if (existingLead) {
-    return ctx.params.mode === 'update'
-      ? { status: 'skipped', reason: 'A lead is not changed when the response is edited' }
-      : { status: 'done', entityType: 'lead', entityId: existingLead };
-  }
+  if (existingLead) return { status: 'done', entityType: 'lead', entityId: existingLead };
   requirePermissions(access, config, false);
   const mapped = await mapAnswers(ctx, config, 'lead');
   const lead = await createLeadFor(ctx, integration, email, mapped, companyAnswer(ctx, config), userId);

@@ -6,12 +6,12 @@
  *   GET    /:id                      → the draft, settings and what the member may do
  *   PATCH  /:id                      → save the draft (optimistic `revision`, 409 REVISION_CONFLICT)
  *   DELETE /:id                      → delete with responses, files and links
- *   POST   /:id/duplicate            → a copy as a new draft
+ *   POST   /:id/duplicate            → a copy as a new draft, with the same audience (needs `edit`)
  *   POST   /:id/publish|close|reopen → lifecycle (publish snapshots a version, refreshes the public cache)
  *   POST   /:id/discard              → throw the draft away, back to the published version
  *   GET    /:id/versions[/:versionId]
  *   GET|PUT /:id/access              → the member list of a restricted form
- *   GET|PUT /:id/subscription        → the member's own notification setting
+ *   GET|PUT /:id/subscription        → the member's own notification setting (PUT needs `readResponses`)
  *
  * A restricted form the member is not on is a 404 (services/access.ts).
  */
@@ -89,9 +89,12 @@ app.delete('/:id', requirePermission('forms:delete'), (c) =>
   }),
 );
 
+// The copy keeps the original's audience (`access` and its access list), and
+// only someone who may edit the original may copy it: a `results` member of a
+// restricted form cannot make a copy everyone sees.
 app.post('/:id/duplicate', requirePermission('forms:create'), zValidator('json', duplicateFormSchema), (c) =>
   handle(c, async () => {
-    const loaded = await loadForm(c, c.req.param('id'));
+    const loaded = await loadForm(c, c.req.param('id'), 'edit');
     const copy = await duplicateForm(loaded.ctx, loaded.form, loaded.userId, c.req.valid('json').title);
     publishEntityEvent({ c, entityType: 'form', entityId: copy.id, action: 'created', data: formEventData(copy) });
     return success(c, await detailOf(await loadForm(c, copy.id), copy), 201);
@@ -179,9 +182,11 @@ app.get('/:id/subscription', requirePermission('forms:read'), (c) =>
   }),
 );
 
+// Instant mails and the daily digest carry answers and respondents' addresses:
+// following a form takes the right to read its responses.
 app.put('/:id/subscription', requirePermission('forms:read'), zValidator('json', formSubscriptionSchema), (c) =>
   handle(c, async () => {
-    const loaded = await loadForm(c, c.req.param('id'));
+    const loaded = await loadForm(c, c.req.param('id'), 'readResponses');
     return success(c, await setSubscription(loaded.ctx, loaded.form.id, loaded.userId, c.req.valid('json')));
   }),
 );

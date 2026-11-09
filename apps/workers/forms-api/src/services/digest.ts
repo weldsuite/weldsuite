@@ -36,7 +36,7 @@ export async function sendDueDigests(ctx: WorkspaceCtx, now = new Date()): Promi
 async function sendFormDigests(ctx: WorkspaceCtx, formId: string, now: Date): Promise<number> {
   const [form] = await ctx.db.select().from(forms).where(eq(forms.id, formId)).limit(1);
   if (!form) return 0;
-  const members = await subscribersOf(ctx.db, form, 'daily');
+  const members = await subscribersOf(ctx.db, ctx.env, form, 'daily');
   if (members.length === 0) return 0;
   const marks = new Map(
     (await ctx.db.select({ userId: formSubscriptions.userId, at: formSubscriptions.lastDigestAt }).from(formSubscriptions).where(and(eq(formSubscriptions.formId, formId), eq(formSubscriptions.mode, 'daily')))).map((m) => [m.userId, m.at]),
