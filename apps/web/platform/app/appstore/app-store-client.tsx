@@ -18,11 +18,14 @@ import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-sect
 import { AppAccessRequestDialog } from './app-access-request-dialog';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { accessBadgeTone, canRequestAccess, getAppAccessInfo, type AppAccessState } from './app-access-state';
+import { getConsolidatedCategory } from './app-categories';
 
 interface AppStoreClientProps {
   initialApps: AvailableApp[];
   categories: string[];
   canManage?: boolean; // Only admins can install/uninstall apps
+  /** Shows the Developer console link under the categories. */
+  canDevelop?: boolean;
 }
 
 function AppLogo({ code, className = 'h-5 w-5' }: Readonly<{ code: string; className?: string }>) {
@@ -34,39 +37,7 @@ function AppLogo({ code, className = 'h-5 w-5' }: Readonly<{ code: string; class
   return <Icon className={className} />;
 }
 
-// Consolidate categories into broader groups
-const CATEGORY_GROUPS: Record<string, string[]> = {
-  'Customers': ['sales', 'crm', 'commerce', 'customer', 'support', 'helpdesk', 'marketing'],
-  'Communication': ['mail', 'email', 'chat', 'messaging', 'meet', 'video', 'inbox', 'webmail', 'communication'],
-  'Work': ['productivity', 'projects', 'tasks', 'task', 'planning', 'collaboration', 'documents', 'notes', 'calendar', 'workflow', 'automation'],
-  'Storage': ['drive', 'files', 'storage', 'host', 'hosting', 'dns', 'domains', 'infrastructure'],
-  'Finance': ['finance', 'accounting', 'billing', 'invoicing', 'erp', 'books'],
-};
-
-// Direct app code to category mapping — wins over keyword matching. Used when
-// the app's stored category alone isn't enough to disambiguate (e.g. WeldDrive
-// is stored as "Productivity" but belongs in Storage).
-const APP_CODE_OVERRIDES: Record<string, string> = {
-  'mail': 'Communication',
-  'welddrive': 'Storage',
-};
-
-function getConsolidatedCategory(originalCategory: string, appCode?: string): string {
-  // Check for direct app code override first
-  if (appCode && APP_CODE_OVERRIDES[appCode.toLowerCase()]) {
-    return APP_CODE_OVERRIDES[appCode.toLowerCase()];
-  }
-
-  const normalizedCategory = originalCategory.toLowerCase();
-  for (const [group, keywords] of Object.entries(CATEGORY_GROUPS)) {
-    if (keywords.some(keyword => normalizedCategory.includes(keyword.toLowerCase()))) {
-      return group;
-    }
-  }
-  return 'Work';
-}
-
-export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppStoreClientProps>) {
+export function AppStoreClient({ initialApps, canManage = false, canDevelop = false }: Readonly<AppStoreClientProps>) {
   const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
   const { t: allT, format } = useI18n();
@@ -191,10 +162,11 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
   return (
     <>
       <div className="flex justify-center flex-1 relative overflow-y-auto">
-        <div className="w-full max-w-[1150px] flex relative">
+        {/* As tall as the apps (at least the page), so the categories column and its divider run to the bottom. */}
+        <div className="relative flex min-h-full w-full max-w-[1150px] self-start">
           {/* Categories Section */}
-          <div className="hidden md:flex md:w-60 md:shrink-0 py-6 md:pl-8 border-r border-border">
-            <div className="sticky top-6 w-full">
+          <div className="hidden md:flex md:w-60 md:shrink-0 md:flex-col py-6 md:pl-8 border-r border-border">
+            <div className="sticky top-6 w-full self-start">
               <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
                 {t.appstore.categories}
               </h2>
@@ -215,6 +187,12 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                 ))}
               </div>
             </div>
+            {/* At the very bottom of the column: pinned 24px above the window's bottom while scrolling. */}
+            {canDevelop && (
+              <Button asChild variant="outline" size="sm" className="sticky bottom-6 mt-auto w-fit">
+                <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
+              </Button>
+            )}
           </div>
 
           {/* Apps Content */}
