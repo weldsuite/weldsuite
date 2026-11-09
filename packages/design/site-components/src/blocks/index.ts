@@ -27,6 +27,7 @@ export { ProductPolicyButtonsBlock } from './product-policy-buttons-block';
 export { EmailFormBlock } from './email-form-block';
 export { NewsletterBlock } from './newsletter-block';
 export { ContactFormModernBlock } from './contact-form-modern-block';
+export { WeldFormsFormBlock } from './weldforms-form-block';
 export { FooterBlock } from './footer-block';
 export { ImageBannerBlock } from './image-banner-block';
 export { CollectionListBlock } from './collection-list-block';
