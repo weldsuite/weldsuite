@@ -155,7 +155,8 @@ export type BuiltInTemplateKey =
   | 'workflowFailureAlert'
   | 'aiLeadTriage'
   | 'welcomeEmail'
-  | 'weldmergeReleaseShipped';
+  | 'weldmergeReleaseShipped'
+  | 'formResponseToChat';
 
 /** One template's strings in one language (`@weldsuite/i18n/locales/<locale>/weldconnect-templates`). */
 export interface BuiltInTemplateStrings {
@@ -575,6 +576,34 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: readonly BuiltInTemplateDefinition[] =
         ]),
       };
     },
+  },
+  {
+    // WeldForms: every completed response is posted in a chat channel (`form_response.submitted`, catalog-driven).
+    // Answers are not in the message: the payload carries them by question ref for steps that want them
+    // (`{{trigger.record.answers.<ref>}}`), and sensitive answers are never in it (ADR FORMS-004).
+    id: 'builtin_form_response_to_chat',
+    key: 'formResponseToChat',
+    category: 'communication',
+    icon: 'ClipboardList',
+    setup: [{ stepId: 'step_post', field: 'channelId' }],
+    build: ({ steps, text }) => ({
+      triggers: [entityTrigger('form_response', 'submitted')],
+      steps: ordered([
+        {
+          id: 'step_post',
+          type: 'post_chat_message',
+          name: at(steps, 'post'),
+          config: {
+            channelId: '',
+            message: fillPlaceholders(at(text, 'message'), {
+              form: '{{trigger.record.formTitle}}',
+              number: '{{trigger.record.number}}',
+              email: '{{trigger.record.respondentEmail}}',
+            }),
+          },
+        },
+      ]),
+    }),
   },
 ];
 
