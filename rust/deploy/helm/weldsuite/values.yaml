@@ -307,10 +307,40 @@ secret:
 # public objects served by this server at <config.publicUrl>/api/storage/public.
 # Off, bring your own and put its settings in the Secret.
 bundle:
+  # A CloudNativePG Cluster for the master and the workspaces' databases
+  # (postgres below): DATABASE_URL_MASTER and TENANT_SHARDS. Needs the
+  # CloudNativePG operator in the cluster. With it, the migrations run in an
+  # init container of the server's pods instead of a pre-install hook, which
+  # would run before the database exists.
+  postgres: false
   valkey: false
   nats: false
   restate: false
   objectStorage: false
+
+# The bundled Postgres (bundle.postgres): one CloudNativePG Cluster,
+# <release>-pg. The master database is weldsuite_master, owned by weldsuite;
+# each workspace gets its own database and role on the same cluster, made by
+# the tenant role (CREATEDB, CREATEROLE). Both passwords are generated into
+# <release>-pg-owner and <release>-pg-tenant (basic-auth Secrets, kept on
+# uninstall). Workspaces connect to the primary directly, without a pooler,
+# which suits an install of up to a few hundred workspaces.
+postgres:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  parameters:
+    max_connections: "300"
+    shared_buffers: 256MB
+  storage:
+    size: 20Gi
+    # The cluster's default StorageClass when empty.
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
 
 # The bundled object store (bundle.objectStorage): one RustFS node (Apache-2.0,
 # S3-compatible) on a volume. The buckets are created by the server at start.
