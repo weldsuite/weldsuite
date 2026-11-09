@@ -62,6 +62,9 @@ const WORKSPACE_CACHE = {
     kv.set(key, value);
     kvPuts.push({ key, ttl: opts?.expirationTtl });
   },
+  delete: async (key: string) => {
+    kv.delete(key);
+  },
 };
 const ENTITY_EVENTS = {
   send: async (message: { entityType: string; action: string; entityId: string; changes?: unknown }) => {
@@ -314,6 +317,39 @@ describe('POST /api/desk/conversations/:id/translate', () => {
     const [row] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, conversation.id));
     expect(row!.language).toBe('de');
     expect(events).toEqual([expect.objectContaining({ changes: { language: { old: 'nl', new: 'de' } } })]);
+  });
+
+  it('sends the earlier messages again when their batch fails after the language turned out foreign', async () => {
+    const { conversation, message: hello } = await createDeskConversation(db, {
+      generateId,
+      visitorId: 'visitor_tr_hallo_retry',
+      body: 'Hallo',
+    });
+    answer('nl', []);
+    await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+
+    const { message: next } = await appendDeskMessage(db, {
+      generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      body: 'Ich brauche Hilfe mit meiner Rechnung.',
+    });
+    // The new message says German; the call for the earlier "Hallo" fails.
+    answer('de', [{ id: next.id, text: 'Ik heb hulp nodig met mijn factuur.' }]);
+    ai.generateObject.mockRejectedValueOnce(new Error('upstream'));
+    const partial = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(partial.status).toBe(200);
+    expect(((await partial.json()) as TranslateBody).data.translations.map((t) => t.messageId)).toEqual([next.id]);
+
+    // "Hallo" is no longer remembered as "same language": the next request sends it again.
+    answer('de', [{ id: hello!.id, text: 'Hallo' }]);
+    const again = await post(`/${conversation.id}/translate`, { targetLocale: 'nl' });
+    expect(((await again.json()) as TranslateBody).data.translations.map((t) => t.messageId)).toEqual([
+      hello!.id,
+      next.id,
+    ]);
+    expect(promptOf(3).map((m) => m.id)).toEqual([hello!.id]);
   });
 
   it('translates a long thread in batches, each charged', async () => {
