@@ -1,94 +1,64 @@
 import { useMemo, useState } from 'react';
-import { Receipt } from 'lucide-react';
 import { isApiError } from '@weldsuite/api-client';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { COST_SOURCES, type CostSource } from '@weldsuite/app-api-client/schemas/project-finance';
-import { useProjectCosts, type CostFilters } from '@/hooks/queries/use-project-finance-queries';
-import { useProjectFinance } from '@/hooks/queries/use-project-finance-queries';
-import { Amounts, useLineText } from '../_components/cost-line';
-import { FinanceErrorState, PercentOnlyNotice, SourceBadge, useFinanceEnv } from '../_components/finance-parts';
+import type { ActiveFilter, FilterConfig } from '@weldsuite/ui/components/list-toolbar';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { COST_SOURCES } from '@weldsuite/app-api-client/schemas/project-finance';
 import type { CostLine } from '@weldsuite/app-api-client/domains/project-finance';
+import { EntityList, type HeaderColumn } from '@/components/entity-list';
+import { LIST_CELL_CLASS, LIST_MENU_CELL_CLASS, LIST_ROW_CLASS, ListText, ListTitle } from '@/app/weldflow/components/list-cells';
+import { SubNavToolbar } from '@/app/weldflow/components/sub-nav';
+import { useProjectCosts, useProjectFinance } from '@/hooks/queries/use-project-finance-queries';
+import { cn } from '@/lib/utils';
+import { useLineText } from '../_components/cost-line';
+import { FinanceListIllustration } from '../_components/finance-list-illustration';
+import { FinanceErrorState, PercentOnlyNotice, SourceBadge, useFinanceEnv } from '../_components/finance-parts';
+import { COST_FILTER_FIELDS, toCostQuery } from '../_lib/cost-filters';
+import { formatMoney } from '../_lib/finance';
 
-const ALL = '__all__';
+const COLUMN_WIDTHS = {
+  description: 'min-w-[100px] flex-1',
+  source: 'w-[110px]',
+  details: 'hidden w-[220px] @4xl:flex',
+  status: 'hidden w-[110px] @3xl:flex',
+  date: 'hidden w-[110px] @xl:flex',
+  amount: 'w-[110px] justify-end',
+  committed: 'hidden w-[110px] justify-end @2xl:flex',
+} as const;
 
+/** One cost line as a standard list row: what it is, its source and details, and what it costs. */
 function Row({ line, currency }: Readonly<{ line: CostLine; currency: string | null }>) {
   const { intlLocale } = useFinanceEnv();
   const { title, meta } = useLineText(line);
   const date = new Intl.DateTimeFormat(intlLocale, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${line.date}T00:00:00Z`));
+  const committed = Number(line.committed) === 0 ? null : `+ ${formatMoney(line.committed, currency, intlLocale, 2)}`;
+  // The date has its own column, so a bill or purchase shows only its reference here.
+  const details = line.source === 'time' ? meta : line.reference;
   return (
-    <tr className="border-t align-top">
-      <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">{date}</td>
-      <td className="px-2.5 py-2.5">
+    <div className={cn(LIST_ROW_CLASS, 'cursor-default')}>
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.description)}>
+        <ListTitle title={title} />
+      </div>
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.source)}>
         <SourceBadge source={line.source} />
-      </td>
-      <td className="px-2.5 py-2.5">
-        <div className="font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground">{meta}</div>
-      </td>
-      <td className="px-2.5 py-2.5 text-muted-foreground capitalize">{line.status ?? ''}</td>
-      <td className="px-4 py-2.5">
-        <Amounts line={line} currency={currency} />
-      </td>
-    </tr>
-  );
-}
-
-function CostFilterBar({
-  source,
-  from,
-  to,
-  filtered,
-  onSource,
-  onFrom,
-  onTo,
-  onClear,
-}: Readonly<{
-  source: CostSource | undefined;
-  from: string;
-  to: string;
-  filtered: boolean;
-  onSource: (value: CostSource | undefined) => void;
-  onFrom: (value: string) => void;
-  onTo: (value: string) => void;
-  onClear: () => void;
-}>) {
-  const { copy } = useFinanceEnv();
-  const c = copy.costs;
-  return (
-    <div className="flex flex-wrap items-end gap-3">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="finance-source">{c.filterSource}</Label>
-        <Select value={source ?? ALL} onValueChange={(value) => onSource(value === ALL ? undefined : (value as CostSource))}>
-          <SelectTrigger id="finance-source" className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{c.allSources}</SelectItem>
-            {COST_SOURCES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {copy.sources[value]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="finance-from">{c.from}</Label>
-        <Input id="finance-from" type="date" value={from} max={to || undefined} onChange={(event) => onFrom(event.target.value)} className="w-40" />
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.details)}>
+        <ListText text={details} />
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="finance-to">{c.to}</Label>
-        <Input id="finance-to" type="date" value={to} min={from || undefined} onChange={(event) => onTo(event.target.value)} className="w-40" />
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.status, 'capitalize')}>
+        <ListText text={line.status} />
       </div>
-      {filtered ? (
-        <Button type="button" variant="ghost" onClick={onClear}>
-          {c.clear}
-        </Button>
-      ) : null}
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.date)}>
+        <ListText text={date} />
+      </div>
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.amount)}>
+        <span className="truncate text-sm font-semibold tabular-nums text-gray-900 dark:text-foreground">
+          {formatMoney(line.amount, currency, intlLocale, 2)}
+        </span>
+      </div>
+      <div className={cn(LIST_CELL_CLASS, COLUMN_WIDTHS.committed)}>
+        <span className="truncate text-sm tabular-nums text-gray-600 dark:text-muted-foreground">{committed ?? '—'}</span>
+      </div>
+      <div className={LIST_MENU_CELL_CLASS} />
     </div>
   );
 }
@@ -101,112 +71,81 @@ function CostsList({
 }: Readonly<{ costs: ReturnType<typeof useProjectCosts>; lines: CostLine[]; filtered: boolean; currency: string | null }>) {
   const { copy } = useFinanceEnv();
   const c = copy.costs;
-  if (costs.isLoading) {
-    return (
-      <div role="status" aria-busy="true" className="flex flex-col gap-2">
-        {Array.from({ length: 5 }, (_, index) => (
-          <Skeleton key={index} className="h-12" />
-        ))}
-      </div>
-    );
-  }
-  if (costs.isError) return <FinanceErrorState onRetry={() => void costs.refetch()} />;
-  if (lines.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-        <div className="rounded-full bg-muted p-3">
-          <Receipt aria-hidden className="size-6 text-muted-foreground" />
-        </div>
-        <h3 className="text-base font-semibold">{c.emptyTitle}</h3>
-        <p className="max-w-sm text-sm text-muted-foreground">{filtered ? c.emptyFiltered : c.emptyDescription}</p>
-      </div>
-    );
-  }
+  // EntityList adds the 40px header spacer of the menu column itself.
+  const headerColumns: HeaderColumn[] = [
+    { id: 'description', header: c.columns.description, width: COLUMN_WIDTHS.description },
+    { id: 'source', header: c.columns.source, width: COLUMN_WIDTHS.source },
+    { id: 'details', header: c.columns.details, width: COLUMN_WIDTHS.details },
+    { id: 'status', header: c.columns.status, width: COLUMN_WIDTHS.status },
+    { id: 'date', header: c.columns.date, width: COLUMN_WIDTHS.date },
+    { id: 'amount', header: c.columns.amount, width: COLUMN_WIDTHS.amount, className: 'text-right' },
+    { id: 'committed', header: c.columns.committed, width: COLUMN_WIDTHS.committed, className: 'text-right' },
+  ];
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[44rem] border-collapse text-sm">
-          <thead>
-            <tr className="text-xs text-muted-foreground">
-              <th scope="col" className="px-4 py-2 text-left font-medium">
-                {c.columns.date}
-              </th>
-              <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                {c.columns.source}
-              </th>
-              <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                {c.columns.description}
-              </th>
-              <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                {c.columns.status}
-              </th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">
-                {c.columns.amount}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((line) => (
-              <Row key={line.id} line={line} currency={currency} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {costs.hasNextPage ? (
-        <div className="flex justify-center border-t p-3">
-          <Button type="button" variant="outline" disabled={costs.isFetchingNextPage} onClick={() => void costs.fetchNextPage()}>
-            {costs.isFetchingNextPage ? c.loadingMore : c.loadMore}
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    <section aria-label={c.title} className="@container">
+      <EntityList<CostLine>
+        items={lines}
+        isLoading={costs.isLoading}
+        error={null}
+        headerColumns={headerColumns}
+        filters={[]}
+        renderRow={(line) => <Row key={line.id} line={line} currency={currency} />}
+        hideTopBar
+        hasMore={costs.hasNextPage}
+        isLoadingMore={costs.isFetchingNextPage}
+        onLoadMore={() => void costs.fetchNextPage()}
+        emptyState={{
+          icon: <FinanceListIllustration />,
+          title: c.emptyTitle,
+          description: filtered ? c.emptyFiltered : c.emptyDescription,
+        }}
+        emptyStateClassName="min-h-[calc(100dvh-350px)]"
+      />
+    </section>
   );
 }
 
-/** Finance › Costs: every line that counts toward the project, by source, with filters. */
+/**
+ * Finance › Costs: every line that counts toward the project, as a list under
+ * the toolbar of the Finance tab (source and date filters).
+ */
 export default function FinanceCostsPage() {
   const { projectId, copy } = useFinanceEnv();
   const c = copy.costs;
   const finance = useProjectFinance(projectId);
-  const [source, setSource] = useState<CostSource | undefined>();
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const filters = useMemo<CostFilters>(() => ({ source, from: from || undefined, to: to || undefined }), [source, from, to]);
+  const [filters, setFilters] = useState<ActiveFilter[]>([]);
+  const query = useMemo(() => toCostQuery(filters), [filters]);
   const canSee = finance.data?.canSeeAmounts ?? false;
-  const costs = useProjectCosts(projectId, filters, 25, canSee);
-  const lines = costs.data?.pages.flatMap((page) => page.data) ?? [];
-  const filtered = !!source || !!from || !!to;
+  const costs = useProjectCosts(projectId, query.filters, 25, canSee);
+  const lines = useMemo(() => {
+    const loaded = costs.data?.pages.flatMap((page) => page.data) ?? [];
+    return query.excludedSource ? loaded.filter((line) => line.source !== query.excludedSource) : loaded;
+  }, [costs.data, query.excludedSource]);
+  const filtered = filters.some((filter) => filter.value);
+  const denied = !canSee || (isApiError(costs.error) && costs.error.status === 403);
 
-  if (finance.isLoading) return <Skeleton className="h-64 rounded-lg" role="status" aria-busy="true" />;
-  if (finance.isError || !finance.data) return <FinanceErrorState onRetry={() => void finance.refetch()} />;
-  if (!canSee) return <PercentOnlyNotice message={c.denied} />;
-  const denied = isApiError(costs.error) && costs.error.status === 403;
-  if (denied) return <PercentOnlyNotice message={c.denied} />;
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: COST_FILTER_FIELDS.source,
+      label: c.columns.source,
+      options: COST_SOURCES.map((source) => ({ value: source, label: copy.sources[source] })),
+    },
+    { field: COST_FILTER_FIELDS.date, label: c.columns.date, options: [], filterType: 'date' },
+  ];
 
+  let body;
+  if (finance.isLoading) body = <PageLoader fullScreen={false} className="h-auto min-h-[calc(100dvh-350px)] pb-0" />;
+  else if (finance.isError || !finance.data) body = <FinanceErrorState onRetry={() => void finance.refetch()} />;
+  else if (denied) body = <PercentOnlyNotice message={c.denied} />;
+  else if (costs.isError) body = <FinanceErrorState onRetry={() => void costs.refetch()} />;
+  else body = <CostsList costs={costs} lines={lines} filtered={filtered} currency={finance.data.currency} />;
+
+  // The list runs edge to edge; a notice or a failed load keeps the page padding.
+  const padded = !finance.isLoading && (finance.isError || !finance.data || denied || costs.isError);
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-base font-semibold">{c.title}</h2>
-        <p className="text-sm text-muted-foreground">{c.description}</p>
-      </div>
-
-      <CostFilterBar
-        source={source}
-        from={from}
-        to={to}
-        filtered={filtered}
-        onSource={setSource}
-        onFrom={setFrom}
-        onTo={setTo}
-        onClear={() => {
-          setSource(undefined);
-          setFrom('');
-          setTo('');
-        }}
-      />
-
-      <CostsList costs={costs} lines={lines} filtered={filtered} currency={finance.data.currency} />
-      <p className="text-xs text-muted-foreground">{c.doubleCount}</p>
-    </div>
+    <>
+      <SubNavToolbar filterConfigs={finance.data && !denied ? filterConfigs : undefined} filters={filters} onFiltersChange={setFilters} />
+      {padded ? <div className="px-3 pt-4 md:px-4">{body}</div> : body}
+    </>
   );
 }

@@ -87,12 +87,18 @@ const toNumber = (value: string | null): number | null => (value === null ? null
  * The curve points: one per weekly snapshot, the current figures as the last
  * point, and a dashed forecast from today to the project's end. A caller
  * without finance rights gets the same curve in percent of the budget.
+ *
+ * Every line starts at nothing on the project's start date and the plan
+ * reaches the budget on its end date, both true by definition. Without them a
+ * project whose snapshots began after it started (the weekly snapshots only
+ * exist from when Finance was first opened) drew flat lines over a few days.
  */
 export function buildCurve(
   snapshots: readonly FinanceSnapshot[],
   finance: ProjectFinance,
   endMs: number | null,
   now: number,
+  startMs: number | null = null,
 ): Curve {
   const percent = !finance.canSeeAmounts;
   const points: CurvePoint[] = [];
@@ -130,5 +136,13 @@ export function buildCurve(
   }
   let budget = toNumber(figures.budget);
   if (percent) budget = finance.percent.spent === null ? null : 100;
+
+  if (startMs !== null && startMs < points[0].t) points.push({ t: startMs, planned: 0, earned: 0, actual: 0 });
+  if (budget !== null && endMs !== null && (startMs === null || endMs > startMs)) {
+    const atEnd = points.find((p) => p.t === endMs);
+    if (!atEnd) points.push({ t: endMs, planned: budget });
+    else if (atEnd.planned === undefined || atEnd.planned === null) atEnd.planned = budget;
+  }
+  points.sort((a, b) => a.t - b.t);
   return { points, budget, forecast, today: now, percent };
 }
