@@ -10,7 +10,7 @@ import { displayAnswer, formatNumber } from './display';
 import type { RecallContext } from './types';
 
 /** `{{field:ref}}`, `{{hidden:name}}`, `{{var:name}}`; spaces inside the braces are allowed. */
-export const RECALL_RE = /\{\{\s*(field|hidden|var):([A-Za-z0-9_]+)\s*\}\}/g;
+export const RECALL_RE = /\{\{\s*(field|hidden|var):(\w+)\s*\}\}/g;
 
 export interface RecallOptions {
   /** URL-encode each value (`encodeURIComponent`), for redirect URLs. */

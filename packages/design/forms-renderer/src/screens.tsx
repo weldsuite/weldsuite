@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import type { FormDefinition, WelcomeScreen } from '@weldsuite/forms-engine';
 import { InlineMedia } from './blocks';
@@ -30,6 +30,19 @@ export function Welcome({
       </div>
     </div>
   );
+}
+
+/** The tick or cross next to a quiz answer; nothing when the question has no correct answer marked. */
+function quizMark(correct: boolean | null, labels: FormRendererLabels): ReactNode {
+  if (correct === true) return <Check size={18} aria-label={labels.quizCorrect} />;
+  if (correct === false) return <X size={18} aria-label={labels.quizIncorrect} />;
+  return null;
+}
+
+/** The line under an ending that redirects: the target in a preview, else "Redirecting…" once it starts. */
+function redirectNote(labels: FormRendererLabels, url: string, preview: boolean, redirecting: boolean): string | null {
+  if (preview) return fill(labels.previewRedirect, { url });
+  return redirecting ? labels.redirecting : null;
 }
 
 export function Ending({
@@ -68,13 +81,10 @@ export function Ending({
             {result.quiz.map((item) => {
               const texts = quizTexts(def, item.fieldId, state.answers);
               if (!texts) return null;
-              const right = item.correct === true;
               const wrong = item.correct === false;
               return (
-                <li key={item.fieldId} className="wf-quiz-item" data-correct={right ? 'true' : wrong ? 'false' : undefined}>
-                  <span className="wf-quiz-mark">
-                    {right ? <Check size={18} aria-label={labels.quizCorrect} /> : wrong ? <X size={18} aria-label={labels.quizIncorrect} /> : null}
-                  </span>
+                <li key={item.fieldId} className="wf-quiz-item" data-correct={typeof item.correct === 'boolean' ? String(item.correct) : undefined}>
+                  <span className="wf-quiz-mark">{quizMark(item.correct, labels)}</span>
                   <div>
                     <p className="wf-quiz-question">{texts.field.title}</p>
                     <p className="wf-quiz-answer">
@@ -101,7 +111,7 @@ export function Ending({
       ) : null}
       {ending.redirectUrl ? (
         <p className="wf-hint" role="status">
-          {preview ? fill(labels.previewRedirect, { url: ending.redirectUrl }) : redirecting ? labels.redirecting : null}
+          {redirectNote(labels, ending.redirectUrl, preview, redirecting)}
         </p>
       ) : null}
     </div>

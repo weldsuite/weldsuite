@@ -124,39 +124,39 @@ function parseSerial(value: unknown): { serial: number; day: boolean } | null {
   return text !== '' && Number.isFinite(n) ? { serial: n, day: Number.isInteger(n) } : null;
 }
 
-function matches(cell: ResponseCell, type: FormColumn['type'], op: FilterOp, raw: string | number | boolean | null | undefined): boolean {
-  if (op === 'empty') return cell === null || (typeof cell === 'string' && cell.trim() === '');
-  if (op === 'notEmpty') return !(cell === null || (typeof cell === 'string' && cell.trim() === ''));
+type FilterValue = string | number | boolean | null | undefined;
 
-  if (type === 'text') {
-    if (raw === null || raw === undefined) return false;
-    const needle = String(raw).toLowerCase();
-    const hay = typeof cell === 'string' ? cell.toLowerCase() : null;
-    if (op === 'eq') return hay === needle;
-    if (op === 'neq') return hay === null || hay !== needle;
-    if (op === 'contains') return hay !== null && hay.includes(needle);
-    return false;
-  }
+function isEmptyCell(cell: ResponseCell): boolean {
+  return cell === null || (typeof cell === 'string' && cell.trim() === '');
+}
 
-  if (type === 'number') {
-    const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN;
-    if (!Number.isFinite(n)) return false;
-    if (op === 'neq') return typeof cell !== 'number' || cell !== n;
-    if (typeof cell !== 'number') return false;
-    return compare(cell, op, n);
-  }
+function matchesText(cell: ResponseCell, op: FilterOp, raw: FilterValue): boolean {
+  if (raw === null || raw === undefined) return false;
+  const needle = String(raw).toLowerCase();
+  const hay = typeof cell === 'string' ? cell.toLowerCase() : null;
+  if (op === 'eq') return hay === needle;
+  if (op === 'neq') return hay === null || hay !== needle;
+  if (op === 'contains') return hay !== null && hay.includes(needle);
+  return false;
+}
 
-  // date, datetime: compared as serials; a whole-day value covers that UTC day.
-  const value = parseSerial(raw);
-  if (!value) return false;
-  const day = type === 'date' || value.day;
-  const start = Math.floor(value.serial);
-  if (op === 'neq') {
-    if (typeof cell !== 'number') return true;
-    return day ? Math.floor(cell) !== start : cell !== value.serial;
-  }
+/** A number filter's value: a number, or a non-blank string read as one; NaN otherwise. */
+function filterNumber(raw: FilterValue): number {
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && raw.trim() !== '') return Number(raw);
+  return Number.NaN;
+}
+
+function matchesNumber(cell: ResponseCell, op: FilterOp, raw: FilterValue): boolean {
+  const n = filterNumber(raw);
+  if (!Number.isFinite(n)) return false;
+  if (op === 'neq') return typeof cell !== 'number' || cell !== n;
   if (typeof cell !== 'number') return false;
-  if (!day) return compare(cell, op, value.serial);
+  return compare(cell, op, n);
+}
+
+/** A cell against the UTC day that starts at serial `start`. */
+function compareDay(cell: number, op: FilterOp, start: number): boolean {
   switch (op) {
     case 'eq':
       return cell >= start && cell < start + DAY;
@@ -171,6 +171,29 @@ function matches(cell: ResponseCell, type: FormColumn['type'], op: FilterOp, raw
     default:
       return false;
   }
+}
+
+/** Dates and datetimes compare as serials; a whole-day value covers that UTC day. */
+function matchesDate(cell: ResponseCell, type: FormColumn['type'], op: FilterOp, raw: FilterValue): boolean {
+  const value = parseSerial(raw);
+  if (!value) return false;
+  const day = type === 'date' || value.day;
+  const start = Math.floor(value.serial);
+  if (op === 'neq') {
+    if (typeof cell !== 'number') return true;
+    return day ? Math.floor(cell) !== start : cell !== value.serial;
+  }
+  if (typeof cell !== 'number') return false;
+  return day ? compareDay(cell, op, start) : compare(cell, op, value.serial);
+}
+
+function matches(cell: ResponseCell, type: FormColumn['type'], op: FilterOp, raw: FilterValue): boolean {
+  if (op === 'empty') return isEmptyCell(cell);
+  if (op === 'notEmpty') return !isEmptyCell(cell);
+  if (type === 'text') return matchesText(cell, op, raw);
+  if (type === 'number') return matchesNumber(cell, op, raw);
+  // date, datetime
+  return matchesDate(cell, type, op, raw);
 }
 
 function compare(a: number, op: FilterOp, b: number): boolean {

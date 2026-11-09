@@ -23,7 +23,7 @@ import {
   variablesOf,
   type EvalContext,
 } from './conditions';
-import type { BlockLogic, Calculation, ChoiceAnswer, FormDefinition, LogicTarget } from './definition';
+import type { Block, BlockLogic, Calculation, ChoiceAnswer, FormDefinition, LogicTarget } from './definition';
 import type { EngineInput, PathResult } from './types';
 
 /** Runs one calculation on the context's variables. */
@@ -42,27 +42,25 @@ export function runCalculation(calc: Calculation, ctx: EvalContext): void {
 
   const operand = operandNumber(calc.value, ctx);
   if (operand === null) return;
-  let next: number;
-  switch (calc.op) {
-    case 'add':
-      next = current + operand;
-      break;
-    case 'subtract':
-      next = current - operand;
-      break;
-    case 'multiply':
-      next = current * operand;
-      break;
-    case 'divide':
-      if (operand === 0) return;
-      next = current / operand;
-      break;
-    case 'set':
-      next = operand;
-      break;
-  }
-  if (!Number.isFinite(next)) return;
+  const next = applyOp(calc.op, current, operand);
+  if (next === null || !Number.isFinite(next)) return;
   ctx.variables.set(calc.variable, roundNumber(next));
+}
+
+/** A number variable after the calculation; null for a division by zero. */
+function applyOp(op: Calculation['op'], current: number, operand: number): number | null {
+  switch (op) {
+    case 'add':
+      return current + operand;
+    case 'subtract':
+      return current - operand;
+    case 'multiply':
+      return current * operand;
+    case 'divide':
+      return operand === 0 ? null : current / operand;
+    case 'set':
+      return operand;
+  }
 }
 
 export interface WalkResult extends PathResult {
@@ -70,15 +68,56 @@ export interface WalkResult extends PathResult {
   visible: Set<string>;
 }
 
+/** Each block's logic (the first entry for a block counts). */
+function logicByBlockId(def: FormDefinition): Map<string, BlockLogic> {
+  const out = new Map<string, BlockLogic>();
+  for (const logic of def.logic) if (!out.has(logic.blockId)) out.set(logic.blockId, logic);
+  return out;
+}
+
+/** Each top-level block's index (the first block with an id counts). */
+function indexByBlockId(def: FormDefinition): Map<string, number> {
+  const out = new Map<string, number>();
+  def.blocks.forEach((b, i) => {
+    if (!out.has(b.id)) out.set(b.id, i);
+  });
+  return out;
+}
+
+/** A content block reached: it and its group children become visible, and its choice fields' scores add to `score`. */
+function enterBlock(block: Block, ctx: EvalContext): void {
+  ctx.visible.add(block.id);
+  if (block.type === 'group') for (const child of block.children) ctx.visible.add(child.id);
+
+  for (const field of blockFields(block)) {
+    if (!isChoiceField(field)) continue;
+    const answer = ctx.answers[field.id];
+    if (answer === undefined) continue;
+    const score = ctx.variables.get('score');
+    if (typeof score === 'number') ctx.variables.set('score', roundNumber(score + selectedScore(field, answer as ChoiceAnswer)));
+  }
+}
+
+/** Leaving a block: its calculations run, then the first jump that holds is taken, else `otherwise`. */
+function leaveBlock(logic: BlockLogic | undefined, ctx: EvalContext): LogicTarget | null {
+  if (!logic) return null;
+  for (const calc of logic.calculations) runCalculation(calc, ctx);
+  const jump = logic.jumps.find((j) => evaluateGroup(j.when, ctx));
+  return jump ? jump.to : logic.otherwise;
+}
+
+/** The index to go to from block `i`: the jump's block when it goes forward to a content block, else the next one. */
+function nextIndex(def: FormDefinition, blockIndex: Map<string, number>, target: LogicTarget | null, i: number): number {
+  if (target?.type !== 'block') return i + 1;
+  const j = blockIndex.get(target.id);
+  return j !== undefined && j > i && def.blocks[j]?.type !== 'page_break' ? j : i + 1;
+}
+
 /** Walks the blocks over already-validated answers. */
 export function walk(def: FormDefinition, ctx: EvalContext): WalkResult {
-  const logicByBlock = new Map<string, BlockLogic>();
-  for (const logic of def.logic) if (!logicByBlock.has(logic.blockId)) logicByBlock.set(logic.blockId, logic);
+  const logicByBlock = logicByBlockId(def);
   const endingIds = new Set(def.endings.map((e) => e.id));
-  const blockIndex = new Map<string, number>();
-  def.blocks.forEach((b, i) => {
-    if (!blockIndex.has(b.id)) blockIndex.set(b.id, i);
-  });
+  const blockIndex = indexByBlockId(def);
 
   const path: string[] = [];
   let endingId: string | null = null;
@@ -91,38 +130,15 @@ export function walk(def: FormDefinition, ctx: EvalContext): WalkResult {
       continue;
     }
     path.push(block.id);
-    ctx.visible.add(block.id);
-    if (block.type === 'group') for (const child of block.children) ctx.visible.add(child.id);
+    enterBlock(block, ctx);
 
-    for (const field of blockFields(block)) {
-      if (!isChoiceField(field)) continue;
-      const answer = ctx.answers[field.id];
-      if (answer === undefined) continue;
-      const score = ctx.variables.get('score');
-      if (typeof score === 'number') ctx.variables.set('score', roundNumber(score + selectedScore(field, answer as ChoiceAnswer)));
+    const target = leaveBlock(logicByBlock.get(block.id), ctx);
+    // A jump to an ending ends the walk; one to an unknown ending counts as "next block".
+    if (target?.type === 'ending' && endingIds.has(target.id)) {
+      endingId = target.id;
+      break;
     }
-
-    let target: LogicTarget | null = null;
-    const logic = logicByBlock.get(block.id);
-    if (logic) {
-      for (const calc of logic.calculations) runCalculation(calc, ctx);
-      const jump = logic.jumps.find((j) => evaluateGroup(j.when, ctx));
-      target = jump ? jump.to : logic.otherwise;
-    }
-
-    let next = i + 1;
-    if (target) {
-      if (target.type === 'ending') {
-        if (endingIds.has(target.id)) {
-          endingId = target.id;
-          break;
-        }
-      } else {
-        const j = blockIndex.get(target.id);
-        if (j !== undefined && j > i && def.blocks[j]?.type !== 'page_break') next = j;
-      }
-    }
-    i = next;
+    i = nextIndex(def, blockIndex, target, i);
   }
 
   if (endingId === null) {

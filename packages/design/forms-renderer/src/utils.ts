@@ -39,6 +39,12 @@ export function seededShuffle<T>(items: readonly T[], seed: string): T[] {
   return out;
 }
 
+/** A fresh shuffle seed for one session: 11 random base-36 characters from the Web Crypto API. */
+export function randomSeed(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(11));
+  return Array.from(bytes, (byte) => (byte % 36).toString(36)).join('');
+}
+
 /** The choices in display order: stable shuffle when `randomize`, A-Z when `alphabetical`. */
 export function orderedChoices(
   choices: FormChoice[],

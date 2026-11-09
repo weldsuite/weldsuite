@@ -34,6 +34,13 @@ function partLabel(labels: FormRendererLabels, part: string): string {
   return map[part] ?? part;
 }
 
+/** The input type (and keyboard) of a part: email and phone get their own, the rest is text. */
+function partInputType(part: string): 'email' | 'tel' | 'text' {
+  if (part === 'email') return 'email';
+  if (part === 'phone') return 'tel';
+  return 'text';
+}
+
 /** Contact info and address: one input per enabled sub-field. */
 export function CompositeField({
   field,
@@ -66,6 +73,7 @@ export function CompositeField({
       {parts.map(({ part, required }, i) => {
         const wrong = error?.part === part;
         const label = partLabel(labels, part);
+        const inputType = partInputType(part);
         return (
           <label key={part} className="wf-composite-part" data-part={part}>
             <span className="wf-sublabel">
@@ -74,8 +82,8 @@ export function CompositeField({
             </span>
             <input
               className="wf-input"
-              type={part === 'email' ? 'email' : part === 'phone' ? 'tel' : 'text'}
-              inputMode={part === 'email' ? 'email' : part === 'phone' ? 'tel' : 'text'}
+              type={inputType}
+              inputMode={inputType}
               autoComplete={AUTOCOMPLETE[part]}
               value={current[part] ?? ''}
               aria-invalid={wrong ? true : undefined}

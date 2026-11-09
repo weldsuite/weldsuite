@@ -3,11 +3,26 @@
  */
 
 import { collectAnswers } from './answers';
-import { fieldsOf, isScoredField } from './blocks';
+import { fieldsOf, isScoredField, type ChoiceField } from './blocks';
 import { createEvalContext, selectedScore } from './conditions';
 import type { Answers, ChoiceAnswer, FormDefinition } from './definition';
 import { walk } from './path';
 import type { AnswerError, EngineInput, QuizItem, SubmissionResult } from './types';
+
+/** The selected ids of a choice answer, `other` included when "Other" has a text. */
+function selectedIds(choice: ChoiceAnswer | undefined): Set<string> {
+  if (!choice) return new Set();
+  return new Set(choice.other === undefined ? choice.choiceIds : [...choice.choiceIds, 'other']);
+}
+
+/** A scored field's quiz item: right when exactly the correct choices are selected (null when none is marked correct). */
+function quizItem(field: ChoiceField, choice: ChoiceAnswer | undefined): QuizItem {
+  const selected = selectedIds(choice);
+  const correctIds = field.properties.choices.filter((c) => c.correct === true).map((c) => c.id);
+  const correct =
+    correctIds.length === 0 ? null : selected.size === correctIds.length && correctIds.every((id) => selected.has(id));
+  return { fieldId: field.id, correct, points: choice ? selectedScore(field, choice) : 0 };
+}
 
 /**
  * Normalises the answers, walks the path with the valid ones, and keeps the
@@ -30,14 +45,7 @@ export function evaluateSubmission(def: FormDefinition, input: EngineInput): Sub
     const answer = valid[field.id];
     if (answer !== undefined) answers[field.id] = answer;
 
-    if (isScoredField(field)) {
-      const choice = answer as ChoiceAnswer | undefined;
-      const selected = new Set(choice ? [...choice.choiceIds, ...(choice.other !== undefined ? ['other'] : [])] : []);
-      const correctIds = field.properties.choices.filter((c) => c.correct === true).map((c) => c.id);
-      const correct =
-        correctIds.length === 0 ? null : selected.size === correctIds.length && correctIds.every((id) => selected.has(id));
-      quiz.push({ fieldId: field.id, correct, points: choice ? selectedScore(field, choice) : 0 });
-    }
+    if (isScoredField(field)) quiz.push(quizItem(field, answer as ChoiceAnswer | undefined));
   }
 
   const score = variables.score;

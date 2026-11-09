@@ -12,6 +12,7 @@ import {
   type ConditionGroup,
   type ConditionOperator,
   type FieldBlock,
+  type FieldBlockOf,
   type FormDefinition,
   type LogicTarget,
   type Operand,
@@ -114,6 +115,22 @@ export function fieldOperandKind(field: FieldBlock, operand: { rowId?: string; p
   }
 }
 
+type FieldOperand = Extract<Operand, { type: 'field' }>;
+
+/** The parts a field operand may name: contact info and address parts; none for other fields. */
+function partNames(field: FieldBlock): readonly string[] {
+  if (field.type === 'contact_info') return CONTACT_PARTS;
+  if (field.type === 'address') return ADDRESS_PARTS;
+  return [];
+}
+
+function constantKind(value: Extract<Operand, { type: 'constant' }>['value']): OperandKind {
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'string') return 'text';
+  return 'list';
+}
+
 export function validateDefinition(def: FormDefinition): DefinitionIssue[] {
   const issues: DefinitionIssue[] = [];
   const add = (code: DefinitionIssueCode, message: string, path: string, blockId?: string) => {
@@ -177,33 +194,33 @@ export function validateDefinition(def: FormDefinition): DefinitionIssue[] {
   });
   const endingIds = new Set(def.endings.map((e) => e.id));
 
+  /** Checks a field operand: the field, its row or part, and that it comes no later than the logic's block. */
+  const checkFieldOperand = (operand: FieldOperand, path: string, source: number | null): OperandKind | null => {
+    const entry = fields.get(operand.id);
+    if (!entry) {
+      add('unknown_field', `No field has the id "${operand.id}".`, `${path}.id`);
+      return null;
+    }
+    const { field, index } = entry;
+    if (operand.rowId !== undefined && (field.type !== 'matrix' || !field.properties.rows.some((r) => r.id === operand.rowId))) {
+      add('unknown_row', `The field "${field.ref}" has no row "${operand.rowId}".`, `${path}.rowId`, field.id);
+      return null;
+    }
+    if (operand.part !== undefined && !partNames(field).includes(operand.part)) {
+      add('unknown_part', `The field "${field.ref}" has no part "${operand.part}".`, `${path}.part`, field.id);
+      return null;
+    }
+    if (source !== null && index > source) {
+      add('operand_after_source', `The field "${field.ref}" comes after the block this logic belongs to.`, path, field.id);
+    }
+    return fieldOperandKind(field, operand);
+  };
+
   /** Checks an operand; returns its kind, or null when it refers to nothing. `source` = index of the logic's block. */
   const checkOperand = (operand: Operand, path: string, source: number | null): OperandKind | null => {
     switch (operand.type) {
-      case 'field': {
-        const entry = fields.get(operand.id);
-        if (!entry) {
-          add('unknown_field', `No field has the id "${operand.id}".`, `${path}.id`);
-          return null;
-        }
-        const { field, index } = entry;
-        if (operand.rowId !== undefined && (field.type !== 'matrix' || !field.properties.rows.some((r) => r.id === operand.rowId))) {
-          add('unknown_row', `The field "${field.ref}" has no row "${operand.rowId}".`, `${path}.rowId`, field.id);
-          return null;
-        }
-        if (operand.part !== undefined) {
-          const parts: readonly string[] =
-            field.type === 'contact_info' ? CONTACT_PARTS : field.type === 'address' ? ADDRESS_PARTS : [];
-          if (!parts.includes(operand.part)) {
-            add('unknown_part', `The field "${field.ref}" has no part "${operand.part}".`, `${path}.part`, field.id);
-            return null;
-          }
-        }
-        if (source !== null && index > source) {
-          add('operand_after_source', `The field "${field.ref}" comes after the block this logic belongs to.`, path, field.id);
-        }
-        return fieldOperandKind(field, operand);
-      }
+      case 'field':
+        return checkFieldOperand(operand, path, source);
       case 'hidden':
         if (!hiddenNames.has(operand.name)) {
           add('unknown_hidden', `No hidden field is named "${operand.name}".`, `${path}.name`);
@@ -218,13 +235,8 @@ export function validateDefinition(def: FormDefinition): DefinitionIssue[] {
         }
         return type;
       }
-      case 'constant': {
-        const v = operand.value;
-        if (typeof v === 'number') return 'number';
-        if (typeof v === 'boolean') return 'boolean';
-        if (typeof v === 'string') return 'text';
-        return 'list';
-      }
+      case 'constant':
+        return constantKind(operand.value);
     }
   };
 
@@ -306,6 +318,18 @@ export function validateDefinition(def: FormDefinition): DefinitionIssue[] {
 
 type AddIssue = (code: DefinitionIssueCode, message: string, path: string, blockId?: string) => void;
 
+/** Whether a choice field's min and max selections fit each other and its options ("Other" included). */
+function selectionRangeFits(field: FieldBlockOf<'multiple_choice' | 'picture_choice'>): boolean {
+  const { minSelections: min, maxSelections: max, multiple, allowOther } = field.properties;
+  const options = field.properties.choices.length + (allowOther ? 1 : 0);
+  const wrong =
+    (min !== undefined && max !== undefined && min > max) ||
+    (min !== undefined && min > options) ||
+    (max !== undefined && max > options) ||
+    (!multiple && min !== undefined && min > 1);
+  return !wrong;
+}
+
 /** Per-field rules: unique choice/row/column ids, selection, number and date ranges. */
 function checkField(field: FieldBlock, path: string, add: AddIssue): void {
   const checkUnique = (items: Array<{ id: string }>, itemsPath: string) => {
@@ -324,17 +348,11 @@ function checkField(field: FieldBlock, path: string, add: AddIssue): void {
       checkUnique(field.properties.columns, `${path}.properties.columns`);
       break;
     case 'multiple_choice':
-    case 'picture_choice': {
-      const { minSelections: min, maxSelections: max, multiple, allowOther } = field.properties;
-      const options = field.properties.choices.length + (allowOther ? 1 : 0);
-      const wrong =
-        (min !== undefined && max !== undefined && min > max) ||
-        (min !== undefined && min > options) ||
-        (max !== undefined && max > options) ||
-        (!multiple && min !== undefined && min > 1);
-      if (wrong) add('selection_range', 'The number of selections allowed does not fit the choices.', `${path}.properties`, field.id);
+    case 'picture_choice':
+      if (!selectionRangeFits(field)) {
+        add('selection_range', 'The number of selections allowed does not fit the choices.', `${path}.properties`, field.id);
+      }
       break;
-    }
     case 'number': {
       const { min, max } = field.properties;
       if (min !== undefined && max !== undefined && min > max) add('number_range', 'The minimum is above the maximum.', `${path}.properties`, field.id);

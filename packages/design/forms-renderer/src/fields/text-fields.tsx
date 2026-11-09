@@ -4,6 +4,14 @@ import { useFieldEnv, type FieldViewProps } from '../env';
 
 type TextTypes = 'short_text' | 'long_text' | 'email' | 'phone' | 'website';
 
+/** The input attributes of each one-line text field type. */
+const INPUT_KIND = {
+  short_text: { type: 'text', inputMode: 'text', autoComplete: 'off' },
+  email: { type: 'email', inputMode: 'email', autoComplete: 'email' },
+  phone: { type: 'tel', inputMode: 'tel', autoComplete: 'tel' },
+  website: { type: 'text', inputMode: 'url', autoComplete: 'url' },
+} as const satisfies Record<Exclude<TextTypes, 'long_text'>, { type: string; inputMode: string; autoComplete: string }>;
+
 export function TextField({ field, value, onChange, error, inputId, describedBy }: FieldViewProps<FieldBlockOf<TextTypes>>) {
   const { labels, conversational } = useFieldEnv();
   const text = typeof value === 'string' ? value : '';
@@ -36,14 +44,7 @@ export function TextField({ field, value, onChange, error, inputId, describedBy 
     field.type === 'short_text' || field.type === 'email' || field.type === 'website'
       ? (field.properties.placeholder ?? labels.typeAnswer)
       : labels.typeAnswer;
-  const kind =
-    field.type === 'email'
-      ? { type: 'email', inputMode: 'email' as const, autoComplete: 'email' }
-      : field.type === 'phone'
-        ? { type: 'tel', inputMode: 'tel' as const, autoComplete: 'tel' }
-        : field.type === 'website'
-          ? { type: 'text', inputMode: 'url' as const, autoComplete: 'url' }
-          : { type: 'text', inputMode: 'text' as const, autoComplete: 'off' };
+  const kind = INPUT_KIND[field.type];
   return (
     <input
       {...shared}

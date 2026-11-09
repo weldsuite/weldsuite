@@ -153,17 +153,46 @@ export function createEnding(init: BlockInit = {}): FormEnding {
 
 const REF_MAX = 64;
 
+/** `s` without its trailing underscores. (A loop, not `/_+$/`, which backtracks on long runs of underscores.) */
+function trimTrailingUnderscores(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '_') end--;
+  return s.slice(0, end);
+}
+
+/** `s` without its leading and trailing underscores. */
+function trimUnderscores(s: string): string {
+  let start = 0;
+  while (start < s.length && s[start] === '_') start++;
+  return trimTrailingUnderscores(s.slice(start));
+}
+
 /** A text as a ref: lowercase ASCII letters, digits and underscores, starting with a letter, at most 64 long. */
 export function slugifyRef(text: string): string {
-  let slug = text
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+  let slug = trimUnderscores(
+    text
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_'),
+  );
   if (slug === '') slug = 'question';
   if (!/^[a-z]/.test(slug)) slug = `q_${slug}`;
-  return slug.slice(0, REF_MAX).replace(/_+$/, '');
+  return trimTrailingUnderscores(slug.slice(0, REF_MAX));
+}
+
+/** The refs of every block, group child and ending, except the one with id `ignoreId`. */
+function takenRefs(def: Pick<FormDefinition, 'blocks' | 'endings'>, ignoreId: string | undefined): Set<string> {
+  const taken = new Set<string>();
+  const add = (item: { id: string; ref: string }) => {
+    if (item.id !== ignoreId) taken.add(item.ref);
+  };
+  for (const block of def.blocks) {
+    add(block);
+    if (block.type === 'group') block.children.forEach(add);
+  }
+  def.endings.forEach(add);
+  return taken;
 }
 
 /**
@@ -172,18 +201,12 @@ export function slugifyRef(text: string): string {
  * `ignoreId` leaves one block's own ref out (when renaming it).
  */
 export function uniqueRef(def: Pick<FormDefinition, 'blocks' | 'endings'>, base: string, ignoreId?: string): string {
-  const taken = new Set<string>();
-  for (const block of def.blocks) {
-    if (block.id !== ignoreId) taken.add(block.ref);
-    if (block.type === 'group') for (const child of block.children) if (child.id !== ignoreId) taken.add(child.ref);
-  }
-  for (const ending of def.endings) if (ending.id !== ignoreId) taken.add(ending.ref);
-
+  const taken = takenRefs(def, ignoreId);
   const slug = slugifyRef(base);
   if (!taken.has(slug)) return slug;
   for (let n = 2; ; n++) {
     const suffix = `_${n}`;
-    const candidate = `${slug.slice(0, REF_MAX - suffix.length).replace(/_+$/, '')}${suffix}`;
+    const candidate = `${trimTrailingUnderscores(slug.slice(0, REF_MAX - suffix.length))}${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
 }

@@ -397,7 +397,7 @@ export const hiddenFieldSchema = z.object({
     .string()
     .min(1)
     .max(64)
-    .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/),
+    .regex(/^[a-zA-Z_]\w*$/),
 });
 export type HiddenField = z.infer<typeof hiddenFieldSchema>;
 

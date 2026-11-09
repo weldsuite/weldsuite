@@ -5,16 +5,20 @@ import {
   classicPages,
   nextStep,
   type Block,
+  type EngineInput,
+  type FieldBlock,
+  type FormDefinition,
 } from '@weldsuite/forms-engine';
 import { BlockView, MediaView, type BlockContext } from './blocks';
-import { topBlockOfField, useFormCore } from './controller';
+import { topBlockOfField, useFormCore, type FormCore } from './controller';
 import { FieldEnvProvider, type FieldEnv } from './env';
 import { Ending, Welcome } from './screens';
 import { DEFAULT_THEME, themeStyle } from './theme';
-import type { FormRendererProps } from './types';
-import { classNames, fill, isEditableTarget } from './utils';
+import type { FormRendererLabels, FormRendererProps } from './types';
+import { classNames, fill, isEditableTarget, randomSeed } from './utils';
 
 type Step = { type: 'welcome' } | { type: 'block'; id: string } | { type: 'page'; index: number } | { type: 'empty' };
+type Direction = 'forward' | 'back';
 
 function findField(root: HTMLElement | null, fieldId: string): HTMLElement | null {
   if (!root) return null;
@@ -40,6 +44,228 @@ function blockMedia(block: Block) {
   return block.type === 'page_break' ? undefined : block.media;
 }
 
+/** The page shown: a page index the recomputed path no longer has (answers changed) falls back to the last page. */
+function shownPageIndex(step: Step, pageCount: number): number {
+  return step.type === 'page' ? Math.min(step.index, Math.max(0, pageCount - 1)) : 0;
+}
+
+/** The block on screen: the step's block, or the first block of the page shown. */
+function shownBlockId(step: Step, pages: string[][], pageIndex: number): string | null {
+  if (step.type === 'block') return step.id;
+  if (step.type === 'page') return pages[pageIndex]?.[0] ?? null;
+  return null;
+}
+
+/** Names what is on screen, so focus moves only when that changes. */
+function stepKeyOf(step: Step, pageIndex: number, ended: boolean): string {
+  let id: string | number = '';
+  if (step.type === 'block') id = step.id;
+  else if (step.type === 'page') id = pageIndex;
+  return `${step.type}:${id}:${ended ? 'end' : ''}`;
+}
+
+/** The fields of the top-level blocks with these ids. */
+function fieldsOfBlocks(def: FormDefinition, blockIds: string[]): FieldBlock[] {
+  return blockIds.flatMap((id) => {
+    const block = def.blocks.find((b) => b.id === id);
+    return block ? blockFields(block) : [];
+  });
+}
+
+/** Where "Next" goes from a block or a page; null when the form is to be submitted. */
+function followingStep(def: FormDefinition, step: Step, pageIndex: number, pageCount: number, input: EngineInput): Step | null {
+  if (step.type === 'block') {
+    const target = nextStep(def, input, step.id);
+    return typeof target === 'string' ? { type: 'block', id: target } : null;
+  }
+  return pageIndex + 1 < pageCount ? { type: 'page', index: pageIndex + 1 } : null;
+}
+
+/** The step "Back" returns to: a block, or the page that was shown. */
+function historyEntry(step: Step, pageIndex: number): Step {
+  return step.type === 'block' ? step : { type: 'page', index: pageIndex };
+}
+
+/** Real buttons and links do their own thing on Enter; choice buttons move on instead. */
+function actsOnEnter(target: HTMLElement): boolean {
+  return target.tagName === 'A' || (target.tagName === 'BUTTON' && !target.hasAttribute('data-wf-choice'));
+}
+
+/** The enabled input after `target` in its step, if any. */
+function nextInputAfter(root: HTMLElement, target: HTMLElement): HTMLElement | undefined {
+  const area = target.closest('.wf-step-content') ?? root;
+  const inputs = Array.from(area.querySelectorAll<HTMLElement>('input:not([type=hidden]):not([type=file]), textarea, select')).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('role') !== 'combobox',
+  );
+  const at = inputs.indexOf(target);
+  return at === -1 ? undefined : inputs[at + 1];
+}
+
+/** Zero-based place of the step, for the progress bar and its announcement. */
+function progressPosition(classic: boolean, step: Step, pageIndex: number, path: string[], currentBlockId: string | null): number {
+  if (classic) return step.type === 'page' ? pageIndex : 0;
+  return currentBlockId ? Math.max(0, path.indexOf(currentBlockId)) : 0;
+}
+
+function progressPercent(ended: boolean, step: Step, position: number, total: number): number {
+  if (ended) return 100;
+  if (step.type === 'welcome' || total === 0) return 0;
+  return Math.round((position / total) * 100);
+}
+
+/** "Page 2 of 5" (classic) or "2 of 7" (conversational). */
+function proportionText(labels: FormRendererLabels, classic: boolean, position: number, total: number): string {
+  return fill(classic ? labels.pageOf : labels.progressProportion, { current: position + 1, total });
+}
+
+/** Whether the step's button submits the form. */
+function isLastStep(def: FormDefinition, classic: boolean, step: Step, pageIndex: number, pageCount: number, input: EngineInput): boolean {
+  if (classic) return pageIndex + 1 >= pageCount;
+  if (step.type === 'empty') return true;
+  return step.type === 'block' && typeof nextStep(def, input, step.id) !== 'string';
+}
+
+/** The progress bar with its percentage or proportion text; nothing when the form hides it. */
+function progressBar(
+  mode: FormDefinition['presentation']['progressBar'],
+  labels: FormRendererLabels,
+  percent: number,
+  proportion: string,
+): ReactNode {
+  if (mode === 'none') return null;
+  return (
+    <div className="wf-progress">
+      <div
+        className="wf-progress-track"
+        role="progressbar"
+        aria-label={labels.progressLabel}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <div className="wf-progress-bar" style={{ width: `${percent}%` }} />
+      </div>
+      <span className="wf-progress-text">{mode === 'percentage' ? fill(labels.progressPercent, { percent }) : proportion}</span>
+    </div>
+  );
+}
+
+interface ActionsInput {
+  classic: boolean;
+  labels: FormRendererLabels;
+  canGoBack: boolean;
+  submitting: boolean;
+  buttonLabel: string;
+  onBack: () => void;
+  onNext: () => void;
+}
+
+/** "Back" (classic, after the first page), the step's button and the Enter hint (conversational). */
+function stepActions({ classic, labels, canGoBack, submitting, buttonLabel, onBack, onNext }: ActionsInput): ReactNode {
+  return (
+    <div className="wf-actions">
+      {classic && canGoBack ? (
+        <button type="button" className="wf-button wf-button-secondary" onClick={onBack}>
+          {labels.back}
+        </button>
+      ) : null}
+      <button type={classic ? 'submit' : 'button'} className="wf-button" disabled={submitting} onClick={classic ? undefined : onNext}>
+        {buttonLabel}
+      </button>
+      {classic ? null : <span className="wf-hint wf-enter-hint">{labels.pressEnter}</span>}
+    </div>
+  );
+}
+
+/** One conversational step, with its media beside it (split) or behind it (background image). */
+function conversationalStep(block: Block, dir: Direction, ctx: BlockContext, failure: ReactNode, actions: ReactNode): ReactNode {
+  const media = blockMedia(block);
+  const split = media && (media.placement === 'split_left' || media.placement === 'split_right');
+  const background = media && media.placement === 'background' && media.kind === 'image';
+  let mediaLayout: string | undefined;
+  if (split) mediaLayout = media.placement;
+  else if (background) mediaLayout = 'background';
+  return (
+    <div
+      key={`block-${block.id}`}
+      className={classNames('wf-step', `wf-anim-${dir}`)}
+      data-media={mediaLayout}
+      style={background ? { backgroundImage: `url("${media.url.replace(/["\\\n]/g, '')}")` } : undefined}
+    >
+      {split ? (
+        <div className="wf-split-media">
+          <MediaView media={media} />
+        </div>
+      ) : null}
+      <div className="wf-step-content">
+        <BlockView block={block} ctx={ctx} />
+        {failure}
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+interface StageInput {
+  def: FormDefinition;
+  core: FormCore;
+  step: Step;
+  classic: boolean;
+  dir: Direction;
+  pages: string[][];
+  pageIndex: number;
+  currentBlock: Block | undefined;
+  blockCtx: BlockContext;
+  labels: FormRendererLabels;
+  redirecting: boolean;
+  actions: ReactNode;
+  onStart: () => void;
+}
+
+/** What the stage shows: the ending, the welcome screen, an empty form's submit, a classic page or one step. */
+function stageView(s: StageInput): ReactNode {
+  const { def, core, step, labels, actions } = s;
+  if (core.ending) {
+    return <Ending def={def} state={core.ending} labels={labels} preview={core.preview} redirecting={s.redirecting} />;
+  }
+  if (step.type === 'welcome' && def.welcome) {
+    return <Welcome welcome={def.welcome} labels={labels} rc={core.rc} onStart={s.onStart} />;
+  }
+  const failure = core.submitFailed ? (
+    <p className="wf-error" role="alert">
+      {labels.submitFailed}
+    </p>
+  ) : null;
+  if (step.type === 'empty') {
+    return (
+      <div className="wf-step-content">
+        {failure}
+        {actions}
+      </div>
+    );
+  }
+  if (s.classic) {
+    const errorSummary =
+      Object.keys(core.errors).length > 0 ? (
+        <p className="wf-error" role="alert">
+          {labels.fixErrors}
+        </p>
+      ) : null;
+    return (
+      <div key={`page-${s.pageIndex}`} className={classNames('wf-page', `wf-anim-${s.dir}`)}>
+        {(s.pages[s.pageIndex] ?? []).map((id) => {
+          const block = def.blocks.find((b) => b.id === id);
+          return block ? <BlockView key={id} block={block} ctx={s.blockCtx} /> : null;
+        })}
+        {errorSummary}
+        {failure}
+        {actions}
+      </div>
+    );
+  }
+  return s.currentBlock ? conversationalStep(s.currentBlock, s.dir, s.blockCtx, failure, actions) : null;
+}
+
 /**
  * The form a respondent fills in: the conversational layout (one step at a
  * time) or the classic one (pages). See ./types.ts for the props and
@@ -53,7 +279,7 @@ export function FormRenderer(props: FormRendererProps) {
   const classic = layout === 'classic';
   const core = useFormCore(props);
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
-  const [seed] = useState(() => props.seed ?? Math.random().toString(36).slice(2));
+  const [seed] = useState(() => props.seed ?? randomSeed());
   const rootRef = useRef<HTMLDivElement>(null);
   const preview = props.mode === 'preview';
   const pages = useMemo(() => classicPages(def, core.path.path), [def, core.path.path]);
@@ -78,7 +304,7 @@ export function FormRenderer(props: FormRendererProps) {
     if (def.welcome && !props.skipWelcome) return { type: 'welcome' };
     return startOf();
   });
-  const [dir, setDir] = useState<'forward' | 'back'>('forward');
+  const [dir, setDir] = useState<Direction>('forward');
   const [historyLength, setHistoryLength] = useState(0);
   const history = useRef<Step[]>([]);
   const busy = useRef(false);
@@ -104,7 +330,7 @@ export function FormRenderer(props: FormRendererProps) {
   }, []);
 
   const go = useCallback(
-    (next: Step, direction: 'forward' | 'back') => {
+    (next: Step, direction: Direction) => {
       setDir(direction);
       setStep(next);
       const id = stepBlockId(next);
@@ -113,9 +339,8 @@ export function FormRenderer(props: FormRendererProps) {
     [core, stepBlockId],
   );
 
-  // A page index the recomputed path no longer has (answers changed) falls back to the last page.
-  const pageIndex = step.type === 'page' ? Math.min(step.index, Math.max(0, pages.length - 1)) : 0;
-  const currentBlockId = step.type === 'block' ? step.id : step.type === 'page' ? (pages[pageIndex]?.[0] ?? null) : null;
+  const pageIndex = shownPageIndex(step, pages.length);
+  const currentBlockId = shownBlockId(step, pages, pageIndex);
   const currentBlock = step.type === 'block' ? def.blocks.find((b) => b.id === step.id) : undefined;
 
   const jumpToField = useCallback(
@@ -150,40 +375,23 @@ export function FormRenderer(props: FormRendererProps) {
         return;
       }
 
-      const blockIds = step.type === 'block' ? [step.id] : (pages[pageIndex] ?? []);
-      const fields = blockIds.flatMap((id) => {
-        const block = def.blocks.find((b) => b.id === id);
-        return block ? blockFields(block) : [];
-      });
-      const bad = core.validate(fields);
+      const fields = fieldsOfBlocks(def, step.type === 'block' ? [step.id] : (pages[pageIndex] ?? []));
+      let bad = core.validate(fields);
+      if (!bad && core.uploadsPending()) {
+        await core.waitForUploads();
+        // An upload that finished while we waited may have changed an answer.
+        bad = core.validate(fields);
+      }
       if (bad) {
         pendingFocus.current = bad;
         bump((n) => n + 1);
         return;
       }
-      if (core.uploadsPending()) {
-        await core.waitForUploads();
-        // An upload that finished while we waited may have changed an answer.
-        const late = core.validate(fields);
-        if (late) {
-          pendingFocus.current = late;
-          bump((n) => n + 1);
-          return;
-        }
-      }
       if (currentBlockId) core.leave(currentBlockId);
 
-      let next: Step | null = null;
-      if (step.type === 'block') {
-        const target = nextStep(def, { answers: core.answersRef.current, hidden: core.hidden }, step.id);
-        if (typeof target === 'string') next = { type: 'block', id: target };
-      } else if (pageIndex + 1 < pages.length) {
-        next = { type: 'page', index: pageIndex + 1 };
-      }
-
+      const next = followingStep(def, step, pageIndex, pages.length, { answers: core.answersRef.current, hidden: core.hidden });
       if (next) {
-        if (step.type === 'block') history.current.push(step);
-        else history.current.push({ type: 'page', index: pageIndex });
+        history.current.push(historyEntry(step, pageIndex));
         setHistoryLength(history.current.length);
         const id = stepBlockId(next);
         if (id) core.reportProgress(id);
@@ -222,16 +430,10 @@ export function FormRenderer(props: FormRendererProps) {
       const inside = root.contains(target);
       if (!inside && target !== document.body) return;
       if (target instanceof HTMLTextAreaElement && e.shiftKey) return;
-      // Real buttons and links do their own thing; choice buttons move on instead.
-      if (inside && (target.tagName === 'A' || (target.tagName === 'BUTTON' && !target.hasAttribute('data-wf-choice')))) return;
+      if (inside && actsOnEnter(target)) return;
       e.preventDefault();
       if (inside && isEditableTarget(target) && target.tagName !== 'TEXTAREA') {
-        const area = target.closest('.wf-step-content') ?? root;
-        const inputs = Array.from(area.querySelectorAll<HTMLElement>('input:not([type=hidden]):not([type=file]), textarea, select')).filter(
-          (el) => !el.hasAttribute('disabled') && el.getAttribute('role') !== 'combobox',
-        );
-        const at = inputs.indexOf(target);
-        const nextInput = at !== -1 ? inputs[at + 1] : undefined;
+        const nextInput = nextInputAfter(root, target);
         if (nextInput) {
           nextInput.focus();
           return;
@@ -244,7 +446,7 @@ export function FormRenderer(props: FormRendererProps) {
   }, [classic]);
 
   // Focus: a field that needs attention, else the first input of the new step.
-  const stepKey = `${step.type}:${step.type === 'block' ? step.id : step.type === 'page' ? pageIndex : ''}:${core.ending ? 'end' : ''}`;
+  const stepKey = stepKeyOf(step, pageIndex, core.ending !== null);
   const lastStepKey = useRef<string | null>(null);
   useEffect(() => {
     const root = rootRef.current;
@@ -266,8 +468,8 @@ export function FormRenderer(props: FormRendererProps) {
   });
 
   const total = classic ? pages.length : core.path.path.length;
-  const position = classic ? (step.type === 'page' ? pageIndex : 0) : currentBlockId ? Math.max(0, core.path.path.indexOf(currentBlockId)) : 0;
-  const percent = core.ending ? 100 : step.type === 'welcome' || total === 0 ? 0 : Math.round((position / total) * 100);
+  const position = progressPosition(classic, step, pageIndex, core.path.path, currentBlockId);
+  const percent = progressPercent(core.ending !== null, step, position, total);
 
   useEffect(() => {
     if (!mounted.current) {
@@ -275,7 +477,7 @@ export function FormRenderer(props: FormRendererProps) {
       return;
     }
     if (step.type === 'welcome' || core.ending || total === 0) return;
-    setAnnounce(fill(classic ? labels.pageOf : labels.progressProportion, { current: position + 1, total }));
+    setAnnounce(proportionText(labels, classic, position, total));
   }, [step.type, position, total, core.ending, classic, labels]);
 
   // The ending: tell the host, and redirect (live only).
@@ -319,30 +521,12 @@ export function FormRenderer(props: FormRendererProps) {
   };
 
   // ----- pieces -----
-  const progressMode = def.presentation.progressBar;
   const progress =
-    progressMode !== 'none' && !core.ending && step.type !== 'welcome' && total > 0 ? (
-      <div className="wf-progress">
-        <div
-          className="wf-progress-track"
-          role="progressbar"
-          aria-label={labels.progressLabel}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-        >
-          <div className="wf-progress-bar" style={{ width: `${percent}%` }} />
-        </div>
-        <span className="wf-progress-text">
-          {progressMode === 'percentage'
-            ? fill(labels.progressPercent, { percent })
-            : fill(classic ? labels.pageOf : labels.progressProportion, { current: position + 1, total })}
-        </span>
-      </div>
-    ) : null;
+    !core.ending && step.type !== 'welcome' && total > 0
+      ? progressBar(def.presentation.progressBar, labels, percent, proportionText(labels, classic, position, total))
+      : null;
 
-  const nextState = !classic && step.type === 'block' ? nextStep(def, { answers: core.answers, hidden: core.hidden }, step.id) : null;
-  const isLast = classic ? pageIndex + 1 >= pages.length : step.type === 'empty' || (nextState !== null && typeof nextState !== 'string');
+  const isLast = isLastStep(def, classic, step, pageIndex, pages.length, { answers: core.answers, hidden: core.hidden });
   const buttonLabel = (() => {
     if (core.submitting) return labels.submitting;
     if (isLast) return labels.submit;
@@ -353,81 +537,30 @@ export function FormRenderer(props: FormRendererProps) {
     return labels.next;
   })();
 
-  const actions = (
-    <div className="wf-actions">
-      {classic && historyLength > 0 ? (
-        <button type="button" className="wf-button wf-button-secondary" onClick={back}>
-          {labels.back}
-        </button>
-      ) : null}
-      <button type={classic ? 'submit' : 'button'} className="wf-button" disabled={core.submitting} onClick={classic ? undefined : () => void advance()}>
-        {buttonLabel}
-      </button>
-      {!classic ? <span className="wf-hint wf-enter-hint">{labels.pressEnter}</span> : null}
-    </div>
-  );
-  const failure = core.submitFailed ? (
-    <p className="wf-error" role="alert">
-      {labels.submitFailed}
-    </p>
-  ) : null;
-  const errorSummary =
-    classic && Object.keys(core.errors).length > 0 ? (
-      <p className="wf-error" role="alert">
-        {labels.fixErrors}
-      </p>
-    ) : null;
-
-  let stage: ReactNode;
-  if (core.ending) {
-    stage = <Ending def={def} state={core.ending} labels={labels} preview={core.preview} redirecting={redirecting} />;
-  } else if (step.type === 'welcome' && def.welcome) {
-    stage = <Welcome welcome={def.welcome} labels={labels} rc={core.rc} onStart={() => void advance()} />;
-  } else if (step.type === 'empty') {
-    stage = (
-      <div className="wf-step-content">
-        {failure}
-        {actions}
-      </div>
-    );
-  } else if (classic) {
-    stage = (
-      <div key={`page-${pageIndex}`} className={classNames('wf-page', `wf-anim-${dir}`)}>
-        {(pages[pageIndex] ?? []).map((id) => {
-          const block = def.blocks.find((b) => b.id === id);
-          return block ? <BlockView key={id} block={block} ctx={blockCtx} /> : null;
-        })}
-        {errorSummary}
-        {failure}
-        {actions}
-      </div>
-    );
-  } else if (currentBlock) {
-    const media = blockMedia(currentBlock);
-    const split = media && (media.placement === 'split_left' || media.placement === 'split_right');
-    const background = media && media.placement === 'background' && media.kind === 'image';
-    stage = (
-      <div
-        key={`block-${currentBlock.id}`}
-        className={classNames('wf-step', `wf-anim-${dir}`)}
-        data-media={split ? media.placement : background ? 'background' : undefined}
-        style={background ? { backgroundImage: `url("${media.url.replace(/["\\\n]/g, '')}")` } : undefined}
-      >
-        {split ? (
-          <div className="wf-split-media">
-            <MediaView media={media} />
-          </div>
-        ) : null}
-        <div className="wf-step-content">
-          <BlockView block={currentBlock} ctx={blockCtx} />
-          {failure}
-          {actions}
-        </div>
-      </div>
-    );
-  } else {
-    stage = null;
-  }
+  const actions = stepActions({
+    classic,
+    labels,
+    canGoBack: historyLength > 0,
+    submitting: core.submitting,
+    buttonLabel,
+    onBack: back,
+    onNext: () => void advance(),
+  });
+  const stage = stageView({
+    def,
+    core,
+    step,
+    classic,
+    dir,
+    pages,
+    pageIndex,
+    currentBlock,
+    blockCtx,
+    labels,
+    redirecting,
+    actions,
+    onStart: () => void advance(),
+  });
 
   const showBack = !classic && !core.ending && step.type === 'block' && def.presentation.allowBack && historyLength > 0;
   const rootClass = classNames('wf-root', props.className);

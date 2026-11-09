@@ -35,7 +35,10 @@ function numberFields(def: FormDefinition, path: string[]): Numbering {
   for (const id of path) {
     const block = def.blocks.find((b) => b.id === id);
     if (!block) continue;
-    for (const field of blockFields(block)) byField.set(field.id, (n += 1));
+    for (const field of blockFields(block)) {
+      n += 1;
+      byField.set(field.id, n);
+    }
   }
   return { byField, total: n };
 }

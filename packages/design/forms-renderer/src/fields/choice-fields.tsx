@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Check } from 'lucide-react';
 import type { ChoiceAnswer, FieldBlockOf } from '@weldsuite/forms-engine';
 import { useFieldEnv, type FieldViewProps } from '../env';
+import type { FormRendererLabels } from '../types';
 import { choiceLetter, classNames, fill, isEditableTarget, orderedChoices } from '../utils';
 
 const ADVANCE_DELAY_MS = 350;
@@ -30,6 +31,19 @@ export function useDelayed(fn: (() => void) | null): () => void {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => latest.current?.(), ADVANCE_DELAY_MS);
   }, []);
+}
+
+/** How many choices a multiple-answer field takes, above its choices. */
+function selectionHint(labels: FormRendererLabels, min: number | undefined, max: number | undefined): string {
+  if (min !== undefined && max !== undefined) return fill(labels.chooseBetween, { min, max });
+  if (max !== undefined) return fill(labels.chooseUpTo, { max });
+  if (min !== undefined) return fill(labels.chooseAtLeast, { min });
+  return labels.chooseAny;
+}
+
+/** The key hint of the choice at `index`: A to Z, none after that. */
+function keyHint(index: number): string {
+  return index < 26 ? choiceLetter(index) : '';
 }
 
 export function ChoiceField({
@@ -125,15 +139,7 @@ export function ChoiceField({
     items[(at + step + items.length) % items.length]?.focus();
   }
 
-  let hint: string | null = null;
-  if (multiple) {
-    const { minSelections: min, maxSelections: max } = props;
-    if (min !== undefined && max !== undefined) hint = fill(labels.chooseBetween, { min, max });
-    else if (max !== undefined) hint = fill(labels.chooseUpTo, { max });
-    else if (min !== undefined) hint = fill(labels.chooseAtLeast, { min });
-    else hint = labels.chooseAny;
-  }
-
+  const hint = multiple ? selectionHint(labels, props.minSelections, props.maxSelections) : null;
   const role = multiple ? 'checkbox' : 'radio';
   return (
     <div>
@@ -166,7 +172,7 @@ export function ChoiceField({
               {picture && choice.imageUrl ? <img className="wf-choice-image" src={choice.imageUrl} alt="" loading="lazy" /> : null}
               <span className="wf-choice-row">
                 <span className="wf-key" aria-hidden="true">
-                  {i < 26 ? choiceLetter(i) : ''}
+                  {keyHint(i)}
                 </span>
                 {showLabels ? <span className="wf-choice-label">{choice.label}</span> : null}
                 {on ? <Check className="wf-check" aria-hidden="true" size={16} /> : null}
@@ -178,7 +184,7 @@ export function ChoiceField({
           <div className={classNames('wf-choice wf-choice-other', otherOn && 'wf-choice-other-on')} data-selected={otherOn || undefined}>
             <button type="button" role={role} aria-checked={otherOn} data-wf-choice="" className="wf-choice-other-toggle" onClick={toggleOther}>
               <span className="wf-key" aria-hidden="true">
-                {choices.length < 26 ? choiceLetter(choices.length) : ''}
+                {keyHint(choices.length)}
               </span>
               <span className="wf-choice-label">{labels.other}</span>
               {otherOn ? <Check className="wf-check" aria-hidden="true" size={16} /> : null}

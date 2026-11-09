@@ -10,6 +10,8 @@ const ORDER: Record<'DMY' | 'MDY' | 'YMD', Part[]> = {
   YMD: ['year', 'month', 'day'],
 };
 
+const PLACEHOLDER: Record<Part, string> = { day: 'DD', month: 'MM', year: 'YYYY' };
+
 function split(value: unknown): Record<Part, string> {
   if (typeof value === 'string') {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -62,7 +64,7 @@ export function DateField({ field, value, onChange, error, inputId, describedBy 
             type="text"
             inputMode="numeric"
             autoComplete={autocomplete[part]}
-            placeholder={part === 'year' ? 'YYYY' : part === 'month' ? 'MM' : 'DD'}
+            placeholder={PLACEHOLDER[part]}
             value={parts[part]}
             aria-invalid={error ? true : undefined}
             data-wf-focus={i === 0 ? '' : undefined}

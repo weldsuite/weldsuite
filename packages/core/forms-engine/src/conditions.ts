@@ -104,36 +104,55 @@ function choiceSet(answer: ChoiceAnswer): string[] {
   return answer.other !== undefined ? [...answer.choiceIds, 'other'] : [...answer.choiceIds];
 }
 
+type FieldOperand = Extract<Operand, { type: 'field' }>;
+type ConstantValue = Extract<Operand, { type: 'constant' }>['value'];
+
+/** A matrix answer's column ids in one row. */
+function rowValue(answer: AnswerValue, rowId: string): OperandValue {
+  const cols = (answer as Record<string, string[]>)[rowId];
+  return cols === undefined ? EMPTY : { t: 'set', v: [...cols] };
+}
+
+/** The text of one part of a contact info or address answer. */
+function partValue(answer: AnswerValue, part: string): OperandValue {
+  const v = (answer as Record<string, string>)[part];
+  return v === undefined ? EMPTY : { t: 'str', v };
+}
+
+/** The value of a field's (visible) answer. */
+function fieldValue(field: FieldBlock, answer: AnswerValue, operand: FieldOperand): OperandValue {
+  if (isNumericField(field)) return { t: 'num', v: answer as number };
+  if (isBooleanField(field)) return { t: 'bool', v: answer as boolean };
+  if (isChoiceField(field)) return { t: 'set', v: choiceSet(answer as ChoiceAnswer) };
+  switch (field.type) {
+    case 'ranking':
+      return { t: 'set', v: [...(answer as string[])] };
+    case 'matrix':
+      return operand.rowId === undefined ? { t: 'opaque' } : rowValue(answer, operand.rowId);
+    case 'contact_info':
+    case 'address':
+      return operand.part === undefined ? { t: 'opaque' } : partValue(answer, operand.part);
+    case 'file_upload':
+    case 'signature':
+      return { t: 'opaque' };
+    default:
+      return { t: 'str', v: answer as string };
+  }
+}
+
+function constantValue(v: ConstantValue): OperandValue {
+  if (typeof v === 'number') return { t: 'num', v };
+  if (typeof v === 'boolean') return { t: 'bool', v };
+  if (typeof v === 'string') return { t: 'str', v };
+  return { t: 'set', v: [...v] };
+}
+
 /** The value of an operand. */
 export function resolveOperand(operand: Operand, ctx: EvalContext): OperandValue {
   switch (operand.type) {
     case 'field': {
       const found = visibleAnswer(ctx, operand.id);
-      if (!found) return EMPTY;
-      const { field, answer } = found;
-      if (isNumericField(field)) return { t: 'num', v: answer as number };
-      if (isBooleanField(field)) return { t: 'bool', v: answer as boolean };
-      if (isChoiceField(field)) return { t: 'set', v: choiceSet(answer as ChoiceAnswer) };
-      switch (field.type) {
-        case 'ranking':
-          return { t: 'set', v: [...(answer as string[])] };
-        case 'matrix': {
-          if (operand.rowId === undefined) return { t: 'opaque' };
-          const cols = (answer as Record<string, string[]>)[operand.rowId];
-          return cols === undefined ? EMPTY : { t: 'set', v: [...cols] };
-        }
-        case 'contact_info':
-        case 'address': {
-          if (operand.part === undefined) return { t: 'opaque' };
-          const v = (answer as Record<string, string>)[operand.part];
-          return v === undefined ? EMPTY : { t: 'str', v };
-        }
-        case 'file_upload':
-        case 'signature':
-          return { t: 'opaque' };
-        default:
-          return { t: 'str', v: answer as string };
-      }
+      return found ? fieldValue(found.field, found.answer, operand) : EMPTY;
     }
     case 'hidden': {
       const v = ctx.hidden.get(operand.name);
@@ -145,13 +164,8 @@ export function resolveOperand(operand: Operand, ctx: EvalContext): OperandValue
       if (typeof v === 'number') return { t: 'num', v };
       return v === '' ? EMPTY : { t: 'str', v };
     }
-    case 'constant': {
-      const v = operand.value;
-      if (typeof v === 'number') return { t: 'num', v };
-      if (typeof v === 'boolean') return { t: 'bool', v };
-      if (typeof v === 'string') return { t: 'str', v };
-      return { t: 'set', v: [...v] };
-    }
+    case 'constant':
+      return constantValue(operand.value);
   }
 }
 
@@ -178,6 +192,44 @@ function equals(left: OperandValue, right: OperandValue): boolean | null {
   return null;
 }
 
+type TextOperator = 'contains' | 'not_contains' | 'starts_with' | 'ends_with';
+type NumberOperator = 'greater_than' | 'greater_or_equal' | 'less_than' | 'less_or_equal';
+type SetOperator = 'any_of' | 'all_of' | 'none_of';
+
+function compareText(operator: TextOperator, left: OperandValue, right: OperandValue): boolean {
+  if (left.t !== 'str' || right.t !== 'str') return false;
+  const l = norm(left.v);
+  const r = norm(right.v);
+  if (operator === 'contains') return l.includes(r);
+  if (operator === 'not_contains') return !l.includes(r);
+  if (operator === 'starts_with') return l.startsWith(r);
+  return l.endsWith(r);
+}
+
+function compareNumbers(operator: NumberOperator, left: OperandValue, right: OperandValue): boolean {
+  if (left.t !== 'num' || right.t !== 'num') return false;
+  if (operator === 'greater_than') return left.v > right.v;
+  if (operator === 'greater_or_equal') return left.v >= right.v;
+  if (operator === 'less_than') return left.v < right.v;
+  return left.v <= right.v;
+}
+
+function compareDates(operator: 'before' | 'after', left: OperandValue, right: OperandValue): boolean {
+  if (left.t !== 'str' || right.t !== 'str') return false;
+  const l = left.v.trim();
+  const r = right.v.trim();
+  return operator === 'before' ? l < r : l > r;
+}
+
+function compareSets(operator: SetOperator, left: OperandValue, right: OperandValue): boolean {
+  if (left.t !== 'set') return false;
+  const ids = idsOf(right);
+  if (ids === null) return false;
+  if (operator === 'any_of') return ids.some((id) => left.v.includes(id));
+  if (operator === 'all_of') return ids.every((id) => left.v.includes(id));
+  return !ids.some((id) => left.v.includes(id));
+}
+
 /** Evaluates one condition. A condition on an empty value is false except `is_empty`. */
 export function evaluateCondition(condition: Condition, ctx: EvalContext): boolean {
   const left = resolveOperand(condition.left, ctx);
@@ -195,53 +247,34 @@ export function evaluateCondition(condition: Condition, ctx: EvalContext): boole
     case 'contains':
     case 'not_contains':
     case 'starts_with':
-    case 'ends_with': {
-      if (left.t !== 'str' || right.t !== 'str') return false;
-      const l = norm(left.v);
-      const r = norm(right.v);
-      if (condition.operator === 'contains') return l.includes(r);
-      if (condition.operator === 'not_contains') return !l.includes(r);
-      if (condition.operator === 'starts_with') return l.startsWith(r);
-      return l.endsWith(r);
-    }
+    case 'ends_with':
+      return compareText(condition.operator, left, right);
     case 'greater_than':
     case 'greater_or_equal':
     case 'less_than':
-    case 'less_or_equal': {
-      if (left.t !== 'num' || right.t !== 'num') return false;
-      if (condition.operator === 'greater_than') return left.v > right.v;
-      if (condition.operator === 'greater_or_equal') return left.v >= right.v;
-      if (condition.operator === 'less_than') return left.v < right.v;
-      return left.v <= right.v;
-    }
+    case 'less_or_equal':
+      return compareNumbers(condition.operator, left, right);
     case 'before':
-    case 'after': {
-      if (left.t !== 'str' || right.t !== 'str') return false;
-      const l = left.v.trim();
-      const r = right.v.trim();
-      return condition.operator === 'before' ? l < r : l > r;
-    }
+    case 'after':
+      return compareDates(condition.operator, left, right);
     case 'any_of':
     case 'all_of':
-    case 'none_of': {
-      if (left.t !== 'set') return false;
-      const ids = idsOf(right);
-      if (ids === null) return false;
-      if (condition.operator === 'any_of') return ids.some((id) => left.v.includes(id));
-      if (condition.operator === 'all_of') return ids.every((id) => left.v.includes(id));
-      return !ids.some((id) => left.v.includes(id));
-    }
+    case 'none_of':
+      return compareSets(condition.operator, left, right);
   }
+}
+
+/** One entry of a group: a condition, or a nested AND/OR of conditions. */
+function evaluateGroupItem(item: ConditionGroup['conditions'][number], ctx: EvalContext): boolean {
+  if (!('op' in item)) return evaluateCondition(item, ctx);
+  return item.op === 'and'
+    ? item.conditions.every((c) => evaluateCondition(c, ctx))
+    : item.conditions.some((c) => evaluateCondition(c, ctx));
 }
 
 /** Evaluates an AND/OR group (one level of nesting). */
 export function evaluateGroup(group: ConditionGroup, ctx: EvalContext): boolean {
-  const results = (item: ConditionGroup['conditions'][number]): boolean =>
-    'op' in item
-      ? item.op === 'and'
-        ? item.conditions.every((c) => evaluateCondition(c, ctx))
-        : item.conditions.some((c) => evaluateCondition(c, ctx))
-      : evaluateCondition(item, ctx);
+  const results = (item: ConditionGroup['conditions'][number]): boolean => evaluateGroupItem(item, ctx);
   return group.op === 'and' ? group.conditions.every(results) : group.conditions.some(results);
 }
 
@@ -267,12 +300,7 @@ export function operandNumber(operand: Operand, ctx: EvalContext): number | null
   switch (operand.type) {
     case 'field': {
       const found = visibleAnswer(ctx, operand.id);
-      if (!found) return null;
-      const { field, answer } = found;
-      if (isNumericField(field)) return answer as number;
-      if (isBooleanField(field)) return answer === true ? 1 : 0;
-      if (isChoiceField(field)) return selectedScore(field, answer as ChoiceAnswer);
-      return null;
+      return found ? fieldNumber(found.field, found.answer) : null;
     }
     case 'hidden': {
       const v = ctx.hidden.get(operand.name);
@@ -283,14 +311,23 @@ export function operandNumber(operand: Operand, ctx: EvalContext): number | null
       if (v === undefined) return null;
       return typeof v === 'number' ? v : parseNumericText(v);
     }
-    case 'constant': {
-      const v = operand.value;
-      if (typeof v === 'number') return v;
-      if (typeof v === 'boolean') return v ? 1 : 0;
-      if (typeof v === 'string') return parseNumericText(v);
-      return null;
-    }
+    case 'constant':
+      return constantNumber(operand.value);
   }
+}
+
+function fieldNumber(field: FieldBlock, answer: AnswerValue): number | null {
+  if (isNumericField(field)) return answer as number;
+  if (isBooleanField(field)) return answer === true ? 1 : 0;
+  if (isChoiceField(field)) return selectedScore(field, answer as ChoiceAnswer);
+  return null;
+}
+
+function constantNumber(v: ConstantValue): number | null {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'string') return parseNumericText(v);
+  return null;
 }
 
 /** An operand as text for a text variable; null skips the calculation. */
@@ -312,12 +349,14 @@ export function operandText(operand: Operand, ctx: EvalContext): string | null {
       if (typeof v === 'number') return formatNumber(v);
       return v === '' ? null : v;
     }
-    case 'constant': {
-      const v = operand.value;
-      if (typeof v === 'string') return v;
-      if (typeof v === 'number') return formatNumber(v);
-      if (typeof v === 'boolean') return v ? 'true' : 'false';
-      return null;
-    }
+    case 'constant':
+      return constantText(operand.value);
   }
+}
+
+function constantText(v: ConstantValue): string | null {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return formatNumber(v);
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  return null;
 }

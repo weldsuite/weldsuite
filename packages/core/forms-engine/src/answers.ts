@@ -8,8 +8,8 @@
  * a scheme gets `https://`. A value of the wrong shape is `invalid`.
  */
 
-import { choicesOf, fieldsOf, partsOf } from './blocks';
-import type { AnswerValue, Answers, ChoiceAnswer, FieldBlock, FileAnswerItem, FormDefinition } from './definition';
+import { choicesOf, fieldsOf, partsOf, type ChoiceField, type CompositeField } from './blocks';
+import type { AnswerValue, Answers, ChoiceAnswer, FieldBlock, FieldBlockOf, FileAnswerItem, FormDefinition } from './definition';
 import type { AnswerError, AnswerErrorCode } from './types';
 
 /** An answer after normalising: none, of the wrong shape, or a value to check further. */
@@ -78,6 +78,75 @@ function prepareChoice(field: FieldBlock, raw: unknown): PreparedAnswer {
   return value(answer);
 }
 
+function prepareText(raw: unknown): PreparedAnswer {
+  return typeof raw === 'string' ? value(raw.trim()) : invalid();
+}
+
+function prepareWebsite(raw: unknown): PreparedAnswer {
+  if (typeof raw !== 'string') return invalid();
+  const url = raw.trim();
+  return value(SCHEME_RE.test(url) ? url : `https://${url}`);
+}
+
+function prepareNumber(raw: unknown): PreparedAnswer {
+  return typeof raw === 'number' && Number.isFinite(raw) ? value(raw) : invalid();
+}
+
+function prepareBoolean(raw: unknown): PreparedAnswer {
+  return typeof raw === 'boolean' ? value(raw) : invalid();
+}
+
+function prepareRanking(raw: unknown): PreparedAnswer {
+  if (!isStringArray(raw)) return invalid();
+  return raw.length === 0 ? EMPTY : value([...raw]);
+}
+
+function prepareMatrix(field: FieldBlockOf<'matrix'>, raw: unknown): PreparedAnswer {
+  if (!isPlainObject(raw)) return invalid();
+  const out: Record<string, string[]> = {};
+  for (const row of field.properties.rows) {
+    const cols = ownValue(raw, row.id);
+    if (cols === undefined || cols === null) continue;
+    if (!isStringArray(cols)) return invalid('invalid', row.id);
+    const ids = dedupe(cols.filter((c) => c !== ''));
+    if (ids.length > 0) out[row.id] = ids;
+  }
+  return Object.keys(out).length === 0 ? EMPTY : value(out);
+}
+
+function prepareFiles(raw: unknown): PreparedAnswer {
+  if (!Array.isArray(raw)) return invalid();
+  const items: FileAnswerItem[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    const item = prepareFileItem(entry);
+    if (!item) return invalid();
+    if (seen.has(item.fileId)) continue;
+    seen.add(item.fileId);
+    items.push(item);
+  }
+  return items.length === 0 ? EMPTY : value(items);
+}
+
+function prepareSignature(raw: unknown): PreparedAnswer {
+  const item = prepareFileItem(raw);
+  return item ? value(item) : invalid();
+}
+
+function prepareParts(field: CompositeField, raw: unknown): PreparedAnswer {
+  if (!isPlainObject(raw)) return invalid();
+  const out: Record<string, string> = {};
+  for (const { part, enabled } of partsOf(field)) {
+    if (!enabled) continue;
+    const v = ownValue(raw, part);
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string') return invalid('invalid', part);
+    const trimmed = v.trim();
+    if (trimmed !== '') out[part] = trimmed;
+  }
+  return Object.keys(out).length === 0 ? EMPTY : value(out);
+}
+
 /**
  * Normalise a raw answer for a field. `undefined`, `null` and an empty (or
  * blank) string are no answer.
@@ -92,70 +161,32 @@ export function prepareAnswer(field: FieldBlock, raw: unknown): PreparedAnswer {
     case 'email':
     case 'phone':
     case 'date':
-      return typeof raw === 'string' ? value(raw.trim()) : invalid();
-    case 'website': {
-      if (typeof raw !== 'string') return invalid();
-      const url = raw.trim();
-      return value(SCHEME_RE.test(url) ? url : `https://${url}`);
-    }
+      return prepareText(raw);
+    case 'website':
+      return prepareWebsite(raw);
     case 'number':
     case 'rating':
     case 'opinion_scale':
     case 'nps':
-      return typeof raw === 'number' && Number.isFinite(raw) ? value(raw) : invalid();
+      return prepareNumber(raw);
     case 'yes_no':
     case 'legal':
-      return typeof raw === 'boolean' ? value(raw) : invalid();
+      return prepareBoolean(raw);
     case 'multiple_choice':
     case 'dropdown':
     case 'picture_choice':
       return prepareChoice(field, raw);
     case 'ranking':
-      if (!isStringArray(raw)) return invalid();
-      return raw.length === 0 ? EMPTY : value([...raw]);
-    case 'matrix': {
-      if (!isPlainObject(raw)) return invalid();
-      const out: Record<string, string[]> = {};
-      for (const row of field.properties.rows) {
-        const cols = ownValue(raw, row.id);
-        if (cols === undefined || cols === null) continue;
-        if (!isStringArray(cols)) return invalid('invalid', row.id);
-        const ids = dedupe(cols.filter((c) => c !== ''));
-        if (ids.length > 0) out[row.id] = ids;
-      }
-      return Object.keys(out).length === 0 ? EMPTY : value(out);
-    }
-    case 'file_upload': {
-      if (!Array.isArray(raw)) return invalid();
-      const items: FileAnswerItem[] = [];
-      const seen = new Set<string>();
-      for (const entry of raw) {
-        const item = prepareFileItem(entry);
-        if (!item) return invalid();
-        if (seen.has(item.fileId)) continue;
-        seen.add(item.fileId);
-        items.push(item);
-      }
-      return items.length === 0 ? EMPTY : value(items);
-    }
-    case 'signature': {
-      const item = prepareFileItem(raw);
-      return item ? value(item) : invalid();
-    }
+      return prepareRanking(raw);
+    case 'matrix':
+      return prepareMatrix(field, raw);
+    case 'file_upload':
+      return prepareFiles(raw);
+    case 'signature':
+      return prepareSignature(raw);
     case 'contact_info':
-    case 'address': {
-      if (!isPlainObject(raw)) return invalid();
-      const out: Record<string, string> = {};
-      for (const { part, enabled } of partsOf(field)) {
-        if (!enabled) continue;
-        const v = ownValue(raw, part);
-        if (v === undefined || v === null) continue;
-        if (typeof v !== 'string') return invalid('invalid', part);
-        const trimmed = v.trim();
-        if (trimmed !== '') out[part] = trimmed;
-      }
-      return Object.keys(out).length === 0 ? EMPTY : value(out);
-    }
+    case 'address':
+      return prepareParts(field, raw);
   }
 }
 
@@ -174,7 +205,12 @@ export function isAnswered(field: FieldBlock, raw: unknown): boolean {
 // Checks
 // ---------------------------------------------------------------------------
 
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * Something, `@`, then a domain with a dot that is neither its first nor its
+ * last character; no whitespace and no second `@`. The domain is read up to
+ * its first dot after the first character, so the match can't backtrack.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/;
 export const URL_RE = /^https?:\/\/[^\s/?#:@.]+(\.[^\s/?#:@.]+)+(:\d{1,5})?([/?#]\S*)?$/i;
 const PHONE_RE = /^\+?[0-9 ()-]+$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -190,7 +226,7 @@ export function isValidUrl(v: string): boolean {
 /** `+` optional, then 6 to 20 digits, with spaces, dashes and parentheses allowed. */
 export function isValidPhone(v: string): boolean {
   if (!PHONE_RE.test(v)) return false;
-  const digits = v.replace(/[^0-9]/g, '').length;
+  const digits = v.replace(/\D/g, '').length;
   return digits >= 6 && digits <= 20;
 }
 
@@ -220,105 +256,132 @@ function isIntegerIn(n: number, min: number, max: number): boolean {
   return Number.isInteger(n) && n >= min && n <= max;
 }
 
+/** The error `code` when `failed`, else no error. */
+function errorIf(failed: boolean, code: AnswerErrorCode): AnswerError | null {
+  return failed ? answerError(code) : null;
+}
+
+function checkTextLength(field: FieldBlockOf<'short_text' | 'long_text'>, text: string): AnswerError | null {
+  const max = field.properties.maxLength;
+  return errorIf(max !== undefined && codePointLength(text) > max, 'too_long');
+}
+
+function checkNumber(field: FieldBlockOf<'number'>, n: number): AnswerError | null {
+  const { decimals, min, max } = field.properties;
+  if (!hasAtMostDecimals(n, decimals)) return answerError(decimals === 0 ? 'not_integer' : 'too_many_decimals');
+  if (min !== undefined && n < min) return answerError('too_small');
+  if (max !== undefined && n > max) return answerError('too_large');
+  return null;
+}
+
+function checkDate(field: FieldBlockOf<'date'>, d: string): AnswerError | null {
+  if (!isValidDate(d)) return answerError('invalid_date');
+  const { min, max } = field.properties;
+  if (min !== undefined && d < min) return answerError('date_too_early');
+  if (max !== undefined && d > max) return answerError('date_too_late');
+  return null;
+}
+
+function checkChoice(field: ChoiceField, a: ChoiceAnswer): AnswerError | null {
+  const ids = new Set(field.properties.choices.map((c) => c.id));
+  if (a.choiceIds.some((id) => !ids.has(id))) return answerError('invalid_choice');
+  const allowOther = field.type === 'dropdown' ? false : field.properties.allowOther;
+  if (a.other !== undefined && !allowOther) return answerError('invalid_choice');
+  const count = a.choiceIds.length + (a.other !== undefined ? 1 : 0);
+  if (field.type === 'dropdown' || !field.properties.multiple) {
+    return errorIf(count > 1, 'too_many_choices');
+  }
+  const { minSelections, maxSelections } = field.properties;
+  if (minSelections !== undefined && count < minSelections) return answerError('too_few_choices');
+  if (maxSelections !== undefined && count > maxSelections) return answerError('too_many_choices');
+  return null;
+}
+
+function checkRanking(field: FieldBlockOf<'ranking'>, ranked: string[]): AnswerError | null {
+  const ids = field.properties.choices.map((c) => c.id);
+  const rankedSet = new Set(ranked);
+  const ok = ranked.length === ids.length && rankedSet.size === ranked.length && ids.every((id) => rankedSet.has(id));
+  return errorIf(!ok, 'invalid');
+}
+
+function checkMatrix(field: FieldBlockOf<'matrix'>, a: Record<string, string[]>): AnswerError | null {
+  const columns = new Set(field.properties.columns.map((c) => c.id));
+  for (const row of field.properties.rows) {
+    const cols = a[row.id];
+    if (cols === undefined) {
+      if (field.required) return answerError('required', row.id);
+      continue;
+    }
+    if (cols.some((c) => !columns.has(c))) return answerError('invalid_choice', row.id);
+    if (!field.properties.multiple && cols.length > 1) return answerError('too_many_choices', row.id);
+  }
+  return null;
+}
+
+/** The email and phone parts of contact info must be valid; the other parts are free text. */
+function checkContactPart(part: string, v: string): AnswerError | null {
+  if (part === 'email' && !isValidEmail(v)) return answerError('invalid_email', part);
+  if (part === 'phone' && !isValidPhone(v)) return answerError('invalid_phone', part);
+  return null;
+}
+
+function checkParts(field: CompositeField, a: Record<string, string>): AnswerError | null {
+  for (const { part, enabled, required } of partsOf(field)) {
+    if (!enabled) continue;
+    const v = a[part];
+    if (v === undefined) {
+      if (required) return answerError('required', part);
+      continue;
+    }
+    if (field.type === 'contact_info') {
+      const error = checkContactPart(part, v);
+      if (error) return error;
+    }
+  }
+  return null;
+}
+
 /** Checks a normalised (non-empty) answer against its field. */
 export function checkAnswer(field: FieldBlock, answer: AnswerValue): AnswerError | null {
   switch (field.type) {
     case 'short_text':
-    case 'long_text': {
-      const max = field.properties.maxLength;
-      return max !== undefined && codePointLength(answer as string) > max ? answerError('too_long') : null;
-    }
+    case 'long_text':
+      return checkTextLength(field, answer as string);
     case 'email':
-      return isValidEmail(answer as string) ? null : answerError('invalid_email');
+      return errorIf(!isValidEmail(answer as string), 'invalid_email');
     case 'phone':
-      return isValidPhone(answer as string) ? null : answerError('invalid_phone');
+      return errorIf(!isValidPhone(answer as string), 'invalid_phone');
     case 'website':
-      return isValidUrl(answer as string) ? null : answerError('invalid_url');
-    case 'number': {
-      const n = answer as number;
-      const { decimals, min, max } = field.properties;
-      if (!hasAtMostDecimals(n, decimals)) return answerError(decimals === 0 ? 'not_integer' : 'too_many_decimals');
-      if (min !== undefined && n < min) return answerError('too_small');
-      if (max !== undefined && n > max) return answerError('too_large');
-      return null;
-    }
+      return errorIf(!isValidUrl(answer as string), 'invalid_url');
+    case 'number':
+      return checkNumber(field, answer as number);
     case 'rating':
-      return isIntegerIn(answer as number, 1, field.properties.steps) ? null : answerError('invalid');
+      return errorIf(!isIntegerIn(answer as number, 1, field.properties.steps), 'invalid');
     case 'opinion_scale':
-      return isIntegerIn(answer as number, field.properties.start, field.properties.end) ? null : answerError('invalid');
+      return errorIf(!isIntegerIn(answer as number, field.properties.start, field.properties.end), 'invalid');
     case 'nps':
-      return isIntegerIn(answer as number, 0, 10) ? null : answerError('invalid');
-    case 'date': {
-      const d = answer as string;
-      if (!isValidDate(d)) return answerError('invalid_date');
-      const { min, max } = field.properties;
-      if (min !== undefined && d < min) return answerError('date_too_early');
-      if (max !== undefined && d > max) return answerError('date_too_late');
-      return null;
-    }
+      return errorIf(!isIntegerIn(answer as number, 0, 10), 'invalid');
+    case 'date':
+      return checkDate(field, answer as string);
     case 'multiple_choice':
     case 'dropdown':
-    case 'picture_choice': {
-      const a = answer as ChoiceAnswer;
-      const ids = new Set(field.properties.choices.map((c) => c.id));
-      if (a.choiceIds.some((id) => !ids.has(id))) return answerError('invalid_choice');
-      const allowOther = field.type === 'dropdown' ? false : field.properties.allowOther;
-      if (a.other !== undefined && !allowOther) return answerError('invalid_choice');
-      const count = a.choiceIds.length + (a.other !== undefined ? 1 : 0);
-      if (field.type === 'dropdown' || !field.properties.multiple) {
-        return count > 1 ? answerError('too_many_choices') : null;
-      }
-      const { minSelections, maxSelections } = field.properties;
-      if (minSelections !== undefined && count < minSelections) return answerError('too_few_choices');
-      if (maxSelections !== undefined && count > maxSelections) return answerError('too_many_choices');
-      return null;
-    }
+    case 'picture_choice':
+      return checkChoice(field, answer as ChoiceAnswer);
     case 'yes_no':
       return null;
     case 'legal':
-      return field.required && answer === false ? answerError('must_accept') : null;
-    case 'ranking': {
-      const ranked = answer as string[];
-      const ids = field.properties.choices.map((c) => c.id);
-      const rankedSet = new Set(ranked);
-      const ok = ranked.length === ids.length && rankedSet.size === ranked.length && ids.every((id) => rankedSet.has(id));
-      return ok ? null : answerError('invalid');
-    }
-    case 'matrix': {
-      const a = answer as Record<string, string[]>;
-      const columns = new Set(field.properties.columns.map((c) => c.id));
-      for (const row of field.properties.rows) {
-        const cols = a[row.id];
-        if (cols === undefined) {
-          if (field.required) return answerError('required', row.id);
-          continue;
-        }
-        if (cols.some((c) => !columns.has(c))) return answerError('invalid_choice', row.id);
-        if (!field.properties.multiple && cols.length > 1) return answerError('too_many_choices', row.id);
-      }
-      return null;
-    }
+      return errorIf(field.required && answer === false, 'must_accept');
+    case 'ranking':
+      return checkRanking(field, answer as string[]);
+    case 'matrix':
+      return checkMatrix(field, answer as Record<string, string[]>);
     case 'file_upload':
-      return (answer as FileAnswerItem[]).length > field.properties.maxFiles ? answerError('too_many_files') : null;
+      return errorIf((answer as FileAnswerItem[]).length > field.properties.maxFiles, 'too_many_files');
     case 'signature':
       return null;
     case 'contact_info':
-    case 'address': {
-      const a = answer as Record<string, string>;
-      for (const { part, enabled, required } of partsOf(field)) {
-        if (!enabled) continue;
-        const v = a[part];
-        if (v === undefined) {
-          if (required) return answerError('required', part);
-          continue;
-        }
-        if (field.type === 'contact_info') {
-          if (part === 'email' && !isValidEmail(v)) return answerError('invalid_email', part);
-          if (part === 'phone' && !isValidPhone(v)) return answerError('invalid_phone', part);
-        }
-      }
-      return null;
-    }
+    case 'address':
+      return checkParts(field, answer as Record<string, string>);
   }
 }
 

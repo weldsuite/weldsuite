@@ -5,7 +5,7 @@
 
 import { CONTACT_PARTS, fieldsOf, isCompositeField, isTextField, partsOf } from './blocks';
 import { ownValue, prepareAnswer } from './answers';
-import type { ChoiceAnswer, FieldBlock, FileAnswerItem, FormDefinition } from './definition';
+import type { AnswerValue, ChoiceAnswer, FieldBlock, FileAnswerItem, FormDefinition } from './definition';
 
 /** A number as text: JavaScript's `String(n)`, with `-0` as `0`. */
 export function formatNumber(n: number): string {
@@ -80,6 +80,22 @@ export function displayAnswer(field: FieldBlock, raw: unknown): string {
   }
 }
 
+/** The searchable texts of one answer: free text, the filled-in parts, an "Other" text. */
+function searchParts(field: FieldBlock, answer: AnswerValue): string[] {
+  if (isTextField(field)) return [answer as string];
+  if (isCompositeField(field)) {
+    const a = answer as Record<string, string>;
+    return partsOf(field)
+      .map(({ part }) => a[part])
+      .filter((v): v is string => v !== undefined);
+  }
+  if (field.type === 'multiple_choice' || field.type === 'picture_choice' || field.type === 'dropdown') {
+    const other = (answer as ChoiceAnswer).other;
+    return other === undefined ? [] : [other];
+  }
+  return [];
+}
+
 /** Longest `searchText` result, in code points. */
 export const SEARCH_TEXT_MAX = 10_000;
 
@@ -92,20 +108,7 @@ export function searchText(def: Pick<FormDefinition, 'blocks'>, answers: Record<
   const parts: string[] = [];
   for (const field of fieldsOf(def)) {
     const prepared = prepareAnswer(field, ownValue(answers, field.id));
-    if (prepared.kind !== 'value') continue;
-    const answer = prepared.value;
-    if (isTextField(field)) {
-      parts.push(answer as string);
-    } else if (isCompositeField(field)) {
-      const a = answer as Record<string, string>;
-      for (const { part } of partsOf(field)) {
-        const v = a[part];
-        if (v !== undefined) parts.push(v);
-      }
-    } else if (field.type === 'multiple_choice' || field.type === 'picture_choice' || field.type === 'dropdown') {
-      const other = (answer as ChoiceAnswer).other;
-      if (other !== undefined) parts.push(other);
-    }
+    if (prepared.kind === 'value') parts.push(...searchParts(field, prepared.value));
   }
   const text = parts.join(' ').toLowerCase();
   const chars = Array.from(text);

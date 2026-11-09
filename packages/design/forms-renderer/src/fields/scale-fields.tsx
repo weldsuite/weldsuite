@@ -20,11 +20,12 @@ function useDigitKeys(enabled: boolean, values: number[], pick: (n: number) => v
       const now = Date.now();
       const previous = now - buffer.current.at < 700 ? buffer.current.text : '';
       const combined = previous + e.key;
-      const candidate = values.includes(Number(combined)) ? Number(combined) : values.includes(Number(e.key)) ? Number(e.key) : null;
-      if (candidate === null) return;
+      // The digit joined to the one just typed ("1", "0" → 10) when that is a value, else the digit alone.
+      const text = values.includes(Number(combined)) ? combined : e.key;
+      if (!values.includes(Number(text))) return;
       e.preventDefault();
-      buffer.current = { text: values.includes(Number(combined)) ? combined : e.key, at: now };
-      pick(candidate);
+      buffer.current = { text, at: now };
+      pick(Number(text));
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -88,7 +89,7 @@ interface NumberScaleProps {
   start: number;
   end: number;
   value: unknown;
-  labels: { left?: string | undefined; center?: string | undefined; right?: string | undefined };
+  labels: { left?: string; center?: string; right?: string };
   onPick: (n: number) => void;
 }
 
