@@ -602,7 +602,9 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # app-api plus every worker package, one after another: about 14.5 minutes
+    # on main by November 2026, so 15 left no room for new tests.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
