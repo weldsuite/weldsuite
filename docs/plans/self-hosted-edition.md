@@ -259,11 +259,17 @@ D6 goes first: every later test would otherwise pass against Global
 defaults. Within the alpha, D1 is the long pole and C1 grows with it (every
 bundled dependency gets its check).
 
-The tracks run in parallel, one session and branch each: D6 then D1–D5
-(packaging), A1/A3–A6 with B (versions and licence), C (operator commands),
-E (identity), F with A5/A6 (supply chain and release engineering). Chart
-changes other tracks need (an env var, a hook) are small and merge after the
-packaging track's. A2, cutting the first public release, waits for an
+The tracks run in parallel, one session and branch each, every work package
+with one owner:
+
+- packaging: D6, then D1–D5 and A4 (a chart hook);
+- versions and licence: A1's binary side, A3 and B;
+- operator commands: C;
+- identity: E;
+- supply chain and release engineering: A1's build side, A5, A6 and F.
+
+Chart changes other tracks need (an env var, a hook) are small and merge after
+the packaging track's. A2, cutting the first public release, waits for an
 explicit go-ahead, since it publishes.
 
 ## Tests
