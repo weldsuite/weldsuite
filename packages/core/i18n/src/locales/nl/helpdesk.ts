@@ -81,6 +81,9 @@ export const helpdesk = {
       mergeDescription:
         'Dit ticket wordt gesloten en gemarkeerd als samengevoegd met het ticket dat je kiest. Een later bericht van de klant komt op dat ticket terecht.',
       mergeConfirm: 'Samenvoegen',
+      mergeConfirmTitle: 'Dit ticket samenvoegen met #{number}?',
+      mergeConfirmDescription:
+        'Dit ticket wordt gesloten en gemarkeerd als samengevoegd met #{number}. Samenvoegen kan niet ongedaan worden gemaakt.',
       mergedInto: 'Samengevoegd met #{number}',
       mergedBanner: 'Dit ticket is samengevoegd met #{number}.',
       mergeDifferentCustomer:

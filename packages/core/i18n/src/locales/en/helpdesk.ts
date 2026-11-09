@@ -81,6 +81,9 @@ export const helpdesk = {
       mergeDescription:
         'This ticket is closed and marked as merged into the one you pick. A later message from the customer lands on that ticket.',
       mergeConfirm: 'Merge',
+      mergeConfirmTitle: 'Merge this ticket into #{number}?',
+      mergeConfirmDescription:
+        'This ticket is closed and marked as merged into #{number}. A merge can\'t be undone.',
       mergedInto: 'Merged into #{number}',
       mergedBanner: 'This ticket was merged into #{number}.',
       mergeDifferentCustomer:
