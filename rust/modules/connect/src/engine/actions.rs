@@ -14,6 +14,7 @@ use super::steps::RunInfo;
 use super::{EngineDeps, engine_id, now_ms, now_text};
 use crate::js::{as_text, js_number, js_string, truthy};
 
+mod alerts;
 mod comms;
 mod data;
 mod desk;
@@ -132,6 +133,7 @@ pub(crate) async fn execute_action(
         "delete_record" => data::delete_record(inputs, ctx).await,
         "query_data" => data::query_data(inputs, ctx).await,
         "create_conversation" => desk::create_conversation(inputs, ctx).await,
+        "parse_alert" => alerts::run(inputs, ctx),
         "assign_conversation" => helpdesk::assign_conversation(inputs, ctx).await,
         "tag_conversation" => helpdesk::tag_conversation(inputs, ctx).await,
         "change_conversation_status" => helpdesk::change_status(inputs, ctx).await,

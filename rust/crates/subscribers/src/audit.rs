@@ -13,14 +13,25 @@
 //!   surfaces in the write, and it gets the same lock wait as a lookup that
 //!   fails with the lock's error. Any other write error is retried and then
 //!   dead-lettered. Same in both backends.
+//! - `stream-flusher.ts`: after the batch, every workspace that had an audit
+//!   row written gets one flush of its audit log streams (the SIEM push,
+//!   [`crate::audit_streams`]). The dispositions are decided by then, and a
+//!   flush that fails is logged and otherwise ignored: the streams keep their
+//!   own cursor and catch up on the next flush, so it never fails or retries
+//!   a message.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::future::join_all;
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{Keyring, PgPool};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
 
+use crate::audit_streams::{
+    AuditStreamSender, FlushOptions, FlushOutcome, flush_audit_log_streams,
+};
 use crate::event::{HubEvent, OrderedObject};
 use crate::js;
 use crate::tenants::{Tenants, is_tenant_locked};
@@ -398,6 +409,17 @@ pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> Result<AuditOutco
 #[derive(Clone)]
 pub struct AuditSubscriber {
     tenants: Arc<dyn Tenants>,
+    /// Where each workspace's new audit rows are pushed on; `None` writes
+    /// the rows only.
+    streams: Option<AuditStreams>,
+}
+
+/// What the push to a workspace's audit log streams needs: the sender and
+/// the keyring that opens the collectors' tokens.
+#[derive(Clone)]
+struct AuditStreams {
+    sender: AuditStreamSender,
+    keyring: Keyring,
 }
 
 impl std::fmt::Debug for AuditSubscriber {
@@ -408,17 +430,36 @@ impl std::fmt::Debug for AuditSubscriber {
 
 impl AuditSubscriber {
     pub fn new(tenants: Arc<dyn Tenants>) -> Self {
-        Self { tenants }
+        Self {
+            tenants,
+            streams: None,
+        }
+    }
+
+    /// Also push each workspace's new audit rows to its audit log streams
+    /// once a batch is written (`flushStreamsForWorkspace`); `keyring` opens
+    /// the collectors' tokens.
+    #[must_use]
+    pub fn with_streams(mut self, sender: AuditStreamSender, keyring: Keyring) -> Self {
+        self.streams = Some(AuditStreams { sender, keyring });
+        self
     }
 
     /// `processEntityEvent` plus the batch processor's failure handling for
-    /// one delivery.
+    /// one delivery. Writes the row only; the streams are flushed per batch
+    /// ([`AuditSubscriber::flush_streams`]).
     pub async fn handle_one(&self, delivery: &Delivery) -> Disposition {
+        self.process(delivery).await.0
+    }
+
+    /// One delivery: what to do with it and, when its event was written (or
+    /// already had a row), the workspace it names.
+    async fn process(&self, delivery: &Delivery) -> (Disposition, Option<String>) {
         let event = match HubEvent::parse(&delivery.payload) {
             Ok(event) => event,
             Err(error) => {
                 tracing::error!(%error, subject = delivery.subject, "audit: not an entity event; dropped");
-                return Disposition::Ack;
+                return (Disposition::Ack, None);
             }
         };
         if event.metadata.workspace_id.is_empty() {
@@ -426,26 +467,67 @@ impl AuditSubscriber {
                 event_id = event.id,
                 "audit: event missing workspaceId, skipping"
             );
-            return Disposition::Ack;
+            return (Disposition::Ack, None);
         }
         let tenant = match self.tenants.tenant(&event.metadata.workspace_id).await {
             Ok(tenant) => tenant,
             Err(error) => {
-                return failed(
+                let retry = failed(
                     delivery,
                     &error,
                     format!("cannot resolve the workspace: {error}"),
                 );
+                return (retry, None);
             }
         };
         match write_audit_log(&tenant.db, &event).await {
-            Ok(_) => Disposition::Ack,
-            Err(error) => failed(
-                delivery,
-                error.as_ref(),
-                format!("failed to write the audit log: {error}"),
-            ),
+            Ok(_) => (Disposition::Ack, Some(event.metadata.workspace_id)),
+            Err(error) => {
+                let retry = failed(
+                    delivery,
+                    error.as_ref(),
+                    format!("failed to write the audit log: {error}"),
+                );
+                (retry, None)
+            }
         }
+    }
+
+    /// `flushWorkspaceStreams`: one flush per workspace a batch wrote for,
+    /// side by side; a failure of one never touches another, and none fails
+    /// into the caller. `workspaces` are the events' own references, which
+    /// an event whose row carries no `metadata.workspaceId` is sent with.
+    ///
+    /// Log lines name the workspace and the stream only: an error's text can
+    /// quote a connection string or what a destination answered.
+    pub async fn flush_streams(&self, workspaces: &[String]) {
+        let Some(streams) = &self.streams else {
+            return;
+        };
+        join_all(workspaces.iter().map(|workspace| async move {
+            let Ok(tenant) = self.tenants.tenant(workspace).await else {
+                tracing::error!(
+                    workspace_id = workspace,
+                    "audit: stream flush skipped, the workspace does not resolve"
+                );
+                return;
+            };
+            let options = FlushOptions {
+                keyring: &streams.keyring,
+                workspace_id: Some(workspace),
+                now: OffsetDateTime::now_utc(),
+            };
+            for result in flush_audit_log_streams(&tenant.db, &streams.sender, &options).await {
+                if result.outcome == FlushOutcome::Failed {
+                    tracing::warn!(
+                        workspace_id = workspace,
+                        stream_id = result.stream_id,
+                        "audit: stream delivery failed"
+                    );
+                }
+            }
+        }))
+        .await;
     }
 }
 
@@ -469,9 +551,18 @@ impl BatchHandler for AuditSubscriber {
     fn handle<'a>(&'a self, batch: &'a [Delivery]) -> BoxFuture<'a, Vec<Disposition>> {
         Box::pin(async move {
             let mut out = Vec::with_capacity(batch.len());
+            // The workspaces the batch wrote for, once each.
+            let mut written: Vec<String> = Vec::new();
             for delivery in batch {
-                out.push(self.handle_one(delivery).await);
+                let (disposition, workspace) = self.process(delivery).await;
+                if let Some(workspace) = workspace
+                    && !written.contains(&workspace)
+                {
+                    written.push(workspace);
+                }
+                out.push(disposition);
             }
+            self.flush_streams(&written).await;
             out
         })
     }

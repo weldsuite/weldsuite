@@ -151,4 +151,14 @@ export const weldconnectTemplates = {
       body: '<p>{release} {version} has shipped.</p><p>Support tickets linked to the issues in this release: {tickets}.</p><p>Reply to those customers to let them know the fix is live.</p>',
     },
   },
+  alertToTicket: {
+    name: 'Alerts to tickets (Splunk, Datadog, Grafana)',
+    description:
+      'Open a ticket in the WeldDesk inbox for every alert, set its priority from the alert severity, update the same ticket when the alert fires again, and close it when the alert resolves. Paste the webhook URL of this workflow into Splunk (alert action "Webhook"), Datadog (Webhooks integration) or Grafana (contact point "Webhook").',
+    steps: {
+      parse: 'Read the alert',
+      ticket: 'Open or update the ticket',
+    },
+    text: {},
+  },
 };

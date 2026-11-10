@@ -4815,6 +4815,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
@@ -5585,6 +5588,9 @@ importers:
       '@weldsuite/desk-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/desk
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events

@@ -1,8 +1,9 @@
 //! The core platform's smaller route groups, as app-api serves them
-//! (`apps/workers/app-api/src/routes/`): notifications, audit logs, personal
-//! and workspace API keys, the workspace home (dashboard), the credits
-//! wallet, Contact Support, the feedback board, enterprise single sign-on,
-//! device sessions and the app store's workspace side.
+//! (`apps/workers/app-api/src/routes/`): notifications, audit logs and the
+//! streams they are pushed to, personal and workspace API keys, the workspace
+//! home (dashboard), the credits wallet, Contact Support, the feedback board,
+//! enterprise single sign-on, device sessions and the app store's workspace
+//! side.
 //!
 //! Each route group is its own router, nested at its app-api prefix by
 //! `bins/weldsuite/src/routes/mod.rs`:
@@ -11,6 +12,7 @@
 //! |---|---|---|
 //! | [`notifications`] | `/api/notifications` | `routes/notifications` |
 //! | [`audit_logs`] | `/api/audit-logs` | `routes/audit-logs` |
+//! | [`audit_log_streams`] | `/api/audit-log-streams` | `routes/audit-log-streams` |
 //! | [`api_keys`] | `/api/api-keys` | `routes/api-keys` |
 //! | [`workspace_api_keys`] | `/api/workspace-api-keys` | `routes/workspace-api-keys` |
 //! | [`dashboard`] | `/api/dashboard` | `routes/dashboard` |
@@ -38,6 +40,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, DynRealtimePublisher, Identity};
 
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
+pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
 pub use groups::sso::{DnsGateway, DnsTransport};
 
 /// What the handlers share, cloned from the app state.
@@ -52,6 +55,8 @@ pub struct CorePlatformState {
     /// The identity provider; `None` answers as the workers do when Clerk
     /// cannot be reached.
     pub identity: Option<Arc<dyn Identity>>,
+    /// Audit log stream delivery: the URL rules and the test event.
+    pub audit_streams: Arc<dyn AuditStreamGateway>,
 }
 
 impl std::fmt::Debug for CorePlatformState {
@@ -85,6 +90,10 @@ group_router!(
 group_router!(
     /// `/api/audit-logs`: the workspace's audit log and entity history.
     audit_logs
+);
+group_router!(
+    /// `/api/audit-log-streams`: where the workspace's audit log is pushed.
+    audit_log_streams
 );
 group_router!(
     /// `/api/api-keys`: the caller's personal API keys.

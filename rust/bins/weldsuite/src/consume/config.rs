@@ -14,7 +14,7 @@
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
 //! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
-//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
+//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
 //! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |

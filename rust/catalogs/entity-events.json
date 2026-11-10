@@ -58,6 +58,11 @@
     "updated",
     "deleted"
   ],
+  "audit_log_stream": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "bank_account": [
     "created",
     "updated",
@@ -474,6 +479,11 @@
     "deleted"
   ],
   "helpdesk_news": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_report_schedule": [
     "created",
     "updated",
     "deleted"

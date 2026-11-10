@@ -4897,6 +4897,7 @@ dependencies = [
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-desk-domain",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mail-domain",

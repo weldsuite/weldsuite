@@ -118,6 +118,45 @@
       "subject": "Je WeldSuite-werkruimte \"{workspace}\" wordt verwijderd"
     }
   },
+  "deskReport": {
+    "agentResolved": "{count} opgelost",
+    "agents": "Beste medewerkers",
+    "backlog": "Backlog nu",
+    "backlogOpen": "Open",
+    "backlogUnassigned": "Niet toegewezen",
+    "backlogWaiting": "Wacht op het team",
+    "csatShort": "CSAT",
+    "csvAttached": "De cijfers zitten als CSV-bestand in de bijlage.",
+    "footer": "{name} heeft dit rapport (\"{schedule}\") ingepland in WeldDesk. Zet het schema uit onder Rapporten om te stoppen.",
+    "footerNoName": "Dit rapport wordt verstuurd door het schema \"{schedule}\" in WeldDesk. Zet het schema uit onder Rapporten om te stoppen.",
+    "introOverview": "Hoe het team het deed in deze periode, vergeleken met de periode ervoor.",
+    "introSaved": "De laatste cijfers van dit rapport.",
+    "kicker": "WeldDesk-rapport · {period}",
+    "kpi": {
+      "created": "Nieuwe tickets",
+      "csat": "CSAT",
+      "firstResponseMedian": "Eerste reactie (mediaan)",
+      "resolutionMedian": "Oplossing (mediaan)",
+      "resolved": "Opgelost",
+      "slaCompliance": "SLA-behaling"
+    },
+    "newValue": "nieuw",
+    "noChange": "ongewijzigd",
+    "noData": "{title}: geen gegevens.",
+    "noValue": "Geen gegevens",
+    "open": "Het rapport openen",
+    "overview": "Overzicht",
+    "periodRange": "{start} t/m {end}",
+    "points": "pnt",
+    "preview": "{report}, {period}.",
+    "subject": "WeldDesk-rapport: {report} ({period})",
+    "units": {
+      "day": "d",
+      "hour": "u",
+      "minute": "m",
+      "second": "s"
+    }
+  },
   "digest": {
     "footer": "Je ontvangt deze e-mail als lid van {workspace}.",
     "heading": "Je taken",

@@ -142,4 +142,14 @@ export const weldconnectTemplates = {
       body: '<p>{release} {version} is live.</p><p>Supporttickets die aan de issues in deze release gekoppeld zijn: {tickets}.</p><p>Laat die klanten weten dat de oplossing live staat.</p>',
     },
   },
+  alertToTicket: {
+    name: 'Alerts naar tickets (Splunk, Datadog, Grafana)',
+    description:
+      'Open voor elke alert een ticket in de WeldDesk-inbox, stel de prioriteit in op basis van de ernst van de alert, werk hetzelfde ticket bij als de alert opnieuw afgaat en sluit het zodra de alert is opgelost. Plak de webhook-URL van deze workflow in Splunk (alert-actie "Webhook"), Datadog (Webhooks-integratie) of Grafana (contactpunt "Webhook").',
+    steps: {
+      parse: 'De alert uitlezen',
+      ticket: 'Ticket openen of bijwerken',
+    },
+    text: {},
+  },
 };

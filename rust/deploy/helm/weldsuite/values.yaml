@@ -812,6 +812,13 @@ cron:
       enabled: true
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldDesk: the scheduled report emails that came due, for the workspaces
+    # the due index lists. A tick sends at most 60 reports; a schedule is
+    # claimed before it is sent, so a run that is cut short sends nothing twice.
+    desk-report-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 290
     # WeldReach: the send sweep over the due index (workspaces with outreach
     # due). With consume.enabled it publishes each one on NATS for the
     # reach-send subscriber; otherwise it runs their sends itself.

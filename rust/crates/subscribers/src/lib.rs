@@ -3,7 +3,7 @@
 //!
 //! | Subscriber | TypeScript | What it writes |
 //! |---|---|---|
-//! | [`AuditSubscriber`] | `apps/workers/audit-log-worker` | `audit_logs` in the tenant DB |
+//! | [`AuditSubscriber`] | `apps/workers/audit-log-worker` | `audit_logs` in the tenant DB, then the workspace's audit log streams ([`audit_streams`]) |
 //! | [`SearchSubscriber`] | app-api `queue/search-index-consumer.ts` | `search_index` chunks and embeddings in the tenant DB |
 //! | [`WebhooksSubscriber`] | `apps/workers/integration-webhook-worker` (`entity-webhooks-consumer.ts`) | signed POSTs, `webhook_deliveries`, `external_webhooks` counters |
 //! | [`RealtimeSubscriber`] | `apps/workers/realtime-worker` (`entity-realtime-consumer.ts`) | `WorkspaceHub` publishes through the realtime port |
@@ -17,10 +17,12 @@
 //! acking, the backoff and the dead letters.
 
 pub mod audit;
+pub mod audit_streams;
 pub mod event;
 mod js;
 pub mod realtime;
 pub mod registry;
+pub mod safe_url;
 pub mod search;
 pub mod tenants;
 pub mod webhooks;
@@ -82,9 +84,14 @@ impl BatchHandler for Routed {
 }
 
 pub use audit::AuditSubscriber;
+pub use audit_streams::{
+    AuditStreamDestination, AuditStreamSendResult, AuditStreamSender, FlushOptions,
+    flush_audit_log_streams,
+};
 pub use event::{EventMetadata, HubEvent, OrderedObject};
 pub use realtime::RealtimeSubscriber;
 pub use registry::{SUBSCRIBERS, Subscriber, filter_subject, subscriber, topic_matches};
+pub use safe_url::check_safe_url;
 pub use search::SearchSubscriber;
 pub use tenants::{ResolvedTenant, StaticTenants, TenantError, Tenants, WorkspaceTenants};
 pub use webhooks::{

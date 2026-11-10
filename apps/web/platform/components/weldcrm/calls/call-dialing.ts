@@ -71,6 +71,8 @@ export function getStatusText(status: CallStateValue['status'] | undefined, dura
       return t('sweep.weldcrm.globalCallPanel.statusDialing');
     case 'ringing':
       return t('sweep.weldcrm.globalCallPanel.statusRinging');
+    case 'connecting':
+      return t('sweep.weldcrm.globalCallPanel.connecting');
     case 'connected':
       return formatDuration(duration);
     case 'ended':
@@ -111,6 +113,8 @@ interface PlaceCallParams {
   toNumber: string;
   fromNumber: string;
   enableRecording: boolean;
+  /** Logs the call on this WeldDesk conversation's timeline. */
+  deskConversationId?: string;
   workspaceId: string | undefined;
   getClient: GetClientFn;
   startCall: CallContextValue['startCall'];
@@ -121,6 +125,7 @@ async function placeCall({
   toNumber,
   fromNumber,
   enableRecording,
+  deskConversationId,
   workspaceId,
   getClient,
   startCall,
@@ -138,6 +143,7 @@ async function placeCall({
     toNumber: formattedTo,
     isRecorded: enableRecording,
     provider: 'telnyx',
+    ...(deskConversationId ? { deskConversationId } : {}),
   }).then(r => ({ success: !!r.data?.id, callId: r.data?.id, error: undefined as string | undefined }))
     .catch((err) => ({
       success: false,
@@ -174,7 +180,12 @@ export function usePlaceCall() {
   const { organization } = useOrganization();
   const [isDialing, setIsDialing] = useState(false);
 
-  const dial = async (params: { toNumber: string; fromNumber: string; enableRecording: boolean }) => {
+  const dial = async (params: {
+    toNumber: string;
+    fromNumber: string;
+    enableRecording: boolean;
+    deskConversationId?: string;
+  }) => {
     if (!params.toNumber || !params.fromNumber) {
       toast.error(t('sweep.weldcrm.globalCallPanel.enterPhoneNumber'));
       return;

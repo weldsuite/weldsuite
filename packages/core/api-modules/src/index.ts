@@ -118,6 +118,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',
+    '/api/audit-log-streams',
     '/api/audit-logs',
     '/api/auth-desktop',
     '/api/auth-sessions',

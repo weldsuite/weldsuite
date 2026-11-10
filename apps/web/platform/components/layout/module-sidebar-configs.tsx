@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Inbox,
   BarChart3,
+  MonitorPlay,
   Users,
   BookOpen,
   Globe,
@@ -455,7 +456,11 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.welddesk.groups.reports,
         items: [
           { title: t.navigation.moduleSidebar.welddesk.reportsOverview, href: '/welddesk/reports', icon: LayoutDashboard, permission: 'settings:read' },
+          // The wallboard is for the whole team: conversations:read, not settings:read.
+          { title: t.navigation.moduleSidebar.welddesk.wallboard, href: '/welddesk/reports/wallboard', icon: MonitorPlay, permission: 'conversations:read' },
+          { title: t.navigation.moduleSidebar.welddesk.phoneReport, href: '/welddesk/reports/phone', icon: Phone, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
+          { title: t.navigation.moduleSidebar.welddesk.reportSchedules, href: '/welddesk/reports/schedules', icon: CalendarClock, permission: 'settings:read' },
         ],
       },
       {

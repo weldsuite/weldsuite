@@ -118,6 +118,45 @@
       "subject": "Your WeldSuite workspace \"{workspace}\" is scheduled for deletion"
     }
   },
+  "deskReport": {
+    "agentResolved": "{count} resolved",
+    "agents": "Top agents",
+    "backlog": "Backlog now",
+    "backlogOpen": "Open",
+    "backlogUnassigned": "Unassigned",
+    "backlogWaiting": "Waiting on the team",
+    "csatShort": "CSAT",
+    "csvAttached": "The numbers are attached as a CSV file.",
+    "footer": "{name} scheduled this report (\"{schedule}\") in WeldDesk. To stop it, turn the schedule off under Reports.",
+    "footerNoName": "This report is sent by the schedule \"{schedule}\" in WeldDesk. To stop it, turn the schedule off under Reports.",
+    "introOverview": "How the team did in this period, against the period before.",
+    "introSaved": "The latest numbers of this report.",
+    "kicker": "WeldDesk report · {period}",
+    "kpi": {
+      "created": "New tickets",
+      "csat": "CSAT",
+      "firstResponseMedian": "First response (median)",
+      "resolutionMedian": "Resolution (median)",
+      "resolved": "Resolved",
+      "slaCompliance": "SLA achievement"
+    },
+    "newValue": "new",
+    "noChange": "no change",
+    "noData": "{title}: no data.",
+    "noValue": "No data",
+    "open": "Open the report",
+    "overview": "Overview",
+    "periodRange": "{start} to {end}",
+    "points": "pts",
+    "preview": "{report}, {period}.",
+    "subject": "WeldDesk report: {report} ({period})",
+    "units": {
+      "day": "d",
+      "hour": "h",
+      "minute": "m",
+      "second": "s"
+    }
+  },
   "digest": {
     "footer": "You're receiving this as a member of {workspace}.",
     "heading": "Your tasks",

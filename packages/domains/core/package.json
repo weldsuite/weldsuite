@@ -7,6 +7,7 @@
   "exports": {
     "./agent-access": "./src/agent-access.ts",
     "./ai-billing": "./src/ai-billing.ts",
+    "./audit-streams": "./src/audit-streams.ts",
     "./analytics-query": "./src/analytics-query.ts",
     "./custom-field-query": "./src/custom-field-query.ts",
     "./custom-field-values": "./src/custom-field-values.ts",

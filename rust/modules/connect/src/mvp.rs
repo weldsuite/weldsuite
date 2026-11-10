@@ -32,6 +32,7 @@ pub(crate) const ACTION_TYPES: &[&str] = &[
     "merge.update_issue",
     "merge.comment_on_issue",
     "create_conversation",
+    "parse_alert",
     "send_notification",
     "post_chat_message",
     "http_request",

@@ -875,6 +875,13 @@ pub(crate) struct SweepRequest {
     /// The test set the seed flag itself: the scope starts with it.
     #[serde(default)]
     seeded: bool,
+    /// The test's `SEND_EMAIL` binding over HTTP, for a job that mails
+    /// through it (`conformance_mail`).
+    #[serde(default)]
+    send_email: Option<String>,
+    /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
+    #[serde(default)]
+    ledgers: HashMap<String, String>,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -1037,6 +1044,56 @@ pub(crate) async fn desk_sla_sweep(
         assignment: None,
     };
     let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
+/// `POST /__conformance/cron/desk-report-sweep`: one tick of the WeldDesk
+/// report schedule sweep against the test's databases, as
+/// `runReportScheduleSweep(env, now)` runs it there. Every workspace opens
+/// the test's tenant database, with the Clerk org id the test maps it to.
+/// The reports go out through the test's `SEND_EMAIL` stub and its outbound
+/// ledgers (the harness's bridges), or nowhere when the test has none, as the
+/// worker then runs without the bindings.
+pub(crate) async fn desk_report_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_desk::sla_sweep::SlaTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::report_sweep::ReportSweepServices {
+        outbound: pools
+            .mail
+            .bindings(request.send_email.as_deref(), &request.ledgers),
+        master: Some(master.clone()),
+        cache: None,
+        environment: request.env.get("ENVIRONMENT").cloned(),
+        public_app_url: request.env.get("PUBLIC_APP_URL").cloned(),
+        from_override: request.env.get("SYSTEM_EMAIL_FROM").cloned(),
+    };
+    let result =
+        weldsuite_desk::report_sweep::run_report_sweep(&master, &tenants, &services, now).await;
     axum::Json(result.to_json()).into_response()
 }
 

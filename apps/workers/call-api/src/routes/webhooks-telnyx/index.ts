@@ -20,10 +20,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import {
   verifyTelnyxSignature,
   encodeClientState,
-  telnyxAnswer,
   telnyxHangup,
-  telnyxTransfer,
-  telnyxAiAssistantStart,
   telnyxRecordStart,
   type TelnyxEnv,
 } from '../../lib/telnyx';
@@ -35,16 +32,26 @@ import {
   handlePortingException,
   handlePortingCancelled,
 } from '../../services/porting-completion';
-import { matchCallerByPhone, lookupCrm, formatCrmLookupForAssistant } from '../../services/desk-phone-crm';
+import { lookupCrm, formatCrmLookupForAssistant } from '../../services/desk-phone-crm';
 import { parseMessageHistory, syncAiTalkTranscript } from '../../services/desk-phone-transcript';
 import { fanoutDeskPhoneMessage } from '../../lib/desk-phone-fanout';
 import { announceDeskPhoneCall } from '../../lib/desk-phone-routing';
+import { bearerTokenFromHeader, verifyDeskPhoneToolToken } from '../../lib/desk-phone-tool-auth';
+import { ringbackWav } from '../../lib/desk-phone-audio';
 import {
-  bearerTokenFromHeader,
-  verifyDeskPhoneToolToken,
-  signDeskPhoneToolToken,
-} from '../../lib/desk-phone-tool-auth';
-import { buildDeskPhoneAssistantTools, callerContextInstructions, lookupCrmUrl } from '../../lib/desk-phone-tools';
+  executeInboundRoute,
+  handleGatherEnded,
+  matchCallerSafe,
+  type InboundCaller,
+  type PhoneNumberRow,
+} from '../../services/desk-phone-inbound';
+import { handleAgentLegEvent, handleCallerLeftQueue } from '../../services/desk-phone-legs';
+import {
+  handleDequeued,
+  handleSpeakEnded,
+  handleVoicemailSaved,
+  type CallEventInput,
+} from '../../services/desk-phone-queue';
 
 // ============================================================================
 // Types
@@ -210,37 +217,7 @@ async function syncLiveTranscript(args: {
   }
 }
 
-type PhoneNumberRow = typeof schema.voipPhoneNumbers.$inferSelect;
-type PhoneRouteRow = typeof schema.deskPhoneRoutes.$inferSelect;
-type DeskVoiceAgentRow = typeof schema.deskVoiceAgents.$inferSelect;
 type DeskIngestResult = Awaited<ReturnType<typeof ingestDeskPhone>>;
-
-function emptyCaller() {
-  return {
-    contactId: null as string | null,
-    customerId: null as string | null,
-    callerName: null as string | null,
-    customerName: null as string | null,
-    email: null as string | null,
-    hits: [] as Awaited<ReturnType<typeof matchCallerByPhone>>['hits'],
-  };
-}
-
-type InboundCaller = ReturnType<typeof emptyCaller>;
-
-interface InboundCallContext {
-  env: TelnyxEnv;
-  db: Database;
-  callControlId: string;
-  callId: string;
-  workspaceId: string;
-  conversationId: string;
-  clientState: ReturnType<typeof encodeClientState>;
-  toNumber: string;
-  fromNumber: string;
-  caller: InboundCaller;
-  phoneRow: PhoneNumberRow;
-}
 
 async function hangupUnroutedCall(env: TelnyxEnv, callControlId: string, toNumber: string): Promise<void> {
   console.warn(`[Telnyx Webhook] No phone registry entry for ${toNumber} — hanging up`);
@@ -248,15 +225,6 @@ async function hangupUnroutedCall(env: TelnyxEnv, callControlId: string, toNumbe
     await telnyxHangup(env, callControlId);
   } catch (err) {
     console.error('[Telnyx Webhook] Hangup after missing registry failed:', err);
-  }
-}
-
-async function matchCallerSafe(db: Database, fromNumber: string): Promise<InboundCaller> {
-  try {
-    return await matchCallerByPhone(db, fromNumber);
-  } catch (err) {
-    console.error('[Telnyx Webhook] CRM caller match failed:', err);
-    return emptyCaller();
   }
 }
 
@@ -277,155 +245,6 @@ async function syncConversationCaller(
       updatedAt: now,
     })
     .where(eq(schema.deskConversations.id, desk.conversation.id));
-}
-
-async function forwardInboundCall(ctx: InboundCallContext, forwardToE164: string): Promise<void> {
-  await telnyxTransfer(ctx.env, ctx.callControlId, forwardToE164, {
-    clientState: ctx.clientState,
-    from: ctx.toNumber,
-  });
-  await appendDeskMessage(ctx.db, {
-    generateId,
-    conversationId: ctx.conversationId,
-    kind: 'message',
-    authorType: 'system',
-    body: `Forwarding call to ${forwardToE164}`,
-    metadata: { event: 'call_forwarded', forwardToE164, callId: ctx.callId },
-  });
-}
-
-async function buildAiAgentTools(
-  ctx: InboundCallContext,
-  agent: DeskVoiceAgentRow,
-): Promise<unknown[] | undefined> {
-  if (!ctx.env.TELNYX_API_KEY) return undefined;
-  const token = await signDeskPhoneToolToken(ctx.env.TELNYX_API_KEY, {
-    org: ctx.workspaceId,
-    aid: agent.id,
-    call: ctx.callId,
-    conv: ctx.conversationId,
-  });
-  return buildDeskPhoneAssistantTools({
-    transferToE164: agent.forwardToE164,
-    lookupCrmUrl: lookupCrmUrl(ctx.env),
-    toolAuthHeader: `Bearer ${token}`,
-  });
-}
-
-async function startRecordingSafe(env: TelnyxEnv, callControlId: string): Promise<void> {
-  try {
-    await telnyxRecordStart(env, callControlId);
-  } catch (recErr) {
-    console.error('[Telnyx Webhook] record_start failed:', recErr);
-  }
-}
-
-async function answerWithAiAgent(ctx: InboundCallContext, voiceAgentId: string): Promise<void> {
-  const { env, db, callControlId, callId, workspaceId, conversationId, clientState, fromNumber, caller } = ctx;
-  const { deskVoiceAgents } = schema;
-
-  const [agent] = await db
-    .select()
-    .from(deskVoiceAgents)
-    .where(and(eq(deskVoiceAgents.id, voiceAgentId), isNull(deskVoiceAgents.deletedAt)))
-    .limit(1);
-
-  if (!agent?.enabled || !agent.telnyxAssistantId) {
-    console.warn(`[Telnyx Webhook] Voice agent ${voiceAgentId} unavailable — hangup`);
-    await telnyxHangup(env, callControlId, { clientState });
-    return;
-  }
-
-  const tools = await buildAiAgentTools(ctx, agent);
-
-  const dynamicVariables: Record<string, string> = {
-    caller_phone: fromNumber,
-    ...(caller.callerName ? { caller_name: caller.callerName } : {}),
-    ...(caller.customerName ? { customer_name: caller.customerName } : {}),
-  };
-
-  await telnyxAnswer(env, callControlId, { clientState });
-  await telnyxAiAssistantStart(env, callControlId, agent.telnyxAssistantId, {
-    clientState,
-    sendMessageHistoryUpdates: true,
-    instructions: callerContextInstructions({
-      systemPrompt: agent.systemPrompt,
-      callerPhone: fromNumber,
-      callerName: caller.callerName,
-      customerName: caller.customerName,
-      contactId: caller.contactId,
-      customerId: caller.customerId,
-    }),
-    tools,
-    dynamicVariables,
-  });
-
-  if (ctx.phoneRow.enableRecording !== false) {
-    await startRecordingSafe(env, callControlId);
-  }
-
-  const answered = await appendDeskMessage(db, {
-    generateId,
-    conversationId,
-    kind: 'message',
-    authorType: 'bot',
-    authorId: agent.id,
-    body: caller.callerName
-      ? `AI agent “${agent.name}” answered the call (matched ${caller.callerName})`
-      : `AI agent “${agent.name}” answered the call`,
-    metadata: {
-      event: 'ai_answered',
-      voiceAgentId: agent.id,
-      callId,
-      contactId: caller.contactId,
-      customerId: caller.customerId,
-    },
-  });
-  await fanoutDeskPhoneMessage({
-    env,
-    db,
-    workspaceId,
-    conversation: answered.conversation,
-    message: answered.message,
-    action: 'created',
-  });
-}
-
-async function hangupCallWithoutRoute(ctx: InboundCallContext): Promise<void> {
-  await telnyxHangup(ctx.env, ctx.callControlId, { clientState: ctx.clientState });
-  await appendDeskMessage(ctx.db, {
-    generateId,
-    conversationId: ctx.conversationId,
-    kind: 'message',
-    authorType: 'system',
-    body: 'Call ended (no inbound route configured)',
-    metadata: { event: 'call_hangup_no_route', callId: ctx.callId },
-  });
-}
-
-async function executeInboundRoute(ctx: InboundCallContext, route: PhoneRouteRow | undefined): Promise<void> {
-  const action = route?.action ?? 'hangup';
-
-  try {
-    if (action === 'forward' && route?.forwardToE164) {
-      await forwardInboundCall(ctx, route.forwardToE164);
-      return;
-    }
-
-    if (action === 'ai_agent' && route?.voiceAgentId) {
-      await answerWithAiAgent(ctx, route.voiceAgentId);
-      return;
-    }
-
-    await hangupCallWithoutRoute(ctx);
-  } catch (err) {
-    console.error('[Telnyx Webhook] Inbound route execution failed:', err);
-    try {
-      await telnyxHangup(ctx.env, ctx.callControlId, { clientState: ctx.clientState });
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 async function insertInboundCall(
@@ -559,10 +378,13 @@ async function handleInboundInitiated(
     caller,
   });
 
-  const clientState = encodeClientState({
+  const stateBase = {
     callId,
     workspaceId,
     deskConversationId: desk.conversation.id,
+  };
+  const clientState = encodeClientState({
+    ...stateBase,
     record: phoneRow.enableRecording !== false ? 'true' : 'false',
     ...(route?.voiceAgentId ? { voiceAgentId: route.voiceAgentId } : {}),
   });
@@ -575,6 +397,7 @@ async function handleInboundInitiated(
       callId,
       workspaceId,
       conversationId: desk.conversation.id,
+      stateBase,
       clientState,
       toNumber,
       fromNumber,
@@ -697,6 +520,19 @@ interface CallEventContext {
   callId: string;
   workspaceId: string;
   deskConversationId: string | undefined;
+}
+
+/** The slice of an event the phone queue flows read. */
+function toEventInput(ctx: CallEventContext): CallEventInput {
+  return {
+    env: ctx.env,
+    db: ctx.db,
+    workspaceId: ctx.workspaceId,
+    callId: ctx.callId,
+    conversationId: ctx.deskConversationId,
+    clientState: ctx.clientState,
+    payload: ctx.payload as Record<string, unknown>,
+  };
 }
 
 function computeCallDuration(payload: TelnyxPayload): number | undefined {
@@ -827,6 +663,13 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
     { event: 'call_ended', callId, hangupCause, duration },
   );
 
+  // A caller who hangs up while waiting for an agent is abandoned.
+  try {
+    await handleCallerLeftQueue(toEventInput(ctx));
+  } catch (err) {
+    console.error('[Telnyx Webhook] Abandoned-call handling failed:', err);
+  }
+
   if (duration && duration > 0) {
     console.log(`[Telnyx Webhook] Call ${callId} completed: ${duration}s`);
     await settleCallCredits(ctx, duration, hangupCause);
@@ -839,6 +682,7 @@ async function handleRecordingSavedEvent(ctx: CallEventContext): Promise<void> {
   if (!recordingUrl) return;
 
   const recordingDuration = payload.duration_secs ? Math.round(payload.duration_secs) : undefined;
+  const isVoicemail = ctx.clientState.stage === 'voicemail';
 
   await ctx.db
     .update(schema.voipCalls)
@@ -850,6 +694,12 @@ async function handleRecordingSavedEvent(ctx: CallEventContext): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(schema.voipCalls.id, callId));
+
+  if (isVoicemail) {
+    await handleVoicemailSaved(toEventInput(ctx), { url: recordingUrl, duration: recordingDuration });
+    console.log(`[Telnyx Webhook] Voicemail saved for call ${callId}`);
+    return;
+  }
 
   await appendDeskCallEvent(
     ctx.env,
@@ -902,6 +752,15 @@ async function handleInsightsGeneratedEvent(ctx: CallEventContext): Promise<void
   );
 }
 
+async function conversationOfCall(db: Database, callId: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ deskConversationId: schema.voipCalls.deskConversationId })
+    .from(schema.voipCalls)
+    .where(eq(schema.voipCalls.id, callId))
+    .limit(1);
+  return row?.deskConversationId ?? undefined;
+}
+
 async function dispatchCallEvent(eventType: string, ctx: CallEventContext): Promise<void> {
   switch (eventType) {
     case 'call.initiated':
@@ -919,6 +778,12 @@ async function dispatchCallEvent(eventType: string, ctx: CallEventContext): Prom
       return handleTranscriptEvent(ctx);
     case 'call.conversation_insights.generated':
       return handleInsightsGeneratedEvent(ctx);
+    case 'call.speak.ended':
+      return handleSpeakEnded(toEventInput(ctx));
+    case 'call.gather.ended':
+      return handleGatherEnded(toEventInput(ctx));
+    case 'call.dequeued':
+      return handleDequeued(toEventInput(ctx));
     case 'call.machine.detection.ended':
       console.log(`[Telnyx Webhook] AMD result for ${ctx.callId}: ${ctx.payload.result}`);
       return;
@@ -1049,6 +914,20 @@ app.post('/', async (c) => {
 
     console.log(`[Telnyx Webhook] ${event_type} — callId=${callId}, callControlId=${payload.call_control_id}`);
 
+    // A leg the server dialled to ring an agent's browser: its own client_state, no callId.
+    if (clientState.agentLegId && workspaceId) {
+      const legDb = await getTenantDbForWorkspace(c.env, workspaceId);
+      await handleAgentLegEvent({
+        env: c.env,
+        db: legDb,
+        workspaceId,
+        eventType: event_type,
+        legId: clientState.agentLegId,
+        payload,
+      });
+      return c.json({ ok: true });
+    }
+
     // Inbound without client_state: route on call.initiated
     if ((!callId || !workspaceId) && event_type === 'call.initiated' && isInboundDirection(payload)) {
       await runInboundHandler(c.env, payload);
@@ -1070,7 +949,8 @@ app.post('/', async (c) => {
       clientState,
       callId,
       workspaceId,
-      deskConversationId,
+      // An outbound call placed from a conversation carries no conversation in its client_state: the row has it.
+      deskConversationId: deskConversationId || (await conversationOfCall(db, callId)),
     });
 
     return c.json({ ok: true });
@@ -1081,6 +961,14 @@ app.post('/', async (c) => {
 });
 
 app.get('/', (c) => c.json({ status: 'ok', service: 'telnyx-webhook' }));
+
+/** The hold audio of callers waiting in the phone queue (see lib/desk-phone-audio.ts). */
+app.get('/ringback.wav', (c) =>
+  c.body(ringbackWav(), 200, {
+    'Content-Type': 'audio/wav',
+    'Cache-Control': 'public, max-age=86400, immutable',
+  }),
+);
 
 export { app as telnyxWebhookRoutes };
 export default app;

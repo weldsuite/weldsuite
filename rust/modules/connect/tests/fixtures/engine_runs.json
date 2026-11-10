@@ -9222,6 +9222,7 @@
                 "conversationId": "<id:dconv>",
                 "conversationNumber": 1,
                 "created": true,
+                "priority": null,
                 "state": "open",
                 "success": true
               },
@@ -9257,6 +9258,7 @@
                 "conversationId": "<id:dconv>",
                 "conversationNumber": 1,
                 "created": false,
+                "priority": null,
                 "state": "open",
                 "success": true
               },
@@ -9265,6 +9267,7 @@
                 "conversationId": "<id:dconv>",
                 "conversationNumber": 2,
                 "created": true,
+                "priority": null,
                 "state": "open",
                 "success": true
               },
@@ -11308,6 +11311,7 @@
               "conversationId": "<id:dconv>",
               "conversationNumber": 1,
               "created": true,
+              "priority": null,
               "state": "open",
               "success": true
             },
@@ -11330,6 +11334,7 @@
               "conversationId": "<id:dconv>",
               "conversationNumber": 1,
               "created": false,
+              "priority": null,
               "state": "open",
               "success": true
             },
@@ -11352,6 +11357,7 @@
               "conversationId": "<id:dconv>",
               "conversationNumber": 2,
               "created": true,
+              "priority": null,
               "state": "open",
               "success": true
             },
@@ -11600,6 +11606,2278 @@
             "execution_count": 1,
             "failure_count": 0,
             "id": "wf_desk",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert to ticket: Grafana firing then resolved, Datadog, Splunk, an unreadable payload, and ignored ticket values",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_alerts', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_alerts', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"parse_alert\",\"config\":{\"payload\":\"{{trigger.body}}\",\"source\":\"auto\",\"defaultPriority\":\"low\"}},{\"id\":\"s2\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s1.title}}\",\"message\":\"{{steps.s1.message}}\",\"externalId\":\"{{steps.s1.externalId}}\",\"priority\":\"{{steps.s1.priority}}\",\"tags\":\"{{steps.s1.tags}}\",\"state\":\"{{steps.s1.state}}\"}},{\"id\":\"s3\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"receiver\":\"weldsuite\",\"status\":\"resolved\",\"groupKey\":\"{}:{alertname=\\\"HighCPU\\\"}\",\"title\":\"[RESOLVED:1] HighCPU web-1\",\"commonLabels\":{\"alertname\":\"HighCPU\",\"severity\":\"critical\"},\"alerts\":[{\"status\":\"resolved\",\"labels\":{\"alertname\":\"HighCPU\",\"severity\":\"critical\"},\"annotations\":{\"summary\":\"CPU back to normal\"},\"fingerprint\":\"abc123\"}]}}},{\"id\":\"s4\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s3.title}}\",\"message\":\"{{steps.s3.message}}\",\"externalId\":\"{{steps.s3.externalId}}\",\"priority\":\"{{steps.s3.priority}}\",\"tags\":\"{{steps.s3.tags}}\",\"state\":\"{{steps.s3.state}}\"}},{\"id\":\"s5\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"id\":\"1234567890\",\"alert_id\":\"77\",\"alert_title\":\"[Triggered on {host:db-1}] Disk space is low\",\"alert_transition\":\"Triggered\",\"alert_type\":\"warning\",\"alert_priority\":\"P2\",\"body\":\"Disk usage is above 90% on db-1\",\"link\":\"https://app.datadoghq.com/monitors/77\"}}},{\"id\":\"s6\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s5.title}}\",\"message\":\"{{steps.s5.message}}\",\"externalId\":\"{{steps.s5.externalId}}\",\"priority\":\"{{steps.s5.priority}}\",\"tags\":\"{{steps.s5.tags}}\",\"state\":\"{{steps.s5.state}}\"}},{\"id\":\"s7\",\"type\":\"parse_alert\",\"config\":{\"source\":\"SPLUNK\",\"payload\":{\"sid\":\"scheduler__admin__search__RMD5\",\"search_name\":\"Failed logins\",\"app\":\"search\",\"owner\":\"admin\",\"results_link\":\"https://splunk.example.com/app/search/@go?sid=1\",\"result\":{\"host\":\"auth-1\",\"count\":\"41\",\"urgency\":\"High\"}}}},{\"id\":\"s8\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s7.title}}\",\"message\":\"{{steps.s7.message}}\",\"externalId\":\"{{steps.s7.externalId}}\",\"priority\":\"{{steps.s7.priority}}\",\"tags\":\"{{steps.s7.tags}}\",\"state\":\"{{steps.s7.state}}\"}},{\"id\":\"s9\",\"type\":\"parse_alert\",\"config\":{\"payload\":\"not json\",\"defaultPriority\":\"urgent\"}},{\"id\":\"s10\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"name\":\"Nightly backup\",\"status\":\"OK\",\"level\":\"sev-1\",\"url\":\"https://status.example.com/1\"},\"defaultPriority\":\"bogus\"}},{\"id\":\"s11\",\"type\":\"create_conversation\",\"config\":{\"title\":\"Odd values\",\"message\":\"Priority and state are ignored\",\"priority\":\"blocker\",\"state\":\"pending\",\"tags\":\" a, b ,, a\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_alerts",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_alerts",
+          "triggerType": "webhook",
+          "triggerData": {
+            "body": {
+              "receiver": "weldsuite",
+              "status": "firing",
+              "groupKey": "{}:{alertname=\"HighCPU\"}",
+              "title": "[FIRING:1] HighCPU web-1",
+              "message": "**Firing**\n\nCPU is above 90%",
+              "externalURL": "https://grafana.example.com/",
+              "commonLabels": {
+                "alertname": "HighCPU",
+                "severity": "critical"
+              },
+              "commonAnnotations": {
+                "summary": "CPU is above 90%"
+              },
+              "alerts": [
+                {
+                  "status": "firing",
+                  "labels": {
+                    "alertname": "HighCPU",
+                    "severity": "critical",
+                    "instance": "web-1"
+                  },
+                  "annotations": {
+                    "summary": "CPU is above 90%"
+                  },
+                  "fingerprint": "abc123",
+                  "generatorURL": "https://grafana.example.com/alerting/1/view"
+                }
+              ]
+            }
+          }
+        },
+        "events": {},
+        "http": {},
+        "inspect": [
+          "select conversation_number, title, state, channel, name, email, assignee_id, priority, tags, external_id, last_message_preview\n       from desk_conversations order by conversation_number",
+          "select c.conversation_number, m.kind, m.author_type, m.body, m.metadata\n         from desk_messages m join desk_conversations c on c.id = m.conversation_id\n         order by c.conversation_number, m.kind collate \"C\", coalesce(m.metadata ->> 'eventType', '') collate \"C\",\n           coalesce(m.body, '') collate \"C\", m.metadata::text collate \"C\""
+        ]
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_alerts",
+            "completed": true,
+            "current_step_index": 11,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+                "message": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+                "priority": "urgent",
+                "resolved": false,
+                "severity": "critical",
+                "source": "grafana",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "grafana",
+                  "alert"
+                ],
+                "title": "[FIRING:1] HighCPU web-1",
+                "url": "https://grafana.example.com/alerting/1/view"
+              },
+              "s10": {
+                "externalId": "generic:Nightly backup",
+                "message": "Nightly backup\n\nhttps://status.example.com/1",
+                "priority": "urgent",
+                "resolved": true,
+                "severity": "sev-1",
+                "source": "generic",
+                "state": "closed",
+                "success": true,
+                "tags": [
+                  "generic",
+                  "alert"
+                ],
+                "title": "Nightly backup",
+                "url": "https://status.example.com/1"
+              },
+              "s11": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 4,
+                "created": true,
+                "priority": null,
+                "state": "open",
+                "success": true
+              },
+              "s2": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": true,
+                "priority": "urgent",
+                "state": "open",
+                "success": true
+              },
+              "s3": {
+                "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+                "message": "CPU back to normal",
+                "priority": "urgent",
+                "resolved": true,
+                "severity": "critical",
+                "source": "grafana",
+                "state": "closed",
+                "success": true,
+                "tags": [
+                  "grafana",
+                  "alert"
+                ],
+                "title": "[RESOLVED:1] HighCPU web-1",
+                "url": ""
+              },
+              "s4": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": false,
+                "priority": "urgent",
+                "state": "closed",
+                "success": true
+              },
+              "s5": {
+                "externalId": "datadog:77",
+                "message": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+                "priority": "high",
+                "resolved": false,
+                "severity": "P2",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "[Triggered on {host:db-1}] Disk space is low",
+                "url": "https://app.datadoghq.com/monitors/77"
+              },
+              "s6": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 2,
+                "created": true,
+                "priority": "high",
+                "state": "open",
+                "success": true
+              },
+              "s7": {
+                "externalId": "splunk:Failed logins",
+                "message": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+                "priority": "high",
+                "resolved": false,
+                "severity": "High",
+                "source": "splunk",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "splunk",
+                  "alert"
+                ],
+                "title": "Failed logins",
+                "url": "https://splunk.example.com/app/search/@go?sid=1"
+              },
+              "s8": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 3,
+                "created": true,
+                "priority": "high",
+                "state": "open",
+                "success": true
+              },
+              "s9": {
+                "error": "The alert payload is not a JSON object",
+                "success": false
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 11,
+            "trigger_data": {
+              "body": {
+                "alerts": [
+                  {
+                    "annotations": {
+                      "summary": "CPU is above 90%"
+                    },
+                    "fingerprint": "abc123",
+                    "generatorURL": "https://grafana.example.com/alerting/1/view",
+                    "labels": {
+                      "alertname": "HighCPU",
+                      "instance": "web-1",
+                      "severity": "critical"
+                    },
+                    "status": "firing"
+                  }
+                ],
+                "commonAnnotations": {
+                  "summary": "CPU is above 90%"
+                },
+                "commonLabels": {
+                  "alertname": "HighCPU",
+                  "severity": "critical"
+                },
+                "externalURL": "https://grafana.example.com/",
+                "groupKey": "{}:{alertname=\"HighCPU\"}",
+                "message": "**Firing**\n\nCPU is above 90%",
+                "receiver": "weldsuite",
+                "status": "firing",
+                "title": "[FIRING:1] HighCPU web-1"
+              }
+            },
+            "trigger_id": null,
+            "trigger_type": "webhook",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_alerts",
+            "workflow_name": "Flow wf_alerts",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [
+          [
+            {
+              "assignee_id": null,
+              "channel": "api",
+              "conversation_number": 1,
+              "email": null,
+              "external_id": "grafana:{}:{alertname=\"HighCPU\"}",
+              "last_message_preview": "CPU back to normal",
+              "name": null,
+              "priority": "urgent",
+              "state": "closed",
+              "tags": [
+                "grafana",
+                "alert"
+              ],
+              "title": "[FIRING:1] HighCPU web-1"
+            },
+            {
+              "assignee_id": null,
+              "channel": "api",
+              "conversation_number": 2,
+              "email": null,
+              "external_id": "datadog:77",
+              "last_message_preview": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+              "name": null,
+              "priority": "high",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "[Triggered on {host:db-1}] Disk space is low"
+            },
+            {
+              "assignee_id": null,
+              "channel": "api",
+              "conversation_number": 3,
+              "email": null,
+              "external_id": "splunk:Failed logins",
+              "last_message_preview": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+              "name": null,
+              "priority": "high",
+              "state": "open",
+              "tags": [
+                "splunk",
+                "alert"
+              ],
+              "title": "Failed logins"
+            },
+            {
+              "assignee_id": null,
+              "channel": "api",
+              "conversation_number": 4,
+              "email": null,
+              "external_id": null,
+              "last_message_preview": "Priority and state are ignored",
+              "name": null,
+              "priority": null,
+              "state": "open",
+              "tags": [
+                "a",
+                "b"
+              ],
+              "title": "Odd values"
+            }
+          ],
+          [
+            {
+              "author_type": "system",
+              "body": null,
+              "conversation_number": 1,
+              "kind": "event",
+              "metadata": {
+                "changes": [
+                  {
+                    "field": "priority",
+                    "from": null,
+                    "to": "urgent"
+                  },
+                  {
+                    "field": "tags",
+                    "from": [],
+                    "to": [
+                      "grafana",
+                      "alert"
+                    ]
+                  }
+                ],
+                "eventType": "attributes_changed"
+              }
+            },
+            {
+              "author_type": "bot",
+              "body": null,
+              "conversation_number": 1,
+              "kind": "event",
+              "metadata": {
+                "assigneeId": null,
+                "eventType": "closed"
+              }
+            },
+            {
+              "author_type": "visitor",
+              "body": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+              "conversation_number": 1,
+              "kind": "message",
+              "metadata": {
+                "executionId": "<id:wex>",
+                "via": "workflow"
+              }
+            },
+            {
+              "author_type": "visitor",
+              "body": "CPU back to normal",
+              "conversation_number": 1,
+              "kind": "message",
+              "metadata": {
+                "executionId": "<id:wex>",
+                "via": "workflow"
+              }
+            },
+            {
+              "author_type": "system",
+              "body": null,
+              "conversation_number": 2,
+              "kind": "event",
+              "metadata": {
+                "changes": [
+                  {
+                    "field": "priority",
+                    "from": null,
+                    "to": "high"
+                  },
+                  {
+                    "field": "tags",
+                    "from": [],
+                    "to": [
+                      "datadog",
+                      "alert"
+                    ]
+                  }
+                ],
+                "eventType": "attributes_changed"
+              }
+            },
+            {
+              "author_type": "visitor",
+              "body": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+              "conversation_number": 2,
+              "kind": "message",
+              "metadata": {
+                "executionId": "<id:wex>",
+                "via": "workflow"
+              }
+            },
+            {
+              "author_type": "system",
+              "body": null,
+              "conversation_number": 3,
+              "kind": "event",
+              "metadata": {
+                "changes": [
+                  {
+                    "field": "priority",
+                    "from": null,
+                    "to": "high"
+                  },
+                  {
+                    "field": "tags",
+                    "from": [],
+                    "to": [
+                      "splunk",
+                      "alert"
+                    ]
+                  }
+                ],
+                "eventType": "attributes_changed"
+              }
+            },
+            {
+              "author_type": "visitor",
+              "body": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+              "conversation_number": 3,
+              "kind": "message",
+              "metadata": {
+                "executionId": "<id:wex>",
+                "via": "workflow"
+              }
+            },
+            {
+              "author_type": "system",
+              "body": null,
+              "conversation_number": 4,
+              "kind": "event",
+              "metadata": {
+                "changes": [
+                  {
+                    "field": "tags",
+                    "from": [],
+                    "to": [
+                      "a",
+                      "b"
+                    ]
+                  }
+                ],
+                "eventType": "attributes_changed"
+              }
+            },
+            {
+              "author_type": "visitor",
+              "body": "Priority and state are ignored",
+              "conversation_number": 4,
+              "kind": "message",
+              "metadata": {
+                "executionId": "<id:wex>",
+                "via": "workflow"
+              }
+            }
+          ]
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-9-s10-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-10-s11-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "**Firing** CPU is above 90% https://grafana.example.com/alerting/1/view",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Priority and state are ignored",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "**Firing** CPU is above 90% https://grafana.example.com/alerting/1/view",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Priority and state are ignored",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 11,
+                "workflowId": "wf_alerts",
+                "workflowName": "Flow wf_alerts"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "create_conversation",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "**Firing** CPU is above 90% https://grafana.example.com/alerting/1/view",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "grafana",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "[FIRING:1] HighCPU web-1",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "urgent"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "grafana",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "**Firing** CPU is above 90% https://grafana.example.com/alerting/1/view",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "**Firing** CPU is above 90% https://grafana.example.com/alerting/1/view",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "create_conversation",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "CPU back to normal",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "grafana",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "[FIRING:1] HighCPU web-1",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "updated",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "CPU back to normal",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "CPU back to normal",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "CPU back to normal",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "CPU back to normal",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": 0,
+                "resolvedAt": "<ts>",
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "closed",
+                "tags": [
+                  "grafana",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "[FIRING:1] HighCPU web-1",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": null
+              },
+              "event": "state_changed",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": "<id:wex>",
+                "authorType": "bot",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "assigneeId": null,
+                  "eventType": "closed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "data": {
+                "conversation": {
+                  "assignee": null,
+                  "conversationNumber": 1,
+                  "createdAt": "<ts>",
+                  "id": "<id:dconv>",
+                  "lastMessageAt": "<ts>",
+                  "lastMessageFromTeam": true,
+                  "lastMessagePreview": "CPU back to normal",
+                  "rating": null,
+                  "state": "closed",
+                  "title": "[FIRING:1] HighCPU web-1"
+                },
+                "record": {
+                  "attachments": null,
+                  "authorAvatar": null,
+                  "authorName": "Bot",
+                  "authorType": "bot",
+                  "body": null,
+                  "clientId": null,
+                  "conversationId": "<id:dconv>",
+                  "createdAt": "<ts>",
+                  "eventType": "closed",
+                  "id": "<id:dmsg>",
+                  "kind": "event"
+                },
+                "state": "closed"
+              },
+              "event": "closed",
+              "ts": "<n>",
+              "type": "system"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "create_conversation",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 2,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "high",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "[Triggered on {host:db-1}] Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "high"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Disk usage is above 90% on db-1 https://app.datadoghq.com/monitors/77",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "create_conversation",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 3,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "splunk:Failed logins",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "high",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "splunk",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Failed logins",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "high"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "splunk",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Splunk alert \"Failed logins\" fired. app search, owner admin count: 41 host: auth-1 urgency: High https://splunk.example.com/app/search/@go?sid=1",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 9,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s9",
+                "stepIndex": 9,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10",
+                "stepIndex": 10,
+                "stepType": "parse_alert",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10",
+                "stepIndex": 10,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s11",
+                "stepIndex": 11,
+                "stepType": "create_conversation",
+                "totalSteps": 11
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 4,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": null,
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Priority and state are ignored",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": null,
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "a",
+                  "b"
+                ],
+                "ticketTypeId": null,
+                "title": "Odd values",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Priority and state are ignored",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "a",
+                        "b"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Priority and state are ignored",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Priority and state are ignored",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Priority and state are ignored",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Priority and state are ignored",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s11",
+                "stepIndex": 11,
+                "totalSteps": 11
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+              "message": "**Firing**\n\nCPU is above 90%\n\nhttps://grafana.example.com/alerting/1/view",
+              "priority": "urgent",
+              "resolved": false,
+              "severity": "critical",
+              "source": "grafana",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "grafana",
+                "alert"
+              ],
+              "title": "[FIRING:1] HighCPU web-1",
+              "url": "https://grafana.example.com/alerting/1/view"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": true,
+              "priority": "urgent",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "grafana:{}:{alertname=\"HighCPU\"}",
+              "message": "CPU back to normal",
+              "priority": "urgent",
+              "resolved": true,
+              "severity": "critical",
+              "source": "grafana",
+              "state": "closed",
+              "success": true,
+              "tags": [
+                "grafana",
+                "alert"
+              ],
+              "title": "[RESOLVED:1] HighCPU web-1",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": false,
+              "priority": "urgent",
+              "state": "closed",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77",
+              "message": "Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/77",
+              "priority": "high",
+              "resolved": false,
+              "severity": "P2",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "[Triggered on {host:db-1}] Disk space is low",
+              "url": "https://app.datadoghq.com/monitors/77"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 2,
+              "created": true,
+              "priority": "high",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "splunk:Failed logins",
+              "message": "Splunk alert \"Failed logins\" fired.\napp search, owner admin\ncount: 41\nhost: auth-1\nurgency: High\n\nhttps://splunk.example.com/app/search/@go?sid=1",
+              "priority": "high",
+              "resolved": false,
+              "severity": "High",
+              "source": "splunk",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "splunk",
+                "alert"
+              ],
+              "title": "Failed logins",
+              "url": "https://splunk.example.com/app/search/@go?sid=1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 3,
+              "created": true,
+              "priority": "high",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s9 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "error": "The alert payload is not a JSON object",
+              "success": false
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s9",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "generic:Nightly backup",
+              "message": "Nightly backup\n\nhttps://status.example.com/1",
+              "priority": "urgent",
+              "resolved": true,
+              "severity": "sev-1",
+              "source": "generic",
+              "state": "closed",
+              "success": true,
+              "tags": [
+                "generic",
+                "alert"
+              ],
+              "title": "Nightly backup",
+              "url": "https://status.example.com/1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10",
+            "step_index": 10,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s11 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 4,
+              "created": true,
+              "priority": null,
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s11",
+            "step_index": 11,
+            "step_name": null,
+            "step_type": "create_conversation"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_alerts",
             "ran": true,
             "success_count": 1
           }

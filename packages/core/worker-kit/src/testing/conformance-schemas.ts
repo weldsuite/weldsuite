@@ -405,6 +405,7 @@ import {
   unreadCountSchema,
 } from '@weldsuite/core-api-client/schemas/notifications';
 import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
+import { auditLogStreamSchema, auditLogStreamTestResultSchema } from '@weldsuite/core-api-client/schemas/audit-log-streams';
 import {
   assignAllMembersResultSchema,
   canManageAppsSchema,
@@ -844,6 +845,11 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogSchema },
   { method: 'POST', route: '/api/audit-logs', envelope: 'single', data: auditLogRefSchema },
   { method: 'PATCH', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogRefSchema },
+  // core: audit-log-streams (strict: a row never carries the token or `tokenEncrypted`)
+  { method: 'GET', route: '/api/audit-log-streams', envelope: 'list', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'PATCH', route: '/api/audit-log-streams/:id', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams/:id/test', envelope: 'single', data: auditLogStreamTestResultSchema.strict() },
   // core: appstore
   { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
   { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },

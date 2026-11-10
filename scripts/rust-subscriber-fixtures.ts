@@ -5,7 +5,8 @@
  * Runs the TypeScript consumers on pglite with the same entity-event batches
  * the Rust tests feed their ports of them, and writes what TypeScript did:
  * the ack/retry of every message, the rows written, the outbound HTTP
- * requests and the realtime publishes. The Rust tests
+ * requests and the realtime publishes; and for audit log streams the requests
+ * built and what three flushes send and leave behind. The Rust tests
  * (`rust/crates/subscribers/tests/parity.rs`) seed the same rows into
  * Postgres, run the same batches and compare, so the expectations come from
  * TypeScript.
@@ -36,6 +37,14 @@ import {
   retryFailedWebhookDeliveries,
 } from '../packages/core/entity-events/src/webhook-delivery';
 import type { EntityEventMessage } from '../packages/core/entity-events/src/types';
+import {
+  buildAuditStreamEvent,
+  buildAuditStreamRequest,
+  buildTestAuditStreamEvent,
+  flushAuditLogStreams,
+  type AuditStreamRow,
+} from '../packages/domains/core/src/audit-streams';
+import { decryptField } from '../packages/core/db/src/lib/crypto';
 import { writeAuditLogFromEvent } from '../apps/workers/audit-log-worker/src/services/audit-log-writer';
 import { processAuditBatch } from '../apps/workers/audit-log-worker/src/services/batch-processor';
 import { handleEntityRealtimeBatch } from '../apps/workers/realtime-worker/src/entity-realtime-consumer';
@@ -144,6 +153,8 @@ interface Ctx {
   db: never;
   exec(statements: string[]): Promise<void>;
   rows(sql: string): Promise<Row[]>;
+  /** `rows` as they are, without the placeholders. */
+  raw(sql: string): Promise<Row[]>;
 }
 
 /** Runs `work` with the consumers' console output silenced. */
@@ -625,6 +636,367 @@ async function searchFixture({ db, exec, rows }: Ctx): Promise<Json> {
 }
 
 // ---------------------------------------------------------------------------
+// Audit log streams (audit-log-worker's stream flusher,
+// @weldsuite/core-domain/audit-streams)
+// ---------------------------------------------------------------------------
+
+const STREAM_KEYS = { v1: 'ab'.repeat(32), v2: 'cd'.repeat(32) };
+const STREAM_TOKEN = 'fx-token-very-secret';
+/**
+ * `STREAM_TOKEN` as `encryptField` sealed it once, with the v1 key and with
+ * the v2 key. Constants, since a fresh seal draws a fresh IV and a fixture
+ * must not change from run to run; `auditStreamsFixture` checks they open.
+ * The Rust side opens them with its own keyring code.
+ */
+const STREAM_TOKEN_V1 = '28e1e9977e61ab5cc406676e:487ce5903c01caf2062b081b7b7f166e1684798195fd86e759f31308ae59da5e1e85ddaf';
+const STREAM_TOKEN_V2 = 'v2:5462bfc2e6292330c36db3e4:f937479159152ac2078642f4bec219bfa645ae15fb7aac38888c0166dcb07bf7e29ebe9e';
+
+function streamRow(id: string, at: string, extra: Partial<AuditStreamRow> = {}): AuditStreamRow {
+  return {
+    id,
+    createdAt: new Date(at),
+    entityType: 'customer',
+    entityId: 'cus_1',
+    action: 'updated',
+    description: 'Customer updated',
+    changes: { name: { from: 'A', to: 'B' } },
+    performedBy: 'user_1',
+    performedByName: 'Ann',
+    ipAddress: '203.0.113.9',
+    metadata: { source: 'user', workspaceId: 'org_fx', eventId: 'ev_1' },
+    ...extra,
+  } as AuditStreamRow;
+}
+
+/**
+ * A row as the Rust side reads it from SQL: `changes` as JSON text, and of the
+ * metadata the two strings delivery uses (a non-empty string, else null).
+ */
+function streamRowJson(row: AuditStreamRow): Json {
+  const metadata = row.metadata as Record<string, unknown> | null;
+  const text = (key: string) => {
+    const value = metadata?.[key];
+    return typeof value === 'string' && value !== '' ? value : null;
+  };
+  return {
+    id: row.id,
+    createdAt: row.createdAt.toISOString(),
+    entityType: row.entityType,
+    entityId: row.entityId,
+    action: row.action,
+    description: row.description,
+    changes: row.changes === null || row.changes === undefined ? null : JSON.stringify(row.changes),
+    performedBy: row.performedBy ?? null,
+    performedByName: row.performedByName ?? null,
+    ipAddress: row.ipAddress ?? null,
+    workspaceId: text('workspaceId'),
+    source: text('source'),
+  };
+}
+
+interface StreamCase {
+  name: string;
+  stream: { type: 'splunk_hec' | 'http'; url: string; settings: Record<string, unknown> | null };
+  token: string | null;
+  workspaceId: string | null;
+  rows: AuditStreamRow[];
+}
+
+/** The wire formats: `buildAuditStreamRequest` for both stream types and both HTTP formats. */
+function streamRequestCases(): Json {
+  const first = streamRow('aud_fx_1', '2026-11-01T10:00:00.123Z');
+  const second = streamRow('aud_fx_2', '2026-11-01T10:00:01.000Z', { action: 'created', changes: null });
+  const bare = streamRow('aud_fx_3', '2026-11-01T10:00:02.050Z', {
+    changes: null,
+    performedBy: null,
+    performedByName: null,
+    ipAddress: null,
+    metadata: null,
+  });
+  const odd = streamRow('aud_fx_4', '2026-11-01T10:00:02.100Z', { metadata: { workspaceId: 42, source: '' } as never });
+  const text = streamRow('aud_fx_5', '1969-12-31T23:59:59.999Z', {
+    entityId: 'cus\\1',
+    description: 'Zoë said "hi"\n\ttab \u0007 bell   line 😀 </script>',
+    changes: {
+      b: { from: 1.5, to: 1e21 },
+      10: { from: null, to: true },
+      2: { from: [1, 'two', { z: 1, a: 2 }], to: 0.1 + 0.2 },
+      name: { from: 'A "quoted" \\ name', to: '' },
+      big: { from: 12345678901234567890, to: -0 },
+    } as never,
+  });
+  const cases: StreamCase[] = [
+    {
+      name: 'splunk: the defaults and the token',
+      stream: { type: 'splunk_hec', url: 'https://splunk.fx.example.com:8088/services/collector/event', settings: null },
+      token: STREAM_TOKEN,
+      workspaceId: 'org_fallback',
+      rows: [first, second],
+    },
+    {
+      name: 'splunk: index, host, source and sourcetype, no token',
+      stream: {
+        type: 'splunk_hec',
+        url: 'https://splunk.fx.example.com:8088/services/collector/event',
+        settings: { index: 'sec', host: 'h1', source: 'weld', sourcetype: 'weld:audit' },
+      },
+      token: null,
+      workspaceId: null,
+      rows: [first, text],
+    },
+    {
+      name: 'http: one JSON document, the token in Authorization',
+      stream: { type: 'http', url: 'https://collector.fx.example.com/in', settings: null },
+      token: `Bearer ${STREAM_TOKEN}`,
+      workspaceId: null,
+      rows: [first, second, text],
+    },
+    {
+      name: 'http: ndjson, the token in a header of its own',
+      stream: { type: 'http', url: 'https://collector.fx.example.com/in', settings: { format: 'ndjson', authHeader: 'X-Api-Key' } },
+      token: STREAM_TOKEN,
+      workspaceId: null,
+      rows: [first, second, text],
+    },
+    {
+      name: 'http: no token; rows without an actor, changes or a workspace of their own',
+      stream: { type: 'http', url: 'https://open.fx.example.com/in', settings: { format: 'json' } },
+      token: null,
+      workspaceId: 'org_fallback',
+      rows: [bare, odd],
+    },
+    {
+      name: 'http: ndjson without a fallback workspace',
+      stream: { type: 'http', url: 'https://open.fx.example.com/in', settings: { format: 'ndjson' } },
+      token: null,
+      workspaceId: null,
+      rows: [bare],
+    },
+  ];
+  return cases.map(({ name, stream, token, workspaceId, rows }) => {
+    const events = rows.map((row) => buildAuditStreamEvent(row, workspaceId));
+    const request = buildAuditStreamRequest(stream as never, token, events);
+    return {
+      name,
+      stream: { ...stream, settings: stream.settings === null ? null : JSON.stringify(stream.settings) },
+      token,
+      workspaceId,
+      rows: rows.map(streamRowJson),
+      body: request.body,
+      headers: Object.entries(request.headers),
+    };
+  });
+}
+
+/** What a destination answers to one request of a flush step. */
+type StreamAnswer = ({ status: number; body: string } | { error: string } | { timeout: true }) & {
+  /** Run before answering: another flush moving the cursor under this one. */
+  exec?: string;
+};
+
+interface StreamStep {
+  name: string;
+  before: string[];
+  now: string;
+  /** By URL, one answer per request in order (the last repeats); `200 ok` for a URL without any. */
+  answers: Record<string, StreamAnswer[]>;
+}
+
+/** The ids of the events in a request body, whatever its format. */
+function streamEventIds(body: string): string[] {
+  const id = (value: unknown): string => {
+    const record = value as { id?: string; event?: { id?: string } };
+    return record.event?.id ?? record.id ?? '';
+  };
+  try {
+    const document = JSON.parse(body) as { events?: unknown[] };
+    if (Array.isArray(document.events)) return document.events.map(id);
+  } catch {
+    // Several lines: one JSON object each.
+  }
+  return body.split('\n').map((line) => id(JSON.parse(line)));
+}
+
+/** A `fetch` that answers from a step's script and records what was sent. */
+function streamFetch(ctx: Ctx, answers: StreamStep['answers'], requests: Json[]): typeof fetch {
+  const seen = new Map<string, number>();
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = String(init?.body ?? '');
+    const ids = streamEventIds(body);
+    requests.push({
+      url,
+      headers: Object.entries((init?.headers ?? {}) as Record<string, string>),
+      count: ids.length,
+      first: ids[0] ?? null,
+      last: ids.at(-1) ?? null,
+      sha256: createHash('sha256').update(body).digest('hex'),
+    });
+    const script = answers[url] ?? [];
+    const index = seen.get(url) ?? 0;
+    seen.set(url, index + 1);
+    const answer: StreamAnswer = script[Math.min(index, script.length - 1)] ?? { status: 200, body: 'ok' };
+    if (answer.exec) await ctx.exec([answer.exec]);
+    if ('error' in answer) throw new Error(answer.error);
+    if ('timeout' in answer) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    return new Response(answer.body, { status: answer.status });
+  }) as typeof fetch;
+}
+
+/** The streams as a flush left them, timestamps to the microsecond. */
+const STREAM_STATE = `select jsonb_build_object('id', id, 'status', status,
+  'cursor_created_at', to_char(cursor_created_at, 'YYYY-MM-DD HH24:MI:SS.US'), 'cursor_id', cursor_id,
+  'last_delivered_at', to_char(last_delivered_at, 'YYYY-MM-DD HH24:MI:SS.US'),
+  'last_attempt_at', to_char(last_attempt_at, 'YYYY-MM-DD HH24:MI:SS.US'),
+  'last_error', last_error, 'consecutive_failures', consecutive_failures, 'delivered_count', delivered_count,
+  'updated_at', to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS.US')) as row
+  from audit_log_streams where id like 'als_fx%' order by id`;
+
+/**
+ * `flushAuditLogStreams` over three flushes of one workspace: the cursor walk
+ * (450 rows in batches of 200, the first batch ending inside a millisecond
+ * that six rows share), the cap of five requests, a failure with its backoff
+ * and recovery, the auto-disable, and the streams that are never asked.
+ *
+ * Its rows and cursors are dated 2099: delivery reads forward from a cursor,
+ * so whatever else is in `audit_logs` (the audit fixture's rows here, other
+ * tests' rows in the Rust test database) lies before every cursor and is
+ * never sent.
+ */
+async function auditStreamsFlushFixture(ctx: Ctx): Promise<Json> {
+  const stream = (
+    id: string,
+    type: string,
+    url: string,
+    options: { token?: string; settings?: string; status?: string; cursor?: string | null; failures?: number; lastAttempt?: string; created?: string } = {},
+  ) => {
+    const text = (value: string | null | undefined) => (value === null || value === undefined ? 'null' : quote(value));
+    const created = options.created ?? '2099-11-01 10:00:00';
+    const cursor = options.cursor === undefined ? created : options.cursor;
+    return `(${quote(id)}, ${quote(id)}, ${quote(type)}, ${quote(url)}, ${text(options.token)}, ${text(options.settings)}, ${quote(options.status ?? 'active')}, ${text(cursor)}, ${text(options.lastAttempt)}, ${options.failures ?? 0}, ${quote(created)}, ${quote(created)})`;
+  };
+  const seed = [
+    `delete from audit_log_streams where id like 'als_fx%'`,
+    `delete from audit_logs where id like 'fxa_%' or id like 'fxb_%'`,
+    // 450 rows 7 ms apart, each with a microsecond fraction.
+    `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, changes, data, performed_by, performed_by_name, ip_address, metadata)
+     select 'fxa_' || lpad(n::text, 4, '0'),
+            timestamp '2099-11-01 10:00:00' + n * interval '7 milliseconds' + (n % 3) * interval '333 microseconds',
+            'customer', 'cus_' || n, case when n % 2 = 0 then 'updated' else 'created' end, 'Row ' || n,
+            case when n % 5 = 0 then null
+                 else jsonb_build_object('name', jsonb_build_object('from', 'A' || n, 'to', 'B'), 'amount', jsonb_build_object('from', n, 'to', n + 0.5), '7', jsonb_build_object('to', null)) end,
+            jsonb_build_object('snapshot', 'must-not-be-sent'),
+            case when n % 7 = 0 then null else 'user_' || (n % 4) end,
+            case when n % 7 = 0 then null else 'Ann ' || (n % 4) end,
+            case when n % 11 = 0 then null else '203.0.113.' || (n % 250) end,
+            case when n % 13 = 0 then jsonb_build_object('source', 'workflow', 'eventId', 'ev_' || n)
+                 when n % 17 = 0 then jsonb_build_object('source', '', 'workspaceId', 42)
+                 when n % 19 = 0 then null
+                 else jsonb_build_object('source', 'user', 'workspaceId', 'org_row', 'eventId', 'ev_' || n) end
+     from generate_series(1, 450) n`,
+    // Six rows inside one millisecond, around the end of the first batch of 200: the later the id, the earlier the microsecond.
+    `update audit_logs set created_at = timestamp '2099-11-01 10:00:01.393' + (203 - substr(id, 5)::int) * interval '150 microseconds'
+     where id between 'fxa_0198' and 'fxa_0203'`,
+    // In the millisecond the streams start at, and just before it: never sent to a stream that starts there.
+    `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values
+       ('fxa_0000', '2099-11-01 10:00:00.000400', 'customer', 'cus_0', 'created', 'At the start', '{"source":"user"}'),
+       ('fxa_early', '2099-11-01 09:59:59.999900', 'customer', 'cus_0', 'created', 'Before the start', null)`,
+    // A backlog of 600 older rows, for the stream that starts before them.
+    `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata)
+     select 'fxb_' || lpad(n::text, 4, '0'), timestamp '2099-11-01 09:00:00' + n * interval '1 millisecond',
+            'order', 'ord_' || n, 'created', 'Backlog ' || n, '{"source":"import","workspaceId":"org_row"}'
+     from generate_series(1, 600) n`,
+    `insert into audit_log_streams (id, name, type, url, token_encrypted, settings, status, cursor_created_at, last_attempt_at, consecutive_failures, created_at, updated_at) values
+       ${[
+         stream('als_fx_splunk', 'splunk_hec', 'https://splunk.fx.example.com:8088/services/collector/event', { token: STREAM_TOKEN_V2, settings: '{"index":"sec"}' }),
+         stream('als_fx_http', 'http', 'https://collector.fx.example.com/in', { token: STREAM_TOKEN_V1, settings: '{"format":"ndjson","authHeader":"X-Api-Key"}' }),
+         // No cursor yet: it starts at its creation, two seconds in.
+         stream('als_fx_open', 'http', 'https://open.fx.example.com/in', { cursor: null, created: '2099-11-01 10:00:02' }),
+         stream('als_fx_paused', 'http', 'https://paused.fx.example.com/in', { status: 'paused' }),
+         stream('als_fx_badtoken', 'http', 'https://badtoken.fx.example.com/in', { token: 'v2:00:00', cursor: '2099-11-01 10:00:03' }),
+         stream('als_fx_private', 'http', 'https://10.0.0.5/in', { cursor: '2099-11-01 10:00:03' }),
+         stream('als_fx_nineteen', 'http', 'https://down.fx.example.com/in', { cursor: '2099-11-01 10:00:03', failures: 19, lastAttempt: '2099-11-01 09:00:00' }),
+         stream('als_fx_timeout', 'http', 'https://slow.fx.example.com/in', { cursor: '2099-11-01 10:00:03' }),
+         stream('als_fx_redirect', 'http', 'https://moved.fx.example.com/in', { cursor: '2099-11-01 10:00:03' }),
+         stream('als_fx_caught_up', 'http', 'https://idle.fx.example.com/in', { cursor: '2099-11-02 00:00:00' }),
+         stream('als_fx_backoff', 'http', 'https://waiting.fx.example.com/in', { cursor: '2099-11-01 10:00:03', failures: 2, lastAttempt: '2099-11-01 11:59:00' }),
+         stream('als_fx_race', 'http', 'https://race.fx.example.com/in'),
+         stream('als_fx_backlog', 'http', 'https://backlog.fx.example.com/in', { cursor: '2099-11-01 08:00:00' }),
+       ].join(',\n       ')}`,
+  ];
+  const steps: StreamStep[] = [
+    {
+      name: 'the first flush',
+      before: [],
+      now: '2099-11-01T12:00:00.000Z',
+      answers: {
+        'https://collector.fx.example.com/in': [{ status: 500, body: `upstream said:\n  bad key ${STREAM_TOKEN}\ttry again` }],
+        'https://down.fx.example.com/in': [{ error: 'connect ECONNREFUSED 203.0.113.7:443' }],
+        'https://slow.fx.example.com/in': [{ timeout: true }],
+        'https://moved.fx.example.com/in': [{ status: 302, body: '' }],
+        'https://race.fx.example.com/in': [
+          { status: 200, body: 'ok', exec: `update audit_log_streams set cursor_id = 'fxa_moved' where id = 'als_fx_race'` },
+        ],
+      },
+    },
+    {
+      name: 'thirty seconds later: the failed streams wait, the backlog goes on',
+      before: [],
+      now: '2099-11-01T12:00:30.000Z',
+      answers: {},
+    },
+    {
+      name: 'ten minutes later, with three new rows: the failed streams are tried again',
+      before: [
+        `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values
+           ('fxa_9001', '2099-11-01 12:05:00.000001', 'ticket', 'tkt_1', 'created', 'New 1', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9002', '2099-11-01 12:05:00.000002', 'ticket', 'tkt_1', 'updated', 'New 2', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{"source":"user","workspaceId":"org_row"}')`,
+      ],
+      now: '2099-11-01T12:10:30.000Z',
+      answers: { 'https://slow.fx.example.com/in': [{ timeout: true }] },
+    },
+  ];
+
+  for (const sealed of [STREAM_TOKEN_V1, STREAM_TOKEN_V2]) {
+    if ((await decryptField(sealed, STREAM_KEYS)) !== STREAM_TOKEN) throw new Error('a sealed stream token does not open');
+  }
+  await ctx.exec(seed);
+  const results: Json[] = [];
+  for (const step of steps) {
+    await ctx.exec(step.before);
+    const requests: Json[] = [];
+    const flushed = await flushAuditLogStreams(ctx.db, {
+      keyring: STREAM_KEYS,
+      workspaceId: 'org_fx',
+      now: new Date(step.now),
+      fetch: streamFetch(ctx, step.answers, requests),
+    });
+    results.push({
+      ...step,
+      requests: sortRequests(requests),
+      results: [...flushed].sort((a, b) => a.streamId.localeCompare(b.streamId)) as unknown as Json,
+      streams: await ctx.raw(STREAM_STATE),
+    });
+  }
+  return { keys: STREAM_KEYS, token: STREAM_TOKEN, workspaceId: 'org_fx', seed, state: STREAM_STATE, steps: results };
+}
+
+async function auditStreamsFixture(ctx: Ctx): Promise<Json> {
+  const now = '2026-11-09T08:30:00.250Z';
+  return {
+    requests: streamRequestCases(),
+    testEvent: {
+      now,
+      workspaceId: 'ws_fx',
+      event: JSON.stringify(buildTestAuditStreamEvent(new Date(now), 'ws_fx')),
+      eventWithoutWorkspace: JSON.stringify(buildTestAuditStreamEvent(new Date(now))),
+    },
+    flush: await auditStreamsFlushFixture(ctx),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
 
@@ -660,11 +1032,13 @@ async function main(): Promise<void> {
       const result = await client.query<{ row: Row }>(sql);
       return result.rows.map((r) => normalise(r.row as Json) as Row);
     },
+    raw: async (sql) => (await client.query<{ row: Row }>(sql)).rows.map((r) => r.row),
   };
 
   const fixtures: Record<string, Json> = {
     registry: registryFixture(),
     audit: await auditFixture(ctx),
+    audit_streams: await auditStreamsFixture(ctx),
     realtime: await realtimeFixture(),
     webhooks: await webhooksFixture(ctx),
     search: await searchFixture(ctx),

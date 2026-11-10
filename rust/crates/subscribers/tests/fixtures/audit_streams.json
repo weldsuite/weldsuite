@@ -1,0 +1,1480 @@
+{
+  "requests": [
+    {
+      "name": "splunk: the defaults and the token",
+      "stream": {
+        "type": "splunk_hec",
+        "url": "https://splunk.fx.example.com:8088/services/collector/event",
+        "settings": null
+      },
+      "token": "fx-token-very-secret",
+      "workspaceId": "org_fallback",
+      "rows": [
+        {
+          "id": "aud_fx_1",
+          "createdAt": "2026-11-01T10:00:00.123Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": "{\"name\":{\"from\":\"A\",\"to\":\"B\"}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_2",
+          "createdAt": "2026-11-01T10:00:01.000Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "created",
+          "description": "Customer updated",
+          "changes": null,
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        }
+      ],
+      "body": "{\"time\":1793527200.123,\"host\":\"weldsuite\",\"source\":\"weldsuite:audit\",\"sourcetype\":\"_json\",\"event\":{\"id\":\"aud_fx_1\",\"timestamp\":\"2026-11-01T10:00:00.123Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"name\":{\"from\":\"A\",\"to\":\"B\"}},\"ipAddress\":\"203.0.113.9\"}}\n{\"time\":1793527201,\"host\":\"weldsuite\",\"source\":\"weldsuite:audit\",\"sourcetype\":\"_json\",\"event\":{\"id\":\"aud_fx_2\",\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"workspaceId\":\"org_fx\",\"action\":\"created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":null,\"ipAddress\":\"203.0.113.9\"}}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Splunk fx-token-very-secret"
+        ]
+      ]
+    },
+    {
+      "name": "splunk: index, host, source and sourcetype, no token",
+      "stream": {
+        "type": "splunk_hec",
+        "url": "https://splunk.fx.example.com:8088/services/collector/event",
+        "settings": "{\"index\":\"sec\",\"host\":\"h1\",\"source\":\"weld\",\"sourcetype\":\"weld:audit\"}"
+      },
+      "token": null,
+      "workspaceId": null,
+      "rows": [
+        {
+          "id": "aud_fx_1",
+          "createdAt": "2026-11-01T10:00:00.123Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": "{\"name\":{\"from\":\"A\",\"to\":\"B\"}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_5",
+          "createdAt": "1969-12-31T23:59:59.999Z",
+          "entityType": "customer",
+          "entityId": "cus\\1",
+          "action": "updated",
+          "description": "Zoë said \"hi\"\n\ttab \u0007 bell   line 😀 </script>",
+          "changes": "{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        }
+      ],
+      "body": "{\"time\":1793527200.123,\"host\":\"h1\",\"source\":\"weld\",\"sourcetype\":\"weld:audit\",\"index\":\"sec\",\"event\":{\"id\":\"aud_fx_1\",\"timestamp\":\"2026-11-01T10:00:00.123Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"name\":{\"from\":\"A\",\"to\":\"B\"}},\"ipAddress\":\"203.0.113.9\"}}\n{\"time\":-0.001,\"host\":\"h1\",\"source\":\"weld\",\"sourcetype\":\"weld:audit\",\"index\":\"sec\",\"event\":{\"id\":\"aud_fx_5\",\"timestamp\":\"1969-12-31T23:59:59.999Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus\\\\1\",\"description\":\"Zoë said \\\"hi\\\"\\n\\ttab \\u0007 bell   line 😀 </script>\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}},\"ipAddress\":\"203.0.113.9\"}}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ]
+    },
+    {
+      "name": "http: one JSON document, the token in Authorization",
+      "stream": {
+        "type": "http",
+        "url": "https://collector.fx.example.com/in",
+        "settings": null
+      },
+      "token": "Bearer fx-token-very-secret",
+      "workspaceId": null,
+      "rows": [
+        {
+          "id": "aud_fx_1",
+          "createdAt": "2026-11-01T10:00:00.123Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": "{\"name\":{\"from\":\"A\",\"to\":\"B\"}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_2",
+          "createdAt": "2026-11-01T10:00:01.000Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "created",
+          "description": "Customer updated",
+          "changes": null,
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_5",
+          "createdAt": "1969-12-31T23:59:59.999Z",
+          "entityType": "customer",
+          "entityId": "cus\\1",
+          "action": "updated",
+          "description": "Zoë said \"hi\"\n\ttab \u0007 bell   line 😀 </script>",
+          "changes": "{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        }
+      ],
+      "body": "{\"events\":[{\"id\":\"aud_fx_1\",\"timestamp\":\"2026-11-01T10:00:00.123Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"name\":{\"from\":\"A\",\"to\":\"B\"}},\"ipAddress\":\"203.0.113.9\"},{\"id\":\"aud_fx_2\",\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"workspaceId\":\"org_fx\",\"action\":\"created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":null,\"ipAddress\":\"203.0.113.9\"},{\"id\":\"aud_fx_5\",\"timestamp\":\"1969-12-31T23:59:59.999Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus\\\\1\",\"description\":\"Zoë said \\\"hi\\\"\\n\\ttab \\u0007 bell   line 😀 </script>\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}},\"ipAddress\":\"203.0.113.9\"}]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer fx-token-very-secret"
+        ]
+      ]
+    },
+    {
+      "name": "http: ndjson, the token in a header of its own",
+      "stream": {
+        "type": "http",
+        "url": "https://collector.fx.example.com/in",
+        "settings": "{\"format\":\"ndjson\",\"authHeader\":\"X-Api-Key\"}"
+      },
+      "token": "fx-token-very-secret",
+      "workspaceId": null,
+      "rows": [
+        {
+          "id": "aud_fx_1",
+          "createdAt": "2026-11-01T10:00:00.123Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": "{\"name\":{\"from\":\"A\",\"to\":\"B\"}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_2",
+          "createdAt": "2026-11-01T10:00:01.000Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "created",
+          "description": "Customer updated",
+          "changes": null,
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        },
+        {
+          "id": "aud_fx_5",
+          "createdAt": "1969-12-31T23:59:59.999Z",
+          "entityType": "customer",
+          "entityId": "cus\\1",
+          "action": "updated",
+          "description": "Zoë said \"hi\"\n\ttab \u0007 bell   line 😀 </script>",
+          "changes": "{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": "org_fx",
+          "source": "user"
+        }
+      ],
+      "body": "{\"id\":\"aud_fx_1\",\"timestamp\":\"2026-11-01T10:00:00.123Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"name\":{\"from\":\"A\",\"to\":\"B\"}},\"ipAddress\":\"203.0.113.9\"}\n{\"id\":\"aud_fx_2\",\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"workspaceId\":\"org_fx\",\"action\":\"created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":null,\"ipAddress\":\"203.0.113.9\"}\n{\"id\":\"aud_fx_5\",\"timestamp\":\"1969-12-31T23:59:59.999Z\",\"workspaceId\":\"org_fx\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus\\\\1\",\"description\":\"Zoë said \\\"hi\\\"\\n\\ttab \\u0007 bell   line 😀 </script>\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":\"user\",\"changes\":{\"2\":{\"from\":[1,\"two\",{\"z\":1,\"a\":2}],\"to\":0.30000000000000004},\"10\":{\"from\":null,\"to\":true},\"b\":{\"from\":1.5,\"to\":1e+21},\"name\":{\"from\":\"A \\\"quoted\\\" \\\\ name\",\"to\":\"\"},\"big\":{\"from\":12345678901234567000,\"to\":0}},\"ipAddress\":\"203.0.113.9\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/x-ndjson"
+        ],
+        [
+          "X-Api-Key",
+          "fx-token-very-secret"
+        ]
+      ]
+    },
+    {
+      "name": "http: no token; rows without an actor, changes or a workspace of their own",
+      "stream": {
+        "type": "http",
+        "url": "https://open.fx.example.com/in",
+        "settings": "{\"format\":\"json\"}"
+      },
+      "token": null,
+      "workspaceId": "org_fallback",
+      "rows": [
+        {
+          "id": "aud_fx_3",
+          "createdAt": "2026-11-01T10:00:02.050Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": null,
+          "performedBy": null,
+          "performedByName": null,
+          "ipAddress": null,
+          "workspaceId": null,
+          "source": null
+        },
+        {
+          "id": "aud_fx_4",
+          "createdAt": "2026-11-01T10:00:02.100Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": "{\"name\":{\"from\":\"A\",\"to\":\"B\"}}",
+          "performedBy": "user_1",
+          "performedByName": "Ann",
+          "ipAddress": "203.0.113.9",
+          "workspaceId": null,
+          "source": null
+        }
+      ],
+      "body": "{\"events\":[{\"id\":\"aud_fx_3\",\"timestamp\":\"2026-11-01T10:00:02.050Z\",\"workspaceId\":\"org_fallback\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":null,\"name\":null},\"source\":null,\"changes\":null,\"ipAddress\":null},{\"id\":\"aud_fx_4\",\"timestamp\":\"2026-11-01T10:00:02.100Z\",\"workspaceId\":\"org_fallback\",\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":\"user_1\",\"name\":\"Ann\"},\"source\":null,\"changes\":{\"name\":{\"from\":\"A\",\"to\":\"B\"}},\"ipAddress\":\"203.0.113.9\"}]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ]
+    },
+    {
+      "name": "http: ndjson without a fallback workspace",
+      "stream": {
+        "type": "http",
+        "url": "https://open.fx.example.com/in",
+        "settings": "{\"format\":\"ndjson\"}"
+      },
+      "token": null,
+      "workspaceId": null,
+      "rows": [
+        {
+          "id": "aud_fx_3",
+          "createdAt": "2026-11-01T10:00:02.050Z",
+          "entityType": "customer",
+          "entityId": "cus_1",
+          "action": "updated",
+          "description": "Customer updated",
+          "changes": null,
+          "performedBy": null,
+          "performedByName": null,
+          "ipAddress": null,
+          "workspaceId": null,
+          "source": null
+        }
+      ],
+      "body": "{\"id\":\"aud_fx_3\",\"timestamp\":\"2026-11-01T10:00:02.050Z\",\"workspaceId\":null,\"action\":\"updated\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"description\":\"Customer updated\",\"actor\":{\"id\":null,\"name\":null},\"source\":null,\"changes\":null,\"ipAddress\":null}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/x-ndjson"
+        ]
+      ]
+    }
+  ],
+  "testEvent": {
+    "now": "2026-11-09T08:30:00.250Z",
+    "workspaceId": "ws_fx",
+    "event": "{\"id\":\"audit_test\",\"timestamp\":\"2026-11-09T08:30:00.250Z\",\"workspaceId\":\"ws_fx\",\"action\":\"test\",\"entityType\":\"audit_log_stream\",\"entityId\":\"audit_log_stream_test\",\"description\":\"Test event from WeldSuite: this audit log stream is reachable.\",\"actor\":{\"id\":null,\"name\":\"WeldSuite\"},\"source\":\"system\",\"changes\":null,\"ipAddress\":null}",
+    "eventWithoutWorkspace": "{\"id\":\"audit_test\",\"timestamp\":\"2026-11-09T08:30:00.250Z\",\"workspaceId\":null,\"action\":\"test\",\"entityType\":\"audit_log_stream\",\"entityId\":\"audit_log_stream_test\",\"description\":\"Test event from WeldSuite: this audit log stream is reachable.\",\"actor\":{\"id\":null,\"name\":\"WeldSuite\"},\"source\":\"system\",\"changes\":null,\"ipAddress\":null}"
+  },
+  "flush": {
+    "keys": {
+      "v1": "abababababababababababababababababababababababababababababababab",
+      "v2": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    },
+    "token": "fx-token-very-secret",
+    "workspaceId": "org_fx",
+    "seed": [
+      "delete from audit_log_streams where id like 'als_fx%'",
+      "delete from audit_logs where id like 'fxa_%' or id like 'fxb_%'",
+      "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, changes, data, performed_by, performed_by_name, ip_address, metadata)\n     select 'fxa_' || lpad(n::text, 4, '0'),\n            timestamp '2099-11-01 10:00:00' + n * interval '7 milliseconds' + (n % 3) * interval '333 microseconds',\n            'customer', 'cus_' || n, case when n % 2 = 0 then 'updated' else 'created' end, 'Row ' || n,\n            case when n % 5 = 0 then null\n                 else jsonb_build_object('name', jsonb_build_object('from', 'A' || n, 'to', 'B'), 'amount', jsonb_build_object('from', n, 'to', n + 0.5), '7', jsonb_build_object('to', null)) end,\n            jsonb_build_object('snapshot', 'must-not-be-sent'),\n            case when n % 7 = 0 then null else 'user_' || (n % 4) end,\n            case when n % 7 = 0 then null else 'Ann ' || (n % 4) end,\n            case when n % 11 = 0 then null else '203.0.113.' || (n % 250) end,\n            case when n % 13 = 0 then jsonb_build_object('source', 'workflow', 'eventId', 'ev_' || n)\n                 when n % 17 = 0 then jsonb_build_object('source', '', 'workspaceId', 42)\n                 when n % 19 = 0 then null\n                 else jsonb_build_object('source', 'user', 'workspaceId', 'org_row', 'eventId', 'ev_' || n) end\n     from generate_series(1, 450) n",
+      "update audit_logs set created_at = timestamp '2099-11-01 10:00:01.393' + (203 - substr(id, 5)::int) * interval '150 microseconds'\n     where id between 'fxa_0198' and 'fxa_0203'",
+      "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values\n       ('fxa_0000', '2099-11-01 10:00:00.000400', 'customer', 'cus_0', 'created', 'At the start', '{\"source\":\"user\"}'),\n       ('fxa_early', '2099-11-01 09:59:59.999900', 'customer', 'cus_0', 'created', 'Before the start', null)",
+      "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata)\n     select 'fxb_' || lpad(n::text, 4, '0'), timestamp '2099-11-01 09:00:00' + n * interval '1 millisecond',\n            'order', 'ord_' || n, 'created', 'Backlog ' || n, '{\"source\":\"import\",\"workspaceId\":\"org_row\"}'\n     from generate_series(1, 600) n",
+      "insert into audit_log_streams (id, name, type, url, token_encrypted, settings, status, cursor_created_at, last_attempt_at, consecutive_failures, created_at, updated_at) values\n       ('als_fx_splunk', 'als_fx_splunk', 'splunk_hec', 'https://splunk.fx.example.com:8088/services/collector/event', 'v2:5462bfc2e6292330c36db3e4:f937479159152ac2078642f4bec219bfa645ae15fb7aac38888c0166dcb07bf7e29ebe9e', '{\"index\":\"sec\"}', 'active', '2099-11-01 10:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_http', 'als_fx_http', 'http', 'https://collector.fx.example.com/in', '28e1e9977e61ab5cc406676e:487ce5903c01caf2062b081b7b7f166e1684798195fd86e759f31308ae59da5e1e85ddaf', '{\"format\":\"ndjson\",\"authHeader\":\"X-Api-Key\"}', 'active', '2099-11-01 10:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_open', 'als_fx_open', 'http', 'https://open.fx.example.com/in', null, null, 'active', null, null, 0, '2099-11-01 10:00:02', '2099-11-01 10:00:02'),\n       ('als_fx_paused', 'als_fx_paused', 'http', 'https://paused.fx.example.com/in', null, null, 'paused', '2099-11-01 10:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_badtoken', 'als_fx_badtoken', 'http', 'https://badtoken.fx.example.com/in', 'v2:00:00', null, 'active', '2099-11-01 10:00:03', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_private', 'als_fx_private', 'http', 'https://10.0.0.5/in', null, null, 'active', '2099-11-01 10:00:03', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_nineteen', 'als_fx_nineteen', 'http', 'https://down.fx.example.com/in', null, null, 'active', '2099-11-01 10:00:03', '2099-11-01 09:00:00', 19, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_timeout', 'als_fx_timeout', 'http', 'https://slow.fx.example.com/in', null, null, 'active', '2099-11-01 10:00:03', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_redirect', 'als_fx_redirect', 'http', 'https://moved.fx.example.com/in', null, null, 'active', '2099-11-01 10:00:03', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_caught_up', 'als_fx_caught_up', 'http', 'https://idle.fx.example.com/in', null, null, 'active', '2099-11-02 00:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_backoff', 'als_fx_backoff', 'http', 'https://waiting.fx.example.com/in', null, null, 'active', '2099-11-01 10:00:03', '2099-11-01 11:59:00', 2, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_race', 'als_fx_race', 'http', 'https://race.fx.example.com/in', null, null, 'active', '2099-11-01 10:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00'),\n       ('als_fx_backlog', 'als_fx_backlog', 'http', 'https://backlog.fx.example.com/in', null, null, 'active', '2099-11-01 08:00:00', null, 0, '2099-11-01 10:00:00', '2099-11-01 10:00:00')"
+    ],
+    "state": "select jsonb_build_object('id', id, 'status', status,\n  'cursor_created_at', to_char(cursor_created_at, 'YYYY-MM-DD HH24:MI:SS.US'), 'cursor_id', cursor_id,\n  'last_delivered_at', to_char(last_delivered_at, 'YYYY-MM-DD HH24:MI:SS.US'),\n  'last_attempt_at', to_char(last_attempt_at, 'YYYY-MM-DD HH24:MI:SS.US'),\n  'last_error', last_error, 'consecutive_failures', consecutive_failures, 'delivered_count', delivered_count,\n  'updated_at', to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS.US')) as row\n  from audit_log_streams where id like 'als_fx%' order by id",
+    "steps": [
+      {
+        "name": "the first flush",
+        "before": [],
+        "now": "2099-11-01T12:00:00.000Z",
+        "answers": {
+          "https://collector.fx.example.com/in": [
+            {
+              "status": 500,
+              "body": "upstream said:\n  bad key fx-token-very-secret\ttry again"
+            }
+          ],
+          "https://down.fx.example.com/in": [
+            {
+              "error": "connect ECONNREFUSED 203.0.113.7:443"
+            }
+          ],
+          "https://slow.fx.example.com/in": [
+            {
+              "timeout": true
+            }
+          ],
+          "https://moved.fx.example.com/in": [
+            {
+              "status": 302,
+              "body": ""
+            }
+          ],
+          "https://race.fx.example.com/in": [
+            {
+              "status": 200,
+              "body": "ok",
+              "exec": "update audit_log_streams set cursor_id = 'fxa_moved' where id = 'als_fx_race'"
+            }
+          ]
+        },
+        "requests": [
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0199",
+            "last": "fxa_0398",
+            "sha256": "399f038d9f8577496b5c911af19b0ba2683bc6d9336ade833691e3e6bd654a47"
+          },
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_early",
+            "last": "fxa_0198",
+            "sha256": "302ce3218871ca5b511502bd9f1a908eba4689ec2b21a0d1773752a20d760d98"
+          },
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxb_0001",
+            "last": "fxb_0200",
+            "sha256": "18ac95a4bdd4d0a6812c3724fb7d3b6013df301673bc91510a58d97361bce3c8"
+          },
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxb_0201",
+            "last": "fxb_0400",
+            "sha256": "2aafb3adda942e74993cdec11581f87d5d1ebe4997f6d2d81a96acd7fbec7c9f"
+          },
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxb_0401",
+            "last": "fxb_0600",
+            "sha256": "a56b64be6564a2df54822e6ef1b5952060844644e68bdfd08c09de66062c9f0a"
+          },
+          {
+            "url": "https://collector.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/x-ndjson"
+              ],
+              [
+                "X-Api-Key",
+                "fx-token-very-secret"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0001",
+            "last": "fxa_0200",
+            "sha256": "9d2500ed934e88a8ea58731f4b9efa66cf0c7ce3da7b513f6f4213c82ee09247"
+          },
+          {
+            "url": "https://down.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 22,
+            "first": "fxa_0429",
+            "last": "fxa_0450",
+            "sha256": "bf1fd63f8a69803c550af9ddb339a5712e0e78fff1ba72d81686329f490df7ee"
+          },
+          {
+            "url": "https://moved.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 22,
+            "first": "fxa_0429",
+            "last": "fxa_0450",
+            "sha256": "bf1fd63f8a69803c550af9ddb339a5712e0e78fff1ba72d81686329f490df7ee"
+          },
+          {
+            "url": "https://open.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 165,
+            "first": "fxa_0286",
+            "last": "fxa_0450",
+            "sha256": "9b6660c5f85425590f1ef1ff7f08c70b3a82123eddfd9967e63d81b6b188c6c0"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0001",
+            "last": "fxa_0200",
+            "sha256": "11573347b4766a10aa6dea2b7059762546143e00e577607dfc1237bdaf485ef4"
+          },
+          {
+            "url": "https://slow.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 22,
+            "first": "fxa_0429",
+            "last": "fxa_0450",
+            "sha256": "bf1fd63f8a69803c550af9ddb339a5712e0e78fff1ba72d81686329f490df7ee"
+          },
+          {
+            "url": "https://splunk.fx.example.com:8088/services/collector/event",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ],
+              [
+                "Authorization",
+                "Splunk fx-token-very-secret"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0001",
+            "last": "fxa_0200",
+            "sha256": "6dfb8e0ae53d25646c329085075166bfe80b62f1e74e3467451bee13bb99101e"
+          },
+          {
+            "url": "https://splunk.fx.example.com:8088/services/collector/event",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ],
+              [
+                "Authorization",
+                "Splunk fx-token-very-secret"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0201",
+            "last": "fxa_0400",
+            "sha256": "fb9b015d11b823641ea10d4a7f83422dcf1a74164522bd957f97e6c6c480e9c6"
+          },
+          {
+            "url": "https://splunk.fx.example.com:8088/services/collector/event",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ],
+              [
+                "Authorization",
+                "Splunk fx-token-very-secret"
+              ]
+            ],
+            "count": 50,
+            "first": "fxa_0401",
+            "last": "fxa_0450",
+            "sha256": "2621b66f197e41e550e196d26b7a42f0fd372876a47d1a2bfd350adfc14c4178"
+          }
+        ],
+        "results": [
+          {
+            "streamId": "als_fx_backlog",
+            "outcome": "delivered",
+            "delivered": 1000,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_backoff",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_badtoken",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "The stored token cannot be decrypted; enter it again"
+          },
+          {
+            "streamId": "als_fx_caught_up",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_http",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "HTTP 500: upstream said: bad key *** try again"
+          },
+          {
+            "streamId": "als_fx_nineteen",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "Request failed: connect ECONNREFUSED 203.0.113.7:443"
+          },
+          {
+            "streamId": "als_fx_open",
+            "outcome": "delivered",
+            "delivered": 165,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_private",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "The URL points at a private or local address"
+          },
+          {
+            "streamId": "als_fx_race",
+            "outcome": "delivered",
+            "delivered": 200,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_redirect",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "HTTP 302"
+          },
+          {
+            "streamId": "als_fx_splunk",
+            "outcome": "delivered",
+            "delivered": 450,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_timeout",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "Timed out after 10 s"
+          }
+        ],
+        "streams": [
+          {
+            "id": "als_fx_backlog",
+            "status": "active",
+            "cursor_id": "fxa_0398",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 1000,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:02.786000",
+            "last_delivered_at": "2099-11-01 12:00:00.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_backoff",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 11:59:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_badtoken",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The stored token cannot be decrypted; enter it again",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_caught_up",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-02 00:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_http",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "HTTP 500: upstream said: bad key *** try again",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_nineteen",
+            "status": "disabled",
+            "cursor_id": null,
+            "last_error": "Request failed: connect ECONNREFUSED 203.0.113.7:443",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 20
+          },
+          {
+            "id": "als_fx_open",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 165,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:00.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_paused",
+            "status": "paused",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_private",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The URL points at a private or local address",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_race",
+            "status": "active",
+            "cursor_id": "fxa_moved",
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_redirect",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "HTTP 302",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_splunk",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 450,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:00.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_timeout",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "Timed out after 10 s",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          }
+        ]
+      },
+      {
+        "name": "thirty seconds later: the failed streams wait, the backlog goes on",
+        "before": [],
+        "now": "2099-11-01T12:00:30.000Z",
+        "answers": {},
+        "requests": [
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 52,
+            "first": "fxa_0399",
+            "last": "fxa_0450",
+            "sha256": "8257f6aab05ded9bfb9d455791832cfb1ebe58a78c3397d29ee5ab9a45f731bf"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0001",
+            "last": "fxa_0200",
+            "sha256": "11573347b4766a10aa6dea2b7059762546143e00e577607dfc1237bdaf485ef4"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0201",
+            "last": "fxa_0400",
+            "sha256": "a1b57715253b6b2aedcb634ad78eed71d81b2b84cd0776a7c468324a42027c77"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 50,
+            "first": "fxa_0401",
+            "last": "fxa_0450",
+            "sha256": "5778dfdbb69bbbd8fb61c71d7c40f2074481a3c1ad427807236678b2fb8a87dc"
+          }
+        ],
+        "results": [
+          {
+            "streamId": "als_fx_backlog",
+            "outcome": "delivered",
+            "delivered": 52,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_backoff",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_badtoken",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_caught_up",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_http",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_open",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_private",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_race",
+            "outcome": "delivered",
+            "delivered": 450,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_redirect",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_splunk",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_timeout",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          }
+        ],
+        "streams": [
+          {
+            "id": "als_fx_backlog",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:30.000000",
+            "delivered_count": 1052,
+            "last_attempt_at": "2099-11-01 12:00:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_backoff",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 11:59:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_badtoken",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The stored token cannot be decrypted; enter it again",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_caught_up",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-02 00:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_http",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "HTTP 500: upstream said: bad key *** try again",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_nineteen",
+            "status": "disabled",
+            "cursor_id": null,
+            "last_error": "Request failed: connect ECONNREFUSED 203.0.113.7:443",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 20
+          },
+          {
+            "id": "als_fx_open",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 165,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:00.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_paused",
+            "status": "paused",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_private",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The URL points at a private or local address",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_race",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:30.000000",
+            "delivered_count": 450,
+            "last_attempt_at": "2099-11-01 12:00:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_redirect",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "HTTP 302",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          },
+          {
+            "id": "als_fx_splunk",
+            "status": "active",
+            "cursor_id": "fxa_0450",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 450,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.150000",
+            "last_delivered_at": "2099-11-01 12:00:00.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_timeout",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "Timed out after 10 s",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 1
+          }
+        ]
+      },
+      {
+        "name": "ten minutes later, with three new rows: the failed streams are tried again",
+        "before": [
+          "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values\n           ('fxa_9001', '2099-11-01 12:05:00.000001', 'ticket', 'tkt_1', 'created', 'New 1', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9002', '2099-11-01 12:05:00.000002', 'ticket', 'tkt_1', 'updated', 'New 2', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}')"
+        ],
+        "now": "2099-11-01T12:10:30.000Z",
+        "answers": {
+          "https://slow.fx.example.com/in": [
+            {
+              "timeout": true
+            }
+          ]
+        },
+        "requests": [
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 3,
+            "first": "fxa_9001",
+            "last": "fxa_9003",
+            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+          },
+          {
+            "url": "https://collector.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/x-ndjson"
+              ],
+              [
+                "X-Api-Key",
+                "fx-token-very-secret"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0001",
+            "last": "fxa_0200",
+            "sha256": "9d2500ed934e88a8ea58731f4b9efa66cf0c7ce3da7b513f6f4213c82ee09247"
+          },
+          {
+            "url": "https://collector.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/x-ndjson"
+              ],
+              [
+                "X-Api-Key",
+                "fx-token-very-secret"
+              ]
+            ],
+            "count": 200,
+            "first": "fxa_0201",
+            "last": "fxa_0400",
+            "sha256": "ed1cc40ea0218346fa877b1635f4c396a992bafcc403e38e2398c6aa1a3c31ba"
+          },
+          {
+            "url": "https://collector.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/x-ndjson"
+              ],
+              [
+                "X-Api-Key",
+                "fx-token-very-secret"
+              ]
+            ],
+            "count": 53,
+            "first": "fxa_0401",
+            "last": "fxa_9003",
+            "sha256": "9f27896421f22cf3c8c5c2d07e26ad587da100b8b209403f01d350c4a9da7acb"
+          },
+          {
+            "url": "https://moved.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 25,
+            "first": "fxa_0429",
+            "last": "fxa_9003",
+            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+          },
+          {
+            "url": "https://open.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 3,
+            "first": "fxa_9001",
+            "last": "fxa_9003",
+            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 3,
+            "first": "fxa_9001",
+            "last": "fxa_9003",
+            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+          },
+          {
+            "url": "https://slow.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 25,
+            "first": "fxa_0429",
+            "last": "fxa_9003",
+            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+          },
+          {
+            "url": "https://splunk.fx.example.com:8088/services/collector/event",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ],
+              [
+                "Authorization",
+                "Splunk fx-token-very-secret"
+              ]
+            ],
+            "count": 3,
+            "first": "fxa_9001",
+            "last": "fxa_9003",
+            "sha256": "b53c5a91af1061d348d19fa5466cdcbb292edaf6ca5aca75e0d3a44f1e4a3132"
+          },
+          {
+            "url": "https://waiting.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 25,
+            "first": "fxa_0429",
+            "last": "fxa_9003",
+            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+          }
+        ],
+        "results": [
+          {
+            "streamId": "als_fx_backlog",
+            "outcome": "delivered",
+            "delivered": 3,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_backoff",
+            "outcome": "delivered",
+            "delivered": 25,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_badtoken",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "The stored token cannot be decrypted; enter it again"
+          },
+          {
+            "streamId": "als_fx_caught_up",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_http",
+            "outcome": "delivered",
+            "delivered": 453,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_open",
+            "outcome": "delivered",
+            "delivered": 3,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_private",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "The URL points at a private or local address"
+          },
+          {
+            "streamId": "als_fx_race",
+            "outcome": "delivered",
+            "delivered": 3,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_redirect",
+            "outcome": "delivered",
+            "delivered": 25,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_splunk",
+            "outcome": "delivered",
+            "delivered": 3,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_timeout",
+            "outcome": "failed",
+            "delivered": 0,
+            "error": "Timed out after 10 s"
+          }
+        ],
+        "streams": [
+          {
+            "id": "als_fx_backlog",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 1055,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_backoff",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 25,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_badtoken",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The stored token cannot be decrypted; enter it again",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_caught_up",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-02 00:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_http",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 453,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_nineteen",
+            "status": "disabled",
+            "cursor_id": null,
+            "last_error": "Request failed: connect ECONNREFUSED 203.0.113.7:443",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 20
+          },
+          {
+            "id": "als_fx_open",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 168,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_paused",
+            "status": "paused",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_private",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The URL points at a private or local address",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_race",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 453,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_redirect",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 25,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_splunk",
+            "status": "active",
+            "cursor_id": "fxa_9003",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 453,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_timeout",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "Timed out after 10 s",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          }
+        ]
+      }
+    ]
+  }
+}

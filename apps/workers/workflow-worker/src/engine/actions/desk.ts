@@ -22,6 +22,7 @@ import {
   type DeskInboxActor,
   type DeskInboxDeps,
   type DeskInboxEnv,
+  type OpenDeskApiConversationInput,
 } from '@weldsuite/desk-domain/inbox';
 import { asText } from '@weldsuite/text';
 import { schema } from '../../db';
@@ -56,6 +57,24 @@ function text(value: unknown): string | undefined {
   return s || undefined;
 }
 
+/** Tags as a list: an array, or a comma-separated string. Blanks and repeats drop out. */
+function tagList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  return [...new Set(raw.map((tag) => text(tag)).filter((tag): tag is string => tag !== undefined))];
+}
+
+/** The ticket fields the step sets; an unknown priority is ignored rather than failing the step. */
+function ticketFields(inputs: Record<string, unknown>): NonNullable<OpenDeskApiConversationInput['fields']> {
+  const priority = text(inputs.priority)?.toLowerCase();
+  const tags = tagList(inputs.tags);
+  return {
+    priority: priority && PRIORITIES.has(priority) ? (priority as 'low' | 'medium' | 'high' | 'urgent') : undefined,
+    tags: tags.length > 0 ? tags : undefined,
+    departmentId: text(inputs.teamId),
+    ticketTypeId: text(inputs.ticketTypeId),
+  };
+}
+
 /** Is this an inbox conversation (rather than a legacy helpdesk one)? */
 export async function isDeskConversation(ctx: ActionContext, conversationId: string): Promise<boolean> {
   const [row] = await ctx.db
@@ -69,7 +88,10 @@ export async function isDeskConversation(ctx: ActionContext, conversationId: str
 /**
  * Open a conversation in the inbox, or add to the one that carries
  * `externalId` (reopening it). Inputs: title, message (or body), name, email,
- * contactId, externalId.
+ * contactId, externalId, and the ticket fields priority, tags (a list or a
+ * comma-separated string), teamId and ticketTypeId (applied on a repeat too,
+ * so an alert can escalate). `state: 'closed'` closes the conversation once
+ * the message is in, so a resolved alert lands on its ticket and closes it.
  */
 export const handleCreateConversation: ActionHandler = async (inputs, ctx) => {
   const body = text(inputs.message) ?? text(inputs.body) ?? text(inputs.description) ?? text(inputs.title);
@@ -82,15 +104,25 @@ export const handleCreateConversation: ActionHandler = async (inputs, ctx) => {
     name: text(inputs.name) ?? text(inputs.customerName),
     email: text(inputs.email) ?? text(inputs.customerEmail),
     contactId: text(inputs.contactId),
+    fields: ticketFields(inputs),
     metadata: { executionId: ctx.executionId },
   });
+  let conversation = result.conversation;
+  if (text(inputs.state)?.toLowerCase() === 'closed' && conversation.state !== 'closed') {
+    ({ conversation } = await updateDeskConversationFromApi(inboxDeps(ctx), {
+      conversationId: conversation.id,
+      state: 'closed',
+      actor: workflowActor(ctx),
+    }));
+  }
   return {
     success: true,
     created: result.created,
-    conversationId: result.conversation.id,
-    conversationNumber: result.conversation.conversationNumber,
-    state: result.conversation.state,
-    assigneeId: result.conversation.assigneeId,
+    conversationId: conversation.id,
+    conversationNumber: conversation.conversationNumber,
+    state: conversation.state,
+    priority: conversation.priority,
+    assigneeId: conversation.assigneeId,
   };
 };
 

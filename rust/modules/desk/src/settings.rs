@@ -7,16 +7,23 @@
 //! - [`assignment`], `/api/desk/assignment` (`routes/desk-assignment`)
 //! - [`routing`], `/api/desk/routing` (`routes/desk-routing`)
 //! - [`email`], `/api/helpdesk-email` (`routes/helpdesk-email`)
-//! - [`analytics`], `/api/helpdesk-analytics` (`routes/helpdesk-analytics`)
+//! - [`analytics`], `/api/helpdesk-analytics` (`routes/helpdesk-analytics`), with
+//!   its CSV exports ([`export`]), the live reports ([`live`]: the wallboard
+//!   and the phone report) and the scheduled report emails ([`schedules`],
+//!   sent by [`report_mail`])
 
 mod analytics;
 mod assignment;
 mod email;
+mod export;
 mod helpcenter;
 mod helpdesk;
+mod live;
 mod priority_matrix;
+pub(crate) mod report_mail;
 mod reports;
 mod routing;
+pub(crate) mod schedules;
 #[rustfmt::skip]
 mod tables;
 mod widget;

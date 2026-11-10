@@ -250,6 +250,9 @@ export const navigation = {
         savedReplies: 'Opgeslagen antwoorden',
         reportsOverview: 'Overzicht',
         customReports: 'Eigen rapporten',
+        reportSchedules: 'Geplande rapporten',
+        wallboard: 'Wallboard',
+        phoneReport: 'Telefoon',
         settings: 'WeldDesk-instellingen',
       },
       weldmeet: {
