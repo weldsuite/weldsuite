@@ -687,5 +687,19 @@
     ],
     "rust": true,
     "worker": "merge-api"
+  },
+  {
+    "apps": [
+      "weldforms"
+    ],
+    "binding": "FORMS_API",
+    "devPort": 8828,
+    "id": "forms",
+    "prefixes": [
+      "/api/forms",
+      "/public/forms"
+    ],
+    "rust": true,
+    "worker": "forms-api"
   }
 ]

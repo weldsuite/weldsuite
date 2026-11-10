@@ -12,7 +12,8 @@ use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, hr, meet, portal, reach, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, forms, hr, meet, portal,
+    reach, sign,
 };
 
 #[derive(Deserialize)]
@@ -63,6 +64,22 @@ fn list(props: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// `Array<{ question, answer }>` (WeldForms' answers).
+fn answers(value: &Value) -> Vec<forms::QuestionAnswer> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| forms::QuestionAnswer {
+                    question: item["question"].as_str().unwrap_or_default().to_owned(),
+                    answer: item["answer"].as_str().unwrap_or_default().to_owned(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one arm per exported template, each building its props"
@@ -98,6 +115,82 @@ fn render(case: &Case) -> RenderedEmail {
             p["expiresInMinutes"]
                 .as_u64()
                 .and_then(|m| u32::try_from(m).ok()),
+        ),
+        "forms.code" => forms::code(
+            locale,
+            &brand,
+            &s(p, "title"),
+            &s(p, "code"),
+            p["expiresInMinutes"]
+                .as_u64()
+                .and_then(|m| u32::try_from(m).ok()),
+        ),
+        "forms.invite" => forms::invite(
+            locale,
+            &brand,
+            &forms::InviteProps {
+                sender_name: p["senderName"].as_str().unwrap_or_default(),
+                title: p["title"].as_str().unwrap_or_default(),
+                subject: p["subject"].as_str(),
+                message: p["message"].as_str(),
+                url: p["url"].as_str().unwrap_or_default(),
+                closes_at: p["closesAt"].as_str(),
+                time_zone: p["timeZone"].as_str(),
+                reminder: p["reminder"].as_bool().unwrap_or(false),
+            },
+        ),
+        "forms.receipt" => forms::receipt(
+            locale,
+            &brand,
+            &s(p, "title"),
+            p["number"].as_i64(),
+            &answers(&p["answers"]),
+        ),
+        "forms.response" => forms::response(
+            locale,
+            &brand,
+            &s(p, "title"),
+            p["number"].as_i64(),
+            p["respondent"].as_str(),
+            p["answers"]
+                .is_array()
+                .then(|| answers(&p["answers"]))
+                .as_deref(),
+            &s(p, "url"),
+        ),
+        "forms.digest" => forms::digest(
+            locale,
+            &brand,
+            &s(p, "title"),
+            &s(p, "workspaceName"),
+            p["count"].as_i64().unwrap_or_default(),
+            &p["responses"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| forms::DigestItem {
+                            number: item["number"].as_i64(),
+                            respondent: item["respondent"].as_str().map(str::to_owned),
+                            summary: item["summary"].as_str().map(str::to_owned),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+            &s(p, "url"),
+        ),
+        "forms.quota" => forms::quota(
+            locale,
+            &brand,
+            &s(p, "workspaceName"),
+            p["percent"]
+                .as_u64()
+                .and_then(|n| u8::try_from(n).ok())
+                .unwrap_or_default(),
+            p["used"].as_i64().unwrap_or_default(),
+            p["limit"].as_i64().unwrap_or_default(),
+            &s(p, "resetsAt"),
+            &s(p, "url"),
         ),
         "sign.completed" => sign::completed(
             locale,

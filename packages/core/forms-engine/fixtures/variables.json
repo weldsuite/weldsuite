@@ -1,0 +1,139 @@
+{
+  "name": "Number and text variables changed by calculations",
+  "definition": {
+    "hidden": [{ "name": "plan" }],
+    "variables": [
+      { "name": "price", "type": "number", "initial": 100 },
+      { "name": "summary", "type": "text", "initial": "Order: " },
+      { "name": "ratio", "type": "number" }
+    ],
+    "blocks": [
+      { "id": "b_qty", "ref": "quantity", "type": "number", "title": "How many?", "required": true, "properties": { "min": 1, "max": 100 } },
+      { "id": "b_express", "ref": "express", "type": "yes_no", "title": "Express delivery?" },
+      {
+        "id": "b_extras",
+        "ref": "extras",
+        "type": "multiple_choice",
+        "title": "Extras",
+        "properties": {
+          "multiple": true,
+          "allowOther": true,
+          "choices": [
+            { "id": "c_wrap", "label": "Gift wrap", "score": 5 },
+            { "id": "c_card", "label": "Card", "score": 2.5 }
+          ]
+        }
+      },
+      { "id": "b_note", "ref": "note", "type": "short_text", "title": "A note for us" }
+    ],
+    "endings": [
+      { "id": "e_normal", "ref": "normal", "title": "Thanks" },
+      { "id": "e_big", "ref": "big_order", "title": "Big order" }
+    ],
+    "logic": [
+      {
+        "blockId": "b_qty",
+        "calculations": [
+          { "id": "x_mul", "variable": "price", "op": "multiply", "value": { "type": "field", "id": "b_qty" } },
+          { "id": "x_ratio", "variable": "ratio", "op": "set", "value": { "type": "constant", "value": 1 } },
+          { "id": "x_ratio_div", "variable": "ratio", "op": "divide", "value": { "type": "field", "id": "b_qty" } },
+          { "id": "x_div_zero", "variable": "price", "op": "divide", "value": { "type": "constant", "value": 0 } },
+          { "id": "x_text_qty", "variable": "summary", "op": "add", "value": { "type": "field", "id": "b_qty" } }
+        ]
+      },
+      {
+        "blockId": "b_express",
+        "calculations": [
+          {
+            "id": "x_express",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_express" }, "operator": "is", "right": { "type": "constant", "value": true } }] },
+            "variable": "price",
+            "op": "add",
+            "value": { "type": "constant", "value": 15 }
+          },
+          {
+            "id": "x_express_text",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_express" }, "operator": "is", "right": { "type": "constant", "value": true } }] },
+            "variable": "summary",
+            "op": "add",
+            "value": { "type": "constant", "value": " express" }
+          },
+          {
+            "id": "x_discount",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "hidden", "name": "plan" }, "operator": "is", "right": { "type": "constant", "value": "PRO" } }] },
+            "variable": "price",
+            "op": "subtract",
+            "value": { "type": "constant", "value": 10 }
+          }
+        ]
+      },
+      {
+        "blockId": "b_extras",
+        "calculations": [
+          { "id": "x_extras", "variable": "price", "op": "add", "value": { "type": "field", "id": "b_extras" } },
+          {
+            "id": "x_sep",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_extras" }, "operator": "is_answered" }] },
+            "variable": "summary",
+            "op": "add",
+            "value": { "type": "constant", "value": " + " }
+          },
+          { "id": "x_extras_text", "variable": "summary", "op": "add", "value": { "type": "field", "id": "b_extras" } }
+        ],
+        "jumps": [
+          {
+            "id": "j_big",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "variable", "name": "price" }, "operator": "greater_than", "right": { "type": "constant", "value": 1000 } }] },
+            "to": { "type": "ending", "id": "e_big" }
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "quantity, express, a hidden plan and scored extras",
+      "answers": { "b_qty": 3, "b_express": true, "b_extras": { "choiceIds": ["c_wrap", "c_card"] } },
+      "hidden": { "plan": " pro " },
+      "expect": {
+        "ok": true,
+        "path": ["b_qty", "b_express", "b_extras", "b_note"],
+        "endingId": "e_normal",
+        "variables": { "score": 7.5, "price": 312.5, "summary": "Order: 3 express + Gift wrap, Card", "ratio": 0.3333333333 },
+        "errors": {},
+        "answers": { "b_qty": 3, "b_express": true, "b_extras": { "choiceIds": ["c_wrap", "c_card"] } },
+        "score": 7.5,
+        "quiz": [{ "fieldId": "b_extras", "correct": null, "points": 7.5 }]
+      }
+    },
+    {
+      "name": "a big order jumps to an ending; an Other text is appended",
+      "answers": { "b_qty": 11, "b_extras": { "choiceIds": [], "other": " Ribbon " }, "b_note": "skipped" },
+      "expect": {
+        "ok": true,
+        "path": ["b_qty", "b_express", "b_extras"],
+        "endingId": "e_big",
+        "variables": { "score": 0, "price": 1100, "summary": "Order: 11 + Ribbon", "ratio": 0.0909090909 },
+        "errors": {},
+        "answers": { "b_qty": 11, "b_extras": { "choiceIds": [], "other": "Ribbon" } },
+        "score": 0,
+        "quiz": [{ "fieldId": "b_extras", "correct": null, "points": 0 }]
+      }
+    },
+    {
+      "name": "an out-of-range quantity leaves the calculations on it skipped",
+      "answers": { "b_qty": 0 },
+      "hidden": { "plan": "basic" },
+      "expect": {
+        "ok": false,
+        "path": ["b_qty", "b_express", "b_extras", "b_note"],
+        "endingId": "e_normal",
+        "variables": { "score": 0, "price": 100, "summary": "Order: ", "ratio": 1 },
+        "errors": { "b_qty": { "code": "too_small" } },
+        "answers": {},
+        "score": 0,
+        "quiz": [{ "fieldId": "b_extras", "correct": null, "points": 0 }]
+      }
+    }
+  ]
+}

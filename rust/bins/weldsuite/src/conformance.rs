@@ -439,6 +439,10 @@ impl Pools {
         extensions.insert(weldsuite_connect::RequestCrmSyncRuns(
             self.workflows.crm_sync_runs(&context.workflows),
         ));
+        // WeldForms' ProcessResponse runs start on the test's `PROCESS_RESPONSE`.
+        if let Some(runs) = self.workflows.process_runs(&context.workflows) {
+            extensions.insert(weldsuite_forms::RequestProcessRuns(runs));
+        }
         // The headers the test's request carried, as the Hono app saw them.
         if let Some(names) = &context.request_headers {
             extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
@@ -466,6 +470,43 @@ impl Pools {
             // WeldDesk's Discord and Slack calls.
             extensions.insert(self.outbound.desk_http(bridge));
         }
+    }
+
+    /// What a cron job or a job run in a test gets in place of a request's
+    /// context: the master database, the forwarded env, the test's buckets
+    /// and outbound ledgers over HTTP, and the cache of its KV namespace's
+    /// seed scope (this side's own, so the TypeScript run that follows sees
+    /// only its own keys).
+    pub(crate) fn job_extensions(
+        &self,
+        master_database_url: Option<&str>,
+        env: &HashMap<String, String>,
+        files: &HashMap<String, String>,
+        ledgers: &HashMap<String, String>,
+        seed_scope: Option<&str>,
+    ) -> Result<http::Extensions, ApiError> {
+        let mut extensions = http::Extensions::new();
+        if let Some(url) = master_database_url {
+            extensions.insert(weldsuite_db::MasterDb(self.get(url)?));
+        }
+        extensions.insert(weldsuite_kit::RequestEnv(Arc::new(env.clone())));
+        if let Some(stores) = self.buckets.file_stores(files) {
+            extensions.insert(stores);
+        }
+        extensions.insert(weldsuite_mail_domain::outbound::RequestOutbound(
+            self.mail.bindings(None, ledgers),
+        ));
+        let cache = Arc::clone(
+            self.caches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(seed_scope.unwrap_or("job").to_owned())
+                .or_default(),
+        );
+        extensions.insert(weldsuite_ports::RequestCache(
+            cache as Arc<dyn weldsuite_ports::DynCache>,
+        ));
+        Ok(extensions)
     }
 
     pub(crate) fn get(&self, url: &str) -> Result<PgPool, ApiError> {
@@ -774,6 +815,46 @@ pub(crate) async fn public_tenant(
         }
     }
     next.run(request).await
+}
+
+/// Middleware for WeldForms' respondent side (`/public/forms`): what
+/// [`public`] and [`public_tenant`] insert together (the test's master
+/// database, env, buckets, KV, Workflow binding and fetch stub, and its
+/// tenant database as the `Tenant` every link opens, as its
+/// `getWorkspaceContextForOrg` mock hands out one database for any
+/// workspace), on every path under the mount: the portal's key guard runs
+/// inside it.
+pub(crate) async fn forms_public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        if let Some(url) = context.master_database_url.as_deref() {
+            match pools.get(url) {
+                Ok(master) => {
+                    request
+                        .extensions_mut()
+                        .insert(weldsuite_db::MasterDb(master));
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        pools.insert_shared(request.extensions_mut(), &context);
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    run_reporting_route(request, next).await
 }
 
 /// Middleware for personal-api (`weldsuite-personal`): the test's database

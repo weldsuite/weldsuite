@@ -21,6 +21,11 @@
  * - The layout (`EmailLayout`: logo, inbox preview, footer) is exported once
  *   per locale and brand, and each variant only its content, so a variant is
  *   not stored three times. The plain text is stored per brand.
+ * - A list of rows (`<Details>`, `<List>`) becomes a minijinja loop over
+ *   `rows`: rendered with one row and with two, the second row is the loop's
+ *   body, and a render with several rows of every kind must equal the loop's
+ *   output. A row's own branches (an optional part) are row variants, which
+ *   Rust names per row (`row.v`), as it names a template's variant.
  *
  * Templates are listed in SPECS; one not listed has no Rust version yet.
  */
@@ -64,6 +69,8 @@ function leadingFiller(html: string): string {
 }
 
 const S = (name: string) => `⟦${name}⟧`;
+/** The digest's "And {count} more." in the exported render: a number no real render shows. */
+const DIGEST_MORE = 7_654_321;
 
 function overallOf(flags: Set<string>): 'red' | 'amber' | 'green' {
   if (flags.has('red')) return 'red';
@@ -80,6 +87,23 @@ function brandOf(key: BrandKey): EmailBrand {
       return { kind: 'workspace', name: S('__brand_name'), accentColor: ACCENT, logoUrl: LOGO };
   }
 }
+
+/** A list of rows in a template, exported as a loop (see the top of this file). */
+interface ListSpec {
+  /** The template flag under which the list has rows; without it the list is empty. */
+  flag: string;
+  /** The branches one row takes, in a fixed order: a row's `v` is the set ones joined by `+`. */
+  flags: string[];
+  /** Placeholders a row uses (`{{ row.<field> }}`; documentation for the Rust side). */
+  fields: string[];
+  /** One row's props for its flags, its sentinels made with `R(i, field)`. */
+  row: (flags: Set<string>, i: number) => unknown;
+  /** Rendered text that depends on how many rows there are (n) → its replacement (a sentinel). */
+  counted?: (locale: EmailLocale, n: number) => Record<string, string>;
+}
+
+/** A row's sentinel: row `i`'s `field`. */
+const R = (i: number, field: string) => `⟦r${i}_${field}⟧`;
 
 interface Spec {
   id: TemplateId;
@@ -102,7 +126,12 @@ interface Spec {
    * sentinel (`⟦when⟧`), before the sentinels become placeholders.
    */
   texts?: (locale: EmailLocale, flags: Set<string>) => Record<string, string>;
-  props: (flags: Set<string>) => Record<string, unknown>;
+  /** A list of rows (`rows`), when the template has one. */
+  list?: ListSpec;
+  /** Flag combinations that cannot happen (a list's rows without the list): not exported. */
+  exclude?: (flags: Set<string>) => boolean;
+  /** The props for the flags; `rows` are the list's rows (empty without one). */
+  props: (flags: Set<string>, rows: unknown[]) => Record<string, unknown>;
 }
 
 const SPECS: Spec[] = [
@@ -127,6 +156,103 @@ const SPECS: Spec[] = [
     flags: [],
     fields: ['title', 'code', 'minutes'],
     props: () => ({ title: S('title'), code: S('code'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    // WeldForms: the code a respondent enters on a verified-email form.
+    id: 'forms.code',
+    flags: [],
+    fields: ['title', 'code', 'minutes'],
+    props: () => ({ title: S('title'), code: S('code'), expiresInMinutes: S('minutes') }),
+  },
+  // WeldForms: an invitation (or a reminder of one) with the person's own link.
+  // A sender's own subject is used by Rust as is (`subject` is never rendered).
+  {
+    id: 'forms.invite',
+    flags: ['message', 'closes', 'reminder'],
+    fields: ['sender_name', 'title', 'message', 'url', 'closes_date'],
+    multiline: ['message'],
+    dates: { closes: 'closes_date' },
+    props: (f) => ({
+      senderName: S('sender_name'),
+      title: S('title'),
+      subject: null,
+      message: f.has('message') ? S('message') : null,
+      url: S('url'),
+      closesAt: f.has('closes') ? SAMPLE_DATE : null,
+      timeZone: 'UTC',
+      reminder: f.has('reminder'),
+    }),
+  },
+  // WeldForms: a copy of the respondent's answers (a <Details> row per answer).
+  {
+    id: 'forms.receipt',
+    flags: ['rows', 'number'],
+    fields: ['title', 'number'],
+    list: { flag: 'rows', flags: [], fields: ['question', 'answer'], row: (_f, i) => ({ question: R(i, 'question'), answer: R(i, 'answer') }) },
+    props: (f, rows) => ({ title: S('title'), number: f.has('number') ? S('number') : null, answers: rows }),
+  },
+  // WeldForms: a new response to a subscriber: the answers, or only the link
+  // when the form has sensitive fields (`link_only`, `answers: null`).
+  {
+    id: 'forms.response',
+    flags: ['respondent', 'link_only', 'rows'],
+    fields: ['title', 'respondent', 'url'],
+    exclude: (f) => f.has('link_only') && f.has('rows'),
+    list: { flag: 'rows', flags: [], fields: ['question', 'answer'], row: (_f, i) => ({ question: R(i, 'question'), answer: R(i, 'answer') }) },
+    props: (f, rows) => ({
+      title: S('title'),
+      number: null,
+      respondent: f.has('respondent') ? S('respondent') : null,
+      answers: f.has('link_only') ? null : rows,
+      url: S('url'),
+    }),
+  },
+  // WeldForms: the daily digest. `count` reads as its sentinel and counts as
+  // DIGEST_MORE more than the rows shown (`more`: "And {count} more."
+  // renders) or as the rows shown; the list's title carries how many are
+  // listed (`listed`).
+  {
+    id: 'forms.digest',
+    flags: ['rows', 'more'],
+    fields: ['title', 'workspace_name', 'count', 'more', 'listed', 'url'],
+    texts: () => ({ [String(DIGEST_MORE)]: S('more') }),
+    list: {
+      flag: 'rows',
+      flags: ['respondent', 'summary', 'number'],
+      fields: ['respondent', 'summary', 'number'],
+      row: (f, i) => ({
+        number: f.has('number') ? R(i, 'number') : null,
+        respondent: f.has('respondent') ? R(i, 'respondent') : null,
+        summary: f.has('summary') ? R(i, 'summary') : null,
+      }),
+      counted: (locale, n) => {
+        const latest = (locale === 'nl' ? nl : en).forms.digest.latest;
+        return { [`${latest} · ${n}`]: `${latest} · ${S('listed')}` };
+      },
+    },
+    props: (f, rows) => ({
+      title: S('title'),
+      workspaceName: S('workspace_name'),
+      // Text where it is filled in, a number where `count - responses.length` is worked out.
+      count: { toString: () => S('count'), valueOf: () => (f.has('more') ? DIGEST_MORE + rows.length : rows.length) },
+      responses: rows,
+      url: S('url'),
+    }),
+  },
+  // WeldForms: the workspace used 80 % (`full` unset) or all of its monthly responses.
+  {
+    id: 'forms.quota',
+    flags: ['full'],
+    fields: ['workspace_name', 'percent', 'used', 'limit', 'resets_date', 'url'],
+    texts: (locale) => ({ [formatDate(SAMPLE_DATE, locale, 'UTC')]: S('resets_date') }),
+    props: (f) => ({
+      workspaceName: S('workspace_name'),
+      percent: f.has('full') ? 100 : S('percent'),
+      used: S('used'),
+      limit: S('limit'),
+      resetsAt: SAMPLE_DATE,
+      url: S('url'),
+    }),
   },
   {
     id: 'sign.completed',
@@ -477,39 +603,205 @@ async function splitContent(full: string, locale: EmailLocale, brand: BrandKey, 
   return { preview, footer: unescapeHtml(footerHtml), content: rest.slice(0, at) };
 }
 
-async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>): Promise<Variant> {
+/** One render, split into its parts, still in sentinel form. */
+interface Sentinels {
+  subject: string;
+  preview: string;
+  footer: string | null;
+  content: string;
+  text: string;
+}
+
+async function sentinels(
+  spec: Spec,
+  locale: EmailLocale,
+  flags: Set<string>,
+  brand: BrandKey,
+  rows: unknown[],
+  where: string,
+): Promise<Sentinels> {
   const template = templates[spec.id] as unknown as EmailTemplate<Record<string, unknown>>;
-  const props = spec.props(flags);
+  const rendered = await renderTemplate(template, spec.props(flags, rows), { locale, brand: brandOf(brand) });
+  guard(rendered.html, where);
+  guard(rendered.text, where);
+  const parts = await splitContent(rendered.html, locale, brand, `${where} ${brand}`);
+  const out: Sentinels = { subject: rendered.subject, preview: parts.preview, footer: parts.footer, content: parts.content, text: rendered.text };
+  for (const [literal, replacement] of Object.entries(spec.list?.counted?.(locale, rows.length) ?? {})) {
+    out.subject = out.subject.replaceAll(literal, replacement);
+    out.preview = out.preview.replaceAll(literal, replacement);
+    out.footer = out.footer === null ? null : out.footer.replaceAll(literal, replacement);
+    out.content = out.content.replaceAll(literal, replacement);
+    out.text = out.text.replaceAll(literal, replacement);
+  }
+  return out;
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
+
+/** The last character of `text`, or its last sentinel whole. */
+function lastUnit(text: string): string {
+  return text.endsWith('⟧') && text.includes('⟦') ? text.slice(text.lastIndexOf('⟦')) : text.slice(-1);
+}
+
+/**
+ * The part a list's second row added: `one` is prefix + row 0 + suffix,
+ * `two` prefix + row 0 + row 1 + suffix. The row comes back with generic
+ * sentinels (`⟦r_field⟧`). Where the row could start a little earlier or
+ * later (it ends as the text before it ends, or starts as the text after it
+ * starts) the earliest start is taken, so every row variant splits the same.
+ */
+function splitRows(one: string, two: string, where: string): { prefix: string; row: string; suffix: string } {
+  const at = commonPrefixLength(one, two);
+  let suffix = one.slice(at);
+  const rest = two.slice(at);
+  if (!rest.endsWith(suffix)) throw new Error(`${where}: a second row does not insert into the render`);
+  const second = rest.slice(0, rest.length - suffix.length);
+  const first = second.replaceAll('⟦r1_', '⟦r0_');
+  const head = one.slice(0, at);
+  if (second === '' || !head.endsWith(first)) throw new Error(`${where}: the rows do not repeat`);
+  let prefix = head.slice(0, head.length - first.length);
+  let row = second.replaceAll('⟦r1_', '⟦r_');
+  for (;;) {
+    const unit = lastUnit(prefix);
+    if (unit === '' || unit !== lastUnit(row) || row.length <= unit.length) break;
+    prefix = prefix.slice(0, -unit.length);
+    row = unit + row.slice(0, -unit.length);
+    suffix = unit + suffix;
+  }
+  // Then forward to the next tag or line, so a row reads as whole tags.
+  while (row.length > 1 && row[0] !== '<' && row[0] !== '\n' && row[0] !== '⟦' && row[0] === suffix[0]) {
+    prefix += row[0];
+    row = row.slice(1) + row[0];
+    suffix = suffix.slice(1);
+  }
+  return { prefix, row, suffix };
+}
+
+/** Row `i` of a row in generic form. */
+const rowAt = (row: string, i: number) => row.replaceAll('⟦r_', `⟦r${i}_`);
+
+/** The list as a loop: one body, or a branch per row variant (`row.v`). */
+function loop(bodies: Map<string, string>, mode: Mode, convert: (text: string) => string): string {
+  const fill = (row: string) =>
+    convert(row.replace(/⟦r_(\w+)⟧/g, (_, name: string) => (mode === 'text' ? `{{ row.${name}|collapse }}` : `{{ row.${name} }}`)));
+  const branch = ([key, row]: [string, string], i: number) => `{% ${i === 0 ? 'if' : 'elif'} row.v == "${key}" %}${fill(row)}`;
+  const entries = [...bodies];
+  const body = entries.length === 1 ? fill(entries[0]![1]) : `${entries.map(branch).join('')}{% endif %}`;
+  return `{% for row in rows %}${body}{% endfor %}`;
+}
+
+/**
+ * A variant with a list, for one brand: the loop derived from renders with
+ * one and two rows of each row variant, then checked against a render with
+ * rows of every variant in turn.
+ */
+async function listSentinels(spec: Spec, list: ListSpec, locale: EmailLocale, flags: Set<string>, brand: BrandKey, where: string) {
+  const kinds = combinations(list.flags);
+  const key = (rowFlags: Set<string>) => list.flags.filter((f) => rowFlags.has(f)).join('+');
+  type Outside = Pick<Sentinels, 'subject' | 'preview' | 'footer'>;
+  type Frame = { content: [string, string]; text: [string, string] };
+  let shared: Outside | undefined;
+  let frame: Frame | undefined;
+  const content = new Map<string, string>();
+  const text = new Map<string, string>();
+  for (const kind of kinds) {
+    const k = key(kind);
+    const one = await sentinels(spec, locale, flags, brand, [list.row(kind, 0)], `${where} row [${k}]`);
+    const two = await sentinels(spec, locale, flags, brand, [list.row(kind, 0), list.row(kind, 1)], `${where} rows [${k}]`);
+    const c = splitRows(one.content, two.content, `${where} [${k}] html`);
+    const t = splitRows(one.text, two.text, `${where} [${k}] text`);
+    const outside: Outside = { subject: one.subject, preview: one.preview, footer: one.footer };
+    const twoOutside: Outside = { subject: two.subject, preview: two.preview, footer: two.footer };
+    if (JSON.stringify(outside) !== JSON.stringify(twoOutside)) throw new Error(`${where}: subject, preview or footer depends on the rows`);
+    const around: Frame = { content: [c.prefix, c.suffix], text: [t.prefix, t.suffix] };
+    shared ??= outside;
+    frame ??= around;
+    if (JSON.stringify(shared) !== JSON.stringify(outside) || JSON.stringify(frame) !== JSON.stringify(around)) {
+      throw new Error(`${where}: the row variant [${k}] changes what is around the list`);
+    }
+    content.set(k, c.row);
+    text.set(k, t.row);
+  }
+  // Rows of every variant in turn (each twice, at most nine): the loop must give the same render.
+  const order = [...kinds, ...kinds].slice(0, 9);
+  const mixed = await sentinels(spec, locale, flags, brand, order.map((kind, i) => list.row(kind, i)), `${where} mixed rows`);
+  const expect = (parts: [string, string], rows: Map<string, string>) =>
+    parts[0] + order.map((kind, i) => rowAt(rows.get(key(kind))!, i)).join('') + parts[1];
+  if (expect(frame!.content, content) !== mixed.content) throw new Error(`${where}: the html loop does not reproduce a render with mixed rows`);
+  if (expect(frame!.text, text) !== mixed.text) throw new Error(`${where}: the text loop does not reproduce a render with mixed rows`);
+  return { shared: shared!, frame: frame!, content, text };
+}
+
+/** The parts of a variant every brand must render alike, placeholders in. */
+type VariantParts = { subject: string; preview: string; footer: string | null; content: string };
+
+/** What a variant's renders share across the brands. */
+interface VariantContext {
+  spec: Spec;
+  /** The list, when this variant has one. */
+  list: ListSpec | undefined;
+  locale: EmailLocale;
+  flags: Set<string>;
+  where: string;
+  /** Turns the sentinels in a rendered part into template placeholders. */
+  ph: (value: string, mode: Mode) => string;
+}
+
+/** One brand's render of a variant, placeholders in: the brand-independent parts, and the text. */
+async function brandVariant(ctx: VariantContext, brand: BrandKey): Promise<{ variant: VariantParts; text: string }> {
+  const { spec, list, locale, flags, where, ph } = ctx;
+  if (list) {
+    const derived = await listSentinels(spec, list, locale, flags, brand, where);
+    const variant: VariantParts = {
+      subject: ph(derived.shared.subject, 'plain'),
+      preview: ph(derived.shared.preview, 'plain'),
+      footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
+      content:
+        ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
+    };
+    return {
+      variant,
+      text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
+    };
+  }
+  const parts = await sentinels(spec, locale, flags, brand, [], where);
+  const variant: VariantParts = {
+    subject: ph(parts.subject, 'plain'),
+    preview: ph(parts.preview, 'plain'),
+    footer: parts.footer === null ? null : ph(parts.footer, 'plain'),
+    content: ph(parts.content, 'html'),
+  };
+  return { variant, text: ph(parts.text, 'text') };
+}
+
+async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>): Promise<Variant> {
   const multiline = spec.multiline ?? [];
   const dates = Object.fromEntries(Object.entries(spec.dates ?? {}).filter(([flag]) => flags.has(flag)));
   const where = `${spec.name ?? spec.id} ${locale} [${variantKey(spec, flags)}]`;
   const texts = spec.texts?.(locale, flags) ?? {};
+  const ph = (value: string, mode: Mode) => placeholders(value, mode, multiline, dates, locale, texts);
+  const list = spec.list && flags.has(spec.list.flag) ? spec.list : undefined;
+  const ctx: VariantContext = { spec, list, locale, flags, where, ph };
 
   const text = {} as Record<BrandKey, string>;
-  let canonical: { subject: string; preview: string; footer: string | null; content: string } | undefined;
+  let canonical: VariantParts | undefined;
   // The workspace brand first: its content carries the {{ accent }} placeholder.
   for (const brand of ['workspace', 'workspace_logo', 'weldsuite'] as const) {
-    const rendered = await renderTemplate(template, props, { locale, brand: brandOf(brand) });
-    guard(rendered.html, where);
-    guard(rendered.text, where);
-    const parts = await splitContent(rendered.html, locale, brand, `${where} ${brand}`);
-    const content = placeholders(parts.content, 'html', multiline, dates, locale, texts);
-    const variant = {
-      subject: placeholders(rendered.subject, 'plain', multiline, dates, locale, texts),
-      preview: placeholders(parts.preview, 'plain', multiline, dates, locale, texts),
-      footer: parts.footer === null ? null : placeholders(parts.footer, 'plain', multiline, dates, locale, texts),
-      content,
-    };
+    const rendered = await brandVariant(ctx, brand);
+    const variant = rendered.variant;
+    text[brand] = rendered.text;
     // The WeldSuite brand has the theme accent where the others have the
     // placeholder; Rust passes the theme accent for it.
-    const expected = canonical && brand === 'weldsuite'
-      ? { ...canonical, content: canonical.content.replaceAll('{{ accent }}', theme.color.accent) }
-      : canonical;
+    const expected =
+      canonical && brand === 'weldsuite' ? { ...canonical, content: canonical.content.replaceAll('{{ accent }}', theme.color.accent) } : canonical;
     if (!canonical) canonical = variant;
     else if (JSON.stringify(expected) !== JSON.stringify(variant)) {
       throw new Error(`${where}: the content depends on the brand (${brand}); it needs brand placeholders`);
     }
-    text[brand] = placeholders(rendered.text, 'text', multiline, dates, locale, texts);
     assertClean(text[brand], `${where} ${brand} text`);
   }
   const { subject, preview, footer, content } = canonical!;
@@ -542,10 +834,12 @@ async function exportTemplate(spec: Spec): Promise<string> {
   for (const locale of LOCALES) {
     variants[locale] = {};
     for (const flags of combinations(spec.flags)) {
+      if (spec.exclude?.(flags)) continue;
       variants[locale][variantKey(spec, flags)] = await exportVariant(spec, locale, flags);
     }
   }
-  return stableJson({ id: spec.name ?? spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], variants });
+  const list = spec.list ? { flag: spec.list.flag, flags: spec.list.flags, fields: spec.list.fields } : undefined;
+  return stableJson({ id: spec.name ?? spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], list, variants });
 }
 
 /**

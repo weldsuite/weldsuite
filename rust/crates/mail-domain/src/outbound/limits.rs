@@ -108,7 +108,7 @@ impl GuardMode {
 }
 
 /// `OUTBOUND_SOURCES`: where a send came from.
-pub const OUTBOUND_SOURCES: [&str; 13] = [
+pub const OUTBOUND_SOURCES: [&str; 14] = [
     "compose",
     "reply",
     "forward",
@@ -120,6 +120,7 @@ pub const OUTBOUND_SOURCES: [&str; 13] = [
     "calendar",
     "meet",
     "sign",
+    "forms",
     "personal",
     "subscription",
 ];

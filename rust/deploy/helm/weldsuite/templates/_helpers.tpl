@@ -208,6 +208,18 @@ cron jobs and the migration Job read the same settings
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.forms.portalUrl }}
+- name: FORMS_PORTAL_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.forms.botCheckProvider }}
+- name: BOT_CHECK_PROVIDER
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.forms.turnstileSiteKey }}
+- name: TURNSTILE_SITE_KEY
+  value: {{ . | quote }}
+{{- end }}
 {{- with .Values.config.identity.zitadel }}
 {{- if .apiUrl }}
 - name: ZITADEL_API_URL
@@ -306,6 +318,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
+{{- define "weldsuite.formsPortal.fullname" -}}
+{{- printf "%s-forms-portal" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.formsPortal.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: forms-portal
+{{- end }}
+
+{{- define "weldsuite.formsPortal.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.formsPortal.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.formsPortal.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
 {{- define "weldsuite.admin.fullname" -}}
 {{- printf "%s-admin" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -360,6 +390,10 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}
 {{- define "weldsuite.signPortal.backendUrl" -}}
 {{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.signPortal.backendUrl }}
+{{- end }}
+
+{{- define "weldsuite.formsPortal.backendUrl" -}}
+{{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.formsPortal.backendUrl }}
 {{- end }}
 
 {{/*

@@ -921,6 +921,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "SIGN_SESSION_SECRET",
   ],
 
+  // forms-portal (apps/web/forms-portal): WeldForms' respondent page, a TanStack
+  // Start app deployed as a Worker. No database, no tenant secrets: it calls
+  // forms-api's /public/forms/* over a service binding with a shared key.
+  "forms-portal": ["FORMS_PORTAL_SECRET"],
+
   // panel-api: the panel module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
@@ -965,6 +970,29 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLOUDFLARE_API_TOKEN",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+  ],
+
+  // forms-api: WeldForms' API worker. Base secrets every API worker needs for
+  // Clerk auth and tenant DB resolution, plus the module's own.
+  "forms-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // The portal's key on /public/forms/* (X-Forms-Portal-Key); the same value on forms-portal.
+    "FORMS_PORTAL_SECRET",
+    // Signs respondent sessions and verification tokens, keys the hash of emailed codes and of IPs.
+    "FORMS_SESSION_SECRET",
+    // Cloudflare Turnstile siteverify (BOT_CHECK_PROVIDER=turnstile).
+    "TURNSTILE_SECRET_KEY",
+    // realtime-worker /publish/* key: live list refresh and in-app response notifications.
+    "REALTIME_INTERNAL_SECRET",
+    // ALTCHA proof-of-work challenges (BOT_CHECK_PROVIDER=altcha).
+    "ALTCHA_HMAC_KEY",
+    // @weldsuite/ai through the Cloudflare AI Gateway: generating forms and summarising answers.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
   ],
 };
 

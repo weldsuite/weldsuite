@@ -1,0 +1,103 @@
+{
+  "name": "Question groups and statements",
+  "definition": {
+    "blocks": [
+      { "id": "b_intro", "ref": "intro", "type": "statement", "title": "Welcome" },
+      {
+        "id": "b_about",
+        "ref": "about",
+        "type": "group",
+        "title": "About you",
+        "children": [
+          { "id": "b_name", "ref": "name", "type": "short_text", "title": "Name", "required": true },
+          { "id": "b_note", "ref": "note", "type": "statement", "title": "A note" },
+          { "id": "b_student", "ref": "student", "type": "yes_no", "title": "Are you a student?", "required": true }
+        ]
+      },
+      { "id": "b_school", "ref": "school", "type": "short_text", "title": "Which school?", "required": true },
+      {
+        "id": "b_job",
+        "ref": "job",
+        "type": "group",
+        "title": "Your work",
+        "children": [
+          { "id": "b_company", "ref": "company", "type": "short_text", "title": "Company", "required": true },
+          { "id": "b_years", "ref": "years", "type": "number", "title": "Years there", "properties": { "min": 0, "max": 60 } }
+        ]
+      },
+      { "id": "b_done", "ref": "done", "type": "statement", "title": "Almost done" }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "Bye" }],
+    "logic": [
+      {
+        "blockId": "b_about",
+        "jumps": [
+          {
+            "id": "j_worker",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_student" }, "operator": "is", "right": { "type": "constant", "value": false } }] },
+            "to": { "type": "block", "id": "b_job" }
+          }
+        ]
+      },
+      { "blockId": "b_school", "otherwise": { "type": "block", "id": "b_done" } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "a student answers the school question and skips the work group",
+      "answers": { "b_name": "Ana", "b_student": true, "b_school": "MIT", "b_company": "Acme", "b_note": "not a field" },
+      "expect": {
+        "ok": true,
+        "path": ["b_intro", "b_about", "b_school", "b_done"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_name": "Ana", "b_student": true, "b_school": "MIT" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a non-student goes to the work group",
+      "answers": { "b_name": "Bo", "b_student": false, "b_company": "Acme", "b_years": 4, "b_school": "Skipped" },
+      "expect": {
+        "ok": true,
+        "path": ["b_intro", "b_about", "b_job", "b_done"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_name": "Bo", "b_student": false, "b_company": "Acme", "b_years": 4 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "errors inside groups on the path",
+      "answers": { "b_student": false, "b_years": 70, "b_note": "ignored" },
+      "expect": {
+        "ok": false,
+        "path": ["b_intro", "b_about", "b_job", "b_done"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": { "b_name": { "code": "required" }, "b_company": { "code": "required" }, "b_years": { "code": "too_large" } },
+        "answers": { "b_student": false },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "an unanswered yes/no takes the next block",
+      "answers": { "b_name": "Cy" },
+      "expect": {
+        "ok": false,
+        "path": ["b_intro", "b_about", "b_school", "b_done"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": { "b_student": { "code": "required" }, "b_school": { "code": "required" } },
+        "answers": { "b_name": "Cy" },
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ]
+}

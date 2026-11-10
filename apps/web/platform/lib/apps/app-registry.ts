@@ -29,6 +29,7 @@ import {
   Signature,
   ChartSpline,
   GitPullRequest,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -176,6 +177,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldpanel/logo-light.svg',
       iconDark: '/assets/images/weldpanel/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldForms. Icon-only logo: a form card with a check and an answer line.
+  weldforms: {
+    lucideIcon: ClipboardList,
+    shortName: 'Forms',
+    icon: '/assets/images/weldforms/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldforms/logo-light.svg',
+      iconDark: '/assets/images/weldforms/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

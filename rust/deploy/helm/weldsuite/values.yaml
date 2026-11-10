@@ -191,6 +191,17 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # WeldForms: the respondent page's origin; form and invitation links are
+  # <portalUrl>/f/<publicId> (empty: https://forms.weldsuite.org). The portal and
+  # the server share FORMS_PORTAL_SECRET (in the Secret); FORMS_SESSION_SECRET
+  # signs respondent sessions. The bot check (ADR FORMS-005) is ALTCHA's
+  # self-hosted proof of work on Kubernetes (ALTCHA_HMAC_KEY in the Secret);
+  # `turnstile` takes TURNSTILE_SECRET_KEY in the Secret and the site key here,
+  # `none` is for local development only.
+  forms:
+    portalUrl: ""
+    botCheckProvider: altcha
+    turnstileSiteKey: ""
   # WeldFlow: the client portal's origin for the portal invitation and the status report
   # emails to client contacts (empty: those emails are not sent).
   flow:
@@ -260,6 +271,12 @@ config:
 #                                into an smtp:// URL (`openssl rand -hex 32`; with mta.enabled)
 #   SIGN_SESSION_SECRET         WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   FORMS_PORTAL_SECRET          shared by the server and the forms portal (required with formsPortal.enabled)
+#   FORMS_SESSION_SECRET         WeldForms: signs respondent sessions and verification tokens and keys the
+#                                hashes of IPs, browser keys and emailed codes (the workers' value, so a
+#                                session either backend issued opens on the other); unset: 503 on /public/forms
+#   ALTCHA_HMAC_KEY              WeldForms: signs ALTCHA's proof-of-work challenges (config.forms.botCheckProvider: altcha)
+#   TURNSTILE_SECRET_KEY         WeldForms: Cloudflare Turnstile's secret (config.forms.botCheckProvider: turnstile)
 #   OUTBOUND_ADMIN_SECRET        shared by the server and the admin console: what the console sends
 #                                to /internal/outbound (optional; unset refuses those calls)
 #   ADMIN_OIDC_CLIENT_ID / ADMIN_OIDC_CLIENT_SECRET  the admin console's app at the OIDC provider
@@ -408,6 +425,43 @@ signPortal:
     annotations: {}
     hosts:
       - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+# The WeldForms respondent page (ADR FE-017, FORMS-002): a Node container
+# (ghcr.io/weldsuite/weldsuite-forms-portal, `--target forms-portal` of
+# rust/Dockerfile) whose server routes call this server's /public/forms/*
+# endpoints. Needs FORMS_PORTAL_SECRET in the Secret.
+formsPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-forms-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # How many proxies in front of the portal append to X-Forwarded-For, which
+  # the respondent's IP (rate limits, bot checks) is read from (counted from the
+  # right): 1 for the ingress controller, 2 with a CDN the ingress trusts.
+  trustedProxies: 1
+  # The links the server emails point at config.forms.portalUrl: set it to this
+  # portal's public URL (https://forms.<domain>).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: forms.example.org
         paths:
           - path: /
             pathType: Prefix
@@ -791,6 +845,8 @@ networkPolicy:
   # Who may call the sign portal (the ingress controller); empty allows any
   # peer. The portal's own pods may always call the server.
   signPortalFrom: []
+  # Who may call the forms portal (the ingress controller); empty allows any peer.
+  formsPortalFrom: []
   # Who may call the admin console (the ingress controller); empty allows any
   # peer. The console's own pods may always call the server.
   adminFrom: []
@@ -872,6 +928,17 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldForms: the automatic invitation reminders and the daily response
+    # digest, for the workspaces the forms_reminders / forms_digest due index
+    # lists. Do nothing while forms is not served.
+    forms-reminders:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    forms-digest:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
     # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
     # rates, in every workspace that used books (the books due index).
     books-sweep:

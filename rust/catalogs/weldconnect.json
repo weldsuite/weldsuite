@@ -1161,6 +1161,28 @@
         }
       ],
       "label": "Merge Release"
+    },
+    {
+      "category": "Forms",
+      "entityType": "form_response",
+      "events": [
+        {
+          "description": "When a form response is submitted",
+          "id": "submitted",
+          "name": "Form Response Submitted"
+        },
+        {
+          "description": "When a form response is updated",
+          "id": "updated",
+          "name": "Form Response Updated"
+        },
+        {
+          "description": "When a form response is deleted",
+          "id": "deleted",
+          "name": "Form Response Deleted"
+        }
+      ],
+      "label": "Form Response"
     }
   ],
   "integrations": [
@@ -2560,6 +2582,41 @@
             "type": "entity_event"
           }
         ]
+      },
+      {
+        "category": "communication",
+        "description": "When someone submits a form, post a message in a WeldChat channel so the team sees it straight away.",
+        "icon": "ClipboardList",
+        "id": "builtin_form_response_to_chat",
+        "key": "formResponseToChat",
+        "name": "Post new form responses in chat",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_post"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "New response #{{trigger.record.number}} to {{trigger.record.formTitle}} from {{trigger.record.respondentEmail}}."
+            },
+            "id": "step_post",
+            "name": "Post in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "form_response",
+            "eventType": "submitted",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
       }
     ],
     "nl": [
@@ -3045,6 +3102,41 @@
           {
             "entityType": "merge_release",
             "eventType": "shipped",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "communication",
+        "description": "Als iemand een formulier verstuurt, plaats je een bericht in een WeldChat-kanaal zodat het team het meteen ziet.",
+        "icon": "ClipboardList",
+        "id": "builtin_form_response_to_chat",
+        "key": "formResponseToChat",
+        "name": "Nieuwe formulierreacties in de chat melden",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_post"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Nieuwe reactie #{{trigger.record.number}} op {{trigger.record.formTitle}} van {{trigger.record.respondentEmail}}."
+            },
+            "id": "step_post",
+            "name": "Plaatsen in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "form_response",
+            "eventType": "submitted",
             "id": "trigger_main",
             "isEnabled": true,
             "type": "entity_event"
@@ -4246,6 +4338,26 @@
     "merge_record_link.deleted",
     "merge_chat_subscription.created",
     "merge_chat_subscription.updated",
-    "merge_chat_subscription.deleted"
+    "merge_chat_subscription.deleted",
+    "form.created",
+    "form.updated",
+    "form.deleted",
+    "form.published",
+    "form.closed",
+    "form_response.submitted",
+    "form_response.updated",
+    "form_response.deleted",
+    "form_folder.created",
+    "form_folder.updated",
+    "form_folder.deleted",
+    "form_theme.created",
+    "form_theme.updated",
+    "form_theme.deleted",
+    "form_integration.created",
+    "form_integration.updated",
+    "form_integration.deleted",
+    "form_invitation.sent",
+    "form_invitation.completed",
+    "form_invitation.revoked"
   ]
 }

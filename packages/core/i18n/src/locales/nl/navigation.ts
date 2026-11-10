@@ -166,6 +166,10 @@ export const navigation = {
         overview: 'Overzicht',
         projects: 'Projecten',
       },
+      weldforms: {
+        forms: 'Formulieren',
+        settings: 'Instellingen',
+      },
       weldmerge: {
         inbox: 'Inbox',
         pullRequests: 'Pull requests',

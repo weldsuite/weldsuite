@@ -64,6 +64,14 @@ project-portal:
   - 'packages/clients/api-client/**'
   - 'packages/core/i18n/**'
   - 'packages/design/ui/**'
+forms-portal:
+  - 'apps/web/forms-portal/**'
+  - 'packages/design/forms-renderer/**'
+  - 'packages/sdk/forms-embed/**'
+  - 'packages/core/forms-engine/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/core/i18n/**'
+  - 'packages/design/ui/**'
 # The admin console and the workspace packages it bundles.
 admin:
   - 'apps/web/admin/**'

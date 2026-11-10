@@ -598,6 +598,17 @@ export const platformSyncMap: EntitySyncMap = {
   merge_connection: inv(['weldmerge']),
   merge_repository: inv(['weldmerge']),
   merge_pull_request: inv(['weldmerge']),
+
+  // WeldForms: weldformsKeys.all in use-weldforms-queries.ts. Every object
+  // shares the root: lists, the builder's form, themes, responses, invitations
+  // and integrations all refetch when anything in the module changes. The
+  // builder ignores a refetch of the form while it holds unsaved edits.
+  form: inv(['weldforms']),
+  form_folder: inv(['weldforms']),
+  form_theme: inv(['weldforms']),
+  form_response: inv(['weldforms']),
+  form_invitation: inv(['weldforms']),
+  form_integration: inv(['weldforms']),
   // Releases, issue record links and chat subscriptions live under the same
   // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
   merge_release: inv(['weldmerge']),

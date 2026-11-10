@@ -1,0 +1,10 @@
+{
+  "name": "No endings fails the schema",
+  "definition": {
+    "blocks": [],
+    "endings": []
+  },
+  "expectIssues": [
+    "schema"
+  ]
+}

@@ -82,6 +82,8 @@ export const EDITION_FEATURES = [
   'agent-ai',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
+  /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
+  'forms-ai',
   /**
    * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.

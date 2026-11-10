@@ -113,6 +113,7 @@ const ACTION_PHRASES: Record<string, string> = {
   paid: 'is paid',
   overdue: 'becomes overdue',
   sent: 'is sent',
+  submitted: 'is submitted',
   won: 'is won',
   lost: 'is lost',
   converted: 'is converted',
@@ -162,6 +163,7 @@ const BASIC_TRIGGER_OBJECTS: Array<{ entityType: EntityType; category: string; l
   { entityType: 'merge_issue', category: 'WeldMerge', label: 'Merge Issue' },
   { entityType: 'merge_pull_request', category: 'WeldMerge', label: 'Merge Pull Request' },
   { entityType: 'merge_release', category: 'WeldMerge', label: 'Merge Release' },
+  { entityType: 'form_response', category: 'Forms', label: 'Form Response' },
 ];
 
 function buildEntityEvents(): EntityEventCatalogEntry[] {

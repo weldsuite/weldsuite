@@ -21,6 +21,11 @@
 //!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `forms-reminders` and `forms-digest` (every 15 minutes): WeldForms'
+//!   automatic invitation reminders and the daily response digest, for the
+//!   workspaces the `forms_reminders` / `forms_digest` due index lists
+//!   (`apps/workers/forms-api/src/cron/sweeps.ts`). Nothing while forms is
+//!   not served.
 //! - `merge-digest-sweep` (hourly, at :00): WeldMerge's daily WeldChat
 //!   digests, for the workspaces the `merge_digest` due index lists (each
 //!   subscription posts at its own `digest_hour`;
@@ -101,7 +106,29 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep";
+/// WeldForms opens the workspace behind a public link (and its job's) the same way.
+impl weldsuite_forms::TenantResolver for WorkspaceTenants {
+    fn tenant<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<weldsuite_forms::TenantDb, String>> {
+        Box::pin(async move {
+            let tenant = self
+                .0
+                .tenant(reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_forms::TenantDb {
+                db: tenant.db,
+                workspace_id: tenant.workspace_id,
+                clerk_org_id: tenant.clerk_org_id,
+                suspended: tenant.suspended,
+            })
+        })
+    }
+}
+
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -133,7 +160,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "moneybird-push"
         | "workflow-polls"
         | "workflow-schedules"
-        | "merge-digest-sweep"),
+        | "merge-digest-sweep"
+        | "forms-reminders"
+        | "forms-digest"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -187,6 +216,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
+            "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -199,6 +229,71 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// `forms-reminders` / `forms-digest`: one tick of WeldForms' sweep;
+/// nothing while forms is not served.
+async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("forms") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": job, "result": { "skipped": "forms is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let state = weldsuite_forms::FormsState {
+        events: infra.events.clone(),
+        master: Some(master.clone()),
+        files: infra
+            .files
+            .clone()
+            .map(|private| weldsuite_ports::FileStores {
+                private,
+                public: infra.public_files.clone(),
+            }),
+        cache: infra.cache.clone(),
+        jobs: None,
+        realtime: infra.realtime.clone(),
+        mail: infra.mail.clone(),
+        http: None,
+        tenants: Some(Arc::new(WorkspaceTenants(Arc::clone(&workspaces)))),
+        // Reminders count against the workspace like any invitation.
+        outbound: crate::routes::mail_outbound_for(&master, &infra.flags)
+            .0
+            .clone(),
+        env: Arc::new(weldsuite_forms::env_from_process()),
+        local_cache: Arc::default(),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let request = http::Extensions::new();
+    let result = if job == "forms-digest" {
+        weldsuite_forms::run_digest_sweep(&state, &request, now).await
+    } else {
+        weldsuite_forms::run_reminders_sweep(&state, &request, now).await
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
+    // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
 }
 
 /// `merge-digest-sweep`: WeldMerge's daily WeldChat digests of the due

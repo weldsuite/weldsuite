@@ -275,5 +275,11 @@
   "merge_pull_request",
   "merge_release",
   "merge_record_link",
-  "merge_chat_subscription"
+  "merge_chat_subscription",
+  "form",
+  "form_response",
+  "form_folder",
+  "form_theme",
+  "form_integration",
+  "form_invitation"
 ]

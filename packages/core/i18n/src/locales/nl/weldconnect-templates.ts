@@ -142,4 +142,14 @@ export const weldconnectTemplates = {
       body: '<p>{release} {version} is live.</p><p>Supporttickets die aan de issues in deze release gekoppeld zijn: {tickets}.</p><p>Laat die klanten weten dat de oplossing live staat.</p>',
     },
   },
+  formResponseToChat: {
+    name: 'Nieuwe formulierreacties in de chat melden',
+    description: 'Als iemand een formulier verstuurt, plaats je een bericht in een WeldChat-kanaal zodat het team het meteen ziet.',
+    steps: {
+      post: 'Plaatsen in WeldChat',
+    },
+    text: {
+      message: 'Nieuwe reactie #{number} op {form} van {email}.',
+    },
+  },
 };

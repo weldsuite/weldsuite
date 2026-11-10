@@ -60,6 +60,8 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-forms = { path = "modules/forms" }
+weldsuite-forms-engine = { path = "crates/forms-engine" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }

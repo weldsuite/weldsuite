@@ -239,6 +239,16 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # The WeldForms respondent portal's Node container (ADR FORMS-002).
+      - name: Build the forms portal's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: forms-portal
+          load: true
+          tags: weldsuite-forms-portal:dev
+          cache-from: type=gha,scope=rust-image
       # The staff admin console's Node container (ADR FE-018).
       - name: Build the admin console's image
         uses: docker/build-push-action@v6
@@ -511,10 +521,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      # A cold platform check (no tsbuildinfo cache) peaks near 6 GB of heap;
-      # 5 GB ran out of memory. ubuntu-latest runners have 16 GB for this
-      # public repo.
-      NODE_OPTIONS: --max-old-space-size=8192
+      # A cold platform check (no tsbuildinfo cache, e.g. after a lockfile
+      # change) compiles the Drizzle schema too and needed close to 9 GB by
+      # November 2026; 8 GB ran out of memory. ubuntu-latest runners have
+      # 16 GB for this public repo.
+      NODE_OPTIONS: --max-old-space-size=12288
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
@@ -592,7 +603,9 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # app-api plus every worker package, one after another: about 14.5 minutes
+    # on main by November 2026, so 15 left no room for new tests.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo

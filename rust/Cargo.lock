@@ -4015,6 +4015,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-external-api",
  "weldsuite-flow",
+ "weldsuite-forms",
  "weldsuite-host",
  "weldsuite-hr",
  "weldsuite-integrations",
@@ -5081,6 +5082,50 @@ dependencies = [
  "time",
  "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-forms"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-forms-engine",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-forms-engine"
+version = "0.0.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
  "weldsuite-kit",
 ]
 

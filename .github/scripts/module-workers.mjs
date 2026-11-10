@@ -95,6 +95,7 @@ const TEST_SECONDS = {
   'commerce-api': 27,
   'agent-api': 24,
   'host-api': 24,
+  'forms-api': 24,
   'sign-api': 22,
   'docs-api': 22,
   'board-api': 20,

@@ -12,8 +12,11 @@ import {
   type SheetDataFieldType,
   type SheetDataFilter,
 } from '@weldsuite/app-api-client/schemas/sheet-data';
-import { DATA_SOURCES, type DataViewer } from './catalog';
+import { DATA_SOURCES, type DataViewer, type TableObjectKey } from './catalog';
 import { SheetDataPermissionError, listRecords, toSerial } from './query';
+
+/** The objects listed from one tenant table; form_responses has its own tests (form-responses.test.ts). */
+const TABLE_KEYS = SHEET_DATA_OBJECT_KEYS.filter((k): k is TableObjectKey => k !== 'form_responses');
 
 const ALICE = 'user_alice';
 const BOB = 'user_bob';
@@ -74,7 +77,7 @@ describe('catalog', () => {
     boolean: ['PgBoolean'],
   };
 
-  it.each(SHEET_DATA_OBJECT_KEYS)('%s: every field has a column of a fitting type and every column a field', (key) => {
+  it.each(TABLE_KEYS)('%s: every field has a column of a fitting type and every column a field', (key) => {
     const object = SHEET_DATA_OBJECTS[key];
     const source = DATA_SOURCES[key];
     expect(Object.keys(source.columns).sort()).toEqual(object.fields.map((f) => f.key).sort());
@@ -91,7 +94,7 @@ describe('catalog', () => {
   });
 
   it('keeps every object between 8 and 20 fields with a handful of defaults', () => {
-    for (const key of SHEET_DATA_OBJECT_KEYS) {
+    for (const key of TABLE_KEYS) {
       const { fields } = SHEET_DATA_OBJECTS[key];
       expect(fields.length).toBeGreaterThanOrEqual(8);
       expect(fields.length).toBeLessThanOrEqual(20);
@@ -102,7 +105,7 @@ describe('catalog', () => {
     }
   });
 
-  it.each(SHEET_DATA_OBJECT_KEYS)('%s: lists every field, sorted by each kind of field, against the migrated schema', async (key) => {
+  it.each(TABLE_KEYS)('%s: lists every field, sorted by each kind of field, against the migrated schema', async (key) => {
     const keys = SHEET_DATA_OBJECTS[key].fields.map((f) => f.key);
     for (const field of SHEET_DATA_OBJECTS[key].fields) {
       const filter: SheetDataFilter = { field: field.key, op: 'notEmpty' };

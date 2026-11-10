@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-six
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-eight
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -235,6 +235,31 @@ modules, each with conformance suites that reach every route:
   ingest (`crates/connect-domain`), provider webhook registration and ingest,
   and the WeldBooks to Moneybird push. Not ported: AI workflow generation
   and AI steps (`weldconnect-ai`)
+- **forms** (WeldForms, built in both backends from the first route, ADR
+  FORMS-001: the forms engine `@weldsuite/forms-engine` held equal by its
+  fixtures; forms with their revisions (409 `REVISION_CONFLICT`), templates
+  (`catalogs/forms-templates.json`, `pnpm rust:catalogs`), publishing with
+  versions, the public link in the master `form_link_registry` and the
+  content screen, restricted forms, folders, themes, workspace settings, the
+  monthly response quota (`crates/core-domain` plan limits), media, the
+  members-only fill page, and the respondent side at `/public/forms` behind
+  `FORMS_PORTAL_SECRET` (ADR FORMS-002): the public cache, views, sessions
+  (HMAC tokens byte for byte the worker's), codes through the outbound guard,
+  ALTCHA or Turnstile (ADR FORMS-005), progress, uploads and submit. What
+  Global keeps in KV and the `FormCounters` Durable Object lives on the cache
+  port (Valkey: atomic counters for views, rate limits and wrong codes);
+  responses with answer filters in SQL, the summary and insights, CSV and
+  XLSX exports, the GDPR erase and a person's responses across forms;
+  invitations (personal links in the master `form_invitation_registry`,
+  through the outbound guard, source `forms`) with reminders by hand and on
+  the `forms_reminders` due index, and the daily digest on `forms_digest`
+  (`weldsuite cron forms-reminders`, `forms-digest`); integrations with
+  their dry run; `ProcessResponseWorkflow` is the `forms.process-response`
+  job with its steps: CRM, Desk and Flow (as the member who set the
+  integration up, through `crates/crm-domain`, `desk-domain`,
+  `flow-domain`), the notifications, the receipt and the quota notices. The
+  AI routes answer 503 `ai_unavailable` (ADR AI-011). The engine is `crates/forms-engine`, which WeldSheets' rules
+  for the `form_responses` connected table read too)
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -529,6 +554,11 @@ rust/
                         and WeldConnect's `merge.*` actions and WeldAgent's tools on its internal router
                         (`across.rs`, `workflow_action`); its GitHub and provider event intake
                         answers the integration workers' webhooks in process, `MERGE_INTERNAL`),
+                        modules/forms (WeldForms: the member routes, results, exports,
+                        invitations, integrations, the respondent side at /public/forms, codes,
+                        sessions and counters on the cache port, the forms.process-response job
+                        and its steps, the reminder and digest sweeps; the engine is
+                        crates/forms-engine),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -745,8 +775,11 @@ every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
 due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
 minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
-`calendar-replan` daily at 04:00 UTC, and `flow-file-purge`, `flow-approval-due`
-and `flow-benefit-measure` daily at 03:30 UTC, as on Global. The server reads
+`calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
+`forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
+reminders and daily response digest over the `forms_reminders` and
+`forms_digest` due index; nothing while forms is not served). The server reads
 environment variables only (`bins/weldsuite/src/config.rs`).
 At start it logs a "Global default" warning for every setting still on a value
 that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
@@ -805,6 +838,9 @@ log none.
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
 | `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
+| `FORMS_PORTAL_SECRET`, `FORMS_PORTAL_URL`, `FORMS_SESSION_SECRET` | WeldForms: the key the forms portal sends with every call to `/public/forms` (`X-Forms-Portal-Key`, ADR FORMS-002; unset refuses them, 503), the portal's origin for public links (`<url>/f/<publicId>`, default `https://forms.weldsuite.org`; the chart's `config.forms.portalUrl`), and the key of respondent sessions, verification tokens and the keyed hashes of IPs, browser keys and codes (the workers' value, so a session either backend issued opens on the other; unset: the session routes answer 503) |
+| `BOT_CHECK_PROVIDER`, `ALTCHA_HMAC_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` | WeldForms' bot check (ADR FORMS-005): `altcha` (the chart's default: self-hosted proof of work, its challenges signed with `ALTCHA_HMAC_KEY`, `GET /public/forms/altcha/challenge`), `turnstile` (Cloudflare's siteverify over HTTP) or `none` (the default without the chart, local development). The cache (Valkey) holds the public cache, seeds, codes and the forms' counters; without it this process does (one replica) |
+| `FORMS_MIN_FILL_MS` | WeldForms: the minimum time between a session's start and its submit (default 1500), lowered by the worker's tests |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
