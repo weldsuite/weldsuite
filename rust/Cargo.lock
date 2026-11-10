@@ -4003,6 +4003,7 @@ dependencies = [
  "weldsuite-core-objects",
  "weldsuite-core-onboarding",
  "weldsuite-core-platform",
+ "weldsuite-core-signin",
  "weldsuite-core-team",
  "weldsuite-crm",
  "weldsuite-data",
@@ -4760,6 +4761,24 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-core-signin"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "http",
+ "http-body-util",
+ "serde_json",
+ "sha2 0.11.1",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 

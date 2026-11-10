@@ -1833,8 +1833,22 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 "/public/user-apps",
                 weldsuite_core_apps::public_user_apps(apps),
             )
+            .merge(sign_in_public(state))
     } else {
         Router::new()
+    }
+}
+
+/// `/api/sign-in`: the backend of the platform's own sign-in screens on an
+/// OIDC provider (`OIDC_SIGN_IN=platform`, ADR SEC-016). Nobody calling it
+/// is signed in. Not mounted otherwise: Global signs in on Clerk.
+fn sign_in_public(state: &AppState) -> Router<AppState> {
+    match &state.sign_in {
+        Some(sign_in) => Router::new().nest(
+            "/api/sign-in",
+            weldsuite_core_signin::router(sign_in.clone()),
+        ),
+        None => Router::new(),
     }
 }
 

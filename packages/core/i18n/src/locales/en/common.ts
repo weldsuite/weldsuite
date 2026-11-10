@@ -764,6 +764,10 @@ export const common = {
         managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed by your organization\'s identity provider, not in WeldSuite.',
         openAccount: 'Open account settings',
         invitationsManaged: 'Workspace membership is managed by your organization\'s identity provider. Ask your administrator for access.',
+        accountLocked: 'This account is locked. Try again later or contact your administrator.',
+        tooManyAttempts: 'Too many attempts. Wait a few minutes and try again.',
+        emailTaken: 'An account with this email address already exists. Sign in instead.',
+        signUpDisabled: 'Sign-up is not open. Ask your administrator for an invitation.',
       },
       error: {
         alertTitle: 'Error',
@@ -823,6 +827,7 @@ export const common = {
         subtitle: 'Enter the code from your email and create a new password.',
         resetCodeLabel: 'Reset code',
         resetCodePlaceholder: 'Enter 6-digit code',
+        resetCodePlaceholderAny: 'Enter the code from your email',
         newPasswordLabel: 'New password',
         newPasswordPlaceholder: 'Create a new password',
         confirmPasswordLabel: 'Confirm new password',
@@ -839,6 +844,8 @@ export const common = {
         signIn: 'Sign in',
         requirements: {
           atLeast8Chars: 'At least 8 characters',
+          atLeastChars: 'At least {count} characters',
+          oneSymbol: 'One symbol',
           oneUppercase: 'One uppercase letter',
           oneLowercase: 'One lowercase letter',
           oneNumber: 'One number',

@@ -123,6 +123,13 @@ settings, which weldsuite.env adds.
 - name: OIDC_WEB_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.signIn }}
+{{- if and (eq . "platform") (not $.Values.config.identity.zitadel.apiUrl) }}
+{{- fail "config.auth.oidc.signIn platform needs config.identity.zitadel.apiUrl" }}
+{{- end }}
+- name: OIDC_SIGN_IN
+  value: {{ . | quote }}
+{{- end }}
 {{- else if ne .provider "clerk" }}
 {{- fail "config.auth.provider must be clerk or oidc" }}
 {{- end }}

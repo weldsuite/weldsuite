@@ -79,6 +79,9 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// The sign-in screens' backend (`/api/sign-in`), with
+    /// `OIDC_SIGN_IN=platform`.
+    pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
@@ -543,6 +546,7 @@ mod tests {
             trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
+            sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),

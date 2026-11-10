@@ -24,6 +24,7 @@
 
 import { User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
+import { endProviderSession } from './sign-in-api';
 import {
   activeOrganizationId,
   DEFAULT_ORG_CLAIM,
@@ -98,6 +99,8 @@ export class OidcSession {
   private readonly baseScope: string;
   private readonly storage: Storage | undefined;
   private readonly origin: string;
+  /** WeldSuite's own sign-in screens: the backend holds the provider session in a cookie. */
+  private readonly platformSignIn: boolean;
   private user: User | null = null;
   private snapshot: OidcSnapshot = { isLoaded: false, person: null, organizations: [], activeOrgId: null };
   private readonly listeners = new Set<() => void>();
@@ -114,6 +117,7 @@ export class OidcSession {
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
     this.accountUrl = config.accountUrl;
+    this.platformSignIn = config.signIn === 'platform';
     this.manager = new UserManager({
       authority: config.issuer,
       client_id: config.clientId,
@@ -182,6 +186,9 @@ export class OidcSession {
 
   async signOut(redirectUrl?: string): Promise<void> {
     this.forgetMemberships();
+    // The session the sign-in screens opened: without this the next visit to
+    // `/auth/login` would sign the same person straight back in.
+    if (this.platformSignIn) await endProviderSession();
     const post = redirectUrl ? `${this.origin}${sameOriginPath(redirectUrl)}` : undefined;
     try {
       await this.manager.signoutRedirect(post ? { post_logout_redirect_uri: post } : undefined);

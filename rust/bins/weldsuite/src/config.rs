@@ -38,6 +38,11 @@ pub(crate) enum AuthConfig {
         /// `OIDC_WEB_CLIENT_ID`: the platform's public PKCE client, told to
         /// the frontends by `/config.json`.
         web_client_id: Option<String>,
+        /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
+        /// screens and this server is the provider's login client behind
+        /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
+        /// provider's own pages.
+        platform_sign_in: bool,
     },
 }
 
@@ -53,10 +58,12 @@ impl fmt::Debug for AuthConfig {
             Self::Oidc {
                 settings,
                 web_client_id,
+                platform_sign_in,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
+                .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
     }
@@ -93,9 +100,18 @@ impl AuthConfig {
                     settings.org_claim = claim;
                 }
                 settings.jwks_url = lookup("OIDC_JWKS_URL");
+                let platform_sign_in = match lookup("OIDC_SIGN_IN").as_deref() {
+                    None | Some("" | "provider") => false,
+                    Some("platform") => true,
+                    Some(_) => {
+                        problems.push("OIDC_SIGN_IN must be provider or platform".to_owned());
+                        false
+                    }
+                };
                 Self::Oidc {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
+                    platform_sign_in,
                 }
             }
             Some(_) => {
@@ -105,6 +121,26 @@ impl AuthConfig {
                     authorized_parties: None,
                 }
             }
+        }
+    }
+}
+
+impl AuthConfig {
+    /// The platform's own sign-in screens are served by the provider's
+    /// login API: without it there is nothing behind them.
+    fn check_sign_in_screens(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
+        if matches!(
+            self,
+            Self::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ) && infra.identity.is_none()
+        {
+            problems.push(
+                "OIDC_SIGN_IN=platform needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                    .to_owned(),
+            );
         }
     }
 }
@@ -207,6 +243,10 @@ pub(crate) struct Config {
     /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
     /// open private objects; the same value as app-api's.
     pub(crate) storage_signing_key: Option<String>,
+    /// `PLATFORM_URL`: the platform's origin, for the links in the emails
+    /// the sign-in screens have the identity provider send (verify an
+    /// address, reset a password). Unset: the provider's own pages.
+    pub(crate) platform_url: Option<String>,
     /// `REALTIME_*`: the WebSocket gateway (`realtime.rs`).
     pub(crate) realtime: weldsuite_realtime::GatewayConfig,
     /// `TRUSTED_PROXIES`: how many proxies in front of the server append
@@ -285,6 +325,10 @@ pub(crate) struct IdentityConfig {
     pub(crate) api_url: String,
     /// `ZITADEL_SERVICE_TOKEN`: a service user's personal access token.
     pub(crate) token: String,
+    /// `ZITADEL_LOGIN_TOKEN`: the token of a service user with only the
+    /// `IAM_LOGIN_CLIENT` role, for the sign-in screens (`/api/sign-in`).
+    /// Unset: `token`, whose user then needs that role as well.
+    pub(crate) login_token: Option<String>,
     /// `ZITADEL_PROJECT_ID`.
     pub(crate) project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`.
@@ -318,6 +362,7 @@ impl IdentityConfig {
             (Some(api_url), Some(token), Some(project_id)) => Some(Self {
                 api_url,
                 token,
+                login_token: set("ZITADEL_LOGIN_TOKEN"),
                 project_id,
                 invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
                 host: set("ZITADEL_HOST"),
@@ -624,6 +669,7 @@ impl Config {
         };
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
+        auth.check_sign_in_screens(&infra, &mut problems);
         let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
@@ -678,6 +724,7 @@ impl Config {
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
             files_public_via_server: lookup("S3_PUBLIC_VIA_SERVER").as_deref() == Some("true"),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
+            platform_url: lookup("PLATFORM_URL").filter(|s| !s.trim().is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
         })
@@ -909,10 +956,12 @@ abc",
         let AuthConfig::Oidc {
             settings,
             web_client_id,
+            platform_sign_in,
         } = &oidc.auth
         else {
             panic!("oidc expected");
         };
+        assert!(!platform_sign_in, "the provider's own pages by default");
         assert_eq!(settings.issuer, "https://auth.eu.example");
         assert_eq!(
             settings.audiences,
@@ -952,6 +1001,47 @@ abc",
                 if settings.org_claim == "urn:zitadel:iam:org:project:roles"
                     && settings.jwks_url.is_some()
         ));
+    }
+
+    #[test]
+    fn the_platforms_own_sign_in_screens_need_the_providers_login_api() {
+        let oidc = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.eu.example"),
+            ("OIDC_AUDIENCE", "300000000000000100"),
+            ("OIDC_SIGN_IN", "platform"),
+        ];
+        let error = config(&oidc).expect_err("no login API");
+        assert!(error.0[0].contains("OIDC_SIGN_IN=platform"), "{error}");
+
+        let mut vars = oidc.to_vec();
+        vars.extend([
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+            ("ZITADEL_LOGIN_TOKEN", "login"),
+            ("PLATFORM_URL", "https://app.eu.example"),
+        ]);
+        let config_with = config(&vars).expect("valid");
+        assert!(matches!(
+            config_with.auth,
+            AuthConfig::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ));
+        let identity = config_with.infra.identity.expect("identity");
+        assert_eq!(identity.login_token.as_deref(), Some("login"));
+        assert_eq!(
+            config_with.platform_url.as_deref(),
+            Some("https://app.eu.example")
+        );
+
+        let mut vars = oidc.to_vec();
+        vars[4] = ("OIDC_SIGN_IN", "embedded");
+        let error = config(&vars).expect_err("unknown value");
+        assert!(error.0[0].contains("OIDC_SIGN_IN must be"), "{error}");
     }
 
     #[test]

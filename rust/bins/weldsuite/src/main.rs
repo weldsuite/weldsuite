@@ -182,6 +182,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(dir = %spa.root().display(), "serving the SPA");
     }
 
+    let sign_in = sign_in_screens(&config, infra.cache.clone())?;
+
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
         service: "weldsuite",
@@ -217,6 +219,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         trusted_proxies: config.trusted_proxies,
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
+        sign_in,
         realtime: realtime::PublicRealtime::from_config(&config),
         #[cfg(feature = "conformance")]
         recorders,
@@ -278,20 +281,75 @@ fn session_verifier(
         AuthConfig::Oidc {
             settings,
             web_client_id,
+            platform_sign_in,
         } => {
-            let public = serde_json::json!({
+            let mut public = serde_json::json!({
                 "provider": "oidc",
                 "issuer": settings.issuer,
                 "clientId": web_client_id,
                 "audience": settings.audiences.first(),
                 "orgClaim": settings.org_claim,
             });
+            if *platform_sign_in {
+                // The platform shows its own sign-in screens (ADR SEC-016).
+                public["signIn"] = serde_json::json!("platform");
+            }
             Ok((
                 SessionVerifier::oidc(settings.clone())?,
                 Some(Arc::new(public)),
             ))
         }
     }
+}
+
+/// The sign-in screens' backend, with `OIDC_SIGN_IN=platform` (ADR SEC-016):
+/// this server as Zitadel's login client. Its token is `ZITADEL_LOGIN_TOKEN`
+/// (a service user with only `IAM_LOGIN_CLIENT`), else the service token,
+/// whose user then needs that role too: without it Zitadel lets a session
+/// be opened but not a sign-in finished.
+fn sign_in_screens(
+    config: &Config,
+    cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
+) -> Result<Option<weldsuite_core_signin::SignInState>, Box<dyn std::error::Error>> {
+    let AuthConfig::Oidc {
+        settings,
+        platform_sign_in: true,
+        ..
+    } = &config.auth
+    else {
+        return Ok(None);
+    };
+    // The configuration refuses `platform` without the provider's API.
+    let Some(identity) = &config.infra.identity else {
+        return Ok(None);
+    };
+    let provider =
+        weldsuite_adapters_oss::ZitadelSignIn::new(weldsuite_adapters_oss::ZitadelSignInOptions {
+            api_url: identity.api_url.clone(),
+            token: identity
+                .login_token
+                .clone()
+                .unwrap_or_else(|| identity.token.clone()),
+            host: identity.host.clone(),
+            // Its own login pages, for what the platform's screens hand back.
+            public_url: Some(settings.issuer.clone()),
+        })?;
+    let cache = cache.unwrap_or_else(|| {
+        tracing::warn!("VALKEY_URL is not set: sign-in attempts are counted in this process only");
+        Arc::new(weldsuite_ports::MemoryCache::new())
+    });
+    if config.platform_url.is_none() {
+        tracing::warn!(
+            "PLATFORM_URL is not set: links in sign-in emails open the provider's own pages"
+        );
+    }
+    tracing::info!("sign-in screens: the platform's own, on the provider's login API");
+    Ok(Some(weldsuite_core_signin::SignInState::new(
+        Arc::new(provider),
+        cache,
+        config.platform_url.as_deref(),
+        config.trusted_proxies,
+    )))
 }
 
 /// With Restate configured: serve the jobs service on `JOBS_PORT` until
