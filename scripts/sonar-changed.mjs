@@ -44,23 +44,35 @@ const NO_PROGRAM = [/^packages\/sdk\/cli\/templates\//];
 // would mean "no filter" and include the whole tree.
 const NOTHING = '__no_changed_files__';
 
-const git = (...args) =>
-  execFileSync('git', ['-c', 'core.safecrlf=false', ...args], {
+// git(...args) or git(...args, { input }) to feed it stdin.
+const git = (...args) => {
+  const options = typeof args.at(-1) === 'object' ? args.pop() : {};
+  return execFileSync('git', ['-c', 'core.safecrlf=false', ...args], {
     cwd: repo,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
+    ...options,
   });
+};
 
-// The base ref reaches git as an argument, so accept only what a branch, tag,
-// commit or HEAD^1-style revision can look like: never an option (leading -).
-const GIT_REF = /^(?!-)[\w./~^@{}-]{1,200}$/;
-const requestedRef = process.argv[2] ?? 'origin/develop';
-if (!GIT_REF.test(requestedRef)) {
-  console.error(`Not a git ref: ${JSON.stringify(requestedRef)}`);
-  process.exit(2);
+const baseRef = process.argv[2] ?? 'origin/develop';
+
+// The base ref never reaches git as an argument, where a value like
+// "--output=…" would be read as an option. git cat-file reads it on stdin as
+// an object name and answers with a commit id, which is what git gets.
+function resolveCommit(ref) {
+  const [line] = git('cat-file', '--batch-check=%(objectname) %(objecttype)', {
+    input: `${ref.split(/\r?\n/)[0]}\n`,
+  }).split('\n');
+  const [id, type] = line.split(' ');
+  if (type !== 'commit' || !/^[0-9a-f]{40,64}$/.test(id)) {
+    console.error(`Not a commit: ${JSON.stringify(ref)}`);
+    process.exit(2);
+  }
+  return id;
 }
-const baseRef = requestedRef;
-const mergeBase = git('merge-base', '--end-of-options', baseRef, 'HEAD').trim();
+
+const mergeBase = git('merge-base', resolveCommit(baseRef), 'HEAD').trim();
 
 // ── sonar-project.properties ────────────────────────────────────────────────
 
