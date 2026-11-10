@@ -66,6 +66,8 @@ pub(crate) struct AppState {
     pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects here.
+    pub(crate) files_public_via_server: bool,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
     /// realtime tokens with it, and the gateway verifies them.
     pub(crate) widget_token_secret: Option<Arc<str>>,
@@ -536,6 +538,7 @@ mod tests {
             collab_secret: None,
             mail_inbound_secret: None,
             files_public_url: None,
+            files_public_via_server: false,
             widget_token_secret: None,
             trusted_proxies: 1,
             storage_signing_key: None,

@@ -87,6 +87,9 @@ config:
 # (mta below).
 secret:
   existingSecret: weldsuite-env
+  # The EU edition's keys live in its SOPS Secret, which a rebuilt cluster
+  # (the drill) gets back; a key the chart generated in the cluster wouldn't.
+  generate: false
 
 # The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
 # api.${DOMAIN} for clients that call the API by that name.

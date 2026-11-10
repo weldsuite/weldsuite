@@ -299,6 +299,143 @@ config:
 secret:
   existingSecret: ""
   values: {}
+  # The install's own keys, generated once by the chart into the Secret
+  # `generatedName` and kept across upgrades and uninstalls (resource policy
+  # keep): DATABASE_ENCRYPTION_KEY(_V2), WELDPASS_ROOT_KEY,
+  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET (64 hex characters each),
+  # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
+  # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
+  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET, and the
+  # bundled dependencies' credentials (bundle below). Every pod reads it before
+  # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
+  # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
+  # every stored WeldPass secret and every workspace's database URL.
+  generate: true
+  # A fixed name, so the bundled subcharts' values can name it (valkey and
+  # nats below). Change it there too if you change it here.
+  generatedName: weldsuite-generated
+
+# Dependencies the chart runs itself (Chart.yaml's dependencies, pinned to
+# the EU cluster's versions; docs/plans/self-hosted-edition.md, decision 2).
+# On, the chart also sets the server's settings for it from the generated
+# Secret, overriding the same keys in the Secret above: VALKEY_URL; NATS_URL
+# and NATS_TOKEN; RESTATE_INGRESS_URL and RESTATE_ADMIN_URL; S3_ENDPOINT, the
+# buckets and keys, S3_ENSURE_BUCKETS and, without config.files.publicUrl,
+# public objects served by this server at <config.publicUrl>/api/storage/public.
+# Off, bring your own and put its settings in the Secret.
+bundle:
+  # A CloudNativePG Cluster for the master and the workspaces' databases
+  # (postgres below): DATABASE_URL_MASTER and TENANT_SHARDS. Needs the
+  # CloudNativePG operator in the cluster. With it, the migrations run in an
+  # init container of the server's pods instead of a pre-install hook, which
+  # would run before the database exists.
+  postgres: false
+  valkey: false
+  nats: false
+  restate: false
+  objectStorage: false
+
+# The bundled Postgres (bundle.postgres): one CloudNativePG Cluster,
+# <release>-pg. The master database is weldsuite_master, owned by weldsuite;
+# each workspace gets its own database and role on the same cluster, made by
+# the tenant role (CREATEDB, CREATEROLE). Both passwords are generated into
+# <release>-pg-owner and <release>-pg-tenant (basic-auth Secrets, kept on
+# uninstall). Workspaces connect to the primary directly, without a pooler,
+# which suits an install of up to a few hundred workspaces.
+postgres:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  parameters:
+    max_connections: "300"
+    shared_buffers: 256MB
+  storage:
+    size: 20Gi
+    # The cluster's default StorageClass when empty.
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# The bundled object store (bundle.objectStorage): one RustFS node (Apache-2.0,
+# S3-compatible) on a volume. The buckets are created by the server at start.
+objectStorage:
+  image:
+    repository: rustfs/rustfs
+    tag: "1.0.1"
+    pullPolicy: IfNotPresent
+  buckets:
+    private: weldsuite-private
+    public: weldsuite-public
+  storage:
+    size: 50Gi
+    # The cluster's default StorageClass when empty.
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  podSecurityContext:
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
+
+# Values for the bundled subcharts, used only when their bundle toggle is on.
+# Valkey with a password for its default user from the generated Secret.
+valkey:
+  auth:
+    enabled: true
+    usersExistingSecret: weldsuite-generated
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+        passwordKey: VALKEY_PASSWORD
+  dataStorage:
+    enabled: true
+    requestedSize: 5Gi
+    keepPvc: true
+# NATS with JetStream on a volume, one node, a token from the generated Secret.
+nats:
+  config:
+    jetstream:
+      enabled: true
+      fileStore:
+        pvc:
+          size: 10Gi
+    merge:
+      authorization:
+        token: << $NATS_TOKEN >>
+  container:
+    env:
+      NATS_TOKEN:
+        valueFrom:
+          secretKeyRef:
+            name: weldsuite-generated
+            key: NATS_TOKEN
+  natsBox:
+    enabled: false
+# Restate, one node; it is reached only inside the cluster.
+restate:
+  replicaCount: 1
+  env:
+    - name: RESTATE_LOG_FORMAT
+      value: json
+    - name: RESTATE_CLUSTER_NAME
+      value: weldsuite
+    # RocksDB's memory budget, well inside the limit below.
+    - name: RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE
+      value: 768Mi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  storage:
+    size: 10Gi
 
 # The database migrations: a Job that runs `weldsuite migrate` with the same
 # image, Secret and settings as the server, as a Helm pre-install and
