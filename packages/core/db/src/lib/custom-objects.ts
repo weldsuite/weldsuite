@@ -51,7 +51,8 @@ type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 export type AtomicRunner<D = AnyDb> = (
   db: D,
   build: (handle: D) => unknown[],
-) => Promise<void>;
+  // worker-kit's `atomically` answers the statements' results; nothing here reads them.
+) => Promise<unknown>;
 
 const objects = schema.customObjects;
 const records = schema.customObjectRecords;
