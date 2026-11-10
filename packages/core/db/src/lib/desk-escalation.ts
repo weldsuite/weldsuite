@@ -19,7 +19,7 @@
  */
 
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type { DeskConversation } from '../schema/desk-conversations';
@@ -30,7 +30,7 @@ import { autoAssignDeskConversation, deskTeamMemberIds, type DeskAssigneePicker 
 import { deskEscalationsDueFor, loadDeskRunningBreach, type DeskEscalationDue } from './desk-escalation-check';
 import { refreshDeskSla } from './desk-sla';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const departments = schema.helpdeskDepartments;

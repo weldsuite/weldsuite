@@ -20,7 +20,7 @@
  */
 
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import {
@@ -33,7 +33,7 @@ import {
 } from './custom-field-values';
 import { asText } from '@weldsuite/text';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 /**
  * Commits a built list of statements as one unit.

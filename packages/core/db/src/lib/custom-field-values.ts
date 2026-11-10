@@ -13,7 +13,7 @@
  */
 
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import {
   fieldTypeToValueColumn,
   validateCustomFieldValue,
@@ -22,7 +22,7 @@ import {
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const defs = schema.customFieldDefinitions;
 const vals = schema.customFieldValues;
