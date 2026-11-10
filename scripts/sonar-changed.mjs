@@ -51,8 +51,16 @@ const git = (...args) =>
     maxBuffer: 256 * 1024 * 1024,
   });
 
-const baseRef = process.argv[2] ?? 'origin/develop';
-const mergeBase = git('merge-base', baseRef, 'HEAD').trim();
+// The base ref reaches git as an argument, so accept only what a branch, tag,
+// commit or HEAD^1-style revision can look like: never an option (leading -).
+const GIT_REF = /^(?!-)[\w./~^@{}-]{1,200}$/;
+const requestedRef = process.argv[2] ?? 'origin/develop';
+if (!GIT_REF.test(requestedRef)) {
+  console.error(`Not a git ref: ${JSON.stringify(requestedRef)}`);
+  process.exit(2);
+}
+const baseRef = requestedRef;
+const mergeBase = git('merge-base', '--end-of-options', baseRef, 'HEAD').trim();
 
 // ── sonar-project.properties ────────────────────────────────────────────────
 
@@ -96,7 +104,7 @@ function wildcard(pattern) {
       re += '[^/]';
       i++;
     } else {
-      re += pattern[i].replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      re += pattern[i].replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`);
       i++;
     }
   }
@@ -128,7 +136,7 @@ function changedFiles() {
   for (const file of git('ls-files', '--others', '--exclude-standard', '-z').split('\0')) {
     if (file) changed.add(file);
   }
-  return [...changed].filter(file => existsSync(path.join(repo, file))).sort();
+  return [...changed].filter(file => existsSync(path.join(repo, file))).sort((a, b) => a.localeCompare(b));
 }
 
 const main = [];
