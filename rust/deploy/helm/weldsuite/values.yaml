@@ -96,6 +96,15 @@ config:
       # The platform's public client (PKCE), told to the frontends by
       # /config.json (optional).
       webClientId: ""
+      # Who shows the sign-in screens (ADR SEC-016). Empty or provider: the
+      # provider's own pages. platform: WeldSuite's, the ones Global shows,
+      # with the server as Zitadel's login client behind them (/api/sign-in).
+      # That takes config.identity.zitadel, a service user with the
+      # IAM_LOGIN_CLIENT role, and Zitadel's sign-in for the platform's
+      # application pointed at <platform>/auth (Hetzner runbook, step 7).
+      # The links in its emails open the platform at PLATFORM_URL, which
+      # config.publicUrl fills.
+      signIn: ""
   # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
@@ -210,7 +219,10 @@ config:
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
   # ZITADEL_SERVICE_TOKEN (a service user's personal access token, IAM_OWNER)
-  # goes in the Secret. Empty apiUrl: no identity provider.
+  # goes in the Secret. Empty apiUrl: no identity provider. With
+  # config.auth.oidc.signIn: platform the sign-in screens call Zitadel's
+  # login API too, as a service user with IAM_LOGIN_CLIENT: that same user
+  # with the role added, or one of its own (ZITADEL_LOGIN_TOKEN).
   identity:
     zitadel:
       apiUrl: ""             # http://zitadel.zitadel.svc:8080
@@ -286,6 +298,9 @@ config:
 #                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 #   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   ZITADEL_LOGIN_TOKEN          the token of a service user with only IAM_LOGIN_CLIENT, for the sign-in
+#                                screens (optional, with config.auth.oidc.signIn: platform; unset: the
+#                                service user above, which then needs that role as well)
 #   DATABASE_URL_PERSONAL        personal-api's shared personal database (consumer WeldMail and
 #                                WeldCalendar on personal accounts, ADR DATA-011), a database of its
 #                                own: set, the server serves personal-api at /personal-api and the

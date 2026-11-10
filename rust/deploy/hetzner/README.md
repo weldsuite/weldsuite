@@ -271,9 +271,57 @@ default) organisation:
    server at `http://zitadel.zitadel.svc:8080` with `auth.<domain>` as the
    host (`config.identity`).
 6. **Self-registration**: in the default organisation's login settings,
-   allow users to register. People sign up there (the platform's "Sign up"
-   opens Zitadel's registration, `prompt=create`), and each workspace they
-   create becomes an organisation of its own (next section).
+   allow users to register. People sign up there (the platform's "Sign up",
+   `prompt=create`), and each workspace they create becomes an organisation
+   of its own (next section).
+7. **WeldSuite's own sign-in screens** (ADR SEC-016; `config.auth.oidc.signIn:
+   platform` in the app's values). Zitadel stays the identity provider, but
+   people see the screens Global shows, on `app.<domain>`, and the server
+   signs them in as Zitadel's *login client* (`/api/sign-in`). Until the
+   steps below are done Zitadel's own pages keep working, so do them on the
+   test cluster first, in this order:
+   1. Give the service user of step 5 the instance role `IAM_LOGIN_CLIENT`
+      as well: Default settings → Administrators, click its row, tick the
+      role (or `PUT /admin/v1/members/<user id>` with
+      `{"roles": ["IAM_OWNER", "IAM_LOGIN_CLIENT"]}`).
+      `IAM_OWNER` alone may open sessions but not finish a sign-in
+      (`session.link`); the server then logs "the provider refused the
+      service user" and sign-in answers 503. To keep sign-in on a user of its
+      own, make a second machine user with only `IAM_LOGIN_CLIENT` and put
+      its token in `weldsuite-env` as `ZITADEL_LOGIN_TOKEN`.
+   2. Give every other application a login setting: open each one (the
+      admin console's `admin` in the `WeldSuite Staff` organisation, and
+      Zitadel's own "Management Console" in the default organisation's
+      ZITADEL project), tick "Use new Login UI", leave "Custom base URL for
+      the new Login UI" empty, and save. They keep Zitadel's pages under
+      `/ui/v2/login`. An application left without the setting falls back to
+      the old Login V1 at step 4.
+   3. Application `platform`: tick "Use new Login UI" and set "Custom base
+      URL for the new Login UI" to `https://app.<domain>/auth`. Nothing
+      changes yet: the instance feature "Login V2" is *Enabled* (required)
+      on a new v4 instance, which sends every application to Zitadel's own
+      pages whatever it asks for.
+   4. The switch: Default settings → Features → "Login V2" → *Disabled*
+      (or `PUT /v2/features/instance` with `{"loginV2": {"required":
+      false}}`). Applications now use their own setting, and Zitadel sends
+      the platform's sign-in to
+      `https://app.<domain>/auth/login?authRequest=…`.
+   5. Check: open `https://app.<domain>` signed out. The WeldSuite sign-in
+      shows; signing in lands in the workspace; switching workspace asks for
+      no password; signing out and opening the platform again shows the
+      sign-in. `https://auth.<domain>/ui/console` still signs in under
+      `/ui/v2/login`. To go back, set "Login V2" to *Enabled* again.
+
+   What these screens do themselves: email and password, a second factor by
+   authenticator app or emailed code, sign-up with a verified address, and a
+   forgotten password. For anything else (a passkey, a security key, a code
+   by SMS, a forced password change, setting up a second factor the policy
+   demands) they hand that one sign-in to Zitadel's page, which is why the
+   `login` ingress stays. Invitations still open Zitadel's page
+   (`config.identity.zitadel.inviteUrlTemplate`), and the emails for
+   verifying an address and resetting a password link to the platform
+   (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
+   policy (Default settings → Lockout) applies on top when it is set.
 
 A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
 holds, where Global keeps the Clerk org id, and the server looks a session's
@@ -758,7 +806,8 @@ Be clear about this before anyone signs a contract:
   the offered modules, and the platform hides the rest (work package 4.F3).
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
   step 7) and the platform signs in through Zitadel with its auth facade
-  (OIDC with PKCE, from `/config.json`). Invitations and member changes go
+  (OIDC with PKCE, from `/config.json`), on WeldSuite's own sign-in screens
+  once step 7.7 is done. Invitations and member changes go
   through the Zitadel identity adapter; the identity sync (above) catches up
   on changes made in Zitadel within about a minute. No SAML connections
   (`sso-connections` is listed as unavailable).

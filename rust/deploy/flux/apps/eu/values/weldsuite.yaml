@@ -31,6 +31,12 @@ config:
       # is the workspace, not for someone in several.)
       orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
       webClientId: "${ZITADEL_WEB_CLIENT_ID}"
+      # WeldSuite's own sign-in screens (the ones Global shows) rather than
+      # Zitadel's, with the server as Zitadel's login client (ADR SEC-016).
+      # They show once Zitadel's sign-in for the platform's application
+      # points at https://app.${DOMAIN}/auth (Hetzner runbook, step 7);
+      # until then Zitadel's own pages still do.
+      signIn: platform
   # Flag values from the master database (feature_flag_overrides).
   featureFlags: master-db
   nats:
