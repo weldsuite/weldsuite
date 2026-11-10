@@ -146,11 +146,38 @@ fn grafana(p: &Map<String, Value>) -> Fields {
     }
 }
 
+/// What makes one Datadog alert one ticket (`datadogKey`). A multi-alert
+/// monitor fires once per group (host:a, host:b, ...) under one `alert_id`, so
+/// the group is part of the key. `aggreg_key` when present, else `alert_id`
+/// plus the group (`alert_scope`, else `scope`; its tags sorted, so a firing
+/// and its recovery agree), else `alert_id`, else `id`.
+fn datadog_key(p: &Map<String, Value>) -> String {
+    let aggreg_key = first(p, &["aggreg_key"]);
+    if !aggreg_key.is_empty() {
+        return aggreg_key;
+    }
+    let alert_id = first(p, &["alert_id"]);
+    if alert_id.is_empty() {
+        return first(p, &["id"]);
+    }
+    let mut tags: Vec<String> = first(p, &["alert_scope", "scope"])
+        .split(',')
+        .map(|tag| tag.trim().to_owned())
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    tags.sort();
+    if tags.is_empty() {
+        alert_id
+    } else {
+        format!("{alert_id}:{}", tags.join(","))
+    }
+}
+
 fn datadog(p: &Map<String, Value>) -> Fields {
     let transition = text(p.get("alert_transition")).to_lowercase();
     let kind = text(p.get("alert_type")).to_lowercase();
     Fields {
-        external_id: first(p, &["alert_id", "aggreg_key", "id"]),
+        external_id: datadog_key(p),
         title: first(p, &["alert_title", "title"]),
         message: first(p, &["body", "message", "text", "event_msg"]),
         severity: first(p, &["alert_priority", "alert_type"]),
@@ -240,6 +267,29 @@ fn as_payload(payload: &Value) -> Option<Map<String, Value>> {
     }
 }
 
+/// The widest key the conversation's `external_id` column takes.
+const EXTERNAL_ID_MAX: usize = 255;
+
+/// FNV-1a over the UTF-8 bytes, as 8 hex digits: a stable suffix for a key
+/// that had to be cut.
+fn fnv1a(text: &str) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in text.bytes() {
+        hash = (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193);
+    }
+    format!("{hash:08x}")
+}
+
+/// `fitExternalId`: a key over 255 characters is cut to 246 plus `~` and a
+/// hash of the whole key, so long keys stay distinct.
+pub(super) fn fit_external_id(external_id: &str) -> String {
+    if external_id.chars().count() <= EXTERNAL_ID_MAX {
+        return external_id.to_owned();
+    }
+    let head: String = external_id.chars().take(EXTERNAL_ID_MAX - 9).collect();
+    format!("{head}~{}", fnv1a(external_id))
+}
+
 /// `parseAlert(payload, source, defaultPriority)`.
 pub(super) fn parse_alert(payload: &Value, source: &str, default_priority: &str) -> Value {
     let Some(p) = as_payload(payload) else {
@@ -284,7 +334,7 @@ pub(super) fn parse_alert(payload: &Value, source: &str, default_priority: &str)
     json!({
         "success": true,
         "source": kind,
-        "externalId": format!("{kind}:{id_part}"),
+        "externalId": fit_external_id(&format!("{kind}:{id_part}")),
         "title": title,
         "message": format!("{body}{link}"),
         "severity": fields.severity,
@@ -397,5 +447,54 @@ mod tests {
         ] {
             assert_eq!(severity_to_priority(word, "high"), priority);
         }
+    }
+
+    #[test]
+    fn keys_datadog_alerts_per_group() {
+        let id = |payload: Value| parse_alert(&payload, "auto", "medium")["externalId"].clone();
+        let base = json!({ "alert_id": "7771", "alert_title": "CPU" });
+        let with = |extra: Value| {
+            let mut p = base.clone();
+            for (k, v) in extra.as_object().expect("an object") {
+                p[k] = v.clone();
+            }
+            p
+        };
+        assert_eq!(
+            id(with(json!({ "aggreg_key": "g1", "alert_scope": "host:a" }))),
+            "datadog:g1"
+        );
+        assert_eq!(
+            id(with(json!({ "alert_scope": "host:a,env:prod" }))),
+            "datadog:7771:env:prod,host:a"
+        );
+        assert_eq!(
+            id(with(
+                json!({ "alert_scope": " env:prod, host:a", "alert_transition": "Recovered" })
+            )),
+            "datadog:7771:env:prod,host:a"
+        );
+        assert_ne!(
+            id(with(json!({ "alert_scope": "host:a" }))),
+            id(with(json!({ "alert_scope": "host:b" })))
+        );
+        assert_eq!(
+            id(with(json!({ "scope": "host:a" }))),
+            "datadog:7771:host:a"
+        );
+        assert_eq!(id(with(json!({ "tags": "host:a" }))), "datadog:7771");
+        assert_eq!(
+            id(json!({ "id": "900", "alert_type": "error" })),
+            "datadog:900"
+        );
+    }
+
+    #[test]
+    fn cuts_long_ids_by_characters() {
+        let long = "é".repeat(300);
+        let fitted = fit_external_id(&long);
+        assert_eq!(fitted.chars().count(), 255);
+        assert!(fitted.starts_with(&"é".repeat(246)));
+        assert_eq!(fit_external_id(&"a".repeat(255)), "a".repeat(255));
     }
 }

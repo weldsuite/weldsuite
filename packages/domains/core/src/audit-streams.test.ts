@@ -1,8 +1,8 @@
 /**
  * Audit log stream delivery against a real tenant schema (pglite): wire
  * formats, the cursor (same-millisecond rows, microsecond fractions, batch
- * edges), failure / backoff / recovery, auto-disable, and isolation between
- * streams.
+ * edges), the settle window (rows that commit out of order), failure /
+ * backoff / recovery, auto-disable, and isolation between streams.
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -12,10 +12,12 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { encryptField } from '@weldsuite/db/lib/crypto';
 import {
   AUDIT_STREAM_BATCH_SIZE,
+  AUDIT_STREAM_SETTLE_MS,
   auditStreamBackoffMs,
   buildAuditStreamEvent,
   buildAuditStreamRequest,
   flushAuditLogStreams,
+  hasActiveAuditLogStreams,
   sendAuditLogStreamTest,
   type AuditStreamEvent,
   type AuditStreamsDb,
@@ -41,6 +43,10 @@ beforeEach(async () => {
 
 const T0 = '2026-11-01 10:00:00';
 const CREATED = new Date('2026-11-01T09:00:00.000Z');
+/** A flush time by which every row around T0 is older than the settle window. */
+const SETTLED = new Date('2026-11-01T12:00:00.000Z');
+/** A flush time `ms` milliseconds after T0. */
+const at = (ms: number) => new Date(Date.parse('2026-11-01T10:00:00.000Z') + ms);
 
 /** Insert audit rows with a text timestamp so microseconds survive. */
 async function insertRow(id: string, createdAt: string, extra: { action?: string; metadata?: Record<string, unknown> } = {}): Promise<void> {
@@ -181,8 +187,20 @@ describe('flushAuditLogStreams', () => {
   it('does nothing and sends nothing without streams', async () => {
     await insertRow('a1', '2026-11-01 10:00:00.100');
     const { calls, fetch } = recorder();
-    expect(await flushAuditLogStreams(flushDb(), { keyring, fetch })).toEqual([]);
+    expect(await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED })).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+
+  it('tells whether the workspace has a stream to deliver to', async () => {
+    expect(await hasActiveAuditLogStreams(flushDb())).toBe(false);
+    await addStream('paused', { status: 'paused' });
+    await addStream('off', { status: 'disabled' });
+    expect(await hasActiveAuditLogStreams(flushDb())).toBe(false);
+    await addStream('on');
+    expect(await hasActiveAuditLogStreams(flushDb())).toBe(true);
+
+    const broken = { select: () => { throw new Error('db down'); } } as unknown as AuditStreamsDb;
+    expect(await hasActiveAuditLogStreams(broken)).toBe(false);
   });
 
   it('sends rows after the cursor in order, advances it and counts them', async () => {
@@ -220,7 +238,7 @@ describe('flushAuditLogStreams', () => {
     await insertRow('a1', `${T0}.100`);
     await addStream('s1');
     const { calls, fetch } = recorder();
-    await flushAuditLogStreams(flushDb(), { keyring, fetch });
+    await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
     expect(calls[0]!.body).not.toContain('must-not-be-sent');
     expect(calls[0]!.body).not.toContain('secretMeta');
     expect(calls[0]!.body).toContain('"workspaceId":"ws_1"');
@@ -230,7 +248,7 @@ describe('flushAuditLogStreams', () => {
     await insertRow('a1', `${T0}.500`);
     await addStream('sp', { type: 'splunk_hec', settings: { index: 'sec' } });
     const { calls, fetch } = recorder();
-    await flushAuditLogStreams(flushDb(), { keyring, fetch });
+    await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
     expect(calls[0]!.headers.Authorization).toBe(`Splunk ${TOKEN}`);
     const envelope = JSON.parse(calls[0]!.body) as { time: number; index: string; sourcetype: string; event: { id: string } };
     expect(envelope).toMatchObject({ time: 1793527200.5, index: 'sec', sourcetype: '_json', event: { id: 'a1' } });
@@ -241,7 +259,7 @@ describe('flushAuditLogStreams', () => {
     await addStream('fresh', { cursorCreatedAt: new Date('2026-11-01T10:00:30.000Z'), createdAt: new Date('2026-11-01T10:00:30.000Z') });
     await addStream('paused', { status: 'paused' });
     const { calls, fetch } = recorder();
-    await flushAuditLogStreams(flushDb(), { keyring, fetch });
+    await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
     expect(calls).toHaveLength(0);
   });
 
@@ -255,13 +273,13 @@ describe('flushAuditLogStreams', () => {
       await addStream('s1');
       const { calls, fetch } = recorder();
 
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls).toHaveLength(1);
       // Ordered by millisecond, then id.
       expect(idsOf(calls[0]!)).toEqual(['r_a', 'r_b', 'r_c', 'r_next']);
 
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls).toHaveLength(1);
       expect((await streamRow('s1')).deliveredCount).toBe(4);
     });
@@ -270,9 +288,9 @@ describe('flushAuditLogStreams', () => {
       await insertRow('r_a', `${T0}.123100`);
       await addStream('s1');
       const { calls, fetch } = recorder();
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       await insertRow('r_z', `${T0}.123990`);
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls.map(idsOf)).toEqual([['r_a'], ['r_z']]);
     });
 
@@ -286,13 +304,109 @@ describe('flushAuditLogStreams', () => {
       `);
       await addStream('s1');
       const { calls, fetch } = recorder();
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       const seen = calls.flatMap(idsOf);
       expect(calls.map((c) => idsOf(c).length)).toEqual([200, 200, 50]);
       expect(new Set(seen).size).toBe(total);
       expect(seen).toEqual([...seen].sort());
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls).toHaveLength(3);
+    });
+  });
+
+  describe('settle window', () => {
+    it('is five seconds', () => {
+      expect(AUDIT_STREAM_SETTLE_MS).toBe(5_000);
+    });
+
+    it('leaves rows younger than the window alone and does not move the cursor past them', async () => {
+      await insertRow('a1', `${T0}.000`);
+      await insertRow('a2', `${T0}.999999`);
+      await insertRow('a3', '2026-11-01 10:00:01.000'); // exactly five seconds old at T0 + 6 s: not yet
+      await insertRow('a4', '2026-11-01 10:00:03.000');
+      await addStream('s1');
+      const { calls, fetch } = recorder();
+
+      const [first] = await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_000) });
+      expect(first).toMatchObject({ outcome: 'delivered', delivered: 2 });
+      expect(calls.map(idsOf)).toEqual([['a1', 'a2']]);
+      let s = await streamRow('s1');
+      expect(s).toMatchObject({ cursorId: 'a2', deliveredCount: 2 });
+      expect(s.cursorCreatedAt?.toISOString()).toBe('2026-11-01T10:00:00.999Z');
+
+      // One millisecond on, the third row has settled; the fourth has not.
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_001) });
+      expect(calls.map(idsOf)).toEqual([['a1', 'a2'], ['a3']]);
+
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(8_001) });
+      expect(calls.map(idsOf)).toEqual([['a1', 'a2'], ['a3'], ['a4']]);
+      s = await streamRow('s1');
+      expect(s).toMatchObject({ cursorId: 'a4', deliveredCount: 4 });
+    });
+
+    it('sends nothing, and reports idle, while every new row is inside the window', async () => {
+      await insertRow('a1', '2026-11-01 10:00:02.000');
+      await addStream('s1');
+      const { calls, fetch } = recorder();
+      const [result] = await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(4_000) });
+      expect(result).toMatchObject({ outcome: 'idle', delivered: 0 });
+      expect(calls).toHaveLength(0);
+      expect(await streamRow('s1')).toMatchObject({ cursorId: null, deliveredCount: 0, lastAttemptAt: null });
+    });
+
+    it('delivers a row that commits late with an earlier created_at than one a flush already saw', async () => {
+      // Invocation B inserted at T0 + 2 s and committed. Invocation A took its
+      // timestamp at T0 + 1.5 s and has not committed yet: its row is not there.
+      await insertRow('row_b', '2026-11-01 10:00:02.000');
+      await addStream('s1');
+      const { calls, fetch } = recorder();
+
+      // B flushes right after its write. Its row is too young to send, so the
+      // cursor stays where A's row will still be in front of it.
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(2_100) });
+      expect(calls).toHaveLength(0);
+      expect((await streamRow('s1')).cursorId).toBeNull();
+
+      // A commits: a row with an earlier created_at appears.
+      await insertRow('row_a', '2026-11-01 10:00:01.500');
+
+      // Neither is older than the window yet.
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_000) });
+      expect(calls).toHaveLength(0);
+
+      // Once both are, they go out in order and none is skipped.
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(8_000) });
+      expect(calls.map(idsOf)).toEqual([['row_a', 'row_b']]);
+      expect(await streamRow('s1')).toMatchObject({ cursorId: 'row_b', deliveredCount: 2 });
+    });
+
+    it('delivers a late commit inside one millisecond whose id sorts before one that was already there', async () => {
+      await insertRow('r_z', `${T0}.123900`);
+      await addStream('s1');
+      const { calls, fetch } = recorder();
+
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(1_000) });
+      expect(calls).toHaveLength(0);
+
+      await insertRow('r_a', `${T0}.123100`);
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_000) });
+      expect(calls.map(idsOf)).toEqual([['r_a', 'r_z']]);
+
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
+      expect(calls).toHaveLength(1);
+    });
+
+    it('takes a millisecond whole or not at all', async () => {
+      // The bound falls on a millisecond, so both rows of .500 settle together.
+      await insertRow('m_b', '2026-11-01 10:00:01.500100');
+      await insertRow('m_a', '2026-11-01 10:00:01.500900');
+      await addStream('s1');
+      const { calls, fetch } = recorder();
+
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_500) });
+      expect(calls).toHaveLength(0);
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: at(6_501) });
+      expect(calls.map(idsOf)).toEqual([['m_a', 'm_b']]);
     });
   });
 
@@ -305,10 +419,10 @@ describe('flushAuditLogStreams', () => {
     `);
     await addStream('s1');
     const { calls, fetch } = recorder();
-    const [first] = await flushAuditLogStreams(flushDb(), { keyring, fetch });
+    const [first] = await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
     expect(calls).toHaveLength(5);
     expect(first!.delivered).toBe(1000);
-    const [second] = await flushAuditLogStreams(flushDb(), { keyring, fetch });
+    const [second] = await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
     expect(second!.delivered).toBe(100);
     expect(calls).toHaveLength(6);
     expect(new Set(calls.flatMap(idsOf)).size).toBe(1100);
@@ -376,7 +490,7 @@ describe('flushAuditLogStreams', () => {
       await addStream('bad');
       await addStream('good');
       const { calls, fetch } = recorder((url) => (url.includes('bad') ? new Response('no', { status: 500 }) : new Response('ok')));
-      const results = await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      const results = await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(results.map((r) => [r.streamId, r.outcome]).sort()).toEqual([
         ['bad', 'failed'],
         ['good', 'delivered'],
@@ -392,7 +506,7 @@ describe('flushAuditLogStreams', () => {
       const boom = (async () => {
         throw Object.assign(new Error(`connect failed for ${TOKEN}`), { name: 'Error' });
       }) as typeof fetch;
-      await expect(flushAuditLogStreams(flushDb(), { keyring, fetch: boom })).resolves.toHaveLength(1);
+      await expect(flushAuditLogStreams(flushDb(), { keyring, fetch: boom, now: SETTLED })).resolves.toHaveLength(1);
       const s = await streamRow('s1');
       expect(s.lastError).toBe('Request failed: connect failed for ***');
 
@@ -400,7 +514,7 @@ describe('flushAuditLogStreams', () => {
         throw Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' });
       }) as typeof fetch;
       await db.update(schema.auditLogStreams).set({ lastAttemptAt: null });
-      await flushAuditLogStreams(flushDb(), { keyring, fetch: slow });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch: slow, now: SETTLED });
       expect((await streamRow('s1')).lastError).toBe('Timed out after 10 s');
     });
 
@@ -412,7 +526,7 @@ describe('flushAuditLogStreams', () => {
         redirectSeen = init?.redirect;
         return new Response(null, { status: 302, headers: { Location: 'https://elsewhere.example.com' } });
       }) as typeof globalThis.fetch;
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(redirectSeen).toBe('manual');
       expect((await streamRow('s1')).lastError).toBe('HTTP 302');
     });
@@ -421,12 +535,12 @@ describe('flushAuditLogStreams', () => {
       await insertRow('a1', `${T0}.100`);
       await addStream('s1', { url: 'https://10.0.0.5/ingest' });
       const { calls, fetch } = recorder();
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls).toHaveLength(0);
       expect((await streamRow('s1')).lastError).toBe('The URL points at a private or local address');
 
       await db.update(schema.auditLogStreams).set({ lastAttemptAt: null });
-      await flushAuditLogStreams(flushDb(), { keyring, fetch, allowPrivateNetworks: true });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, allowPrivateNetworks: true, now: SETTLED });
       expect(calls).toHaveLength(1);
     });
 
@@ -434,7 +548,7 @@ describe('flushAuditLogStreams', () => {
       await insertRow('a1', `${T0}.100`);
       await addStream('s1', { tokenEncrypted: 'v2:00:00' });
       const { calls, fetch } = recorder();
-      await flushAuditLogStreams(flushDb(), { keyring, fetch });
+      await flushAuditLogStreams(flushDb(), { keyring, fetch, now: SETTLED });
       expect(calls).toHaveLength(0);
       expect((await streamRow('s1')).lastError).toBe('The stored token cannot be decrypted; enter it again');
     });

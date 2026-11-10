@@ -176,17 +176,23 @@ export function overviewCsvFilename(range: string, now: Date): string {
   return `welddesk-overview-${range}-${dateKeyOf(now)}.csv`;
 }
 
+/** `text` without the dashes at its start and end. */
+function trimDashes(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === '-') start += 1;
+  while (end > start && text[end - 1] === '-') end -= 1;
+  return text.slice(start, end);
+}
+
 /**
  * `welddesk-report-<slug>-<YYYY-MM-DD>.csv`, the slug being the title in lower
  * case with every run of characters other than a-z and 0-9 turned into `-`,
  * trimmed of dashes and cut at 40 characters (the report id when nothing is left).
  */
 export function reportCsvFilename(report: { id: string; title: string }, now: Date): string {
-  const slug = report.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/g, '');
+  const dashed = trimDashes(report.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+  // The cut can land right after a dash.
+  const slug = trimDashes(dashed.slice(0, 40));
   return `welddesk-report-${slug || report.id}-${dateKeyOf(now)}.csv`;
 }

@@ -322,11 +322,15 @@ export function serverErrorToFormErrors(
   return errors;
 }
 
+/** Where a failed response keeps its issues: on the body itself, or under `error`. */
+function issuesHolder(root: { issues?: unknown; error?: unknown }): { issues?: unknown } | null {
+  if (Array.isArray(root.issues)) return root;
+  return typeof root.error === 'object' && root.error !== null ? (root.error as { issues?: unknown }) : null;
+}
+
 function extractIssues(body: unknown): Array<{ path: PathSegment[]; message: string }> {
   if (typeof body !== 'object' || body === null) return [];
-  const root = body as { issues?: unknown; error?: unknown };
-  const holder =
-    Array.isArray(root.issues) ? root : typeof root.error === 'object' && root.error !== null ? (root.error as { issues?: unknown }) : null;
+  const holder = issuesHolder(body as { issues?: unknown; error?: unknown });
   if (!holder || !Array.isArray(holder.issues)) return [];
   const out: Array<{ path: PathSegment[]; message: string }> = [];
   for (const raw of holder.issues) {

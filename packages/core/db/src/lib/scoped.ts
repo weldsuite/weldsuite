@@ -1,5 +1,4 @@
 import type { TenantDb } from './any-db';
-import type * as schema from '../schema';
 import type { TenantTier } from '../schema/master';
 
 // Database instance type — base class shared by neon-serverless (platform)

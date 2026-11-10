@@ -12,6 +12,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { findDeskConversationByExternalId } from '@weldsuite/db/lib/desk';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import {
   addDeskConversationMessageFromApi,
@@ -57,10 +58,14 @@ function text(value: unknown): string | undefined {
   return s || undefined;
 }
 
+function rawTags(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return typeof value === 'string' ? value.split(',') : [];
+}
+
 /** Tags as a list: an array, or a comma-separated string. Blanks and repeats drop out. */
 function tagList(value: unknown): string[] {
-  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
-  return [...new Set(raw.map((tag) => text(tag)).filter((tag): tag is string => tag !== undefined))];
+  return [...new Set(rawTags(value).map((tag) => text(tag)).filter((tag): tag is string => tag !== undefined))];
 }
 
 /** The ticket fields the step sets; an unknown priority is ignored rather than failing the step. */
@@ -73,6 +78,21 @@ function ticketFields(inputs: Record<string, unknown>): NonNullable<OpenDeskApiC
     departmentId: text(inputs.teamId),
     ticketTypeId: text(inputs.ticketTypeId),
   };
+}
+
+const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
+
+/**
+ * Whether the step's priority may be written onto the conversation that
+ * already carries its external id. A repeat only ever raises the priority (a
+ * warning after a critical, or a recovery, leaves it), except that a reopened
+ * ticket is a new episode and takes the priority as given, and the run that
+ * closes a ticket never changes it.
+ */
+function priorityApplies(existing: { state: string; priority: string | null }, incoming: string, closing: boolean): boolean {
+  if (closing) return false;
+  if (existing.state === 'closed') return true;
+  return (PRIORITY_RANK[incoming] ?? 0) > (PRIORITY_RANK[existing.priority ?? ''] ?? 0);
 }
 
 /** Is this an inbox conversation (rather than a legacy helpdesk one)? */
@@ -90,25 +110,34 @@ export async function isDeskConversation(ctx: ActionContext, conversationId: str
  * `externalId` (reopening it). Inputs: title, message (or body), name, email,
  * contactId, externalId, and the ticket fields priority, tags (a list or a
  * comma-separated string), teamId and ticketTypeId (applied on a repeat too,
- * so an alert can escalate). `state: 'closed'` closes the conversation once
- * the message is in, so a resolved alert lands on its ticket and closes it.
+ * so an alert can escalate, never drop: see priorityApplies). `state: 'closed'`
+ * closes the conversation once the message is in, so a resolved alert lands on
+ * its ticket and closes it.
  */
 export const handleCreateConversation: ActionHandler = async (inputs, ctx) => {
   const body = text(inputs.message) ?? text(inputs.body) ?? text(inputs.description) ?? text(inputs.title);
   if (!body) throw new NonRetryableStepError('A conversation needs a message');
+  const externalId = text(inputs.externalId);
+  const closing = text(inputs.state)?.toLowerCase() === 'closed';
+  const fields = ticketFields(inputs);
+  if (fields.priority && externalId) {
+    // Two deliveries for a new id at once can both see none and both write: the later priority wins, as before.
+    const existing = await findDeskConversationByExternalId(ctx.db, externalId);
+    if (existing && !priorityApplies(existing, fields.priority, closing)) fields.priority = undefined;
+  }
   const result = await openDeskApiConversation(inboxDeps(ctx), {
     via: 'workflow',
-    externalId: text(inputs.externalId),
+    externalId,
     title: text(inputs.title) ?? text(inputs.subject),
     body,
     name: text(inputs.name) ?? text(inputs.customerName),
     email: text(inputs.email) ?? text(inputs.customerEmail),
     contactId: text(inputs.contactId),
-    fields: ticketFields(inputs),
+    fields,
     metadata: { executionId: ctx.executionId },
   });
   let conversation = result.conversation;
-  if (text(inputs.state)?.toLowerCase() === 'closed' && conversation.state !== 'closed') {
+  if (closing && conversation.state !== 'closed') {
     ({ conversation } = await updateDeskConversationFromApi(inboxDeps(ctx), {
       conversationId: conversation.id,
       state: 'closed',

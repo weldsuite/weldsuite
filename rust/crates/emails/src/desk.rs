@@ -247,19 +247,23 @@ pub fn format_number(value: f64, locale: EmailLocale) -> String {
 }
 
 /// `formatReportDuration(seconds, locale)`: seconds as `45s`, `12m`,
-/// `1h 30m` or `2d 3h`.
+/// `1h 30m` or `2d 3h`. From a minute up the duration is rounded to whole
+/// minutes once and every unit is read from that, so a unit never shows its
+/// own full count: 59m 30s is `1h`, not `60m`, and 23h 59m 30s is `1d`,
+/// not `24h`.
 pub fn format_duration(seconds: f64, locale: EmailLocale) -> String {
     let u = strings(locale);
     let total = js_round(seconds).max(0.0);
     if total < 60.0 {
         return format!("{}{}", js_number(total), u.second);
     }
-    if total < 3600.0 {
-        return format!("{}{}", js_number(js_round(total / 60.0)), u.minute);
+    let minutes = js_round(total / 60.0);
+    if minutes < 60.0 {
+        return format!("{}{}", js_number(minutes), u.minute);
     }
-    let hours = (total / 3600.0).floor();
+    let hours = (minutes / 60.0).floor();
     if hours < 24.0 {
-        let rest = ((total % 3600.0) / 60.0).floor();
+        let rest = minutes % 60.0;
         return if rest == 0.0 {
             format!("{}{}", js_number(hours), u.hour)
         } else {
@@ -573,12 +577,44 @@ mod tests {
         assert_eq!(en(45.0), "45s");
         assert_eq!(en(-3.0), "0s");
         assert_eq!(en(1260.0), "21m");
-        assert_eq!(en(3599.0), "60m");
         assert_eq!(en(3600.0), "1h");
         assert_eq!(en(15300.0), "4h 15m");
         assert_eq!(en(86_400.0), "1d");
         assert_eq!(en(183_600.0), "2d 3h");
         assert_eq!(format_duration(15300.0, EmailLocale::Nl), "4u 15m");
+    }
+
+    /// The same cases as `packages/core/emails/src/templates/desk/report.test.ts`.
+    #[test]
+    fn a_duration_never_shows_a_full_unit() {
+        let en = |seconds| format_duration(seconds, EmailLocale::En);
+        // Seconds to minutes.
+        assert_eq!(en(59.0), "59s");
+        assert_eq!(en(59.4), "59s");
+        assert_eq!(en(59.5), "1m");
+        assert_eq!(en(60.0), "1m");
+        assert_eq!(en(89.0), "1m");
+        assert_eq!(en(90.0), "2m");
+        // Minutes to hours: 59m 30s and up is an hour, not `60m`.
+        assert_eq!(en(3569.0), "59m");
+        assert_eq!(en(3570.0), "1h");
+        assert_eq!(en(3599.0), "1h");
+        assert_eq!(en(3600.0), "1h");
+        assert_eq!(en(3629.0), "1h");
+        assert_eq!(en(3630.0), "1h 1m");
+        assert_eq!(en(7169.0), "1h 59m");
+        assert_eq!(en(7170.0), "2h");
+        // Hours to days: 23h 59m 30s and up is a day, not `24h` or `23h 60m`.
+        assert_eq!(en(86_369.0), "23h 59m");
+        assert_eq!(en(86_370.0), "1d");
+        assert_eq!(en(86_399.0), "1d");
+        assert_eq!(en(86_400.0), "1d");
+        assert_eq!(en(89_999.0), "1d 1h");
+        // Days keep whole hours only.
+        assert_eq!(en(172_799.0), "2d");
+        assert_eq!(en(169_200.0), "1d 23h");
+        assert_eq!(format_duration(3599.0, EmailLocale::Nl), "1u");
+        assert_eq!(format_duration(86_399.0, EmailLocale::Nl), "1d");
     }
 
     #[test]

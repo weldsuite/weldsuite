@@ -12,6 +12,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import type { z } from 'zod';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -32,6 +33,7 @@ import {
   sendScheduledReport,
   timingOf,
   type ReportScheduleRow,
+  type ReportSendResult,
   type ReportTiming,
 } from '../../services/desk-report-schedules';
 
@@ -69,6 +71,40 @@ function sameTiming(a: ReportTiming, b: ReportTiming): boolean {
     a.hour === b.hour &&
     a.timezone === b.timezone
   );
+}
+
+/** What a timing lacks for its frequency, as the 400 message; null when it is complete. */
+function timingProblem(timing: ReportTiming): string | null {
+  if (timing.frequency === 'weekly' && timing.dayOfWeek === null) return 'dayOfWeek is required for a weekly schedule';
+  if (timing.frequency === 'monthly' && timing.dayOfMonth === null) return 'dayOfMonth is required for a monthly schedule';
+  return null;
+}
+
+/** The next run a PATCH leaves: it moves only when the timing changed or the schedule is switched on again. */
+function nextRunAfterPatch(existing: ReportScheduleRow, timing: ReportTiming, enabled: boolean, now: Date): Date | null {
+  if (!enabled) return null;
+  const retime = !sameTiming(timing, timingOf(existing)) || !existing.enabled || !existing.nextRunAt;
+  return retime ? nextReportRun(timing, now) : existing.nextRunAt;
+}
+
+/** The columns a PATCH writes from its body: a field the body leaves out keeps its stored value. */
+function patchedColumns(data: z.output<typeof updateHelpdeskReportScheduleSchema>, timing: ReportTiming) {
+  return {
+    ...(data.name !== undefined ? { name: data.name } : {}),
+    ...(data.reportId !== undefined ? { reportId: data.reportId } : {}),
+    ...(data.range !== undefined ? { range: data.range } : {}),
+    ...timing,
+    ...(data.recipients !== undefined ? { recipients: data.recipients } : {}),
+    ...(data.attachCsv !== undefined ? { attachCsv: data.attachCsv } : {}),
+    ...(data.locale !== undefined ? { locale: data.locale } : {}),
+  };
+}
+
+/** What "send now" answers: a saved report that is gone counts as a failed send. */
+function sendNowResult(outcome: ReportSendResult): { status: 'failed'; error: string } | { status: 'sent' } {
+  if (outcome.status === 'gone') return { status: 'failed', error: REPORT_GONE_NOW };
+  if (outcome.status === 'failed') return { status: 'failed', error: outcome.error };
+  return { status: 'sent' };
 }
 
 /** Whether a live (not deleted) saved report has this id. */
@@ -168,33 +204,21 @@ app.patch('/:id', requirePermission('settings:update'), zValidator('json', updat
     if (!existing) return error.notFound(c, 'Report schedule', id);
 
     const timing = mergedTiming(existing, data);
-    if (timing.frequency === 'weekly' && timing.dayOfWeek === null) {
-      return error.badRequest(c, 'dayOfWeek is required for a weekly schedule');
-    }
-    if (timing.frequency === 'monthly' && timing.dayOfMonth === null) {
-      return error.badRequest(c, 'dayOfMonth is required for a monthly schedule');
-    }
+    const problem = timingProblem(timing);
+    if (problem) return error.badRequest(c, problem);
     if (data.reportId && !(await reportExists(db, data.reportId))) {
       return error.badRequest(c, 'The saved report does not exist');
     }
 
     const now = new Date();
     const enabled = data.enabled ?? existing.enabled;
-    // Moves only when the timing changed or the schedule is switched on again.
-    const retime = !sameTiming(timing, timingOf(existing)) || (enabled && !existing.enabled) || (enabled && !existing.nextRunAt);
-    const nextRunAt = !enabled ? null : retime ? nextReportRun(timing, now) : existing.nextRunAt;
+    const nextRunAt = nextRunAfterPatch(existing, timing, enabled, now);
 
     const [updated] = await db
       .update(schedules)
       .set({
         updatedAt: now,
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.reportId !== undefined ? { reportId: data.reportId } : {}),
-        ...(data.range !== undefined ? { range: data.range } : {}),
-        ...timing,
-        ...(data.recipients !== undefined ? { recipients: data.recipients } : {}),
-        ...(data.attachCsv !== undefined ? { attachCsv: data.attachCsv } : {}),
-        ...(data.locale !== undefined ? { locale: data.locale } : {}),
+        ...patchedColumns(data, timing),
         enabled,
         nextRunAt,
       })
@@ -248,12 +272,7 @@ app.post('/:id/send', requirePermission('settings:update'), async (c) => {
 
     const now = new Date();
     const outcome = await sendScheduledReport({ env: c.env, db, clerkOrgId: c.get('clerkOrgId'), schedule: existing, now });
-    const result =
-      outcome.status === 'gone'
-        ? { status: 'failed' as const, error: REPORT_GONE_NOW }
-        : outcome.status === 'failed'
-          ? { status: 'failed' as const, error: outcome.error }
-          : { status: 'sent' as const };
+    const result = sendNowResult(outcome);
 
     const [updated] = await db
       .update(schedules)

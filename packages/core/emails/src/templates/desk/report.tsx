@@ -76,15 +76,21 @@ export function formatReportNumber(value: number, locale: EmailLocale): string {
   return locale === 'nl' ? text.replace('.', ',') : text;
 }
 
-/** Seconds as `45s`, `12m`, `1h 30m` or `2d 3h`. */
+/**
+ * Seconds as `45s`, `12m`, `1h 30m` or `2d 3h`. From a minute up the
+ * duration is rounded to whole minutes once and every unit is read from
+ * that, so a unit never shows its own full count: 59m 30s is `1h`, not
+ * `60m`, and 23h 59m 30s is `1d`, not `24h`.
+ */
 export function formatReportDuration(seconds: number, locale: EmailLocale): string {
   const u = emailStrings(locale).deskReport.units;
   const total = Math.max(0, Math.round(seconds));
   if (total < 60) return `${total}${u.second}`;
-  if (total < 3600) return `${Math.round(total / 60)}${u.minute}`;
-  const hours = Math.floor(total / 3600);
+  const minutes = Math.round(total / 60);
+  if (minutes < 60) return `${minutes}${u.minute}`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    const rest = Math.floor((total % 3600) / 60);
+    const rest = minutes % 60;
     return rest ? `${hours}${u.hour} ${rest}${u.minute}` : `${hours}${u.hour}`;
   }
   const days = Math.floor(hours / 24);

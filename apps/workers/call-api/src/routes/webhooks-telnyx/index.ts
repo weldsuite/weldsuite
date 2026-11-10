@@ -46,6 +46,7 @@ import {
   type PhoneNumberRow,
 } from '../../services/desk-phone-inbound';
 import { handleAgentLegEvent, handleCallerLeftQueue } from '../../services/desk-phone-legs';
+import { ringWaitingCalls } from '../../services/desk-phone-ring';
 import {
   handleDequeued,
   handleSpeakEnded,
@@ -664,8 +665,9 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
   );
 
   // A caller who hangs up while waiting for an agent is abandoned.
+  let membersFreed = false;
   try {
-    await handleCallerLeftQueue(toEventInput(ctx));
+    membersFreed = await handleCallerLeftQueue(toEventInput(ctx));
   } catch (err) {
     console.error('[Telnyx Webhook] Abandoned-call handling failed:', err);
   }
@@ -673,6 +675,12 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
   if (duration && duration > 0) {
     console.log(`[Telnyx Webhook] Call ${callId} completed: ${duration}s`);
     await settleCallCredits(ctx, duration, hangupCause);
+  }
+
+  // Last, when this call is dealt with: the members whose browsers were
+  // ringing for the caller who left are offered the oldest waiting caller.
+  if (membersFreed) {
+    await ringWaitingCalls({ env, db, workspaceId: ctx.workspaceId }, { finishedCallId: callId });
   }
 }
 

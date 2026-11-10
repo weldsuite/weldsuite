@@ -140,6 +140,32 @@ function normalizeMenuChoice(choice: DeskPhoneMenuChoiceInput): DeskPhoneMenuCho
   };
 }
 
+/** The stored form of a menu: every choice cut down to its own fields, a null fallback left out. */
+function normalizeMenu(menu: NonNullable<DeskPhoneRouteOptionsInput['menu']>): NonNullable<DeskPhoneRouteOptionsInput['menu']> {
+  return {
+    prompt: menu.prompt,
+    choices: menu.choices.map(normalizeMenuChoice),
+    ...(menu.fallbackDigit ? { fallbackDigit: menu.fallbackDigit } : {}),
+  };
+}
+
+/** The options `action` uses, as given; one it does not use reads as undefined. */
+function usedOptions(action: DeskPhoneRouteAction, options: DeskPhoneRouteOptionsInput): DeskPhoneRouteOptionsInput {
+  const keep = new Set(OPTION_KEYS_BY_ACTION[action]);
+  const use = <K extends keyof DeskPhoneRouteOptionsInput>(key: K): DeskPhoneRouteOptionsInput[K] | undefined =>
+    keep.has(key) ? options[key] : undefined;
+  return {
+    greeting: use('greeting'),
+    language: use('language'),
+    departmentId: use('departmentId'),
+    ringSeconds: use('ringSeconds'),
+    maxWaitSeconds: use('maxWaitSeconds'),
+    whenUnanswered: use('whenUnanswered'),
+    voicemailGreeting: use('voicemailGreeting'),
+    menu: use('menu'),
+  };
+}
+
 /**
  * The options as they are stored for `action`: options the action does not
  * use are dropped, empty texts and nulls omitted, menu choices cut down to
@@ -150,22 +176,16 @@ export function normalizeDeskPhoneRouteOptions(
   options: DeskPhoneRouteOptionsInput | null | undefined,
 ): DeskPhoneRouteOptionsInput | null {
   if (!options) return null;
-  const keep = new Set(OPTION_KEYS_BY_ACTION[action]);
+  const used = usedOptions(action, options);
   const out: DeskPhoneRouteOptionsInput = {};
-  if (keep.has('greeting') && options.greeting) out.greeting = options.greeting;
-  if (keep.has('language') && options.language) out.language = options.language;
-  if (keep.has('departmentId') && options.departmentId) out.departmentId = options.departmentId;
-  if (keep.has('ringSeconds') && options.ringSeconds !== undefined) out.ringSeconds = options.ringSeconds;
-  if (keep.has('maxWaitSeconds') && options.maxWaitSeconds !== undefined) out.maxWaitSeconds = options.maxWaitSeconds;
-  if (keep.has('whenUnanswered') && options.whenUnanswered) out.whenUnanswered = options.whenUnanswered;
-  if (keep.has('voicemailGreeting') && options.voicemailGreeting) out.voicemailGreeting = options.voicemailGreeting;
-  if (keep.has('menu') && options.menu) {
-    out.menu = {
-      prompt: options.menu.prompt,
-      choices: options.menu.choices.map(normalizeMenuChoice),
-      ...(options.menu.fallbackDigit ? { fallbackDigit: options.menu.fallbackDigit } : {}),
-    };
-  }
+  if (used.greeting) out.greeting = used.greeting;
+  if (used.language) out.language = used.language;
+  if (used.departmentId) out.departmentId = used.departmentId;
+  if (used.ringSeconds !== undefined) out.ringSeconds = used.ringSeconds;
+  if (used.maxWaitSeconds !== undefined) out.maxWaitSeconds = used.maxWaitSeconds;
+  if (used.whenUnanswered) out.whenUnanswered = used.whenUnanswered;
+  if (used.voicemailGreeting) out.voicemailGreeting = used.voicemailGreeting;
+  if (used.menu) out.menu = normalizeMenu(used.menu);
   return Object.keys(out).length > 0 ? out : null;
 }
 

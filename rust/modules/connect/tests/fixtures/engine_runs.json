@@ -13885,6 +13885,4091 @@
       }
     },
     {
+      "name": "alerts: Datadog groups get a ticket each, a repeat never lowers the priority, a reopen takes the new one, long ids are cut",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_alert_groups', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_alert_groups', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:a\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P3\",\"alert_type\":\"warning\",\"body\":\"Triggered on host:a\"}}},{\"id\":\"s1t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s1.title}}\",\"message\":\"{{steps.s1.message}}\",\"externalId\":\"{{steps.s1.externalId}}\",\"priority\":\"{{steps.s1.priority}}\",\"tags\":\"{{steps.s1.tags}}\",\"state\":\"{{steps.s1.state}}\"}},{\"id\":\"s2\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:b\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P3\",\"alert_type\":\"warning\",\"body\":\"Triggered on host:b\"}}},{\"id\":\"s2t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s2.title}}\",\"message\":\"{{steps.s2.message}}\",\"externalId\":\"{{steps.s2.externalId}}\",\"priority\":\"{{steps.s2.priority}}\",\"tags\":\"{{steps.s2.tags}}\",\"state\":\"{{steps.s2.state}}\"}},{\"id\":\"s3\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:a\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P1\",\"alert_type\":\"error\",\"body\":\"Triggered on host:a\"}}},{\"id\":\"s3t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s3.title}}\",\"message\":\"{{steps.s3.message}}\",\"externalId\":\"{{steps.s3.externalId}}\",\"priority\":\"{{steps.s3.priority}}\",\"tags\":\"{{steps.s3.tags}}\",\"state\":\"{{steps.s3.state}}\"}},{\"id\":\"s4\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:a\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P3\",\"alert_type\":\"warning\",\"body\":\"Triggered on host:a\"}}},{\"id\":\"s4t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s4.title}}\",\"message\":\"{{steps.s4.message}}\",\"externalId\":\"{{steps.s4.externalId}}\",\"priority\":\"{{steps.s4.priority}}\",\"tags\":\"{{steps.s4.tags}}\",\"state\":\"{{steps.s4.state}}\"}},{\"id\":\"s5\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:a\",\"alert_transition\":\"Recovered\",\"alert_priority\":\"\",\"alert_type\":\"success\",\"body\":\"Recovered on host:a\"}}},{\"id\":\"s5t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s5.title}}\",\"message\":\"{{steps.s5.message}}\",\"externalId\":\"{{steps.s5.externalId}}\",\"priority\":\"{{steps.s5.priority}}\",\"tags\":\"{{steps.s5.tags}}\",\"state\":\"{{steps.s5.state}}\"}},{\"id\":\"s6\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:a\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P3\",\"alert_type\":\"warning\",\"body\":\"Triggered on host:a\"}}},{\"id\":\"s6t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s6.title}}\",\"message\":\"{{steps.s6.message}}\",\"externalId\":\"{{steps.s6.externalId}}\",\"priority\":\"{{steps.s6.priority}}\",\"tags\":\"{{steps.s6.tags}}\",\"state\":\"{{steps.s6.state}}\"}},{\"id\":\"s7\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:b\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P2\",\"alert_type\":\"error\",\"body\":\"Triggered on host:b\"}}},{\"id\":\"s7t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s7.title}}\",\"message\":\"{{steps.s7.message}}\",\"externalId\":\"{{steps.s7.externalId}}\",\"priority\":\"{{steps.s7.priority}}\",\"tags\":\"{{steps.s7.tags}}\",\"state\":\"{{steps.s7.state}}\"}},{\"id\":\"s8\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P2\",\"alert_type\":\"error\",\"body\":\"Triggered on \",\"scope\":\"region:eu,host:c\"}}},{\"id\":\"s8t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s8.title}}\",\"message\":\"{{steps.s8.message}}\",\"externalId\":\"{{steps.s8.externalId}}\",\"priority\":\"{{steps.s8.priority}}\",\"tags\":\"{{steps.s8.tags}}\",\"state\":\"{{steps.s8.state}}\"}},{\"id\":\"s9\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P1\",\"alert_type\":\"error\",\"body\":\"Triggered on \",\"aggreg_key\":\"agg-1\"}}},{\"id\":\"s9t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s9.title}}\",\"message\":\"{{steps.s9.message}}\",\"externalId\":\"{{steps.s9.externalId}}\",\"priority\":\"{{steps.s9.priority}}\",\"tags\":\"{{steps.s9.tags}}\",\"state\":\"{{steps.s9.state}}\"}},{\"id\":\"s10\",\"type\":\"parse_alert\",\"config\":{\"payload\":{\"alert_id\":\"77\",\"alert_title\":\"Disk space is low\",\"alert_scope\":\"host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\",\"alert_transition\":\"Triggered\",\"alert_priority\":\"P2\",\"alert_type\":\"error\",\"body\":\"Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}}},{\"id\":\"s10t\",\"type\":\"create_conversation\",\"config\":{\"title\":\"{{steps.s10.title}}\",\"message\":\"{{steps.s10.message}}\",\"externalId\":\"{{steps.s10.externalId}}\",\"priority\":\"{{steps.s10.priority}}\",\"tags\":\"{{steps.s10.tags}}\",\"state\":\"{{steps.s10.state}}\"}},{\"id\":\"s11\",\"type\":\"create_conversation\",\"config\":{\"message\":\"no external id one\",\"priority\":\"low\"}},{\"id\":\"s12\",\"type\":\"create_conversation\",\"config\":{\"message\":\"no external id two\",\"priority\":\"urgent\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_alert_groups",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_alert_groups",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {},
+        "inspect": [
+          "select conversation_number, state, priority, tags, external_id, char_length(external_id) as id_length\n       from desk_conversations order by conversation_number"
+        ]
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_alert_groups",
+            "completed": true,
+            "current_step_index": 22,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "externalId": "datadog:77:host:a",
+                "message": "Triggered on host:a",
+                "priority": "medium",
+                "resolved": false,
+                "severity": "P3",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s10": {
+                "externalId": "datadog:77:host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé~60338c91",
+                "message": "Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                "priority": "high",
+                "resolved": false,
+                "severity": "P2",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s10t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 5,
+                "created": true,
+                "priority": "high",
+                "state": "open",
+                "success": true
+              },
+              "s11": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 6,
+                "created": true,
+                "priority": "low",
+                "state": "open",
+                "success": true
+              },
+              "s12": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 7,
+                "created": true,
+                "priority": "urgent",
+                "state": "open",
+                "success": true
+              },
+              "s1t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": true,
+                "priority": "medium",
+                "state": "open",
+                "success": true
+              },
+              "s2": {
+                "externalId": "datadog:77:host:b",
+                "message": "Triggered on host:b",
+                "priority": "medium",
+                "resolved": false,
+                "severity": "P3",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s2t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 2,
+                "created": true,
+                "priority": "medium",
+                "state": "open",
+                "success": true
+              },
+              "s3": {
+                "externalId": "datadog:77:host:a",
+                "message": "Triggered on host:a",
+                "priority": "urgent",
+                "resolved": false,
+                "severity": "P1",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s3t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": false,
+                "priority": "urgent",
+                "state": "open",
+                "success": true
+              },
+              "s4": {
+                "externalId": "datadog:77:host:a",
+                "message": "Triggered on host:a",
+                "priority": "medium",
+                "resolved": false,
+                "severity": "P3",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s4t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": false,
+                "priority": "urgent",
+                "state": "open",
+                "success": true
+              },
+              "s5": {
+                "externalId": "datadog:77:host:a",
+                "message": "Recovered on host:a",
+                "priority": "medium",
+                "resolved": true,
+                "severity": "success",
+                "source": "datadog",
+                "state": "closed",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s5t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": false,
+                "priority": "urgent",
+                "state": "closed",
+                "success": true
+              },
+              "s6": {
+                "externalId": "datadog:77:host:a",
+                "message": "Triggered on host:a",
+                "priority": "medium",
+                "resolved": false,
+                "severity": "P3",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s6t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 1,
+                "created": false,
+                "priority": "medium",
+                "state": "open",
+                "success": true
+              },
+              "s7": {
+                "externalId": "datadog:77:host:b",
+                "message": "Triggered on host:b",
+                "priority": "high",
+                "resolved": false,
+                "severity": "P2",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s7t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 2,
+                "created": false,
+                "priority": "high",
+                "state": "open",
+                "success": true
+              },
+              "s8": {
+                "externalId": "datadog:77:host:c,region:eu",
+                "message": "Triggered on",
+                "priority": "high",
+                "resolved": false,
+                "severity": "P2",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s8t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 3,
+                "created": true,
+                "priority": "high",
+                "state": "open",
+                "success": true
+              },
+              "s9": {
+                "externalId": "datadog:agg-1",
+                "message": "Triggered on",
+                "priority": "urgent",
+                "resolved": false,
+                "severity": "P1",
+                "source": "datadog",
+                "state": "open",
+                "success": true,
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "title": "Disk space is low",
+                "url": ""
+              },
+              "s9t": {
+                "assigneeId": null,
+                "conversationId": "<id:dconv>",
+                "conversationNumber": 4,
+                "created": true,
+                "priority": "urgent",
+                "state": "open",
+                "success": true
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 22,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_alert_groups",
+            "workflow_name": "Flow wf_alert_groups",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [
+          [
+            {
+              "conversation_number": 1,
+              "external_id": "datadog:77:host:a",
+              "id_length": 17,
+              "priority": "medium",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ]
+            },
+            {
+              "conversation_number": 2,
+              "external_id": "datadog:77:host:b",
+              "id_length": 17,
+              "priority": "high",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ]
+            },
+            {
+              "conversation_number": 3,
+              "external_id": "datadog:77:host:c,region:eu",
+              "id_length": 27,
+              "priority": "high",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ]
+            },
+            {
+              "conversation_number": 4,
+              "external_id": "datadog:agg-1",
+              "id_length": 13,
+              "priority": "urgent",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ]
+            },
+            {
+              "conversation_number": 5,
+              "external_id": "datadog:77:host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé~60338c91",
+              "id_length": 255,
+              "priority": "high",
+              "state": "open",
+              "tags": [
+                "datadog",
+                "alert"
+              ]
+            },
+            {
+              "conversation_number": 6,
+              "external_id": null,
+              "id_length": null,
+              "priority": "low",
+              "state": "open",
+              "tags": []
+            },
+            {
+              "conversation_number": 7,
+              "external_id": null,
+              "id_length": null,
+              "priority": "urgent",
+              "state": "open",
+              "tags": []
+            }
+          ]
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s1t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s2t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s3t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s4t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-9-s5t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-10-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-11-s6t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-12-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-13-s7t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-14-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-15-s8t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-16-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-17-s9t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-18-s10-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-19-s10t-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-20-s11-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-21-s12-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:a",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "An integration replied",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:b",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "no external id one",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:a",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "no external id two",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:a",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "An integration replied",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:b",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:a",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "Triggered on host:ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "no external id one",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/welddesk/inbox/<id:dconv>",
+            "body": "no external id two",
+            "category": "helpdesk",
+            "data": null,
+            "entity_id": "<id:dconv>",
+            "entity_type": "desk_conversation",
+            "icon": null,
+            "notification_type": "message_received",
+            "severity": "info",
+            "title": "New conversation from An integration",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 22,
+                "workflowId": "wf_alert_groups",
+                "workflowName": "Flow wf_alert_groups"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1t",
+                "stepIndex": 2,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "medium",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "medium"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:a",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:a",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:a",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1t",
+                "stepIndex": 2,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 3,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 3,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2t",
+                "stepIndex": 4,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 2,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:b",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:b",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "medium",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:b",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "medium"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:b",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:b",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:b",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:b",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2t",
+                "stepIndex": 4,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 5,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 5,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3t",
+                "stepIndex": 6,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "updated",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": "medium",
+                      "to": "urgent"
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:a",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3t",
+                "stepIndex": 6,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 7,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 7,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4t",
+                "stepIndex": 8,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "updated",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:a",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4t",
+                "stepIndex": 8,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 9,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 9,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5t",
+                "stepIndex": 10,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Recovered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "updated",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Recovered on host:a",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Recovered on host:a",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Recovered on host:a",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Recovered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": 0,
+                "resolvedAt": "<ts>",
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "closed",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": null
+              },
+              "event": "state_changed",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": "<id:wex>",
+                "authorType": "bot",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "assigneeId": null,
+                  "eventType": "closed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "data": {
+                "conversation": {
+                  "assignee": null,
+                  "conversationNumber": 1,
+                  "createdAt": "<ts>",
+                  "id": "<id:dconv>",
+                  "lastMessageAt": "<ts>",
+                  "lastMessageFromTeam": true,
+                  "lastMessagePreview": "Recovered on host:a",
+                  "rating": null,
+                  "state": "closed",
+                  "title": "Disk space is low"
+                },
+                "record": {
+                  "attachments": null,
+                  "authorAvatar": null,
+                  "authorName": "Bot",
+                  "authorType": "bot",
+                  "body": null,
+                  "clientId": null,
+                  "conversationId": "<id:dconv>",
+                  "createdAt": "<ts>",
+                  "eventType": "closed",
+                  "id": "<id:dmsg>",
+                  "kind": "event"
+                },
+                "state": "closed"
+              },
+              "event": "closed",
+              "ts": "<n>",
+              "type": "system"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5t",
+                "stepIndex": 10,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 11,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 11,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6t",
+                "stepIndex": 12,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 1,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:a",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:a",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "medium",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "state_changed",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": "urgent",
+                      "to": "medium"
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:a",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:a",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:a",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "An integration replied"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:a",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "An integration replied"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6t",
+                "stepIndex": 12,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 13,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7",
+                "stepIndex": 13,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7t",
+                "stepIndex": 14,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 2,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:b",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:b",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "high",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "updated",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:b",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": "medium",
+                      "to": "high"
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:b",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:b",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7t",
+                "stepIndex": 14,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 15,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 15,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8t",
+                "stepIndex": 16,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 3,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:c,region:eu",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "high",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "high"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8t",
+                "stepIndex": 16,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 17,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s9",
+                "stepIndex": 17,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9t",
+                "stepIndex": 18,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 4,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:agg-1",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "urgent"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s9t",
+                "stepIndex": 18,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10",
+                "stepIndex": 19,
+                "stepType": "parse_alert",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10",
+                "stepIndex": 19,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10t",
+                "stepIndex": 20,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 5,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": "datadog:77:host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé~60338c91",
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "Triggered on host:ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "high",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [
+                  "datadog",
+                  "alert"
+                ],
+                "ticketTypeId": null,
+                "title": "Disk space is low",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "high"
+                    },
+                    {
+                      "field": "tags",
+                      "from": [],
+                      "to": [
+                        "datadog",
+                        "alert"
+                      ]
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Triggered on host:ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10t",
+                "stepIndex": 20,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s11",
+                "stepIndex": 21,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 6,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": null,
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "no external id one",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "low",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [],
+                "ticketTypeId": null,
+                "title": "no external id one",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "no external id one",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "low"
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "no external id one",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "no external id one",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "no external id one",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "no external id one",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s11",
+                "stepIndex": 21,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s12",
+                "stepIndex": 22,
+                "stepType": "create_conversation",
+                "totalSteps": 22
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "assigneeId": null,
+                "channel": "api",
+                "contactId": null,
+                "conversationNumber": 7,
+                "createdAt": "<ts>",
+                "departmentId": null,
+                "email": null,
+                "escalationCheckAt": null,
+                "externalId": null,
+                "firstResponseAt": null,
+                "firstResponseSeconds": null,
+                "id": "<id:dconv>",
+                "impact": null,
+                "isMajorIncident": false,
+                "language": null,
+                "lastMessageAt": "<ts>",
+                "lastMessagePreview": "no external id two",
+                "mergedIntoId": null,
+                "name": null,
+                "parentConversationId": null,
+                "priority": "urgent",
+                "ratedAt": null,
+                "rating": null,
+                "ratingComment": null,
+                "resolutionSeconds": null,
+                "resolvedAt": null,
+                "slaDueAt": null,
+                "slaMetric": null,
+                "slaPolicyId": null,
+                "slaStatus": null,
+                "state": "open",
+                "tags": [],
+                "ticketTypeId": null,
+                "title": "no external id two",
+                "updatedAt": "<ts>",
+                "urgency": null,
+                "visitorId": null,
+                "waitingSince": "<ts>"
+              },
+              "event": "created",
+              "topic": "desk_conversation",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "visitor",
+                "body": "no external id two",
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "message",
+                "metadata": {
+                  "executionId": "<id:wex>",
+                  "via": "workflow"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "attachments": null,
+                "authorId": null,
+                "authorType": "system",
+                "body": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "id": "<id:dmsg>",
+                "kind": "event",
+                "metadata": {
+                  "changes": [
+                    {
+                      "field": "priority",
+                      "from": null,
+                      "to": "urgent"
+                    }
+                  ],
+                  "eventType": "attributes_changed"
+                }
+              },
+              "event": "created",
+              "topic": "desk_message",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:<id:dconv>",
+            "payload": {
+              "content": "no external id two",
+              "id": "<id:dmsg>",
+              "record": {
+                "attachments": null,
+                "authorAvatar": null,
+                "authorName": null,
+                "authorType": "visitor",
+                "body": "no external id two",
+                "clientId": null,
+                "conversationId": "<id:dconv>",
+                "createdAt": "<ts>",
+                "eventType": null,
+                "id": "<id:dmsg>",
+                "kind": "message"
+              },
+              "senderId": "",
+              "senderName": "Support",
+              "senderType": "visitor",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "no external id two",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/welddesk/inbox/<id:dconv>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "no external id two",
+                "category": "helpdesk",
+                "createdAt": "<ts>",
+                "entityId": "<id:dconv>",
+                "entityType": "desk_conversation",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "message_received",
+                "severity": "info",
+                "title": "New conversation from An integration"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s12",
+                "stepIndex": 22,
+                "totalSteps": 22
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:a",
+              "message": "Triggered on host:a",
+              "priority": "medium",
+              "resolved": false,
+              "severity": "P3",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": true,
+              "priority": "medium",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1t",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:b",
+              "message": "Triggered on host:b",
+              "priority": "medium",
+              "resolved": false,
+              "severity": "P3",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 2,
+              "created": true,
+              "priority": "medium",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2t",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:a",
+              "message": "Triggered on host:a",
+              "priority": "urgent",
+              "resolved": false,
+              "severity": "P1",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": false,
+              "priority": "urgent",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3t",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:a",
+              "message": "Triggered on host:a",
+              "priority": "medium",
+              "resolved": false,
+              "severity": "P3",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": false,
+              "priority": "urgent",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4t",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:a",
+              "message": "Recovered on host:a",
+              "priority": "medium",
+              "resolved": true,
+              "severity": "success",
+              "source": "datadog",
+              "state": "closed",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": false,
+              "priority": "urgent",
+              "state": "closed",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5t",
+            "step_index": 10,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:a",
+              "message": "Triggered on host:a",
+              "priority": "medium",
+              "resolved": false,
+              "severity": "P3",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 11,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 1,
+              "created": false,
+              "priority": "medium",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6t",
+            "step_index": 12,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:b",
+              "message": "Triggered on host:b",
+              "priority": "high",
+              "resolved": false,
+              "severity": "P2",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7",
+            "step_index": 13,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 2,
+              "created": false,
+              "priority": "high",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7t",
+            "step_index": 14,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:c,region:eu",
+              "message": "Triggered on",
+              "priority": "high",
+              "resolved": false,
+              "severity": "P2",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 15,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 3,
+              "created": true,
+              "priority": "high",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8t",
+            "step_index": 16,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s9 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:agg-1",
+              "message": "Triggered on",
+              "priority": "urgent",
+              "resolved": false,
+              "severity": "P1",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s9",
+            "step_index": 17,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s9t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 4,
+              "created": true,
+              "priority": "urgent",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s9t",
+            "step_index": 18,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10 (parse_alert)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "externalId": "datadog:77:host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé~60338c91",
+              "message": "Triggered on host:éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+              "priority": "high",
+              "resolved": false,
+              "severity": "P2",
+              "source": "datadog",
+              "state": "open",
+              "success": true,
+              "tags": [
+                "datadog",
+                "alert"
+              ],
+              "title": "Disk space is low",
+              "url": ""
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10",
+            "step_index": 19,
+            "step_name": null,
+            "step_type": "parse_alert"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10t (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 5,
+              "created": true,
+              "priority": "high",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10t",
+            "step_index": 20,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s11 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 6,
+              "created": true,
+              "priority": "low",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s11",
+            "step_index": 21,
+            "step_name": null,
+            "step_type": "create_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s12 (create_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": null,
+              "conversationId": "<id:dconv>",
+              "conversationNumber": 7,
+              "created": true,
+              "priority": "urgent",
+              "state": "open",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s12",
+            "step_index": 22,
+            "step_name": null,
+            "step_type": "create_conversation"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_alert_groups",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
       "name": "generic record steps: create, update, query, delete, and the mail and Drizzle refusals",
       "input": {
         "seed": [

@@ -16,29 +16,20 @@ vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => perms.canCall }))
 const toast = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
-const call = vi.hoisted(() => ({
-  callState: null as object | null,
-  isVoipReady: true,
-  voipConnection: 'ready' as string,
-  initializeVoip: vi.fn(),
-  waitForVoipReady: vi.fn(),
-}));
+const call = vi.hoisted(() => ({ callState: null as object | null }));
 vi.mock('@/contexts/call-context', () => ({ useCall: () => call }));
 
 const dial = vi.hoisted(() => vi.fn());
+const ensureReady = vi.hoisted(() => vi.fn());
 const dialing = vi.hoisted(() => ({ isDialing: false }));
 vi.mock('@/components/weldcrm/calls/call-dialing', () => ({
   usePlaceCall: () => ({ isDialing: dialing.isDialing, dial }),
+  useEnsureVoipReady: () => ensureReady,
   formatPhoneDisplay: (n: string) => n,
 }));
 
 const numbers = vi.hoisted(() => ({ data: undefined as undefined | { data: object[] } }));
 vi.mock('@/hooks/queries/use-voip-calls-queries', () => ({ useVoipPhoneNumbers: () => ({ data: numbers.data }) }));
-
-const fetchToken = vi.hoisted(() => vi.fn());
-vi.mock('@/hooks/queries/use-call-intelligence-queries', () => ({
-  useFetchVoiceToken: () => ({ mutateAsync: fetchToken }),
-}));
 
 const person = vi.hoisted(() => ({ data: undefined as undefined | { data: object }, enabled: [] as boolean[] }));
 vi.mock('@/components/objects/person/use-person-data', () => ({
@@ -65,12 +56,8 @@ function conversation(overrides: Partial<DeskConversation> = {}): DeskConversati
 beforeEach(() => {
   perms.canCall = true;
   call.callState = null;
-  call.isVoipReady = true;
-  call.voipConnection = 'ready';
-  call.initializeVoip.mockReset();
-  call.initializeVoip.mockResolvedValue(undefined);
-  call.waitForVoipReady.mockReset();
-  call.waitForVoipReady.mockResolvedValue(true);
+  ensureReady.mockReset();
+  ensureReady.mockResolvedValue(true);
   dial.mockReset();
   dial.mockResolvedValue(undefined);
   dialing.isDialing = false;
@@ -80,8 +67,6 @@ beforeEach(() => {
       { phoneNumber: '+31200000002', status: 'active', allowOutbound: true, isDefault: true },
     ],
   };
-  fetchToken.mockReset();
-  fetchToken.mockResolvedValue({ token: 'shared-token' });
   person.data = undefined;
   person.enabled = [];
   toast.error.mockReset();
@@ -99,7 +84,6 @@ describe('DeskCallButton', () => {
       enableRecording: true,
       deskConversationId: 'dconv_1',
     });
-    expect(call.initializeVoip).not.toHaveBeenCalled();
   });
 
   it('calls the caller from the timeline, from the number they called', async () => {
@@ -134,34 +118,8 @@ describe('DeskCallButton', () => {
     expect(person.enabled.every((enabled) => !enabled)).toBe(true);
   });
 
-  it('signs the softphone in first when it is not ready, then calls', async () => {
-    call.isVoipReady = false;
-    call.voipConnection = 'idle';
-    render(<DeskCallButton conversation={conversation()} />);
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('desk-inbox-call'));
-    });
-    expect(call.initializeVoip).toHaveBeenCalledWith('shared-token');
-    expect(call.waitForVoipReady).toHaveBeenCalled();
-    expect(dial).toHaveBeenCalledTimes(1);
-  });
-
-  it('waits for the member login that is already on its way instead of starting another', async () => {
-    call.isVoipReady = false;
-    call.voipConnection = 'connecting';
-    render(<DeskCallButton conversation={conversation()} />);
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('desk-inbox-call'));
-    });
-    expect(fetchToken).not.toHaveBeenCalled();
-    expect(call.waitForVoipReady).toHaveBeenCalled();
-    expect(dial).toHaveBeenCalledTimes(1);
-  });
-
   it('does not call, and says so, when the softphone cannot be signed in', async () => {
-    call.isVoipReady = false;
-    call.voipConnection = 'idle';
-    call.waitForVoipReady.mockResolvedValue(false);
+    ensureReady.mockResolvedValue(false);
     render(<DeskCallButton conversation={conversation()} />);
     await act(async () => {
       fireEvent.click(screen.getByTestId('desk-inbox-call'));

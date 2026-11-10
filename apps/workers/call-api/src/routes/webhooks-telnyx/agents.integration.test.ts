@@ -13,7 +13,8 @@ import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsu
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { waitingCallsCondition } from '../../lib/desk-phone-realtime';
-import { stubTelnyx, telnyxError } from '../../test/telnyx-stub';
+import { ringAgents } from '../../services/desk-phone-ring';
+import { stubTelnyx, telnyxError, type TelnyxCall } from '../../test/telnyx-stub';
 import {
   BASE,
   NUMBERS,
@@ -85,6 +86,25 @@ const callState = async (id: string) => (await db.select().from(schema.voipCalls
 const backdate = (callId: string, ms: number) =>
   db.update(schema.deskPhoneCallLegs).set({ createdAt: new Date(Date.now() - ms) }).where(eq(schema.deskPhoneCallLegs.callId, callId));
 
+/** Telnyx commands in the order they were sent: `hangup cc-1`, `dial sip:…`. */
+const commandsOf = (calls: TelnyxCall[]) =>
+  calls.map((c) => {
+    if (c.url.pathname === '/v2/calls') return `dial ${(c.body as DialBody).to}`;
+    const parts = c.url.pathname.split('/');
+    return `${parts.at(-1)} ${parts.at(-3)}`;
+  });
+/** The phone events published, in order: the queue's count, or an inbox event with its member and call. */
+const phoneEvents = () =>
+  realtime.published
+    // The desk fan-out publishes too, in its own shape: only the phone queue's events count here.
+    .filter((p) => p.topic === 'desk_phone_queue' || String(p.event).startsWith('phone.'))
+    .map((p) =>
+      p.topic === 'desk_phone_queue' ? ['queue', p.data.waiting] : [p.event, p.topic.replace('inbox.', ''), p.data.callId],
+    );
+const SIP = { anna: 'sip:sip_anna@sip.telnyx.com', bob: 'sip:sip_bob@sip.telnyx.com' };
+/** Two requests at once need the Hono app alone: conformance mode runs one request at a time on both backends. */
+const oneBackend = process.env.CONFORMANCE_TARGET !== 'rust';
+
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   const master = (await createMasterPgliteDb()).db;
@@ -123,7 +143,7 @@ describe('the hold audio', () => {
     expect(view.getUint32(24, true)).toBe(8000);
     expect(view.getUint16(34, true)).toBe(16);
     expect(view.getUint32(40, true)).toBe(8000 * 5 * 2);
-    expect(bytes.length).toBe(44 + 8000 * 5 * 2);
+    expect(bytes).toHaveLength(44 + 8000 * 5 * 2);
     // 1 s of tone, then 4 s of silence.
     const sample = (i: number) => view.getInt16(44 + i * 2, true);
     expect(Array.from({ length: 8000 }, (_, i) => Math.abs(sample(i))).some((v) => v > 5000)).toBe(true);
@@ -503,5 +523,266 @@ describe('an inbound call to an agents route', () => {
     const [speak] = actionCalls(calls, control, 'speak');
     expect(speak!.body).toMatchObject({ payload: 'Laat na de piep een bericht achter.', voice: 'female', language: 'nl-NL' });
     expect(decodeState((speak!.body as { client_state: string }).client_state)).toMatchObject({ stage: 'voicemail_greeting' });
+  });
+});
+
+describe('members whose browser stops ringing are offered the next waiting caller', () => {
+  /**
+   * The first caller rings every member who is online; the second then waits
+   * with nobody rung, because those members count as busy.
+   */
+  async function ringingAndWaiting(kind: keyof typeof NUMBERS, from: string) {
+    const first = await inbound(kind, `${from}1`);
+    const second = await inbound('agents', `${from}2`);
+    expect(dialCalls(second.calls)).toHaveLength(0);
+    expect(await legsOf(db, second.call.id)).toHaveLength(0);
+    const legs = await legsOf(db, first.call.id);
+    const mark = telnyx.calls.length;
+    realtime.published.length = 0;
+    return { first, second, legs, sent: () => telnyx.calls.slice(mark) };
+  }
+  const queueState = (call: { id: string; deskConversationId: string | null }) =>
+    encodeState({ callId: call.id, workspaceId: ORG, deskConversationId: call.deskConversationId!, record: 'false', stage: 'queue' });
+  /** The one dial among `calls` is for `call`, to `to`. */
+  function expectRungFor(calls: TelnyxCall[], call: { id: string; fromNumber: string }, to: string) {
+    const dials = dialCalls(calls).map((c) => c.body as DialBody);
+    expect(dials.map((d) => d.to)).toEqual([to]);
+    expect(dials[0]).toMatchObject({ from: call.fromNumber });
+    expect(decodeState(dials[0]!.client_state).parentCallId).toBe(call.id);
+  }
+
+  it('when the caller hangs up while waiting', async () => {
+    realtime.setPresence({ user_anna: 'online' });
+    const { first, second, legs, sent } = await ringingAndWaiting('agents', '+3161234003');
+    const anna = legOf(legs, 'user_anna');
+
+    await deliver(
+      callEvent('call.hangup', {
+        client_state: encodeState({ callId: first.call.id, workspaceId: ORG, deskConversationId: first.call.deskConversationId! }),
+        call_control_id: first.control,
+        hangup_cause: 'originator_cancel',
+      }),
+    );
+
+    // Her leg for the caller who left is hung up, then she is dialled for the one still waiting.
+    expect(commandsOf(sent())).toEqual([`hangup ${anna.providerCallId}`, `dial ${SIP.anna}`]);
+    expectRungFor(sent(), second.call, SIP.anna);
+    expect(phoneEvents()).toEqual([
+      ['phone.ended', 'user_anna', first.call.id],
+      ['queue', 1],
+      ['phone.incoming', 'user_anna', second.call.id],
+    ]);
+    expect(await callState(first.call.id)).toMatchObject({ outcome: 'abandoned' });
+    expect((await legsOf(db, second.call.id)).map((l) => [l.userId, l.status])).toEqual([['user_anna', 'ringing']]);
+  });
+
+  it('when the queue times out and the route hangs up', async () => {
+    realtime.setPresence({ user_anna: 'online' });
+    const { first, second, legs, sent } = await ringingAndWaiting('hangup', '+3161234004');
+    const anna = legOf(legs, 'user_anna');
+
+    await deliver(
+      callEvent('call.dequeued', { client_state: queueState(first.call), call_control_id: first.control, queue: `desk-${ORG}-all`, reason: 'timeout' }),
+    );
+
+    // The missed call is finished first (its legs, its own hangup), then the next caller rings.
+    expect(commandsOf(sent())).toEqual([`hangup ${anna.providerCallId}`, `hangup ${first.control}`, `dial ${SIP.anna}`]);
+    expectRungFor(sent(), second.call, SIP.anna);
+    expect(phoneEvents()).toEqual([
+      ['phone.ended', 'user_anna', first.call.id],
+      ['queue', 1],
+      ['phone.incoming', 'user_anna', second.call.id],
+    ]);
+    expect(await callState(first.call.id)).toMatchObject({ outcome: 'missed' });
+    expect((await messagesOf(db, first.call.deskConversationId!)).map((m) => m.body)).toContain('Missed call');
+  });
+
+  it('when the queue times out and the caller goes to voicemail', async () => {
+    realtime.setPresence({ user_anna: 'online' });
+    const { first, second, legs, sent } = await ringingAndWaiting('agents', '+3161234005');
+    const anna = legOf(legs, 'user_anna');
+
+    await deliver(
+      callEvent('call.dequeued', { client_state: queueState(first.call), call_control_id: first.control, queue: `desk-${ORG}-all`, reason: 'timeout' }),
+    );
+
+    expect(commandsOf(sent())).toEqual([
+      `hangup ${anna.providerCallId}`,
+      `playback_stop ${first.control}`,
+      `speak ${first.control}`,
+      `dial ${SIP.anna}`,
+    ]);
+    expectRungFor(sent(), second.call, SIP.anna);
+
+    // A repeated timeout finds the call missed already: nothing more is sent.
+    const mark = telnyx.calls.length;
+    await deliver(
+      callEvent('call.dequeued', { client_state: queueState(first.call), call_control_id: first.control, queue: `desk-${ORG}-all`, reason: 'timeout' }),
+    );
+    expect(telnyx.calls.slice(mark)).toHaveLength(0);
+  });
+
+  it('when they answer just after a colleague did (the lost race)', async () => {
+    const { first, second, legs, sent } = await ringingAndWaiting('agents', '+3161234006');
+    const anna = legOf(legs, 'user_anna');
+    const bob = legOf(legs, 'user_bob');
+    // Anna has the call, and Bob's accept arrives before his leg was ended.
+    await db
+      .update(schema.voipCalls)
+      .set({ agentAnsweredAt: new Date(), answeredByUserId: 'user_anna', userId: 'user_anna', outcome: 'answered' })
+      .where(eq(schema.voipCalls.id, first.call.id));
+    await db.update(schema.deskPhoneCallLegs).set({ status: 'answered' }).where(eq(schema.deskPhoneCallLegs.id, anna.id));
+
+    await deliver(legEvent('call.answered', bob));
+
+    expect(commandsOf(sent())).toEqual([`hangup ${bob.providerCallId}`, `dial ${SIP.bob}`]);
+    expectRungFor(sent(), second.call, SIP.bob);
+    expect(phoneEvents()).toEqual([['phone.incoming', 'user_bob', second.call.id]]);
+    expect(await callState(first.call.id)).toMatchObject({ answeredByUserId: 'user_anna', outcome: 'answered' });
+    expect((await legsOf(db, first.call.id)).map((l) => [l.userId, l.status])).toEqual([
+      ['user_anna', 'answered'],
+      ['user_bob', 'ended'],
+    ]);
+
+    // The same accept again finds his leg ended: his browser is not dialled twice.
+    const mark = telnyx.calls.length;
+    await deliver(legEvent('call.answered', bob));
+    expect(dialCalls(telnyx.calls.slice(mark))).toHaveLength(0);
+  });
+
+  it('when a colleague answers the call they were ringing for', async () => {
+    const { first, second, legs, sent } = await ringingAndWaiting('agents', '+3161234007');
+    const anna = legOf(legs, 'user_anna');
+    const bob = legOf(legs, 'user_bob');
+
+    await deliver(legEvent('call.answered', anna));
+
+    // The answered call is completed first; Bob, whose leg was hung up, then rings for the next caller.
+    expect(commandsOf(sent())).toEqual([
+      `bridge ${anna.providerCallId}`,
+      `playback_stop ${first.control}`,
+      `record_start ${first.control}`,
+      `hangup ${bob.providerCallId}`,
+      `dial ${SIP.bob}`,
+    ]);
+    expectRungFor(sent(), second.call, SIP.bob);
+    expect(phoneEvents()).toEqual([
+      ['phone.ended', 'user_bob', first.call.id],
+      ['phone.answered', 'user_anna', first.call.id],
+      ['queue', 1],
+      ['phone.incoming', 'user_bob', second.call.id],
+    ]);
+    expect((await messagesOf(db, first.call.deskConversationId!)).map((m) => m.body)).toContain('Call answered by Anna Agent');
+    expect((await legsOf(db, second.call.id)).map((l) => [l.userId, l.status])).toEqual([['user_bob', 'ringing']]);
+
+    // Bob's own hangup of the leg that was ended starts nothing more.
+    const mark = telnyx.calls.length;
+    await deliver(legEvent('call.hangup', bob, { hangup_cause: 'originator_cancel' }));
+    expect(telnyx.calls.slice(mark)).toHaveLength(0);
+  });
+
+  it('and nobody is dialled when no browser was ringing for the call that ended', async () => {
+    realtime.setPresence({});
+    const { first, sent } = await ringingAndWaiting('agents', '+3161234008');
+    realtime.setPresence(null);
+
+    await deliver(
+      callEvent('call.hangup', {
+        client_state: encodeState({ callId: first.call.id, workspaceId: ORG, deskConversationId: first.call.deskConversationId! }),
+        call_control_id: first.control,
+        hangup_cause: 'originator_cancel',
+      }),
+    );
+    expect(sent()).toHaveLength(0);
+    expect(phoneEvents()).toEqual([['queue', 1]]);
+  });
+});
+
+describe('a round is started once', () => {
+  it('when its legs hang up one after the other', async () => {
+    const { call } = await inbound('agents', '+31612340091');
+    const [anna, bob] = (await legsOf(db, call.id)) as [Leg, Leg];
+    await backdate(call.id, 25_000);
+    const mark = telnyx.calls.length;
+    realtime.published.length = 0;
+
+    await deliver(legEvent('call.hangup', anna, { hangup_cause: 'timeout' }));
+    await deliver(legEvent('call.hangup', bob, { hangup_cause: 'timeout' }));
+
+    expect(commandsOf(telnyx.calls.slice(mark)).sort()).toEqual([`dial ${SIP.anna}`, `dial ${SIP.bob}`]);
+    const legs = await legsOf(db, call.id);
+    expect(legs.map((l) => [l.userId, l.status]).sort()).toEqual([
+      ['user_anna', 'ended'],
+      ['user_anna', 'ringing'],
+      ['user_bob', 'ended'],
+      ['user_bob', 'ringing'],
+    ]);
+    expect(realtime.inbox('user_anna', 'phone.incoming')).toHaveLength(1);
+    expect(realtime.inbox('user_bob', 'phone.incoming')).toHaveLength(1);
+  });
+
+  it.skipIf(!oneBackend)('when its legs hang up at the same moment', async () => {
+    const { call } = await inbound('agents', '+31612340092');
+    const [anna, bob] = (await legsOf(db, call.id)) as [Leg, Leg];
+    await backdate(call.id, 25_000);
+    const mark = telnyx.calls.length;
+    realtime.published.length = 0;
+
+    // All legs of a round share one timeout, so Telnyx reports them together.
+    const answers = await Promise.all([
+      deliver(legEvent('call.hangup', anna, { hangup_cause: 'timeout' })),
+      deliver(legEvent('call.hangup', bob, { hangup_cause: 'timeout' })),
+    ]);
+    expect(answers.map((res) => res.status)).toEqual([200, 200]);
+
+    // Each member is dialled once, whichever webhook got there first.
+    expect(commandsOf(telnyx.calls.slice(mark)).sort()).toEqual([`dial ${SIP.anna}`, `dial ${SIP.bob}`]);
+    const legs = await legsOf(db, call.id);
+    expect(legs.filter((l) => l.status === 'ringing').map((l) => l.userId)).toEqual(['user_anna', 'user_bob']);
+    expect(legs).toHaveLength(4);
+    expect(realtime.inbox('user_anna', 'phone.incoming')).toHaveLength(1);
+    expect(realtime.inbox('user_bob', 'phone.incoming')).toHaveLength(1);
+  });
+
+  it('when two rounds for one call start together and both find every member free', async () => {
+    // A caller waiting with no leg ringing: nobody was online when they arrived.
+    realtime.setPresence({});
+    const { call } = await inbound('agents', '+31612340093');
+    expect(await legsOf(db, call.id)).toHaveLength(0);
+    realtime.setPresence(null);
+    const mark = telnyx.calls.length;
+    realtime.published.length = 0;
+
+    // Presence answers once both rounds have asked, so neither sees the other's legs when it looks who is busy.
+    let asking: Array<() => void> = [];
+    const together = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (new URL(String(input)).pathname === '/internal/presence') {
+          await new Promise<void>((resolve) => {
+            asking.push(resolve);
+            if (asking.length === 2) {
+              for (const go of asking) go();
+              asking = [];
+            }
+          });
+        }
+        return realtime.binding.fetch(input, init);
+      },
+    };
+    const ctx = { env: { ...env(), REALTIME: together } as never, db, workspaceId: ORG };
+    const rounds = await Promise.all([ringAgents(ctx, call, { ringSeconds: 20 }), ringAgents(ctx, call, { ringSeconds: 20 })]);
+
+    // The second round's legs are refused: no dial, no `phone.incoming`, not counted as rung.
+    expect(rounds).toEqual([
+      { staffed: 2, rung: 2 },
+      { staffed: 2, rung: 0 },
+    ]);
+    expect(commandsOf(telnyx.calls.slice(mark)).sort()).toEqual([`dial ${SIP.anna}`, `dial ${SIP.bob}`]);
+    expect((await legsOf(db, call.id)).map((l) => [l.userId, l.status])).toEqual([
+      ['user_anna', 'ringing'],
+      ['user_bob', 'ringing'],
+    ]);
+    expect(realtime.inbox('user_anna', 'phone.incoming')).toHaveLength(1);
+    expect(realtime.inbox('user_bob', 'phone.incoming')).toHaveLength(1);
   });
 });

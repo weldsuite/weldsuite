@@ -123,8 +123,13 @@ async fn on_agent_answered(
         if call.and_then(|call| call.answered_by_user_id).as_deref() == Some(leg.user_id.as_str()) {
             return Ok(());
         }
-        end_leg(db, &leg.id).await?;
+        let ended = end_leg(db, &leg.id).await?;
         hangup_best_effort(phone, agent_control).await;
+        // They lost the race and are free again. When the leg was ended
+        // already, whoever ended it offers them the next caller.
+        if ended {
+            ring_waiting_calls(phone, None).await;
+        }
         return Ok(());
     };
 
@@ -187,6 +192,11 @@ async fn on_agent_answered(
     .await;
     publish_queue_change(phone).await;
     record_answer(phone, &won, &leg.user_id).await;
+    // The members whose browsers stopped ringing are free: their legs' own
+    // hangups find them ended, so the next waiting caller is offered here.
+    if !others.is_empty() {
+        ring_waiting_calls(phone, None).await;
+    }
     Ok(())
 }
 
@@ -355,7 +365,11 @@ async fn on_agent_hangup(phone: &Phone<'_>, leg: &Leg) -> Result<(), String> {
 /// `handleCallerLeftQueue(ev)`: the caller's `call.hangup`, for a call that
 /// was waiting for an agent. It is abandoned, the ringing browsers stop and
 /// the queue count drops.
-pub(crate) async fn handle_caller_left_queue(ev: &CallEventInput<'_>) -> Result<(), String> {
+///
+/// True when browsers were ringing for it: those members are free again,
+/// and the webhook offers them the next waiting caller
+/// (`ring_waiting_calls`) once it has finished with this call.
+pub(crate) async fn handle_caller_left_queue(ev: &CallEventInput<'_>) -> Result<bool, String> {
     let abandoned: Option<String> = sqlx::query_scalar(
         "update voip_calls set outcome = 'abandoned', updated_at = $2::timestamp
          where id = $1 and queue_entered_at is not null and agent_answered_at is null
@@ -368,10 +382,10 @@ pub(crate) async fn handle_caller_left_queue(ev: &CallEventInput<'_>) -> Result<
     .await
     .map_err(|error| error.to_string())?;
     if abandoned.is_none() {
-        return Ok(());
+        return Ok(false);
     }
     let ended = end_ringing_legs(&ev.phone, ev.call_id, None).await?;
     notify_phone_ended(&ev.phone, ev.call_id, &ended, "caller_hung_up").await;
     publish_queue_change(&ev.phone).await;
-    Ok(())
+    Ok(!ended.is_empty())
 }

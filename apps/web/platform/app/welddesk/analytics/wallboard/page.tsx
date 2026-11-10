@@ -101,6 +101,12 @@ function Tiles({ data, now, t, tr }: Readonly<{ data: DeskWallboard; now: number
   );
 }
 
+/** The badge tone of a due SLA: red once breached or overdue, amber when at risk. */
+function dueTone(status: DeskWallboard['sla']['dueSoon'][number]['status'], overdue: boolean): 'danger' | 'warning' | 'neutral' {
+  if (status === 'breached' || overdue) return 'danger';
+  return status === 'warning' ? 'warning' : 'neutral';
+}
+
 function DueNext({ data, now, t, tr }: Readonly<{ data: DeskWallboard; now: number; t: WallboardT; tr: ReportsT }>) {
   const rows = data.sla.dueSoon;
   return (
@@ -112,7 +118,7 @@ function DueNext({ data, now, t, tr }: Readonly<{ data: DeskWallboard; now: numb
           {rows.map((row) => {
             const { overdue, seconds } = countdownTo(row.dueAt, now);
             const time = formatClock(seconds, tr);
-            const tone = row.status === 'breached' || overdue ? 'danger' : row.status === 'warning' ? 'warning' : 'neutral';
+            const tone = dueTone(row.status, overdue);
             const metric = row.metric ? (tr.labels.slaMetric as Record<string, string>)[row.metric] ?? row.metric : null;
             return (
               <li key={row.conversationId}>

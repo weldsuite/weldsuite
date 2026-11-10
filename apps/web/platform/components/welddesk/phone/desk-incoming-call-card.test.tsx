@@ -160,12 +160,27 @@ describe('DeskIncomingCallCard', () => {
 
   it('says why a call could not be answered', async () => {
     call.incomingCall = ringing();
-    call.acceptIncomingCall.mockResolvedValue({ success: false, error: 'Microphone access denied.' });
+    call.acceptIncomingCall.mockResolvedValue({ success: false, error: 'microphone_denied' });
     render(<DeskIncomingCallCard />);
     await act(async () => {
       fireEvent.click(screen.getByTestId('desk-incoming-call-accept'));
     });
-    expect(toastError).toHaveBeenCalledWith('Microphone access denied.');
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/microphone access is denied/i));
+  });
+
+  it.each([
+    ['not_ringing', 'The call is no longer ringing.'],
+    ['microphone_unavailable', 'No microphone is available, or another app is using it.'],
+    ['answer_failed', 'Could not answer the call.'],
+    [undefined, 'Could not answer the call.'],
+  ] as const)('words the %s failure from the translations, not from the context', async (error, text) => {
+    call.incomingCall = ringing();
+    call.acceptIncomingCall.mockResolvedValue({ success: false, error });
+    render(<DeskIncomingCallCard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('desk-incoming-call-accept'));
+    });
+    expect(toastError).toHaveBeenCalledWith(text);
   });
 
   it('declines', () => {

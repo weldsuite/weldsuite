@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOrganization } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCall } from '@/contexts/call-context';
+import { useCall, type VoipConnectionState, type VoipCredential } from '@/contexts/call-context';
 import { useFetchVoiceToken } from '@/hooks/queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
@@ -172,10 +172,35 @@ async function placeCall({
   }
 }
 
+/**
+ * Makes sure the softphone client is signed in before a call: resolves true
+ * when it is ready, waits for a login that is on its way, otherwise signs in
+ * with the shared token and waits. False when it cannot get ready. Never
+ * replaces a client that is live.
+ */
+export function useEnsureVoipReady(): () => Promise<boolean> {
+  const { isVoipReady, voipConnection, initializeVoip, waitForVoipReady } = useCall();
+  const { mutateAsync: fetchVoiceToken } = useFetchVoiceToken();
+  return useCallback(async () => {
+    if (isVoipReady) return true;
+    if (voipConnection === 'connecting') return waitForVoipReady();
+    try {
+      const result = await fetchVoiceToken();
+      const token = result?.token || result?.data?.token;
+      if (!token) return false;
+      await initializeVoip(token);
+      return await waitForVoipReady();
+    } catch {
+      return false;
+    }
+  }, [isVoipReady, voipConnection, fetchVoiceToken, initializeVoip, waitForVoipReady]);
+}
+
 /** Creates the call record and starts the call; `isDialing` covers both steps. */
 export function usePlaceCall() {
   const t = useTranslations();
-  const { startCall } = useCall();
+  const { startCall, voipConfigured } = useCall();
+  const ensureReady = useEnsureVoipReady();
   const { getClient } = useAppApiClient();
   const { organization } = useOrganization();
   const [isDialing, setIsDialing] = useState(false);
@@ -194,6 +219,12 @@ export function usePlaceCall() {
     setIsDialing(true);
 
     try {
+      // Where telephony is configured a call is real or it is not made: sign in
+      // first, before a call record (and its credit check) is created.
+      if (voipConfigured && !(await ensureReady())) {
+        toast.error(t('sweep.weldcrm.globalCallPanel.initializationFailed'));
+        return;
+      }
       await placeCall({ ...params, workspaceId: organization?.id, getClient, startCall, t });
     } catch (error) {
       console.error('[GlobalCallPanel] Call error:', error);
@@ -211,6 +242,9 @@ interface VoipInitParams {
   enabled: boolean;
   voipConfigured: boolean;
   isVoipReady: boolean;
+  /** The client's link and login: a client that was ready and is gone is signed in again. */
+  connection: VoipConnectionState;
+  credential: VoipCredential | null;
   initializeVoip: CallContextValue['initializeVoip'];
   fetchVoiceToken: ReturnType<typeof useFetchVoiceToken>['mutateAsync'];
   t: TranslateFn;
@@ -221,6 +255,8 @@ export function useVoipInitialization({
   enabled,
   voipConfigured,
   isVoipReady,
+  connection,
+  credential,
   initializeVoip,
   fetchVoiceToken,
   t,
@@ -230,9 +266,31 @@ export function useVoipInitialization({
   // Bumped by resetInitialization so a retry re-runs the effect even when nothing else changed
   const [attempt, setAttempt] = useState(0);
   const hasInitialized = useRef(false);
+  const wasReady = useRef(false);
+  // Read when the sign-in effect runs, not a reason for it to run again.
+  const login = useRef({ connection, credential });
+  login.current = { connection, credential };
+
+  // A client that was ready and is gone (the member's own login was dropped, the
+  // socket closed) needs a new sign-in: once per time it was ready, so a refused
+  // login cannot loop. While the member's own login is in place the softphone
+  // bridge keeps it alive, so this stays out of the way.
+  useEffect(() => {
+    if (isVoipReady) {
+      wasReady.current = true;
+      return;
+    }
+    if (wasReady.current && credential !== 'member' && (connection === 'idle' || connection === 'closed' || connection === 'error')) {
+      wasReady.current = false;
+      hasInitialized.current = false;
+      setAttempt((n) => n + 1);
+    }
+  }, [isVoipReady, connection, credential]);
 
   useEffect(() => {
     if (!enabled || !voipConfigured || isVoipReady || hasInitialized.current) return;
+    // The member's own login is the bridge's to keep alive, not this dialer's to replace.
+    if (login.current.credential === 'member' && login.current.connection !== 'idle') return;
 
     const initTwilio = async () => {
       hasInitialized.current = true;

@@ -53,7 +53,7 @@ async function ok(body: Record<string, unknown>) {
   expect([200, 201]).toContain(res.status);
   return ((await res.json()) as { data: Record<string, unknown> }).data;
 }
-const refused = async (body: Record<string, unknown>) => expect((await put(body)).status).toBe(400);
+const statusOf = async (body: Record<string, unknown>) => (await put(body)).status;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
@@ -119,15 +119,15 @@ describe('the agents action', () => {
   });
 
   it('refuses values out of range, texts too long and a bad language', async () => {
-    await refused({ action: 'agents', options: { ringSeconds: 9 } });
-    await refused({ action: 'agents', options: { ringSeconds: 61 } });
-    await refused({ action: 'agents', options: { ringSeconds: 12.5 } });
-    await refused({ action: 'agents', options: { maxWaitSeconds: 29 } });
-    await refused({ action: 'agents', options: { maxWaitSeconds: 1801 } });
-    await refused({ action: 'agents', options: { greeting: 'x'.repeat(1001) } });
-    await refused({ action: 'agents', options: { voicemailGreeting: 'x'.repeat(1001) } });
-    await refused({ action: 'agents', options: { language: 'english please' } });
-    await refused({ action: 'agents', options: { whenUnanswered: 'ring' } });
+    expect(await statusOf({ action: 'agents', options: { ringSeconds: 9 } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { ringSeconds: 61 } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { ringSeconds: 12.5 } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { maxWaitSeconds: 29 } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { maxWaitSeconds: 1801 } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { greeting: 'x'.repeat(1001) } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { voicemailGreeting: 'x'.repeat(1001) } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { language: 'english please' } })).toBe(400);
+    expect(await statusOf({ action: 'agents', options: { whenUnanswered: 'ring' } })).toBe(400);
     expect((await ok({ action: 'agents', options: { greeting: 'x'.repeat(1000) } })).options).toMatchObject({ greeting: 'x'.repeat(1000) });
   });
 
@@ -150,9 +150,9 @@ describe('the voicemail action', () => {
 
 describe('the menu action', () => {
   it('needs a menu', async () => {
-    await refused({ action: 'menu' });
-    await refused({ action: 'menu', options: {} });
-    await refused({ action: 'menu', options: { language: 'en-US' } });
+    expect(await statusOf({ action: 'menu' })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: {} })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { language: 'en-US' } })).toBe(400);
   });
 
   it('stores the menu with the options it uses', async () => {
@@ -191,19 +191,19 @@ describe('the menu action', () => {
 
   it('refuses a menu with the wrong shape', async () => {
     const choice = { digit: '1', action: 'voicemail' };
-    await refused({ action: 'menu', options: { menu: { prompt: '', choices: [choice] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'x'.repeat(1001), choices: [choice] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [] } } });
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: '', choices: [choice] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'x'.repeat(1001), choices: [choice] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [] } } })).toBe(400);
     const ten = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((digit) => ({ digit, action: 'voicemail' }));
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: ten } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [choice, choice] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: 'A', action: 'voicemail' }] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'hangup' }] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'menu' }] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [choice], fallbackDigit: '2' } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'ai_agent' }] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'forward' }] } } });
-    await refused({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'forward', forwardToE164: '0612345678' }] } } });
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: ten } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [choice, choice] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: 'A', action: 'voicemail' }] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'hangup' }] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'menu' }] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [choice], fallbackDigit: '2' } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'ai_agent' }] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'forward' }] } } })).toBe(400);
+    expect(await statusOf({ action: 'menu', options: { menu: { prompt: 'Pick.', choices: [{ digit: '1', action: 'forward', forwardToE164: '0612345678' }] } } })).toBe(400);
   });
 
   it('accepts nine choices, and no fallback', async () => {
@@ -240,7 +240,7 @@ describe('the other actions', () => {
   });
 
   it('refuse an action that does not exist', async () => {
-    await refused({ action: 'queue' });
+    expect(await statusOf({ action: 'queue' })).toBe(400);
   });
 
   it('need settings:manage', async () => {

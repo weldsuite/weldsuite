@@ -74,6 +74,6 @@ describe('the end of an outbound call placed from a conversation', () => {
         hangup_cause: 'normal_clearing',
       }),
     );
-    expect((await db.select().from(schema.deskMessages)).length).toBe(before);
+    expect(await db.select().from(schema.deskMessages)).toHaveLength(before);
   });
 });

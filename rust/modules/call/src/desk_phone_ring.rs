@@ -8,6 +8,12 @@
 //! `callId`), so the call's own webhook dispatch never mistakes an agent leg
 //! for the call.
 //!
+//! A member has at most one ringing leg per call (the partial unique index
+//! `desk_phone_call_legs_ringing_uidx`): the leg's row is inserted first and
+//! the browser is dialled only when the insert went in, so two webhooks that
+//! start a round for one call at the same moment dial each member once. A
+//! leg only ever goes from `ringing` to `answered` or `ended`.
+//!
 //! The worker rings a round's members at once (`Promise.all`); here they are
 //! rung one after the other, in the same order, which dials and tells them
 //! in the order the worker does.
@@ -368,30 +374,48 @@ pub(crate) async fn hangup_best_effort(phone: &Phone<'_>, call_control_id: Optio
     }
 }
 
+/// `RingLegResult`: what dialling one member for a call came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemberRing {
+    /// Their browser rings.
+    Ringing,
+    /// A leg of theirs for this call rings already.
+    Already,
+    /// The dial failed.
+    Failed,
+}
+
 /// `ringLeg(ctx, call, agent, ringSeconds, incoming)`: dial one member for
-/// the call; true when their browser rings.
+/// the call.
 async fn ring_leg(
     phone: &Phone<'_>,
     call: &Call,
     agent: &StaffedAgent,
     ring_seconds: &Value,
     incoming: &Value,
-) -> Result<bool, String> {
+) -> Result<MemberRing, String> {
     let leg_id = weldsuite_kit::generate_id("dleg");
-    sqlx::query(
+    // The insert is the guard: a leg of this member already ringing for the
+    // call refuses it, and then nothing is dialled and nobody is told.
+    let inserted: Option<String> = sqlx::query_scalar(
         "insert into desk_phone_call_legs (id, call_id, user_id, status)
-         values ($1, $2, $3, 'ringing')",
+         values ($1, $2, $3, 'ringing')
+         on conflict (call_id, user_id) where status = 'ringing' do nothing
+         returning id",
     )
     .bind(&leg_id)
     .bind(&call.id)
     .bind(&agent.user_id)
-    .execute(phone.db)
+    .fetch_optional(phone.db)
     .await
     .map_err(|error| error.to_string())?;
+    if inserted.is_none() {
+        return Ok(MemberRing::Already);
+    }
     let Some(connection_id) = phone.env("TELNYX_CONNECTION_ID") else {
         tracing::error!("[desk-phone] TELNYX_CONNECTION_ID is not set, cannot ring agents");
         end_leg(phone.db, &leg_id).await?;
-        return Ok(false);
+        return Ok(MemberRing::Failed);
     };
     let client_state = encode_client_state(
         &Ordered::new()
@@ -428,10 +452,10 @@ async fn ring_leg(
     if let Err(error) = dialled {
         tracing::error!(%error, user = %agent.user_id, "[desk-phone] dial failed");
         end_leg(phone.db, &leg_id).await?;
-        return Ok(false);
+        return Ok(MemberRing::Failed);
     }
     send_inbox_event(phone, &agent.user_id, "phone.incoming", incoming.clone()).await;
-    Ok(true)
+    Ok(MemberRing::Ringing)
 }
 
 /// `RingResult`.
@@ -497,7 +521,7 @@ pub(crate) async fn ring_agents(
     let incoming = incoming_event(phone, call).await?;
     let mut rung = 0;
     for agent in &chosen {
-        if ring_leg(phone, call, agent, ring_seconds, &incoming).await? {
+        if ring_leg(phone, call, agent, ring_seconds, &incoming).await? == MemberRing::Ringing {
             rung += 1;
         }
     }
@@ -507,49 +531,26 @@ pub(crate) async fn ring_agents(
     })
 }
 
-/// What ringing one member for a call came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MemberRing {
-    Ringing,
-    /// A leg of theirs for this call rings already.
-    Already,
-    Failed,
-}
-
 /// `ringMember(ctx, call, agent, ringSeconds)`: ring one member for a call
 /// (queue pickup), without the presence or busy filter: the member asked.
+/// `Already` when a leg of theirs rings for the call, however close together
+/// they asked.
 pub(crate) async fn ring_member(
     phone: &Phone<'_>,
     call: &Call,
     agent: &StaffedAgent,
     ring_seconds: &Value,
 ) -> Result<MemberRing, String> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from desk_phone_call_legs
-         where call_id = $1 and user_id = $2 and status = 'ringing' limit 1",
-    )
-    .bind(&call.id)
-    .bind(&agent.user_id)
-    .fetch_optional(phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
-    if existing.is_some() {
-        return Ok(MemberRing::Already);
-    }
     let incoming = incoming_event(phone, call).await?;
-    Ok(
-        if ring_leg(phone, call, agent, ring_seconds, &incoming).await? {
-            MemberRing::Ringing
-        } else {
-            MemberRing::Failed
-        },
-    )
+    ring_leg(phone, call, agent, ring_seconds, &incoming).await
 }
 
 /// `endRingingLegs(ctx, callId, exceptLegId)`: end every leg of the call
 /// that is still ringing (optionally all but one). Each is marked ended
 /// first, then hung up, so the leg's own `call.hangup` finds it ended and
-/// starts nothing. Answers the members whose leg it was.
+/// starts nothing. Answers the members whose leg it was: they are free
+/// again, and it is the caller's job to offer them the next waiting caller
+/// (`ring_waiting_calls`) once its own call is dealt with.
 pub(crate) async fn end_ringing_legs(
     phone: &Phone<'_>,
     call_id: &str,
@@ -601,9 +602,10 @@ pub(crate) async fn notify_phone_ended(
 }
 
 /// `ringWaitingCalls(ctx, { finishedCallId })`: an agent became free
-/// (finished a call, switched "take calls" on, or a round for another call
-/// ended), so ring a round for the oldest waiting call that has no leg
-/// ringing. One call per trigger. A call whose newest leg ended less than
+/// (finished a call, switched "take calls" on, or their browser stopped
+/// ringing for another call: it was answered by a colleague, abandoned, or
+/// went unanswered), so ring a round for the oldest waiting call that has no
+/// leg ringing. One call per trigger. A call whose newest leg ended less than
 /// 10 s after it was dialled is skipped (instantly failing credentials must
 /// not spin), and a call nobody can be rung for is left alone. Best effort.
 pub(crate) async fn ring_waiting_calls(phone: &Phone<'_>, finished_call_id: Option<&str>) {

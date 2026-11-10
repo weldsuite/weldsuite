@@ -314,10 +314,29 @@ describe('an incoming call', () => {
     await act(async () => {
       outcome = await result.current.acceptIncomingCall();
     });
-    expect(outcome?.success).toBe(false);
-    expect(outcome?.error).toMatch(/microphone/i);
+    expect(outcome).toEqual({ success: false, error: 'microphone_denied' });
     expect(call.answer).not.toHaveBeenCalled();
     expect(result.current.incomingCall).not.toBeNull();
+  });
+
+  it('tells a missing microphone from a refused one', async () => {
+    const { result } = await signedIn();
+    ring(fakeCall());
+    getUserMedia.mockRejectedValueOnce(Object.assign(new Error('none'), { name: 'NotFoundError' }));
+    let outcome: { success: boolean; error?: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.acceptIncomingCall();
+    });
+    expect(outcome).toEqual({ success: false, error: 'microphone_unavailable' });
+  });
+
+  it('has nothing to answer once the ring is gone', async () => {
+    const { result } = await signedIn();
+    let outcome: { success: boolean; error?: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.acceptIncomingCall();
+    });
+    expect(outcome).toEqual({ success: false, error: 'not_ringing' });
   });
 
   it('is declined: the call is hung up and the ring goes away', async () => {
@@ -366,7 +385,7 @@ describe('an incoming call', () => {
     await act(async () => {
       outcome = await result.current.acceptIncomingCall();
     });
-    expect(outcome).toEqual({ success: false, error: 'no media' });
+    expect(outcome).toEqual({ success: false, error: 'answer_failed' });
     expect(result.current.callState?.status).toBe('failed');
   });
 });
@@ -393,3 +412,78 @@ describe('an outbound call', () => {
     expect(result.current.callState?.status).toBe('connected');
   });
 });
+
+describe('an outbound call is real or it is not made', () => {
+  const place = (hook: ReturnType<typeof renderHook<ReturnType<typeof useCall>, unknown>>) =>
+    hook.result.current.startCall({ toNumber: '+31611111111', fromNumber: '+31200000000', callId: 'call_9' });
+
+  it('dials on a shared-token client after the member login was dropped (take calls switched off)', async () => {
+    const hook = await signedIn('member');
+    act(() => hook.result.current.resetVoip());
+    expect(hook.result.current.voipConnection).toBe('idle');
+
+    // The dialer signs in with the shared token again.
+    await act(async () => {
+      await hook.result.current.initializeVoip('shared-token');
+    });
+    act(() => clients[1].emit('telnyx.ready'));
+    const dialed = fakeCall({ id: 'out_2', direction: 'outbound', state: 'new' });
+    clients[1].newCall.mockReturnValue(dialed);
+    let outcome: { success: boolean } | undefined;
+    await act(async () => {
+      outcome = await place(hook);
+    });
+    expect(outcome?.success).toBe(true);
+    expect(clients[1].options.login_token).toBe('shared-token');
+    expect(clients[1].newCall).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.voipCredential).toBe('shared');
+  });
+
+  it('does not pretend after the watchdog dropped the client', async () => {
+    const hook = await signedIn('member');
+    act(() => hook.result.current.resetVoip());
+    let outcome: { success: boolean; error?: string } | undefined;
+    await act(async () => {
+      outcome = await place(hook);
+    });
+    expect(outcome).toEqual({ success: false });
+    expect(hook.result.current.callState).toBeNull();
+    expect(clients[0].newCall).not.toHaveBeenCalled();
+  });
+
+  it('does not pretend while a client is still connecting', async () => {
+    const hook = renderHook(() => useCall(), { wrapper });
+    await act(async () => {
+      await hook.result.current.initializeVoip('token-1');
+    });
+    let outcome: { success: boolean } | undefined;
+    await act(async () => {
+      outcome = await place(hook);
+    });
+    expect(outcome?.success).toBe(false);
+    expect(hook.result.current.callState).toBeNull();
+  });
+
+  it('does not pretend where telephony is configured but no client was ever created', async () => {
+    const hook = renderHook(() => useCall(), { wrapper });
+    act(() => hook.result.current.setVoipConfigured(true));
+    let outcome: { success: boolean } | undefined;
+    await act(async () => {
+      outcome = await place(hook);
+    });
+    expect(outcome?.success).toBe(false);
+    expect(hook.result.current.callState).toBeNull();
+  });
+
+  it('still simulates the call in an environment without telephony', async () => {
+    vi.useFakeTimers();
+    const hook = renderHook(() => useCall(), { wrapper });
+    let outcome: { success: boolean } | undefined;
+    await act(async () => {
+      outcome = await place(hook);
+    });
+    expect(outcome?.success).toBe(true);
+    expect(hook.result.current.callState?.status).toBe('dialing');
+  });
+});
+

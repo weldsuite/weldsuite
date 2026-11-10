@@ -70,5 +70,6 @@ CREATE INDEX "helpdesk_report_schedules_due_idx" ON "helpdesk_report_schedules" 
 CREATE INDEX "helpdesk_report_schedules_report_idx" ON "helpdesk_report_schedules" USING btree ("report_id");--> statement-breakpoint
 CREATE INDEX "desk_phone_call_legs_call_idx" ON "desk_phone_call_legs" USING btree ("call_id");--> statement-breakpoint
 CREATE INDEX "desk_phone_call_legs_user_status_idx" ON "desk_phone_call_legs" USING btree ("user_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "desk_phone_call_legs_ringing_uidx" ON "desk_phone_call_legs" USING btree ("call_id","user_id") WHERE "desk_phone_call_legs"."status" = 'ringing';--> statement-breakpoint
 CREATE INDEX "audit_log_streams_status_idx" ON "audit_log_streams" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "voip_calls_queue_entered_at_idx" ON "voip_calls" USING btree ("queue_entered_at");

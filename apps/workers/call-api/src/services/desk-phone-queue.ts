@@ -43,6 +43,7 @@ import {
   notifyPhoneEnded,
   publishPhoneQueueChange,
   ringAgents,
+  ringWaitingCalls,
   staffedAgents,
   type PhoneCtx,
   type VoipCallRow,
@@ -153,7 +154,8 @@ export async function startAgentsFlow(
 
 /**
  * Nobody answered in time (or nobody was staffed): stop the ringing, count the
- * call missed, then voicemail or hang up per the route. Idempotent: only the
+ * call missed, then voicemail or hang up per the route, and last offer the
+ * members who were ringing the next waiting caller. Idempotent: only the
  * event that moves the call from "no outcome" does anything.
  */
 export async function handleUnanswered(ctx: CallFlowContext, reason: string): Promise<void> {
@@ -174,13 +176,14 @@ export async function handleUnanswered(ctx: CallFlowContext, reason: string): Pr
   const options = resolveRouteOptions(await loadRouteForNumber(db, call.toNumber));
   if (options.whenUnanswered === 'voicemail') {
     await startVoicemail(ctx, { answered: true, fromQueue: true, options });
-    return;
+  } else {
+    await bestEffort('hangup after no answer', () => telnyxHangup(env, ctx.callControlId));
+    await postPhoneMessage(env, db, ctx.workspaceId, ctx.conversationId, {
+      body: 'Missed call',
+      metadata: { event: 'call_missed', callId: ctx.callId },
+    });
   }
-  await bestEffort('hangup after no answer', () => telnyxHangup(env, ctx.callControlId));
-  await postPhoneMessage(env, db, ctx.workspaceId, ctx.conversationId, {
-    body: 'Missed call',
-    metadata: { event: 'call_missed', callId: ctx.callId },
-  });
+  if (ended.length > 0) await ringWaitingCalls(ctx, { finishedCallId: ctx.callId });
 }
 
 /** Greeting, then (on `call.speak.ended`) the recording. */

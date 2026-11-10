@@ -22,7 +22,8 @@ use crate::desk_phone_options::{
 };
 use crate::desk_phone_realtime::publish_queue_change;
 use crate::desk_phone_ring::{
-    Call, Phone, end_ringing_legs, load_call, notify_phone_ended, ring_agents, staffed_agents,
+    Call, Phone, end_ringing_legs, load_call, notify_phone_ended, ring_agents, ring_waiting_calls,
+    staffed_agents,
 };
 use crate::js::Ordered;
 use crate::now;
@@ -171,8 +172,9 @@ pub(crate) async fn start_agents_flow(
 
 /// `handleUnanswered(ctx, reason)`: nobody answered in time (or nobody was
 /// staffed), so stop the ringing, count the call missed, then voicemail or
-/// hang up per the route. Idempotent: only the event that moves the call
-/// from "no outcome" does anything.
+/// hang up per the route, and last offer the members who were ringing the
+/// next waiting caller. Idempotent: only the event that moves the call from
+/// "no outcome" does anything.
 pub(crate) async fn handle_unanswered(flow: &Flow<'_>, reason: &str) -> Result<(), String> {
     let Phone { db, telnyx, .. } = flow.phone;
     let missed: Option<Value> = sqlx::query_scalar(
@@ -198,19 +200,23 @@ pub(crate) async fn handle_unanswered(flow: &Flow<'_>, reason: &str) -> Result<(
         .await
         .map_err(|error| error.to_string())?;
     if options.when_unanswered == "voicemail" {
-        return start_voicemail(flow, true, true, &options).await;
+        start_voicemail(flow, true, true, &options).await?;
+    } else {
+        best_effort(
+            "hangup after no answer",
+            telnyx.hangup(flow.call_control_id, None).await,
+        );
+        post_phone_message(
+            &flow.phone,
+            flow.conversation_id,
+            "Missed call".to_owned(),
+            json!({ "event": "call_missed", "callId": flow.call_id }),
+        )
+        .await;
     }
-    best_effort(
-        "hangup after no answer",
-        telnyx.hangup(flow.call_control_id, None).await,
-    );
-    post_phone_message(
-        &flow.phone,
-        flow.conversation_id,
-        "Missed call".to_owned(),
-        json!({ "event": "call_missed", "callId": flow.call_id }),
-    )
-    .await;
+    if !ended.is_empty() {
+        ring_waiting_calls(&flow.phone, Some(flow.call_id)).await;
+    }
     Ok(())
 }
 

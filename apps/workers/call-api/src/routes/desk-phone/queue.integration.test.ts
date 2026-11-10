@@ -172,8 +172,30 @@ describe('POST /queue/:callId/pickup', () => {
 
     // Asking again while that leg rings does not dial a second one.
     const second = await send('POST', '/vcall_qr_pick/pickup');
+    expect(second.status).toBe(200);
     expect(await second.json()).toEqual({ data: { callId: 'vcall_qr_pick', ringing: true } });
     expect(dialCalls(telnyx.calls.slice(mark))).toHaveLength(1);
+    expect(await db.select().from(schema.deskPhoneCallLegs).where(eq(schema.deskPhoneCallLegs.callId, 'vcall_qr_pick'))).toHaveLength(1);
+    expect(realtime.inbox('user_picker', 'phone.incoming')).toHaveLength(1);
+
+    // Once that leg has ended, asking again rings again.
+    await db.update(schema.deskPhoneCallLegs).set({ status: 'ended', endedAt: new Date() }).where(eq(schema.deskPhoneCallLegs.id, legs[0]!.id));
+    expect((await send('POST', '/vcall_qr_pick/pickup')).status).toBe(200);
+    expect(dialCalls(telnyx.calls.slice(mark))).toHaveLength(2);
+    const after = await db.select().from(schema.deskPhoneCallLegs).where(eq(schema.deskPhoneCallLegs.callId, 'vcall_qr_pick'));
+    expect(after.map((l) => l.status).sort()).toEqual(['ended', 'ringing']);
+  });
+
+  // Two requests at once need the Hono app alone: conformance mode runs one request at a time on both backends.
+  it.skipIf(process.env.CONFORMANCE_TARGET === 'rust')('dials once when the member asks twice at the same moment', async () => {
+    await db.insert(schema.voipCalls).values(waiting('vcall_qr_twice', '2026-10-10T10:00:00Z'));
+    const mark = telnyx.calls.length;
+    const answers = await Promise.all([send('POST', '/vcall_qr_twice/pickup'), send('POST', '/vcall_qr_twice/pickup')]);
+    expect(answers.map((res) => res.status)).toEqual([200, 200]);
+    expect(dialCalls(telnyx.calls.slice(mark))).toHaveLength(1);
+    const legs = await db.select().from(schema.deskPhoneCallLegs).where(eq(schema.deskPhoneCallLegs.callId, 'vcall_qr_twice'));
+    expect(legs.map((l) => l.status)).toEqual(['ringing']);
+    expect(realtime.inbox('user_picker', 'phone.incoming')).toHaveLength(1);
   });
 
   it('answers 404 for a call that does not exist and 409 for one that is no longer waiting', async () => {

@@ -684,6 +684,8 @@ export function GlobalCallPanel() {
     initializeVoip,
     resetVoip,
     isVoipReady,
+    voipConnection,
+    voipCredential,
     initialDialerNumber,
     setInitialDialerNumber,
   } = useCall();
@@ -708,6 +710,8 @@ export function GlobalCallPanel() {
     enabled: isDialerOpen,
     voipConfigured,
     isVoipReady,
+    connection: voipConnection,
+    credential: voipCredential,
     initializeVoip,
     fetchVoiceToken,
     t,

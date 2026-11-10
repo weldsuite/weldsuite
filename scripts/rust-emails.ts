@@ -768,12 +768,15 @@ function rowSentinels(row: string, shape: ShapeSpec, escape: (text: string) => s
   return out;
 }
 
+/** A row behind the test for its shape: `if` for the first shape, `elif` for the others. */
+function shapeBranch(list: ShapeListSpec, row: string, i: number): string {
+  const keyword = i === 0 ? 'if' : 'elif';
+  return `{% ${keyword} ${list.item}.shape == "${list.shapes[i]!.name}" %}${row}`;
+}
+
 /** The loop over a list's rows, each shape behind its `shape`. */
 function loopOf(list: ShapeListSpec, rows: string[]): string {
-  const body =
-    rows.length === 1
-      ? rows[0]!
-      : `${rows.map((row, i) => `{% ${i === 0 ? 'if' : 'elif'} ${list.item}.shape == "${list.shapes[i]!.name}" %}${row}`).join('')}{% endif %}`;
+  const body = rows.length === 1 ? rows[0]! : rows.map((row, i) => shapeBranch(list, row, i)).join('') + '{% endif %}';
   return `{% for ${list.item} in ${list.list} %}${body}{% endfor %}`;
 }
 

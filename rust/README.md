@@ -479,8 +479,9 @@ rust/
                         their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
-                        audit log streams (audit_streams.rs: the SIEM push the audit subscriber makes after each
-                        batch, Splunk HEC or an HTTPS collector; safe_url.rs: the URL rules of a stream);
+                        audit log streams (audit_streams.rs: the SIEM push the audit subscriber makes a few
+                        seconds after each batch, once its rows have settled, Splunk HEC or an HTTPS collector;
+                        safe_url.rs: the URL rules of a stream);
                         tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
   crates/mail-inbound/  mail-inbound-worker's port (MAIL-010): postal-mime's parser, the Authentication-Results read,
                         spam and promotion scoring, thread matching, the registry lookup, the Postgres mailbox store's

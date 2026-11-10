@@ -1,5 +1,5 @@
 {
-  "id": "a7d8f152-558f-4e4b-9edf-e3ab49143a88",
+  "id": "ed8ca967-4e38-4980-952f-fc2f990806cc",
   "prevId": "a50dd966-4b57-49ab-b415-e14888815c99",
   "version": "7",
   "dialect": "postgresql",
@@ -37001,6 +37001,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "desk_phone_call_legs_ringing_uidx": {
+          "name": "desk_phone_call_legs_ringing_uidx",
+          "columns": [
+            {
+              "expression": "call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"desk_phone_call_legs\".\"status\" = 'ringing'",
           "concurrently": false,
           "method": "btree",
           "with": {}

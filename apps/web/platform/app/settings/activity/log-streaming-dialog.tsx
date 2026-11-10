@@ -91,6 +91,8 @@ export function LogStreamDialog({ open, onOpenChange, stream }: Readonly<LogStre
   const type = form.watch('type');
   const isSplunk = type === 'splunk_hec';
   const pending = create.isPending || update.isPending;
+  const submitLabels = editing ? { idle: tf.save, busy: tf.saving } : { idle: tf.create, busy: tf.creating };
+  const submitLabel = pending ? submitLabels.busy : submitLabels.idle;
 
   async function onSubmit(values: StreamFormValues) {
     form.clearErrors();
@@ -321,7 +323,7 @@ export function LogStreamDialog({ open, onOpenChange, stream }: Readonly<LogStre
                 {tf.cancel}
               </Button>
               <Button type="submit" disabled={pending}>
-                {editing ? (pending ? tf.saving : tf.save) : pending ? tf.creating : tf.create}
+                {submitLabel}
               </Button>
             </DialogFooter>
           </form>

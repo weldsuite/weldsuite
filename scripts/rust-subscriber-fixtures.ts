@@ -6,7 +6,7 @@
  * the Rust tests feed their ports of them, and writes what TypeScript did:
  * the ack/retry of every message, the rows written, the outbound HTTP
  * requests and the realtime publishes; and for audit log streams the requests
- * built and what three flushes send and leave behind. The Rust tests
+ * built and what four flushes send and leave behind. The Rust tests
  * (`rust/crates/subscribers/tests/parity.rs`) seed the same rows into
  * Postgres, run the same batches and compare, so the expectations come from
  * TypeScript.
@@ -853,10 +853,12 @@ const STREAM_STATE = `select jsonb_build_object('id', id, 'status', status,
   from audit_log_streams where id like 'als_fx%' order by id`;
 
 /**
- * `flushAuditLogStreams` over three flushes of one workspace: the cursor walk
+ * `flushAuditLogStreams` over four flushes of one workspace: the cursor walk
  * (450 rows in batches of 200, the first batch ending inside a millisecond
  * that six rows share), the cap of five requests, a failure with its backoff
- * and recovery, the auto-disable, and the streams that are never asked.
+ * and recovery, the auto-disable, the streams that are never asked, and the
+ * settle window (rows younger than five seconds wait, and rows that commit
+ * late in front of them are still delivered, in order).
  *
  * Its rows and cursors are dated 2099: delivery reads forward from a cursor,
  * so whatever else is in `audit_logs` (the audit fixture's rows here, other
@@ -946,15 +948,39 @@ async function auditStreamsFlushFixture(ctx: Ctx): Promise<Json> {
       answers: {},
     },
     {
-      name: 'ten minutes later, with three new rows: the failed streams are tried again',
+      // The settle window is five seconds: of the rows around 12:10:25, only
+      // the one before that instant is old enough. The row on the instant,
+      // the one in its millisecond and the younger one stay, and no cursor
+      // passes them.
+      name: 'ten minutes later, with new rows: the failed streams are tried again, rows inside the settle window wait',
       before: [
         `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values
            ('fxa_9001', '2099-11-01 12:05:00.000001', 'ticket', 'tkt_1', 'created', 'New 1', '{"source":"user","workspaceId":"org_row"}'),
            ('fxa_9002', '2099-11-01 12:05:00.000002', 'ticket', 'tkt_1', 'updated', 'New 2', '{"source":"user","workspaceId":"org_row"}'),
-           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{"source":"user","workspaceId":"org_row"}')`,
+           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9004', '2099-11-01 12:10:24.999999', 'ticket', 'tkt_2', 'created', 'Settled, by a microsecond', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9005', '2099-11-01 12:10:25.000000', 'ticket', 'tkt_2', 'updated', 'Five seconds old exactly', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9006', '2099-11-01 12:10:25.000400', 'ticket', 'tkt_2', 'updated', 'In that millisecond', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9009', '2099-11-01 12:10:27.000900', 'ticket', 'tkt_2', 'closed', 'Young', '{"source":"user","workspaceId":"org_row"}')`,
       ],
       now: '2099-11-01T12:10:30.000Z',
       answers: { 'https://slow.fx.example.com/in': [{ timeout: true }] },
+    },
+    {
+      // Two inserts that took their timestamp before fxa_9009 did, and
+      // committed after the last flush had seen it: one earlier, one in its
+      // millisecond with an id that sorts first. The window kept the cursors
+      // behind them, so they go out in order with the rest; the newest row
+      // waits in its turn.
+      name: 'four seconds later: the rows that have settled since, two late commits among them',
+      before: [
+        `insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values
+           ('fxa_9007', '2099-11-01 12:10:26.500000', 'ticket', 'tkt_3', 'created', 'Committed late', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9008', '2099-11-01 12:10:27.000100', 'ticket', 'tkt_3', 'updated', 'Committed late, in the millisecond of 9009', '{"source":"user","workspaceId":"org_row"}'),
+           ('fxa_9010', '2099-11-01 12:10:31.000000', 'ticket', 'tkt_3', 'closed', 'Young in its turn', '{"source":"user","workspaceId":"org_row"}')`,
+      ],
+      now: '2099-11-01T12:10:34.000Z',
+      answers: {},
     },
   ];
 

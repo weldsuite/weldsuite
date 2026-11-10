@@ -39,7 +39,7 @@ use crate::desk_phone_messages::{self, append, meta};
 use crate::desk_phone_queue::{
     CallEventInput, Flow, handle_dequeued, handle_speak_ended, handle_voicemail_saved,
 };
-use crate::desk_phone_ring::Phone;
+use crate::desk_phone_ring::{Phone, ring_waiting_calls};
 use crate::js::{self, Ordered};
 use crate::registry::{self, Entry, normalize_e164};
 use crate::telnyx::{Telnyx, decode_client_state, encode_client_state, verify_signature};
@@ -1171,11 +1171,22 @@ impl CallEvent<'_> {
         }
         self.desk_event(body, metadata).await;
         // A caller who hangs up while waiting for an agent is abandoned.
-        if let Err(error) = handle_caller_left_queue(&self.input()).await {
-            tracing::error!(%error, "[Telnyx Webhook] Abandoned-call handling failed");
-        }
+        let members_freed = match handle_caller_left_queue(&self.input()).await {
+            Ok(freed) => freed,
+            Err(error) => {
+                tracing::error!(%error, "[Telnyx Webhook] Abandoned-call handling failed");
+                false
+            }
+        };
         if let Some(seconds) = seconds.filter(|s| *s > 0) {
             self.settle(seconds, &cause).await;
+        }
+        // Last, when this call is dealt with: the members whose browsers were
+        // ringing for the caller who left are offered the oldest waiting
+        // caller.
+        if members_freed {
+            let phone = self.hook.phone(&self.db, self.workspace);
+            ring_waiting_calls(&phone, Some(self.call_id)).await;
         }
         Ok(())
     }

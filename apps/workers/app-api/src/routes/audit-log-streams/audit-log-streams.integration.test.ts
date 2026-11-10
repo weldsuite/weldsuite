@@ -1,7 +1,8 @@
 /**
  * /api/audit-log-streams against a real tenant schema (pglite): validation,
  * the URL rules, the write-only token, the limit of 5, status transitions,
- * entity events without the token, permissions and the test endpoint.
+ * entity events that carry no token, URL or error text, permissions and the
+ * test endpoint.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,6 +59,50 @@ async function call(path: string, opts: { method?: string; body?: unknown; perms
 }
 
 const valid = { name: 'Splunk prod', type: 'splunk_hec', url: 'https://splunk.example.com:8088/services/collector/event', token: TOKEN };
+
+/** What a failed delivery left on a stream: it can quote the destination. */
+const LAST_ERROR = 'HTTP 403: collector-said-no for tenant acme';
+
+/**
+ * An event says which stream and nothing else. The audit log keeps event data
+ * and shows it to every member with general:read, who may not see a stream's
+ * URL, settings or last error.
+ */
+function expectReducedEvent(
+  event: (typeof sent)[number],
+  data: { name: string; type: string; status: string; hasToken: boolean },
+): void {
+  expect(Object.keys(event.data).sort()).toEqual(['hasToken', 'id', 'name', 'status', 'type']);
+  expect(event.data).toMatchObject(data);
+  const dump = JSON.stringify(event);
+  for (const hidden of [
+    TOKEN,
+    'tokenEncrypted',
+    'token_encrypted',
+    'splunk.example.com',
+    'services/collector',
+    'https://',
+    '"url"',
+    '"settings"',
+    'secret-index',
+    '"lastError"',
+    LAST_ERROR,
+    'collector-said-no',
+    'cursorCreatedAt',
+    'deliveredCount',
+    'consecutiveFailures',
+  ]) {
+    expect(dump, hidden).not.toContain(hidden);
+  }
+}
+
+/** A stream as a failed delivery leaves it. */
+async function failOnce(id: string): Promise<void> {
+  await db
+    .update(schema.auditLogStreams)
+    .set({ lastError: LAST_ERROR, consecutiveFailures: 3, lastAttemptAt: new Date() })
+    .where(eq(schema.auditLogStreams.id, id));
+}
 
 async function create(overrides: Record<string, unknown> = {}) {
   const res = await call('', { method: 'POST', body: { ...valid, ...overrides } });
@@ -134,8 +179,8 @@ describe('POST /', () => {
     expect(await db.select().from(schema.auditLogStreams)).toHaveLength(5);
   });
 
-  it('publishes an audit_log_stream created event without the token', async () => {
-    const { id } = await create();
+  it('publishes an audit_log_stream created event without the token, the URL or the settings', async () => {
+    const { id } = await create({ settings: { index: 'secret-index' } });
     await new Promise((r) => setTimeout(r, 0));
     expect(sent).toHaveLength(1);
     // In conformance mode the binding saw the TypeScript run's event, a row with an id of its own.
@@ -145,6 +190,7 @@ describe('POST /', () => {
     expect(dump).not.toContain(TOKEN);
     expect(dump).not.toContain('tokenEncrypted');
     expect(sent[0]!.data.hasToken).toBe(true);
+    expectReducedEvent(sent[0]!, { name: 'Splunk prod', type: 'splunk_hec', status: 'active', hasToken: true });
   });
 });
 
@@ -214,20 +260,25 @@ describe('PATCH /:id', () => {
     expect((await call(`/${id}`, { method: 'PATCH', body: { status: 'disabled' } })).status).toBe(400);
   });
 
-  it('publishes an updated event without the token', async () => {
-    const { id } = await create();
+  it('publishes an updated event without the token, the URL or the last error', async () => {
+    const { id } = await create({ settings: { index: 'secret-index' } });
+    await failOnce(id);
     sent.length = 0;
-    await call(`/${id}`, { method: 'PATCH', body: { name: 'x', token: 'zzz-secret-zzz' } });
+    const res = await call(`/${id}`, { method: 'PATCH', body: { name: 'x', token: 'zzz-secret-zzz', status: 'paused' } });
+    // The answer still has it all, for the administrator who asked.
+    expect(res.body.data).toMatchObject({ lastError: LAST_ERROR, url: valid.url, settings: { index: 'secret-index' } });
     await new Promise((r) => setTimeout(r, 0));
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ entityType: 'audit_log_stream', action: 'updated', entityId: id });
     expect(JSON.stringify(sent[0])).not.toContain('zzz-secret-zzz');
+    expectReducedEvent(sent[0]!, { name: 'x', type: 'splunk_hec', status: 'paused', hasToken: true });
   });
 });
 
 describe('DELETE /:id', () => {
-  it('removes the stream with a 204 and publishes a deleted event', async () => {
-    const { id } = await create();
+  it('removes the stream with a 204 and publishes a deleted event without the token, the URL or the last error', async () => {
+    const { id } = await create({ settings: { index: 'secret-index' }, token: null });
+    await failOnce(id);
     sent.length = 0;
     const res = await call(`/${id}`, { method: 'DELETE' });
     expect(res.status).toBe(204);
@@ -235,6 +286,7 @@ describe('DELETE /:id', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(sent[0]).toMatchObject({ entityType: 'audit_log_stream', action: 'deleted', entityId: id });
     expect(JSON.stringify(sent[0])).not.toContain(TOKEN);
+    expectReducedEvent(sent[0]!, { name: 'Splunk prod', type: 'splunk_hec', status: 'active', hasToken: false });
     expect((await call(`/${id}`, { method: 'DELETE' })).status).toBe(404);
   });
 });

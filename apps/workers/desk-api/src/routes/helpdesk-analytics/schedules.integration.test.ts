@@ -302,7 +302,7 @@ describe('POST /schedules', () => {
 
   it('accepts exactly 20 recipients', async () => {
     const dto = await create({ ...valid, recipients: Array.from({ length: 20 }, (_, i) => `r${i}@example.com`) });
-    expect((dto.recipients as string[]).length).toBe(20);
+    expect(dto.recipients as string[]).toHaveLength(20);
   });
 });
 
