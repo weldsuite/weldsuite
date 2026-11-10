@@ -314,13 +314,10 @@ async fn settle(
     if announce {
         match &step {
             Step::NeedsSecondFactor { factors, .. } if !factors.contains(&Factor::Totp) => {
-                // No authenticator app: the code goes by email, now.
-                if state
-                    .limits
-                    .hit(SENDS_PER_TARGET, &session.id)
-                    .await
-                    .is_ok()
-                {
+                // No authenticator app: the code goes by email, now, unless
+                // the account was sent too many (the screen has "Resend").
+                let account = account_of(state, &session).await?;
+                if state.limits.hit(SENDS_PER_TARGET, &account).await.is_ok() {
                     session = state
                         .provider
                         .send_email_code(&session, state.links.second_factor())
@@ -489,7 +486,8 @@ pub(crate) async fn second_factor(
             .limits
             .hit(CODES_PER_CALLER, &state.limits.caller(&headers))
             .await?;
-        state.limits.hit(CODES_PER_TARGET, &session.id).await?;
+        let account = account_of(&state, &session).await?;
+        state.limits.hit(CODES_PER_TARGET, &account).await?;
         let Some(request) = load_request_of(&state, &fields).await? else {
             return Ok((Step::Expired, Change::Keep));
         };
@@ -535,7 +533,8 @@ pub(crate) async fn send_second_factor_code(
             .limits
             .hit(SENDS_PER_CALLER, &state.limits.caller(&headers))
             .await?;
-        state.limits.hit(SENDS_PER_TARGET, &session.id).await?;
+        let account = account_of(&state, &session).await?;
+        state.limits.hit(SENDS_PER_TARGET, &account).await?;
         let session = state
             .provider
             .send_email_code(&session, state.links.second_factor())
@@ -549,19 +548,27 @@ pub(crate) async fn send_second_factor_code(
 
 // ── POST /email-verification, /resend, /link ────────────────────────────────
 
+/// The account a session belongs to: what codes and emails are counted
+/// against. Never the session itself: the password again opens a new one,
+/// which must not start a new count.
+async fn account_of(state: &SignInState, session: &SessionRef) -> Result<String, ApiError> {
+    state
+        .provider
+        .session(session)
+        .await
+        .map_err(refusal)?
+        .map(|session_state| session_state.user_id)
+        .ok_or_else(no_session)
+}
+
 /// The account behind the browser's session.
 async fn session_user(
     state: &SignInState,
     headers: &HeaderMap,
 ) -> Result<(SessionRef, String), ApiError> {
     let session = cookie::read(headers).ok_or_else(no_session)?;
-    let session_state = state
-        .provider
-        .session(&session)
-        .await
-        .map_err(refusal)?
-        .ok_or_else(no_session)?;
-    Ok((session, session_state.user_id))
+    let user_id = account_of(state, &session).await?;
+    Ok((session, user_id))
 }
 
 pub(crate) async fn verify_email(

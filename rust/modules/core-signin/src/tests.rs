@@ -121,6 +121,15 @@ impl Harness {
         )
         .await
     }
+
+    async fn totp(&self, request: &str, cookie: &str, code: &str) -> Reply {
+        self.post(
+            "/second-factor",
+            Some(cookie),
+            json!({ "authRequest": request, "factor": "totp", "code": code }),
+        )
+        .await
+    }
 }
 
 #[tokio::test]
@@ -616,6 +625,68 @@ async fn password_guesses_are_counted_per_account() {
         h.sign_in(&request, "joe@acme.test", PASSWORD).await.step(),
         "complete"
     );
+}
+
+#[tokio::test]
+async fn code_guesses_are_counted_per_account_whatever_the_session() {
+    let h = harness();
+    let user = h.provider.add_user("jane@acme.test", PASSWORD);
+    h.provider
+        .update_user(&user, |user| user.methods.totp = true);
+    let request = h.provider.add_auth_request(&[]);
+
+    // Ten guesses, over two sessions of the same account: the password
+    // again opens a new session, not a new count.
+    let mut sessions = Vec::new();
+    for _ in 0..2 {
+        let signed_in = h.sign_in(&request, "jane@acme.test", PASSWORD).await;
+        let cookie = signed_in.cookie.expect("session cookie");
+        for _ in 0..5 {
+            let wrong = h.totp(&request, &cookie, "000000").await;
+            assert_eq!(wrong.error(), "INVALID_CODE");
+        }
+        sessions.push(cookie);
+    }
+    assert_ne!(sessions[0], sessions[1]);
+
+    // The eleventh is not tried, in a third session and with the right code.
+    let third = h.sign_in(&request, "jane@acme.test", PASSWORD).await;
+    let cookie = third.cookie.expect("session cookie");
+    let limited = h.totp(&request, &cookie, "654321").await;
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.error(), "RATE_LIMITED");
+    assert_eq!(h.provider.completed_for(&request), None);
+}
+
+#[tokio::test]
+async fn emailed_codes_are_counted_per_account_whatever_the_session() {
+    let h = harness();
+    let user = h.provider.add_user("jane@acme.test", PASSWORD);
+    h.provider
+        .update_user(&user, |user| user.methods.email_code = true);
+    let request = h.provider.add_auth_request(&[]);
+
+    // Each sign-in emails a code: five of them fill the account's window.
+    for _ in 0..5 {
+        let signed_in = h.sign_in(&request, "jane@acme.test", PASSWORD).await;
+        assert_eq!(signed_in.step(), "needs_second_factor");
+    }
+    assert_eq!(h.provider.sent().len(), 5);
+
+    // A sixth session gets the step, but no sixth email, and no "Resend".
+    let sixth = h.sign_in(&request, "jane@acme.test", PASSWORD).await;
+    assert_eq!(sixth.step(), "needs_second_factor");
+    assert_eq!(h.provider.sent().len(), 5);
+    let resend = h
+        .post(
+            "/second-factor/email-code",
+            sixth.cookie.as_deref(),
+            json!({}),
+        )
+        .await;
+    assert_eq!(resend.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(resend.error(), "RATE_LIMITED");
+    assert_eq!(h.provider.sent().len(), 5);
 }
 
 #[tokio::test]

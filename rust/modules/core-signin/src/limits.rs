@@ -39,9 +39,11 @@ pub(crate) const READS: Rule = rule("read", 120, 60);
 pub(crate) const PASSWORDS_PER_CALLER: Rule = rule("password-caller", 30, 300);
 pub(crate) const PASSWORDS_PER_ACCOUNT: Rule = rule("password-account", 10, 300);
 pub(crate) const CODES_PER_CALLER: Rule = rule("code-caller", 40, 600);
-/// Per session or account: a six-character code is not to be guessed.
+/// Per account: a six-character code is not to be guessed. Never per
+/// session, which the password again replaces with a new one.
 pub(crate) const CODES_PER_TARGET: Rule = rule("code-target", 10, 600);
 pub(crate) const SENDS_PER_CALLER: Rule = rule("send-caller", 20, 900);
+/// Per account (or, before one is known, per address).
 pub(crate) const SENDS_PER_TARGET: Rule = rule("send-target", 5, 900);
 pub(crate) const SIGN_UPS_PER_CALLER: Rule = rule("sign-up-caller", 10, 3600);
 
