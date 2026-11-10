@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-six
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-eight
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -243,6 +243,31 @@ modules, each with conformance suites that reach every route:
   ingest (`crates/connect-domain`), provider webhook registration and ingest,
   and the WeldBooks to Moneybird push. Not ported: AI workflow generation
   and AI steps (`weldconnect-ai`)
+- **forms** (WeldForms, built in both backends from the first route, ADR
+  FORMS-001: the forms engine `@weldsuite/forms-engine` held equal by its
+  fixtures; forms with their revisions (409 `REVISION_CONFLICT`), templates
+  (`catalogs/forms-templates.json`, `pnpm rust:catalogs`), publishing with
+  versions, the public link in the master `form_link_registry` and the
+  content screen, restricted forms, folders, themes, workspace settings, the
+  monthly response quota (`crates/core-domain` plan limits), media, the
+  members-only fill page, and the respondent side at `/public/forms` behind
+  `FORMS_PORTAL_SECRET` (ADR FORMS-002): the public cache, views, sessions
+  (HMAC tokens byte for byte the worker's), codes through the outbound guard,
+  ALTCHA or Turnstile (ADR FORMS-005), progress, uploads and submit. What
+  Global keeps in KV and the `FormCounters` Durable Object lives on the cache
+  port (Valkey: atomic counters for views, rate limits and wrong codes);
+  responses with answer filters in SQL, the summary and insights, CSV and
+  XLSX exports, the GDPR erase and a person's responses across forms;
+  invitations (personal links in the master `form_invitation_registry`,
+  through the outbound guard, source `forms`) with reminders by hand and on
+  the `forms_reminders` due index, and the daily digest on `forms_digest`
+  (`weldsuite cron forms-reminders`, `forms-digest`); integrations with
+  their dry run; `ProcessResponseWorkflow` is the `forms.process-response`
+  job with its steps: CRM, Desk and Flow (as the member who set the
+  integration up, through `crates/crm-domain`, `desk-domain`,
+  `flow-domain`), the notifications, the receipt and the quota notices. The
+  AI routes answer 503 `ai_unavailable` (ADR AI-011). The engine is `crates/forms-engine`, which WeldSheets' rules
+  for the `form_responses` connected table read too)
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -539,6 +564,11 @@ rust/
                         and WeldConnect's `merge.*` actions and WeldAgent's tools on its internal router
                         (`across.rs`, `workflow_action`); its GitHub and provider event intake
                         answers the integration workers' webhooks in process, `MERGE_INTERNAL`),
+                        modules/forms (WeldForms: the member routes, results, exports,
+                        invitations, integrations, the respondent side at /public/forms, codes,
+                        sessions and counters on the cache port, the forms.process-response job
+                        and its steps, the reminder and digest sweeps; the engine is
+                        crates/forms-engine),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -559,7 +589,9 @@ rust/
                         modules/core-platform (notifications, audit logs and audit log streams, appstore,
                         API keys, credits, dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
-                        /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
+                        /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps),
+                        modules/core-signin (/api/sign-in: the backend of the platform's own sign-in
+                        screens on an OIDC provider, as its login client; no TypeScript twin, ADR SEC-016)
   deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs', WeldSheets' and WeldBoard's rooms, apps/tools/collab-rooms)
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
@@ -756,8 +788,11 @@ every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
 due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
 minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
-`calendar-replan` daily at 04:00 UTC, and `flow-file-purge`, `flow-approval-due`
-and `flow-benefit-measure` daily at 03:30 UTC, as on Global. The server reads
+`calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
+`forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
+reminders and daily response digest over the `forms_reminders` and
+`forms_digest` due index; nothing while forms is not served). The server reads
 environment variables only (`bins/weldsuite/src/config.rs`).
 At start it logs a "Global default" warning for every setting still on a value
 that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
@@ -775,6 +810,7 @@ log none.
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
+| `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
 | `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
@@ -816,10 +852,15 @@ log none.
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
 | `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
+| `FORMS_PORTAL_SECRET`, `FORMS_PORTAL_URL`, `FORMS_SESSION_SECRET` | WeldForms: the key the forms portal sends with every call to `/public/forms` (`X-Forms-Portal-Key`, ADR FORMS-002; unset refuses them, 503), the portal's origin for public links (`<url>/f/<publicId>`, default `https://forms.weldsuite.org`; the chart's `config.forms.portalUrl`), and the key of respondent sessions, verification tokens and the keyed hashes of IPs, browser keys and codes (the workers' value, so a session either backend issued opens on the other; unset: the session routes answer 503) |
+| `BOT_CHECK_PROVIDER`, `ALTCHA_HMAC_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` | WeldForms' bot check (ADR FORMS-005): `altcha` (the chart's default: self-hosted proof of work, its challenges signed with `ALTCHA_HMAC_KEY`, `GET /public/forms/altcha/challenge`), `turnstile` (Cloudflare's siteverify over HTTP) or `none` (the default without the chart, local development). The cache (Valkey) holds the public cache, seeds, codes and the forms' counters; without it this process does (one replica) |
+| `FORMS_MIN_FILL_MS` | WeldForms: the minimum time between a session's start and its submit (default 1500), lowered by the worker's tests |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`, chart `config.files.publicUrl`), for public objects (avatars, logos, published documents) and Drive rows that store only a key. Unset, those links name Global's test bucket host, as the TypeScript routes do |
+| `S3_ENSURE_BUCKETS` | `true`: create the private and public buckets at start when the store doesn't have them (the chart's bundled object store, `bundle.objectStorage`) |
+| `S3_PUBLIC_VIA_SERVER` | `true`: serve the public bucket's objects at `/api/storage/public/<key>` to anyone, for an object store with no public endpoint of its own (the bundled one, unless `config.files.publicUrl` names one; the chart then points `S3_PUBLIC_URL` there). Unset, that route answers only local development, as in TypeScript |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
 | `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: no identity provider) |
 | `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |

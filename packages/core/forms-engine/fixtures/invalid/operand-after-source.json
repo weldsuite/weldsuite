@@ -1,0 +1,81 @@
+{
+  "name": "Logic reading fields that come later",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "amount",
+        "type": "number",
+        "title": "Amount"
+      },
+      {
+        "id": "b_g",
+        "ref": "group",
+        "type": "group",
+        "title": "Group",
+        "children": [
+          {
+            "id": "b_3",
+            "ref": "third",
+            "type": "short_text",
+            "title": "third"
+          }
+        ]
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_1",
+        "calculations": [
+          {
+            "id": "x_1",
+            "variable": "score",
+            "op": "add",
+            "value": {
+              "type": "field",
+              "id": "b_2"
+            }
+          }
+        ],
+        "jumps": [
+          {
+            "id": "j_1",
+            "when": {
+              "op": "and",
+              "conditions": [
+                {
+                  "left": {
+                    "type": "field",
+                    "id": "b_3"
+                  },
+                  "operator": "is_answered"
+                }
+              ]
+            },
+            "to": {
+              "type": "ending",
+              "id": "e_end"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expectIssues": [
+    "operand_after_source",
+    "operand_after_source"
+  ]
+}

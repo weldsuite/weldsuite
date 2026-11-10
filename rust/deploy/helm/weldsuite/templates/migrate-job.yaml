@@ -1,4 +1,4 @@
-{{- if .Values.migrations.enabled }}
+{{- if and .Values.migrations.enabled (not (include "weldsuite.migrateInPod" .)) }}
 {{- if and (not .Values.secret.existingSecret) (not .Values.secret.values) }}
 {{- fail "set secret.existingSecret (or secret.values for a test cluster): the migrations need DATABASE_URL_MASTER" }}
 {{- end }}
@@ -54,8 +54,15 @@ spec:
             - --concurrency
             - {{ .Values.migrations.concurrency | quote }}
           env:
-            {{- include "weldsuite.env" . | nindent 12 }}
+            {{- include "weldsuite.envBase" . | nindent 12 }}
           envFrom:
+            {{- if .Values.secret.generate }}
+            {{- /* Absent on a first install (it is made after the hooks), when there
+            are no tenant databases to open yet. */}}
+            - secretRef:
+                name: {{ .Values.secret.generatedName }}
+                optional: true
+            {{- end }}
             - secretRef:
                 name: {{ include "weldsuite.migrateSecretName" . }}
           securityContext:

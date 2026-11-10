@@ -1,0 +1,74 @@
+{
+  "name": "A jump and an ending rule to missing endings",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_1",
+        "jumps": [
+          {
+            "id": "j_1",
+            "when": {
+              "op": "and",
+              "conditions": [
+                {
+                  "left": {
+                    "type": "field",
+                    "id": "b_1"
+                  },
+                  "operator": "is_answered"
+                }
+              ]
+            },
+            "to": {
+              "type": "ending",
+              "id": "e_missing"
+            }
+          }
+        ]
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_1",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "field",
+                "id": "b_1"
+              },
+              "operator": "is_answered"
+            }
+          ]
+        },
+        "endingId": "e_gone"
+      }
+    ]
+  },
+  "expectIssues": [
+    "unknown_ending",
+    "unknown_ending"
+  ]
+}

@@ -80,6 +80,7 @@ import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createBoardsApi } from '@weldsuite/app-api-client/domains/boards';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
 import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel';
+import { createWeldFormsApi } from '@weldsuite/app-api-client/domains/weldforms';
 import { createWeldMergeApi } from '@weldsuite/app-api-client/domains/weldmerge';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
@@ -255,6 +256,8 @@ export function useAppApi() {
       weldpanel: createWeldPanelApi(lazyClient),
       // WeldMerge (merge-api): issues, pull requests, git provider connections.
       weldmerge: createWeldMergeApi(lazyClient),
+      // WeldForms (forms-api): forms, folders, themes, responses, invitations, integrations.
+      weldforms: createWeldFormsApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
       // Enterprise single sign-on: domain proof, SAML connection, on/off and
       // the add-on subscription (its billing paths are forwarded to billing-worker).

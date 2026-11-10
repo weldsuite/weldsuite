@@ -164,6 +164,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = host::api(router, state);
     let router = panel(router, state);
     let router = merge(router, state);
+    let router = forms(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -614,6 +615,80 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         "/panel/projects",
         weldsuite_panel::router(panel, &state.permissions),
     )
+}
+
+/// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the
+/// `forms.process-response` job registered where the jobs adapter runs it.
+fn forms(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("forms") {
+        return router;
+    }
+    let forms = forms_state(state);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_forms::ProcessResponseJob {
+            tenants: Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces))),
+            state: forms.clone(),
+            request: http::Extensions::new(),
+            steps: weldsuite_forms::process_steps(),
+        });
+    router.nest("/forms", weldsuite_forms::router(forms, &state.permissions))
+}
+
+/// WeldForms' handle on the app: the master database, the buckets, the
+/// cache (Valkey, else this process), the jobs, system mail, Turnstile over
+/// HTTP and the workspaces behind public links. Conformance builds take the
+/// test's databases, buckets, KV, Workflow binding and fetch stub per request.
+pub(crate) fn forms_state(state: &AppState) -> weldsuite_forms::FormsState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_forms::FormsState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        files: file_stores(state),
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        realtime: state.infra.realtime.clone(),
+        mail: state.infra.mail.clone(),
+        http: (!conformance).then(forms_http).flatten(),
+        tenants: (!conformance).then(|| {
+            Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces)))
+                as Arc<dyn weldsuite_forms::TenantResolver>
+        }),
+        // The outbound guard's ledgers (codes count against the workspace).
+        outbound: deployment_outbound(state),
+        env: Arc::new(weldsuite_forms::env_from_process()),
+        local_cache: Arc::default(),
+    }
+}
+
+/// WeldForms' HTTP client (Turnstile's siteverify), made once per process:
+/// public addresses only.
+fn forms_http() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        weldsuite_adapters_oss::ReqwestOutbound::public_only(std::time::Duration::from_secs(10))
+            .ok()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
+}
+
+/// WeldForms' respondent side at `/public/forms` (ADR FORMS-002): outside
+/// the member pipeline, behind the portal's key; served with the forms
+/// module. Conformance builds take the test's databases, env, buckets, KV,
+/// Workflow binding and fetch stub from its context.
+pub(crate) fn forms_public(state: &AppState) -> Router<AppState> {
+    if !mounts("forms") {
+        return Router::new();
+    }
+    let router = weldsuite_forms::public_router(forms_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::forms_public,
+    ));
+    router
 }
 
 /// WeldMerge (`weldsuite-merge`): merge-api's `/api/merge`.
@@ -1758,8 +1833,22 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 "/public/user-apps",
                 weldsuite_core_apps::public_user_apps(apps),
             )
+            .merge(sign_in_public(state))
     } else {
         Router::new()
+    }
+}
+
+/// `/api/sign-in`: the backend of the platform's own sign-in screens on an
+/// OIDC provider (`OIDC_SIGN_IN=platform`, ADR SEC-016). Nobody calling it
+/// is signed in. Not mounted otherwise: Global signs in on Clerk.
+fn sign_in_public(state: &AppState) -> Router<AppState> {
+    match &state.sign_in {
+        Some(sign_in) => Router::new().nest(
+            "/api/sign-in",
+            weldsuite_core_signin::router(sign_in.clone()),
+        ),
+        None => Router::new(),
     }
 }
 
@@ -1775,6 +1864,7 @@ fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
             signing_key: state.storage_signing_key.clone(),
             environment: Arc::from(state.environment.as_str()),
             jobs: Some(Arc::clone(&state.infra.jobs)),
+            serve_public_objects: state.files_public_via_server,
         },
     }
 }

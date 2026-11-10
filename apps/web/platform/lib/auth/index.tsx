@@ -24,7 +24,10 @@
  * - `<ClerkOnly>`: renders Clerk-specific screens (sign-in forms, passkeys,
  *   2FA, sessions) only on Clerk, a fallback elsewhere.
  * - `redirectToSignIn()` / `completeSignIn()` / `getAccountUrl()`: the
- *   provider-hosted sign-in that replaces those screens on OIDC.
+ *   OIDC redirect that starts and finishes a sign-in on OIDC.
+ * - `usesPlatformSignIn()`: on OIDC, WeldSuite shows the sign-in screens
+ *   itself (the ones Global shows, `lib/auth/oidc/sign-in-api.ts`) rather
+ *   than the provider.
  *
  * Clerk-only hooks and types (`useSignIn`, `useReverification`, …) live in
  * `@/lib/auth/clerk`; a screen that needs them renders inside `<ClerkOnly>`.
@@ -118,6 +121,15 @@ export function getAuthToken(options?: GetAuthTokenOptions): Promise<string | nu
 /** True when sign-in happens on the provider's own pages rather than WeldSuite's. */
 export function usesHostedSignIn(): boolean {
   return Boolean(active.redirectToSignIn);
+}
+
+/**
+ * True when WeldSuite shows its own sign-in screens over an OIDC provider
+ * (`auth.signIn: "platform"` in `/config.json`, ADR SEC-016): the provider
+ * then sends a sign-in back to `/auth/login` rather than showing its pages.
+ */
+export function usesPlatformSignIn(): boolean {
+  return active.platformSignIn === true;
 }
 
 /** Send the browser to the provider's sign-in (OIDC). A no-op on Clerk, which has its own pages. */

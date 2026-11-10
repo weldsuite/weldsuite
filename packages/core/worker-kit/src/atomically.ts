@@ -8,28 +8,31 @@
  * fall back to a real transaction, so both paths are atomic.
  *
  * `build` receives the handle to construct against; Drizzle query builders are
- * lazy, so building does not execute.
+ * lazy, so building does not execute. Answers each statement's result, in
+ * order (the rows of a `.returning()` statement).
  */
 import type { Database } from './env';
 
 export async function atomically(
   db: Database,
   build: (handle: Database) => unknown[],
-): Promise<void> {
+): Promise<unknown[]> {
   const driver = db as unknown as {
-    batch?: (items: unknown[]) => Promise<unknown>;
+    batch?: (items: unknown[]) => Promise<unknown[]>;
     transaction?: (fn: (tx: Database) => Promise<void>) => Promise<void>;
   };
 
   if (typeof driver.batch === 'function') {
-    await driver.batch(build(db));
-    return;
+    return driver.batch(build(db));
   }
+  const results: unknown[] = [];
+  const run = async (handle: Database) => {
+    for (const statement of build(handle)) results.push(await (statement as Promise<unknown>));
+  };
   if (typeof driver.transaction === 'function') {
-    await driver.transaction(async (tx) => {
-      for (const statement of build(tx)) await (statement as Promise<unknown>);
-    });
-    return;
+    await driver.transaction(run);
+    return results;
   }
-  for (const statement of build(db)) await (statement as Promise<unknown>);
+  await run(db);
+  return results;
 }

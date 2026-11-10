@@ -1,0 +1,185 @@
+{
+  "name": "Validation of text, number and date answers",
+  "definition": {
+    "blocks": [
+      { "id": "b_code", "ref": "code", "type": "short_text", "title": "Code", "required": true, "properties": { "maxLength": 5 } },
+      { "id": "b_bio", "ref": "bio", "type": "long_text", "title": "Bio" },
+      { "id": "b_email", "ref": "email", "type": "email", "title": "Email", "required": true },
+      { "id": "b_phone", "ref": "phone", "type": "phone", "title": "Phone" },
+      { "id": "b_site", "ref": "site", "type": "website", "title": "Website" },
+      { "id": "b_amount", "ref": "amount", "type": "number", "title": "Amount", "properties": { "decimals": 2, "min": -10, "max": 10 } },
+      { "id": "b_count", "ref": "count", "type": "number", "title": "Count" },
+      { "id": "b_day", "ref": "day", "type": "date", "title": "Day", "properties": { "min": "2024-01-01", "max": "2024-12-31" } },
+      { "id": "b_birthday", "ref": "birthday", "type": "date", "title": "Birthday" }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "Done" }]
+  },
+  "cases": [
+    {
+      "name": "valid answers are trimmed and normalised",
+      "answers": {
+        "b_code": " AB12 ",
+        "b_bio": "   ",
+        "b_email": "jo@example.com",
+        "b_phone": "+31 (0)6-1234 5678",
+        "b_site": "example.com/about",
+        "b_amount": -9.99,
+        "b_count": 42,
+        "b_day": "2024-02-29",
+        "b_birthday": " 1990-12-31 "
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_code", "b_bio", "b_email", "b_phone", "b_site", "b_amount", "b_count", "b_day", "b_birthday"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": {
+          "b_code": "AB12",
+          "b_email": "jo@example.com",
+          "b_phone": "+31 (0)6-1234 5678",
+          "b_site": "https://example.com/about",
+          "b_amount": -9.99,
+          "b_count": 42,
+          "b_day": "2024-02-29",
+          "b_birthday": "1990-12-31"
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "format errors",
+      "answers": {
+        "b_code": "TOO LONG",
+        "b_email": "jo@example",
+        "b_phone": "12-34",
+        "b_site": "ftp://example.com",
+        "b_amount": 1.234,
+        "b_count": 2.5,
+        "b_day": "2024-02-30",
+        "b_birthday": "31-12-1990"
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_code", "b_bio", "b_email", "b_phone", "b_site", "b_amount", "b_count", "b_day", "b_birthday"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_code": { "code": "too_long" },
+          "b_email": { "code": "invalid_email" },
+          "b_phone": { "code": "invalid_phone" },
+          "b_site": { "code": "invalid_url" },
+          "b_amount": { "code": "too_many_decimals" },
+          "b_count": { "code": "not_integer" },
+          "b_day": { "code": "invalid_date" },
+          "b_birthday": { "code": "invalid_date" }
+        },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "range errors; a leap day in a leap year is fine",
+      "answers": { "b_code": "X", "b_email": "a@b.co", "b_amount": 10.5, "b_count": -3, "b_day": "2023-12-31", "b_birthday": "2000-02-29" },
+      "expect": {
+        "ok": false,
+        "path": ["b_code", "b_bio", "b_email", "b_phone", "b_site", "b_amount", "b_count", "b_day", "b_birthday"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": { "b_amount": { "code": "too_large" }, "b_day": { "code": "date_too_early" } },
+        "answers": { "b_code": "X", "b_email": "a@b.co", "b_count": -3, "b_birthday": "2000-02-29" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "more range errors and values of the wrong type",
+      "answers": {
+        "b_code": 12345,
+        "b_bio": true,
+        "b_email": "   ",
+        "b_phone": "+1 555 0100 ext 5",
+        "b_site": "http://localhost:3000",
+        "b_amount": -10.01,
+        "b_count": "7",
+        "b_day": "2025-01-01",
+        "b_birthday": "1900-02-29"
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_code", "b_bio", "b_email", "b_phone", "b_site", "b_amount", "b_count", "b_day", "b_birthday"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_code": { "code": "invalid" },
+          "b_bio": { "code": "invalid" },
+          "b_email": { "code": "required" },
+          "b_phone": { "code": "invalid_phone" },
+          "b_site": { "code": "invalid_url" },
+          "b_amount": { "code": "too_small" },
+          "b_count": { "code": "invalid" },
+          "b_day": { "code": "date_too_late" },
+          "b_birthday": { "code": "invalid_date" }
+        },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a website with a scheme and port is kept as typed",
+      "answers": {
+        "b_code": "a",
+        "b_email": "A.B+tag@Sub.Example.org",
+        "b_site": "HTTPS://Example.com:8080/path?q=1#x",
+        "b_phone": "0612345678",
+        "b_amount": 0,
+        "b_count": 0,
+        "b_day": "2024-12-31"
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_code", "b_bio", "b_email", "b_phone", "b_site", "b_amount", "b_count", "b_day", "b_birthday"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": {
+          "b_code": "a",
+          "b_email": "A.B+tag@Sub.Example.org",
+          "b_site": "HTTPS://Example.com:8080/path?q=1#x",
+          "b_phone": "0612345678",
+          "b_amount": 0,
+          "b_count": 0,
+          "b_day": "2024-12-31"
+        },
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ],
+  "display": [
+    { "name": "a negative decimal", "fieldId": "b_amount", "value": -9.99, "expect": "-9.99" },
+    { "name": "a whole number", "fieldId": "b_count", "value": 1000000, "expect": "1000000" },
+    { "name": "a website gets its scheme", "fieldId": "b_site", "value": "example.com", "expect": "https://example.com" },
+    { "name": "a date, trimmed", "fieldId": "b_birthday", "value": " 1990-12-31 ", "expect": "1990-12-31" },
+    { "name": "a blank text", "fieldId": "b_code", "value": "   ", "expect": "" }
+  ],
+  "searchText": [
+    {
+      "name": "text answers in field order, lowercased; numbers and dates left out",
+      "answers": {
+        "b_code": "AB",
+        "b_bio": "Line one\nLine TWO",
+        "b_email": "Jo@Example.com",
+        "b_phone": "+31 6",
+        "b_site": "Example.com",
+        "b_amount": 5,
+        "b_day": "2024-01-01",
+        "b_unknown": "Not a field"
+      },
+      "expect": "ab line one\nline two jo@example.com +31 6 https://example.com"
+    }
+  ]
+}

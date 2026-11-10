@@ -13,11 +13,12 @@
  *
  * A job that mails through the worker's `SEND_EMAIL` binding behind the
  * outbound guard (WeldDesk's scheduled reports) sets `mailBindings`: Rust
- * then reaches the test's `SEND_EMAIL` stub and its `OUTBOUND_LEDGER`
- * namespace over the request harness's bridges (./send-email-bridge.ts,
- * ./ledger-bridge.ts), the TypeScript run gets them recording (the `env`
- * `runTypeScript` is handed), and every envelope and ledger call must match
- * too. The stub's `sent` then holds Rust's envelopes only.
+ * then reaches the test's `SEND_EMAIL` stub too, over the request harness's
+ * bridge (./send-email-bridge.ts), the TypeScript run gets the stub and the
+ * outbound ledgers recording (the `env` `runTypeScript` is handed), and
+ * every envelope and ledger call must match as well. The stub's `sent` then
+ * holds Rust's envelopes only. Without it Rust's ledger calls are not
+ * compared (the TypeScript run of such a job mocks the guard, or has none).
  *
  * The due index lives in a D1 database on Global and in the master table
  * `workspace_due_index` on Kubernetes (keyed by `workspaces.id`, not the
@@ -31,6 +32,11 @@
  * leaves `dueIndex`, `kv` and `masterDb` out and passes what it runs with
  * as `input`; its result carries what the test checks (the notices sent,
  * the markers afterwards).
+ *
+ * The job's buckets and outbound-guard ledgers are the test's, served over
+ * HTTP like a request's (`files`, `ledgers`): Rust reads and writes the
+ * same objects (WeldForms' integration steps copy a response's uploads) and
+ * asks the same ledger stub. Its KV stays its own seed scope, as above.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -50,8 +56,9 @@ import {
   type PGliteClient,
 } from './conformance';
 import { createMailCollector, mailRecord } from './conformance-mail';
-import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
+import { bucketUrls } from './bucket-bridge';
 import { ledgerUrls, recordTypeScriptLedgerCalls, sortLedgerCalls, takeRustLedgerCalls } from './ledger-bridge';
+import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 
 /** The part of a D1 binding the comparison reads. */
 interface D1Like {
@@ -68,7 +75,11 @@ export interface ConformanceSweep<R> {
     | 'desk-sla-sweep'
     | 'desk-report-sweep'
     | 'books-tax-reminders'
-    | 'flow-approval-due';
+    | 'flow-approval-due'
+    // WeldForms: the invitation reminder and digest sweeps, and one ProcessResponse run (`input`: its params and steps).
+    | 'forms-reminders'
+    | 'forms-digest'
+    | 'forms-process-response';
   now: Date;
   tenantDb: Database;
   /** The master database, for a job that keeps a due index. */
@@ -77,8 +88,8 @@ export interface ConformanceSweep<R> {
   env: Record<string, unknown>;
   /**
    * The job mails through `env.SEND_EMAIL` behind the outbound guard
-   * (`env.OUTBOUND_LEDGER`): share both with Rust and compare what each run
-   * sent and asked. Without it Rust gets neither binding, as before.
+   * (`env.OUTBOUND_LEDGER`): share the stub with Rust too (the ledgers
+   * always are) and compare what each run sent and asked the ledger.
    */
   mailBindings?: boolean;
   /** The test's due index and the kind the job keeps in it (a job that keeps one). */
@@ -142,6 +153,16 @@ function eventShape(event: Record<string, unknown>) {
   };
 }
 
+/**
+ * Events sorted by their normalised form: both runtimes publish fire and
+ * forget, so a tick's events (one per reminded invitation, say) reach the
+ * bus in either order, as a request's do.
+ */
+function byContent(events: unknown): unknown {
+  if (!Array.isArray(events)) return events;
+  return [...events].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 async function dueTimes(opts: ConformanceSweep<unknown>, master: PGliteClient | null) {
   if (!opts.dueIndex || !master) return { typescript: [], rust: [] };
   const d1 = await opts.dueIndex.d1
@@ -195,18 +216,21 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
         databaseUrl: await databaseUrlFor(tenant),
         ...(master ? { masterDatabaseUrl: await databaseUrlFor(master) } : {}),
         env: forwardedEnv(opts.env),
+        files: (await bucketUrls(opts.env)) ?? {},
+        ledgers: (await ledgerUrls(opts.env)) ?? {},
         workspaces: opts.workspaces,
         ...(opts.kv ? { seedScope: seedScope(opts.kv) } : {}),
         seeded: opts.seeded ?? false,
         ...(opts.input === undefined ? {} : { input: opts.input }),
-        // The test's SEND_EMAIL stub and outbound ledgers, for a job that mails through them.
-        ...(opts.mailBindings ? { sendEmail: await sendEmailUrl(opts.env), ledgers: await ledgerUrls(opts.env) } : {}),
+        // The test's SEND_EMAIL stub, for a job that mails through it.
+        ...(opts.mailBindings ? { sendEmail: await sendEmailUrl(opts.env) } : {}),
       }),
     });
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);
     rust = (await response.json()) as R;
     rustSide = await rustSideEffects(target);
     rustSends = takeRustSends();
+    // Rust's calls to the test's ledgers belong to this job, not to the next request's comparison.
     rustLedger = takeRustLedgerCalls();
     if (opts.mailBindings) {
       const sends = recordTypeScriptSends(opts.env);
@@ -219,9 +243,12 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
         tsLedger = ledger.finish();
       }
     } else {
+      // Nothing of the TypeScript run is recorded, so Rust's envelopes and ledger calls are not compared.
       typescript = await opts.runTypeScript(clone.db, opts.env);
       tsSends = [];
       tsLedger = [];
+      rustSends = [];
+      rustLedger = [];
     }
     tsMail = mail.take();
     tsEvents = opts.takeTypeScriptEvents();
@@ -234,8 +261,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   const difference =
     firstDifference(picked, rust, '$result') ??
     firstDifference(
-      normalizeForDiff(tsEvents.map(eventShape), true),
-      normalizeForDiff((rustSide.effects.events as Array<Record<string, unknown>>).map(eventShape), true),
+      byContent(normalizeForDiff(tsEvents.map(eventShape), true)),
+      byContent(normalizeForDiff((rustSide.effects.events as Array<Record<string, unknown>>).map(eventShape), true)),
       '$events',
     ) ??
     firstDifference(

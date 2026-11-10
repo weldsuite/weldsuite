@@ -129,6 +129,7 @@
     "./schemas/docs": "./src/schemas/docs.ts",
     "./schemas/boards": "./src/schemas/boards.ts",
     "./schemas/weldsign": "./src/schemas/weldsign.ts",
+    "./schemas/weldforms": "./src/schemas/weldforms.ts",
     "./schemas/weldpanel": "./src/schemas/weldpanel.ts",
     "./schemas/weldmerge": "./src/schemas/weldmerge.ts",
     "./schemas/weldmerge-sync": "./src/schemas/weldmerge-sync.ts",
@@ -233,6 +234,7 @@
     "./domains/docs": "./src/domains/docs.ts",
     "./domains/boards": "./src/domains/boards.ts",
     "./domains/weldsign": "./src/domains/weldsign.ts",
+    "./domains/weldforms": "./src/domains/weldforms.ts",
     "./domains/weldpanel": "./src/domains/weldpanel.ts",
     "./domains/weldmerge": "./src/domains/weldmerge.ts",
     "./domains/app-access": "./src/domains/app-access.ts",
@@ -244,6 +246,7 @@
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "zod": "^3.25.76"
   },

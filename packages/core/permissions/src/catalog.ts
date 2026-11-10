@@ -390,6 +390,38 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   },
   objectPermissions('sign_templates', 'Signature templates'),
 
+  // ── Forms and surveys (WeldForms) ─────────────────────────────────────
+  // Answers are kept apart from forms (as PASS-002 keeps read and reveal
+  // apart): someone can build and share forms, and see their counts, without
+  // reading what respondents wrote. A restricted form is only visible to its
+  // owner, its access list and `forms:manage`.
+  {
+    key: 'forms',
+    label: 'Forms (WeldForms)',
+    permissions: [
+      { key: 'forms:read', label: 'View forms', description: 'Forms, their questions and response counts; restricted forms only when on their access list.' },
+      { key: 'forms:create', label: 'Create forms' },
+      { key: 'forms:update', label: 'Edit forms' },
+      { key: 'forms:delete', label: 'Delete forms', description: 'Deletes the form with all its responses.' },
+      { key: 'forms:publish', label: 'Publish and close forms', description: 'Completed responses count towards the monthly WeldForms limit of the plan.' },
+      { key: 'forms:send', label: 'Email forms to people', description: 'Personal invitation links and reminders.' },
+      {
+        key: 'forms:manage',
+        label: 'Administer WeldForms',
+        description: 'See every form, restricted ones included, and change themes and the WeldForms settings.',
+      },
+    ],
+  },
+  {
+    key: 'form_responses',
+    label: 'Form responses (WeldForms)',
+    permissions: [
+      { key: 'form_responses:read', label: 'View form responses', description: 'The answers of every form this person can see.' },
+      { key: 'form_responses:export', label: 'Export form responses' },
+      { key: 'form_responses:delete', label: 'Delete form responses', description: 'Also erasing a respondent\'s data across forms.' },
+    ],
+  },
+
   // ── Product analytics (WeldPanel) ─────────────────────────────────────
   // Recordings and people are kept apart from reports: a recording shows what
   // a visitor saw and did, and a profile carries their email.
@@ -923,6 +955,9 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
   'sign_templates:read', 'sign_templates:create', 'sign_templates:update', 'sign_templates:delete',
+  // WeldForms — admins also see restricted forms and change themes and settings (forms:manage)
+  'forms:read', 'forms:create', 'forms:update', 'forms:delete', 'forms:publish', 'forms:send', 'forms:manage',
+  'form_responses:read', 'form_responses:export', 'form_responses:delete',
   // WeldPanel — admins also manage keys, privacy settings and usage, and erase users
   'panel_projects:read', 'panel_projects:create', 'panel_projects:update', 'panel_projects:delete', 'panel_projects:manage',
   'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
@@ -1065,6 +1100,9 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void',
   'sign_templates:read',
+  // WeldForms — build, share and read results; restricted forms and settings are not theirs
+  'forms:read', 'forms:create', 'forms:update', 'forms:delete', 'forms:publish', 'forms:send',
+  'form_responses:read', 'form_responses:export', 'form_responses:delete',
   // WeldPanel — build their own reports and watch recordings; projects are read-only
   'panel_projects:read',
   'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
@@ -1110,6 +1148,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'boards:read',
   // WeldSign — read-only: only requests they are a recipient of, and templates
   'sign_envelopes:read', 'sign_templates:read',
+  // WeldForms — read-only, results included
+  'forms:read', 'form_responses:read',
   // WeldPanel — shared reports and dashboards only; no recordings or profiles
   'panel_projects:read', 'panel_reports:read',
   // WeldMerge — read-only

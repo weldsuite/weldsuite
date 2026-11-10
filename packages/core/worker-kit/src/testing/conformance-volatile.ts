@@ -423,6 +423,32 @@ const ROUTES: VolatileRoute[] = [
       { path: 'body.consumerInputs.basicAuthPassword' },
     ],
   })),
+  // WeldForms: a blank form's ending id (`e_` and 8 random base62 characters).
+  {
+    method: 'POST',
+    route: '/api/forms/forms',
+    fields: [{ path: 'data.definition.endings.0.id', pattern: /^e_[0-9A-Za-z]{8}$/g, replacement: 'e_<volatile>' }],
+  },
+  // WeldForms: an uploaded image's key carries 16 random characters.
+  {
+    method: 'POST',
+    route: '/api/forms/media',
+    fields: [{ path: 'data.url', pattern: /\/media\/[A-Za-z0-9]{16}\./g, replacement: '/media/<volatile>.' }],
+  },
+  // WeldForms: an ALTCHA challenge is drawn per call (salt, secret number,
+  // its hash and signature, and the salt's expiry).
+  { method: 'GET', route: '/public/forms/altcha/challenge', fields: [{ path: 'challenge' }, { path: 'salt' }, { path: 'signature' }] },
+  // WeldForms: a verification token carries its expiry (the run's clock plus 30 minutes).
+  { method: 'POST', route: '/public/forms/f/:publicId/verify', fields: [{ path: 'data.verification' }] },
+  // WeldForms: a refused rate limit says how many seconds are left of the
+  // minute's window, read off each run's own clock.
+  ...[
+    '/public/forms/f/:publicId/sessions',
+    '/public/forms/f/:publicId/send-code',
+    '/public/forms/f/:publicId/report',
+    '/public/forms/sessions/uploads',
+    '/public/forms/sessions/submit',
+  ].map((route) => ({ method: 'POST', route, fields: [{ path: 'error.details.retryAfterSeconds' }] })),
 ];
 
 /** The value at a dot path, as text for ordering. */

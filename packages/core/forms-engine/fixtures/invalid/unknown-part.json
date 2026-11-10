@@ -1,0 +1,57 @@
+{
+  "name": "A missing contact part, and a part on a text field",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_c",
+        "ref": "contact",
+        "type": "contact_info",
+        "title": "Contact"
+      },
+      {
+        "id": "b_t",
+        "ref": "text",
+        "type": "short_text",
+        "title": "text"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_a",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "field",
+                "id": "b_c",
+                "part": "nickname"
+              },
+              "operator": "is_answered"
+            },
+            {
+              "left": {
+                "type": "field",
+                "id": "b_t",
+                "part": "email"
+              },
+              "operator": "is_answered"
+            }
+          ]
+        },
+        "endingId": "e_end"
+      }
+    ]
+  },
+  "expectIssues": [
+    "unknown_part",
+    "unknown_part"
+  ]
+}

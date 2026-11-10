@@ -191,3 +191,28 @@ async fn many_objects_go_in_one_delete() {
     }
     store.delete_many(&[]).await.expect("nothing to delete");
 }
+
+#[tokio::test]
+async fn ensure_bucket_creates_a_missing_bucket_once() {
+    let Some(options) = options() else { return };
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let options = S3Options {
+        bucket: format!("weldsuite-ensure-{nanos}"),
+        ..options
+    };
+    let store = S3FileStore::new(&options, reqwest::Client::new()).expect("store");
+    assert!(store.ensure_bucket().await.expect("create"), "created");
+    assert!(
+        !store.ensure_bucket().await.expect("exists"),
+        "already there"
+    );
+    // The new bucket takes objects.
+    let key = format!("{}/probe.txt", prefix());
+    store
+        .put(&key, b"ok".to_vec(), &PutOptions::default())
+        .await
+        .expect("put");
+    store.delete(&key).await.expect("delete");
+}

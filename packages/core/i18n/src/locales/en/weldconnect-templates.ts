@@ -161,4 +161,14 @@ export const weldconnectTemplates = {
     },
     text: {},
   },
+  formResponseToChat: {
+    name: 'Post new form responses in chat',
+    description: 'When someone submits a form, post a message in a WeldChat channel so the team sees it straight away.',
+    steps: {
+      post: 'Post in WeldChat',
+    },
+    text: {
+      message: 'New response #{number} to {form} from {email}.',
+    },
+  },
 };

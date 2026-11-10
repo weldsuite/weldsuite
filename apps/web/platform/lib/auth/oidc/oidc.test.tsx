@@ -16,6 +16,7 @@ import {
   useAuth,
   useOrganization,
   useOrganizationList,
+  usesPlatformSignIn,
   useUser,
 } from '../index';
 
@@ -290,6 +291,39 @@ describe('the facade on OIDC', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('shows the provider’s pages unless the deployment has the platform show the sign-in screens', () => {
+    setAuthImplementation(createOidcAuth(CONFIG, { origin: ORIGIN }));
+    expect(usesPlatformSignIn()).toBe(false);
+    setAuthImplementation(createOidcAuth({ ...CONFIG, signIn: 'platform' }, { origin: ORIGIN }));
+    expect(usesPlatformSignIn()).toBe(true);
+  });
+
+  it('ends the session the sign-in screens opened, then signs out at the provider as before', async () => {
+    const calls = () =>
+      vi
+        .mocked(fetch)
+        .mock.calls.map(([input]) => String(input))
+        .filter((url) => url.endsWith('/api/sign-in/sign-out'));
+    const endSessions = () =>
+      assign.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith(`${ISSUER}/oidc/v1/end_session`));
+    // The redirect never resolves (the page would unload), so it is not awaited.
+    const signOut = async (config: OidcSessionConfig, redirects: number) => {
+      setAuthImplementation(createOidcAuth(config, { origin: ORIGIN }));
+      const { result, unmount } = renderHook(() => useAuth());
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+      void result.current.signOut({ redirectUrl: '/auth/login' });
+      await waitFor(() => expect(endSessions()).toHaveLength(redirects));
+      unmount();
+    };
+
+    // The provider's own pages: nothing of WeldSuite's to end.
+    await signOut(CONFIG, 1);
+    expect(calls()).toHaveLength(0);
+
+    await signOut({ ...CONFIG, signIn: 'platform' }, 2);
+    expect(calls()).toHaveLength(1);
   });
 
   it('is signed out without a session', async () => {

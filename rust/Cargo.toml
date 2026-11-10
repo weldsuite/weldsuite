@@ -45,6 +45,7 @@ weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-onboarding = { path = "modules/core-onboarding" }
+weldsuite-core-signin = { path = "modules/core-signin" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
@@ -60,6 +61,8 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-forms = { path = "modules/forms" }
+weldsuite-forms-engine = { path = "crates/forms-engine" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }

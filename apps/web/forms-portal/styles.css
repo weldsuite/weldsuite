@@ -1,0 +1,65 @@
+@import "@weldsuite/ui/globals.css";
+@import "@fontsource-variable/inter";
+@import "@weldsuite/forms-renderer/styles.css";
+
+body {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/*
+ * The form page: the renderer fills what is left above the footer. The theme
+ * variables are set on the shell as well as on the renderer, so the footer
+ * matches the form's colours.
+ */
+.wf-page-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--wf-bg, #fff);
+  color: var(--wf-question, #1f2937);
+  font-family: var(--wf-font);
+}
+.wf-page-shell[data-embed='inline'] {
+  min-height: 0;
+}
+.wf-page-shell .wf-root {
+  flex: 1;
+  min-height: 0;
+}
+.wf-page-shell .wf-back {
+  bottom: 44px;
+}
+.wf-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 14px;
+  padding: 10px 16px 14px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--wf-question, #1f2937) 60%, transparent);
+}
+.wf-footer a,
+.wf-footer button {
+  color: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.wf-footer a:hover,
+.wf-footer button:hover {
+  color: var(--wf-question, #1f2937);
+}
+.wf-honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

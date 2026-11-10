@@ -299,6 +299,14 @@
       ]
     },
     {
+      "code": "weldforms",
+      "label": "WeldForms",
+      "objects": [
+        "forms",
+        "form_responses"
+      ]
+    },
+    {
       "code": "weldpanel",
       "label": "WeldPanel",
       "objects": [
@@ -1595,6 +1603,65 @@
         {
           "key": "sign_templates:delete",
           "label": "Delete signature templates"
+        }
+      ]
+    },
+    {
+      "key": "forms",
+      "label": "Forms (WeldForms)",
+      "permissions": [
+        {
+          "description": "Forms, their questions and response counts; restricted forms only when on their access list.",
+          "key": "forms:read",
+          "label": "View forms"
+        },
+        {
+          "key": "forms:create",
+          "label": "Create forms"
+        },
+        {
+          "key": "forms:update",
+          "label": "Edit forms"
+        },
+        {
+          "description": "Deletes the form with all its responses.",
+          "key": "forms:delete",
+          "label": "Delete forms"
+        },
+        {
+          "description": "Completed responses count towards the monthly WeldForms limit of the plan.",
+          "key": "forms:publish",
+          "label": "Publish and close forms"
+        },
+        {
+          "description": "Personal invitation links and reminders.",
+          "key": "forms:send",
+          "label": "Email forms to people"
+        },
+        {
+          "description": "See every form, restricted ones included, and change themes and the WeldForms settings.",
+          "key": "forms:manage",
+          "label": "Administer WeldForms"
+        }
+      ]
+    },
+    {
+      "key": "form_responses",
+      "label": "Form responses (WeldForms)",
+      "permissions": [
+        {
+          "description": "The answers of every form this person can see.",
+          "key": "form_responses:read",
+          "label": "View form responses"
+        },
+        {
+          "key": "form_responses:export",
+          "label": "Export form responses"
+        },
+        {
+          "description": "Also erasing a respondent's data across forms.",
+          "key": "form_responses:delete",
+          "label": "Delete form responses"
         }
       ]
     },
@@ -3511,6 +3578,16 @@
         "sign_templates:create",
         "sign_templates:update",
         "sign_templates:delete",
+        "forms:read",
+        "forms:create",
+        "forms:update",
+        "forms:delete",
+        "forms:publish",
+        "forms:send",
+        "forms:manage",
+        "form_responses:read",
+        "form_responses:export",
+        "form_responses:delete",
         "panel_projects:read",
         "panel_projects:create",
         "panel_projects:update",
@@ -3752,6 +3829,15 @@
         "sign_envelopes:send",
         "sign_envelopes:void",
         "sign_templates:read",
+        "forms:read",
+        "forms:create",
+        "forms:update",
+        "forms:delete",
+        "forms:publish",
+        "forms:send",
+        "form_responses:read",
+        "form_responses:export",
+        "form_responses:delete",
         "panel_projects:read",
         "panel_reports:read",
         "panel_reports:create",
@@ -3876,6 +3962,8 @@
         "boards:read",
         "sign_envelopes:read",
         "sign_templates:read",
+        "forms:read",
+        "form_responses:read",
         "panel_projects:read",
         "panel_reports:read",
         "merge_issues:read",

@@ -17,6 +17,7 @@
     "./folders": "./src/folders.ts",
     "./legal-entities": "./src/legal-entities/index.ts",
     "./partners": "./src/partners/index.ts",
+    "./plan-limits": "./src/plan-limits.ts",
     "./sso": "./src/sso.ts",
     "./workspaces": "./src/workspaces.ts"
   },

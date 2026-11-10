@@ -20,6 +20,8 @@ export interface SheetDataDefinition {
   sort?: { field: string; descending?: boolean };
   /** Records at most. */
   limit: number;
+  /** `form_responses` only: the form whose responses are listed (a TypeScript-only field of the JSON, no migration). */
+  formId?: string;
 }
 
 /**

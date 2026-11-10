@@ -66,6 +66,8 @@ pub(crate) struct AppState {
     pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects here.
+    pub(crate) files_public_via_server: bool,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
     /// realtime tokens with it, and the gateway verifies them.
     pub(crate) widget_token_secret: Option<Arc<str>>,
@@ -77,6 +79,9 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// The sign-in screens' backend (`/api/sign-in`), with
+    /// `OIDC_SIGN_IN=platform`.
+    pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
@@ -163,6 +168,18 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/books-tax-reminders",
             axum::routing::post(crate::conformance::books_tax_reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-process-response",
+            axum::routing::post(crate::conformance_forms::process_response),
+        )
+        .route(
+            "/__conformance/cron/forms-reminders",
+            axum::routing::post(crate::conformance_forms::reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-digest",
+            axum::routing::post(crate::conformance_forms::digest),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.
@@ -189,6 +206,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/config.json", get(config_json))
         .nest("/api", api)
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
+        .nest("/public/forms", crate::routes::forms_public(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
@@ -527,10 +545,12 @@ mod tests {
             collab_secret: None,
             mail_inbound_secret: None,
             files_public_url: None,
+            files_public_via_server: false,
             widget_token_secret: None,
             trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
+            sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),

@@ -96,6 +96,15 @@ config:
       # The platform's public client (PKCE), told to the frontends by
       # /config.json (optional).
       webClientId: ""
+      # Who shows the sign-in screens (ADR SEC-016). Empty or provider: the
+      # provider's own pages. platform: WeldSuite's, the ones Global shows,
+      # with the server as Zitadel's login client behind them (/api/sign-in).
+      # That takes config.identity.zitadel, a service user with the
+      # IAM_LOGIN_CLIENT role, and Zitadel's sign-in for the platform's
+      # application pointed at <platform>/auth (Hetzner runbook, step 7).
+      # The links in its emails open the platform at PLATFORM_URL, which
+      # config.publicUrl fills.
+      signIn: ""
   # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
@@ -191,6 +200,17 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # WeldForms: the respondent page's origin; form and invitation links are
+  # <portalUrl>/f/<publicId> (empty: https://forms.weldsuite.org). The portal and
+  # the server share FORMS_PORTAL_SECRET (in the Secret); FORMS_SESSION_SECRET
+  # signs respondent sessions. The bot check (ADR FORMS-005) is ALTCHA's
+  # self-hosted proof of work on Kubernetes (ALTCHA_HMAC_KEY in the Secret);
+  # `turnstile` takes TURNSTILE_SECRET_KEY in the Secret and the site key here,
+  # `none` is for local development only.
+  forms:
+    portalUrl: ""
+    botCheckProvider: altcha
+    turnstileSiteKey: ""
   # WeldFlow: the client portal's origin for the portal invitation and the status report
   # emails to client contacts (empty: those emails are not sent).
   flow:
@@ -199,7 +219,10 @@ config:
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
   # ZITADEL_SERVICE_TOKEN (a service user's personal access token, IAM_OWNER)
-  # goes in the Secret. Empty apiUrl: no identity provider.
+  # goes in the Secret. Empty apiUrl: no identity provider. With
+  # config.auth.oidc.signIn: platform the sign-in screens call Zitadel's
+  # login API too, as a service user with IAM_LOGIN_CLIENT: that same user
+  # with the role added, or one of its own (ZITADEL_LOGIN_TOKEN).
   identity:
     zitadel:
       apiUrl: ""             # http://zitadel.zitadel.svc:8080
@@ -260,6 +283,12 @@ config:
 #                                into an smtp:// URL (`openssl rand -hex 32`; with mta.enabled)
 #   SIGN_SESSION_SECRET         WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   FORMS_PORTAL_SECRET          shared by the server and the forms portal (required with formsPortal.enabled)
+#   FORMS_SESSION_SECRET         WeldForms: signs respondent sessions and verification tokens and keys the
+#                                hashes of IPs, browser keys and emailed codes (the workers' value, so a
+#                                session either backend issued opens on the other); unset: 503 on /public/forms
+#   ALTCHA_HMAC_KEY              WeldForms: signs ALTCHA's proof-of-work challenges (config.forms.botCheckProvider: altcha)
+#   TURNSTILE_SECRET_KEY         WeldForms: Cloudflare Turnstile's secret (config.forms.botCheckProvider: turnstile)
 #   OUTBOUND_ADMIN_SECRET        shared by the server and the admin console: what the console sends
 #                                to /internal/outbound (optional; unset refuses those calls)
 #   ADMIN_OIDC_CLIENT_ID / ADMIN_OIDC_CLIENT_SECRET  the admin console's app at the OIDC provider
@@ -269,6 +298,9 @@ config:
 #                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 #   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   ZITADEL_LOGIN_TOKEN          the token of a service user with only IAM_LOGIN_CLIENT, for the sign-in
+#                                screens (optional, with config.auth.oidc.signIn: platform; unset: the
+#                                service user above, which then needs that role as well)
 #   DATABASE_URL_PERSONAL        personal-api's shared personal database (consumer WeldMail and
 #                                WeldCalendar on personal accounts, ADR DATA-011), a database of its
 #                                own: set, the server serves personal-api at /personal-api and the
@@ -282,6 +314,143 @@ config:
 secret:
   existingSecret: ""
   values: {}
+  # The install's own keys, generated once by the chart into the Secret
+  # `generatedName` and kept across upgrades and uninstalls (resource policy
+  # keep): DATABASE_ENCRYPTION_KEY(_V2), WELDPASS_ROOT_KEY,
+  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET (64 hex characters each),
+  # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
+  # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
+  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET, and the
+  # bundled dependencies' credentials (bundle below). Every pod reads it before
+  # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
+  # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
+  # every stored WeldPass secret and every workspace's database URL.
+  generate: true
+  # A fixed name, so the bundled subcharts' values can name it (valkey and
+  # nats below). Change it there too if you change it here.
+  generatedName: weldsuite-generated
+
+# Dependencies the chart runs itself (Chart.yaml's dependencies, pinned to
+# the EU cluster's versions; docs/plans/self-hosted-edition.md, decision 2).
+# On, the chart also sets the server's settings for it from the generated
+# Secret, overriding the same keys in the Secret above: VALKEY_URL; NATS_URL
+# and NATS_TOKEN; RESTATE_INGRESS_URL and RESTATE_ADMIN_URL; S3_ENDPOINT, the
+# buckets and keys, S3_ENSURE_BUCKETS and, without config.files.publicUrl,
+# public objects served by this server at <config.publicUrl>/api/storage/public.
+# Off, bring your own and put its settings in the Secret.
+bundle:
+  # A CloudNativePG Cluster for the master and the workspaces' databases
+  # (postgres below): DATABASE_URL_MASTER and TENANT_SHARDS. Needs the
+  # CloudNativePG operator in the cluster. With it, the migrations run in an
+  # init container of the server's pods instead of a pre-install hook, which
+  # would run before the database exists.
+  postgres: false
+  valkey: false
+  nats: false
+  restate: false
+  objectStorage: false
+
+# The bundled Postgres (bundle.postgres): one CloudNativePG Cluster,
+# <release>-pg. The master database is weldsuite_master, owned by weldsuite;
+# each workspace gets its own database and role on the same cluster, made by
+# the tenant role (CREATEDB, CREATEROLE). Both passwords are generated into
+# <release>-pg-owner and <release>-pg-tenant (basic-auth Secrets, kept on
+# uninstall). Workspaces connect to the primary directly, without a pooler,
+# which suits an install of up to a few hundred workspaces.
+postgres:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  parameters:
+    max_connections: "300"
+    shared_buffers: 256MB
+  storage:
+    size: 20Gi
+    # The cluster's default StorageClass when empty.
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# The bundled object store (bundle.objectStorage): one RustFS node (Apache-2.0,
+# S3-compatible) on a volume. The buckets are created by the server at start.
+objectStorage:
+  image:
+    repository: rustfs/rustfs
+    tag: "1.0.1"
+    pullPolicy: IfNotPresent
+  buckets:
+    private: weldsuite-private
+    public: weldsuite-public
+  storage:
+    size: 50Gi
+    # The cluster's default StorageClass when empty.
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  podSecurityContext:
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
+
+# Values for the bundled subcharts, used only when their bundle toggle is on.
+# Valkey with a password for its default user from the generated Secret.
+valkey:
+  auth:
+    enabled: true
+    usersExistingSecret: weldsuite-generated
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+        passwordKey: VALKEY_PASSWORD
+  dataStorage:
+    enabled: true
+    requestedSize: 5Gi
+    keepPvc: true
+# NATS with JetStream on a volume, one node, a token from the generated Secret.
+nats:
+  config:
+    jetstream:
+      enabled: true
+      fileStore:
+        pvc:
+          size: 10Gi
+    merge:
+      authorization:
+        token: << $NATS_TOKEN >>
+  container:
+    env:
+      NATS_TOKEN:
+        valueFrom:
+          secretKeyRef:
+            name: weldsuite-generated
+            key: NATS_TOKEN
+  natsBox:
+    enabled: false
+# Restate, one node; it is reached only inside the cluster.
+restate:
+  replicaCount: 1
+  env:
+    - name: RESTATE_LOG_FORMAT
+      value: json
+    - name: RESTATE_CLUSTER_NAME
+      value: weldsuite
+    # RocksDB's memory budget, well inside the limit below.
+    - name: RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE
+      value: 768Mi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  storage:
+    size: 10Gi
 
 # The database migrations: a Job that runs `weldsuite migrate` with the same
 # image, Secret and settings as the server, as a Helm pre-install and
@@ -408,6 +577,43 @@ signPortal:
     annotations: {}
     hosts:
       - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+# The WeldForms respondent page (ADR FE-017, FORMS-002): a Node container
+# (ghcr.io/weldsuite/weldsuite-forms-portal, `--target forms-portal` of
+# rust/Dockerfile) whose server routes call this server's /public/forms/*
+# endpoints. Needs FORMS_PORTAL_SECRET in the Secret.
+formsPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-forms-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # How many proxies in front of the portal append to X-Forwarded-For, which
+  # the respondent's IP (rate limits, bot checks) is read from (counted from the
+  # right): 1 for the ingress controller, 2 with a CDN the ingress trusts.
+  trustedProxies: 1
+  # The links the server emails point at config.forms.portalUrl: set it to this
+  # portal's public URL (https://forms.<domain>).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: forms.example.org
         paths:
           - path: /
             pathType: Prefix
@@ -791,6 +997,8 @@ networkPolicy:
   # Who may call the sign portal (the ingress controller); empty allows any
   # peer. The portal's own pods may always call the server.
   signPortalFrom: []
+  # Who may call the forms portal (the ingress controller); empty allows any peer.
+  formsPortalFrom: []
   # Who may call the admin console (the ingress controller); empty allows any
   # peer. The console's own pods may always call the server.
   adminFrom: []
@@ -879,6 +1087,17 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldForms: the automatic invitation reminders and the daily response
+    # digest, for the workspaces the forms_reminders / forms_digest due index
+    # lists. Do nothing while forms is not served.
+    forms-reminders:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    forms-digest:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
     # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
     # rates, in every workspace that used books (the books due index).
     books-sweep:

@@ -284,6 +284,24 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  // WeldForms. Folders are a filter on the home page, so the sidebar is static.
+  weldforms: {
+    appName: 'WeldForms',
+    appIcon: ClipboardList,
+    appLogo: getAppLogoConfig('weldforms'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldforms.forms, href: '/weldforms', icon: ClipboardList, permission: 'forms:read' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.groups.settings,
+        items: [{ title: t.navigation.moduleSidebar.weldforms.settings, href: '/weldforms/settings', icon: Settings, permission: 'forms:read' }],
+      },
+    ],
+  },
   welddocs: {
     appName: 'WeldDocs',
     appIcon: FileText,

@@ -1,0 +1,75 @@
+{
+  "name": "A missing matrix row, and a row on a text field",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_m",
+        "ref": "grid",
+        "type": "matrix",
+        "title": "Grid",
+        "properties": {
+          "rows": [
+            {
+              "id": "r_1",
+              "label": "Row"
+            }
+          ],
+          "columns": [
+            {
+              "id": "k_1",
+              "label": "A"
+            },
+            {
+              "id": "k_2",
+              "label": "B"
+            }
+          ]
+        }
+      },
+      {
+        "id": "b_t",
+        "ref": "text",
+        "type": "short_text",
+        "title": "text"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_a",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "field",
+                "id": "b_m",
+                "rowId": "r_missing"
+              },
+              "operator": "is_answered"
+            },
+            {
+              "left": {
+                "type": "field",
+                "id": "b_t",
+                "rowId": "r_1"
+              },
+              "operator": "is_answered"
+            }
+          ]
+        },
+        "endingId": "e_end"
+      }
+    ]
+  },
+  "expectIssues": [
+    "unknown_row",
+    "unknown_row"
+  ]
+}

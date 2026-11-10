@@ -17,6 +17,7 @@ import type {
   EmailBrand,
   EmailLocale,
   FlowStatusReportEmailProps,
+  FormsResponseEmailProps,
   NotificationEmailProps,
   TaskAssignedEmailProps,
 } from '@weldsuite/emails';
@@ -66,7 +67,8 @@ export interface DeferredEmailWorkflow {
 export type NotificationEmailOverride =
   | { template: 'notification'; props: NotificationEmailProps }
   | { template: 'task.assigned'; props: TaskAssignedEmailProps }
-  | { template: 'flow.status-report'; props: FlowStatusReportEmailProps };
+  | { template: 'flow.status-report'; props: FlowStatusReportEmailProps }
+  | { template: 'forms.response'; props: FormsResponseEmailProps };
 
 /**
  * Payload handed to the deferred-email workflow. Every field must stay
