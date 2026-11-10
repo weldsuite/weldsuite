@@ -94,6 +94,7 @@ export * from './meeting-bot-sessions';
 export * from './voip-calls';
 export * from './voip-phone-numbers';
 export * from './voip-porting-orders';
+export * from './voip-sip-trunks';
 export * from './enrichment-logs';
 export * from './enrich-field-definitions';
 export * from './enrich-field-results';
