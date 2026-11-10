@@ -189,6 +189,8 @@ export * from './desk-widget-settings';
 export * from './desk-voice-agents';
 export * from './desk-phone-routes';
 export * from './desk-phone-agents';
+export * from './desk-problems';
+export * from './desk-catalog';
 export * from './search-index';
 
 // Generic analytics (shared across apps)
@@ -239,6 +241,7 @@ export * from './custom-field-values';
 
 // WeldObjects — user-defined custom objects (types, records, links, edges)
 export * from './custom-objects';
+export * from './asset-sources';
 
 // System settings (key-value configuration)
 export * from './system-settings';

@@ -275,6 +275,8 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // ── Helpdesk (WeldDesk) ───────────────────────────────────────────────
   objectPermissions('tickets',       'Tickets'),
   objectPermissions('conversations', 'Conversations'),
+  // Problem management: the cause behind incidents, with its workaround.
+  objectPermissions('problems',      'Problems'),
   objectPermissions('articles',      'Knowledge Base Articles'),
   objectPermissions('agents',        'Agents',               ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('departments',   'Departments',          ['read', 'create', 'update', 'delete', 'manage']),
@@ -981,6 +983,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // WeldDesk
   'welddesk:tickets:read', 'welddesk:tickets:create', 'welddesk:tickets:update',
   'welddesk:conversations:read', 'welddesk:conversations:create', 'welddesk:conversations:update',
+  'welddesk:problems:read', 'welddesk:problems:create', 'welddesk:problems:update',
   'welddesk:articles:read',
   'welddesk:agents:read',
   'welddesk:departments:read',

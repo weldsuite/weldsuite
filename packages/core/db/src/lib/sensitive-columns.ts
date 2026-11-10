@@ -54,6 +54,8 @@ export const SENSITIVE_COLUMNS = {
   reach_warmup_mailboxes: ['smtpCredentials', 'imapCredentials'],
   /** The SIEM collector's token (Splunk HEC token, or the auth header value); only the stream delivery decrypts it. */
   audit_log_streams: ['tokenEncrypted'],
+  /** The client secret of the customer's own app registration (Intune); only the device import decrypts it. */
+  asset_sources: ['secretEncrypted'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type SensitiveTableName = keyof typeof SENSITIVE_COLUMNS;
