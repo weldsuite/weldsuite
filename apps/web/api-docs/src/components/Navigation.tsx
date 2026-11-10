@@ -340,7 +340,10 @@ export const navigation: Array<NavGroup> = [
   },
   {
     title: 'Workspace',
-    links: [{ title: 'Audit Logs', href: '/audit-logs' }],
+    links: [
+      { title: 'Audit Logs', href: '/audit-logs' },
+      { title: 'OData feed (BI)', href: '/odata' },
+    ],
   },
 ]
 

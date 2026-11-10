@@ -16,10 +16,12 @@ import { notFound } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   deskPortalAuthRequestSchema,
+  deskPortalCatalogRequestSchema,
   deskPortalAuthVerifySchema,
   deskPortalCreateRequestSchema,
   deskPortalListRequestsQuerySchema,
   deskPortalReplySchema,
+  type DeskPortalCatalogItem,
   type DeskPortalMessage,
   type DeskPortalRequestDetail,
   type DeskPortalRequestSummary,
@@ -131,6 +133,19 @@ export const getRequestTypes = createServerFn({ method: 'GET' }).handler(
   (): Promise<SignedInRead<DeskPortalRequestType[]>> => signedInGet<DeskPortalRequestType[]>('/request-types'),
 )
 
+/** The service catalogue as this reader sees it. */
+export const getCatalog = createServerFn({ method: 'GET' }).handler(
+  (): Promise<SignedInRead<DeskPortalCatalogItem[]>> => signedInGet<DeskPortalCatalogItem[]>('/catalog'),
+)
+
+export const getCatalogItem = createServerFn({ method: 'GET' })
+  .validator((input: { id: string }) => input)
+  .handler(async ({ data }): Promise<SignedInRead<DeskPortalCatalogItem>> => {
+    const id = typeof data.id === 'string' ? data.id.trim() : ''
+    if (!id || id.length > 64) throw notFound()
+    return signedInGet<DeskPortalCatalogItem>(`/catalog/${encodeURIComponent(id)}`)
+  })
+
 export const getRequestDetail = createServerFn({ method: 'GET' })
   .validator((input: { id: string }) => input)
   .handler(async ({ data }): Promise<SignedInRead<DeskPortalRequestDetail>> => {
@@ -218,4 +233,22 @@ export const replyToRequest = createServerFn({ method: 'POST' })
     const parsed = deskPortalReplySchema.safeParse({ body: data.body })
     if (!parsed.success) return fail('INVALID', 'body')
     return signedInPost<DeskPortalMessage>(`/requests/${encodeURIComponent(id)}/messages`, parsed.data)
+  })
+
+/** Submit a catalogue item: the same answers as a request, the form being the item's. */
+export const submitCatalogRequest = createServerFn({ method: 'POST' })
+  .validator(
+    (input: { catalogItemId: string; title?: string; description?: string; fields?: Record<string, unknown> }) => input,
+  )
+  .handler(async ({ data }): Promise<PortalOutcome<{ id: string }>> => {
+    const id = typeof data.catalogItemId === 'string' ? data.catalogItemId.trim() : ''
+    if (!id || id.length > 64) return fail('NOT_FOUND')
+    const parsed = deskPortalCatalogRequestSchema.safeParse({
+      title: data.title,
+      description: data.description,
+      fields: data.fields,
+    })
+    if (!parsed.success) return fail('INVALID', zodField(parsed.error))
+    const result = await signedInPost<DeskPortalRequestDetail>(`/catalog/${encodeURIComponent(id)}/requests`, parsed.data)
+    return result.ok ? { ok: true, data: { id: result.data.id } } : result
   })

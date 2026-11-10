@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import type { DeskPortalField, DeskPortalRequestType } from '@weldsuite/app-api-client/schemas/desk-portal'
-import { submitRequest } from '@/lib/portal'
+import { submitCatalogRequest, submitRequest } from '@/lib/portal'
 import {
   BODY_MAX,
   TITLE_MAX,
@@ -32,15 +32,20 @@ interface RequestFormProps {
   type: DeskPortalRequestType
   /** Back to the type picker; absent when the help center has one type. */
   onChangeType?: () => void
+  /**
+   * A service catalogue item the form belongs to: the request is submitted
+   * as that item (its form is `type`) and the title starts out as its name.
+   */
+  catalogItem?: { id: string; name: string }
 }
 
 /** The form for one request type: title, description, then the type's own fields. */
-export function RequestForm({ type, onChangeType }: Readonly<RequestFormProps>) {
+export function RequestForm({ type, onChangeType, catalogItem }: Readonly<RequestFormProps>) {
   const t = usePortalStrings()
   const navigate = useNavigate()
   const toSignIn = useSignInRedirect()
 
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(catalogItem?.name ?? '')
   const [description, setDescription] = useState('')
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     Object.fromEntries(type.fields.map((f) => [f.key, emptyValue(f)])),
@@ -70,14 +75,14 @@ export function RequestForm({ type, onChangeType }: Readonly<RequestFormProps>) 
     setErrors({})
     setFormError(null)
     try {
-      const result = await submitRequest({
-        data: {
-          ticketTypeId: type.id,
-          title: title.trim(),
-          ...(type.descriptionLabel !== null && description.trim() ? { description: description.trim() } : {}),
-          fields: fieldsPayload(type, answers),
-        },
-      })
+      const answered = {
+        title: title.trim(),
+        ...(type.descriptionLabel !== null && description.trim() ? { description: description.trim() } : {}),
+        fields: fieldsPayload(type, answers),
+      }
+      const result = catalogItem
+        ? await submitCatalogRequest({ data: { catalogItemId: catalogItem.id, ...answered } })
+        : await submitRequest({ data: { ticketTypeId: type.id, ...answered } })
       if (result.ok) {
         await navigate({ to: '/requests/$id', params: { id: result.data.id } })
         return
@@ -184,7 +189,11 @@ export function RequestForm({ type, onChangeType }: Readonly<RequestFormProps>) 
       )}
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button type="button" onClick={() => void navigate({ to: '/requests' })} className={secondaryButtonClass}>
+        <button
+          type="button"
+          onClick={() => void navigate({ to: catalogItem ? '/catalog' : '/requests' })}
+          className={secondaryButtonClass}
+        >
           {t.form.cancel}
         </button>
         <button type="submit" disabled={busy} className={primaryButtonClass}>

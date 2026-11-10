@@ -265,6 +265,9 @@ describe('licence gate lookups', () => {
     expect(findModuleForExternalPath('/v1/mail-accounts/a1/send').id).toBe('mail');
     expect(findModuleForExternalPath('/v1/knowledge-pages').id).toBe('know');
     expect(findModuleForExternalPath('/v1/quotes?limit=5').id).toBe('crm');
+    // WeldDesk's BI connector (OData feed).
+    expect(findModuleForExternalPath('/v1/odata/Conversations?$top=5').id).toBe('desk');
+    expect(findModuleForExternalPath('/v1/odata/$metadata').id).toBe('desk');
     // WeldReach: the partner licence gate applies with no entry in EXTERNAL_OBJECT_MODULES.
     expect(findModuleForExternalPath('/v1/reach/campaigns/rcmp_1/launch').id).toBe('reach');
     expect(findModuleForExternalPath('/v1/reach/threads/a%40b.c/reply').id).toBe('reach');

@@ -14,6 +14,7 @@ import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -24,19 +25,24 @@ import {
   type DeskPhoneNumber,
 } from '@/hooks/queries/use-desk-phone-settings-queries';
 import { useDeskTeams } from '@/hooks/queries/use-desk-routing-queries';
+import { useDeskSipTrunks } from '@/hooks/queries/use-desk-sip-trunk-queries';
 import { PhoneRouteEditor } from './phone-route-editor';
+import { SipTrunksSection } from './sip-trunks/sip-trunks-section';
 import { summarizeRoute } from './phone-route-summary';
 
 export function PhoneSettingsClient() {
   const i18n = getTranslations('helpdesk');
   const tp = i18n.phoneSettingsPage;
   const t = i18n.phoneSettings;
+  const trunkLabels = getTranslations('deskSipTrunks').listBadges;
   const canEdit = useCan('settings:manage');
   const numbers = useDeskPhoneNumbers();
   const routes = useDeskPhoneRoutes();
   const agents = useDeskPhoneVoiceAgents();
   const teams = useDeskTeams();
   const sync = useSyncDeskPhoneNumbers();
+  const trunks = useDeskSipTrunks();
+  const trunkNames = useMemo(() => new Map((trunks.data ?? []).map((trunk) => [trunk.id, trunk.name])), [trunks.data]);
   const [editing, setEditing] = useState<DeskPhoneNumber | null>(null);
 
   const routeByNumber = useMemo(
@@ -98,6 +104,11 @@ export function PhoneSettingsClient() {
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="truncate font-medium">{name}</span>
                   {number.displayName && <span className="text-sm text-muted-foreground">{number.phoneNumber}</span>}
+                  {number.sipTrunkId && (
+                    <SoftBadge tone="neutral" data-testid="phone-number-trunk">
+                      {trunkLabels.viaTrunk.replace('{name}', trunkNames.get(number.sipTrunkId) ?? trunkLabels.ownSystem)}
+                    </SoftBadge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground" data-testid="phone-route-summary">
                   {summarizeRoute(routeByNumber.get(number.id), lookups, t.summary)}
@@ -149,6 +160,8 @@ export function PhoneSettingsClient() {
         </InfoBanner>
 
         {body}
+
+        <SipTrunksSection />
       </div>
 
       <PhoneRouteEditor

@@ -24,6 +24,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import { conversationsRoutes } from './conversations';
 import { deskConversationsRoutes } from './desk-conversations';
+import { deskProblemsRoutes } from './desk-problems';
 import { deskWidgetRoutes } from './desk-widget';
 import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
 import { reportSchedulesRoutes } from './helpdesk-analytics/schedules';
@@ -45,6 +46,7 @@ const EXEMPT_ROUTES = new Set<string>([
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/conversations', router: conversationsRoutes, prefix: 'conversations' },
   { mount: '/api/slas', router: slasRoutes, prefix: 'slas' },
+  { mount: '/api/desk/problems', router: deskProblemsRoutes, prefix: 'problems' },
   // helpdesk-contacts uses conversations:* permissions; no DELETE (contacts owned by CRM)
   { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, prefix: 'conversations', skipDelete: true },
   // helpdesk-analytics uses settings:* permissions; full CRUD at top level
@@ -60,6 +62,7 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/helpdesk-analytics', router: helpdeskAnalyticsRoutes, permission: 'settings:read' },
   { mount: '/api/helpdesk-analytics/schedules', router: reportSchedulesRoutes, permission: 'settings:read' },
   { mount: '/api/desk/conversations', router: deskConversationsRoutes, permission: 'conversations:read' },
+  { mount: '/api/desk/problems', router: deskProblemsRoutes, permission: 'problems:read' },
   { mount: '/api/desk/widget', router: deskWidgetRoutes, permission: 'settings:read' },
 ];
 

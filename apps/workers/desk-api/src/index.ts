@@ -16,6 +16,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
+import { isAssetImportSweepCron, runAssetImportSweep } from './cron/asset-import-sweep';
 import { isReportSweepCron, runReportScheduleSweep } from './cron/report-schedule-sweep';
 import { isSlaSweepCron, runSlaSweep } from './cron/sla-sweep';
 import { articleFoldersRoutes } from './routes/article-folders';
@@ -25,6 +26,10 @@ import { conversationsRoutes } from './routes/conversations';
 import { deskConversationsRoutes } from './routes/desk-conversations';
 import { deskKnowledgeRoutes } from './routes/desk-knowledge';
 import { deskConversationLinkRoutes } from './routes/desk-conversations/links';
+import { deskConversationRequestRoutes } from './routes/desk-conversations/request';
+import { deskCatalogRoutes } from './routes/desk-catalog';
+import { deskConversationProblemRoutes } from './routes/desk-conversations/problem';
+import { deskProblemsRoutes } from './routes/desk-problems';
 import { deskWidgetRoutes } from './routes/desk-widget';
 import { deskAssignmentRoutes } from './routes/desk-assignment';
 import { deskRoutingRoutes } from './routes/desk-routing';
@@ -80,6 +85,10 @@ app.route('/api/conversations', conversationsRoutes);
 app.route('/api/desk/conversations', deskKnowledgeRoutes);
 app.route('/api/desk/conversations', deskConversationsRoutes);
 app.route('/api/desk/conversations', deskConversationLinkRoutes);
+app.route('/api/desk/conversations', deskConversationRequestRoutes);
+app.route('/api/desk/catalog', deskCatalogRoutes);
+app.route('/api/desk/conversations', deskConversationProblemRoutes);
+app.route('/api/desk/problems', deskProblemsRoutes);
 app.route('/api/desk/widget', deskWidgetRoutes);
 app.route('/api/desk/assignment', deskAssignmentRoutes);
 app.route('/api/desk/routing', deskRoutingRoutes);
@@ -133,6 +142,14 @@ export default {
       ctx.waitUntil(
         runReportScheduleSweep(env).catch((err) => {
           console.error('[DeskReports] Failed:', err);
+        }),
+      );
+    }
+    // Asset register device imports (src/cron/asset-import-sweep.ts): one bounded step per tick.
+    if (isAssetImportSweepCron(event.cron)) {
+      ctx.waitUntil(
+        runAssetImportSweep(env).catch((err) => {
+          console.error('[AssetImport] Failed:', err);
         }),
       );
     }

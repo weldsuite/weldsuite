@@ -167,6 +167,10 @@ app.delete('/phone-numbers/:id', requirePermission('activities:delete'), async (
       .where(and(eq(voipPhoneNumbers.id, id), isNull(voipPhoneNumbers.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Phone number', id);
+    // A number on the customer's own phone system is removed from that system (desk/phone/sip-trunks).
+    if (existing.provider === 'sip_trunk') {
+      return error.conflict(c, 'This number belongs to a connected phone system: remove it there');
+    }
     await db
       .update(voipPhoneNumbers)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

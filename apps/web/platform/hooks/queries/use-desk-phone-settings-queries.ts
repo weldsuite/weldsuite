@@ -19,6 +19,8 @@ export interface DeskPhoneNumber {
   phoneNumber: string;
   displayName: string | null;
   status: string;
+  /** The customer's own phone system the number lives on, when it is not one of ours. */
+  sipTrunkId?: string | null;
 }
 
 export const deskPhoneSettingsKeys = {

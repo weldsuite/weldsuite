@@ -623,6 +623,7 @@ export const settings = {
         conversation: 'Gesprek',
         helpdesk_conversation: 'Gesprek',
         desk_conversation: 'Gesprek',
+        desk_problem: 'Probleem',
         helpdesk_article: 'Helpartikel',
         chat_channel: 'Kanaal',
         chat_message: 'Chatbericht',
@@ -1933,6 +1934,8 @@ export const settings = {
       slaPoliciesDescription: 'Reactie- en oplosdoelen voor uw gesprekken.',
       priorityMatrixTitle: 'Prioriteitsmatrix',
       priorityMatrixDescription: 'Bepaal de prioriteit van een ticket uit de impact en urgentie.',
+      serviceCatalogueTitle: 'Servicecatalogus',
+      serviceCatalogueDescription: 'Aanvraagitems met een eigen formulier, goedkeuringsstappen en uitvoeringstaken.',
     },
 
     weldmail: {
@@ -2794,6 +2797,10 @@ export const settings = {
         auditLogs: {
           name: 'Auditlogboek',
           description: 'Het auditlogboek van de werkruimte lezen (wie wat wanneer wijzigde)',
+        },
+        reports: {
+          name: 'Rapportages (BI-koppeling)',
+          description: 'Laat de sleutel helpdeskgegevens lezen via OData, voor Power BI en Excel',
         },
         legalEntities: {
           name: 'Juridische entiteiten',

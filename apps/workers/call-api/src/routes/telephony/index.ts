@@ -176,6 +176,11 @@ app.delete('/phone-numbers/:id', requirePermission(MANAGE_TELEPHONY), async (c) 
 
     const phone = existing[0];
 
+    // A number on the customer's own phone system is not ours (nor billed): it is removed from that system.
+    if (phone.provider === 'sip_trunk') {
+      return error.conflict(c, 'This number belongs to a connected phone system: remove it there');
+    }
+
     // Remove billing if pricing info available
     if (phone.countryCode && phone.numberType) {
       try {
@@ -514,6 +519,10 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       .select()
       .from(voipPhoneNumbers)
       .where(isNull(voipPhoneNumbers.deletedAt));
+    // A number on a customer's own phone system is not ours to sync: leave it as it is.
+    const trunkNumbers = new Set(
+      existing.filter((p: { provider: string }) => p.provider === 'sip_trunk').map((p: { phoneNumber: string }) => p.phoneNumber),
+    );
 
     const telnyxNumbers = await ownedProviderNumbers(
       c.env,
@@ -532,6 +541,7 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
 
     let synced = 0;
     for (const number of telnyxNumbers) {
+      if (trunkNumbers.has(number.phone_number)) continue;
       try {
         const existingNumber = existing.find(
           (p: any) => p.providerPhoneNumberId === number.id || p.phoneNumber === number.phone_number,

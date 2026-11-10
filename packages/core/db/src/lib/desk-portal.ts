@@ -18,6 +18,7 @@ import {
   type CustomFieldDefinitionLike,
 } from '@weldsuite/app-api-client/schemas/custom-fields';
 import type {
+  DeskPortalApprovalState,
   DeskPortalField,
   DeskPortalRequestSummary,
   DeskPortalRequestType,
@@ -271,9 +272,31 @@ function toIso(value: Date | string | null | undefined): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/** Where a service request stands with its approvers, in the customer's words; null for any other request. */
+export function deskPortalApprovalState(
+  conversation: Pick<DeskConversation, 'approvalStatus'>,
+): DeskPortalApprovalState | null {
+  switch (conversation.approvalStatus) {
+    case 'pending':
+      return 'awaiting_approval';
+    case 'approved':
+      return 'approved';
+    case 'rejected':
+      return 'rejected';
+    default:
+      return null;
+  }
+}
+
+/**
+ * `catalogItemName`: the service catalogue item the request was made from
+ * (lib/desk-catalog `deskCatalogItemNames`), null for other requests and for
+ * an item that was deleted since.
+ */
 export function toDeskPortalSummary(
   conversation: DeskConversation,
   type: HelpdeskTicketType | undefined,
+  catalogItemName: string | null = null,
 ): DeskPortalRequestSummary {
   const status = deskPortalStatus(conversation);
   return {
@@ -286,6 +309,8 @@ export function toDeskPortalSummary(
     createdAt: toIso(conversation.createdAt),
     updatedAt: toIso(conversation.lastMessageAt ?? conversation.updatedAt),
     lastMessagePreview: conversation.lastMessagePreview,
+    catalogItemName,
+    approval: deskPortalApprovalState(conversation),
   };
 }
 
@@ -325,7 +350,7 @@ function toPortalField(field: TicketTypeField): DeskPortalField {
 }
 
 /** A type a customer may pick: active, not deleted, in the `customer` category. */
-function isCustomerType(type: HelpdeskTicketType): boolean {
+export function isCustomerType(type: HelpdeskTicketType): boolean {
   return type.isActive !== false && !type.deletedAt && (type.category ?? 'customer') === 'customer';
 }
 
@@ -458,6 +483,9 @@ export interface CreateDeskPortalRequestInput {
   title: string;
   description?: string;
   fields?: Record<string, unknown>;
+  /** Override the type's default team (still has to be an active one) and priority; a service catalogue item sets them. */
+  departmentId?: string | null;
+  priority?: DeskConversation['priority'];
 }
 
 /**
@@ -476,10 +504,13 @@ export async function createDeskPortalRequest(
   const form = toDeskPortalRequestType(type);
   const values = validateDeskPortalAnswers(form, input);
 
-  const departmentId = type.defaultDepartmentId ? await activeDepartment(db, type.defaultDepartmentId) : null;
-  const priority = ['low', 'medium', 'high', 'urgent'].includes(type.defaultPriority ?? '')
-    ? (type.defaultPriority as DeskConversation['priority'])
-    : null;
+  const teamId = input.departmentId ?? type.defaultDepartmentId;
+  const departmentId = teamId ? await activeDepartment(db, teamId) : null;
+  const priority =
+    input.priority ??
+    (['low', 'medium', 'high', 'urgent'].includes(type.defaultPriority ?? '')
+      ? (type.defaultPriority as DeskConversation['priority'])
+      : null);
   const email = input.visitor.verifiedEmail ?? input.visitor.email ?? null;
 
   const { conversation, message, slaCheckAt } = await createDeskConversation(db, {

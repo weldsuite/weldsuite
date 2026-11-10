@@ -26,6 +26,7 @@ vi.mock('@/lib/router', () => ({
 
 import { deskPhoneEndedAtom, deskPhoneIncomingAtom } from './desk-phone-state';
 import { useDeskPhoneRealtime } from './use-desk-phone-realtime';
+import { deskCallTranslationAtom } from './call-translation/call-translation-state';
 
 const store = getDefaultStore();
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   topic.handler = null;
   store.set(deskPhoneIncomingAtom, null);
   store.set(deskPhoneEndedAtom, null);
+  store.set(deskCallTranslationAtom, null);
 });
 
 describe('useDeskPhoneRealtime', () => {
@@ -97,6 +99,28 @@ describe('useDeskPhoneRealtime', () => {
     renderHook(() => useDeskPhoneRealtime());
     send('phone.answered', { callId: 'call_1', conversationId: null, answeredByUserId: 'user_me' });
     expect(nav.push).not.toHaveBeenCalled();
+  });
+
+  it('keeps the live captions of a translated call and the detected language', () => {
+    renderHook(() => useDeskPhoneRealtime());
+    send('phone.caption', {
+      callId: 'call_1', lineId: 'l1', speaker: 'caller', text: 'Hallo', translation: 'Hello',
+      sourceLanguage: 'nl', targetLanguage: 'en', at: '2026-11-10T10:00:01Z',
+    });
+    send('phone.translation', { callId: 'call_1', active: true, callerLanguage: 'nl', speakAvailable: true, stoppedReason: null });
+    expect(store.get(deskCallTranslationAtom)).toMatchObject({
+      callId: 'call_1', callerLanguage: 'nl', speakAvailable: true, stopped: false,
+      lines: [{ lineId: 'l1', translation: 'Hello' }],
+    });
+
+    send('phone.translation', { callId: 'call_1', active: false, callerLanguage: 'nl', speakAvailable: true, stoppedReason: 'call_ended' });
+    expect(store.get(deskCallTranslationAtom)).toMatchObject({ stopped: true, stoppedReason: 'call_ended' });
+  });
+
+  it('ignores a caption that is malformed', () => {
+    renderHook(() => useDeskPhoneRealtime());
+    send('phone.caption', { callId: 'call_1', text: 'Hallo' });
+    expect(store.get(deskCallTranslationAtom)).toBeNull();
   });
 
   it('ignores events without a call id', () => {

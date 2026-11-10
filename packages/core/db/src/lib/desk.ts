@@ -93,7 +93,7 @@ function driverErrors(err: unknown): Array<Record<string, unknown>> {
 }
 
 /** A unique index rejected the write; with `constraint`, that index in particular. */
-function isUniqueViolation(err: unknown, constraint?: string): boolean {
+export function isUniqueViolation(err: unknown, constraint?: string): boolean {
   return driverErrors(err).some((e) => {
     const message = asText(e.message);
     if (asText(e.code) !== '23505' && !/duplicate key value/i.test(message)) return false;
@@ -989,7 +989,7 @@ export interface ListDeskConversationsQuery {
 }
 
 /** `%term%` for ILIKE, with the user's own `%`, `_` and `\` taken literally. */
-function likePattern(term: string): string {
+export function likePattern(term: string): string {
   const escaped = term.replaceAll(/[\\%_]/g, String.raw`\$&`);
   return `%${escaped}%`;
 }
@@ -1672,6 +1672,12 @@ const INTERNAL_DESK_EVENTS = new Set<string>([
   'merged_from',
   'incident_marked',
   'incident_unmarked',
+  'problem_linked',
+  'problem_unlinked',
+  'approval_requested',
+  'approval_approved',
+  'approval_rejected',
+  'fulfilment_started',
 ]);
 
 /** Notes, ticket-field changes and SLA events stay with the team. */

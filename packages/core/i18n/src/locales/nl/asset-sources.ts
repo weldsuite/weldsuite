@@ -1,0 +1,120 @@
+/**
+ * WeldDesk assetregister: apparaten importeren uit Microsoft Intune (TASK-1234).
+ * Instellingen → Apps → WeldDesk → Assetregister
+ * (apps/web/platform/app/settings/apps/welddesk/asset-register). De klant
+ * koppelt zijn eigen Microsoft Entra-app-registratie; de import maakt assets in
+ * het assetregister aan en werkt ze bij.
+ */
+export const assetSources = {
+  manage: 'Apparaten importeren',
+  registerMissing: 'Stel eerst het assetregister in. Geïmporteerde apparaten worden daar assets.',
+  loadFailed: 'De apparaatimport kon niet worden geladen',
+  intune: {
+    title: 'Microsoft Intune',
+    description: 'Importeer de beheerde apparaten van je Intune-tenant in het assetregister en houd ze up-to-date.',
+    notConnected:
+      'Koppel je Intune-tenant om de beheerde apparaten als assets te importeren. WeldSuite leest de apparaten via een app-registratie in je eigen Microsoft Entra-tenant. Er wordt niets in je tenant geïnstalleerd en je kunt de koppeling op elk moment verbreken.',
+    stepsTitle: 'De koppeling instellen',
+    steps: {
+      register: 'Ga in het Microsoft Entra-beheercentrum naar App-registraties en kies Nieuwe registratie. Kies één tenant.',
+      copyIds: 'Kopieer de Toepassings-ID (client) en de Map-ID (tenant) van de overzichtspagina.',
+      permission: 'Ga naar API-machtigingen, Een machtiging toevoegen, Microsoft Graph, Toepassingsmachtigingen en voeg DeviceManagementManagedDevices.Read.All toe.',
+      consent: 'Kies Beheerderstoestemming verlenen voor je organisatie.',
+      secret: 'Ga naar Certificaten en geheimen, kies Nieuw clientgeheim en kopieer de Waarde.',
+    },
+    form: {
+      name: 'Naam',
+      namePlaceholder: 'Contoso Intune',
+      tenantId: 'Map-ID (tenant)',
+      tenantIdPlaceholder: '00000000-0000-0000-0000-000000000000',
+      clientId: 'Toepassings-ID (client)',
+      clientIdPlaceholder: '00000000-0000-0000-0000-000000000000',
+      secret: 'Clientgeheim',
+      secretHelp: 'De Waarde van het geheim, niet de geheim-ID. Het wordt versleuteld opgeslagen en nooit meer getoond.',
+      nameRequired: 'Vul een naam in',
+      tenantInvalid: 'Vul de tenant-ID (een GUID) of een geverifieerde domeinnaam in',
+      clientRequired: 'Vul de toepassings-ID in',
+      secretRequired: 'Vul het clientgeheim in',
+      testConnection: 'Verbinding testen',
+      testing: 'Bezig met testen…',
+      connect: 'Koppelen',
+      connecting: 'Bezig met koppelen…',
+      testOk: 'De verbinding werkt. De eerste pagina met apparaten bevat er {count}.',
+      testOkNone: 'De verbinding werkt, maar Intune gaf geen apparaten terug op de eerste pagina.',
+      testFailed: 'De verbinding kon niet worden getest',
+      connected: 'Intune is gekoppeld. De eerste import start zo.',
+      connectFailed: 'Intune kon niet worden gekoppeld',
+      duplicate: 'Deze app-registratie is al gekoppeld',
+    },
+    status: {
+      running: 'Import bezig',
+      ok: 'Up-to-date',
+      failed: 'Laatste import mislukt',
+      never: 'Nog geen import',
+    },
+    lastImport: 'Laatste import',
+    neverImported: 'Nog niet geïmporteerd',
+    nextImport: 'Volgende import',
+    scheduleOff: 'Geplande imports staan uit',
+    stats: {
+      total: 'Apparaten gelezen',
+      created: 'Aangemaakt',
+      updated: 'Bijgewerkt',
+      unchanged: 'Ongewijzigd',
+      failed: 'Mislukt',
+    },
+    progress: 'Bezig met importeren. {count} apparaten verwerkt.',
+    syncNow: 'Nu synchroniseren',
+    syncStarting: 'Bezig met starten…',
+    syncStarted: 'Import gestart',
+    syncFailed: 'De import kon niet worden gestart',
+    alreadyRunning: 'Er loopt al een import',
+    schedule: {
+      title: 'Geplande imports',
+      description: 'Importeer automatisch. Je kunt altijd handmatig synchroniseren.',
+      interval: 'Importeer elke',
+      everyHour: 'Elk uur',
+      everyHours: 'Elke {hours} uur',
+      saved: 'Planning opgeslagen',
+      saveFailed: 'De planning kon niet worden opgeslagen',
+    },
+    secretDialog: {
+      open: 'Geheim vervangen',
+      title: 'Het clientgeheim vervangen',
+      description: 'Vul de waarde van een nieuw clientgeheim in. Het oude geheim wordt niet meer gebruikt zodra je opslaat.',
+      save: 'Geheim opslaan',
+      saving: 'Bezig met opslaan…',
+      cancel: 'Annuleren',
+      saved: 'Clientgeheim vervangen',
+      saveFailed: 'Het clientgeheim kon niet worden vervangen',
+      test: 'Nieuw geheim testen',
+      testOk: 'Het nieuwe geheim werkt.',
+    },
+    disconnect: {
+      action: 'Ontkoppelen',
+      title: 'Intune ontkoppelen?',
+      description:
+        'Apparaten worden niet meer geïmporteerd. De geïmporteerde assets blijven in het assetregister staan en je kunt later opnieuw koppelen.',
+      confirm: 'Ontkoppelen',
+      done: 'Intune is ontkoppeld',
+      failed: 'Intune kon niet worden ontkoppeld',
+    },
+    howItWorks:
+      'Naam, serienummer, model, besturingssysteem, compliance en laatste check-in worden bij elke import bijgewerkt. Assettype, status en eigenaar worden alleen ingesteld als een asset wordt aangemaakt, dus je wijzigingen blijven staan. Een apparaat dat uit Intune verdwijnt, wordt niet uit het assetregister verwijderd.',
+    errors: {
+      invalid_secret: 'Microsoft heeft het clientgeheim geweigerd. Controleer of je de Waarde van het geheim hebt gekopieerd, niet de geheim-ID.',
+      secret_expired: 'Het clientgeheim is verlopen. Maak een nieuw geheim aan in het Entra-beheercentrum en vervang het hier.',
+      tenant_not_found: 'Microsoft kon deze tenant niet vinden. Controleer de Map-ID (tenant).',
+      app_not_found:
+        'De toepassing is niet gevonden in deze tenant. Controleer de Toepassings-ID (client) en of de app-registratie in deze map staat.',
+      permission_missing:
+        'Microsoft heeft de toegang tot de apparaten geweigerd. Voeg de toepassingsmachtiging DeviceManagementManagedDevices.Read.All toe, verleen beheerderstoestemming en controleer of de tenant een Intune-licentie heeft.',
+      throttled: 'Microsoft vroeg ons te vertragen. De import gaat zo verder.',
+      unreachable: 'Microsoft was niet bereikbaar. De import probeert het bij de volgende keer opnieuw.',
+      sign_in_failed: 'Microsoft heeft de aanmelding niet geaccepteerd. Controleer de tenant-ID, de client-ID en het clientgeheim.',
+      asset_register_missing: 'Het assetregister is niet ingesteld. Stel het in voordat je apparaten importeert.',
+      unknown: 'Er ging iets mis',
+    },
+    lastErrorTitle: 'De laatste import is mislukt',
+  },
+};

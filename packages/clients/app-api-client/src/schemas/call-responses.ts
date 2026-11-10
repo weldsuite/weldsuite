@@ -95,6 +95,8 @@ export const voipPhoneNumberSchema = z.object({
   enableRecording: z.boolean().nullable(),
   displayName: nullableText,
   description: nullableText,
+  sipTrunkId: nullableText,
+  callerIdVerifiedAt: timestamp.nullable(),
   deletedAt: timestamp.nullable(),
 });
 

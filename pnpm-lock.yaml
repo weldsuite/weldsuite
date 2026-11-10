@@ -5120,6 +5120,9 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.4.0
         version: 0.4.3(hono@4.13.13)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
       '@weldsuite/api-modules':
         specifier: workspace:*
         version: link:../../../packages/core/api-modules
@@ -5129,6 +5132,9 @@ importers:
       '@weldsuite/core-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/core-api-client
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/credits':
         specifier: workspace:*
         version: link:../../../packages/core/credits
@@ -5936,6 +5942,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/desk-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/desk
       '@weldsuite/emails':
         specifier: workspace:*
         version: link:../../../packages/core/emails
@@ -9299,6 +9308,12 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      '@weldsuite/entity-events':
+        specifier: workspace:*
+        version: link:../../core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../flow
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../core/notifications

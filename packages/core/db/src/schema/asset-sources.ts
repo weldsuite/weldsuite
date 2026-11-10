@@ -47,8 +47,13 @@ export interface AssetSourceRunStats {
  */
 export interface AssetSourceSyncState {
   startedAt: string;
-  /** The source's own link to the next page; absent before the first page. */
+  /**
+   * The source's own link to the page being read; absent before the first
+   * page. A page is read again when a step stopped inside it (`offset`).
+   */
   nextLink?: string | null;
+  /** Devices of that page already handled; absent means 0. */
+  offset?: number;
   stats: AssetSourceRunStats;
   /** Who started it by hand (a user id); absent for a scheduled run. */
   startedById?: string | null;

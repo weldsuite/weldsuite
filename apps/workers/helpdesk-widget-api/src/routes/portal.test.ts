@@ -27,6 +27,8 @@ const holder = vi.hoisted(() => ({
   tenant: null as unknown,
   workspaceId: 'ws_portal',
   sent: [] as Array<{ to: string; code: string }>,
+  /** Work a route hands to waitUntil; `call` waits for it, as the runtime lets it finish after the answer. */
+  pending: [] as Array<Promise<unknown>>,
 }));
 
 vi.mock('../middleware/helpcenter-domain', () => ({
@@ -100,8 +102,9 @@ async function call(path: string, init: RequestInit & { session?: string } = {})
     `/api/portal${path}${path.includes('?') ? '&' : '?'}domain=help.acme.test`,
     { ...init, headers },
     env,
-    { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext,
+    { waitUntil: (work: Promise<unknown>) => holder.pending.push(work), passThroughOnException: () => {} } as unknown as ExecutionContext,
   );
+  await Promise.allSettled(holder.pending.splice(0));
   const text = await res.text();
   return { status: res.status, body: text ? (JSON.parse(text) as { success: boolean; data?: any; error?: any }) : null };
 }
@@ -373,5 +376,148 @@ describe('one person across the widget and the help center', () => {
     // An anonymous visitor who merely typed that address sees nothing.
     const { rows: none } = await listDeskConversationsForPrincipal(db, { visitorId: 'dvis_typed', verifiedEmail: null });
     expect(none).toEqual([]);
+  });
+});
+
+describe('service catalogue', () => {
+  const SIMPLE_TYPE = 'tt_cat_simple';
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, id));
+    return found!;
+  };
+  const names = (body: { data?: Array<{ name: string }> } | null) => body?.data?.map((i) => i.name);
+
+  beforeAll(async () => {
+    await db.insert(schema.workspaceMembers).values({ id: 'wm_cat_approver', userId: 'user_cat_approver', name: 'Approver' });
+    await db.insert(schema.helpdeskDepartments).values({ id: 'dept_cat', name: 'IT', isActive: true });
+    await db.insert(schema.helpdeskTicketTypes).values({ id: SIMPLE_TYPE, name: 'Simple request', category: 'customer', fields: [], sortOrder: 9 });
+    await db.insert(schema.companies).values({ id: 'comp_cat_acme', name: 'Acme', displayName: 'Acme' });
+    await db.insert(schema.people).values({ id: 'per_cat_worker', displayName: 'Worker', email: 'worker@acme.test' });
+    await db.insert(schema.personCompanies).values({ id: 'pc_cat_worker', personId: 'per_cat_worker', companyId: 'comp_cat_acme' });
+    await db.insert(schema.deskCatalogItems).values([
+      {
+        id: 'dcat_vpn',
+        name: 'VPN access',
+        summary: 'Work from anywhere',
+        category: 'Access',
+        ticketTypeId: SIMPLE_TYPE,
+        deliveryEstimate: '1 working day',
+        approvalSteps: [{ id: 's1', name: 'Manager', approverType: 'member', approverId: 'user_cat_approver' }],
+        fulfilmentTasks: [{ id: 't1', title: 'Create the VPN account' }],
+      },
+      {
+        id: 'dcat_headset',
+        name: 'Headset',
+        category: 'Hardware',
+        ticketTypeId: SIMPLE_TYPE,
+        departmentId: 'dept_cat',
+        priority: 'urgent',
+        fulfilmentTasks: [
+          { id: 't1', title: 'Order a headset', dueInDays: 3 },
+          { id: 't2', title: 'Hand it over' },
+        ],
+      },
+      { id: 'dcat_acme', name: 'Acme only', category: 'Hardware', sortOrder: 5, ticketTypeId: SIMPLE_TYPE, audienceCompanyIds: ['comp_cat_acme'] },
+      { id: 'dcat_order', name: 'Order fix', category: 'Hardware', sortOrder: 6, ticketTypeId: TYPE_ID },
+      { id: 'dcat_off', name: 'Switched off', ticketTypeId: SIMPLE_TYPE, isActive: false },
+      { id: 'dcat_oldtype', name: 'Old form', ticketTypeId: 'tt_portal_inactive' },
+    ]);
+  });
+
+  it('lists the active items with a usable form by category and name', async () => {
+    const session = await signIn('reader@other.test');
+    const list = await call('/catalog', { session });
+    expect(list.status).toBe(200);
+    expect(names(list.body)).toEqual(['VPN access', 'Headset', 'Order fix']);
+    const vpn = list.body!.data[0];
+    expect(vpn).toMatchObject({
+      id: 'dcat_vpn',
+      summary: 'Work from anywhere',
+      category: 'Access',
+      deliveryEstimate: '1 working day',
+      needsApproval: true,
+      form: { id: SIMPLE_TYPE, name: 'Simple request', titleLabel: 'Subject' },
+    });
+    expect(list.body!.data[1].needsApproval).toBe(false);
+    expect((await call('/catalog')).status).toBe(401);
+  });
+
+  it('shows an item with an audience only to readers of those CRM companies', async () => {
+    const outsider = await signIn('outsider@other.test');
+    expect((await call('/catalog/dcat_acme', { session: outsider })).status).toBe(404);
+    expect((await post('/catalog/dcat_acme/requests', { title: 'x' }, outsider)).status).toBe(404);
+
+    const worker = await signIn('Worker@Acme.test');
+    expect(names((await call('/catalog', { session: worker })).body)).toEqual(['VPN access', 'Headset', 'Acme only', 'Order fix']);
+    const one = await call('/catalog/dcat_acme', { session: worker });
+    expect(one.status).toBe(200);
+    expect(one.body!.data).toMatchObject({ id: 'dcat_acme', needsApproval: false });
+  });
+
+  it('hides switched-off items and items whose form is no longer usable', async () => {
+    const session = await signIn('hidden@other.test');
+    expect((await call('/catalog/dcat_off', { session })).status).toBe(404);
+    expect((await call('/catalog/dcat_oldtype', { session })).status).toBe(404);
+    expect((await call('/catalog/dcat_nope', { session })).status).toBe(404);
+  });
+
+  it('submits an item that needs approval: pending, the approver notified, no tasks yet, the team log hidden', async () => {
+    const session = await signIn('requester@other.test');
+    const created = await post('/catalog/dcat_vpn/requests', { description: 'For the home office' }, session);
+    expect(created.status).toBe(201);
+    const detail = created.body!.data;
+    expect(detail).toMatchObject({
+      title: 'VPN access',
+      catalogItemName: 'VPN access',
+      approval: 'awaiting_approval',
+      typeName: 'Simple request',
+    });
+    // The approval event is internal: the customer thread is just their message.
+    expect(detail.messages.map((m: { body: string }) => m.body)).toEqual(['For the home office']);
+
+    const stored = await row(detail.id);
+    expect(stored).toMatchObject({ channel: 'portal', catalogItemId: 'dcat_vpn', approvalStatus: 'pending', ticketTypeId: SIMPLE_TYPE });
+    const approvals = await db.select().from(schema.deskRequestApprovals).where(eq(schema.deskRequestApprovals.conversationId, detail.id));
+    expect(approvals).toEqual([expect.objectContaining({ stepIndex: 0, stepName: 'Manager', approverId: 'user_cat_approver', status: 'pending' })]);
+    const notified = await db.select().from(schema.notifications).where(eq(schema.notifications.entityId, detail.id));
+    expect(notified.map((n) => [n.userId, n.title])).toEqual([['user_cat_approver', 'Approval needed: VPN access for requester@other.test']]);
+    const tasks = await db.select().from(schema.tasks).where(eq(schema.tasks.sourceId, detail.id));
+    expect(tasks).toEqual([]);
+
+    const list = await call('/requests', { session });
+    expect(list.body!.data.requests[0]).toMatchObject({ id: detail.id, catalogItemName: 'VPN access', approval: 'awaiting_approval' });
+    const again = await call(`/requests/${detail.id}`, { session });
+    expect(again.body!.data).toMatchObject({ catalogItemName: 'VPN access', approval: 'awaiting_approval' });
+  });
+
+  it('submits an item without approval: the item team and priority apply and its tasks are created, linked to the request', async () => {
+    const session = await signIn('headset@other.test');
+    const created = await post('/catalog/dcat_headset/requests', { title: 'Headset for Sam' }, session);
+    expect(created.status).toBe(201);
+    const detail = created.body!.data;
+    expect(detail).toMatchObject({ title: 'Headset for Sam', catalogItemName: 'Headset', approval: null });
+
+    const stored = await row(detail.id);
+    expect(stored).toMatchObject({ catalogItemId: 'dcat_headset', approvalStatus: null, departmentId: 'dept_cat', priority: 'urgent' });
+    const tasks = (await db.select().from(schema.tasks).where(eq(schema.tasks.sourceId, detail.id))).sort((a, b) => a.title.localeCompare(b.title));
+    expect(tasks.map((t) => [t.title, t.sourceType, t.projectId])).toEqual([
+      ['Hand it over', 'desk_conversation', null],
+      ['Order a headset', 'desk_conversation', null],
+    ]);
+    expect(tasks[0]!.dueDate).toBeNull();
+    expect(tasks[1]!.dueDate).not.toBeNull();
+    const events = await db.select().from(schema.deskMessages).where(eq(schema.deskMessages.conversationId, detail.id));
+    expect(events.filter((m) => m.metadata?.eventType === 'fulfilment_started')).toHaveLength(1);
+    expect(detail.messages).toHaveLength(1);
+  });
+
+  it('checks the form of the item like any request', async () => {
+    const session = await signIn('form2@other.test');
+    const missing = await post('/catalog/dcat_order/requests', { description: 'x', fields: {} }, session);
+    expect(missing.status).toBe(400);
+    expect(missing.body?.error.details).toEqual({ field: 'order_number' });
+    const ok = await post('/catalog/dcat_order/requests', { description: 'x', fields: { order_number: 'A-1' } }, session);
+    expect(ok.status).toBe(201);
+    expect(ok.body!.data).toMatchObject({ title: 'Order fix', fields: [{ key: 'order_number', value: 'A-1' }] });
   });
 });

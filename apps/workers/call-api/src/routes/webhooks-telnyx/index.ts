@@ -25,6 +25,8 @@ import {
   type TelnyxEnv,
 } from '../../lib/telnyx';
 import { lookupPhoneNumberRegistry, normalizeE164 } from '../../lib/phone-registry';
+import { dialedNumberOf } from '../../lib/sip-trunk-number';
+import { admitTrunkCall, isTrunkCall, recordTrunkInbound } from '../../services/sip-trunk-inbound';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import {
@@ -46,6 +48,7 @@ import {
   type PhoneNumberRow,
 } from '../../services/desk-phone-inbound';
 import { handleAgentLegEvent, handleCallerLeftQueue } from '../../services/desk-phone-legs';
+import { finishCallTranslation, handleCallTranscription } from '../../services/desk-phone-translation';
 import {
   handleDequeued,
   handleSpeakEnded,
@@ -259,9 +262,12 @@ async function insertInboundCall(
     conversationId: string;
     phoneRow: PhoneNumberRow;
     caller: InboundCaller;
+    /** The customer's own phone system the call came in over, if any. */
+    sipTrunkId?: string | null;
   },
 ): Promise<void> {
   const { callId, now, payload, callControlId, fromNumber, toNumber, phoneRow, caller } = args;
+  const sipTrunkId = args.sipTrunkId ?? null;
   await db.insert(schema.voipCalls).values({
     id: callId,
     createdAt: now,
@@ -282,6 +288,7 @@ async function insertInboundCall(
     isRecorded: phoneRow.enableRecording ?? true,
     customerId: caller.customerId,
     contactId: caller.contactId,
+    sipTrunkId,
   });
 }
 
@@ -301,8 +308,11 @@ async function handleInboundInitiated(
     return;
   }
 
-  const toNumber = normalizeE164(String(toRaw));
-  const fromNumber = normalizeE164(String(fromRaw || 'unknown'));
+  // A phone system may dial `sip:<number>@host` or a number without its `+`.
+  const trunkCall = isTrunkCall(env, payload);
+  const toNumber = (trunkCall && dialedNumberOf(String(toRaw))) || normalizeE164(String(toRaw));
+  const fromNumber =
+    (trunkCall && dialedNumberOf(String(fromRaw))) || normalizeE164(String(fromRaw || 'unknown'));
 
   const masterDb = getMasterDb(env);
   const registry = await lookupPhoneNumberRegistry(masterDb, toNumber);
@@ -330,6 +340,20 @@ async function handleInboundInitiated(
     console.warn(`[Telnyx Webhook] Inbound not allowed for ${toNumber}`);
     await telnyxHangup(env, callControlId);
     return;
+  }
+
+  // A number on a customer's own phone system only takes calls over that
+  // trunk's connection. A number we host is routed as before, whoever sent it.
+  let trunkId: string | null = null;
+  if (phoneRow.sipTrunkId) {
+    const admitted = await admitTrunkCall(db, { payload, phoneRow, toNumber });
+    if (!admitted.ok) {
+      console.warn(`[Telnyx Webhook] Trunk call refused: ${admitted.reason}`);
+      await telnyxHangup(env, callControlId);
+      return;
+    }
+    trunkId = admitted.trunk.id;
+    await recordTrunkInbound(db, trunkId, new Date());
   }
 
   const [route] = await db
@@ -367,6 +391,7 @@ async function handleInboundInitiated(
   });
 
   await insertInboundCall(db, {
+    sipTrunkId: trunkId,
     callId,
     now,
     payload,
@@ -520,6 +545,8 @@ interface CallEventContext {
   callId: string;
   workspaceId: string;
   deskConversationId: string | undefined;
+  /** Run slow work after the webhook answered (`waitUntil`); awaited inline where there is no execution context. */
+  background: (work: Promise<void>) => Promise<void>;
 }
 
 /** The slice of an event the phone queue flows read. */
@@ -670,6 +697,9 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
     console.error('[Telnyx Webhook] Abandoned-call handling failed:', err);
   }
 
+  // A translated call is over: stop it and charge its minutes.
+  await finishCallTranslation({ env, db, workspaceId: ctx.workspaceId }, callId);
+
   if (duration && duration > 0) {
     console.log(`[Telnyx Webhook] Call ${callId} completed: ${duration}s`);
     await settleCallCredits(ctx, duration, hangupCause);
@@ -784,6 +814,17 @@ async function dispatchCallEvent(eventType: string, ctx: CallEventContext): Prom
       return handleGatherEnded(toEventInput(ctx));
     case 'call.dequeued':
       return handleDequeued(toEventInput(ctx));
+    case 'call.transcription':
+      return ctx.background(
+        handleCallTranscription({
+          ctx: { env: ctx.env, db: ctx.db, workspaceId: ctx.workspaceId },
+          callId: ctx.callId,
+          lineId: ctx.event.data.id,
+          at: ctx.event.data.occurred_at,
+          clientState: ctx.clientState,
+          payload: ctx.payload,
+        }),
+      );
     case 'call.machine.detection.ended':
       console.log(`[Telnyx Webhook] AMD result for ${ctx.callId}: ${ctx.payload.result}`);
       return;
@@ -929,7 +970,12 @@ app.post('/', async (c) => {
     }
 
     // Inbound without client_state: route on call.initiated
-    if ((!callId || !workspaceId) && event_type === 'call.initiated' && isInboundDirection(payload)) {
+    // (a customer's phone system's call counts whatever its direction says: sip-trunk-inbound.ts)
+    if (
+      (!callId || !workspaceId) &&
+      event_type === 'call.initiated' &&
+      (isInboundDirection(payload) || isTrunkCall(c.env, payload))
+    ) {
       await runInboundHandler(c.env, payload);
       return c.json({ ok: true });
     }
@@ -949,6 +995,13 @@ app.post('/', async (c) => {
       clientState,
       callId,
       workspaceId,
+      background: async (work) => {
+        try {
+          c.executionCtx.waitUntil(work);
+        } catch {
+          await work;
+        }
+      },
       // An outbound call placed from a conversation carries no conversation in its client_state: the row has it.
       deskConversationId: deskConversationId || (await conversationOfCall(db, callId)),
     });

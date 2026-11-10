@@ -67,6 +67,7 @@ export interface ConformanceSweep<R> {
     | 'calendar-replan'
     | 'desk-sla-sweep'
     | 'desk-report-sweep'
+    | 'asset-import-sweep'
     | 'books-tax-reminders'
     | 'flow-approval-due';
   now: Date;

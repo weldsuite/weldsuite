@@ -20,7 +20,7 @@ import { extractHeadings, type Heading } from '@/lib/headings'
 import * as helpcenter from '@/lib/server/helpcenter'
 import { sanitizeArticleHtml } from '@/lib/server/sanitize-article'
 import { requestDomain } from '@/lib/server/upstream'
-import { isPortalEnabled } from '@/lib/server/widget-api'
+import { isPortalEnabled, portalApi } from '@/lib/server/widget-api'
 import { readSessionToken, readSignedInEmail } from '@/lib/server/portal-session'
 
 // ============================================================================
@@ -120,6 +120,8 @@ export interface PortalState {
   enabled: boolean
   /** The signed-in reader's email (from the session cookie); null when signed out. */
   email: string | null
+  /** The service catalogue has at least one item this reader may request. */
+  catalog: boolean
 }
 
 // ============================================================================
@@ -158,6 +160,18 @@ function currentReader(language: Language = requestLanguage()): helpcenter.Reade
   return { session: readSessionToken(), locale: language }
 }
 
+/**
+ * Whether the signed-in reader has anything to request in the service
+ * catalogue (the header links to it only then). Any failure, an expired
+ * session or a widget-api without a catalogue yet reads as no.
+ */
+async function readerHasCatalog(domain: string): Promise<boolean> {
+  const session = readSessionToken()
+  if (!session) return false
+  const result = await portalApi<unknown[]>('/catalog', domain, { session })
+  return result.ok && Array.isArray(result.data) && result.data.length > 0
+}
+
 /** Branding, navigation, locale and banners for the whole site. 404 when the host has no help center. */
 export const getSite = createServerFn({ method: 'GET' }).handler(async (): Promise<SiteData> => {
   const domain = requestDomain()
@@ -175,9 +189,11 @@ export const getSite = createServerFn({ method: 'GET' }).handler(async (): Promi
   ])
   if (!config) throw notFound()
 
+  const email = portalEnabled ? readSignedInEmail() : null
   const portal: PortalState = {
     enabled: portalEnabled,
-    email: portalEnabled ? readSignedInEmail() : null,
+    email,
+    catalog: email ? await readerHasCatalog(domain) : false,
   }
 
   return { domain, config, folders, language, portal, announcements }

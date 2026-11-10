@@ -47,7 +47,8 @@ export type DueIndexKind =
   | 'approval_due'
   // WeldMerge (merge-api): chat subscriptions whose daily digest hour comes due.
   | 'merge_digest'
-  // Asset register (app-api): device imports coming due, and imports under way (asset_sources).
+  // Asset register: app-api marks it when an asset_sources row is saved or started and
+  // desk-api's cron sweeps it (device imports coming due, and imports under way).
   | 'asset_import';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */

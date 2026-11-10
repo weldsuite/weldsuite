@@ -535,6 +535,8 @@ export function findModuleForPath(path: string): ApiModule {
 const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
   'knowledge-pages': 'know',
   'knowledge-spaces': 'know',
+  // WeldDesk's BI connector: the OData feed of helpdesk tables (ADR API-015).
+  odata: 'desk',
   quotes: 'crm',
   // WeldFlow's deprecated project whiteboard API (served on WeldBoard boards): licensed as it always was.
   whiteboards: 'flow',

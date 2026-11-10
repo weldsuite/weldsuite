@@ -169,10 +169,12 @@ import { Route as WelddocsDocIdIndexRouteImport } from './routes/welddocs/$docId
 import { Route as WelddeskSettingsIndexRouteImport } from './routes/welddesk/settings/index'
 import { Route as WelddeskSavedRepliesIndexRouteImport } from './routes/welddesk/saved-replies/index'
 import { Route as WelddeskReportsIndexRouteImport } from './routes/welddesk/reports/index'
+import { Route as WelddeskProblemsIndexRouteImport } from './routes/welddesk/problems/index'
 import { Route as WelddeskInboxIndexRouteImport } from './routes/welddesk/inbox/index'
 import { Route as WelddeskHelpCenterIndexRouteImport } from './routes/welddesk/help-center/index'
 import { Route as WelddeskEmailIndexRouteImport } from './routes/welddesk/email/index'
 import { Route as WelddeskChatWidgetIndexRouteImport } from './routes/welddesk/chat-widget/index'
+import { Route as WelddeskApprovalsIndexRouteImport } from './routes/welddesk/approvals/index'
 import { Route as WelddeskAiAgentsIndexRouteImport } from './routes/welddesk/ai-agents/index'
 import { Route as WeldcrmSequencesIndexRouteImport } from './routes/weldcrm/sequences/index'
 import { Route as WeldcrmPeopleIndexRouteImport } from './routes/weldcrm/people/index'
@@ -296,6 +298,8 @@ import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$me
 import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/reports/wallboard'
 import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
 import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
+import { Route as WelddeskReportsBiConnectorRouteImport } from './routes/welddesk/reports/bi-connector'
+import { Route as WelddeskProblemsProblemIdRouteImport } from './routes/welddesk/problems/$problemId'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
@@ -548,6 +552,7 @@ import { Route as SettingsAppsWelddeskVoiceAgentsIndexRouteImport } from './rout
 import { Route as SettingsAppsWelddeskTicketTypesIndexRouteImport } from './routes/settings/apps/welddesk/ticket-types/index'
 import { Route as SettingsAppsWelddeskTeamsIndexRouteImport } from './routes/settings/apps/welddesk/teams/index'
 import { Route as SettingsAppsWelddeskSlaPoliciesIndexRouteImport } from './routes/settings/apps/welddesk/sla-policies/index'
+import { Route as SettingsAppsWelddeskServiceCatalogueIndexRouteImport } from './routes/settings/apps/welddesk/service-catalogue/index'
 import { Route as SettingsAppsWelddeskRoutingIndexRouteImport } from './routes/settings/apps/welddesk/routing/index'
 import { Route as SettingsAppsWelddeskPriorityMatrixIndexRouteImport } from './routes/settings/apps/welddesk/priority-matrix/index'
 import { Route as SettingsAppsWelddeskPhoneIndexRouteImport } from './routes/settings/apps/welddesk/phone/index'
@@ -555,6 +560,7 @@ import { Route as SettingsAppsWelddeskHelpCenterIndexRouteImport } from './route
 import { Route as SettingsAppsWelddeskEmailIndexRouteImport } from './routes/settings/apps/welddesk/email/index'
 import { Route as SettingsAppsWelddeskChatWidgetIndexRouteImport } from './routes/settings/apps/welddesk/chat-widget/index'
 import { Route as SettingsAppsWelddeskAssignmentIndexRouteImport } from './routes/settings/apps/welddesk/assignment/index'
+import { Route as SettingsAppsWelddeskAssetRegisterIndexRouteImport } from './routes/settings/apps/welddesk/asset-register/index'
 import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
 import { Route as SettingsAppsPhoneNumbersNewNumberIndexRouteImport } from './routes/settings/apps/phone-numbers/new-number/index'
 import { Route as PreviewWeldmailAccountIdLabelSlugIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/index'
@@ -1399,6 +1405,11 @@ const WelddeskReportsIndexRoute = WelddeskReportsIndexRouteImport.update({
   path: '/reports/',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
+const WelddeskProblemsIndexRoute = WelddeskProblemsIndexRouteImport.update({
+  id: '/problems/',
+  path: '/problems/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
 const WelddeskInboxIndexRoute = WelddeskInboxIndexRouteImport.update({
   id: '/inbox/',
   path: '/inbox/',
@@ -1417,6 +1428,11 @@ const WelddeskEmailIndexRoute = WelddeskEmailIndexRouteImport.update({
 const WelddeskChatWidgetIndexRoute = WelddeskChatWidgetIndexRouteImport.update({
   id: '/chat-widget/',
   path: '/chat-widget/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskApprovalsIndexRoute = WelddeskApprovalsIndexRouteImport.update({
+  id: '/approvals/',
+  path: '/approvals/',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
 const WelddeskAiAgentsIndexRoute = WelddeskAiAgentsIndexRouteImport.update({
@@ -2065,6 +2081,18 @@ const WelddeskReportsPhoneRoute = WelddeskReportsPhoneRouteImport.update({
   path: '/reports/phone',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
+const WelddeskReportsBiConnectorRoute =
+  WelddeskReportsBiConnectorRouteImport.update({
+    id: '/reports/bi-connector',
+    path: '/reports/bi-connector',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskProblemsProblemIdRoute =
+  WelddeskProblemsProblemIdRouteImport.update({
+    id: '/problems/$problemId',
+    path: '/problems/$problemId',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
 const WeldconnectIntegrationsCallbackRoute =
   WeldconnectIntegrationsCallbackRouteImport.update({
     id: '/integrations/callback',
@@ -3540,6 +3568,12 @@ const SettingsAppsWelddeskSlaPoliciesIndexRoute =
     path: '/sla-policies/',
     getParentRoute: () => SettingsAppsWelddeskRouteRoute,
   } as any)
+const SettingsAppsWelddeskServiceCatalogueIndexRoute =
+  SettingsAppsWelddeskServiceCatalogueIndexRouteImport.update({
+    id: '/service-catalogue/',
+    path: '/service-catalogue/',
+    getParentRoute: () => SettingsAppsWelddeskRouteRoute,
+  } as any)
 const SettingsAppsWelddeskRoutingIndexRoute =
   SettingsAppsWelddeskRoutingIndexRouteImport.update({
     id: '/routing/',
@@ -3580,6 +3614,12 @@ const SettingsAppsWelddeskAssignmentIndexRoute =
   SettingsAppsWelddeskAssignmentIndexRouteImport.update({
     id: '/assignment/',
     path: '/assignment/',
+    getParentRoute: () => SettingsAppsWelddeskRouteRoute,
+  } as any)
+const SettingsAppsWelddeskAssetRegisterIndexRoute =
+  SettingsAppsWelddeskAssetRegisterIndexRouteImport.update({
+    id: '/asset-register/',
+    path: '/asset-register/',
     getParentRoute: () => SettingsAppsWelddeskRouteRoute,
   } as any)
 const SettingsAppsPhoneNumbersPortIndexRoute =
@@ -3920,6 +3960,8 @@ export interface FileRoutesByFullPath {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
+  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -4043,10 +4085,12 @@ export interface FileRoutesByFullPath {
   '/weldcrm/people/': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences/': typeof WeldcrmSequencesIndexRoute
   '/welddesk/ai-agents/': typeof WelddeskAiAgentsIndexRoute
+  '/welddesk/approvals/': typeof WelddeskApprovalsIndexRoute
   '/welddesk/chat-widget/': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox/': typeof WelddeskInboxIndexRoute
+  '/welddesk/problems/': typeof WelddeskProblemsIndexRoute
   '/welddesk/reports/': typeof WelddeskReportsIndexRoute
   '/welddesk/saved-replies/': typeof WelddeskSavedRepliesIndexRoute
   '/welddesk/settings/': typeof WelddeskSettingsIndexRoute
@@ -4285,6 +4329,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/apps/welddesk/asset-register/': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment/': typeof SettingsAppsWelddeskAssignmentIndexRoute
   '/settings/apps/welddesk/chat-widget/': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
@@ -4292,6 +4337,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/welddesk/phone/': typeof SettingsAppsWelddeskPhoneIndexRoute
   '/settings/apps/welddesk/priority-matrix/': typeof SettingsAppsWelddeskPriorityMatrixIndexRoute
   '/settings/apps/welddesk/routing/': typeof SettingsAppsWelddeskRoutingIndexRoute
+  '/settings/apps/welddesk/service-catalogue/': typeof SettingsAppsWelddeskServiceCatalogueIndexRoute
   '/settings/apps/welddesk/sla-policies/': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
   '/settings/apps/welddesk/teams/': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types/': typeof SettingsAppsWelddeskTicketTypesIndexRoute
@@ -4456,6 +4502,8 @@ export interface FileRoutesByTo {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
+  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -4579,10 +4627,12 @@ export interface FileRoutesByTo {
   '/weldcrm/people': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences': typeof WeldcrmSequencesIndexRoute
   '/welddesk/ai-agents': typeof WelddeskAiAgentsIndexRoute
+  '/welddesk/approvals': typeof WelddeskApprovalsIndexRoute
   '/welddesk/chat-widget': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox': typeof WelddeskInboxIndexRoute
+  '/welddesk/problems': typeof WelddeskProblemsIndexRoute
   '/welddesk/reports': typeof WelddeskReportsIndexRoute
   '/welddesk/saved-replies': typeof WelddeskSavedRepliesIndexRoute
   '/welddesk/settings': typeof WelddeskSettingsIndexRoute
@@ -4814,6 +4864,7 @@ export interface FileRoutesByTo {
   '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/apps/welddesk/asset-register': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment': typeof SettingsAppsWelddeskAssignmentIndexRoute
   '/settings/apps/welddesk/chat-widget': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email': typeof SettingsAppsWelddeskEmailIndexRoute
@@ -4821,6 +4872,7 @@ export interface FileRoutesByTo {
   '/settings/apps/welddesk/phone': typeof SettingsAppsWelddeskPhoneIndexRoute
   '/settings/apps/welddesk/priority-matrix': typeof SettingsAppsWelddeskPriorityMatrixIndexRoute
   '/settings/apps/welddesk/routing': typeof SettingsAppsWelddeskRoutingIndexRoute
+  '/settings/apps/welddesk/service-catalogue': typeof SettingsAppsWelddeskServiceCatalogueIndexRoute
   '/settings/apps/welddesk/sla-policies': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
   '/settings/apps/welddesk/teams': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types': typeof SettingsAppsWelddeskTicketTypesIndexRoute
@@ -5035,6 +5087,8 @@ export interface FileRoutesById {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
+  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -5158,10 +5212,12 @@ export interface FileRoutesById {
   '/weldcrm/people/': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences/': typeof WeldcrmSequencesIndexRoute
   '/welddesk/ai-agents/': typeof WelddeskAiAgentsIndexRoute
+  '/welddesk/approvals/': typeof WelddeskApprovalsIndexRoute
   '/welddesk/chat-widget/': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox/': typeof WelddeskInboxIndexRoute
+  '/welddesk/problems/': typeof WelddeskProblemsIndexRoute
   '/welddesk/reports/': typeof WelddeskReportsIndexRoute
   '/welddesk/saved-replies/': typeof WelddeskSavedRepliesIndexRoute
   '/welddesk/settings/': typeof WelddeskSettingsIndexRoute
@@ -5400,6 +5456,7 @@ export interface FileRoutesById {
   '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/apps/welddesk/asset-register/': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment/': typeof SettingsAppsWelddeskAssignmentIndexRoute
   '/settings/apps/welddesk/chat-widget/': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
@@ -5407,6 +5464,7 @@ export interface FileRoutesById {
   '/settings/apps/welddesk/phone/': typeof SettingsAppsWelddeskPhoneIndexRoute
   '/settings/apps/welddesk/priority-matrix/': typeof SettingsAppsWelddeskPriorityMatrixIndexRoute
   '/settings/apps/welddesk/routing/': typeof SettingsAppsWelddeskRoutingIndexRoute
+  '/settings/apps/welddesk/service-catalogue/': typeof SettingsAppsWelddeskServiceCatalogueIndexRoute
   '/settings/apps/welddesk/sla-policies/': typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
   '/settings/apps/welddesk/teams/': typeof SettingsAppsWelddeskTeamsIndexRoute
   '/settings/apps/welddesk/ticket-types/': typeof SettingsAppsWelddeskTicketTypesIndexRoute
@@ -5622,6 +5680,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/problems/$problemId'
+    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -5745,10 +5805,12 @@ export interface FileRouteTypes {
     | '/weldcrm/people/'
     | '/weldcrm/sequences/'
     | '/welddesk/ai-agents/'
+    | '/welddesk/approvals/'
     | '/welddesk/chat-widget/'
     | '/welddesk/email/'
     | '/welddesk/help-center/'
     | '/welddesk/inbox/'
+    | '/welddesk/problems/'
     | '/welddesk/reports/'
     | '/welddesk/saved-replies/'
     | '/welddesk/settings/'
@@ -5987,6 +6049,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
+    | '/settings/apps/welddesk/asset-register/'
     | '/settings/apps/welddesk/assignment/'
     | '/settings/apps/welddesk/chat-widget/'
     | '/settings/apps/welddesk/email/'
@@ -5994,6 +6057,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/phone/'
     | '/settings/apps/welddesk/priority-matrix/'
     | '/settings/apps/welddesk/routing/'
+    | '/settings/apps/welddesk/service-catalogue/'
     | '/settings/apps/welddesk/sla-policies/'
     | '/settings/apps/welddesk/teams/'
     | '/settings/apps/welddesk/ticket-types/'
@@ -6158,6 +6222,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/problems/$problemId'
+    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -6281,10 +6347,12 @@ export interface FileRouteTypes {
     | '/weldcrm/people'
     | '/weldcrm/sequences'
     | '/welddesk/ai-agents'
+    | '/welddesk/approvals'
     | '/welddesk/chat-widget'
     | '/welddesk/email'
     | '/welddesk/help-center'
     | '/welddesk/inbox'
+    | '/welddesk/problems'
     | '/welddesk/reports'
     | '/welddesk/saved-replies'
     | '/welddesk/settings'
@@ -6516,6 +6584,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug'
     | '/settings/apps/phone-numbers/new-number'
     | '/settings/apps/phone-numbers/port'
+    | '/settings/apps/welddesk/asset-register'
     | '/settings/apps/welddesk/assignment'
     | '/settings/apps/welddesk/chat-widget'
     | '/settings/apps/welddesk/email'
@@ -6523,6 +6592,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/phone'
     | '/settings/apps/welddesk/priority-matrix'
     | '/settings/apps/welddesk/routing'
+    | '/settings/apps/welddesk/service-catalogue'
     | '/settings/apps/welddesk/sla-policies'
     | '/settings/apps/welddesk/teams'
     | '/settings/apps/welddesk/ticket-types'
@@ -6736,6 +6806,8 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/problems/$problemId'
+    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -6859,10 +6931,12 @@ export interface FileRouteTypes {
     | '/weldcrm/people/'
     | '/weldcrm/sequences/'
     | '/welddesk/ai-agents/'
+    | '/welddesk/approvals/'
     | '/welddesk/chat-widget/'
     | '/welddesk/email/'
     | '/welddesk/help-center/'
     | '/welddesk/inbox/'
+    | '/welddesk/problems/'
     | '/welddesk/reports/'
     | '/welddesk/saved-replies/'
     | '/welddesk/settings/'
@@ -7101,6 +7175,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
+    | '/settings/apps/welddesk/asset-register/'
     | '/settings/apps/welddesk/assignment/'
     | '/settings/apps/welddesk/chat-widget/'
     | '/settings/apps/welddesk/email/'
@@ -7108,6 +7183,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/phone/'
     | '/settings/apps/welddesk/priority-matrix/'
     | '/settings/apps/welddesk/routing/'
+    | '/settings/apps/welddesk/service-catalogue/'
     | '/settings/apps/welddesk/sla-policies/'
     | '/settings/apps/welddesk/teams/'
     | '/settings/apps/welddesk/ticket-types/'
@@ -8391,6 +8467,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskReportsIndexRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
+    '/welddesk/problems/': {
+      id: '/welddesk/problems/'
+      path: '/problems'
+      fullPath: '/welddesk/problems/'
+      preLoaderRoute: typeof WelddeskProblemsIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
     '/welddesk/inbox/': {
       id: '/welddesk/inbox/'
       path: '/inbox'
@@ -8417,6 +8500,13 @@ declare module '@tanstack/react-router' {
       path: '/chat-widget'
       fullPath: '/welddesk/chat-widget/'
       preLoaderRoute: typeof WelddeskChatWidgetIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/approvals/': {
+      id: '/welddesk/approvals/'
+      path: '/approvals'
+      fullPath: '/welddesk/approvals/'
+      preLoaderRoute: typeof WelddeskApprovalsIndexRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
     '/welddesk/ai-agents/': {
@@ -9278,6 +9368,20 @@ declare module '@tanstack/react-router' {
       path: '/reports/phone'
       fullPath: '/welddesk/reports/phone'
       preLoaderRoute: typeof WelddeskReportsPhoneRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/reports/bi-connector': {
+      id: '/welddesk/reports/bi-connector'
+      path: '/reports/bi-connector'
+      fullPath: '/welddesk/reports/bi-connector'
+      preLoaderRoute: typeof WelddeskReportsBiConnectorRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/problems/$problemId': {
+      id: '/welddesk/problems/$problemId'
+      path: '/problems/$problemId'
+      fullPath: '/welddesk/problems/$problemId'
+      preLoaderRoute: typeof WelddeskProblemsProblemIdRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
     '/weldconnect/integrations/callback': {
@@ -11044,6 +11148,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWelddeskSlaPoliciesIndexRouteImport
       parentRoute: typeof SettingsAppsWelddeskRouteRoute
     }
+    '/settings/apps/welddesk/service-catalogue/': {
+      id: '/settings/apps/welddesk/service-catalogue/'
+      path: '/service-catalogue'
+      fullPath: '/settings/apps/welddesk/service-catalogue/'
+      preLoaderRoute: typeof SettingsAppsWelddeskServiceCatalogueIndexRouteImport
+      parentRoute: typeof SettingsAppsWelddeskRouteRoute
+    }
     '/settings/apps/welddesk/routing/': {
       id: '/settings/apps/welddesk/routing/'
       path: '/routing'
@@ -11091,6 +11202,13 @@ declare module '@tanstack/react-router' {
       path: '/assignment'
       fullPath: '/settings/apps/welddesk/assignment/'
       preLoaderRoute: typeof SettingsAppsWelddeskAssignmentIndexRouteImport
+      parentRoute: typeof SettingsAppsWelddeskRouteRoute
+    }
+    '/settings/apps/welddesk/asset-register/': {
+      id: '/settings/apps/welddesk/asset-register/'
+      path: '/asset-register'
+      fullPath: '/settings/apps/welddesk/asset-register/'
+      preLoaderRoute: typeof SettingsAppsWelddeskAssetRegisterIndexRouteImport
       parentRoute: typeof SettingsAppsWelddeskRouteRoute
     }
     '/settings/apps/phone-numbers/port/': {
@@ -11413,6 +11531,7 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 
 interface SettingsAppsWelddeskRouteRouteChildren {
   SettingsAppsWelddeskIndexRoute: typeof SettingsAppsWelddeskIndexRoute
+  SettingsAppsWelddeskAssetRegisterIndexRoute: typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   SettingsAppsWelddeskAssignmentIndexRoute: typeof SettingsAppsWelddeskAssignmentIndexRoute
   SettingsAppsWelddeskChatWidgetIndexRoute: typeof SettingsAppsWelddeskChatWidgetIndexRoute
   SettingsAppsWelddeskEmailIndexRoute: typeof SettingsAppsWelddeskEmailIndexRoute
@@ -11420,6 +11539,7 @@ interface SettingsAppsWelddeskRouteRouteChildren {
   SettingsAppsWelddeskPhoneIndexRoute: typeof SettingsAppsWelddeskPhoneIndexRoute
   SettingsAppsWelddeskPriorityMatrixIndexRoute: typeof SettingsAppsWelddeskPriorityMatrixIndexRoute
   SettingsAppsWelddeskRoutingIndexRoute: typeof SettingsAppsWelddeskRoutingIndexRoute
+  SettingsAppsWelddeskServiceCatalogueIndexRoute: typeof SettingsAppsWelddeskServiceCatalogueIndexRoute
   SettingsAppsWelddeskSlaPoliciesIndexRoute: typeof SettingsAppsWelddeskSlaPoliciesIndexRoute
   SettingsAppsWelddeskTeamsIndexRoute: typeof SettingsAppsWelddeskTeamsIndexRoute
   SettingsAppsWelddeskTicketTypesIndexRoute: typeof SettingsAppsWelddeskTicketTypesIndexRoute
@@ -11430,6 +11550,8 @@ interface SettingsAppsWelddeskRouteRouteChildren {
 const SettingsAppsWelddeskRouteRouteChildren: SettingsAppsWelddeskRouteRouteChildren =
   {
     SettingsAppsWelddeskIndexRoute: SettingsAppsWelddeskIndexRoute,
+    SettingsAppsWelddeskAssetRegisterIndexRoute:
+      SettingsAppsWelddeskAssetRegisterIndexRoute,
     SettingsAppsWelddeskAssignmentIndexRoute:
       SettingsAppsWelddeskAssignmentIndexRoute,
     SettingsAppsWelddeskChatWidgetIndexRoute:
@@ -11442,6 +11564,8 @@ const SettingsAppsWelddeskRouteRouteChildren: SettingsAppsWelddeskRouteRouteChil
       SettingsAppsWelddeskPriorityMatrixIndexRoute,
     SettingsAppsWelddeskRoutingIndexRoute:
       SettingsAppsWelddeskRoutingIndexRoute,
+    SettingsAppsWelddeskServiceCatalogueIndexRoute:
+      SettingsAppsWelddeskServiceCatalogueIndexRoute,
     SettingsAppsWelddeskSlaPoliciesIndexRoute:
       SettingsAppsWelddeskSlaPoliciesIndexRoute,
     SettingsAppsWelddeskTeamsIndexRoute: SettingsAppsWelddeskTeamsIndexRoute,
@@ -12129,14 +12253,18 @@ const WelddataRouteRouteWithChildren = WelddataRouteRoute._addFileChildren(
 interface WelddeskRouteRouteChildren {
   WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
+  WelddeskProblemsProblemIdRoute: typeof WelddeskProblemsProblemIdRoute
+  WelddeskReportsBiConnectorRoute: typeof WelddeskReportsBiConnectorRoute
   WelddeskReportsPhoneRoute: typeof WelddeskReportsPhoneRoute
   WelddeskReportsSchedulesRoute: typeof WelddeskReportsSchedulesRoute
   WelddeskReportsWallboardRoute: typeof WelddeskReportsWallboardRoute
   WelddeskAiAgentsIndexRoute: typeof WelddeskAiAgentsIndexRoute
+  WelddeskApprovalsIndexRoute: typeof WelddeskApprovalsIndexRoute
   WelddeskChatWidgetIndexRoute: typeof WelddeskChatWidgetIndexRoute
   WelddeskEmailIndexRoute: typeof WelddeskEmailIndexRoute
   WelddeskHelpCenterIndexRoute: typeof WelddeskHelpCenterIndexRoute
   WelddeskInboxIndexRoute: typeof WelddeskInboxIndexRoute
+  WelddeskProblemsIndexRoute: typeof WelddeskProblemsIndexRoute
   WelddeskReportsIndexRoute: typeof WelddeskReportsIndexRoute
   WelddeskSavedRepliesIndexRoute: typeof WelddeskSavedRepliesIndexRoute
   WelddeskSettingsIndexRoute: typeof WelddeskSettingsIndexRoute
@@ -12167,14 +12295,18 @@ interface WelddeskRouteRouteChildren {
 const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
+  WelddeskProblemsProblemIdRoute: WelddeskProblemsProblemIdRoute,
+  WelddeskReportsBiConnectorRoute: WelddeskReportsBiConnectorRoute,
   WelddeskReportsPhoneRoute: WelddeskReportsPhoneRoute,
   WelddeskReportsSchedulesRoute: WelddeskReportsSchedulesRoute,
   WelddeskReportsWallboardRoute: WelddeskReportsWallboardRoute,
   WelddeskAiAgentsIndexRoute: WelddeskAiAgentsIndexRoute,
+  WelddeskApprovalsIndexRoute: WelddeskApprovalsIndexRoute,
   WelddeskChatWidgetIndexRoute: WelddeskChatWidgetIndexRoute,
   WelddeskEmailIndexRoute: WelddeskEmailIndexRoute,
   WelddeskHelpCenterIndexRoute: WelddeskHelpCenterIndexRoute,
   WelddeskInboxIndexRoute: WelddeskInboxIndexRoute,
+  WelddeskProblemsIndexRoute: WelddeskProblemsIndexRoute,
   WelddeskReportsIndexRoute: WelddeskReportsIndexRoute,
   WelddeskSavedRepliesIndexRoute: WelddeskSavedRepliesIndexRoute,
   WelddeskSettingsIndexRoute: WelddeskSettingsIndexRoute,

@@ -5,6 +5,7 @@
  *
  * Browser contract (docs on each function):
  *   topic `inbox.<userId>`  events `phone.incoming` | `phone.answered` | `phone.ended`
+ *   topic `inbox.<userId>`  events `phone.caption` | `phone.translation` (live call translation)
  *   topic `desk_phone_queue` event `updated` `{ waiting: number }`
  */
 
@@ -31,12 +32,12 @@ function publisher(env: Env): RealtimePublisher | null {
   return new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 }
 
-/** Send one member an inbox event (`phone.incoming`, `phone.answered`, `phone.ended`). Never throws. */
+/** Send one member an inbox event (`phone.incoming`, `phone.answered`, `phone.ended`, `phone.caption`, `phone.translation`). Never throws. */
 export async function sendPhoneInboxEvent(
   env: Env,
   workspaceId: string,
   userId: string,
-  event: 'phone.incoming' | 'phone.answered' | 'phone.ended',
+  event: 'phone.incoming' | 'phone.answered' | 'phone.ended' | 'phone.caption' | 'phone.translation',
   data: Record<string, unknown>,
 ): Promise<void> {
   const rt = publisher(env);

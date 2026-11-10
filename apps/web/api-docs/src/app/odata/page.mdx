@@ -1,0 +1,427 @@
+# OData feed (BI)
+
+A read-only OData 4.0 feed of your helpdesk data, for Power BI, Excel and any other tool that reads OData. Reads require the `reports:read` scope. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The feed
+
+The service root is `https://api.weldsuite.org/v1/odata`. It serves:
+
+| Request | Answers |
+| --- | --- |
+| `GET /v1/odata` | The service document: the list of tables (entity sets). |
+| `GET /v1/odata/$metadata` | The schema (CSDL, XML) of every table, column, type and key. |
+| `GET /v1/odata/Conversations` | The rows of a table. |
+| `GET /v1/odata/Conversations/$count` | The number of rows, as plain text. |
+| `GET /v1/odata/Conversations('cnv_1')` | One row by key. |
+
+Everything is read-only. `POST`, `PUT`, `PATCH` and `DELETE` answer `405`. Responses are OData JSON with minimal metadata (`Content-Type: application/json;odata.metadata=minimal`, `OData-Version: 4.0`). Timestamps are ISO 8601 in UTC with a trailing `Z`, `null` is `null`, and a list column is an array (`[]` when empty).
+
+The `reports:read` scope reads every table below, including names and email addresses of customers and members. It never exposes message text, attachments, call recordings or credentials. Give it to the key your BI tool uses, not to general-purpose keys. The rate limits of your plan apply.
+
+---
+
+## Authentication
+
+Create an API key with the **Reports (BI connector)** permission in Settings, API keys. The key can be sent three ways:
+
+- **HTTP Basic**, on `/v1/odata` only: any username, the API key as the password. This is what the Power BI and Excel OData connectors offer. A missing or wrong key answers `401` with `WWW-Authenticate: Basic realm="WeldSuite"`, so the tool asks for credentials.
+- `Authorization: Bearer wsk_your_api_key`.
+- `X-Api-Key: wsk_your_api_key`.
+
+A key without `reports:read` answers `403`.
+
+<CodeGroup title="Request" tag="GET" label="/v1/odata/Conversations">
+
+```bash {{ title: 'cURL (Basic)' }}
+curl -u "powerbi:wsk_your_api_key" \
+  "https://api.weldsuite.org/v1/odata/Conversations?\$top=2&\$select=id,title,state"
+```
+
+```bash {{ title: 'cURL (header)' }}
+curl "https://api.weldsuite.org/v1/odata/Conversations?\$top=2" \
+  -H "X-Api-Key: wsk_your_api_key"
+```
+
+</CodeGroup>
+
+```json {{ title: 'Response' }}
+{
+  "@odata.context": "https://api.weldsuite.org/v1/odata/$metadata#Conversations(id,title,state)",
+  "value": [
+    { "id": "cnv_abc123", "title": "Printer broken", "state": "open" },
+    { "id": "cnv_abc124", "title": "Invoice question", "state": "closed" }
+  ]
+}
+```
+
+---
+
+## Tables and columns
+
+Every table has a string key `id`. Columns marked as not nullable are never `null`. Soft-deleted rows (teams, ticket types, members and articles that were removed) are not served.
+
+### Conversations
+
+One row per conversation (ticket, chat, email or call). The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `conversationNumber` | `Edm.Int32` | no |
+| `title` | `Edm.String` | yes |
+| `state` | `Edm.String` | no |
+| `channel` | `Edm.String` | no |
+| `name` | `Edm.String` | yes |
+| `email` | `Edm.String` | yes |
+| `contactId` | `Edm.String` | yes |
+| `assigneeId` | `Edm.String` | yes |
+| `ticketTypeId` | `Edm.String` | yes |
+| `priority` | `Edm.String` | yes |
+| `impact` | `Edm.String` | yes |
+| `urgency` | `Edm.String` | yes |
+| `tags` | `Collection(Edm.String)` | no |
+| `departmentId` | `Edm.String` | yes |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+| `waitingSince` | `Edm.DateTimeOffset` | yes |
+| `lastMessageAt` | `Edm.DateTimeOffset` | yes |
+| `rating` | `Edm.Int32` | yes |
+| `ratedAt` | `Edm.DateTimeOffset` | yes |
+| `externalId` | `Edm.String` | yes |
+| `slaPolicyId` | `Edm.String` | yes |
+| `slaStatus` | `Edm.String` | yes |
+| `slaDueAt` | `Edm.DateTimeOffset` | yes |
+| `slaMetric` | `Edm.String` | yes |
+| `firstResponseAt` | `Edm.DateTimeOffset` | yes |
+| `firstResponseSeconds` | `Edm.Int32` | yes |
+| `resolvedAt` | `Edm.DateTimeOffset` | yes |
+| `resolutionSeconds` | `Edm.Int32` | yes |
+| `parentConversationId` | `Edm.String` | yes |
+| `isMajorIncident` | `Edm.Boolean` | no |
+| `mergedIntoId` | `Edm.String` | yes |
+| `language` | `Edm.String` | yes |
+| `problemId` | `Edm.String` | yes |
+| `catalogItemId` | `Edm.String` | yes |
+| `approvalStatus` | `Edm.String` | yes |
+
+### Messages
+
+One row per message, note or event on a conversation. The text and attachments are not included. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `conversationId` | `Edm.String` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `kind` | `Edm.String` | no |
+| `authorType` | `Edm.String` | no |
+| `authorId` | `Edm.String` | yes |
+| `eventType` | `Edm.String` | yes |
+
+### SlaClocks
+
+One row per conversation and SLA metric (`first_response`, `next_response`, `resolution`). The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+| `conversationId` | `Edm.String` | no |
+| `metric` | `Edm.String` | no |
+| `policyId` | `Edm.String` | yes |
+| `targetMinutes` | `Edm.Int32` | no |
+| `warnBeforeMinutes` | `Edm.Int32` | yes |
+| `status` | `Edm.String` | no |
+| `startedAt` | `Edm.DateTimeOffset` | no |
+| `elapsedSeconds` | `Edm.Int32` | no |
+| `dueAt` | `Edm.DateTimeOffset` | yes |
+| `warnAt` | `Edm.DateTimeOffset` | yes |
+| `breachedAt` | `Edm.DateTimeOffset` | yes |
+| `completedAt` | `Edm.DateTimeOffset` | yes |
+| `warnedAt` | `Edm.DateTimeOffset` | yes |
+| `breachNotifiedAt` | `Edm.DateTimeOffset` | yes |
+| `nextCheckAt` | `Edm.DateTimeOffset` | yes |
+
+### Calls
+
+One row per phone call. Recordings and transcripts are not included. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `userId` | `Edm.String` | no |
+| `direction` | `Edm.String` | no |
+| `status` | `Edm.String` | no |
+| `fromNumber` | `Edm.String` | no |
+| `toNumber` | `Edm.String` | no |
+| `initiatedAt` | `Edm.DateTimeOffset` | no |
+| `answeredAt` | `Edm.DateTimeOffset` | yes |
+| `endedAt` | `Edm.DateTimeOffset` | yes |
+| `duration` | `Edm.Int32` | yes |
+| `queueEnteredAt` | `Edm.DateTimeOffset` | yes |
+| `agentAnsweredAt` | `Edm.DateTimeOffset` | yes |
+| `answeredByUserId` | `Edm.String` | yes |
+| `outcome` | `Edm.String` | yes |
+| `departmentId` | `Edm.String` | yes |
+| `deskConversationId` | `Edm.String` | yes |
+| `isRecorded` | `Edm.Boolean` | yes |
+| `hangupCause` | `Edm.String` | yes |
+| `sipTrunkId` | `Edm.String` | yes |
+
+### Teams
+
+Teams (departments). The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `name` | `Edm.String` | no |
+| `description` | `Edm.String` | yes |
+| `email` | `Edm.String` | yes |
+| `managerId` | `Edm.String` | yes |
+| `managerName` | `Edm.String` | yes |
+| `agentIds` | `Collection(Edm.String)` | no |
+| `agentCount` | `Edm.Int32` | yes |
+| `autoAssignment` | `Edm.Boolean` | yes |
+| `roundRobinAssignment` | `Edm.Boolean` | yes |
+| `defaultPriority` | `Edm.String` | yes |
+| `isActive` | `Edm.Boolean` | no |
+| `sortOrder` | `Edm.Int32` | yes |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+
+### TicketTypes
+
+Ticket types. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `name` | `Edm.String` | no |
+| `description` | `Edm.String` | yes |
+| `category` | `Edm.String` | yes |
+| `disableAiAutofill` | `Edm.Boolean` | yes |
+| `defaultPriority` | `Edm.String` | yes |
+| `defaultAssigneeId` | `Edm.String` | yes |
+| `defaultDepartmentId` | `Edm.String` | yes |
+| `isActive` | `Edm.Boolean` | no |
+| `sortOrder` | `Edm.Int32` | yes |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+
+### Agents
+
+Workspace members. `isActive` is true for members with the status `ACTIVE`. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `userId` | `Edm.String` | no |
+| `name` | `Edm.String` | yes |
+| `email` | `Edm.String` | yes |
+| `role` | `Edm.String` | no |
+| `roleId` | `Edm.String` | yes |
+| `title` | `Edm.String` | yes |
+| `status` | `Edm.String` | no |
+| `memberType` | `Edm.String` | no |
+| `isActive` | `Edm.Boolean` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+
+### Problems
+
+Problems (the cause behind one or more incidents). The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+| `problemNumber` | `Edm.Int32` | no |
+| `title` | `Edm.String` | no |
+| `description` | `Edm.String` | yes |
+| `status` | `Edm.String` | no |
+| `priority` | `Edm.String` | yes |
+| `rootCause` | `Edm.String` | yes |
+| `workaround` | `Edm.String` | yes |
+| `resolution` | `Edm.String` | yes |
+| `assigneeId` | `Edm.String` | yes |
+| `departmentId` | `Edm.String` | yes |
+| `articleId` | `Edm.String` | yes |
+| `knownErrorAt` | `Edm.DateTimeOffset` | yes |
+| `resolvedAt` | `Edm.DateTimeOffset` | yes |
+| `closedAt` | `Edm.DateTimeOffset` | yes |
+| `createdById` | `Edm.String` | yes |
+
+### CatalogItems
+
+Items of the service catalogue. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `name` | `Edm.String` | no |
+| `category` | `Edm.String` | yes |
+| `ticketTypeId` | `Edm.String` | no |
+| `departmentId` | `Edm.String` | yes |
+| `isActive` | `Edm.Boolean` | no |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+
+### Articles
+
+Help center articles. The text is not included. The key is `id`.
+
+| Property | Type | Nullable |
+| --- | --- | --- |
+| `id` | `Edm.String` | no |
+| `title` | `Edm.String` | no |
+| `status` | `Edm.String` | no |
+| `visibility` | `Edm.String` | no |
+| `locale` | `Edm.String` | yes |
+| `categoryId` | `Edm.String` | yes |
+| `categoryName` | `Edm.String` | yes |
+| `viewCount` | `Edm.Int32` | yes |
+| `likeCount` | `Edm.Int32` | yes |
+| `dislikeCount` | `Edm.Int32` | yes |
+| `helpfulCount` | `Edm.Int32` | yes |
+| `notHelpfulCount` | `Edm.Int32` | yes |
+| `createdAt` | `Edm.DateTimeOffset` | no |
+| `updatedAt` | `Edm.DateTimeOffset` | no |
+| `publishedAt` | `Edm.DateTimeOffset` | yes |
+
+
+---
+
+## Query options
+
+Pass them in the query string, with `$` in front. A `$` has to be escaped in a shell, and spaces and quotes have to be percent-encoded in a URL; Power BI and Excel do both for you.
+
+<Properties>
+  <Property name="$top" type="integer">Number of rows to return. At most 1,000 come back per response; ask for more and you get `@odata.nextLink`.</Property>
+  <Property name="$skip" type="integer">Rows to skip before the first one. Applied before `$top`.</Property>
+  <Property name="$select" type="string">Comma-separated columns to return, or `*`. The key is only returned when you select it.</Property>
+  <Property name="$orderby" type="string">Up to 5 comma-separated columns, each with `asc` (default) or `desc`, for example `createdAt desc,priority`. List columns (`tags`, `agentIds`) and long texts (`description`, `rootCause`, `workaround`, `resolution`) cannot be sorted. Nulls sort lowest. The key is always the last tie-breaker.</Property>
+  <Property name="$filter" type="string">A condition, see below.</Property>
+  <Property name="$count" type="boolean">`true` adds `@odata.count`, the number of rows matching `$filter` (not the page).</Property>
+  <Property name="$skiptoken" type="string">Opaque position, only for the links we give you.</Property>
+  <Property name="$format" type="string">`json` (or `application/json`). Anything else answers `415`.</Property>
+</Properties>
+
+```bash {{ title: 'Examples' }}
+# The 50 most recent open conversations, three columns
+/v1/odata/Conversations?$filter=state eq 'open'&$orderby=createdAt desc&$top=50&$select=id,title,createdAt
+
+# How many conversations breached their SLA this year
+/v1/odata/Conversations/$count?$filter=slaStatus eq 'breached' and year(createdAt) eq 2026
+
+# Rows 101 to 150 of the calls table, with the total
+/v1/odata/Calls?$skip=100&$top=50&$count=true
+```
+
+Other `$` options are answered like this: `$expand`, `$apply`, `$search`, `$compute`, `$levels` and `$deltatoken` are valid OData that this feed does not serve (`501`); any other unknown `$` option is `400`. Options that are not OData's own (no `$`) are ignored. `$count` and `/$count` accept `$filter` and `$format` only; a single entity accepts `$select` and `$format`.
+
+---
+
+## Filtering
+
+`$filter` supports this subset of OData:
+
+- **Comparison**: `eq`, `ne`, `gt`, `ge`, `lt`, `le` between a column and a literal, in either order: `rating ge 4`, `4 le rating`.
+- **Logic**: `and`, `or`, `not`, and parentheses. `and` binds tighter than `or`.
+- **Null**: `title eq null`, `title ne null`. A comparison with a null value is false, so `not (title eq 'x')` includes the rows where `title` is null; `ne` does too.
+- **Strings** in single quotes, with `''` for a quote: `title eq 'O''Brien'`.
+- **Numbers**: `120`, `-3`, `1.5` (decimals only on `Edm.Double` columns).
+- **Booleans**: `true`, `false`, with `eq` and `ne` only.
+- **Dates**: `2026-01-31T00:00:00Z`, with an offset (`2026-01-31T10:30:00%2B02:00`, the `+` as `%2B`) or fractional seconds. A bare date (`2026-01-31`) means `00:00:00Z`, except that `eq` and `ne` with a bare date match the whole UTC day.
+- **Functions**: `contains(title,'x')`, `startswith(title,'x')`, `endswith(title,'x')` on text columns (case-sensitive; `%` and `_` match themselves), and `year(createdAt)`, `month(createdAt)`, `day(createdAt)` on date columns, compared with an integer.
+- **List columns** (`tags`, `agentIds`): `tags/any(t: t eq 'vip')` only.
+
+Literals must suit the column: a number against a text column, `1.5` against an integer column or a date against a boolean answers `400`. A column that is not in the table answers `400`. A filter is at most 2,000 characters, nested at most 10 levels deep, and has at most 30 comparisons.
+
+```bash {{ title: 'Examples' }}
+state eq 'open' and (priority eq 'high' or priority eq 'urgent')
+createdAt ge 2026-01-01T00:00:00Z and createdAt lt 2026-02-01T00:00:00Z
+firstResponseSeconds gt 3600 and assigneeId ne null
+contains(title,'invoice') and not startswith(title,'Re:')
+tags/any(t: t eq 'vip')
+```
+
+---
+
+## Paging
+
+A response holds at most 1,000 rows. When there are more, it ends with `@odata.nextLink`, an absolute URL that repeats your options and adds `$skiptoken`. Follow it until it is no longer there; Power BI and Excel do this on their own.
+
+```json {{ title: 'Response' }}
+{
+  "@odata.context": "https://api.weldsuite.org/v1/odata/$metadata#Messages(id)",
+  "@odata.count": 2300,
+  "value": [ "…1000 rows…" ],
+  "@odata.nextLink": "https://api.weldsuite.org/v1/odata/Messages?$select=id&$count=true&$skiptoken=eyJrIjoibXNnXzAxMDAwIn0"
+}
+```
+
+Without `$orderby`, rows come in key order and the token is a position after the last key, so new rows never shift a page. With `$orderby`, the token is an offset into the sorted result: rows added while you page can make a row appear twice or be missed, so prefer the key order for an export. `$top` larger than a page is honoured across pages: the link carries what is left of it. Treat the token as opaque; one from another query answers `400`.
+
+---
+
+## Errors
+
+Errors use the platform's envelope: `{ "error": { "code": "BadRequest", "message": "…" } }`.
+
+| Status | Code | When |
+| --- | --- | --- |
+| `400` | `BadRequest` | A malformed or invalid query option, filter, key or token. |
+| `401` | `UNAUTHORIZED` | No or an invalid key. `WWW-Authenticate: Basic realm="WeldSuite"`. |
+| `403` | `FORBIDDEN` | The key lacks `reports:read`. |
+| `404` | `NotFound` | An unknown table, path or key. |
+| `405` | `MethodNotAllowed` | A write. `Allow: GET, HEAD, OPTIONS`. |
+| `415` | `UnsupportedMediaType` | `$format` other than JSON. |
+| `501` | `NotImplemented` | Valid OData this feed does not serve: `$expand`, `$apply`, `$search`, `$compute`, `$levels`, other functions, navigation paths, lambdas other than `any`. |
+
+---
+
+## Limits
+
+- 1,000 rows per response, `$orderby` of up to 5 columns, `$filter` of up to 2,000 characters, depth 10 and 30 comparisons.
+- Requests count against the rate limit of your plan like any other API call. A large table is many requests: filter on dates, select the columns you need, and refresh on a schedule rather than continuously.
+
+---
+
+## Power BI
+
+1. In Power BI Desktop choose **Get data**, then **OData feed**.
+2. Paste `https://api.weldsuite.org/v1/odata` and choose **OK**.
+3. Choose **Basic**. Enter any username and your API key as the password, and choose **Connect**.
+4. Pick the tables and choose **Load**.
+
+After you publish a report, open the dataset settings in the Power BI service, edit the data source credentials and choose **Basic** with the same username and API key. Without this a scheduled refresh fails.
+
+If you prefer to send the key in a header, use a blank query and Power Query M:
+
+```text {{ title: 'Power Query M' }}
+let
+    Source = OData.Feed(
+        "https://api.weldsuite.org/v1/odata",
+        null,
+        [Headers = [#"X-Api-Key" = "wsk_your_api_key"]]
+    )
+in
+    Source
+```
+
+Set the data source to **Anonymous** when you use the header form: the key travels in the header, not in the credentials. Power BI also offers **Bearer** with `Authorization: Bearer wsk_your_api_key` in the same `Headers` record.
+
+## Excel
+
+1. Open the **Data** tab and choose **Get Data**, **From Other Sources**, **From OData Feed**.
+2. Paste `https://api.weldsuite.org/v1/odata` and choose **OK**.
+3. Choose **Basic**. Enter any username and your API key as the password.
+4. Pick the tables and choose **Load**.
