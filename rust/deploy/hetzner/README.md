@@ -281,30 +281,36 @@ default) organisation:
    steps below are done Zitadel's own pages keep working, so do them on the
    test cluster first, in this order:
    1. Give the service user of step 5 the instance role `IAM_LOGIN_CLIENT`
-      as well (Default settings → Managers, or `POST /admin/v1/members`
-      with `{"userId": "<id>", "roles": ["IAM_OWNER", "IAM_LOGIN_CLIENT"]}`).
+      as well: Default settings → Administrators, click its row, tick the
+      role (or `PUT /admin/v1/members/<user id>` with
+      `{"roles": ["IAM_OWNER", "IAM_LOGIN_CLIENT"]}`).
       `IAM_OWNER` alone may open sessions but not finish a sign-in
       (`session.link`); the server then logs "the provider refused the
       service user" and sign-in answers 503. To keep sign-in on a user of its
       own, make a second machine user with only `IAM_LOGIN_CLIENT` and put
       its token in `weldsuite-env` as `ZITADEL_LOGIN_TOKEN`.
-   2. Let applications choose their login: the instance feature "Login V2"
-      is *required* on a new v4 instance, which sends every application to
-      Zitadel's own pages whatever it asks for. Turn "required" off (Default
-      settings → Feature settings, or `PUT /v2/features/instance` with
-      `{"loginV2": {"required": false}}`).
-   3. With that off an application without a login setting falls back to
-      the old Login V1. Open each other application (the admin console's,
-      and Zitadel's own "Management Console" in the ZITADEL project), tick
-      "Use new Login UI" and leave its base URL empty: they keep Zitadel's
-      pages under `/ui/v2/login`.
-   4. Application `platform`: tick "Use new Login UI" and set "Custom base
-      URL for the new Login UI" to `https://app.<domain>/auth`. Zitadel then
-      sends a sign-in to `https://app.<domain>/auth/login?authRequest=…`.
+   2. Give every other application a login setting: open each one (the
+      admin console's `admin` in the `WeldSuite Staff` organisation, and
+      Zitadel's own "Management Console" in the default organisation's
+      ZITADEL project), tick "Use new Login UI", leave "Custom base URL for
+      the new Login UI" empty, and save. They keep Zitadel's pages under
+      `/ui/v2/login`. An application left without the setting falls back to
+      the old Login V1 at step 4.
+   3. Application `platform`: tick "Use new Login UI" and set "Custom base
+      URL for the new Login UI" to `https://app.<domain>/auth`. Nothing
+      changes yet: the instance feature "Login V2" is *Enabled* (required)
+      on a new v4 instance, which sends every application to Zitadel's own
+      pages whatever it asks for.
+   4. The switch: Default settings → Features → "Login V2" → *Disabled*
+      (or `PUT /v2/features/instance` with `{"loginV2": {"required":
+      false}}`). Applications now use their own setting, and Zitadel sends
+      the platform's sign-in to
+      `https://app.<domain>/auth/login?authRequest=…`.
    5. Check: open `https://app.<domain>` signed out. The WeldSuite sign-in
       shows; signing in lands in the workspace; switching workspace asks for
       no password; signing out and opening the platform again shows the
-      sign-in. To go back, clear the base URL of step 4.
+      sign-in. `https://auth.<domain>/ui/console` still signs in under
+      `/ui/v2/login`. To go back, set "Login V2" to *Enabled* again.
 
    What these screens do themselves: email and password, a second factor by
    authenticator app or emailed code, sign-up with a verified address, and a
