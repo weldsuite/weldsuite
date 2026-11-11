@@ -1,7 +1,6 @@
-/** One cost line as the lists show it: source, what it is, where it comes from and what it costs. */
+/** The text of one cost line: what it is, and where it comes from. */
 
 import type { CostLine } from '@weldsuite/app-api-client/domains/project-finance';
-import { formatMoney } from '../_lib/finance';
 import { useFinanceEnv } from './finance-parts';
 
 /** The title and the line under it, from the line and its source. */
@@ -18,15 +17,4 @@ export function useLineText(line: CostLine): { title: string; meta: string } {
     };
   }
   return { title: line.title ?? line.reference ?? line.id, meta: [line.reference, day].filter(Boolean).join(' · ') };
-}
-
-export function Amounts({ line, currency }: Readonly<{ line: CostLine; currency: string | null }>) {
-  const { intlLocale } = useFinanceEnv();
-  const committed = Number(line.committed) !== 0;
-  return (
-    <div className="text-right tabular-nums">
-      <div className="text-sm font-semibold">{formatMoney(line.amount, currency, intlLocale, 2)}</div>
-      {committed ? <div className="text-xs text-muted-foreground">+ {formatMoney(line.committed, currency, intlLocale, 2)}</div> : null}
-    </div>
-  );
 }

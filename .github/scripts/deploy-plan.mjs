@@ -22,7 +22,7 @@
  *   VERCEL_APPS        JSON from vercel-apps.mjs, only for that summary
  *
  * Writes to GITHUB_OUTPUT: migrations, d1_connector_migrations,
- * d1_schedule_migrations, run_d1_migrations, d1_connector, d1_schedule,
+ * d1_schedule_migrations, hosted_apps, run_d1_migrations, d1_connector, d1_schedule,
  * workers, mobile_apps, pages_apps, start_apps.
  */
 
@@ -85,13 +85,15 @@ const START_APPS = [
   // and the lockfile, which the path filter cannot follow.
   { app: 'sign-portal', name: 'Sign portal', filter: 'sign-portal', alsoWithModule: 'sign-api' },
   { app: 'project-portal', name: 'Project portal', filter: 'project-portal' },
+  // Calls forms-api over the FORMS_API service binding; bundles the embed SDK as /embed.js.
+  { app: 'forms-portal', name: 'Forms portal', filter: 'forms-portal' },
   // Switched on per environment by ADMIN_WORKER_ENVS. Until it names an
   // environment, that environment's console stays on Vercel (apps/web/admin/README.md).
   { app: 'admin', name: 'Admin console', filter: 'admin', adminWorkerEnvsOnly: true },
 ];
 
 /** filters.yml keys passed through as plain "true"/"false" outputs. */
-const FLAGS = ['migrations', 'd1_connector_migrations', 'd1_schedule_migrations'];
+const FLAGS = ['migrations', 'd1_connector_migrations', 'd1_schedule_migrations', 'hosted_apps'];
 
 function parseList(name) {
   const raw = process.env[name];
@@ -132,7 +134,7 @@ if (changed('all_workers')) {
 
 // --- D1 migrations --------------------------------------------------------
 // The gates below match the substring `contains()` checks on the JSON strings
-// that deploy.yml used before this logic moved here, so "workflow-worker" also
+// that the old public deploy.yml used, so "workflow-worker" also
 // matches helpdesk-workflow-worker. The D1 migrations are idempotent, so an
 // extra run costs nothing.
 const workersJson = JSON.stringify(workers).toLowerCase();
@@ -200,6 +202,7 @@ if (process.env.PLAN_SUMMARY === 'true' && process.env.GITHUB_STEP_SUMMARY) {
     ['Pages', names(pagesApps)],
     ['TanStack Start Workers', names(startApps)],
     ['Vercel', names(parseList('VERCEL_APPS').map((a) => a.app))],
+    ['Hosted apps', output.hosted_apps === 'true' ? 'changed' : 'none'],
   ];
   appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,

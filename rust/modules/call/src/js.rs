@@ -234,6 +234,42 @@ pub(crate) fn slice_utf16(text: &str, n: usize) -> String {
     out
 }
 
+/// `a.localeCompare(b)` for the user ids the phone queue orders: ICU's root
+/// collation as it treats ASCII, i.e. punctuation, then digits, then letters
+/// with case ignored, and lowercase before uppercase only when nothing else
+/// differs (as `weldsuite_desk_domain::assignment` orders them).
+pub(crate) fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    /// ASCII punctuation and symbols in ICU's root order, not by code point:
+    /// `_` before `-`.
+    const PUNCTUATION: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
+    fn class(c: char) -> (u8, u32) {
+        if c.is_ascii_digit() {
+            (2, u32::from(c))
+        } else if c.is_alphabetic() {
+            (3, u32::from(c.to_ascii_lowercase()))
+        } else if let Some(rank) = PUNCTUATION.find(c) {
+            (0, u32::try_from(rank).unwrap_or(u32::MAX))
+        } else {
+            (1, u32::from(c))
+        }
+    }
+    let primary = a.chars().map(class).cmp(b.chars().map(class));
+    primary.then_with(|| {
+        // Tertiary: at the first case difference, lowercase first.
+        for (x, y) in a.chars().zip(b.chars()) {
+            if x != y {
+                return match (x.is_lowercase(), y.is_lowercase()) {
+                    (true, false) => Ordering::Less,
+                    (false, true) => Ordering::Greater,
+                    _ => x.cmp(&y),
+                };
+            }
+        }
+        a.len().cmp(&b.len())
+    })
+}
+
 /// A JSON object whose keys keep the order they were added in, as
 /// `JSON.stringify` writes an object literal (`serde_json` sorts them).
 #[derive(Debug, Default)]
@@ -309,6 +345,9 @@ mod tests {
             r#"{"callId":"c","workspaceId":"w"}"#
         );
         assert!(!truthy(&json!("")));
+        assert_eq!(locale_compare("user_2", "user_a"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare("user_a", "user_B"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare("user_a", "user_A"), std::cmp::Ordering::Less);
         assert_eq!(or(&[&json!(""), &json!("x")]), &json!("x"));
         assert_eq!(or(&[&json!(""), &json!(null)]), &json!(null));
     }

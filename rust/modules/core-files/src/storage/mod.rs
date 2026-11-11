@@ -80,6 +80,11 @@ pub struct StorageState {
     pub environment: Arc<str>,
     /// Starts the 30-day purge of a trashed file.
     pub jobs: Option<Arc<dyn DynJobs>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects at
+    /// `/api/storage/public/<key>` to anyone, for an object store with no
+    /// public endpoint of its own (the one a self-hosted chart bundles).
+    /// Off, that route answers only local development, as in TypeScript.
+    pub serve_public_objects: bool,
 }
 
 impl std::fmt::Debug for StorageState {
@@ -90,6 +95,7 @@ impl std::fmt::Debug for StorageState {
             .field("signing_key", &self.signing_key.is_some())
             .field("environment", &self.environment)
             .field("jobs", &self.jobs.is_some())
+            .field("serve_public_objects", &self.serve_public_objects)
             .finish()
     }
 }
@@ -963,8 +969,28 @@ fn private_object_headers(info: &ObjectInfo, key: &str) -> HeaderMap {
         CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=300"),
     );
+    insert_no_script_headers(&mut headers, &content_type);
+    headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    let disposition = if is_inline_safe(&content_type) {
+        "inline"
+    } else {
+        "attachment"
+    };
+    headers.insert(
+        CONTENT_DISPOSITION,
+        header_value(&format!(
+            "{disposition}; filename=\"{}\"",
+            object_file_name(info, key)
+        )),
+    );
+    headers
+}
+
+/// No sniffing and no script for an object served from the app's own origin:
+/// `nosniff`, and a sandboxing CSP (except for a PDF: Chrome refuses to render
+/// one in a sandboxed document).
+fn insert_no_script_headers(headers: &mut HeaderMap, content_type: &str) {
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    // Chrome refuses to render a PDF in a sandboxed document.
     let is_pdf = content_type
         .to_ascii_lowercase()
         .strip_prefix("application/pdf")
@@ -979,24 +1005,17 @@ fn private_object_headers(info: &ObjectInfo, key: &str) -> HeaderMap {
             HeaderValue::from_static("default-src 'none'; sandbox"),
         );
     }
-    headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    let name = info
-        .metadata
+}
+
+/// The name a download is saved under: the stored `filename`, else the key's
+/// last segment, with quotes, backslashes and line breaks made harmless.
+fn object_file_name(info: &ObjectInfo, key: &str) -> String {
+    info.metadata
         .get("filename")
         .map(String::as_str)
         .or_else(|| key.rsplit('/').next())
         .unwrap_or("file")
-        .replace(['"', '\\', '\r', '\n'], "_");
-    let disposition = if is_inline_safe(&content_type) {
-        "inline"
-    } else {
-        "attachment"
-    };
-    headers.insert(
-        CONTENT_DISPOSITION,
-        header_value(&format!("{disposition}; filename=\"{name}\"")),
-    );
-    headers
+        .replace(['"', '\\', '\r', '\n'], "_")
 }
 
 /// `GET /api/storage/private/<key>`: the only way to read a private object.
@@ -1092,14 +1111,18 @@ async fn private_object(
 /// Streams a public object back for local development, where the bucket's
 /// public domain does not serve what was just uploaded. Fails closed: only
 /// with `ENVIRONMENT=development` and only for requests to localhost, so it
-/// never becomes an open proxy for the bucket.
+/// never becomes an open proxy for the bucket; or, on an install that turned
+/// it on (`StorageState::serve_public_objects`), for anyone, since the public
+/// bucket holds only what is published anyway.
 async fn public_object(
     State(state): State<CoreFilesState>,
     visitor: Visitor,
     OriginalUri(uri): OriginalUri,
 ) -> Response {
     let overrides = &visitor.overrides;
-    if overrides.environment(&state) != "development" || !is_local_origin(&visitor.origin) {
+    let local_development =
+        overrides.environment(&state) == "development" && is_local_origin(&visitor.origin);
+    if !local_development && !state.storage.serve_public_objects {
         return plain_error(StatusCode::NOT_FOUND, "Not found");
     }
     let Some(bucket) = overrides.buckets(&state).public else {
@@ -1143,12 +1166,114 @@ async fn public_object(
         http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
         HeaderValue::from_static("*"),
     );
+    if state.storage.serve_public_objects {
+        // Served from the app's own origin to anyone, so nothing in the
+        // public bucket (a WeldApps bundle's index.html, say) may run as the
+        // platform: no sniffing, no script, and a download for anything a
+        // browser shouldn't render inline, as private objects get.
+        let content_type = object.info.content_type.clone().unwrap_or_default();
+        insert_no_script_headers(headers, &content_type);
+        if !is_inline_safe(&content_type) {
+            headers.insert(
+                CONTENT_DISPOSITION,
+                header_value(&format!(
+                    "attachment; filename=\"{}\"",
+                    object_file_name(&object.info, &key)
+                )),
+            );
+        }
+    }
     response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `GET /api/storage/public/<key>` against a state whose public bucket
+    /// holds one object of `content_type`, from a remote origin in production.
+    async fn read_public_object(
+        serve_public_objects: bool,
+        key: &str,
+        content_type: &str,
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        use tower::ServiceExt as _;
+        use weldsuite_ports::{FileStore as _, MemoryFileStore, PutOptions};
+        let public = Arc::new(MemoryFileStore::default());
+        public
+            .put(
+                key,
+                b"bytes".to_vec(),
+                &PutOptions::content_type(content_type),
+            )
+            .await
+            .expect("put");
+        let state = CoreFilesState {
+            events: weldsuite_events::EntityEventPublisher::new(
+                None,
+                weldsuite_events::TaskTracker::new(),
+            ),
+            files: Some(FileStores {
+                private: Arc::new(MemoryFileStore::default()),
+                public: Some(public),
+            }),
+            public_files_url: None,
+            storage: StorageState {
+                environment: Arc::from("production"),
+                serve_public_objects,
+                ..StorageState::default()
+            },
+        };
+        let request = axum::http::Request::get(format!("/api/storage/public/{key}"))
+            .header("host", "weldsuite.example.com")
+            .header("origin", "https://weldsuite.example.com")
+            .body(axum::body::Body::empty())
+            .expect("request");
+        let response = storage_public_router::<()>(state)
+            .oneshot(request)
+            .await
+            .expect("response");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .expect("body")
+            .to_bytes()
+            .to_vec();
+        (status, headers, body)
+    }
+
+    #[tokio::test]
+    async fn public_objects_are_served_only_where_turned_on() {
+        let png = |on| read_public_object(on, "workspaces/o/logo.png", "image/png");
+        assert_eq!(png(false).await.0, StatusCode::NOT_FOUND);
+        let (status, headers, body) = png(true).await;
+        assert_eq!((status, body), (StatusCode::OK, b"bytes".to_vec()));
+        // An image still shows inline, but nothing in it can run.
+        assert_eq!(headers[X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(
+            headers[CONTENT_SECURITY_POLICY],
+            "default-src 'none'; sandbox"
+        );
+        assert!(headers.get(CONTENT_DISPOSITION).is_none());
+    }
+
+    #[tokio::test]
+    async fn served_public_html_cannot_run_as_the_platform() {
+        // A WeldApps bundle's page sits in the public bucket as text/html.
+        let (status, headers, _) =
+            read_public_object(true, "user-apps/app_1/uav_1/index.html", "text/html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(
+            headers[CONTENT_SECURITY_POLICY],
+            "default-src 'none'; sandbox"
+        );
+        assert_eq!(
+            headers[CONTENT_DISPOSITION],
+            "attachment; filename=\"index.html\""
+        );
+    }
 
     #[test]
     fn local_origins() {

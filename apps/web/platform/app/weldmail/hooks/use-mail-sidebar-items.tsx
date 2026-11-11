@@ -758,6 +758,7 @@ export function useMailSidebarItems(isActive: boolean): {
           {
             id: 'unified',
             name: t.mail.sidebar.allAccounts,
+            description: t.mail.sidebar.accountCount.replace('{count}', String(localEmailAccounts.length)),
             stack: localEmailAccounts.map((acc) => acc.displayName || acc.email),
           },
         ]

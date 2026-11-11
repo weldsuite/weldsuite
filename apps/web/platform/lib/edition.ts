@@ -82,6 +82,8 @@ export const EDITION_FEATURES = [
   'agent-ai',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
+  /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
+  'forms-ai',
   /**
    * Choosing where a new workspace's data is stored (a Neon region per
    * workspace). A Kubernetes install keeps every workspace in its one cluster.

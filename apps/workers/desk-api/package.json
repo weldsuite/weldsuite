@@ -23,6 +23,7 @@
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/desk-domain": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",

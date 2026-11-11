@@ -765,6 +765,10 @@ export const common = {
         managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
         openAccount: 'Accountinstellingen openen',
         invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
+        accountLocked: 'Dit account is geblokkeerd. Probeer het later opnieuw of neem contact op met je beheerder.',
+        tooManyAttempts: 'Te veel pogingen. Wacht een paar minuten en probeer het opnieuw.',
+        emailTaken: 'Er bestaat al een account met dit e-mailadres. Log in met dat account.',
+        signUpDisabled: 'Registreren is niet mogelijk. Vraag je beheerder om een uitnodiging.',
       },
       error: {
         alertTitle: 'Fout',
@@ -824,6 +828,7 @@ export const common = {
         subtitle: 'Voer de code uit uw e-mail in en maak een nieuw wachtwoord aan.',
         resetCodeLabel: 'Herstelcode',
         resetCodePlaceholder: '6-cijferige code invoeren',
+        resetCodePlaceholderAny: 'Voer de code uit uw e-mail in',
         newPasswordLabel: 'Nieuw wachtwoord',
         newPasswordPlaceholder: 'Maak een nieuw wachtwoord aan',
         confirmPasswordLabel: 'Nieuw wachtwoord bevestigen',
@@ -840,6 +845,8 @@ export const common = {
         signIn: 'Aanmelden',
         requirements: {
           atLeast8Chars: 'Minimaal 8 tekens',
+          atLeastChars: 'Minimaal {count} tekens',
+          oneSymbol: 'Één symbool',
           oneUppercase: 'Één hoofdletter',
           oneLowercase: 'Één kleine letter',
           oneNumber: 'Één cijfer',

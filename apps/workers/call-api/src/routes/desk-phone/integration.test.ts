@@ -156,7 +156,7 @@ describe('inbound routes', () => {
     expect((await send('PUT', '/routes', { voipPhoneNumberId: 'vpn_dp_main', action: 'ai_agent' })).status).toBe(400);
     expect((await send('PUT', '/routes', { voipPhoneNumberId: 'vpn_dp_main', action: 'forward', forwardToE164: '' })).status).toBe(400);
     expect((await send('PUT', '/routes', { voipPhoneNumberId: '', action: 'forward', forwardToE164: '+3161' })).status).toBe(400);
-    expect((await send('PUT', '/routes', { voipPhoneNumberId: 'vpn_dp_main', action: 'voicemail' })).status).toBe(400);
+    expect((await send('PUT', '/routes', { voipPhoneNumberId: 'vpn_dp_main', action: 'queue' })).status).toBe(400);
   });
 
   it('needs a live number and agent', async () => {

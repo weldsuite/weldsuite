@@ -178,6 +178,7 @@ export * from './helpdesk-channel-integrations';
 export * from './helpdesk-analytics-reports';
 export * from './helpdesk-analytics-charts';
 export * from './helpdesk-analytics-views';
+export * from './helpdesk-report-schedules';
 
 // WeldDesk — webchat-first conversation model.
 export * from './desk-conversations';
@@ -187,6 +188,7 @@ export * from './desk-visitors';
 export * from './desk-widget-settings';
 export * from './desk-voice-agents';
 export * from './desk-phone-routes';
+export * from './desk-phone-agents';
 export * from './search-index';
 
 // Generic analytics (shared across apps)
@@ -283,6 +285,7 @@ export * from './ad-platform';
 
 // Audit Logs (generic, cross-module)
 export * from './audit-logs';
+export * from './audit-log-streams';
 
 // Legal entities (core: companies, registrations, bank accounts, per-entity access)
 export * from './legal-entities';
@@ -423,6 +426,9 @@ export * from './weldpanel';
 
 // WeldMerge (pull requests and issues across git providers)
 export * from './weldmerge';
+
+// WeldForms (forms and surveys)
+export * from './weldforms';
 
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

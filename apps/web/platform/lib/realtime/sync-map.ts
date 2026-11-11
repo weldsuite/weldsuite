@@ -333,6 +333,8 @@ export const platformSyncMap: EntitySyncMap = {
   legal_entity: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   legal_entity_bank_account: inv(['legal-entities'], ['accounting', 'bank-accounts']),
   legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
+  // Settings → Activity → Log streaming (the SIEM destinations).
+  audit_log_stream: inv(['audit-log-streams']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
   purchase_order: inv(['accounting', 'purchase-orders']),
@@ -443,6 +445,8 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_folder: inv(['helpdesk', 'folders'], ['helpdesk', 'help-folders']),
   helpdesk_news: inv(['helpdesk', 'news']),
   helpdesk_settings: inv(['helpdesk', 'settings']),
+  // Scheduled report emails: the list refreshes when someone else changes a schedule.
+  helpdesk_report_schedule: inv(['helpdesk', 'reports', 'schedules']),
   helpdesk_ticket_type: inv(['helpdesk', 'ticket-types']),
   helpdesk_widget: inv(['helpdesk', 'widgets'], ['helpdesk', 'widget', 'settings']),
   helpdesk_workflow: inv(['helpdesk-automation']),
@@ -598,6 +602,17 @@ export const platformSyncMap: EntitySyncMap = {
   merge_connection: inv(['weldmerge']),
   merge_repository: inv(['weldmerge']),
   merge_pull_request: inv(['weldmerge']),
+
+  // WeldForms: weldformsKeys.all in use-weldforms-queries.ts. Every object
+  // shares the root: lists, the builder's form, themes, responses, invitations
+  // and integrations all refetch when anything in the module changes. The
+  // builder ignores a refetch of the form while it holds unsaved edits.
+  form: inv(['weldforms']),
+  form_folder: inv(['weldforms']),
+  form_theme: inv(['weldforms']),
+  form_response: inv(['weldforms']),
+  form_invitation: inv(['weldforms']),
+  form_integration: inv(['weldforms']),
   // Releases, issue record links and chat subscriptions live under the same
   // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
   merge_release: inv(['weldmerge']),

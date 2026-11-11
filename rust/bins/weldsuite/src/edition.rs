@@ -132,6 +132,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // and `/translate-reply`) runs on Workers AI through `@weldsuite/ai`; the
     // routes answer 503 `ai_unavailable` here (ADR AI-011).
     "desk-ai",
+    // WeldForms' AI (`/api/forms/ai/*` and the response summaries) runs on
+    // `@weldsuite/ai`; the routes answer 503 `ai_unavailable` here (ADR AI-011).
+    "forms-ai",
     // Choosing where a new workspace's data is stored: Global puts each
     // workspace's database in the Neon region picked at signup. A Kubernetes
     // install keeps every workspace in its own one cluster, so there is no
@@ -170,6 +173,9 @@ pub(crate) struct EditionConfig {
     pub(crate) public_env: BTreeMap<String, String>,
     /// The video client the frontends join rooms with.
     pub(crate) video: ClientSettings,
+    /// The chosen video provider has its credentials
+    /// (`weldsuite_video_rooms::configured`); without them WeldMeet is hidden.
+    pub(crate) video_configured: bool,
     /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
     pub(crate) live_editing: bool,
 }
@@ -180,10 +186,15 @@ impl Default for EditionConfig {
             edition: Edition::SelfHosted,
             public_env: BTreeMap::new(),
             video: ClientSettings::default(),
+            video_configured: false,
             live_editing: false,
         }
     }
 }
+
+/// The module that needs a video service: hidden from `/config.json`'s
+/// `modules` when none is configured.
+pub(crate) const VIDEO_MODULE: &str = "meet";
 
 impl EditionConfig {
     /// `EDITION` and `PUBLIC_ENV` (a JSON object of strings, as the chart
@@ -209,6 +220,7 @@ impl EditionConfig {
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
+            video_configured: weldsuite_video_rooms::configured(lookup),
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
         }
@@ -237,6 +249,12 @@ impl EditionConfig {
             features.push(COLLAB_ROOMS_FEATURE);
         }
         features
+    }
+
+    /// Whether `/config.json` offers `module`: WeldMeet only with a video
+    /// service ([`VIDEO_MODULE`]). The routes stay mounted either way.
+    pub(crate) fn offers(&self, module: &str) -> bool {
+        module != VIDEO_MODULE || self.video_configured
     }
 }
 
@@ -320,6 +338,20 @@ mod tests {
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
         assert!(!blank.live_editing);
+    }
+
+    #[test]
+    fn offers_weldmeet_only_with_a_video_service() {
+        let (none, _) = read(&[]);
+        assert!(!none.offers(VIDEO_MODULE));
+        assert!(none.offers("crm"), "other modules don't depend on video");
+        let (livekit, problems) = read(&[
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(livekit.offers(VIDEO_MODULE));
     }
 
     #[test]

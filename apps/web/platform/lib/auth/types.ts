@@ -172,4 +172,10 @@ export interface AuthImplementation {
   completeSignIn?: () => Promise<string>;
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */
   accountUrl?: string;
+  /**
+   * WeldSuite shows its own sign-in screens over this provider (OIDC with
+   * `auth.signIn: "platform"`, ADR SEC-016) rather than sending people to
+   * the provider's pages. Clerk has its own screens and leaves this unset.
+   */
+  platformSignIn?: boolean;
 }

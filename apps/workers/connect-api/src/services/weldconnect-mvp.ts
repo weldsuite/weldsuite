@@ -57,6 +57,8 @@ export const WELDCONNECT_ACTION_TYPES = [
   'merge.update_issue',
   'merge.comment_on_issue',
   'create_conversation',
+  // Pure: reads a Splunk / Datadog / Grafana alert into ticket fields (priority, state, external id).
+  'parse_alert',
   'send_notification',
   'post_chat_message',
   'http_request',
@@ -207,6 +209,8 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   'merge.update_issue': (c) => (isBlank(c.issue) ? ['issue'] : []),
   'merge.comment_on_issue': (c) => ['issue', 'body'].filter((field) => isBlank(c[field])),
   create_conversation: (c) => (isBlank(c.message) ? ['message'] : []),
+  // Every input has a default (the payload is the trigger body).
+  parse_alert: () => [],
   send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
   post_chat_message: (c) => {
     const missing: string[] = [];

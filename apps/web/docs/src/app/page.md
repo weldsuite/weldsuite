@@ -48,6 +48,7 @@ Browse guides written for everyday setup — no technical background needed. {% 
 | [WeldSocial](/social) | Social media planning |
 | [WeldDrive](/welddrive) | Files and shared documents |
 | [WeldKnow](/weldknow) | Internal wiki and knowledge base |
+| [WeldForms](/weldforms) | Forms, surveys and quizzes |
 | [WeldMeet](/weldmeet) | Video meetings |
 | [Settings](/settings) | Team, billing, integrations |
 

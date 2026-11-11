@@ -1,0 +1,109 @@
+{
+  "name": "Operators that do not fit the operands",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_t",
+        "ref": "text",
+        "type": "short_text",
+        "title": "text"
+      },
+      {
+        "id": "b_c",
+        "ref": "choice",
+        "type": "multiple_choice",
+        "title": "Choice",
+        "properties": {
+          "choices": [
+            {
+              "id": "c_1",
+              "label": "One"
+            },
+            {
+              "id": "c_2",
+              "label": "Two"
+            }
+          ]
+        }
+      },
+      {
+        "id": "b_d",
+        "ref": "day",
+        "type": "date",
+        "title": "Day"
+      },
+      {
+        "id": "b_n",
+        "ref": "amount",
+        "type": "number",
+        "title": "Amount"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_1",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "field",
+                "id": "b_t"
+              },
+              "operator": "any_of",
+              "right": {
+                "type": "constant",
+                "value": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "left": {
+                "type": "field",
+                "id": "b_c"
+              },
+              "operator": "greater_than",
+              "right": {
+                "type": "constant",
+                "value": 1
+              }
+            },
+            {
+              "left": {
+                "type": "field",
+                "id": "b_n"
+              },
+              "operator": "is"
+            },
+            {
+              "left": {
+                "type": "field",
+                "id": "b_d"
+              },
+              "operator": "before",
+              "right": {
+                "type": "constant",
+                "value": "next week"
+              }
+            }
+          ]
+        },
+        "endingId": "e_end"
+      }
+    ]
+  },
+  "expectIssues": [
+    "operator_mismatch",
+    "operator_mismatch",
+    "operator_mismatch",
+    "operator_mismatch"
+  ]
+}

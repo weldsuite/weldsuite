@@ -1,0 +1,147 @@
+{
+  "name": "Choosing the ending: jumps, ending rules and the default",
+  "definition": {
+    "variables": [{ "name": "points", "type": "number" }],
+    "blocks": [
+      { "id": "b_age", "ref": "age", "type": "number", "title": "How old are you?", "required": true },
+      {
+        "id": "b_country",
+        "ref": "country",
+        "type": "dropdown",
+        "title": "Country",
+        "properties": {
+          "choices": [
+            { "id": "c_nl", "label": "Netherlands" },
+            { "id": "c_be", "label": "Belgium" },
+            { "id": "c_de", "label": "Germany" }
+          ]
+        }
+      },
+      { "id": "b_since", "ref": "member_since", "type": "date", "title": "Member since" },
+      { "id": "b_more", "ref": "more", "type": "short_text", "title": "Anything else?" }
+    ],
+    "endings": [
+      { "id": "e_default", "ref": "default_end", "title": "Thanks" },
+      { "id": "e_minor", "ref": "minor", "title": "Sorry, you are too young" },
+      { "id": "e_benelux", "ref": "benelux", "title": "Hallo!" },
+      { "id": "e_veteran", "ref": "veteran", "title": "Welcome back, veteran" }
+    ],
+    "logic": [
+      {
+        "blockId": "b_age",
+        "calculations": [{ "id": "x_points", "variable": "points", "op": "set", "value": { "type": "field", "id": "b_age" } }],
+        "jumps": [
+          {
+            "id": "j_minor",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_age" }, "operator": "less_than", "right": { "type": "constant", "value": 18 } }] },
+            "to": { "type": "ending", "id": "e_minor" }
+          }
+        ]
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_veteran",
+        "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_since" }, "operator": "before", "right": { "type": "constant", "value": "2010-01-01" } }] },
+        "endingId": "e_veteran"
+      },
+      {
+        "id": "r_benelux",
+        "when": {
+          "op": "or",
+          "conditions": [
+            { "left": { "type": "field", "id": "b_country" }, "operator": "any_of", "right": { "type": "constant", "value": ["c_nl", "c_be"] } },
+            { "left": { "type": "variable", "name": "points" }, "operator": "is", "right": { "type": "constant", "value": 99 } }
+          ]
+        },
+        "endingId": "e_benelux"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "a minor jumps straight to an ending",
+      "answers": { "b_age": 15, "b_country": { "choiceIds": ["c_nl"] } },
+      "expect": {
+        "ok": true,
+        "path": ["b_age"],
+        "endingId": "e_minor",
+        "variables": { "score": 0, "points": 15 },
+        "errors": {},
+        "answers": { "b_age": 15 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "the first matching ending rule wins",
+      "answers": { "b_age": 40, "b_country": { "choiceIds": ["c_be"] }, "b_since": "2005-06-01" },
+      "expect": {
+        "ok": true,
+        "path": ["b_age", "b_country", "b_since", "b_more"],
+        "endingId": "e_veteran",
+        "variables": { "score": 0, "points": 40 },
+        "errors": {},
+        "answers": { "b_age": 40, "b_country": { "choiceIds": ["c_be"] }, "b_since": "2005-06-01" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "the second rule matches",
+      "answers": { "b_age": 30, "b_country": { "choiceIds": ["c_nl"] }, "b_since": "2015-01-01" },
+      "expect": {
+        "ok": true,
+        "path": ["b_age", "b_country", "b_since", "b_more"],
+        "endingId": "e_benelux",
+        "variables": { "score": 0, "points": 30 },
+        "errors": {},
+        "answers": { "b_age": 30, "b_country": { "choiceIds": ["c_nl"] }, "b_since": "2015-01-01" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "no rule matches: the first ending",
+      "answers": { "b_age": 30, "b_country": { "choiceIds": ["c_de"] } },
+      "expect": {
+        "ok": true,
+        "path": ["b_age", "b_country", "b_since", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0, "points": 30 },
+        "errors": {},
+        "answers": { "b_age": 30, "b_country": { "choiceIds": ["c_de"] } },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a variable picks the ending; before is strict",
+      "answers": { "b_age": 99, "b_since": "2010-01-01" },
+      "expect": {
+        "ok": true,
+        "path": ["b_age", "b_country", "b_since", "b_more"],
+        "endingId": "e_benelux",
+        "variables": { "score": 0, "points": 99 },
+        "errors": {},
+        "answers": { "b_age": 99, "b_since": "2010-01-01" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "an invalid age: no calculation, no jump",
+      "answers": { "b_age": "x" },
+      "expect": {
+        "ok": false,
+        "path": ["b_age", "b_country", "b_since", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0, "points": 0 },
+        "errors": { "b_age": { "code": "invalid" } },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ]
+}

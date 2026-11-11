@@ -115,8 +115,10 @@ stack of individually-verified commits:
 7. **Phase 4 drop**, remove `customFields` from all 16 schema files, remove the
    dual-write and the hydrate blob fallback, generate the Drizzle migration.
 
-Step 7 is irreversible and auto-applies on merge (`deploy.yml` triggers the
-migration job on any change under `packages/core/db/**`). Do not merge until
+Step 7 is irreversible and applies itself when the deploy runs
+(`.github/actions/deploy-db-migrations`, run by `weldsuite-deploy`, which runs
+the migration job on any change to the schema or the migrations): on test after
+a merge to `main` that passes CI, on production with the next Promote. Do not merge until
 `pnpm audit:blobs` reports zero unmapped keys **in production**.
 
 ## Preconditions for step 7

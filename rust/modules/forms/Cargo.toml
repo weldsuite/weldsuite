@@ -1,0 +1,45 @@
+[package]
+name = "weldsuite-forms"
+description = "WeldForms (forms, surveys and quizzes): the forms engine (@weldsuite/forms-engine), forms-api's /api/forms for members, the respondent side at /public/forms and the forms.process-response job"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-desk-domain = { workspace = true }
+weldsuite-emails = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-flow-domain = { workspace = true }
+weldsuite-forms-engine = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-notifications = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["json", "multipart", "original-uri", "query"] }
+base64 = { workspace = true }
+form_urlencoded = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

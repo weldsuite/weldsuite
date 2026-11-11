@@ -556,6 +556,56 @@ export interface SignEnvelopeEventData {
   templateId?: string | null;
 }
 
+/** A WeldForms form: id, title, status and where it lives. The definition stays off the bus. */
+export interface FormEventData {
+  id: string;
+  title?: string;
+  status?: string;
+  publicId?: string | null;
+  /** Published version number (`published`). */
+  version?: number;
+  ownerUserId?: string;
+}
+
+/**
+ * A WeldForms response. `answers` is keyed by field `ref`, with display
+ * values; files, signatures and sensitive fields are left out (ADR
+ * FORMS-004). `hidden` holds the hidden-field values.
+ */
+export interface FormResponseEventData {
+  id: string;
+  formId: string;
+  formTitle?: string;
+  number?: number | null;
+  respondentEmail?: string | null;
+  respondentUserId?: string | null;
+  personId?: string | null;
+  invitationId?: string | null;
+  endingId?: string | null;
+  score?: number | null;
+  answers?: Record<string, string>;
+  hidden?: Record<string, string>;
+  submittedAt?: string | null;
+}
+
+/** A form folder, theme or integration: id, name/kind and the form it belongs to. */
+export interface FormSupportEventData {
+  id: string;
+  formId?: string;
+  name?: string;
+  kind?: string;
+  enabled?: boolean;
+}
+
+/** A personal invitation: who, for which form, and whether it was a reminder. */
+export interface FormInvitationEventData {
+  id: string;
+  formId: string;
+  email?: string;
+  personId?: string | null;
+  reminder?: boolean;
+}
+
 /** A WeldSign template: id and title only. */
 export interface SignTemplateEventData {
   id: string;
@@ -823,6 +873,14 @@ export interface EntityEventData {
   // WeldSign
   sign_envelope: SignEnvelopeEventData;
   sign_template: SignTemplateEventData;
+
+  // WeldForms
+  form: FormEventData;
+  form_response: FormResponseEventData;
+  form_folder: FormSupportEventData;
+  form_theme: FormSupportEventData;
+  form_integration: FormSupportEventData;
+  form_invitation: FormInvitationEventData;
 
   // WeldPanel
   panel_project: PanelProjectEventData;

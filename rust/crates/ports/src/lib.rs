@@ -13,6 +13,7 @@
 //! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
+//! | [`SignInProvider`] | Clerk's sign-in, which Global's browser calls itself (`@clerk/clerk-react`), ADR SEC-016 | [`MemorySignIn`] |
 //! | [`MailTransport`] | customer mail over the `SEND_EMAIL` binding (`@weldsuite/worker-email`), ADR MAIL-010 | [`RecordingMailTransport`] |
 //! | [`LedgerStore`] | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects' storage (MAIL-006) | [`MemoryLedgerStore`] |
 //! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
@@ -47,6 +48,7 @@ pub mod mail;
 pub mod outbound;
 pub mod presence;
 pub mod realtime;
+pub mod sign_in;
 pub mod transport;
 pub mod video_rooms;
 
@@ -87,6 +89,11 @@ pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, is_
 pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
+};
+pub use sign_in::{
+    AuthMethods, AuthRequest, CodeFormat, CodeKind, LinkTemplate, MemorySignIn, MemoryUser,
+    NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError, SignInProvider,
+    SignInResult, SignInSettings, SignInUser, UserStatus,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

@@ -1,0 +1,239 @@
+{
+  "name": "Validation of ranking, matrix, files, signature, contact info and address",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_rank",
+        "ref": "rank",
+        "type": "ranking",
+        "title": "Rank these",
+        "required": true,
+        "properties": {
+          "choices": [
+            { "id": "r_a", "label": "Alpha" },
+            { "id": "r_b", "label": "Beta" },
+            { "id": "r_c", "label": "Gamma" }
+          ]
+        }
+      },
+      {
+        "id": "b_grid",
+        "ref": "grid",
+        "type": "matrix",
+        "title": "Rate us",
+        "required": true,
+        "properties": {
+          "rows": [
+            { "id": "row_1", "label": "Speed" },
+            { "id": "row_2", "label": "Price" }
+          ],
+          "columns": [
+            { "id": "col_1", "label": "Bad" },
+            { "id": "col_2", "label": "OK" },
+            { "id": "col_3", "label": "Good" }
+          ]
+        }
+      },
+      {
+        "id": "b_multi_grid",
+        "ref": "availability",
+        "type": "matrix",
+        "title": "When are you free?",
+        "properties": {
+          "multiple": true,
+          "rows": [
+            { "id": "m_1", "label": "Monday" },
+            { "id": "m_2", "label": "Tuesday" }
+          ],
+          "columns": [
+            { "id": "col_1", "label": "Morning" },
+            { "id": "col_2", "label": "Afternoon" },
+            { "id": "col_3", "label": "Evening" }
+          ]
+        }
+      },
+      { "id": "b_files", "ref": "files", "type": "file_upload", "title": "Attachments", "required": true, "properties": { "maxFiles": 2 } },
+      { "id": "b_sign", "ref": "signature", "type": "signature", "title": "Sign here" },
+      { "id": "b_contact", "ref": "contact", "type": "contact_info", "title": "Contact", "required": true },
+      { "id": "b_addr", "ref": "address", "type": "address", "title": "Address" },
+      {
+        "id": "b_phone_only",
+        "ref": "phone_only",
+        "type": "contact_info",
+        "title": "Phone",
+        "properties": {
+          "fields": {
+            "firstName": { "enabled": false, "required": false },
+            "lastName": { "enabled": false, "required": false },
+            "email": { "enabled": false, "required": false },
+            "phone": { "enabled": true, "required": true },
+            "company": { "enabled": false, "required": false }
+          }
+        }
+      }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "Done" }]
+  },
+  "cases": [
+    {
+      "name": "valid answers; unknown rows, parts and duplicate files dropped",
+      "answers": {
+        "b_rank": ["r_c", "r_a", "r_b"],
+        "b_grid": { "row_1": ["col_2"], "row_2": ["col_1", "col_1"], "row_x": ["col_1"] },
+        "b_multi_grid": { "m_1": ["col_1", "col_3"], "m_2": [] },
+        "b_files": [
+          { "fileId": "f_1", "name": "cv.pdf", "size": 1200, "type": "application/pdf", "extra": "x" },
+          { "fileId": "f_1", "name": "cv.pdf", "size": 1200, "type": "application/pdf" }
+        ],
+        "b_sign": { "fileId": "f_sig", "name": "signature.png", "size": 300, "type": "image/png" },
+        "b_contact": { "firstName": " Jo ", "lastName": "Doe", "email": "jo@example.com", "nickname": "JD" },
+        "b_addr": { "line1": "Main St 1", "line2": "", "city": "Utrecht", "postalCode": "3511 AA", "country": "NL" },
+        "b_phone_only": { "phone": "06 1234 5678", "company": "Acme" }
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_rank", "b_grid", "b_multi_grid", "b_files", "b_sign", "b_contact", "b_addr", "b_phone_only"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": {
+          "b_rank": ["r_c", "r_a", "r_b"],
+          "b_grid": { "row_1": ["col_2"], "row_2": ["col_1"] },
+          "b_multi_grid": { "m_1": ["col_1", "col_3"] },
+          "b_files": [{ "fileId": "f_1", "name": "cv.pdf", "size": 1200, "type": "application/pdf" }],
+          "b_sign": { "fileId": "f_sig", "name": "signature.png", "size": 300, "type": "image/png" },
+          "b_contact": { "firstName": "Jo", "lastName": "Doe", "email": "jo@example.com" },
+          "b_addr": { "line1": "Main St 1", "city": "Utrecht", "postalCode": "3511 AA", "country": "NL" },
+          "b_phone_only": { "phone": "06 1234 5678" }
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "errors, with the matrix row or sub-field as the part",
+      "answers": {
+        "b_rank": ["r_a", "r_b"],
+        "b_grid": { "row_1": ["col_1", "col_2"] },
+        "b_multi_grid": { "m_2": ["col_9"] },
+        "b_files": [
+          { "fileId": "f_1", "name": "a.pdf", "size": 1, "type": "application/pdf" },
+          { "fileId": "f_2", "name": "b.pdf", "size": 2, "type": "application/pdf" },
+          { "fileId": "f_3", "name": "c.pdf", "size": 3, "type": "application/pdf" }
+        ],
+        "b_sign": [{ "fileId": "f_sig", "name": "signature.png", "size": 300, "type": "image/png" }],
+        "b_contact": { "firstName": "Jo", "email": "jo@example.com" },
+        "b_addr": { "line1": "Main St 1", "city": "X", "state": 5, "postalCode": "1", "country": "NL" },
+        "b_phone_only": { "phone": "call me" }
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_rank", "b_grid", "b_multi_grid", "b_files", "b_sign", "b_contact", "b_addr", "b_phone_only"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_rank": { "code": "invalid" },
+          "b_grid": { "code": "too_many_choices", "part": "row_1" },
+          "b_multi_grid": { "code": "invalid_choice", "part": "m_2" },
+          "b_files": { "code": "too_many_files" },
+          "b_sign": { "code": "invalid" },
+          "b_contact": { "code": "required", "part": "lastName" },
+          "b_addr": { "code": "invalid", "part": "state" },
+          "b_phone_only": { "code": "invalid_phone", "part": "phone" }
+        },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a required matrix needs every row; empty composites are unanswered",
+      "answers": {
+        "b_rank": ["r_a", "r_b", "r_c"],
+        "b_grid": { "row_2": ["col_3"] },
+        "b_multi_grid": "col_1",
+        "b_files": [],
+        "b_sign": { "fileId": "", "name": "x", "size": 1, "type": "image/png" },
+        "b_contact": { "firstName": "Jo", "lastName": "Doe", "email": "jo(at)example.com" },
+        "b_addr": {},
+        "b_phone_only": { "phone": "" }
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_rank", "b_grid", "b_multi_grid", "b_files", "b_sign", "b_contact", "b_addr", "b_phone_only"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_grid": { "code": "required", "part": "row_1" },
+          "b_multi_grid": { "code": "invalid" },
+          "b_files": { "code": "required" },
+          "b_sign": { "code": "invalid" },
+          "b_contact": { "code": "invalid_email", "part": "email" }
+        },
+        "answers": { "b_rank": ["r_a", "r_b", "r_c"] },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "nothing answered; a ranking with a duplicate is invalid",
+      "answers": { "b_rank": ["r_a", "r_a", "r_b"] },
+      "expect": {
+        "ok": false,
+        "path": ["b_rank", "b_grid", "b_multi_grid", "b_files", "b_sign", "b_contact", "b_addr", "b_phone_only"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_rank": { "code": "invalid" },
+          "b_grid": { "code": "required" },
+          "b_files": { "code": "required" },
+          "b_contact": { "code": "required" }
+        },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ],
+  "display": [
+    { "name": "ranking", "fieldId": "b_rank", "value": ["r_c", "r_a", "r_b"], "expect": "1. Gamma, 2. Alpha, 3. Beta" },
+    { "name": "matrix rows in definition order", "fieldId": "b_grid", "value": { "row_2": ["col_1"], "row_1": ["col_3"] }, "expect": "Speed: Good; Price: Bad" },
+    { "name": "matrix with several columns", "fieldId": "b_multi_grid", "value": { "m_1": ["col_3", "col_1"] }, "expect": "Monday: Morning, Evening" },
+    {
+      "name": "files",
+      "fieldId": "b_files",
+      "value": [
+        { "fileId": "f_1", "name": "cv.pdf", "size": 1, "type": "application/pdf" },
+        { "fileId": "f_2", "name": "letter.docx", "size": 2, "type": "application/msword" }
+      ],
+      "expect": "cv.pdf, letter.docx"
+    },
+    { "name": "signature", "fieldId": "b_sign", "value": { "fileId": "f_s", "name": "signature.png", "size": 3, "type": "image/png" }, "expect": "signature.png" },
+    {
+      "name": "contact info",
+      "fieldId": "b_contact",
+      "value": { "firstName": "Jo", "lastName": "Doe", "email": "jo@example.com", "phone": "0612345678", "company": "Acme" },
+      "expect": "Jo Doe, jo@example.com, 0612345678, Acme"
+    },
+    { "name": "contact info without a first name", "fieldId": "b_contact", "value": { "lastName": "Doe", "company": "Acme" }, "expect": "Doe, Acme" },
+    {
+      "name": "address",
+      "fieldId": "b_addr",
+      "value": { "line1": "Main St 1", "city": "Utrecht", "postalCode": "3511 AA", "country": "NL" },
+      "expect": "Main St 1, Utrecht, 3511 AA, NL"
+    },
+    { "name": "unanswered", "fieldId": "b_addr", "value": {}, "expect": "" }
+  ],
+  "searchText": [
+    {
+      "name": "contact and address parts, lowercased; rankings and matrices left out",
+      "answers": {
+        "b_rank": ["r_a", "r_b", "r_c"],
+        "b_grid": { "row_1": ["col_1"] },
+        "b_contact": { "firstName": "Jo", "lastName": "DOE", "email": "Jo@Example.com" },
+        "b_addr": { "line1": "Main St 1", "city": "Utrecht", "postalCode": "3511 AA", "country": "NL" }
+      },
+      "expect": "jo doe jo@example.com main st 1 utrecht 3511 aa nl"
+    }
+  ]
+}

@@ -36,6 +36,7 @@ import { useFetchVoiceToken } from '@/hooks/queries';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 import { usePathname } from '@/lib/router';
+import { DeskCallDetails } from '@/components/welddesk/phone/desk-call-details';
 import {
   DIAL_PAD_DIGITS,
   MAX_PHONE_DIGITS,
@@ -55,6 +56,7 @@ function getStatusColor(status: CallStateValue['status'] | undefined): string {
   switch (status) {
     case 'dialing':
     case 'ringing':
+    case 'connecting':
       return 'text-yellow-500';
     case 'connected':
       return 'text-green-500';
@@ -333,6 +335,11 @@ function ActiveCallView({
       <p className={cn("text-sm mb-4", statusColor)}>
         {statusText}
       </p>
+
+      {/* Who an inbound WeldDesk call is */}
+      {callState.direction === 'inbound' && callState.inbound && (
+        <DeskCallDetails details={callState.inbound} answeredAt={callState.startedAt?.getTime() ?? Date.now()} />
+      )}
 
       {/* Recording indicator */}
       {callState.isRecording && isConnected && (
@@ -677,6 +684,8 @@ export function GlobalCallPanel() {
     initializeVoip,
     resetVoip,
     isVoipReady,
+    voipConnection,
+    voipCredential,
     initialDialerNumber,
     setInitialDialerNumber,
   } = useCall();
@@ -701,6 +710,8 @@ export function GlobalCallPanel() {
     enabled: isDialerOpen,
     voipConfigured,
     isVoipReady,
+    connection: voipConnection,
+    credential: voipCredential,
     initializeVoip,
     fetchVoiceToken,
     t,

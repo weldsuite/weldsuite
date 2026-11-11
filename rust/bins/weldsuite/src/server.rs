@@ -52,6 +52,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
     pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `PUBLIC_APP_URL`, for WeldSign's links back into the platform.
+    pub(crate) public_app_url: Option<Arc<str>>,
     /// `PROJECT_PORTAL_URL`, for WeldFlow's portal invitation and report emails.
     pub(crate) project_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
@@ -64,6 +66,8 @@ pub(crate) struct AppState {
     pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects here.
+    pub(crate) files_public_via_server: bool,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
     /// realtime tokens with it, and the gateway verifies them.
     pub(crate) widget_token_secret: Option<Arc<str>>,
@@ -75,6 +79,9 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// The sign-in screens' backend (`/api/sign-in`), with
+    /// `OIDC_SIGN_IN=platform`.
+    pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
@@ -151,12 +158,28 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::post(crate::conformance::desk_sla_sweep),
         )
         .route(
+            "/__conformance/cron/desk-report-sweep",
+            axum::routing::post(crate::conformance::desk_report_sweep),
+        )
+        .route(
             "/__conformance/cron/flow-approval-due",
             axum::routing::post(crate::conformance::flow_approval_due),
         )
         .route(
             "/__conformance/cron/books-tax-reminders",
             axum::routing::post(crate::conformance::books_tax_reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-process-response",
+            axum::routing::post(crate::conformance_forms::process_response),
+        )
+        .route(
+            "/__conformance/cron/forms-reminders",
+            axum::routing::post(crate::conformance_forms::reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-digest",
+            axum::routing::post(crate::conformance_forms::digest),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.
@@ -183,6 +206,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/config.json", get(config_json))
         .nest("/api", api)
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
+        .nest("/public/forms", crate::routes::forms_public(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
@@ -368,8 +392,8 @@ async fn health(State(state): State<AppState>) -> Response {
 
 /// `GET /config.json`: what this backend offers, for the EU and self-hosted
 /// frontends. `modules` is the core platform plus every module ported to Rust
-/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
-/// apps of any other module. Global never asks: it runs every module in
+/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`), WeldMeet only with a
+/// video service configured; a client hides the apps of any other module. Global never asks: it runs every module in
 /// TypeScript. With an OIDC provider, `auth` tells the frontends where to
 /// sign in (issuer, the platform's PKCE client id, the organization claim).
 /// `realtimeUrl` is the WebSocket gateway on the same origin
@@ -380,6 +404,7 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
             weldsuite_catalogs::api_modules()
                 .iter()
                 .filter(|module| module.rust && module.id != "core")
+                .filter(|module| state.edition.offers(&module.id))
                 .map(|module| module.id.as_str()),
         )
         .collect();
@@ -513,16 +538,19 @@ mod tests {
             )),
             sign_session_secret: None,
             sign_portal_url: None,
+            public_app_url: None,
             project_portal_url: None,
             sign_portal_secret: None,
             collab: None,
             collab_secret: None,
             mail_inbound_secret: None,
             files_public_url: None,
+            files_public_via_server: false,
             widget_token_secret: None,
             trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
+            sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
@@ -598,11 +626,19 @@ mod tests {
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["backend"], "rust");
         assert_eq!(body["modules"][0], "core");
+        // Every ported module but WeldMeet, which needs a video service this
+        // state hasn't configured.
         let ported = weldsuite_catalogs::api_modules()
             .iter()
-            .filter(|m| m.rust)
+            .filter(|m| m.rust && m.id != crate::edition::VIDEO_MODULE)
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
+        assert!(
+            !body["modules"]
+                .as_array()
+                .is_some_and(|modules| modules.contains(&json!("meet"))),
+            "no WeldMeet without video"
+        );
         for module in ["core", "know", "sign"] {
             assert!(
                 body["modules"]
@@ -646,6 +682,7 @@ mod tests {
                 provider: weldsuite_video_rooms::ClientProvider::LiveKit,
                 url: Some("wss://lk.example.eu".to_owned()),
             },
+            video_configured: true,
             live_editing: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
@@ -654,6 +691,12 @@ mod tests {
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
         assert_eq!(body["videoProvider"], "livekit");
         assert_eq!(body["videoUrl"], "wss://lk.example.eu");
+        assert!(
+            body["modules"]
+                .as_array()
+                .is_some_and(|modules| modules.contains(&json!("meet"))),
+            "WeldMeet is offered with a video service"
+        );
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

@@ -35,6 +35,9 @@
 //!   rules, applied when a conversation opens or its type or tags change.
 //! - [`escalation`] (`@weldsuite/db/lib/desk-escalation*`): a team's
 //!   escalation rules, when they come due and what firing one does.
+//! - [`report_schedule`] (`desk-api/src/services/desk-report-schedules.ts`,
+//!   `nextReportRun`): when a scheduled report email runs next, in its own
+//!   time zone.
 //! - [`sla`] (`@weldsuite/db/lib/desk-sla`): the SLA engine. Clocks per
 //!   conversation, derived from the timeline and the matching policy on
 //!   [`sla_calendar`]'s business time (`desk-sla-calendar`); every write
@@ -65,6 +68,7 @@ pub mod notify;
 pub mod phone;
 pub mod priority_matrix;
 pub mod realtime;
+pub mod report_schedule;
 pub mod routing;
 pub mod sla;
 pub mod sla_calendar;

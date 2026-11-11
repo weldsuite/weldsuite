@@ -26,19 +26,15 @@ import {
   type SheetDataFilter,
   type SheetDataObjectKey,
 } from '@weldsuite/app-api-client/schemas/sheet-data';
-import { DATA_SOURCES, visibilityConditions, type DataSource, type DataViewer } from './catalog';
+import { DATA_SOURCES, visibilityConditions, type DataSource, type DataViewer, type TableObjectKey } from './catalog';
+import { SheetDataPermissionError } from './errors';
+import { listFormResponses } from './form-responses';
 
 export type { DataViewer } from './catalog';
 
 export type DataCell = string | number | boolean | null;
 
-/** The viewer may not list this object at all (no read permission). */
-export class SheetDataPermissionError extends Error {
-  constructor(readonly permission: string) {
-    super(`Listing these records needs '${permission}'`);
-    this.name = 'SheetDataPermissionError';
-  }
-}
+export { SheetDataPermissionError } from './errors';
 
 const DAY_MS = 86_400_000;
 /** Days from the spreadsheet epoch (1899-12-30) to the Unix epoch (1970-01-01). */
@@ -65,11 +61,14 @@ export async function listRecords(
   viewer: DataViewer,
 ): Promise<DataCell[][]> {
   const object = SHEET_DATA_OBJECTS[objectType];
-  const source = DATA_SOURCES[objectType];
-  if (!object || !source) throw new Error(`Unknown object '${String(objectType)}'`);
+  if (!object) throw new Error(`Unknown object '${String(objectType)}'`);
   const problem = checkSheetDataDefinition(objectType, def);
   if (problem) throw new Error(problem);
   if (!(await viewer.hasPermission(object.permission))) throw new SheetDataPermissionError(object.permission);
+  // A form's responses have columns of their own per form: listed by forms-domain, not from a catalog table.
+  if (objectType === 'form_responses') return listFormResponses(db, def, viewer);
+  const source = DATA_SOURCES[objectType as TableObjectKey];
+  if (!source) throw new Error(`Unknown object '${String(objectType)}'`);
 
   const types = new Map(object.fields.map((field) => [field.key, field.type]));
   const typeOf = (key: string): SheetDataFieldType => types.get(key)!;

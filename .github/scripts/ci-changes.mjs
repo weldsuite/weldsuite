@@ -34,7 +34,7 @@
  * (INERT). On a push, a manual run, or without a usable base, every area is on.
  *
  * Usage:
- *   node .github/scripts/ci-changes.mjs --base origin/develop [--head HEAD]
+ *   node .github/scripts/ci-changes.mjs --base origin/main [--head HEAD]
  *   node .github/scripts/ci-changes.mjs --all
  * Prints the areas and why; writes `<area>=true|false` to GITHUB_OUTPUT and a
  * table to GITHUB_STEP_SUMMARY when those are set. Plain Node, no install.
@@ -116,6 +116,8 @@ const RUST_PATHS = [
   'rust/',
   'scripts/rust-',
   'packages/core/db/drizzle/',
+  // The WeldForms engine's fixtures are also run by rust/modules/forms (ADR FORMS-003).
+  'packages/core/forms-engine/',
   'apps/workers/docs-api/src/room/',
   'apps/workers/docs-api/src/engine-ops',
   'apps/workers/sheets-api/src/room/',

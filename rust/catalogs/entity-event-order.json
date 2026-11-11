@@ -89,6 +89,7 @@
   "helpdesk_feedback",
   "helpdesk_review",
   "helpdesk_analytics_report",
+  "helpdesk_report_schedule",
   "helpdesk_email",
   "helpcenter_settings",
   "mail_account",
@@ -199,6 +200,7 @@
   "legal_entity",
   "legal_entity_bank_account",
   "legal_entity_member",
+  "audit_log_stream",
   "connector_connection",
   "social_account",
   "social_approval",
@@ -275,5 +277,11 @@
   "merge_pull_request",
   "merge_release",
   "merge_record_link",
-  "merge_chat_subscription"
+  "merge_chat_subscription",
+  "form",
+  "form_response",
+  "form_folder",
+  "form_theme",
+  "form_integration",
+  "form_invitation"
 ]
