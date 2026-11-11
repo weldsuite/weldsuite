@@ -3,9 +3,9 @@
 Scripts that move the platform's `plans` catalog in step with the marketing site
 (weldsuite.org/pricing). Two rollouts so far, newest first.
 
-The EU edition has its own master database, which starts with no plans:
-`eu-free-plan.sql` adds Free (2 members) there and moves the workspaces made
-without a plan onto it. How to run it is in the file's header.
+The EU edition has its own master database: `eu-free-plan.sql` sets Free to
+2 members there (adding the row if it is missing) and moves the workspaces
+made without a plan onto it. How to run it is in the file's header.
 
 ## Current ladder (after `2026-09-free-plan.sql`)
 

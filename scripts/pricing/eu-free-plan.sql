@@ -5,10 +5,11 @@
 -- cluster `master`, namespace `postgres`). Wrapped in a transaction; review
 -- the verification output before it commits.
 --
--- Why: the EU master database started with an empty `plans` table, and
--- onboarding (`rust/modules/core-onboarding/src/onboard.rs`) puts a new
--- workspace on the plan with slug `free`, or on no plan when there is none.
--- A workspace with no plan has no member limit, so the invite dialog takes it
+-- Why: onboarding (`rust/modules/core-onboarding/src/onboard.rs`) puts a new
+-- workspace on the live plan with slug `free`, or on no plan when there is
+-- none; on 2026-11-11 three of the four EU workspaces had no plan. A
+-- workspace with no plan (or a Free row without `max_users`) has no member
+-- limit, so the invite dialog takes it
 -- for a paid plan and reads its prepaid seats instead: one, so "All 1 seat
 -- are in use" and nobody can be invited. Billing is off on the EU edition
 -- (edition flag `billing`), so no seats can be bought either.
@@ -22,25 +23,22 @@
 --
 -- Run it from a machine that reaches the cluster:
 --   POD=$(kubectl -n postgres get pod -l cnpg.io/cluster=master,cnpg.io/instanceRole=primary -o name)
---   kubectl -n postgres exec -i "$POD" -- psql -v ON_ERROR_STOP=1 -d weldsuite_master < scripts/pricing/eu-free-plan.sql
+--   kubectl -n postgres exec -i "$POD" -c postgres -- psql -v ON_ERROR_STOP=1 -d weldsuite_master < scripts/pricing/eu-free-plan.sql
 -- ============================================================================
 
 BEGIN;
 
--- 1) Free: 2 members, the plan new workspaces land on.
+-- 0) What is there now, for the record.
+SELECT slug, name, price_per_user, included_users, max_users, is_default, is_active, deleted_at
+  FROM plans ORDER BY sort_order;
+
+-- 1) Free: 2 members, the plan new workspaces land on. An existing row keeps
+--    its name, description and prices; only the seats change, and it is
+--    made live (onboarding skips a deleted row).
 UPDATE plans SET
-  name            = 'Free',
-  description     = 'For small teams getting started',
-  price_monthly   = 0,
-  price_yearly    = 0,
-  price_per_user  = 0,
   included_users  = 2,
   max_users       = 2,
   is_active       = true,
-  is_default      = true,
-  has_api_access  = false,
-  remove_branding = false,
-  sort_order      = 0,
   deleted_at      = NULL,
   updated_at      = now()
 WHERE slug = 'free';
