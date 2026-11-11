@@ -1758,20 +1758,6 @@
       "when": 1794258475882,
       "tag": "0250_desk_roadmap_3",
       "breakpoints": true
-    },
-    {
-      "idx": 251,
-      "version": "7",
-      "when": 1794342176429,
-      "tag": "0251_desk_roadmap_4",
-      "breakpoints": true
-    },
-    {
-      "idx": 252,
-      "version": "7",
-      "when": 1794342741823,
-      "tag": "0252_desk_roadmap_4_phone",
-      "breakpoints": true
     }
   ]
 }
