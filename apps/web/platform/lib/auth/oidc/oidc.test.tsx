@@ -368,6 +368,40 @@ describe('the facade on OIDC', () => {
     });
   });
 
+  it('reads the list again on request, after a workspace was created server-side', async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    let directory: WorkspaceDirectoryEntry[] = [{ id: 'org_acme', name: 'Acme', slug: 'acme' }];
+    const loadWorkspaces = vi.fn(async (_token: string) => directory);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(result.current.userMemberships.data?.[0]?.organization.name).toBe('Acme'));
+
+    directory = [...directory, { id: 'org_new', name: 'New Co', slug: 'new-co' }];
+    await act(async () => {
+      await result.current.userMemberships.revalidate?.();
+    });
+    expect(result.current.userMemberships.data?.map((m) => m.organization.name)).toEqual(['Acme', 'New Co']);
+    expect(loadWorkspaces).toHaveBeenCalledTimes(2);
+  });
+
+  it('switches to a workspace by its id while no slug is known', async () => {
+    const { auth } = await signedIn({ loadWorkspaces: async () => null });
+    stubLocation(`${ORIGIN}/w/org_acme/weldknow`);
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.list.userMemberships.isLoading).toBe(false));
+
+    void result.current.list.setActive?.({ organization: 'org_globex' });
+    await act(async () => {
+      expect((await answerRedirect(auth, 1)).next).toBe('/w/org_globex/');
+    });
+    // What the token says stays the name until WeldSuite's list answers: the
+    // person's own organization by name, any other by its domain.
+    expect(result.current.list.userMemberships.data?.map((m) => m.organization.name)).toEqual([
+      'Acme BV',
+      'globex.id.example.test',
+    ]);
+  });
+
   it('reads the API answer into directory entries', () => {
     expect(
       parseWorkspaceDirectory({
