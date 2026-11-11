@@ -64,6 +64,13 @@ resource "hcloud_rdns" "node_mail" {
       condition     = !contains(keys(var.mail_pools), each.key)
       error_message = "mail_pool_nodes: pool ${each.key} is in mail_pools too; put it in one of them."
     }
+    # The MTA's DaemonSet tolerates only the mail taint. Control-plane nodes
+    # are tainted while the cluster has general workers (talos.tf,
+    # allow_scheduling), so the pool would get its address but no MTA.
+    precondition {
+      condition     = !startswith(each.value, "cp-") || length(local.workers) == 0
+      error_message = "mail_pool_nodes: ${each.value} is a control-plane node, which is tainted while worker_count > 0, so the MTA can't run there; use a general worker (worker-N)."
+    }
   }
 }
 
