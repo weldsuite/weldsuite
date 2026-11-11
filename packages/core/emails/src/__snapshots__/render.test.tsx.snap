@@ -1054,6 +1054,416 @@ U ontvangt deze e-mail omdat u Customer Portal Relaunch volgt.
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'forms.code' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your code to open "Customer feedback": 482913
+
+Acme Staffing
+
+Your code to open the form
+
+Customer feedback
+
+Enter this code on the form:
+
+482913
+
+The code expires in 10 minutes.
+
+If you didn't ask for this code, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.code' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je code om "Customer feedback" te openen: 482913
+
+Acme Staffing
+
+Je code om het formulier te openen
+
+Customer feedback
+
+Vul deze code in op het formulier:
+
+482913
+
+De code verloopt over 10 minuten.
+
+Heb je deze code niet aangevraagd, dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.digest' / 'default' / 'en' > matches the text snapshot 1`] = `
+"14 new responses to "Customer feedback"
+
+Daily digest
+
+Customer feedback
+
+14 new responses came in since the last digest.
+
+Latest responses · 3
+
+ann@example.com · Pro — #14
+
+Anonymous · Free — #13
+
+bob@example.com · Pro — #12
+
+And 11 more.
+
+See all responses https://app.weldsuite.org/w/org_1/weldforms/frm_1/results?tab=responses
+
+You get this daily digest from Acme Staffing because you follow this form.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.digest' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"14 nieuwe reacties op "Customer feedback"
+
+Dagelijks overzicht
+
+Customer feedback
+
+Er kwamen 14 nieuwe reacties binnen sinds het vorige overzicht.
+
+Laatste reacties · 3
+
+ann@example.com · Pro — #14
+
+Anoniem · Free — #13
+
+bob@example.com · Pro — #12
+
+En nog 11 meer.
+
+Bekijk alle reacties https://app.weldsuite.org/w/org_1/weldforms/frm_1/results?tab=responses
+
+Je krijgt dit dagelijkse overzicht van Acme Staffing omdat je dit formulier volgt.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'plain' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing invited you to fill in "Pulse survey"
+
+Acme Staffing
+
+Acme Staffing invited you to fill in a form
+
+Pulse survey
+
+Open the form https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Or open this link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+This link is personal. Please do not forward it.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'plain' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing nodigt je uit om "Pulse survey" in te vullen
+
+Acme Staffing
+
+Acme Staffing nodigt je uit een formulier in te vullen
+
+Pulse survey
+
+Open het formulier https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Of open deze link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Deze link is persoonlijk. Stuur hem liever niet door.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'reminder' / 'en' > matches the text snapshot 1`] = `
+"Reminder: "Customer feedback 2027"
+
+Acme Staffing
+
+A reminder from Gert van den Berg: you have not answered yet
+
+Customer feedback 2027
+
+Open the form https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Or open this link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+This link is personal. Please do not forward it.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'reminder' / 'nl' > matches the text snapshot 1`] = `
+"Herinnering: "Customer feedback 2027"
+
+Acme Staffing
+
+Een herinnering van Gert van den Berg: je hebt nog niet gereageerd
+
+Customer feedback 2027
+
+Open het formulier https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Of open deze link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Deze link is persoonlijk. Stuur hem liever niet door.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'withMessage' / 'en' > matches the text snapshot 1`] = `
+"Gert van den Berg invited you to fill in "Customer feedback 2027"
+
+Acme Staffing
+
+Gert van den Berg invited you to fill in a form
+
+Customer feedback 2027
+
+A message from Gert van den Berg
+
+Hi Ann,
+Would you take two minutes to tell us how we did?
+
+Open the form https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Or open this link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+The form closes on Monday, November 23, 2026.
+
+This link is personal. Please do not forward it.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.invite' / 'withMessage' / 'nl' > matches the text snapshot 1`] = `
+"Gert van den Berg nodigt je uit om "Customer feedback 2027" in te vullen
+
+Acme Staffing
+
+Gert van den Berg nodigt je uit een formulier in te vullen
+
+Customer feedback 2027
+
+Een bericht van Gert van den Berg
+
+Hi Ann,
+Would you take two minutes to tell us how we did?
+
+Open het formulier https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Of open deze link: https://forms.weldsuite.org/i/abcdefghij.0123456789abcdef0123
+
+Het formulier sluit op maandag 23 november 2026.
+
+Deze link is persoonlijk. Stuur hem liever niet door.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.quota' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing reached its monthly form response limit
+
+WeldForms usage
+
+You have used all your monthly responses
+
+100 of 100 completed responses this month.
+
+Your forms show "not accepting responses right now" to new visitors. People already filling in a form can still send it.
+
+The count starts again on Tuesday, December 1, 2026.
+
+View plans https://app.weldsuite.org/settings/billing
+
+You get this because you are an admin of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.quota' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft de maandelijkse limiet voor formulierreacties bereikt
+
+WeldForms-gebruik
+
+Je hebt al je maandelijkse reacties gebruikt
+
+100 van 100 voltooide reacties deze maand.
+
+Je formulieren tonen nieuwe bezoekers "neemt nu geen reacties aan". Wie al bezig is met een formulier kan het nog wel versturen.
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk abonnementen https://app.weldsuite.org/settings/billing
+
+Je krijgt dit omdat je beheerder van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.quota' / 'near' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing has used 80% of its monthly form responses
+
+WeldForms usage
+
+You have used 80% of your monthly responses
+
+80 of 100 completed responses this month.
+
+Forms keep accepting responses until the limit is reached.
+
+The count starts again on Tuesday, December 1, 2026.
+
+View plans https://app.weldsuite.org/settings/billing
+
+You get this because you are an admin of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.quota' / 'near' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft 80% van de maandelijkse formulierreacties gebruikt
+
+WeldForms-gebruik
+
+Je hebt 80% van je maandelijkse reacties gebruikt
+
+80 van 100 voltooide reacties deze maand.
+
+Formulieren blijven reacties aannemen tot de limiet is bereikt.
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk abonnementen https://app.weldsuite.org/settings/billing
+
+Je krijgt dit omdat je beheerder van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.receipt' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your answers to "Customer feedback"
+
+Acme Staffing
+
+Thanks for your response
+
+Customer feedback
+
+Here is a copy of your answers.
+
+Your name: Ann de Vries
+
+Which plan?: Pro
+
+Anything else?: Great service.
+
+Response #42
+
+You get this copy because you verified this address on the form.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.receipt' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je antwoorden op "Customer feedback"
+
+Acme Staffing
+
+Bedankt voor je reactie
+
+Customer feedback
+
+Hier is een kopie van je antwoorden.
+
+Your name: Ann de Vries
+
+Which plan?: Pro
+
+Anything else?: Great service.
+
+Reactie #42
+
+Je krijgt deze kopie omdat je dit adres op het formulier hebt bevestigd.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.response' / 'linkOnly' / 'en' > matches the text snapshot 1`] = `
+"New response to "Employee survey"
+
+New response
+
+Employee survey
+
+This form has private fields, so the answers are not in this email. Open the response to read them.
+
+Open the response https://app.weldsuite.org/w/org_1/weldforms/frm_2/results?tab=responses
+
+You get this because you follow this form. Change it in the form's notification settings.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.response' / 'linkOnly' / 'nl' > matches the text snapshot 1`] = `
+"Nieuwe reactie op "Employee survey"
+
+Nieuwe reactie
+
+Employee survey
+
+Dit formulier heeft privévelden, dus de antwoorden staan niet in deze e-mail. Open de reactie om ze te lezen.
+
+Open de reactie https://app.weldsuite.org/w/org_1/weldforms/frm_2/results?tab=responses
+
+Je krijgt dit omdat je dit formulier volgt. Wijzig dat in de meldingsinstellingen van het formulier.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.response' / 'withAnswers' / 'en' > matches the text snapshot 1`] = `
+"New response to "Customer feedback"
+
+New response from ann@example.com
+
+Customer feedback
+
+Your name: Ann de Vries
+
+Which plan?: Pro
+
+Open the response https://app.weldsuite.org/w/org_1/weldforms/frm_1/results?tab=responses
+
+You get this because you follow this form. Change it in the form's notification settings.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'forms.response' / 'withAnswers' / 'nl' > matches the text snapshot 1`] = `
+"Nieuwe reactie op "Customer feedback"
+
+Nieuwe reactie van ann@example.com
+
+Customer feedback
+
+Your name: Ann de Vries
+
+Which plan?: Pro
+
+Open de reactie https://app.weldsuite.org/w/org_1/weldforms/frm_1/results?tab=responses
+
+Je krijgt dit omdat je dit formulier volgt. Wijzig dat in de meldingsinstellingen van het formulier.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'hr.bank-changed' / 'byHr' / 'en' > matches the text snapshot 1`] = `
 "Your bank details for payroll were changed
 

@@ -6,6 +6,12 @@
  * `desk_phone_call_legs` row per dialled leg. The legs carry a `client_state`
  * of `{ workspaceId, agentLegId, parentCallId }` (no `callId`), so the call's
  * own webhook dispatch never mistakes an agent leg for the call.
+ *
+ * A member has at most one ringing leg per call (the partial unique index
+ * `desk_phone_call_legs_ringing_uidx`): the leg's row is inserted first and
+ * the browser is dialled only when the insert went in, so two webhooks that
+ * start a round for one call at the same moment dial each member once. A leg
+ * only ever goes from `ringing` to `answered` or `ended`.
  */
 
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
@@ -204,22 +210,33 @@ export async function hangupBestEffort(env: TelnyxEnv, callControlId: string | n
   }
 }
 
+/** What dialling one member came to: their browser rings, a leg of theirs for this call rings already, or the dial failed. */
+export type RingLegResult = 'ringing' | 'already' | 'failed';
+
 async function ringLeg(
   ctx: PhoneCtx,
   call: VoipCallRow,
   agent: StaffedAgent,
   ringSeconds: number,
   incoming: PhoneIncomingEvent,
-): Promise<boolean> {
+): Promise<RingLegResult> {
   const { env, db, workspaceId } = ctx;
   const legId = generateId('dleg');
-  await db.insert(schema.deskPhoneCallLegs).values({ id: legId, callId: call.id, userId: agent.userId, status: 'ringing' });
+  const legs = schema.deskPhoneCallLegs;
+  // The insert is the guard: a leg of this member already ringing for the call
+  // refuses it, and then nothing is dialled and nobody is told.
+  const inserted = await db
+    .insert(legs)
+    .values({ id: legId, callId: call.id, userId: agent.userId, status: 'ringing' })
+    .onConflictDoNothing({ target: [legs.callId, legs.userId], where: sql`${legs.status} = 'ringing'` })
+    .returning({ id: legs.id });
+  if (inserted.length === 0) return 'already';
 
   const connectionId = env.TELNYX_CONNECTION_ID;
   if (!connectionId) {
     console.error('[desk-phone] TELNYX_CONNECTION_ID is not set, cannot ring agents');
     await endLeg(db, legId);
-    return false;
+    return 'failed';
   }
   try {
     const dialed = await telnyxDial(env, {
@@ -239,10 +256,10 @@ async function ringLeg(
   } catch (err) {
     console.error(`[desk-phone] dial of ${agent.userId} failed:`, err);
     await endLeg(db, legId);
-    return false;
+    return 'failed';
   }
   await sendPhoneInboxEvent(env, workspaceId, agent.userId, 'phone.incoming', { ...incoming });
-  return true;
+  return 'ringing';
 }
 
 export interface RingResult {
@@ -285,31 +302,30 @@ export async function ringAgents(
 
   const incoming = await incomingEvent(ctx, call);
   const results = await Promise.all(chosen.map((a) => ringLeg(ctx, call, a, input.ringSeconds, incoming)));
-  return { staffed: staffed.length, rung: results.filter(Boolean).length };
+  return { staffed: staffed.length, rung: results.filter((result) => result === 'ringing').length };
 }
 
-/** Ring one member for a call (queue pickup): no presence or busy filter, the member asked. */
+/**
+ * Ring one member for a call (queue pickup): no presence or busy filter, the
+ * member asked. `already` when a leg of theirs rings for the call, however
+ * close together they asked.
+ */
 export async function ringMember(
   ctx: PhoneCtx,
   call: VoipCallRow,
   agent: StaffedAgent,
   ringSeconds: number,
-): Promise<'ringing' | 'already' | 'failed'> {
-  const l = schema.deskPhoneCallLegs;
-  const [existing] = await ctx.db
-    .select({ id: l.id })
-    .from(l)
-    .where(and(eq(l.callId, call.id), eq(l.userId, agent.userId), eq(l.status, 'ringing')))
-    .limit(1);
-  if (existing) return 'already';
+): Promise<RingLegResult> {
   const incoming = await incomingEvent(ctx, call);
-  return (await ringLeg(ctx, call, agent, ringSeconds, incoming)) ? 'ringing' : 'failed';
+  return ringLeg(ctx, call, agent, ringSeconds, incoming);
 }
 
 /**
  * End every leg of the call that is still ringing (optionally all but one):
  * each is marked ended first, then hung up, so the leg's own `call.hangup`
- * finds it ended and starts nothing. Returns the members whose leg it was.
+ * finds it ended and starts nothing. Returns the members whose leg it was:
+ * they are free again, and it is the caller's job to offer them the next
+ * waiting caller (`ringWaitingCalls`) once its own call is dealt with.
  */
 export async function endRingingLegs(
   ctx: PhoneCtx,
@@ -346,8 +362,9 @@ export async function notifyPhoneEnded(
 }
 
 /**
- * An agent became free (finished a call, switched "take calls" on, or a
- * round for another call ended): ring a round for the oldest waiting call that
+ * An agent became free (finished a call, switched "take calls" on, or their
+ * browser stopped ringing for another call: it was answered by a colleague,
+ * abandoned, or went unanswered): ring a round for the oldest waiting call that
  * has no leg ringing. One call per trigger. A call whose newest leg ended less
  * than 10 s after it was dialled is skipped (instantly failing credentials must
  * not spin), and a call nobody can be rung for is left alone. Best-effort.

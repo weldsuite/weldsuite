@@ -2,13 +2,15 @@
  * Audit log streams: pushing a workspace's audit events to its SIEM (Splunk
  * HEC or any HTTPS collector that takes JSON).
  *
- * `audit-log-worker` calls `flushAuditLogStreams` after it has written a batch
- * of audit rows; app-api's `POST /api/audit-log-streams/:id/test` calls
- * `sendAuditLogStreamTest`. Delivery reads `audit_logs` forward from the
- * stream's cursor, so it is ordered and at-least-once: the cursor moves only
- * after a 2xx, a failed batch is sent again, and a destination that was down
- * catches up. Two flushes of one workspace at the same time can deliver a
- * batch twice (the cursor update is compare-and-swap, so it never goes back).
+ * `audit-log-worker` calls `flushAuditLogStreams` a few seconds after it has
+ * written a batch of audit rows (see the settle window below); app-api's
+ * `POST /api/audit-log-streams/:id/test` calls `sendAuditLogStreamTest`,
+ * which the window does not concern. Delivery reads `audit_logs` forward
+ * from the stream's cursor, so it is ordered and at-least-once: the cursor
+ * moves only after a 2xx, a failed batch is sent again, and a destination
+ * that was down catches up. Two flushes of one workspace at the same time can
+ * deliver a batch twice (the cursor update is compare-and-swap, so it never
+ * goes back).
  *
  * The cursor `(cursorCreatedAt, cursorId)` is a JS `Date`, which has
  * milliseconds, while `audit_logs.created_at` is a Postgres `timestamp` with
@@ -17,6 +19,18 @@
  * and ordered on `date_trunc('milliseconds', created_at)` and then `id`; an
  * index-friendly `created_at >= cursor` prefilter narrows the scan first.
  *
+ * A cursor over `created_at` is only safe over rows that can no longer gain
+ * an older neighbour. `created_at` is the database's `now()`, the time the
+ * insert's transaction started, not the time it committed, and the audit
+ * consumer writes from several invocations at once: a row can become visible
+ * after a later one (or, inside one millisecond, after one with a higher id)
+ * was already sent, and a cursor that had moved past it would never send it.
+ * So a flush reads only rows older than the settle window
+ * (`created_at < now - AUDIT_STREAM_SETTLE_MS`): by then every insert that
+ * took an earlier timestamp has committed. Younger rows wait for a later
+ * flush and the cursor never passes them, which is why the caller flushes a
+ * little after the window has passed rather than straight after its writes.
+ *
  * Nothing here throws into the caller, and the token never reaches a log, an
  * error excerpt or a result.
  *
@@ -24,7 +38,7 @@
  * the driver-agnostic `PgDatabase` (see sso.ts).
  */
 
-import { and, asc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { auditLogStreams, auditLogs } from '@weldsuite/db/schema';
 import type { AuditLog, AuditLogStream, AuditLogStreamSettings } from '@weldsuite/db/schema';
@@ -41,6 +55,12 @@ export const AUDIT_STREAM_MAX_REQUESTS_PER_FLUSH = 5;
 export const AUDIT_STREAM_REQUEST_TIMEOUT_MS = 10_000;
 /** Consecutive failed deliveries after which the platform switches a stream off. */
 export const AUDIT_STREAM_DISABLE_AFTER_FAILURES = 20;
+/**
+ * How old a row must be before a flush reads it. An insert takes its
+ * `created_at` when its transaction starts and shows up when it commits; past
+ * this window no row with an earlier `created_at` is still on its way.
+ */
+export const AUDIT_STREAM_SETTLE_MS = 5_000;
 
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS = 60 * 60_000;
@@ -286,6 +306,7 @@ export async function sendAuditLogStreamTest(
 // ============================================================================
 
 export interface FlushAuditLogStreamsOptions extends AuditStreamSendOptions {
+  /** The time of the flush: rows younger than `now - AUDIT_STREAM_SETTLE_MS` are left for a later one. */
   now?: Date;
   /** Used for events whose row carries no `metadata.workspaceId`. */
   workspaceId?: string | null;
@@ -312,8 +333,17 @@ function cursorOf(stream: AuditLogStream): Cursor {
   return { at: stream.cursorCreatedAt ?? stream.createdAt, id: stream.cursorId };
 }
 
-/** Rows strictly after the cursor in `(ms(created_at), id)` order, oldest first. */
-async function readBatch(db: AuditStreamsDb, cursor: Cursor): Promise<{ row: AuditStreamRow; ms: Date }[]> {
+/**
+ * Rows strictly after the cursor in `(ms(created_at), id)` order, oldest
+ * first, that are older than `settledBefore`. That bound is a `Date`, so it
+ * falls on a millisecond and never splits the rows of one: a millisecond is
+ * read whole or not at all.
+ */
+async function readBatch(
+  db: AuditStreamsDb,
+  cursor: Cursor,
+  settledBefore: Date,
+): Promise<{ row: AuditStreamRow; ms: Date }[]> {
   const at = cursor.at.toISOString();
   const after =
     cursor.id === null
@@ -335,7 +365,7 @@ async function readBatch(db: AuditStreamsDb, cursor: Cursor): Promise<{ row: Aud
       msText: MS_TEXT,
     })
     .from(auditLogs)
-    .where(and(gte(auditLogs.createdAt, cursor.at), after))
+    .where(and(gte(auditLogs.createdAt, cursor.at), lt(auditLogs.createdAt, settledBefore), after))
     .orderBy(asc(MS), asc(auditLogs.id))
     .limit(AUDIT_STREAM_BATCH_SIZE);
   return rows.map(({ msText, ...row }) => ({ row, ms: new Date(`${msText}Z`) }));
@@ -350,6 +380,32 @@ function sameCursor(cursor: Cursor, stream: AuditLogStream) {
   return and(eq(auditLogStreams.id, stream.id), atMatches, idMatches);
 }
 
+/** Whether a stream that failed is still waiting out its backoff. */
+function inBackoff(stream: AuditLogStream, now: Date): boolean {
+  if (stream.consecutiveFailures <= 0 || !stream.lastAttemptAt) return false;
+  return now.getTime() - stream.lastAttemptAt.getTime() < auditStreamBackoffMs(stream.consecutiveFailures);
+}
+
+/** Record a failed delivery; a stream that failed too often in a row is switched off. */
+async function recordFailure(
+  db: AuditStreamsDb,
+  streamId: string,
+  failures: number,
+  error: string | null,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(auditLogStreams)
+    .set({
+      lastAttemptAt: now,
+      lastError: error,
+      consecutiveFailures: failures,
+      ...(failures >= AUDIT_STREAM_DISABLE_AFTER_FAILURES ? { status: 'disabled' as const } : {}),
+      updatedAt: now,
+    })
+    .where(eq(auditLogStreams.id, streamId));
+}
+
 async function flushStream(
   db: AuditStreamsDb,
   stream: AuditLogStream,
@@ -358,20 +414,15 @@ async function flushStream(
 ): Promise<FlushStreamResult> {
   const result: FlushStreamResult = { streamId: stream.id, outcome: 'idle', delivered: 0, error: null };
 
-  if (
-    stream.consecutiveFailures > 0 &&
-    stream.lastAttemptAt &&
-    now.getTime() - stream.lastAttemptAt.getTime() < auditStreamBackoffMs(stream.consecutiveFailures)
-  ) {
-    return { ...result, outcome: 'backoff' };
-  }
+  if (inBackoff(stream, now)) return { ...result, outcome: 'backoff' };
 
   const token = await openToken(stream.tokenEncrypted, options.keyring);
+  const settledBefore = new Date(now.getTime() - AUDIT_STREAM_SETTLE_MS);
   let cursor = cursorOf(stream);
   let current = stream;
 
   for (let request = 0; request < AUDIT_STREAM_MAX_REQUESTS_PER_FLUSH; request++) {
-    const batch = await readBatch(db, cursor);
+    const batch = await readBatch(db, cursor, settledBefore);
     if (batch.length === 0) break;
 
     const events = batch.map(({ row }) => buildAuditStreamEvent(row, options.workspaceId));
@@ -380,17 +431,7 @@ async function flushStream(
       : ({ ok: false, status: null, error: token.error, durationMs: 0 } satisfies AuditStreamSendResult);
 
     if (!sent.ok) {
-      const failures = current.consecutiveFailures + 1;
-      await db
-        .update(auditLogStreams)
-        .set({
-          lastAttemptAt: now,
-          lastError: sent.error,
-          consecutiveFailures: failures,
-          ...(failures >= AUDIT_STREAM_DISABLE_AFTER_FAILURES ? { status: 'disabled' as const } : {}),
-          updatedAt: now,
-        })
-        .where(eq(auditLogStreams.id, stream.id));
+      await recordFailure(db, stream.id, current.consecutiveFailures + 1, sent.error, now);
       return { ...result, outcome: 'failed', error: sent.error };
     }
 
@@ -422,9 +463,29 @@ async function flushStream(
 }
 
 /**
- * Deliver what is new in `audit_logs` to every active stream of the workspace
- * behind `db`. A failure of one stream never touches another; nothing throws.
- * Cheap when the workspace has no streams: one small query.
+ * Whether the workspace behind `db` has a stream to deliver to: one small
+ * query, so a caller can skip the wait for the settle window when there is
+ * none. Never throws; a failed query reads as "none" (the streams keep their
+ * cursor and catch up on a later flush).
+ */
+export async function hasActiveAuditLogStreams(db: AuditStreamsDb): Promise<boolean> {
+  try {
+    const rows = await db
+      .select({ id: auditLogStreams.id })
+      .from(auditLogStreams)
+      .where(eq(auditLogStreams.status, 'active'))
+      .limit(1);
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Deliver what has settled in `audit_logs` (rows older than
+ * `AUDIT_STREAM_SETTLE_MS`) to every active stream of the workspace behind
+ * `db`. A failure of one stream never touches another; nothing throws. Cheap
+ * when the workspace has no streams: one small query.
  */
 export async function flushAuditLogStreams(
   db: AuditStreamsDb,

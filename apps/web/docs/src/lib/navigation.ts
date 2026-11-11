@@ -129,6 +129,21 @@ export const navigation = [
     links: [{ title: 'Overview', href: '/welddrive' }],
   },
   {
+    title: 'WeldForms',
+    links: [
+      { title: 'Overview', href: '/weldforms' },
+      { title: 'Create a form', href: '/weldforms/create-a-form' },
+      { title: 'Logic and quizzes', href: '/weldforms/logic-and-quizzes' },
+      { title: 'Design and themes', href: '/weldforms/design-and-themes' },
+      { title: 'Share a form', href: '/weldforms/share-a-form' },
+      { title: 'Who can respond', href: '/weldforms/respondents' },
+      { title: 'Read the results', href: '/weldforms/results' },
+      { title: 'Integrations', href: '/weldforms/integrations' },
+      { title: 'Limits and quota', href: '/weldforms/limits-and-quota' },
+      { title: 'Privacy and safety', href: '/weldforms/privacy-and-safety' },
+    ],
+  },
+  {
     title: 'WeldKnow',
     links: [{ title: 'Overview', href: '/weldknow' }],
   },

@@ -21,6 +21,7 @@ import { Route as AdminPlanPricingRouteImport } from './routes/_admin/plan-prici
 import { Route as AdminStaffRouteImport } from './routes/_admin/staff'
 import { Route as AdminSupportRouteImport } from './routes/_admin/support'
 import { Route as AdminWarmupRouteImport } from './routes/_admin/warmup'
+import { Route as AdminWeldformsRouteImport } from './routes/_admin/weldforms'
 import { Route as AdminWeldmeetAiPricingRouteImport } from './routes/_admin/weldmeet-ai-pricing'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
@@ -102,6 +103,11 @@ const AdminSupportRoute = AdminSupportRouteImport.update({
 const AdminWarmupRoute = AdminWarmupRouteImport.update({
   id: '/warmup',
   path: '/warmup',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminWeldformsRoute = AdminWeldformsRouteImport.update({
+  id: '/weldforms',
+  path: '/weldforms',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminWeldmeetAiPricingRoute = AdminWeldmeetAiPricingRouteImport.update({
@@ -234,6 +240,7 @@ export interface FileRoutesByFullPath {
   '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
+  '/weldforms': typeof AdminWeldformsRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -269,6 +276,7 @@ export interface FileRoutesByTo {
   '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
+  '/weldforms': typeof AdminWeldformsRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -307,6 +315,7 @@ export interface FileRoutesById {
   '/_admin/staff': typeof AdminStaffRoute
   '/_admin/support': typeof AdminSupportRoute
   '/_admin/warmup': typeof AdminWarmupRoute
+  '/_admin/weldforms': typeof AdminWeldformsRoute
   '/_admin/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
@@ -346,6 +355,7 @@ export interface FileRouteTypes {
     | '/staff'
     | '/support'
     | '/warmup'
+    | '/weldforms'
     | '/weldmeet-ai-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/staff'
     | '/support'
     | '/warmup'
+    | '/weldforms'
     | '/weldmeet-ai-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/_admin/staff'
     | '/_admin/support'
     | '/_admin/warmup'
+    | '/_admin/weldforms'
     | '/_admin/weldmeet-ai-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
@@ -537,6 +549,13 @@ declare module '@tanstack/react-router' {
       path: '/warmup'
       fullPath: '/warmup'
       preLoaderRoute: typeof AdminWarmupRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/_admin/weldforms': {
+      id: '/_admin/weldforms'
+      path: '/weldforms'
+      fullPath: '/weldforms'
+      preLoaderRoute: typeof AdminWeldformsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/_admin/weldmeet-ai-pricing': {
@@ -713,6 +732,7 @@ interface AdminRouteChildren {
   AdminStaffRoute: typeof AdminStaffRoute
   AdminSupportRoute: typeof AdminSupportRoute
   AdminWarmupRoute: typeof AdminWarmupRoute
+  AdminWeldformsRoute: typeof AdminWeldformsRoute
   AdminWeldmeetAiPricingRoute: typeof AdminWeldmeetAiPricingRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAccessRequestsIdRoute: typeof AdminAccessRequestsIdRoute
@@ -745,6 +765,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminStaffRoute: AdminStaffRoute,
   AdminSupportRoute: AdminSupportRoute,
   AdminWarmupRoute: AdminWarmupRoute,
+  AdminWeldformsRoute: AdminWeldformsRoute,
   AdminWeldmeetAiPricingRoute: AdminWeldmeetAiPricingRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminAccessRequestsIdRoute: AdminAccessRequestsIdRoute,

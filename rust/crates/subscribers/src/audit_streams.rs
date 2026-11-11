@@ -2,14 +2,15 @@
 //! HEC or any HTTPS collector that takes JSON),
 //! `packages/domains/core/src/audit-streams.ts`.
 //!
-//! [`crate::AuditSubscriber`] calls [`flush_audit_log_streams`] after it has
-//! written a batch of audit rows; `POST /api/audit-log-streams/:id/test`
-//! calls [`AuditStreamSender::send_test`]. Delivery reads `audit_logs`
-//! forward from the stream's cursor, so it is ordered and at-least-once: the
-//! cursor moves only after a 2xx, a failed batch is sent again, and a
-//! destination that was down catches up. Two flushes of one workspace at the
-//! same time can deliver a batch twice (the cursor update is
-//! compare-and-swap, so it never goes back).
+//! [`crate::AuditSubscriber`] calls [`flush_audit_log_streams`] a few seconds
+//! after it has written a batch of audit rows (see the settle window below);
+//! `POST /api/audit-log-streams/:id/test` calls
+//! [`AuditStreamSender::send_test`], which the window does not concern.
+//! Delivery reads `audit_logs` forward from the stream's cursor, so it is
+//! ordered and at-least-once: the cursor moves only after a 2xx, a failed
+//! batch is sent again, and a destination that was down catches up. Two
+//! flushes of one workspace at the same time can deliver a batch twice (the
+//! cursor update is compare-and-swap, so it never goes back).
 //!
 //! The cursor `(cursor_created_at, cursor_id)` has milliseconds, as the
 //! JavaScript `Date` that writes it on Global, while `audit_logs.created_at`
@@ -18,6 +19,18 @@
 //! compared and ordered on `date_trunc('milliseconds', created_at)` and then
 //! `id`; an index-friendly `created_at >= cursor` prefilter narrows the scan
 //! first.
+//!
+//! A cursor over `created_at` is only safe over rows that can no longer gain
+//! an older neighbour. `created_at` is the database's `now()`, the time the
+//! insert's transaction started, not the time it committed, and the audit
+//! consumer writes from several workers at once: a row can become visible
+//! after a later one (or, inside one millisecond, after one with a higher
+//! id) was already sent, and a cursor that had moved past it would never
+//! send it. So a flush reads only rows older than the settle window
+//! (`created_at < now - AUDIT_STREAM_SETTLE`): by then every insert that took
+//! an earlier timestamp has committed. Younger rows wait for a later flush
+//! and the cursor never passes them, which is why the subscriber flushes a
+//! little after the window has passed rather than straight after its writes.
 //!
 //! The wire formats are the worker's byte for byte: an event is
 //! `JSON.stringify` of `{ id, timestamp, workspaceId, action, entityType,
@@ -55,6 +68,11 @@ pub const AUDIT_STREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Consecutive failed deliveries after which the platform switches a stream
 /// off.
 pub const AUDIT_STREAM_DISABLE_AFTER_FAILURES: i32 = 20;
+/// How old a row must be before a flush reads it
+/// (`AUDIT_STREAM_SETTLE_MS`). An insert takes its `created_at` when its
+/// transaction starts and shows up when it commits; past this window no row
+/// with an earlier `created_at` is still on its way.
+pub const AUDIT_STREAM_SETTLE: Duration = Duration::from_secs(5);
 
 const BACKOFF_BASE_MS: i64 = 60_000;
 const BACKOFF_MAX_MS: i64 = 60 * 60_000;
@@ -689,6 +707,9 @@ pub struct FlushOptions<'a> {
     pub keyring: &'a Keyring,
     /// Used for events whose row carries no `metadata.workspaceId`.
     pub workspace_id: Option<&'a str>,
+    /// The time of the flush, read to the millisecond as the worker's
+    /// `Date`: rows younger than `now - AUDIT_STREAM_SETTLE` are left for a
+    /// later one.
     pub now: OffsetDateTime,
 }
 
@@ -776,7 +797,11 @@ const ACTIVE_STREAMS: &str = concat!(
 );
 
 /// Rows strictly after the cursor (`$1` its instant, `$2` its id or null) in
-/// `(ms(created_at), id)` order, oldest first (`readBatch`).
+/// `(ms(created_at), id)` order, oldest first, that are older than the
+/// settle window (`$4` the time of the flush, `$5` the window in
+/// milliseconds) (`readBatch`). `$4` is cut to the millisecond, so the bound
+/// never splits the rows of one: a millisecond is read whole or not at all,
+/// and the cursor cannot stop between two rows it orders by id.
 const READ_BATCH: &str = concat!(
     "select a.id, ",
     iso_millis!("a.created_at"),
@@ -788,6 +813,8 @@ const READ_BATCH: &str = concat!(
           then nullif(a.metadata->>'source', '') end \
      from audit_logs a \
      where a.created_at >= $1::timestamp \
+       and a.created_at < date_trunc('milliseconds', $4::timestamp) \
+                          - $5::bigint * interval '1 millisecond' \
        and case when $2::text is null \
                 then date_trunc('milliseconds', a.created_at) > $1::timestamp \
                 else (date_trunc('milliseconds', a.created_at), a.id) > ($1::timestamp, $2::text) \
@@ -824,20 +851,26 @@ const MOVE_CURSOR: &str = "update audit_log_streams set \
        and case when $8::text is null then cursor_id is null else cursor_id = $8::text end \
      returning id";
 
+const HAS_ACTIVE_STREAM: &str = "select id from audit_log_streams where status = 'active' limit 1";
+
 const RECORD_FAILURE: &str = "update audit_log_streams set \
        last_attempt_at = $2::timestamp, last_error = $3, consecutive_failures = $4, \
        status = case when $5 then 'disabled' else status end, updated_at = $2::timestamp \
      where id = $1";
 
+/// `readBatch(db, cursor, settledBefore)`; `now` is the time of the flush.
 async fn read_batch(
     db: &PgPool,
     at: &str,
     id: Option<&str>,
+    now: &str,
 ) -> Result<Vec<AuditStreamRow>, sqlx::Error> {
     let rows: Vec<AuditRow> = sqlx::query_as(READ_BATCH)
         .bind(at)
         .bind(id)
         .bind(i64::try_from(AUDIT_STREAM_BATCH_SIZE).unwrap_or(i64::MAX))
+        .bind(now)
+        .bind(i64::try_from(AUDIT_STREAM_SETTLE.as_millis()).unwrap_or(i64::MAX))
         .fetch_all(db)
         .await?;
     Ok(rows
@@ -897,7 +930,7 @@ async fn flush_stream(
     let mut consecutive_failures = stream.consecutive_failures;
 
     for _ in 0..AUDIT_STREAM_MAX_REQUESTS_PER_FLUSH {
-        let batch = read_batch(db, &cursor_at, cursor_id.as_deref()).await?;
+        let batch = read_batch(db, &cursor_at, cursor_id.as_deref(), &now).await?;
         let Some(last) = batch.last() else {
             break;
         };
@@ -956,10 +989,22 @@ async fn flush_stream(
     Ok(result)
 }
 
-/// `flushAuditLogStreams(db, options)`: deliver what is new in `audit_logs`
-/// to every active stream of the workspace behind `db`. A failure of one
-/// stream never touches another; nothing fails into the caller. Cheap when
-/// the workspace has no streams: one small query.
+/// `hasActiveAuditLogStreams(db)`: whether the workspace behind `db` has a
+/// stream to deliver to. One small query, so a caller can skip the wait for
+/// the settle window when there is none. A failed query reads as "none" (the
+/// streams keep their cursor and catch up on a later flush).
+pub async fn has_active_audit_log_streams(db: &PgPool) -> bool {
+    sqlx::query_scalar::<_, String>(HAS_ACTIVE_STREAM)
+        .fetch_optional(db)
+        .await
+        .is_ok_and(|found| found.is_some())
+}
+
+/// `flushAuditLogStreams(db, options)`: deliver what has settled in
+/// `audit_logs` (rows older than [`AUDIT_STREAM_SETTLE`]) to every active
+/// stream of the workspace behind `db`. A failure of one stream never
+/// touches another; nothing fails into the caller. Cheap when the workspace
+/// has no streams: one small query.
 pub async fn flush_audit_log_streams(
     db: &PgPool,
     sender: &AuditStreamSender,

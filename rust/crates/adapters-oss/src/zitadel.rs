@@ -45,6 +45,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+use crate::zitadel_api::{ApiFailure, ZitadelApi, millis, safe_path, str_field};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use reqwest::Method;
@@ -103,7 +104,7 @@ impl std::fmt::Debug for ZitadelOptions {
 /// The `Identity` port on Zitadel.
 pub struct ZitadelIdentity {
     options: ZitadelOptions,
-    client: reqwest::Client,
+    api: ZitadelApi,
     /// Organization → its grant of the project (`None`: it owns the project).
     project_grants: Mutex<HashMap<String, Option<String>>>,
     /// The organization that owns the project (where project grants are made).
@@ -142,16 +143,18 @@ struct UserInfo {
 
 impl ZitadelIdentity {
     pub fn new(options: ZitadelOptions) -> Result<Self, IdentityError> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+        let api = ZitadelApi::new(
+            &options.api_url,
+            options.token.clone(),
+            options.host.clone(),
+        )
+        .map_err(IdentityError::Unavailable)?;
         Ok(Self {
             options: ZitadelOptions {
                 api_url: options.api_url.trim_end_matches('/').to_owned(),
                 ..options
             },
-            client,
+            api,
             project_grants: Mutex::new(HashMap::new()),
             project_owner: Mutex::new(None),
         })
@@ -164,69 +167,30 @@ impl ZitadelIdentity {
         org: Option<&str>,
         body: Option<Value>,
     ) -> IdentityResult<Value> {
-        // Ids from callers land in the path, and the request carries the
-        // instance token: a `..` or an encoded `/` would reach another
-        // endpoint. Every segment is a plain id, key or name.
+        // Ids from callers land in the path: a path that is not made of
+        // plain segments names nothing (`ZitadelApi::call` refuses it too).
         if !safe_path(path) {
             return Err(not_found());
         }
-        let mut request = self
-            .client
-            .request(method, format!("{}{path}", self.options.api_url))
-            .bearer_auth(&self.options.token)
-            .header("accept", "application/json");
-        if let Some(org) = org {
-            request = request.header("x-zitadel-orgid", org);
+        match self.api.call(method, path, &[], org, body).await {
+            Ok(body) => Ok(body),
+            Err(ApiFailure::Unreachable(reason)) => Err(IdentityError::Unavailable(reason)),
+            Err(ApiFailure::Refused(refusal)) => {
+                // An organization header naming no organization is refused
+                // as permission denied; it is a missing organization.
+                let status = if refusal.code.as_deref() == Some("AUTH-Bs7Ds") {
+                    404
+                } else {
+                    refusal.status
+                };
+                Err(IdentityError::Rejected {
+                    status,
+                    code: refusal.code,
+                    message: refusal.message,
+                    body: Some(refusal.raw),
+                })
+            }
         }
-        if let Some(host) = &self.options.host {
-            request = request.header("host", host);
-        }
-        if let Some(body) = body {
-            request = request
-                .header("content-type", "application/json")
-                .body(body.to_string());
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| IdentityError::Unavailable(error.without_url().to_string()))?;
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
-        let raw = text.clone();
-        let body: Value = if text.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_str(&text).unwrap_or(Value::String(text))
-        };
-        if status < 400 {
-            return Ok(body);
-        }
-        let code = body
-            .get("details")
-            .and_then(Value::as_array)
-            .and_then(|details| details.first())
-            .and_then(|detail| detail.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        // An organization header naming no organization is refused as
-        // permission denied; it is a missing organization.
-        let status = if code.as_deref() == Some("AUTH-Bs7Ds") {
-            404
-        } else {
-            status
-        };
-        Err(IdentityError::Rejected {
-            status,
-            code,
-            message: body
-                .get("message")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            body: Some(raw),
-        })
     }
 
     /// The organization's grant of the project, or `None` when it owns the
@@ -1330,38 +1294,11 @@ fn is_id(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
 
-/// `/a/b.c/d`: segments of `[0-9A-Za-z_.-]`, none empty, `.` or `..`, so
-/// nothing in the path can be decoded or resolved into another endpoint.
-fn safe_path(path: &str) -> bool {
-    path.strip_prefix('/').is_some_and(|rest| {
-        rest.split('/').all(|segment| {
-            !matches!(segment, "" | "." | "..")
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
-        })
-    })
-}
-
 fn results(value: &Value) -> &[Value] {
     value
         .get("result")
         .and_then(Value::as_array)
         .map_or(&[][..], Vec::as_slice)
-}
-
-fn str_field<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
-    value
-        .get(name)
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-}
-
-/// An RFC 3339 time as milliseconds since the epoch.
-fn millis(time: &str) -> Option<i64> {
-    time.parse::<jiff::Timestamp>()
-        .ok()
-        .map(jiff::Timestamp::as_millisecond)
 }
 
 fn grant_from(grant: &Value) -> Grant {

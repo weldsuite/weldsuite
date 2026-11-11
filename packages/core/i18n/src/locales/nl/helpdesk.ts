@@ -14,6 +14,12 @@ export const helpdesk = {
         decline: 'Weigeren',
         micBlocked: 'Je microfoon is geblokkeerd. Sta de microfoon toe in je browserinstellingen om dit gesprek aan te nemen.',
         acceptFailed: 'Het gesprek kon niet worden aangenomen.',
+        errors: {
+          notRinging: 'Het gesprek gaat niet meer over.',
+          microphoneDenied: 'Toegang tot de microfoon is geweigerd. Sta de microfoon toe in je browserinstellingen en probeer het opnieuw.',
+          microphoneUnavailable: 'Er is geen microfoon beschikbaar, of een andere app gebruikt hem.',
+          answerFailed: 'Het gesprek kon niet worden aangenomen.',
+        },
         endedAnsweredElsewhere: 'Aangenomen door een collega',
         endedCallerHungUp: 'De beller heeft opgehangen',
         endedTimeout: 'Het gesprek is niet op tijd aangenomen',

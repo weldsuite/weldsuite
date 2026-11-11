@@ -9,9 +9,11 @@
  *
  * The collector token is write-only: stored field-encrypted with the tenant
  * keyring (`token_encrypted`), never returned, never put in an entity event or
- * a log. Rows carry `hasToken` instead. Delivery itself runs in
- * audit-log-worker (`@weldsuite/core-domain/audit-streams`); this route only
- * manages the streams and sends the test event.
+ * a log. Rows carry `hasToken` instead. Entity events carry less still
+ * (`toEventData`): the audit log they end up in is open to `general:read`.
+ * Delivery itself runs in audit-log-worker
+ * (`@weldsuite/core-domain/audit-streams`); this route only manages the
+ * streams and sends the test event.
  */
 
 import { Hono } from 'hono';
@@ -62,7 +64,23 @@ export function toView(row: StreamRow): AuditLogStreamView {
   };
 }
 
-const asData = (view: AuditLogStreamView) => view as unknown as Record<string, unknown>;
+/**
+ * What an entity event carries about a stream, on create, update and delete
+ * alike: which stream, and nothing a member may not read. The audit log stores
+ * event data and `GET /api/audit-logs` shows it to everyone with
+ * `general:read`, while these routes need `general:update`: no `url` (it can
+ * carry a secret), no `settings`, no `lastError` (it can quote what the
+ * destination answered), no cursor and no counters.
+ */
+export function toEventData(row: StreamRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    status: row.status,
+    hasToken: row.tokenEncrypted !== null,
+  };
+}
 
 // The list needs the write permission too: a collector URL can carry a secret in its path or query.
 app.get('/', requirePermission('general:update'), async (c) => {
@@ -102,7 +120,7 @@ app.post('/', requirePermission('general:update'), zValidator('json', createAudi
     .returning();
 
   const view = toView(row);
-  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'created', entityId: view.id, data: asData(view) });
+  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'created', entityId: view.id, data: toEventData(row) });
   return success(c, view, 201);
 });
 
@@ -136,7 +154,7 @@ app.patch('/:id', requirePermission('general:update'), zValidator('json', update
 
   const [row] = await db.update(t).set(update).where(eq(t.id, id)).returning();
   const view = toView(row);
-  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'updated', entityId: id, data: asData(view) });
+  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'updated', entityId: id, data: toEventData(row) });
   return success(c, view);
 });
 
@@ -148,7 +166,7 @@ app.delete('/:id', requirePermission('general:update'), async (c) => {
   if (!existing) return error.notFound(c, 'Audit log stream', id);
 
   await db.delete(t).where(eq(t.id, id));
-  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'deleted', entityId: id, data: asData(toView(existing)) });
+  publishEntityEvent({ c, entityType: 'audit_log_stream', action: 'deleted', entityId: id, data: toEventData(existing) });
   return noContent(c);
 });
 

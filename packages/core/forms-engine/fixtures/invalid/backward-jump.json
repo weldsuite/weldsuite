@@ -1,0 +1,94 @@
+{
+  "name": "Jumps back, to the same block and to a page break",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_p",
+        "ref": "page",
+        "type": "page_break"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      },
+      {
+        "id": "b_3",
+        "ref": "third",
+        "type": "short_text",
+        "title": "third"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_2",
+        "jumps": [
+          {
+            "id": "j_back",
+            "when": {
+              "op": "and",
+              "conditions": [
+                {
+                  "left": {
+                    "type": "field",
+                    "id": "b_2"
+                  },
+                  "operator": "is_answered"
+                }
+              ]
+            },
+            "to": {
+              "type": "block",
+              "id": "b_1"
+            }
+          },
+          {
+            "id": "j_self",
+            "when": {
+              "op": "and",
+              "conditions": [
+                {
+                  "left": {
+                    "type": "field",
+                    "id": "b_2"
+                  },
+                  "operator": "is_answered"
+                }
+              ]
+            },
+            "to": {
+              "type": "block",
+              "id": "b_2"
+            }
+          }
+        ]
+      },
+      {
+        "blockId": "b_1",
+        "otherwise": {
+          "type": "block",
+          "id": "b_p"
+        }
+      }
+    ]
+  },
+  "expectIssues": [
+    "backward_jump",
+    "backward_jump",
+    "backward_jump"
+  ]
+}

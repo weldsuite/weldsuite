@@ -152,7 +152,7 @@ describe('POST /softphone/token', () => {
     const mark = telnyx.calls.length;
     const res = await send('POST', '/token', undefined, { configured: false });
     expect(await res.json()).toEqual({ data: { token: null, configured: false, sipUsername: null } });
-    expect(telnyx.calls.length).toBe(mark);
+    expect(telnyx.calls).toHaveLength(mark);
   });
 
   it('answers 500 when Telnyx refuses the credential', async () => {

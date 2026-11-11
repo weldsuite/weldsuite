@@ -208,6 +208,9 @@ pub struct IngestApi {
     pub name: Option<String>,
     pub email: Option<String>,
     pub contact_id: Option<String>,
+    /// Files the first message carries (WeldForms uploads), already stored
+    /// where the inbox can open them (`attachments`).
+    pub attachments: Option<Vec<Value>>,
     pub metadata: Map<String, Value>,
 }
 
@@ -342,7 +345,7 @@ async fn create_api_conversation(
             author_type: "visitor",
             author_id: visitor_id,
             body: Some(input.body.clone()),
-            attachments: None,
+            attachments: input.attachments.clone(),
             metadata: Some(metadata),
             assignee_id: None,
         },
@@ -368,7 +371,7 @@ async fn add_to(
             author_type: "visitor",
             author_id: visitor_id,
             body: Some(input.body.clone()),
-            attachments: None,
+            attachments: input.attachments.clone(),
             metadata: Some(metadata),
             assignee_id: None,
         },

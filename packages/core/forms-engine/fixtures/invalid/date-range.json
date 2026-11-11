@@ -1,0 +1,27 @@
+{
+  "name": "An earliest date after the latest",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_d",
+        "ref": "day",
+        "type": "date",
+        "title": "Day",
+        "properties": {
+          "min": "2024-12-31",
+          "max": "2024-01-01"
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ]
+  },
+  "expectIssues": [
+    "date_range"
+  ]
+}

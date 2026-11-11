@@ -12,6 +12,7 @@
     "lint": "turbo lint",
     "lint:sonar": "eslint -c eslint.sonar.config.mjs",
     "lint:sonar:new": "node scripts/lint-sonar-new.mjs",
+    "sonar:changed": "node scripts/sonar-changed.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prisma:generate": "cd packages/database && npx prisma generate",
     "check:metadata": "node scripts/check-metadata.js",

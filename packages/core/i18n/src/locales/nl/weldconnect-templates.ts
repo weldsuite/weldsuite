@@ -152,4 +152,14 @@ export const weldconnectTemplates = {
     },
     text: {},
   },
+  formResponseToChat: {
+    name: 'Nieuwe formulierreacties in de chat melden',
+    description: 'Als iemand een formulier verstuurt, plaats je een bericht in een WeldChat-kanaal zodat het team het meteen ziet.',
+    steps: {
+      post: 'Plaatsen in WeldChat',
+    },
+    text: {
+      message: 'Nieuwe reactie #{number} op {form} van {email}.',
+    },
+  },
 };

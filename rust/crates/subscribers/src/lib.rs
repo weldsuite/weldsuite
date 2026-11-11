@@ -83,7 +83,7 @@ impl BatchHandler for Routed {
     }
 }
 
-pub use audit::AuditSubscriber;
+pub use audit::{AuditSubscriber, PendingStreamFlushes};
 pub use audit_streams::{
     AuditStreamDestination, AuditStreamSendResult, AuditStreamSender, FlushOptions,
     flush_audit_log_streams,

@@ -55,8 +55,7 @@ spec:
                 {{- include "weldsuite.env" $ | nindent 16 }}
                 {{- with include "weldsuite.mta.clientEnv" $ }}{{ . | nindent 16 }}{{- end }}
               envFrom:
-                - secretRef:
-                    name: {{ include "weldsuite.secretName" $ }}
+                {{- include "weldsuite.envFrom" $ | nindent 16 }}
               securityContext:
                 {{- toYaml $.Values.securityContext | nindent 16 }}
               resources:

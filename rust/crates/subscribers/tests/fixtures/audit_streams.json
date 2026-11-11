@@ -1088,9 +1088,9 @@
         ]
       },
       {
-        "name": "ten minutes later, with three new rows: the failed streams are tried again",
+        "name": "ten minutes later, with new rows: the failed streams are tried again, rows inside the settle window wait",
         "before": [
-          "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values\n           ('fxa_9001', '2099-11-01 12:05:00.000001', 'ticket', 'tkt_1', 'created', 'New 1', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9002', '2099-11-01 12:05:00.000002', 'ticket', 'tkt_1', 'updated', 'New 2', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}')"
+          "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values\n           ('fxa_9001', '2099-11-01 12:05:00.000001', 'ticket', 'tkt_1', 'created', 'New 1', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9002', '2099-11-01 12:05:00.000002', 'ticket', 'tkt_1', 'updated', 'New 2', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9003', '2099-11-01 12:05:00.001000', 'ticket', 'tkt_1', 'closed', 'New 3', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9004', '2099-11-01 12:10:24.999999', 'ticket', 'tkt_2', 'created', 'Settled, by a microsecond', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9005', '2099-11-01 12:10:25.000000', 'ticket', 'tkt_2', 'updated', 'Five seconds old exactly', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9006', '2099-11-01 12:10:25.000400', 'ticket', 'tkt_2', 'updated', 'In that millisecond', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9009', '2099-11-01 12:10:27.000900', 'ticket', 'tkt_2', 'closed', 'Young', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}')"
         ],
         "now": "2099-11-01T12:10:30.000Z",
         "answers": {
@@ -1109,10 +1109,10 @@
                 "application/json"
               ]
             ],
-            "count": 3,
+            "count": 4,
             "first": "fxa_9001",
-            "last": "fxa_9003",
-            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+            "last": "fxa_9004",
+            "sha256": "7f82c57822039e99ee5d8cea89694093f03472f687e22332ac94b73986dd0295"
           },
           {
             "url": "https://collector.fx.example.com/in",
@@ -1160,10 +1160,10 @@
                 "fx-token-very-secret"
               ]
             ],
-            "count": 53,
+            "count": 54,
             "first": "fxa_0401",
-            "last": "fxa_9003",
-            "sha256": "9f27896421f22cf3c8c5c2d07e26ad587da100b8b209403f01d350c4a9da7acb"
+            "last": "fxa_9004",
+            "sha256": "fa3a02ee2f2f30785048219356ec5a1b0867b5e51939ab4ddd3f16eb82f2a650"
           },
           {
             "url": "https://moved.fx.example.com/in",
@@ -1173,10 +1173,10 @@
                 "application/json"
               ]
             ],
-            "count": 25,
+            "count": 26,
             "first": "fxa_0429",
-            "last": "fxa_9003",
-            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+            "last": "fxa_9004",
+            "sha256": "b69e658f0accf907840c32050304c79804d60455e3cdfbb9aaae803b8815ad94"
           },
           {
             "url": "https://open.fx.example.com/in",
@@ -1186,10 +1186,10 @@
                 "application/json"
               ]
             ],
-            "count": 3,
+            "count": 4,
             "first": "fxa_9001",
-            "last": "fxa_9003",
-            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+            "last": "fxa_9004",
+            "sha256": "7f82c57822039e99ee5d8cea89694093f03472f687e22332ac94b73986dd0295"
           },
           {
             "url": "https://race.fx.example.com/in",
@@ -1199,10 +1199,10 @@
                 "application/json"
               ]
             ],
-            "count": 3,
+            "count": 4,
             "first": "fxa_9001",
-            "last": "fxa_9003",
-            "sha256": "abced176279c275b43c22a276c4871afb3c826341c6d3a6cd3556a9faed81cfc"
+            "last": "fxa_9004",
+            "sha256": "7f82c57822039e99ee5d8cea89694093f03472f687e22332ac94b73986dd0295"
           },
           {
             "url": "https://slow.fx.example.com/in",
@@ -1212,10 +1212,10 @@
                 "application/json"
               ]
             ],
-            "count": 25,
+            "count": 26,
             "first": "fxa_0429",
-            "last": "fxa_9003",
-            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+            "last": "fxa_9004",
+            "sha256": "b69e658f0accf907840c32050304c79804d60455e3cdfbb9aaae803b8815ad94"
           },
           {
             "url": "https://splunk.fx.example.com:8088/services/collector/event",
@@ -1229,10 +1229,10 @@
                 "Splunk fx-token-very-secret"
               ]
             ],
-            "count": 3,
+            "count": 4,
             "first": "fxa_9001",
-            "last": "fxa_9003",
-            "sha256": "b53c5a91af1061d348d19fa5466cdcbb292edaf6ca5aca75e0d3a44f1e4a3132"
+            "last": "fxa_9004",
+            "sha256": "1a0696bfac9fc9c76310f5db60e0965dabe6dfeec159467740ea93bf50acc2e6"
           },
           {
             "url": "https://waiting.fx.example.com/in",
@@ -1242,23 +1242,23 @@
                 "application/json"
               ]
             ],
-            "count": 25,
+            "count": 26,
             "first": "fxa_0429",
-            "last": "fxa_9003",
-            "sha256": "89b8515126182f999956a90ea65afb3394795ea7ed94ac80e5588f001bfb6349"
+            "last": "fxa_9004",
+            "sha256": "b69e658f0accf907840c32050304c79804d60455e3cdfbb9aaae803b8815ad94"
           }
         ],
         "results": [
           {
             "streamId": "als_fx_backlog",
             "outcome": "delivered",
-            "delivered": 3,
+            "delivered": 4,
             "error": null
           },
           {
             "streamId": "als_fx_backoff",
             "outcome": "delivered",
-            "delivered": 25,
+            "delivered": 26,
             "error": null
           },
           {
@@ -1276,13 +1276,13 @@
           {
             "streamId": "als_fx_http",
             "outcome": "delivered",
-            "delivered": 453,
+            "delivered": 454,
             "error": null
           },
           {
             "streamId": "als_fx_open",
             "outcome": "delivered",
-            "delivered": 3,
+            "delivered": 4,
             "error": null
           },
           {
@@ -1294,19 +1294,19 @@
           {
             "streamId": "als_fx_race",
             "outcome": "delivered",
-            "delivered": 3,
+            "delivered": 4,
             "error": null
           },
           {
             "streamId": "als_fx_redirect",
             "outcome": "delivered",
-            "delivered": 25,
+            "delivered": 26,
             "error": null
           },
           {
             "streamId": "als_fx_splunk",
             "outcome": "delivered",
-            "delivered": 3,
+            "delivered": 4,
             "error": null
           },
           {
@@ -1320,24 +1320,24 @@
           {
             "id": "als_fx_backlog",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 1055,
+            "delivered_count": 1056,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
           {
             "id": "als_fx_backoff",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 25,
+            "delivered_count": 26,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
@@ -1368,12 +1368,12 @@
           {
             "id": "als_fx_http",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 453,
+            "delivered_count": 454,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
@@ -1392,12 +1392,12 @@
           {
             "id": "als_fx_open",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 168,
+            "delivered_count": 169,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
@@ -1428,37 +1428,372 @@
           {
             "id": "als_fx_race",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 453,
+            "delivered_count": 454,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
           {
             "id": "als_fx_redirect",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 25,
+            "delivered_count": 26,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
             "consecutive_failures": 0
           },
           {
             "id": "als_fx_splunk",
             "status": "active",
-            "cursor_id": "fxa_9003",
+            "cursor_id": "fxa_9004",
             "last_error": null,
             "updated_at": "2099-11-01 12:10:30.000000",
-            "delivered_count": 453,
+            "delivered_count": 454,
             "last_attempt_at": "2099-11-01 12:10:30.000000",
-            "cursor_created_at": "2099-11-01 12:05:00.001000",
+            "cursor_created_at": "2099-11-01 12:10:24.999000",
             "last_delivered_at": "2099-11-01 12:10:30.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_timeout",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "Timed out after 10 s",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          }
+        ]
+      },
+      {
+        "name": "four seconds later: the rows that have settled since, two late commits among them",
+        "before": [
+          "insert into audit_logs (id, created_at, entity_type, entity_id, action, description, metadata) values\n           ('fxa_9007', '2099-11-01 12:10:26.500000', 'ticket', 'tkt_3', 'created', 'Committed late', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9008', '2099-11-01 12:10:27.000100', 'ticket', 'tkt_3', 'updated', 'Committed late, in the millisecond of 9009', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}'),\n           ('fxa_9010', '2099-11-01 12:10:31.000000', 'ticket', 'tkt_3', 'closed', 'Young in its turn', '{\"source\":\"user\",\"workspaceId\":\"org_row\"}')"
+        ],
+        "now": "2099-11-01T12:10:34.000Z",
+        "answers": {},
+        "requests": [
+          {
+            "url": "https://backlog.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "5d27771536b1fe2e7880dca250315508d2261a69152c1f2af29151794046899b"
+          },
+          {
+            "url": "https://collector.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/x-ndjson"
+              ],
+              [
+                "X-Api-Key",
+                "fx-token-very-secret"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "133abf779a31e962388f0466048eb848c4f8209cfa40cb27d6c773836de252ee"
+          },
+          {
+            "url": "https://moved.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "5d27771536b1fe2e7880dca250315508d2261a69152c1f2af29151794046899b"
+          },
+          {
+            "url": "https://open.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "5d27771536b1fe2e7880dca250315508d2261a69152c1f2af29151794046899b"
+          },
+          {
+            "url": "https://race.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "5d27771536b1fe2e7880dca250315508d2261a69152c1f2af29151794046899b"
+          },
+          {
+            "url": "https://splunk.fx.example.com:8088/services/collector/event",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ],
+              [
+                "Authorization",
+                "Splunk fx-token-very-secret"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "9d5619f73bfee8722c109c695801240808f4fbe292b0d3e1aa978d5f6de2d0bd"
+          },
+          {
+            "url": "https://waiting.fx.example.com/in",
+            "headers": [
+              [
+                "Content-Type",
+                "application/json"
+              ]
+            ],
+            "count": 5,
+            "first": "fxa_9005",
+            "last": "fxa_9009",
+            "sha256": "5d27771536b1fe2e7880dca250315508d2261a69152c1f2af29151794046899b"
+          }
+        ],
+        "results": [
+          {
+            "streamId": "als_fx_backlog",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_backoff",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_badtoken",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_caught_up",
+            "outcome": "idle",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_http",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_open",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_private",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_race",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_redirect",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_splunk",
+            "outcome": "delivered",
+            "delivered": 5,
+            "error": null
+          },
+          {
+            "streamId": "als_fx_timeout",
+            "outcome": "backoff",
+            "delivered": 0,
+            "error": null
+          }
+        ],
+        "streams": [
+          {
+            "id": "als_fx_backlog",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 1061,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_backoff",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 31,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_badtoken",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The stored token cannot be decrypted; enter it again",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_caught_up",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-02 00:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_http",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 459,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_nineteen",
+            "status": "disabled",
+            "cursor_id": null,
+            "last_error": "Request failed: connect ECONNREFUSED 203.0.113.7:443",
+            "updated_at": "2099-11-01 12:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:00:00.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 20
+          },
+          {
+            "id": "als_fx_open",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 174,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_paused",
+            "status": "paused",
+            "cursor_id": null,
+            "last_error": null,
+            "updated_at": "2099-11-01 10:00:00.000000",
+            "delivered_count": 0,
+            "last_attempt_at": null,
+            "cursor_created_at": "2099-11-01 10:00:00.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_private",
+            "status": "active",
+            "cursor_id": null,
+            "last_error": "The URL points at a private or local address",
+            "updated_at": "2099-11-01 12:10:30.000000",
+            "delivered_count": 0,
+            "last_attempt_at": "2099-11-01 12:10:30.000000",
+            "cursor_created_at": "2099-11-01 10:00:03.000000",
+            "last_delivered_at": null,
+            "consecutive_failures": 2
+          },
+          {
+            "id": "als_fx_race",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 459,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_redirect",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 31,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
+            "consecutive_failures": 0
+          },
+          {
+            "id": "als_fx_splunk",
+            "status": "active",
+            "cursor_id": "fxa_9009",
+            "last_error": null,
+            "updated_at": "2099-11-01 12:10:34.000000",
+            "delivered_count": 459,
+            "last_attempt_at": "2099-11-01 12:10:34.000000",
+            "cursor_created_at": "2099-11-01 12:10:27.000000",
+            "last_delivered_at": "2099-11-01 12:10:34.000000",
             "consecutive_failures": 0
           },
           {

@@ -51,6 +51,8 @@ export const OUTBOUND_SOURCES = [
   'sign',
   // WeldDesk scheduled report emails (desk-api), from WeldSuite's address.
   'desk_report',
+  // WeldForms invitations and reminders (forms-api), from WeldSuite's address.
+  'forms',
   'personal',
   'subscription',
 ] as const;

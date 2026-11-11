@@ -3,7 +3,7 @@
 //! `tests/fixtures/*.json`; these tests seed the same rows into Postgres, feed
 //! the same events to the Rust subscribers and compare the acks and retries,
 //! the rows written, the outbound requests and the realtime publishes; for
-//! audit log streams the requests built, and what three flushes send and
+//! audit log streams the requests built, and what four flushes send and
 //! leave behind.
 //!
 //! The database tests need `WELDSUITE_TEST_TENANT_URL` (a tenant database
@@ -843,11 +843,19 @@ impl StreamTransport for ScriptedStreams {
     }
 }
 
-/// Three flushes of one workspace: the cursor walk in batches of 200 (the
+/// Four flushes of one workspace: the cursor walk in batches of 200 (the
 /// first batch ends inside a millisecond that six rows share), the cap of
 /// five requests, failures with their backoff and recovery, the auto-disable
 /// at twenty, an unreadable token, an unsafe URL, a redirect, a timeout, a
-/// cursor another flush moved, and the streams that are never asked.
+/// cursor another flush moved, the streams that are never asked, and the
+/// settle window: rows younger than five seconds wait, the row exactly five
+/// seconds old with them, and two rows that commit late in front of a row an
+/// earlier flush already saw are still delivered, in order.
+///
+/// TypeScript's `now` is a `Date`, whole milliseconds. Here every flush runs
+/// 999 microseconds later than the fixture says: the time of a flush is read
+/// to the millisecond, so nothing may change, and the settle bound may not
+/// cut a millisecond's rows in two.
 #[tokio::test]
 async fn audit_stream_flushes_match_typescript() {
     let Some(pool) = tenant_pool().await else {
@@ -875,7 +883,7 @@ async fn audit_stream_flushes_match_typescript() {
         let options = FlushOptions {
             keyring: &keyring,
             workspace_id: flush["workspaceId"].as_str(),
-            now: instant(&step["now"]),
+            now: instant(&step["now"]) + time::Duration::microseconds(999),
         };
         // Only the streams of the fixture: the test database may hold others.
         let mut results: Vec<Value> = flush_audit_log_streams(&pool, &sender, &options)

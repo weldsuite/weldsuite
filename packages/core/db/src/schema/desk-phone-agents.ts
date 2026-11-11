@@ -1,9 +1,11 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
   timestamp,
   boolean,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -62,6 +64,12 @@ export const deskPhoneCallLegs = pgTable(
   (table) => [
     index('desk_phone_call_legs_call_idx').on(table.callId),
     index('desk_phone_call_legs_user_status_idx').on(table.userId, table.status),
+    // One ringing leg per member and call. Two webhooks that start a round at
+    // the same moment both try to insert it; the second insert is refused, so a
+    // browser is never dialled twice for one call.
+    uniqueIndex('desk_phone_call_legs_ringing_uidx')
+      .on(table.callId, table.userId)
+      .where(sql`${table.status} = 'ringing'`),
   ],
 );
 

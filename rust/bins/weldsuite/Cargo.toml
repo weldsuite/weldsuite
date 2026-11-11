@@ -27,6 +27,7 @@ weldsuite-connect = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-onboarding = { workspace = true }
+weldsuite-core-signin = { workspace = true }
 weldsuite-core-files = { workspace = true }
 weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
@@ -64,6 +65,7 @@ weldsuite-mail-inbound = { workspace = true }
 weldsuite-mta = { workspace = true }
 weldsuite-meet = { workspace = true }
 weldsuite-merge = { workspace = true }
+weldsuite-forms = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }

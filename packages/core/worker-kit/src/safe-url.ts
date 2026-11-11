@@ -23,17 +23,27 @@ function parseIpv4(host: string): Ipv4 | null {
   return parts.every((p) => p <= 255) ? parts : null;
 }
 
-/** Loopback, private, link-local, CGNAT, benchmarking, documentation, multicast and reserved IPv4. */
-function isBlockedIpv4([a, b, c]: Ipv4): boolean {
-  if (a === 0 || a === 10 || a === 127) return true;
+/** CGNAT (100.64/10), link-local (169.254/16) and the private 172.16/12 and 192.168/16. */
+function isPrivateRangeIpv4(a: number, b: number): boolean {
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
+  return a === 192 && b === 168;
+}
+
+/** 192.0.0/24, benchmarking (198.18/15) and the three documentation ranges. */
+function isSpecialPurposeIpv4(a: number, b: number, c: number): boolean {
   if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
   if (a === 198 && b === 51 && c === 100) return true;
-  if (a === 203 && b === 0 && c === 113) return true;
+  return a === 203 && b === 0 && c === 113;
+}
+
+/** Loopback, private, link-local, CGNAT, benchmarking, documentation, multicast and reserved IPv4. */
+function isBlockedIpv4([a, b, c]: Ipv4): boolean {
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (isPrivateRangeIpv4(a, b)) return true;
+  if (isSpecialPurposeIpv4(a, b, c)) return true;
   return a >= 224;
 }
 

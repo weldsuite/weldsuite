@@ -14,6 +14,12 @@ export const helpdesk = {
         decline: 'Decline',
         micBlocked: 'Your microphone is blocked. Allow it in your browser settings to take this call.',
         acceptFailed: 'Could not answer the call.',
+        errors: {
+          notRinging: 'The call is no longer ringing.',
+          microphoneDenied: 'Microphone access is denied. Allow the microphone in your browser settings and try again.',
+          microphoneUnavailable: 'No microphone is available, or another app is using it.',
+          answerFailed: 'Could not answer the call.',
+        },
         endedAnsweredElsewhere: 'Answered by a colleague',
         endedCallerHungUp: 'The caller hung up',
         endedTimeout: 'The call was not answered in time',

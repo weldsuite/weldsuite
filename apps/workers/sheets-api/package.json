@@ -21,6 +21,8 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/flow-domain": "workspace:*",
+    "@weldsuite/forms-domain": "workspace:*",
+    "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",

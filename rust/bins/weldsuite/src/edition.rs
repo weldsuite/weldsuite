@@ -132,6 +132,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // and `/translate-reply`) runs on Workers AI through `@weldsuite/ai`; the
     // routes answer 503 `ai_unavailable` here (ADR AI-011).
     "desk-ai",
+    // WeldForms' AI (`/api/forms/ai/*` and the response summaries) runs on
+    // `@weldsuite/ai`; the routes answer 503 `ai_unavailable` here (ADR AI-011).
+    "forms-ai",
 ];
 
 /// WeldDocs, WeldSheets and WeldBoard: live editing runs in the collab-rooms

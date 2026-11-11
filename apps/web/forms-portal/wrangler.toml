@@ -1,0 +1,75 @@
+# WeldForms respondent page: TanStack Start on Workers (FE-015, ADR FORMS-002).
+#
+# The portal opens no database and holds no tenant secret. It only calls
+# forms-api's public routes (/public/forms/*) over the FORMS_API service
+# binding, server side, with the shared key in X-Forms-Portal-Key. Everything a
+# browser does goes through the portal's own /api/* routes, which add the key,
+# the respondent's IP (CF-Connecting-IP), country (CF-IPCountry) and browser.
+#
+# Built with @cloudflare/vite-plugin. The environment is picked at BUILD time
+# (`CLOUDFLARE_ENV=test pnpm build`), and the plugin writes the resolved config
+# next to the output, so the deploy is a plain `wrangler deploy` (no `--env`).
+#
+# Without the binding (local `pnpm dev`) calls go to FORMS_API_URL: forms-api's
+# `wrangler dev` (`pnpm --filter forms-api dev`) on port 8828.
+#
+# Secrets (scripts/secrets/manifest.ts, "forms-portal"):
+#   FORMS_PORTAL_SECRET   the same value as forms-api's
+#
+# Hostnames are Workers Custom Domains: Cloudflare creates the DNS record and
+# the certificate, so there is nothing to set up by hand. They need an empty
+# name: an existing record for the hostname has to be removed first.
+
+# Local `vite dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-forms-portal-dev"
+main = "@tanstack/react-start/server-entry"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+FORMS_API_URL = "http://localhost:8828"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-forms-portal-test"
+workers_dev = false
+routes = [
+  { pattern = "forms-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-forms-portal"
+workers_dev = false
+routes = [
+  { pattern = "forms.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

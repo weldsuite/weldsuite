@@ -3139,6 +3139,11 @@ export const weldconnect = {
     'merge.pullRequestIds': 'Pull request IDs',
     'merge.issueIds': 'Issue IDs',
     'merge.deskTicketIds': 'Ticket IDs',
+    formId: 'Form ID',
+    formTitle: 'Form title',
+    respondentEmail: 'Respondent email',
+    personId: 'Person ID',
+    submittedAt: 'Submitted at',
   },
 
   // Notice on WeldConnect pages that are outside the current scope (see app/weldconnect/mvp.ts)

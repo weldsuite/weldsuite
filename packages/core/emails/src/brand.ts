@@ -12,7 +12,8 @@ export type EmailModule =
   | 'WeldCommerce'
   | 'WeldHR'
   | 'WeldReach'
-  | 'WeldSign';
+  | 'WeldSign'
+  | 'WeldForms';
 
 /**
  * Who the email looks like it comes from.

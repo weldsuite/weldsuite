@@ -1,0 +1,48 @@
+{
+  "name": "A block id and a choice id used twice",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_1",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      },
+      {
+        "id": "b_2",
+        "ref": "third",
+        "type": "multiple_choice",
+        "title": "Choose",
+        "properties": {
+          "choices": [
+            {
+              "id": "c_1",
+              "label": "X"
+            },
+            {
+              "id": "c_1",
+              "label": "Y"
+            }
+          ]
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ]
+  },
+  "expectIssues": [
+    "duplicate_id",
+    "duplicate_id"
+  ]
+}

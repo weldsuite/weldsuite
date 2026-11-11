@@ -91,3 +91,9 @@ gcp-*-key.json
 # TypeScript incremental build artifacts (regenerated on build)
 *.tsbuildinfo
 .env*
+
+# SonarQube: scanner working dir and the narrowed settings / tsconfigs
+# written by scripts/sonar-changed.mjs
+.scannerwork/
+.sonar-changed/
+tsconfig.sonar.json

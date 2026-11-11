@@ -178,6 +178,38 @@ interface Case {
 
 const RUN = { workspaceId: 'org_test', userId: 'user_owner' };
 
+/** A parse_alert step and the create_conversation step the alert template wires after it. */
+function alertSteps(n: number, payload: Record<string, unknown>) {
+  const parse = `s${n}`;
+  return [
+    { id: parse, type: 'parse_alert', config: { payload } },
+    {
+      id: `${parse}t`,
+      type: 'create_conversation',
+      config: {
+        title: `{{steps.${parse}.title}}`,
+        message: `{{steps.${parse}.message}}`,
+        externalId: `{{steps.${parse}.externalId}}`,
+        priority: `{{steps.${parse}.priority}}`,
+        tags: `{{steps.${parse}.tags}}`,
+        state: `{{steps.${parse}.state}}`,
+      },
+    },
+  ];
+}
+
+function datadogGroup(group: string, transition: string, priority: string, type: string) {
+  return {
+    alert_id: '77',
+    alert_title: 'Disk space is low',
+    alert_scope: group,
+    alert_transition: transition,
+    alert_priority: priority,
+    alert_type: type,
+    body: `${transition} on ${group}`,
+  };
+}
+
 const CASES: Case[] = [
   {
     name: 'variables, a passing condition branch and a transform',
@@ -896,6 +928,40 @@ const CASES: Case[] = [
          from desk_messages m join desk_conversations c on c.id = m.conversation_id
          order by c.conversation_number, m.kind collate "C", coalesce(m.metadata ->> 'eventType', '') collate "C",
            coalesce(m.body, '') collate "C", m.metadata::text collate "C"`,
+    ],
+  },
+  {
+    name: 'alerts: Datadog groups get a ticket each, a repeat never lowers the priority, a reopen takes the new one, long ids are cut',
+    instanceId: 'inst_alert_groups',
+    seed: [
+      MEMBERS,
+      workflowRow('wf_alert_groups', [
+        ...alertSteps(1, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(2, datadogGroup('host:b', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(3, datadogGroup('host:a', 'Triggered', 'P1', 'error')),
+        ...alertSteps(4, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(5, datadogGroup('host:a', 'Recovered', '', 'success')),
+        ...alertSteps(6, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(7, datadogGroup('host:b', 'Triggered', 'P2', 'error')),
+        ...alertSteps(8, { ...datadogGroup('', 'Triggered', 'P2', 'error'), scope: 'region:eu,host:c' }),
+        ...alertSteps(9, { ...datadogGroup('', 'Triggered', 'P1', 'error'), aggreg_key: 'agg-1' }),
+        ...alertSteps(10, datadogGroup(`host:${'é'.repeat(300)}`, 'Triggered', 'P2', 'error')),
+        {
+          id: 's11',
+          type: 'create_conversation',
+          config: { message: 'no external id one', priority: 'low' },
+        },
+        {
+          id: 's12',
+          type: 'create_conversation',
+          config: { message: 'no external id two', priority: 'urgent' },
+        },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_alert_groups', triggerType: 'manual' },
+    inspect: [
+      `select conversation_number, state, priority, tags, external_id, char_length(external_id) as id_length
+       from desk_conversations order by conversation_number`,
     ],
   },
   {

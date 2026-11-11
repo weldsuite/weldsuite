@@ -21,6 +21,9 @@
 //!   rows, each with its `shape` ([`desk`]).
 //! - Dates are formatted here (`formatDate`: `Saturday, February 3, 2001`,
 //!   `zaterdag 3 februari 2001`), in the recipient's time zone.
+//! - A list of rows (`<Details>`, `<List>`: WeldForms' answers and digest)
+//!   is a loop over `rows`, its body exported from React like a variant;
+//!   a row's optional parts make row variants, named per row (`v`).
 //! - The layout (logo, inbox preview, footer) is stored once per locale and
 //!   brand and wrapped around the variant's content; the plain text is stored
 //!   per brand.
@@ -39,6 +42,7 @@ mod date;
 pub mod desk;
 mod escape;
 pub mod flow;
+pub mod forms;
 pub mod hr;
 pub mod ics;
 pub mod meet;

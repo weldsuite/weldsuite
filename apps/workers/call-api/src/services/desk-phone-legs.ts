@@ -84,8 +84,11 @@ async function onAgentAnswered(ctx: PhoneCtx, leg: LegRow, agentCallControlId: s
     // The same event delivered twice for the winner must not hang the winner up.
     const call = await loadCall(db, leg.callId);
     if (call?.answeredByUserId === leg.userId) return;
-    await endLeg(db, leg.id);
+    const ended = await endLeg(db, leg.id);
     await hangupBestEffort(env, agentCallControlId);
+    // They lost the race and are free again. When the leg was ended already,
+    // whoever ended it offers them the next caller.
+    if (ended) await ringWaitingCalls(ctx);
     return;
   }
 
@@ -149,6 +152,9 @@ async function onAgentAnswered(ctx: PhoneCtx, leg: LegRow, agentCallControlId: s
   });
   await publishPhoneQueueChange(env, db, workspaceId);
   await recordAnswer(ctx, won, leg.userId);
+  // The members whose browsers stopped ringing are free: their legs' own
+  // hangups find them ended, so the next waiting caller is offered here.
+  if (others.length > 0) await ringWaitingCalls(ctx);
 }
 
 /** Give the conversation to the answerer (when nobody owns it) and say who answered. */
@@ -238,17 +244,22 @@ async function onAgentHangup(ctx: PhoneCtx, leg: LegRow): Promise<void> {
 /**
  * The caller's `call.hangup`, for a call that was waiting for an agent: it is
  * abandoned, the ringing browsers stop and the queue count drops.
+ *
+ * True when browsers were ringing for it: those members are free again, and
+ * the webhook offers them the next waiting caller (`ringWaitingCalls`) once
+ * it has finished with this call.
  */
-export async function handleCallerLeftQueue(ev: CallEventInput): Promise<void> {
+export async function handleCallerLeftQueue(ev: CallEventInput): Promise<boolean> {
   const c = schema.voipCalls;
   const [abandoned] = await ev.db
     .update(c)
     .set({ outcome: 'abandoned', updatedAt: new Date() })
     .where(and(eq(c.id, ev.callId), isNotNull(c.queueEnteredAt), isNull(c.agentAnsweredAt), isNull(c.outcome)))
     .returning({ id: c.id });
-  if (!abandoned) return;
+  if (!abandoned) return false;
   const ctx: PhoneCtx = { env: ev.env, db: ev.db, workspaceId: ev.workspaceId };
   const ended = await endRingingLegs(ctx, ev.callId);
   await notifyPhoneEnded(ctx, ev.callId, ended, 'caller_hung_up');
   await publishPhoneQueueChange(ev.env, ev.db, ev.workspaceId);
+  return ended.length > 0;
 }

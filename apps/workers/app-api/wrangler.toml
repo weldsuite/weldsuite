@@ -113,7 +113,7 @@ ENVIRONMENT = "development"
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -305,6 +305,10 @@ binding = "MERGE_API"
 service = "weldsuite-merge-api-dev"
 
 [[services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api-dev"
+
+[[services]]
 binding = "AGENT_API"
 service = "weldsuite-agent-api-dev"
 
@@ -479,7 +483,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -595,6 +599,10 @@ service = "weldsuite-panel-api-test"
 [[env.test.services]]
 binding = "MERGE_API"
 service = "weldsuite-merge-api-test"
+
+[[env.test.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api-test"
 
 [[env.test.services]]
 binding = "AGENT_API"
@@ -757,7 +765,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -880,6 +888,10 @@ service = "weldsuite-panel-api"
 [[env.production.services]]
 binding = "MERGE_API"
 service = "weldsuite-merge-api"
+
+[[env.production.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api"
 
 [[env.production.services]]
 binding = "AGENT_API"

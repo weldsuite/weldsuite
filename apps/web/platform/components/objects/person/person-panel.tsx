@@ -81,6 +81,7 @@ import { MeetingsTab } from '@/components/objects/_shared/meetings-tab';
 import { TasksTab } from '@/components/objects/_shared/tasks-tab';
 import { FilesTab } from '@/components/objects/_shared/files-tab';
 import { AuditTab } from '@/components/objects/_shared/audit-tab';
+import { FormsTab } from '@/components/objects/_shared/forms-tab';
 import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { EntityList, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -861,6 +862,7 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
           entityAvatar={person.avatarUrl || undefined}
         />
       )}
+      {person && activeTab === 'forms' && <FormsTab personId={person.id} />}
       {person && activeTab === 'audit' && (
         <AuditTab entityId={person.id} entityKind="person" />
       )}

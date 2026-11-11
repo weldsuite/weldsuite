@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.34.5.
 
-Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
+Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager), **WeldForms** (forms and surveys, in the class of Typeform). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
 ### Design docs and ADRs (separate repo)
 
@@ -43,10 +43,11 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 - `sign-portal`, WeldSign signer portal: TanStack Start on a Cloudflare Worker (port 3023, `sign.weldsuite.org` / `sign-test.weldsuite.org`). Runs the signer side itself on `@weldsuite/sign-domain/portal` against the tenant DB, with no API in between (ADR FE-016)
 - `project-portal`, WeldFlow client project portal: TanStack Start on a Cloudflare Worker (port 3024, `projects.weldsuite.org` / `projects-test.weldsuite.org`). Calls only flow-api's `/public/project-portal/*` over the `FLOW_API` service binding; no database, no secrets (ADR FLOW-020)
+- `forms-portal`, WeldForms respondent page: TanStack Start on a Cloudflare Worker (port 3025, `forms.weldsuite.org` / `forms-test.weldsuite.org`) and a Node build for Kubernetes. Calls only forms-api's `/public/forms/*` (service binding `FORMS_API`); serves the embed SDK at `/embed.js`. **`packages/sdk/forms-embed` (`src/protocol.ts`, `src/auto.ts`) and the portal's embed view change in lockstep**, like the helpdesk widget; the Share tab's snippet generator (`apps/web/platform/app/weldforms/share/embed-snippet.ts`) uses the same attribute names
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
 - `app-api`, **The core first-party API** (`app-api.weldsuite.org`): workspaces, members, roles, settings, files/drive, search, billing, credits, notifications, App Store / WeldApps, custom objects, `/api/internal`. It also **forwards** every module's paths to that module's worker (below), so clients that call it for anything keep working. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
-- **Module API workers** (`<module>-api`, host `<module>-api(-test).weldsuite.org`), one per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `chat-api`, `call-api` (telephony), `connect-api`, `agent-api` (AI / WeldAgent), `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`. Which paths each owns: `packages/core/api-modules`. See "Where new endpoints go" below.
+- **Module API workers** (`<module>-api`, host `<module>-api(-test).weldsuite.org`), one per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `chat-api`, `call-api` (telephony), `connect-api`, `agent-api` (AI / WeldAgent), `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`, `forms-api`. Which paths each owns: `packages/core/api-modules`. See "Where new endpoints go" below.
 - `external-api`, Third-party public API (`api.weldsuite.org`, `wsk_` keys)
 - `mcp-server`, WeldSuite MCP server
 - `billing-worker`, Stripe billing + subscriptions
@@ -480,6 +481,7 @@ which supersedes OPS-004.
 | `ci.yml` | PR + push to `main` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
+| `sonarqube.yml` | PR | not yet (fails on a red quality gate; blocks once "SonarQube" is a required check) — full SonarQube Cloud analysis of **only the files the PR changes** (`scripts/sonar-changed.mjs` narrows `sonar-project.properties`; preview the scope with `pnpm sonar:changed`) |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
 | `handoff.yml` | CI passed on a push to `main` → starts the private `deploy-test` | n/a |
 | `release-desktop.yml` | manual | n/a |

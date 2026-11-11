@@ -66,6 +66,9 @@ export type VoipCredential = 'shared' | 'member';
 /** The client's link to Telnyx, finer than `isVoipReady` so a caller can tell a drop from "not started". */
 export type VoipConnectionState = 'idle' | 'connecting' | 'ready' | 'closed' | 'error';
 
+/** Why answering a ringing call did not work; the UI words each one (the context holds no translations). */
+export type AcceptIncomingError = 'not_ringing' | 'microphone_denied' | 'microphone_unavailable' | 'answer_failed';
+
 /** An inbound call ringing this browser, before it is answered. */
 export interface IncomingCallState {
   /** The Telnyx call id (not the WeldCall call row). */
@@ -149,13 +152,18 @@ interface CallContextType {
   waitForVoipReady: (timeoutMs?: number) => Promise<boolean>;
   /** A call ringing this browser; null when there is none. */
   incomingCall: IncomingCallState | null;
-  acceptIncomingCall: (details?: InboundCallDetails) => Promise<{ success: boolean; error?: string }>;
+  acceptIncomingCall: (details?: InboundCallDetails) => Promise<{ success: boolean; error?: AcceptIncomingError }>;
   declineIncomingCall: () => void;
   initialDialerNumber: string;
   setInitialDialerNumber: (number: string) => void;
 }
 
 const CallContext = createContext<CallContextType | null>(null);
+
+/** Whether a getUserMedia failure is a refused permission (as opposed to no or a busy microphone). */
+function isMicrophoneDenied(error: Error): boolean {
+  return error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError';
+}
 
 /** Maps a getUserMedia failure to a user-facing message. */
 function getMicrophoneErrorMessage(error: Error): string {
@@ -198,6 +206,10 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
   const credentialRef = useRef<VoipCredential | null>(null);
   // Bumped for every client (and on reset): a replaced client's late events are ignored.
   const generationRef = useRef(0);
+  // Telephony counts as configured once the dialer said so or any client was ever created.
+  const voipConfiguredRef = useRef(false);
+  voipConfiguredRef.current = voipConfigured;
+  const everSignedInRef = useRef(false);
   const readyWaiters = useRef(new Set<(ready: boolean) => void>());
   // Sign-ins run one at a time, so two callers never build two clients.
   const initChain = useRef<Promise<void>>(Promise.resolve());
@@ -324,6 +336,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
         telnyxClient.current = null;
       }
       credentialRef.current = credential;
+      everSignedInRef.current = true;
       setVoipCredential(credential);
       setConnection('connecting');
 
@@ -473,6 +486,14 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
     callId?: string;
     workspaceId?: string;
   }): Promise<{ success: boolean; error?: string }> => {
+    // The simulated call below is for environments without telephony. Where it is
+    // configured, a client that is not ready is a failure, never a pretend call;
+    // no error text, so the caller shows its own translated message.
+    const clientReady = Boolean(telnyxClient.current) && connectionRef.current === 'ready';
+    if (!clientReady && (voipConfiguredRef.current || everSignedInRef.current)) {
+      return { success: false };
+    }
+
     // Check microphone access first
     if (telnyxClient.current && connectionRef.current === 'ready') {
       try {
@@ -623,9 +644,9 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
     }
   }, [clearIncoming]);
 
-  const acceptIncomingCall = useCallback(async (details?: InboundCallDetails): Promise<{ success: boolean; error?: string }> => {
+  const acceptIncomingCall = useCallback(async (details?: InboundCallDetails): Promise<{ success: boolean; error?: AcceptIncomingError }> => {
     const call = incomingRef.current;
-    if (!call) return { success: false, error: 'The call is no longer ringing' };
+    if (!call) return { success: false, error: 'not_ringing' };
 
     // Answering needs the microphone: check before the caller is picked up.
     try {
@@ -634,10 +655,10 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
     } catch (e) {
       const error = e as Error;
       console.error('[Telnyx] Microphone access failed:', error.name, error.message);
-      return { success: false, error: getMicrophoneErrorMessage(error) };
+      return { success: false, error: isMicrophoneDenied(error) ? 'microphone_denied' : 'microphone_unavailable' };
     }
     // The ring can end while the browser asks for the microphone.
-    if (incomingRef.current !== call) return { success: false, error: 'The call is no longer ringing' };
+    if (incomingRef.current !== call) return { success: false, error: 'not_ringing' };
 
     clearIncoming();
     activeCall.current = call;
@@ -665,15 +686,14 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
       await call.answer?.({ audio: true, video: false });
       return { success: true };
     } catch (error) {
-      const message = (error as { message?: string } | null)?.message || 'Failed to answer the call';
-      console.error('[Telnyx] Failed to answer:', message, error);
+      console.error('[Telnyx] Failed to answer:', error);
       activeCall.current = null;
       setCallState(prev => prev ? { ...prev, status: 'failed' } : null);
       setTimeout(() => {
         setCallState(null);
         setIsMinimized(false);
       }, 5000);
-      return { success: false, error: message };
+      return { success: false, error: 'answer_failed' };
     }
   }, [clearIncoming, trackCall]);
 

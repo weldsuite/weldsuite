@@ -27,6 +27,13 @@ const GLOBAL_ONLY = [
 const KUBERNETES_ONLY = ['/staff', '/flags'];
 
 describe('getNavAreas', () => {
+  it('offers the WeldForms moderation page on both editions', () => {
+    for (const global of [true, false]) {
+      edition.GLOBAL = global;
+      expect(hrefs()).toContain('/weldforms');
+    }
+  });
+
   it('offers every Global page on Global, and none of the Kubernetes ones', () => {
     edition.GLOBAL = true;
     expect(hrefs()).toEqual(expect.arrayContaining(GLOBAL_ONLY));

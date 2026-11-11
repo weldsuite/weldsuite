@@ -6,7 +6,7 @@
  */
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { DeskPhoneMenuChoice } from '@weldsuite/db/schema/desk-phone-routes';
+import type { DeskPhoneMenu, DeskPhoneMenuChoice } from '@weldsuite/db/schema/desk-phone-routes';
 import { appendDeskMessage } from '@weldsuite/db/lib/desk';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -272,6 +272,35 @@ async function menuChoiceAlreadyRecorded(db: Database, conversationId: string, c
   return Boolean(row);
 }
 
+/** The choice a gather result picks: the pressed key when it is on the menu, else the fallback choice. */
+function pickMenuChoice(
+  menu: DeskPhoneMenu,
+  status: string | undefined,
+  digits: string | undefined,
+): { choice: DeskPhoneMenuChoice | undefined; fallback: boolean } {
+  const pressed = status === 'valid' && digits ? menu.choices.find((c) => c.digit === digits) : undefined;
+  if (pressed) return { choice: pressed, fallback: false };
+  const choice = menu.fallbackDigit ? menu.choices.find((c) => c.digit === menu.fallbackDigit) : undefined;
+  return { choice, fallback: true };
+}
+
+/** The timeline line of a menu choice: "Caller chose 1 (Sales)". */
+async function postMenuChoice(ctx: InboundCallContext, choice: DeskPhoneMenuChoice, fallback: boolean): Promise<void> {
+  const label = choice.label?.trim() || null;
+  const named = label ? `${choice.digit} (${label})` : choice.digit;
+  await postPhoneMessage(ctx.env, ctx.db, ctx.workspaceId, ctx.conversationId, {
+    body: fallback ? `No valid choice, continuing with ${named}` : `Caller chose ${named}`,
+    metadata: {
+      event: 'menu_choice',
+      callId: ctx.callId,
+      digit: choice.digit,
+      label,
+      action: choice.action,
+      ...(fallback ? { fallback: true } : {}),
+    },
+  });
+}
+
 /**
  * `call.gather.ended` of the menu prompt: run the pressed choice; for a key
  * that is not on the menu, or nothing pressed, the fallback choice, else hang up.
@@ -295,9 +324,7 @@ export async function handleGatherEnded(ev: CallEventInput): Promise<void> {
       return;
     }
     const digits = asString(ev.payload.digits)?.trim();
-    let choice = status === 'valid' && digits ? menu.choices.find((c) => c.digit === digits) : undefined;
-    const fallback = !choice;
-    if (!choice && menu.fallbackDigit) choice = menu.choices.find((c) => c.digit === menu.fallbackDigit);
+    const { choice, fallback } = pickMenuChoice(menu, status, digits);
 
     if (!choice) {
       await postPhoneMessage(env, db, workspaceId, ctx.conversationId, {
@@ -310,19 +337,7 @@ export async function handleGatherEnded(ev: CallEventInput): Promise<void> {
 
     // A retried event finds the choice written already.
     if (ctx.conversationId && (await menuChoiceAlreadyRecorded(db, ctx.conversationId, ctx.callId))) return;
-    const label = choice.label?.trim() || null;
-    const named = `${choice.digit}${label ? ` (${label})` : ''}`;
-    await postPhoneMessage(env, db, workspaceId, ctx.conversationId, {
-      body: fallback ? `No valid choice, continuing with ${named}` : `Caller chose ${named}`,
-      metadata: {
-        event: 'menu_choice',
-        callId: ctx.callId,
-        digit: choice.digit,
-        label,
-        action: choice.action,
-        ...(fallback ? { fallback: true } : {}),
-      },
-    });
+    await postMenuChoice(ctx, choice, fallback);
     await runMenuChoice(ctx, choice, options);
   } catch (err) {
     console.error('[Telnyx Webhook] Menu choice failed:', err);

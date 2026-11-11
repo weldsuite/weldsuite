@@ -7,7 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
-import { useCallSafe, type IncomingCallState, type InboundCallDetails } from '@/contexts/call-context';
+import { useCallSafe, type AcceptIncomingError, type IncomingCallState, type InboundCallDetails } from '@/contexts/call-context';
 import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
 import { useDeskTeams } from '@/hooks/queries/use-desk-routing-queries';
 import { showOsNotification } from '@/lib/desktop-notifications';
@@ -47,6 +47,21 @@ function WaitedFor({ since, template }: Readonly<{ since: string; template: stri
   return <>{template.replace('{time}', formatWait(secondsSince(since, now)))}</>;
 }
 
+function acceptErrorMessage(error: AcceptIncomingError | undefined, t: PhoneStrings): string {
+  switch (error) {
+    case 'not_ringing':
+      return t.incoming.errors.notRinging;
+    case 'microphone_denied':
+      return t.incoming.errors.microphoneDenied;
+    case 'microphone_unavailable':
+      return t.incoming.errors.microphoneUnavailable;
+    case 'answer_failed':
+      return t.incoming.errors.answerFailed;
+    default:
+      return t.incoming.acceptFailed;
+  }
+}
+
 function endedMessage(reason: DeskPhoneEndedReason, t: PhoneStrings): string {
   switch (reason) {
     case 'answered_elsewhere':
@@ -80,7 +95,7 @@ export function DeskIncomingCallCard() {
 
 interface CardProps {
   incomingCall: IncomingCallState | null;
-  accept: (details?: InboundCallDetails) => Promise<{ success: boolean; error?: string }>;
+  accept: (details?: InboundCallDetails) => Promise<{ success: boolean; error?: AcceptIncomingError }>;
   decline: () => void;
 }
 
@@ -175,7 +190,7 @@ function Card({ incomingCall, accept, decline }: Readonly<CardProps>) {
           : undefined,
       );
       if (result.success) setEvent(null);
-      else toast.error(result.error || t.incoming.acceptFailed);
+      else toast.error(acceptErrorMessage(result.error, t));
     } finally {
       setBusy(false);
     }

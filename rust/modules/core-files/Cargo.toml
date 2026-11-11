@@ -33,6 +33,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

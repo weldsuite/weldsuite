@@ -84,7 +84,7 @@ describe('POST /api/calls with a conversation', () => {
     const res = await post({ ...call, direction: 'outbound', deskConversationId: 'dconv_missing' });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: "Conversation with ID 'dconv_missing' not found" } });
-    expect((await db.select().from(schema.voipCalls)).length).toBe(before);
+    expect(await db.select().from(schema.voipCalls)).toHaveLength(before);
   });
 
   it('still creates a call with no conversation, as before', async () => {

@@ -296,6 +296,62 @@ describe('processAuditBatch', () => {
       expect(flushed).toEqual(['org_b']);
     });
 
+    it('hands the flushes to ctx.waitUntil and returns without waiting for them', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let flushedAt = 0;
+      const flush = vi.fn(async () => {
+        // The settle wait of the real flusher.
+        await gate;
+        flushedAt = Date.now();
+      });
+      const waited: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (promise: Promise<unknown>) => void waited.push(promise) };
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush, ctx);
+
+      // Back already: the message is acked and the flush is still waiting.
+      expect(m.ack).toHaveBeenCalledTimes(1);
+      expect(waited).toHaveLength(1);
+      expect(flushedAt).toBe(0);
+
+      release();
+      await waited[0];
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(flushedAt).toBeGreaterThan(0);
+    });
+
+    it('a flush that throws behind ctx.waitUntil does not reject the promise it was given', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      const flush = vi.fn(async () => {
+        throw new Error('connect to postgresql://user:pw@host failed');
+      });
+      const waited: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (promise: Promise<unknown>) => void waited.push(promise) };
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush, ctx);
+
+      await expect(waited[0]).resolves.toBeUndefined();
+      expect(m.retry).not.toHaveBeenCalled();
+    });
+
+    it('without a ctx it waits for the flushes, after the acks', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      let flushed = false;
+      const flush = vi.fn(async () => {
+        expect(m.ack).toHaveBeenCalledTimes(1);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        flushed = true;
+      });
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush);
+
+      expect(flushed).toBe(true);
+    });
+
     it('a tenant database that cannot be opened for the flush is only logged', async () => {
       const m = inWorkspace('e1', 'org_a');
       const flush = vi.fn(async () => {});

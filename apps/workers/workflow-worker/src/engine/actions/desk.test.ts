@@ -139,6 +139,52 @@ describe('create_conversation ticket fields and state', () => {
     expect(again).toMatchObject({ created: false, conversationId: opened.conversationId, state: 'open' });
   });
 
+  describe('a repeat never lowers the priority', () => {
+    type Result = Opened & { priority: string | null };
+    const send = (ctx: ReturnType<typeof makeActionContext>, key: string, priority: string, state = 'open') =>
+      handleCreateConversation({ message: `${priority} ${state}`, externalId: key, priority, state }, ctx) as Promise<Result>;
+
+    it('keeps urgent when a warning follows a critical, and raises when a critical follows a warning', async () => {
+      const ctx = makeActionContext({ db });
+      expect(await send(ctx, 'p-1', 'urgent')).toMatchObject({ created: true, priority: 'urgent' });
+      expect(await send(ctx, 'p-1', 'medium')).toMatchObject({ created: false, priority: 'urgent' });
+      expect(await send(ctx, 'p-1', 'low')).toMatchObject({ priority: 'urgent' });
+      expect(await send(ctx, 'p-2', 'medium')).toMatchObject({ created: true, priority: 'medium' });
+      expect(await send(ctx, 'p-2', 'urgent')).toMatchObject({ created: false, priority: 'urgent' });
+      expect(await send(ctx, 'p-2', 'high')).toMatchObject({ priority: 'urgent' });
+    });
+
+    it('an equal priority is left alone and a missing one counts as the lowest', async () => {
+      const ctx = makeActionContext({ db });
+      const none = (await handleCreateConversation({ message: 'no priority', externalId: 'p-3' }, ctx)) as Result;
+      expect(none.priority).toBeNull();
+      expect(await send(ctx, 'p-3', 'low')).toMatchObject({ created: false, priority: 'low' });
+      expect(await send(ctx, 'p-3', 'low')).toMatchObject({ priority: 'low' });
+    });
+
+    it('the run that closes the ticket does not change its priority', async () => {
+      const ctx = makeActionContext({ db });
+      await send(ctx, 'p-4', 'urgent');
+      expect(await send(ctx, 'p-4', 'medium', 'closed')).toMatchObject({ state: 'closed', priority: 'urgent' });
+      await send(ctx, 'p-5', 'low');
+      expect(await send(ctx, 'p-5', 'urgent', 'closed')).toMatchObject({ state: 'closed', priority: 'low' });
+    });
+
+    it('a reopened ticket is a new episode and takes the incoming priority', async () => {
+      const ctx = makeActionContext({ db });
+      await send(ctx, 'p-6', 'urgent');
+      await send(ctx, 'p-6', 'medium', 'closed');
+      expect(await send(ctx, 'p-6', 'medium')).toMatchObject({ created: false, state: 'open', priority: 'medium' });
+    });
+
+    it('a step without an external id or priority is untouched by the rule', async () => {
+      const ctx = makeActionContext({ db });
+      const a = (await handleCreateConversation({ message: 'x', priority: 'low' }, ctx)) as Result;
+      const b = (await handleCreateConversation({ message: 'y', priority: 'urgent' }, ctx)) as Result;
+      expect([a.priority, b.priority]).toEqual(['low', 'urgent']);
+    });
+  });
+
   it('opens, updates and closes a ticket from parse_alert output as the template wires it', async () => {
     const ctx = makeActionContext({ db });
     const grafana = {

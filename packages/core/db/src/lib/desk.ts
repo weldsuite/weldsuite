@@ -1521,6 +1521,8 @@ export interface IngestDeskApiInput {
   name?: string | null;
   email?: string | null;
   contactId?: string | null;
+  /** Files the first message carries (WeldForms uploads), already stored where the inbox can open them. */
+  attachments?: DeskMessageAttachment[];
   metadata?: DeskMessageMetadata;
 }
 
@@ -1564,6 +1566,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       authorType: 'visitor',
       authorId: visitorId,
       body: input.body,
+      attachments: input.attachments,
       metadata,
     });
     const { state, waitingSince, assigneeId } = conversation;
@@ -1585,6 +1588,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       contactId: input.contactId ?? null,
       title: input.title?.trim() || null,
       body: input.body,
+      attachments: input.attachments,
       authorType: 'visitor',
       authorId: visitorId,
       metadata,

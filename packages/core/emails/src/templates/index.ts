@@ -24,6 +24,12 @@ import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
 import reachAccessApproved from './reach/access-approved';
 import reachAccessRejected from './reach/access-rejected';
+import formsCode from './forms/code';
+import formsDigest from './forms/digest';
+import formsInvite from './forms/invite';
+import formsQuota from './forms/quota';
+import formsReceipt from './forms/receipt';
+import formsResponse from './forms/response';
 import signCode from './sign/code';
 import signCompleted from './sign/completed';
 import signDeclined from './sign/declined';
@@ -55,6 +61,12 @@ export const templates = {
   'internal.outbound-abuse-alert': outboundAbuseAlert,
   'reach.access-approved': reachAccessApproved,
   'reach.access-rejected': reachAccessRejected,
+  'forms.code': formsCode,
+  'forms.invite': formsInvite,
+  'forms.receipt': formsReceipt,
+  'forms.response': formsResponse,
+  'forms.digest': formsDigest,
+  'forms.quota': formsQuota,
   'sign.request': signRequest,
   'sign.code': signCode,
   'sign.completed': signCompleted,
@@ -94,6 +106,12 @@ export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';
 export type { ReachAccessApprovedEmailProps } from './reach/access-approved';
 export type { ReachAccessRejectedEmailProps } from './reach/access-rejected';
+export type { FormsCodeEmailProps } from './forms/code';
+export type { FormsDigestEmailProps } from './forms/digest';
+export type { FormsInviteEmailProps } from './forms/invite';
+export type { FormsQuotaEmailProps } from './forms/quota';
+export type { FormsReceiptEmailProps } from './forms/receipt';
+export type { FormsResponseEmailProps } from './forms/response';
 export type { SignCodeEmailProps } from './sign/code';
 export type { SignCompletedEmailProps } from './sign/completed';
 export type { SignDeclinedEmailProps } from './sign/declined';

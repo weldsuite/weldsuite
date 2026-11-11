@@ -9,6 +9,8 @@
 //! keyring (`token_encrypted`, as `encryptField` seals it, so either backend
 //! opens what the other stored), never selected back out by these routes,
 //! never put in an entity event or a log. Rows carry `hasToken` instead.
+//! Entity events carry less still (`event_data`): the audit log they end
+//! up in is open to `general:read`.
 //!
 //! Delivery itself runs in the audit subscriber
 //! (`weldsuite_subscribers::audit_streams`); these routes only manage the
@@ -214,6 +216,23 @@ async fn view_of(caller: &Caller, id: &str) -> PlatformResult<Option<Value>> {
         .await?)
 }
 
+/// What an entity event carries about a stream, on create, update and
+/// delete alike (`toEventData`): which stream, and nothing a member may not
+/// read. The audit log stores event data and `GET /api/audit-logs` shows it
+/// to everyone with `general:read`, while these routes need
+/// `general:update`: no `url` (it can carry a secret), no `settings`, no
+/// `lastError` (it can quote what the destination answered), no cursor and
+/// no counters.
+fn event_data(view: &Value) -> Value {
+    json!({
+        "id": view["id"],
+        "name": view["name"],
+        "type": view["type"],
+        "status": view["status"],
+        "hasToken": view["hasToken"],
+    })
+}
+
 // ── bodies ──────────────────────────────────────────────────────────────────
 
 /// An HTTP header name: letters, digits and hyphens (`headerName`).
@@ -385,7 +404,7 @@ async fn create(
                 .bind(&caller.user_id)
                 .fetch_one(&caller.db)
                 .await?;
-            caller.publish(&state, AUDIT_LOG_STREAM_CREATED, &id, &view);
+            caller.publish(&state, AUDIT_LOG_STREAM_CREATED, &id, &event_data(&view));
             Ok(Created(view).into_response())
         }
         .await,
@@ -434,7 +453,7 @@ async fn update(
                 .bind(resumed)
                 .fetch_one(&caller.db)
                 .await?;
-            caller.publish(&state, AUDIT_LOG_STREAM_UPDATED, &id, &view);
+            caller.publish(&state, AUDIT_LOG_STREAM_UPDATED, &id, &event_data(&view));
             Ok(Data(view).into_response())
         }
         .await,
@@ -456,7 +475,12 @@ async fn remove(
                 .bind(&id)
                 .execute(&caller.db)
                 .await?;
-            caller.publish(&state, AUDIT_LOG_STREAM_DELETED, &id, &existing);
+            caller.publish(
+                &state,
+                AUDIT_LOG_STREAM_DELETED,
+                &id,
+                &event_data(&existing),
+            );
             Ok(NoContent.into_response())
         }
         .await,
@@ -676,5 +700,50 @@ mod tests {
             assert_eq!(view.matches("token_encrypted").count(), 1, "{statement}");
         }
         assert!(LIST.ends_with("order by s.created_at asc, s.id asc"));
+    }
+
+    #[test]
+    fn an_event_names_the_stream_and_nothing_a_member_may_not_read() {
+        let view = json!({
+            "id": "als_1",
+            "name": "Splunk prod",
+            "type": "splunk_hec",
+            "url": "https://splunk.example.com:8088/services/collector/event?key=in-the-url",
+            "hasToken": true,
+            "settings": { "index": "secret-index" },
+            "status": "paused",
+            "cursorCreatedAt": "2026-11-01T10:00:00.000Z",
+            "lastDeliveredAt": null,
+            "lastAttemptAt": "2026-11-01T10:05:00.000Z",
+            "lastError": "HTTP 403: collector-said-no",
+            "consecutiveFailures": 3,
+            "deliveredCount": 12,
+            "createdById": "user_1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T10:05:00.000Z",
+        });
+        let data = event_data(&view);
+        assert_eq!(
+            data,
+            json!({
+                "id": "als_1", "name": "Splunk prod", "type": "splunk_hec",
+                "status": "paused", "hasToken": true,
+            })
+        );
+        let text = data.to_string();
+        for hidden in [
+            "url",
+            "https://",
+            "in-the-url",
+            "settings",
+            "secret-index",
+            "lastError",
+            "collector-said-no",
+            "cursor",
+            "deliveredCount",
+            "consecutiveFailures",
+        ] {
+            assert!(!text.contains(hidden), "{hidden}");
+        }
     }
 }

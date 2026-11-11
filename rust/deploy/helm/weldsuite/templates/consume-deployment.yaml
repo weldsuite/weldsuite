@@ -95,8 +95,7 @@ spec:
             {{- include "weldsuite.mailInbound.consumeEnv" . | nindent 12 }}
             {{- end }}
           envFrom:
-            - secretRef:
-                name: {{ include "weldsuite.secretName" . }}
+            {{- include "weldsuite.envFrom" . | nindent 12 }}
           startupProbe:
             {{- toYaml .Values.consume.probes.startup | nindent 12 }}
           livenessProbe:

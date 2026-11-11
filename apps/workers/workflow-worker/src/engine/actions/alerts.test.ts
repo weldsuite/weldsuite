@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { makeActionContext } from '../../test/ctx';
-import { handleParseAlert, parseAlert, severityToPriority } from './alerts';
+import { fitExternalId, handleParseAlert, parseAlert, severityToPriority } from './alerts';
 
 const GRAFANA_FIRING = {
   receiver: 'weldsuite',
@@ -90,7 +90,7 @@ describe('parseAlert: Datadog', () => {
     expect(parseAlert(DATADOG)).toEqual({
       success: true,
       source: 'datadog',
-      externalId: 'datadog:7771',
+      externalId: 'datadog:abcdef',
       title: 'Disk space is low on db-1',
       message: 'Disk usage is above 90% on db-1\n\nhttps://app.datadoghq.com/monitors/7771',
       severity: 'P1',
@@ -119,6 +119,56 @@ describe('parseAlert: Datadog', () => {
       externalId: 'datadog:abcdef',
       severity: 'warning',
       priority: 'medium',
+    });
+  });
+
+  describe('external id', () => {
+    const MULTI = { alert_id: '7771', alert_transition: 'Triggered', alert_title: 'CPU high' };
+    const idOf = (payload: Record<string, unknown>) => {
+      const parsed = parseAlert(payload);
+      if (!parsed.success) throw new Error(parsed.error);
+      return parsed.externalId;
+    };
+
+    it('prefers aggreg_key, which Datadog sets per group', () => {
+      expect(idOf({ ...MULTI, aggreg_key: 'g1', alert_scope: 'host:a' })).toBe('datadog:g1');
+    });
+
+    it('gives each group of a multi-alert monitor its own id', () => {
+      const a = idOf({ ...MULTI, alert_scope: 'host:a' });
+      const b = idOf({ ...MULTI, alert_scope: 'host:b' });
+      expect(a).toBe('datadog:7771:host:a');
+      expect(b).not.toBe(a);
+    });
+
+    it('keeps a firing and its recovery on one id, whatever the order of the scope tags', () => {
+      const firing = idOf({ ...MULTI, alert_scope: 'host:a,env:prod' });
+      const recovered = idOf({ ...MULTI, alert_transition: 'Recovered', alert_type: 'success', alert_scope: ' env:prod, host:a' });
+      expect(recovered).toBe(firing);
+      expect(firing).toBe('datadog:7771:env:prod,host:a');
+    });
+
+    it('reads the group from scope when alert_scope is absent', () => {
+      expect(idOf({ ...MULTI, scope: 'host:a' })).toBe('datadog:7771:host:a');
+      expect(idOf({ ...MULTI, alert_scope: 'host:a', scope: 'host:b' })).toBe('datadog:7771:host:a');
+    });
+
+    it('falls back to alert_id alone, then id', () => {
+      expect(idOf(MULTI)).toBe('datadog:7771');
+      expect(idOf({ id: '900', alert_transition: 'Triggered', alert_scope: 'host:a' })).toBe('datadog:900');
+    });
+
+    it('ignores tags, which are too noisy to key on', () => {
+      expect(idOf({ ...MULTI, tags: 'host:a,env:prod' })).toBe('datadog:7771');
+    });
+
+    it('stays within the 255 characters the column takes, deterministically and distinctly', () => {
+      const long = (suffix: string) => idOf({ ...MULTI, alert_scope: `host:${'x'.repeat(400)}${suffix}` });
+      const a = long('a');
+      expect(Array.from(a)).toHaveLength(255);
+      expect(long('a')).toBe(a);
+      expect(long('b')).not.toBe(a);
+      expect(a.startsWith('datadog:7771:host:xxx')).toBe(true);
     });
   });
 
@@ -197,7 +247,7 @@ describe('parseAlert: detection and generic payloads', () => {
   });
 
   it('accepts a JSON string payload', () => {
-    expect(parseAlert(JSON.stringify(DATADOG))).toMatchObject({ source: 'datadog', externalId: 'datadog:7771' });
+    expect(parseAlert(JSON.stringify(DATADOG))).toMatchObject({ source: 'datadog', externalId: 'datadog:abcdef' });
   });
 });
 
@@ -210,6 +260,18 @@ describe('parseAlert: input that is not an alert', () => {
       expect(result).toHaveProperty('error');
     },
   );
+});
+
+describe('fitExternalId', () => {
+  it('leaves a key of up to 255 characters alone', () => {
+    expect(fitExternalId('a'.repeat(255))).toBe('a'.repeat(255));
+  });
+
+  it('cuts by characters, not bytes, and ends in a hash of the whole key', () => {
+    const fitted = fitExternalId('é'.repeat(300));
+    expect(Array.from(fitted)).toHaveLength(255);
+    expect(fitted).toMatch(/^é{246}~[0-9a-f]{8}$/);
+  });
 });
 
 describe('severityToPriority', () => {

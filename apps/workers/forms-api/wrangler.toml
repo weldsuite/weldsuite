@@ -1,0 +1,338 @@
+# WeldSuite forms-api worker — the forms module's API (WeldForms).
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   forms-api.weldsuite.org        production
+#   forms-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules. `/public/forms/*`
+# is called only by apps/web/forms-portal, which proves itself with
+# FORMS_PORTAL_SECRET (X-Forms-Portal-Key, ADR FORMS-002).
+#
+# Secrets (scripts/secrets/manifest.ts → "forms-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY,
+#   FORMS_PORTAL_SECRET   the portal's key on /public/forms/* (same value on forms-portal)
+#   FORMS_SESSION_SECRET  signs respondent sessions, verification tokens and the
+#                         stored hash of emailed codes; rotating it signs every
+#                         respondent out and voids codes still open
+#   TURNSTILE_SECRET_KEY  Cloudflare Turnstile siteverify (BOT_CHECK_PROVIDER=turnstile)
+#   ALTCHA_HMAC_KEY       ALTCHA proof-of-work challenges (BOT_CHECK_PROVIDER=altcha)
+#   AI_GATEWAY_API_TOKEN, CLOUDFLARE_API_TOKEN   @weldsuite/ai (generate a form, summarise answers)
+#
+# Bindings beyond the kit: PRIVATE_STORAGE (respondent uploads and signatures),
+# STORAGE (images authors put on questions and themes, public), SEND_EMAIL and
+# the outbound guard (verification codes, invitations), FORM_COUNTERS (views,
+# rate-limit windows and code attempts, one Durable Object per form),
+# PROCESS_RESPONSE (the Workflow every completed response starts) and
+# SCHEDULE_INDEX (the reminder / digest sweeps' due index, filled in later).
+#
+# OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's Durable Objects bound by
+# name; OUTBOUND_BACKSTOP is the shared burst limit.
+
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-forms-api-dev"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+# No "react" alias (unlike most API workers): the forms.code email renders a
+# real React Email template through @weldsuite/emails, which needs react.
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+# Links in emails and the members-only redirect point here.
+FORMS_PORTAL_URL = "http://localhost:3025"
+PLATFORM_URL = "http://localhost:3000"
+# Dev has no Turnstile keys; the bot check is off. Test and production use Turnstile.
+BOT_CHECK_PROVIDER = "none"
+TURNSTILE_SITE_KEY = ""
+EMAIL_TRANSPORT = "cloudflare"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# The AI features (@weldsuite/ai): the Cloudflare account its gateway runs in. Without the token secrets they answer 503 ai_unavailable.
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# Respondent uploads and signatures live only in the private bucket (EVT-015).
+# Dev uses the TEST buckets: `wrangler dev` must never read or write customer
+# files. R2 bindings are NOT inherited by [env.*].
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+# The public bucket: images and videos the author puts on questions and themes,
+# because respondents see them.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[send_email]]
+name = "SEND_EMAIL"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-dev"
+
+# Views per day, rate-limit windows and wrong-code counts, one per form
+# (src/durable-objects/form-counters.ts). A Durable Object, not KV, so the
+# 5-try lock and the rate limits are atomic.
+[[durable_objects.bindings]]
+name = "FORM_COUNTERS"
+class_name = "FormCounters"
+
+[[migrations]]
+tag = "form-counters-v1"
+new_sqlite_classes = ["FormCounters"]
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Runs the steps after a response was submitted (integrations, notifications,
+# receipt), one idempotent step each (src/workflows/process-response.ts).
+[[workflows]]
+name = "weldsuite-forms-process-response-dev"
+binding = "PROCESS_RESPONSE"
+class_name = "ProcessResponseWorkflow"
+
+# Due index (kinds `forms_reminders`, `forms_digest`): which workspaces have an
+# invitation reminder or a digest coming due, so the sweeps never open idle
+# tenant DBs (DATA-008). Migrations: workflow-worker. Dev uses the test index.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Reminder and digest sweeps (a later wave fills src/cron/). A quiet tick reads
+# only the D1 due index, so every environment runs it.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-forms-api-test"
+routes = [
+  { pattern = "forms-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+FORMS_PORTAL_URL = "https://forms-test.weldsuite.org"
+PLATFORM_URL = "https://app-test.weldsuite.org"
+BOT_CHECK_PROVIDER = "turnstile"
+TURNSTILE_SITE_KEY = ""
+EMAIL_TRANSPORT = "cloudflare"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "FORM_COUNTERS"
+class_name = "FormCounters"
+
+[[env.test.migrations]]
+tag = "form-counters-v1"
+new_sqlite_classes = ["FormCounters"]
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[env.test.workflows]]
+name = "weldsuite-forms-process-response-test"
+binding = "PROCESS_RESPONSE"
+class_name = "ProcessResponseWorkflow"
+
+# Notification email defer window (instant response mails to subscribers): class hosted in app-api.
+# Cross-script in test/production only; locally @weldsuite/notifications sends without the defer window.
+[[env.test.workflows]]
+name = "deferred-notification-email-test"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api-test"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Reminder and digest sweeps (see [triggers] above).
+[env.test.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-forms-api"
+routes = [
+  { pattern = "forms-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+FORMS_PORTAL_URL = "https://forms.weldsuite.org"
+PLATFORM_URL = "https://app.weldsuite.org"
+BOT_CHECK_PROVIDER = "turnstile"
+TURNSTILE_SITE_KEY = ""
+EMAIL_TRANSPORT = "cloudflare"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "FORM_COUNTERS"
+class_name = "FormCounters"
+
+[[env.production.migrations]]
+tag = "form-counters-v1"
+new_sqlite_classes = ["FormCounters"]
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[env.production.workflows]]
+name = "weldsuite-forms-process-response"
+binding = "PROCESS_RESPONSE"
+class_name = "ProcessResponseWorkflow"
+
+# Notification email defer window (see the test block above).
+[[env.production.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+script_name = "weldsuite-app-api"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+# Reminder and digest sweeps (see [triggers] above).
+[env.production.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

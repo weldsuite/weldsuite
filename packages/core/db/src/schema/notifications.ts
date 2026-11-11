@@ -22,6 +22,7 @@ export type NotificationCategory =
   | 'weldbooks'
   | 'weldsheets'
   | 'weldhr'
+  | 'weldforms'
   | 'system'
   | 'security';
 
@@ -73,6 +74,8 @@ export type NotificationType =
   | 'nexus_exceeded'
   // WeldHR
   | 'hr_announcement'
+  // WeldForms (a response to a form the member follows)
+  | 'form_response'
   | 'custom';
 
 export const notifications = pgTable('notifications', {

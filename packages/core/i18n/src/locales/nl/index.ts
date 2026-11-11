@@ -44,6 +44,8 @@ import { sheetData } from './sheet-data';
 import { weldsign } from './weldsign';
 import { weldpanel } from './weldpanel';
 import { weldmerge } from './weldmerge';
+import { weldforms } from './weldforms';
+import { weldformsResults } from './weldforms-results';
 import { welddocs } from './welddocs';
 import { weldboard } from './weldboard';
 import { weldhr } from './weldhr';
@@ -78,6 +80,7 @@ import { flowFinance } from './flow-finance';
 import { flowClosing } from './flow-closing';
 import { flowPortfolio } from './flow-portfolio';
 import { projectPortal } from './project-portal';
+import { formsPortal } from './forms-portal';
 
 export const nl = {
   common,
@@ -125,6 +128,8 @@ export const nl = {
   weldsign,
   weldpanel,
   weldmerge,
+  weldforms,
+  weldformsResults,
   welddocs,
   weldboard,
   weldhr,
@@ -158,4 +163,5 @@ export const nl = {
   flowClosing,
   flowPortfolio,
   projectPortal,
+  formsPortal,
 };

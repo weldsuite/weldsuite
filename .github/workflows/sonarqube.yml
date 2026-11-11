@@ -1,0 +1,70 @@
+name: SonarQube
+
+# SonarQube Cloud (sonarcloud.io) on every pull request: the full Sonar
+# analysis (quality profile, security hotspots, duplication, quality gate),
+# decorated on the PR. Project settings: sonar-project.properties.
+#
+# Only the files the PR changes are analysed. scripts/sonar-changed.mjs works
+# them out from the PR diff and writes a copy of the settings narrowed to them;
+# the scan reads that copy. Analysing the whole monorepo on every PR took 20+
+# minutes and ran out of memory on this runner (ADR OPS-010), and a PR's issues
+# land only on the lines it changes anyway. Branches are not scanned.
+#
+# The job fails when the quality gate fails (sonar.qualitygate.wait). It only
+# blocks merging once "SonarQube" is a required status check in branch
+# protection.
+#
+# Setup this depends on (in SonarQube Cloud, organization "weldsuite"):
+#   - Project weldsuite_weldsuite, with Automatic Analysis turned OFF
+#     (Administration → Analysis Method); CI analysis is rejected otherwise.
+#   - The SONAR_TOKEN repository secret.
+#   - Quality gate: without imported coverage, drop any "Coverage on New Code"
+#     condition from the gate this project uses.
+
+on:
+  pull_request:
+
+concurrency:
+  group: sonarqube-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonarqube:
+    name: SonarQube
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Forked PRs cannot read SONAR_TOKEN.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sonar works out a PR's changed lines from git, against the target
+          # branch, so it needs history and that branch's ref.
+          fetch-depth: 0
+
+      # node_modules give TypeScript the types the changed files import.
+      - uses: ./.github/actions/setup-monorepo
+
+      # A PR checks out its merge commit; its first parent is the target
+      # branch tip, so HEAD^1..HEAD is exactly what the PR changes.
+      - name: Changed files
+        id: changed
+        run: node scripts/sonar-changed.mjs HEAD^1
+
+      - name: SonarQube Scan
+        if: steps.changed.outputs.files != '0'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # The JVM shares the runner with the JS/TS bridge
+          # (sonar.javascript.node.maxspace); keep it capped.
+          SONAR_SCANNER_JAVA_OPTS: -Xmx4g
+        with:
+          args: >
+            -Dproject.settings=${{ steps.changed.outputs.settings }}
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=600

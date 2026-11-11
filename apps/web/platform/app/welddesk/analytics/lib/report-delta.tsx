@@ -18,6 +18,12 @@ export function bucketDateLabel(date: string, bucket: 'day' | 'week' | 'month'):
   return day.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+/** The colour of a change: muted when it is neither good nor bad, else green or red. */
+function deltaColour(neutral: boolean, good: boolean): string {
+  if (neutral) return 'text-muted-foreground';
+  return good ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive';
+}
+
 /**
  * The relative change of `value` against `previous`, coloured by whether it is
  * good: fewer missed calls is good. `neutral` leaves the colour out for a
@@ -44,12 +50,7 @@ export function ReportDelta({
   const Icon = up ? ArrowUp : ArrowDown;
   return (
     <span className="inline-flex items-center gap-1">
-      <span
-        className={cn(
-          'inline-flex items-center',
-          neutral ? 'text-muted-foreground' : good ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
-        )}
-      >
+      <span className={cn('inline-flex items-center', deltaColour(neutral, good))}>
         <Icon className="h-3 w-3" aria-hidden />
         {Math.abs(change)}%
       </span>

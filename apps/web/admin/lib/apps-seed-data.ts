@@ -835,6 +835,42 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     isPublished: false,
   },
   {
+    code: 'weldforms',
+    name: 'WeldForms',
+    description: 'Forms and surveys with branching logic, quizzes and themes. Share a link, embed it or email it, and send the answers on to your CRM.',
+    icon: 'ClipboardList',
+    category: 'Productivity',
+    path: '/weldforms',
+    overview:
+      'WeldForms builds forms and surveys that feel like a conversation, or a classic page when you prefer. Add questions, branch on answers, keep a score for quizzes and assessments, and pick a theme that matches your brand. Share the form by link or QR code, embed it on your website or email it to people with a personal link each. Answers arrive with summaries and drop-off numbers, and flow on into WeldCRM, WeldDesk and WeldFlow.',
+    features: [
+      'Conversational and classic layouts, chosen per form',
+      'Branching logic, variables, calculations and score-based endings',
+      'Themes with fonts, colours, background and logo',
+      'Share by link, QR code, embed or personal email invitations with reminders',
+      'Anyone, verified email or workspace members only as respondents',
+      'Summaries per question, drop-off and completion insights',
+      'Send answers to WeldCRM, WeldDesk and WeldFlow, or export to CSV and XLSX',
+    ],
+    howItWorks: [
+      { title: 'Build the form', description: 'Start blank, from a template or describe it to the AI.' },
+      { title: 'Add logic and style', description: 'Branch on answers, keep a score and pick a theme.' },
+      { title: 'Share it', description: 'Send the link, embed it or invite people by email.' },
+      { title: 'Read the results', description: 'See summaries, drop-off and every response, and route them on.' },
+    ],
+    sortOrder: 170,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-11-09',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    // Not installable from the App Store until forms work end to end
+    // (docs/plans/weldforms.md); staff publish the row then.
+    isPublished: false,
+  },
+  {
     code: 'weldhr',
     name: 'WeldHR',
     description: 'Run your people operations, with My HR for every employee.',
