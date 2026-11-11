@@ -30,7 +30,7 @@ BEGIN;
 
 -- 0) What is there now, for the record.
 SELECT slug, name, price_per_user, included_users, max_users, is_default, is_active, deleted_at
-  FROM plans ORDER BY sort_order;
+  FROM plans ORDER BY sort_order ASC;
 
 -- 1) Free: 2 members, the plan new workspaces land on. An existing row keeps
 --    its name, description and prices; only the seats change, and it is
@@ -65,7 +65,7 @@ WHERE plan_id IS NULL
 
 -- 3) Verify before COMMIT.
 SELECT slug, name, included_users, max_users, is_default, is_active
-  FROM plans WHERE deleted_at IS NULL ORDER BY sort_order;
+  FROM plans WHERE deleted_at IS NULL ORDER BY sort_order ASC;
 
 -- Expect 0.
 SELECT count(*) AS without_plan FROM workspaces
