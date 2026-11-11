@@ -2069,6 +2069,7 @@ export const settings = {
         addPlaceholder: 'example.com',
         add: 'Add domain',
         invalidDomain: 'Enter a domain name such as example.com',
+        weldmailDomain: 'WeldMail\'s own domains can\'t be added here. Add a domain you own.',
         statusVerified: 'Verified',
         statusPending: 'Waiting for DNS',
         recordsHint:

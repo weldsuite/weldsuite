@@ -2065,6 +2065,7 @@ export const settings = {
         addPlaceholder: 'voorbeeld.nl',
         add: 'Domein toevoegen',
         invalidDomain: 'Voer een domeinnaam in, zoals voorbeeld.nl',
+        weldmailDomain: 'De eigen domeinen van WeldMail kunnen hier niet worden toegevoegd. Voeg een domein toe dat u bezit.',
         statusVerified: 'Geverifieerd',
         statusPending: 'Wacht op DNS',
         recordsHint:

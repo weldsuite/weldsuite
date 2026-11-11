@@ -15,6 +15,10 @@
 //! ([`ensure_provisioned`]). Removing a domain deregisters it at the MTA only
 //! when the workspace proved it and no other workspace has addresses on it.
 //!
+//! WeldMail's own domains (`weldmail.com`, `weldmail.org` and their
+//! subdomains) are Global's: they are refused here, as a custom domain and for
+//! a mailbox, so the MTA never registers one ([`weldmail_domain_refused`]).
+//!
 //! Without an adapter (`MAIL_MX_HOST` unset, so `/config.json` lists
 //! `mail-domains` as unavailable) the reads, the catch-all settings and
 //! removing a domain still work; adding, verifying and syncing one answer
@@ -236,6 +240,17 @@ fn provider_error(code: &'static str, message: String, error: &DomainError) -> M
     MailError::api(ApiError::new(status, code, message).with_details(error.to_string()))
 }
 
+/// WeldMail's own domains (`weldmail.com`, `weldmail.org` and their
+/// workspace subdomains) belong to Global: their MX, DKIM and reputation are
+/// Global's, and free addresses are off on Kubernetes (MAIL-010). Neither a
+/// custom domain nor a mailbox goes on one here, and the MTA never registers
+/// one.
+fn weldmail_domain_refused(domain: &str) -> MailError {
+    MailError::bad_request(format!(
+        "{domain} is a WeldMail domain. Add a domain you own instead."
+    ))
+}
+
 /// `ensureManagedDomain` with an adapter: a mailbox goes on a verified mail
 /// domain, or on an active WeldHost domain of the workspace (WeldHost proved
 /// ownership), which is then registered with the adapter.
@@ -245,6 +260,9 @@ pub(crate) async fn ensure_provisioned(
     domain: &str,
     at: &str,
 ) -> MailResult<()> {
+    if is_shared_weldmail_domain(domain) {
+        return Err(weldmail_domain_refused(domain));
+    }
     let row: Option<(String, Option<String>)> = sqlx::query_as(
         "select id, dns_status::text from mail_domains
          where domain_name = $1 and deleted_at is null limit 1",
@@ -671,6 +689,9 @@ async fn create(
     };
     let result = async {
         let domain = domain.trim().to_lowercase();
+        if is_shared_weldmail_domain(&domain) {
+            return Err(weldmail_domain_refused(&domain));
+        }
         let existing: Option<String> = sqlx::query_scalar(
             "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",
         )
@@ -1152,6 +1173,48 @@ mod db_tests {
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
+    }
+
+    /// WeldMail's own domains are refused before any query or MTA call, so a
+    /// pool that never connects is enough.
+    #[tokio::test]
+    async fn weldmail_domains_stay_with_global() {
+        let offline =
+            weldsuite_db::master_pool("postgres://nobody@127.0.0.1:1/none", 1).expect("lazy pool");
+        let fake = Arc::new(FakeDomains::default());
+        let state = MailState {
+            events: EntityEventPublisher::new(None, TaskTracker::new()),
+            master: None,
+            cache: None,
+            outbound: OutboundBindings::default(),
+            files: None,
+            jobs: None,
+            system_mail: None,
+            http: None,
+            doh: None,
+            domains: Some(fake.clone()),
+            workspace_tenants: None,
+            env: Arc::new(HashMap::new()),
+        };
+        for name in ["weldmail.com", "acme.weldmail.com", "Acme.WeldMail.org"] {
+            let body = Bytes::from(json!({ "domainName": name }).to_string());
+            let (status, body) =
+                read(create(State(state.clone()), caller(&offline), json_headers(), body).await)
+                    .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{name}: {body}");
+            assert!(
+                body["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("is a WeldMail domain")),
+                "{body}"
+            );
+            let refused = ensure_provisioned(&caller(&offline), fake.as_ref(), name, &now())
+                .await
+                .expect_err("a WeldMail domain");
+            assert_eq!(refused.respond("").status(), StatusCode::BAD_REQUEST);
+        }
+        // `weldmail.company` is someone else's domain, not WeldMail's.
+        assert!(!is_shared_weldmail_domain("weldmail.company"));
     }
 
     async fn clean(master: &PgPool, tenant: &PgPool) {

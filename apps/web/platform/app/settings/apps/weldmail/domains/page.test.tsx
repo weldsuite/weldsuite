@@ -145,6 +145,12 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
     await waitFor(() => expect(state.toast.error).toHaveBeenCalledWith(td.invalidDomain));
     expect(state.create).not.toHaveBeenCalled();
 
+    // WeldMail's own domains stay with Global.
+    fireEvent.change(input, { target: { value: 'acme.weldmail.com' } });
+    fireEvent.click(screen.getByRole('button', { name: td.add }));
+    await waitFor(() => expect(state.toast.error).toHaveBeenCalledWith(td.weldmailDomain));
+    expect(state.create).not.toHaveBeenCalled();
+
     fireEvent.change(input, { target: { value: ' Acme.NL ' } });
     fireEvent.click(screen.getByRole('button', { name: td.add }));
     await waitFor(() => expect(state.create).toHaveBeenCalledWith('acme.nl'));

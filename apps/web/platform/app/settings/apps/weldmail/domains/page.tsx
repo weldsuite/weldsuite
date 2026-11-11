@@ -162,6 +162,11 @@ function AddDomainForm({ labels }: Readonly<{ labels: DomainLabels }>) {
       toast.error(labels.invalidDomain);
       return;
     }
+    // WeldMail's own domains stay with Global; the backend refuses them too.
+    if (isSharedWeldMailDomain(name)) {
+      toast.error(labels.weldmailDomain);
+      return;
+    }
     try {
       await createDomain.mutateAsync(name);
       setDomainName('');
