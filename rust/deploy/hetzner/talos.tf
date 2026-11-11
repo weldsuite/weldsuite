@@ -48,6 +48,7 @@ data "talos_machine_configuration" "node" {
     ] : [],
     each.value.pool == "postgres" ? [file("${path.module}/talos/postgres.yaml")] : [],
     each.value.mail != "" ? [file("${path.module}/talos/mail.yaml")] : [],
+    each.value.pool == "mail" ? [file("${path.module}/talos/mail-dedicated.yaml")] : [],
   )
 }
 

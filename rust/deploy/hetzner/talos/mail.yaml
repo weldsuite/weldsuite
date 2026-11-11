@@ -1,17 +1,9 @@
-# The mail nodes (mail.tf): only the MTA (`weldsuite mta`, the chart's mta
-# DaemonSets, which tolerate the taint) runs here, so nothing else sends
-# from the pool's addresses.
-#
-# The MTA's bounce MX listens on port 25 of the host network as a non-root
-# user. containerd hands a non-root process no ambient capabilities, so the
+# Every node that sends a pool's mail (mail.tf, mail_pool_nodes): the MTA's
+# bounce MX listens on port 25 of the host network as a non-root user.
+# containerd hands a non-root process no ambient capabilities, so the
 # NET_BIND_SERVICE the chart adds doesn't survive the exec; instead ports
 # from 25 up are unprivileged in the host's network namespace here (pods with
 # their own network namespace keep the default 1024).
 machine:
   sysctls:
     net.ipv4.ip_unprivileged_port_start: "25"
----
-apiVersion: v1alpha1
-kind: KubeNodeConfig
-taints:
-  weldsuite.org/mail: "true:NoSchedule"

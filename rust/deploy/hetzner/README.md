@@ -627,6 +627,33 @@ The MTA's EHLO is that PTR name. More nodes for a pool (`count`) is another
 `tofu apply`; the chart's DaemonSet starts on them, and their addresses join
 `_spf.<domain>` (`tofu output mail_dns_records` again) **before** they send.
 
+**Or on nodes the cluster already has.** `mail_pool_nodes` puts a pool on an
+existing node instead of a server of its own (`{ system = "worker-1",
+customer = "worker-2" }`): the node sends from its own IPv4, which gets the
+PTR `mail1-<pool>.<domain>`, and gets the mail firewall and the
+`weldsuite.org/mail-pool` label, but not the taint, so its other workloads
+stay. Only nodes without a taint qualify, as the MTA's DaemonSet tolerates
+the mail taint alone: general workers, or control-plane nodes on a cluster
+without general workers (`worker_count = 0`, where they take the workloads
+and have no taint), never the Postgres nodes. A plan with a tainted node
+stops with an error. No extra server or address; the costs are that the pool's address is
+the node's (a replaced node comes back with a new address and warms up
+again) and that everything else on the node leaves through it too. The
+node's machine config gains the label and the port 25 setting; on a running
+node apply them with `talosctl patch machineconfig` (OpenTofu ignores
+`user_data` after creation):
+
+```yaml
+machine:
+  sysctls:
+    net.ipv4.ip_unprivileged_port_start: "25"
+---
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+labels:
+  weldsuite.org/mail-pool: system
+```
+
 ### 3. DNS
 
 With `<domain>` the EU domain, `bounces.<domain>` the bounce domain

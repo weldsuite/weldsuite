@@ -44,7 +44,14 @@ locals {
       mail     = ""
     }
   }
-  nodes = merge(local.control_planes, local.workers, local.postgres)
+  # A node that also sends a pool's mail (mail_pool_nodes) carries the pool
+  # in `mail`: the mail-pool label, the port 25 setting and the mail firewall
+  # follow from it, as on a dedicated mail node, without the taint.
+  shared_mail = { for pool, node in var.mail_pool_nodes : node => pool }
+  nodes = {
+    for key, node in merge(local.control_planes, local.workers, local.postgres) :
+    key => merge(node, { mail = lookup(local.shared_mail, key, node.mail) })
+  }
   # Every node with a machine config: these and the mail nodes (mail.tf),
   # which are servers of their own.
   all_nodes = merge(local.nodes, local.mail_nodes)
@@ -61,6 +68,7 @@ resource "hcloud_server" "node" {
   firewall_ids = concat(
     [hcloud_firewall.nodes.id],
     each.value.livekit ? [hcloud_firewall.livekit.id] : [],
+    each.value.mail != "" ? [hcloud_firewall.mail[0].id] : [],
   )
   # Talos reads its machine config from the Hetzner metadata service.
   user_data = data.talos_machine_configuration.node[each.key].machine_configuration
