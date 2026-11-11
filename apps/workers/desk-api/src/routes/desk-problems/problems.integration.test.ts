@@ -10,6 +10,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -218,7 +219,14 @@ describe('POST /api/desk/problems', () => {
       incidentCount: 0,
     });
     expect(data.messages).toEqual([]);
-    expect(eventsOf('desk_problem', 'created').at(-1)).toMatchObject({ entityId: data.problem.id });
+    const created = eventsOf('desk_problem', 'created').at(-1);
+    expect(created).toMatchObject({
+      // In conformance mode the event kept here is the TypeScript run's, about the row that
+      // run created (the answer is Rust's, with Rust's new id); the harness compares the two.
+      entityId: conformanceTarget() ? expect.any(String) : data.problem.id,
+      data: { problemNumber: 6, title: 'Emails arrive late' },
+    });
+    expect(created!.entityId).toBe((created!.data as { id: string }).id);
   });
 
   it('links the given incidents with an internal event on each', async () => {
@@ -444,7 +452,13 @@ describe('POST /api/desk/problems/:id/article', () => {
     expect(article?.content).toBe(
       '<h2>Symptoms</h2><p>The pay button does nothing</p><h2>Cause</h2><p>Gateway timeout</p><h2>Workaround</h2><p>Use PayPal</p>',
     );
-    expect(eventsOf('helpdesk_article', 'created').at(-1)).toMatchObject({ entityId: data.articleId });
+    const drafted = eventsOf('helpdesk_article', 'created').at(-1);
+    expect(drafted).toMatchObject({
+      // As above: in conformance mode this is the TypeScript run's event, with that run's new id.
+      entityId: conformanceTarget() ? expect.any(String) : data.articleId,
+      data: { title: 'Checkout <fails>', status: 'draft', problemId: 'dprob_a1' },
+    });
+    expect(drafted!.entityId).toBe((drafted!.data as { id: string }).id);
     expect(eventsOf('desk_problem', 'updated').at(-1)).toMatchObject({ entityId: 'dprob_a1' });
 
     const again = await writer().request(`${BASE}/dprob_a1/article`, { method: 'POST' });

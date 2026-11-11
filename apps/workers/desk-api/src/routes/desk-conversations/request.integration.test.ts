@@ -14,6 +14,10 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isPublicDeskMessage, type DeskMessage } from '@weldsuite/db/lib/desk';
+import {
+  deskConversationRequestChangeSchema,
+  deskConversationRequestOrNullSchema,
+} from '@weldsuite/core-api-client/schemas/desk-catalog';
 import type { Env, Variables } from '../../types';
 import { deskConversationsRoutes } from './index';
 import { deskConversationRequestRoutes } from './request';
@@ -400,5 +404,27 @@ describe('GET /api/desk/conversations/:id/request', () => {
     const { data } = (await (await reader().request(`${BASE}/dconv_reject/request`)).json()) as { data: Request };
     expect(data.approvals.map((a) => a.stepIndex)).toEqual([0, 1]);
     expect((await app(['tickets:read']).request(`${BASE}/dconv_reject/request`)).status).toBe(403);
+  });
+});
+
+describe('the answers match their published schemas', () => {
+  const body = async (res: Response) => ((await res.json()) as { data: unknown }).data;
+
+  it('for a request with decided steps, a new request and a decision', async () => {
+    // Strict schemas: a column the contract does not name fails the parse.
+    const decided = await body(await reader().request(`${BASE}/dconv_reject/request`));
+    expect(deskConversationRequestOrNullSchema.parse(decided)).toBeTruthy();
+    expect(Object.keys((decided as Request).approvals[0]!).sort()).toEqual(
+      ['approverId', 'comment', 'decidedAt', 'decidedById', 'id', 'status', 'stepIndex', 'stepName'],
+    );
+
+    const { res: started, test } = await attach('dconv_not_request', 'dcat_one');
+    expect(started.status).toBe(200);
+    expect(deskConversationRequestChangeSchema.parse(await body(started))).toBeTruthy();
+    await test.settled();
+
+    const approved = await decide('dconv_not_request', { decision: 'approved', comment: 'Fine by me' });
+    expect(approved.status).toBe(200);
+    expect(deskConversationRequestChangeSchema.parse(await body(approved))).toBeTruthy();
   });
 });

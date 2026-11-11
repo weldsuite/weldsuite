@@ -731,12 +731,18 @@ function lastConversation(changes: DeskLinkChange[]): DeskConversation {
 // Reading a request
 // ============================================================================
 
+/** A step as the request view lists it: the row without the request's own ids and its row timestamps. */
+export type DeskRequestApprovalView = Pick<
+  DeskRequestApproval,
+  'id' | 'stepIndex' | 'stepName' | 'approverId' | 'status' | 'decidedAt' | 'decidedById' | 'comment'
+>;
+
 export interface DeskConversationRequest {
   /** The item the request was made from; null when it was deleted since. */
   item: { id: string; name: string; category: string | null; icon: string | null; deliveryEstimate: string | null } | null;
   approvalStatus: DeskRequestApprovalStatus | null;
   /** The request's steps, in order. */
-  approvals: DeskRequestApproval[];
+  approvals: DeskRequestApprovalView[];
 }
 
 /** The service request a conversation is; null when it isn't one (or doesn't exist). */
@@ -759,7 +765,16 @@ export async function getDeskConversationRequest(db: AnyDb, conversationId: stri
     .where(eq(items.id, conversation.catalogItemId))
     .limit(1);
   const rows = await db
-    .select()
+    .select({
+      id: approvals.id,
+      stepIndex: approvals.stepIndex,
+      stepName: approvals.stepName,
+      approverId: approvals.approverId,
+      status: approvals.status,
+      decidedAt: approvals.decidedAt,
+      decidedById: approvals.decidedById,
+      comment: approvals.comment,
+    })
     .from(approvals)
     .where(eq(approvals.conversationId, conversationId))
     .orderBy(asc(approvals.stepIndex), asc(approvals.id));
