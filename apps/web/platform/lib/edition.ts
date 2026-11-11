@@ -54,7 +54,11 @@ export const EDITION_FEATURES = [
    * the domain is then added and verified under WeldMail settings › Domains.
    */
   'mail-domains',
-  /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
+  /**
+   * Free addresses on the workspace's shared subdomain (`/api/mail-weldmail`,
+   * ADR MAIL-007): `{slug}.weldmail.com` on Global, `{slug}.weldmail.eu` on the
+   * EU edition when the deployment sets it (ADR MAIL-012).
+   */
   'mail-free-addresses',
   /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
   'mail-ai',

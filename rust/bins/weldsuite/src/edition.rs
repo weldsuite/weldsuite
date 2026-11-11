@@ -6,10 +6,12 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here. Two entries
+//!   both follow the code, and a port removes its entry here. Three entries
 //!   follow the deployment instead: [`MAIL_DOMAINS_FEATURE`], when it has no
-//!   MX for customer domains (`MAIL_MX_HOST`), and [`COLLAB_ROOMS_FEATURE`],
-//!   when no collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
+//!   MX for customer domains (`MAIL_MX_HOST`); [`MAIL_FREE_ADDRESSES_FEATURE`],
+//!   when it also has no free-address domain of its own (`WELDMAIL_DOMAIN`);
+//!   and [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
+//!   (`COLLAB_ROOMS_URLS`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -68,9 +70,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `POST /api/company-logos/resolve` (crm-api) fetches each company's
     // website and keeps the logo in R2; not served, so avatars keep initials.
     "company-logos",
-    // Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`): that
-    // domain's MX and reputation belong to Global (MAIL-010).
-    "mail-free-addresses",
     // WeldMail AI (`/api/mail-ai`): the Rust backend has no AI port yet.
     "mail-ai",
     // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
@@ -148,6 +147,12 @@ pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
 /// and the routes answer 503 (`crate::routes::mail_domains`).
 pub(crate) const MAIL_DOMAINS_FEATURE: &str = "mail-domains";
 
+/// Free WeldMail addresses (`/api/mail-weldmail`, MAIL-007 and MAIL-012) on
+/// the deployment's own domain, `{slug}.<WELDMAIL_DOMAIN>` (`weldmail.eu` on
+/// the EU edition). Unavailable without that domain or without an MX:
+/// `weldmail.com` and `weldmail.org` are Global's and never used here.
+pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -178,9 +183,41 @@ pub(crate) struct EditionConfig {
     pub(crate) video_configured: bool,
     /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
     pub(crate) live_editing: bool,
-    /// Custom mail domains have an adapter (`MAIL_MX_HOST`, and the MTA's API
-    /// when set): [`MAIL_DOMAINS_FEATURE`].
-    pub(crate) custom_mail_domains: bool,
+    /// What the deployment offers of WeldMail's addresses.
+    pub(crate) mail: MailOffer,
+}
+
+/// WeldMail's address features this deployment can serve.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MailOffer {
+    /// Custom domains have an adapter (`MAIL_MX_HOST`, and the MTA's API when
+    /// set): [`MAIL_DOMAINS_FEATURE`].
+    pub(crate) custom_domains: bool,
+    /// Free addresses have a domain of this deployment's own
+    /// (`WELDMAIL_DOMAIN`) and an MX: [`MAIL_FREE_ADDRESSES_FEATURE`].
+    pub(crate) free_addresses: bool,
+}
+
+impl MailOffer {
+    /// From the environment. A `WELDMAIL_DOMAIN` of Global's is a problem:
+    /// the deployment never hands out `weldmail.com` or `weldmail.org`.
+    fn from_lookup(lookup: &impl Fn(&str) -> Option<String>, problems: &mut Vec<String>) -> Self {
+        let custom_domains = crate::routes::mail_domains::offered(lookup);
+        let free_domain = lookup("WELDMAIL_DOMAIN").filter(|apex| !apex.trim().is_empty());
+        if let Some(apex) = &free_domain
+            && !weldsuite_mail::is_free_apex(apex)
+        {
+            problems.push(format!(
+                "WELDMAIL_DOMAIN: {} can't carry free addresses here (weldmail.com and weldmail.org are Global's; the EU edition uses weldmail.eu)",
+                apex.trim()
+            ));
+        }
+        Self {
+            custom_domains,
+            free_addresses: custom_domains
+                && free_domain.is_some_and(|apex| weldsuite_mail::is_free_apex(&apex)),
+        }
+    }
 }
 
 impl Default for EditionConfig {
@@ -191,7 +228,7 @@ impl Default for EditionConfig {
             video: ClientSettings::default(),
             video_configured: false,
             live_editing: false,
-            custom_mail_domains: false,
+            mail: MailOffer::default(),
         }
     }
 }
@@ -220,6 +257,7 @@ impl EditionConfig {
         let public_env = lookup("PUBLIC_ENV")
             .map(|raw| public_env(&raw, problems))
             .unwrap_or_default();
+        let mail = MailOffer::from_lookup(lookup, problems);
         Self {
             edition,
             public_env,
@@ -227,7 +265,7 @@ impl EditionConfig {
             video_configured: weldsuite_video_rooms::configured(lookup),
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
-            custom_mail_domains: crate::routes::mail_domains::offered(lookup),
+            mail,
         }
     }
 
@@ -251,8 +289,11 @@ impl EditionConfig {
     /// they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = UNAVAILABLE_FEATURES.to_vec();
-        if !self.custom_mail_domains {
+        if !self.mail.custom_domains {
             features.push(MAIL_DOMAINS_FEATURE);
+        }
+        if !self.mail.free_addresses {
+            features.push(MAIL_FREE_ADDRESSES_FEATURE);
         }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
@@ -323,7 +364,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + 2
+            UNAVAILABLE_FEATURES.len() + 3
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -344,7 +385,7 @@ mod tests {
         let mut body = json!({});
         config.describe(&mut body);
         let mut lacks = UNAVAILABLE_FEATURES.to_vec();
-        lacks.push(MAIL_DOMAINS_FEATURE);
+        lacks.extend([MAIL_DOMAINS_FEATURE, MAIL_FREE_ADDRESSES_FEATURE]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
@@ -379,6 +420,31 @@ mod tests {
                 "http://weldsuite-mta-api.weldsuite-mail.svc:8025"
             ),
         ]));
+    }
+
+    #[test]
+    fn offers_free_addresses_only_on_a_domain_of_its_own() {
+        let lacks = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config
+                .unavailable_features()
+                .contains(&MAIL_FREE_ADDRESSES_FEATURE)
+        };
+        let mx = ("MAIL_MX_HOST", "mx.weldsuite.eu");
+        let eu = ("WELDMAIL_DOMAIN", "weldmail.eu");
+        assert!(lacks(&[]));
+        assert!(lacks(&[mx]), "no domain of its own");
+        assert!(lacks(&[eu]), "no MX to receive on");
+        assert!(!lacks(&[mx, eu]));
+
+        // Global's domains stop the start instead of being handed out.
+        for global in ["weldmail.com", "weldmail.org", "test.weldmail.com"] {
+            let (config, problems) = read(&[mx, ("WELDMAIL_DOMAIN", global)]);
+            assert_eq!(problems.len(), 1, "{global}: {problems:?}");
+            assert!(problems[0].contains("Global's"), "{problems:?}");
+            assert!(!config.mail.free_addresses);
+        }
     }
 
     #[test]
@@ -460,10 +526,11 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES
-            .iter()
-            .chain([&MAIL_DOMAINS_FEATURE, &COLLAB_ROOMS_FEATURE])
-        {
+        for feature in UNAVAILABLE_FEATURES.iter().chain([
+            &MAIL_DOMAINS_FEATURE,
+            &MAIL_FREE_ADDRESSES_FEATURE,
+            &COLLAB_ROOMS_FEATURE,
+        ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{feature}"

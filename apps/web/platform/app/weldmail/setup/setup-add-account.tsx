@@ -493,7 +493,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                   ) : (
                     <span className="text-sm text-muted-foreground">
-                      @{weldmailDomain || 'weldmail.com'}
+                      @{weldmailDomain || '…'}
                     </span>
                   )}
                 </div>
@@ -513,7 +513,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                 <p className="text-xs text-muted-foreground">
                   {t.mail.addAccount.emailAddressWillBe}{' '}
                   <strong>
-                    {weldmailAddress}@{weldmailDomain || 'weldmail.com'}
+                    {weldmailAddress}@{weldmailDomain || '…'}
                   </strong>
                 </p>
               )}

@@ -206,6 +206,10 @@ settings, which weldsuite.env adds.
 - name: SYSTEM_EMAIL_FROM
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.mail.freeAddressDomain }}
+- name: WELDMAIL_DOMAIN
+  value: {{ . | quote }}
+{{- end }}
 {{- if .Values.clerkJwks.enabled }}
 - name: CLERK_JWKS_FILE
   value: /etc/weldsuite/clerk/jwks.json

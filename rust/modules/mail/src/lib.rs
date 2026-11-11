@@ -18,6 +18,11 @@ pub mod scheduled;
 pub mod send;
 mod util;
 
+/// Whether a `WELDMAIL_DOMAIN` may carry free addresses on Kubernetes: a
+/// domain name that is not one of Global's (`/config.json`'s
+/// `mail-free-addresses` follows it).
+pub use routes::mail_weldmail::is_free_apex;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -131,6 +136,7 @@ where
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
         .merge(routes::mail_domains::routes(state.clone(), gate))
+        .merge(routes::mail_weldmail::routes(state.clone(), gate))
         .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
