@@ -95,7 +95,7 @@ export default function DeskProblemsPage() {
 
   const tabs = VIEWS.map((id) => ({
     id,
-    label: id === 'known_errors' ? t.list.tabs.knownErrors : t.list.tabs[id === 'done' ? 'done' : id],
+    label: id === 'known_errors' ? t.list.tabs.knownErrors : t.list.tabs[id],
   }));
 
   const searching = q !== '';

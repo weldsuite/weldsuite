@@ -70,6 +70,30 @@ interface SweepOptions {
   maxSteps?: number;
 }
 
+type SourceRow = typeof schema.assetSources.$inferSelect;
+
+/**
+ * The run of a source to continue: the one under way, or one started now when
+ * the source is due. Null when the source has nothing to do, or when another
+ * tick started it between the read and the claim.
+ */
+async function runToContinue(db: Database, source: SourceRow, now: Date) {
+  if (source.syncState) return source;
+  const startable = source.enabled && source.nextSyncAt !== null && source.nextSyncAt <= now;
+  return startable ? startAssetImport(db, source, { now }) : null;
+}
+
+/** When the workspace next has work: the earliest of its sources, a throttled one after its wait. Null when none has any. */
+function earliestWork(sources: SourceRow[], throttledUntil: Map<string, Date>, now: Date): Date | null {
+  let next: Date | null = null;
+  for (const source of sources) {
+    const wait = throttledUntil.get(source.id);
+    const at = wait ?? assetSourceDueAt(source, now);
+    if (at && (!next || at < next)) next = at;
+  }
+  return next;
+}
+
 /**
  * Run the due import steps of one workspace and answer when it next has work.
  * `orgId` is the Clerk org id the workspace's events and index row go by.
@@ -122,11 +146,7 @@ export async function sweepWorkspaceAssetImports(
   const due = await db.select().from(sources).orderBy(asc(sources.createdAt), asc(sources.id));
   for (const source of due) {
     if (result.steps >= (options.maxSteps ?? ASSET_IMPORT_STEPS_PER_TICK)) break;
-    const startable = !source.syncState && source.enabled && source.nextSyncAt !== null && source.nextSyncAt <= now;
-    if (!source.syncState && !startable) continue;
-
-    const running = source.syncState ? source : await startAssetImport(db, source, { now });
-    // Another tick started it between the read and the claim.
+    const running = await runToContinue(db, source, now);
     if (!running) continue;
 
     const step = await runAssetImportStep(context, running);
@@ -146,14 +166,7 @@ export async function sweepWorkspaceAssetImports(
     }
   }
 
-  const after = await db.select().from(sources);
-  let next: Date | null = null;
-  for (const source of after) {
-    const wait = throttledUntil.get(source.id);
-    const at = wait ?? assetSourceDueAt(source, now);
-    if (at && (!next || at < next)) next = at;
-  }
-  result.next = next;
+  result.next = earliestWork(await db.select().from(sources), throttledUntil, now);
   return result;
 }
 

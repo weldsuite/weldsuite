@@ -190,6 +190,21 @@ async function assertTeam(db: AnyDb, id: string, field: string): Promise<void> {
   }
 }
 
+/** One step under its id: a member step needs an active member, a team named on a manager step has to be active. */
+async function normalizeStep(db: AnyDb, id: string, step: DeskCatalogApprovalStepInput): Promise<DeskCatalogApprovalStep> {
+  const name = text(step.name) ?? undefined;
+  if (step.approverType === 'member') {
+    const approverId = text(step.approverId);
+    if (!approverId || !(await activeMemberUserId(db, approverId))) {
+      throw new DeskCatalogRejectedError('approvalSteps', 'A member step needs an active member as approver');
+    }
+    return { id, ...(name ? { name } : {}), approverType: 'member', approverId };
+  }
+  const departmentId = text(step.departmentId);
+  if (departmentId) await assertTeam(db, departmentId, 'approvalSteps');
+  return { id, ...(name ? { name } : {}), approverType: 'team_manager', departmentId };
+}
+
 async function normalizeSteps(
   db: AnyDb,
   generateId: IdGenerator,
@@ -207,18 +222,7 @@ async function normalizeSteps(
     const id = step.id?.trim() || generateId('dstep');
     if (seen.has(id)) throw new DeskCatalogRejectedError('approvalSteps', 'Approval step ids must be unique');
     seen.add(id);
-    const name = text(step.name) ?? undefined;
-    if (step.approverType === 'member') {
-      const approverId = text(step.approverId);
-      if (!approverId || !(await activeMemberUserId(db, approverId))) {
-        throw new DeskCatalogRejectedError('approvalSteps', 'A member step needs an active member as approver');
-      }
-      out.push({ id, ...(name ? { name } : {}), approverType: 'member', approverId });
-    } else {
-      const departmentId = text(step.departmentId);
-      if (departmentId) await assertTeam(db, departmentId, 'approvalSteps');
-      out.push({ id, ...(name ? { name } : {}), approverType: 'team_manager', departmentId });
-    }
+    out.push(await normalizeStep(db, id, step));
   }
   return out;
 }
@@ -248,6 +252,37 @@ function normalizeTasks(generateId: IdGenerator, input: DeskCatalogFulfilmentTas
   return out;
 }
 
+function requiredName(value: string): string {
+  const name = text(value);
+  if (!name) throw new DeskCatalogRejectedError('name', 'A name is required');
+  return name;
+}
+
+/** The free-text columns an input carries, trimmed; an empty text clears the column. */
+function textColumns(input: DeskCatalogItemPatch): Partial<typeof items.$inferInsert> {
+  const columns: Partial<typeof items.$inferInsert> = {};
+  if (input.summary !== undefined) columns.summary = text(input.summary);
+  if (input.description !== undefined) columns.description = text(input.description);
+  if (input.category !== undefined) columns.category = text(input.category);
+  if (input.icon !== undefined) columns.icon = text(input.icon);
+  if (input.deliveryEstimate !== undefined) columns.deliveryEstimate = text(input.deliveryEstimate);
+  return columns;
+}
+
+/** The team an item goes to, when it names one: it has to exist and be active. */
+async function teamColumn(db: AnyDb, value: string | null): Promise<string | null> {
+  const teamId = text(value);
+  if (teamId) await assertTeam(db, teamId, 'departmentId');
+  return teamId;
+}
+
+function knownPriority(priority: DeskPriority | null): DeskPriority | null {
+  if (priority !== null && !PRIORITIES.includes(priority)) {
+    throw new DeskCatalogRejectedError('priority', 'Unknown priority');
+  }
+  return priority;
+}
+
 /** The columns an input writes (only the keys it carries), validated. */
 async function itemColumns(
   db: AnyDb,
@@ -255,31 +290,14 @@ async function itemColumns(
   input: DeskCatalogItemPatch,
 ): Promise<Partial<typeof items.$inferInsert>> {
   const columns: Partial<typeof items.$inferInsert> = {};
-  if (input.name !== undefined) {
-    const name = text(input.name);
-    if (!name) throw new DeskCatalogRejectedError('name', 'A name is required');
-    columns.name = name;
-  }
-  if (input.summary !== undefined) columns.summary = text(input.summary);
-  if (input.description !== undefined) columns.description = text(input.description);
-  if (input.category !== undefined) columns.category = text(input.category);
-  if (input.icon !== undefined) columns.icon = text(input.icon);
-  if (input.deliveryEstimate !== undefined) columns.deliveryEstimate = text(input.deliveryEstimate);
+  if (input.name !== undefined) columns.name = requiredName(input.name);
+  Object.assign(columns, textColumns(input));
   if (input.ticketTypeId !== undefined) {
     await assertTicketType(db, input.ticketTypeId);
     columns.ticketTypeId = input.ticketTypeId;
   }
-  if (input.departmentId !== undefined) {
-    const teamId = text(input.departmentId);
-    if (teamId) await assertTeam(db, teamId, 'departmentId');
-    columns.departmentId = teamId;
-  }
-  if (input.priority !== undefined) {
-    if (input.priority !== null && !PRIORITIES.includes(input.priority)) {
-      throw new DeskCatalogRejectedError('priority', 'Unknown priority');
-    }
-    columns.priority = input.priority;
-  }
+  if (input.departmentId !== undefined) columns.departmentId = await teamColumn(db, input.departmentId);
+  if (input.priority !== undefined) columns.priority = knownPriority(input.priority);
   if (input.approvalSteps !== undefined) columns.approvalSteps = await normalizeSteps(db, generateId, input.approvalSteps);
   if (input.fulfilmentTasks !== undefined) columns.fulfilmentTasks = normalizeTasks(generateId, input.fulfilmentTasks);
   if (input.audienceCompanyIds !== undefined) {

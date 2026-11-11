@@ -63,7 +63,11 @@ export function encodeSkipToken(token: SkipToken): string {
   const bytes = new TextEncoder().encode(JSON.stringify(token));
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_');
+  // Without the padding it ends on.
+  let end = encoded.length;
+  while (end > 0 && encoded[end - 1] === '=') end--;
+  return encoded.slice(0, end);
 }
 
 export function decodeSkipToken(raw: string): SkipToken {
@@ -98,7 +102,7 @@ function parseOrderBy(raw: string, set: ODataEntitySet): OrderTerm[] {
   const terms = raw.split(',').map((t) => t.trim());
   if (terms.length > MAX_ORDERBY_TERMS) throw badRequest(`$orderby has more than ${MAX_ORDERBY_TERMS} terms`);
   return terms.map((term) => {
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+(asc|desc))?$/.exec(term);
+    const match = /^([A-Za-z_]\w*)(?:\s+(asc|desc))?$/.exec(term);
     if (!match) {
       if (/[/(]/.test(term)) throw notImplemented('$orderby supports property names only');
       throw badRequest(`Invalid $orderby term '${term}'`);
@@ -110,8 +114,8 @@ function parseOrderBy(raw: string, set: ODataEntitySet): OrderTerm[] {
   });
 }
 
-/** The request's query string as options. Throws `ODataError`. */
-export function parseQueryOptions(params: URLSearchParams, set: ODataEntitySet, surface: Surface): QueryOptions {
+/** The request's `$` options by name, each one served, given once and allowed on this surface. */
+function systemOptions(params: URLSearchParams, surface: Surface): Map<string, string> {
   const seen = new Map<string, string>();
   for (const [name, value] of params) {
     if (!name.startsWith('$')) continue; // custom query options are ignored, as OData allows
@@ -121,6 +125,17 @@ export function parseQueryOptions(params: URLSearchParams, set: ODataEntitySet, 
     if (!ALLOWED[surface].has(name)) throw badRequest(`${name} is not allowed here`);
     seen.set(name, value);
   }
+  return seen;
+}
+
+function parseCount(raw: string): boolean {
+  if (raw !== 'true' && raw !== 'false') throw badRequest('$count must be true or false');
+  return raw === 'true';
+}
+
+/** The request's query string as options. Throws `ODataError`. */
+export function parseQueryOptions(params: URLSearchParams, set: ODataEntitySet, surface: Surface): QueryOptions {
+  const seen = systemOptions(params, surface);
 
   const format = seen.get('$format');
   if (format !== undefined && !/^(json|application\/json)(;.*)?$/i.test(format.trim())) {
@@ -141,10 +156,7 @@ export function parseQueryOptions(params: URLSearchParams, set: ODataEntitySet, 
   const filter = seen.get('$filter');
   if (filter !== undefined) options.filter = parseFilter(filter, set);
   const count = seen.get('$count');
-  if (count !== undefined) {
-    if (count !== 'true' && count !== 'false') throw badRequest('$count must be true or false');
-    options.count = count === 'true';
-  }
+  if (count !== undefined) options.count = parseCount(count);
 
   if (options.skiptoken) {
     const keyset = 'k' in options.skiptoken;
@@ -158,6 +170,8 @@ export function parseQueryOptions(params: URLSearchParams, set: ODataEntitySet, 
 // ---------------------------------------------------------------------------
 
 const TIMESTAMP_FORMAT = `YYYY-MM-DD"T"HH24:MI:SS.MS"Z"`;
+/** The format as a SQL string literal. */
+const TIMESTAMP_FORMAT_LITERAL = `'${TIMESTAMP_FORMAT}'`;
 
 /** The property as the SELECT list item named after it. */
 function selectItem(set: ODataEntitySet, prop: ODataProperty): SQL {
@@ -165,7 +179,7 @@ function selectItem(set: ODataEntitySet, prop: ODataProperty): SQL {
   let value: SQL;
   switch (prop.type) {
     case 'Edm.DateTimeOffset':
-      value = sql`to_char(${column}, ${sql.raw(`'${TIMESTAMP_FORMAT}'`)})`;
+      value = sql`to_char(${column}, ${sql.raw(TIMESTAMP_FORMAT_LITERAL)})`;
       break;
     case 'Collection(Edm.String)':
       value = sql`COALESCE(${column}, '[]'::jsonb)::text`;
@@ -187,7 +201,9 @@ function whereOf(set: ODataEntitySet, conditions: SQL[]): SQL {
   if (set.softDelete && isPlainColumn(set.softDelete)) {
     all.unshift(sql`${sql.identifier(set.table)}.${sql.identifier(set.softDelete)} IS NULL`);
   }
-  return all.length > 0 ? sql`WHERE ${sql.join(all, sql` AND `)}` : sql``;
+  if (all.length === 0) return sql``;
+  const joined = sql.join(all, sql` AND `);
+  return sql`WHERE ${joined}`;
 }
 
 type Row = Record<string, unknown>;
@@ -230,6 +246,29 @@ export interface PageResult {
   total: number | null;
 }
 
+/** The ORDER BY terms: what was asked, then the key as the tie-breaker unless it is one of them. */
+function orderTerms(set: ODataEntitySet, orderby: OrderTerm[], keyExpr: SQL): SQL[] {
+  const order: SQL[] = orderby.map(
+    ({ prop, desc }) => sql`${propExpr(set, prop)} ${desc ? sql.raw('DESC NULLS LAST') : sql.raw('ASC NULLS FIRST')}`,
+  );
+  if (!orderby.some(({ prop }) => prop.name === set.key)) order.push(sql`${keyExpr} ASC`);
+  return order;
+}
+
+/** Where the page starts. A skiptoken is the position; `$skip` only applies to the first page. */
+function startOffset(options: QueryOptions): number {
+  const token = options.skiptoken;
+  if (!token) return options.skip ?? 0;
+  return 'o' in token ? token.o : 0;
+}
+
+/** The position after the last row of a page, when there is more behind it. */
+function nextPosition(options: QueryOptions, page: Row[], more: boolean, baseOffset: number): SkipToken | null {
+  const last = page[page.length - 1];
+  if (!more || !last) return null;
+  return options.orderby.length > 0 ? { o: baseOffset + page.length } : { k: String(last.__key) };
+}
+
 /** Fetch the page the options ask for. */
 export async function fetchPage(db: Database, set: ODataEntitySet, options: QueryOptions): Promise<PageResult> {
   const properties = options.select ?? set.properties;
@@ -242,13 +281,8 @@ export async function fetchPage(db: Database, set: ODataEntitySet, options: Quer
   const token = options.skiptoken;
   if (token && 'k' in token) conditions.push(sql`${keyExpr} > ${token.k}::text`);
 
-  const order: SQL[] = options.orderby.map(
-    ({ prop, desc }) => sql`${propExpr(set, prop)} ${desc ? sql.raw('DESC NULLS LAST') : sql.raw('ASC NULLS FIRST')}`,
-  );
-  if (!options.orderby.some(({ prop }) => prop.name === set.key)) order.push(sql`${keyExpr} ASC`);
-
-  // A skiptoken is the position; `$skip` only applies to the first page.
-  const baseOffset = token ? ('o' in token ? token.o : 0) : (options.skip ?? 0);
+  const order = orderTerms(set, options.orderby, keyExpr);
+  const baseOffset = startOffset(options);
   const wanted = Math.min(options.top ?? ODATA_PAGE_SIZE, ODATA_PAGE_SIZE);
   // One row more than we serve tells whether to link on, unless `$top` ends inside this page.
   const probe = options.top === undefined || options.top > ODATA_PAGE_SIZE ? 1 : 0;
@@ -257,7 +291,8 @@ export async function fetchPage(db: Database, set: ODataEntitySet, options: Quer
   // The key is always read, for the position; it is not served unless selected.
   const keyAlias = sql`${keyExpr} AS ${sql.identifier('__key')}`;
   const where = whereOf(set, conditions);
-  const statement = sql`SELECT ${list}, ${keyAlias} FROM ${table} ${where} ORDER BY ${sql.join(order, sql`, `)} LIMIT ${wanted + probe}::int OFFSET ${baseOffset}::int`;
+  const orderBy = sql.join(order, sql`, `);
+  const statement = sql`SELECT ${list}, ${keyAlias} FROM ${table} ${where} ORDER BY ${orderBy} LIMIT ${wanted + probe}::int OFFSET ${baseOffset}::int`;
   const countStatement = options.count
     ? sql`SELECT count(*)::text AS n FROM ${table} ${whereOf(set, filters)}`
     : null;
@@ -269,14 +304,9 @@ export async function fetchPage(db: Database, set: ODataEntitySet, options: Quer
 
   const page = fetched.slice(0, wanted);
   const more = fetched.length > wanted;
-  const last = page[page.length - 1];
-  let next: SkipToken | null = null;
-  if (more && last) {
-    next = options.orderby.length > 0 ? { o: baseOffset + page.length } : { k: String(last.__key) };
-  }
   return {
     rows: page.map((row) => toEntity(properties, row)),
-    next,
+    next: nextPosition(options, page, more, baseOffset),
     remainingTop: options.top === undefined ? null : Math.max(options.top - page.length, 0),
     total: counted ? Number(counted[0]?.n ?? 0) : null,
   };

@@ -27,6 +27,22 @@ export interface SipNumberVerificationProps {
   number: { id: string; phoneNumber: string } | null;
 }
 
+type VerificationErrors = ReturnType<typeof getTranslations<'deskSipTrunks'>>['verification']['errors'];
+
+/** What to say when sending the code failed. */
+function sendErrorText(code: string | null, errors: VerificationErrors): string {
+  if (code === 'verification_refused') return errors.refused;
+  if (code === 'already_verified') return errors.alreadyVerified;
+  return errors.failed;
+}
+
+/** What to say when the entered code was not accepted. */
+function confirmErrorText(code: string | null, errors: VerificationErrors): string {
+  if (code === 'code_expired') return errors.codeExpired;
+  if (code === 'already_verified') return errors.alreadyVerified;
+  return errors.wrongCode;
+}
+
 export function SipNumberVerification({ open, onOpenChange, trunkId, number }: Readonly<SipNumberVerificationProps>) {
   const t = getTranslations('deskSipTrunks').verification;
   const [method, setMethod] = useState<DeskSipVerificationMethod>('call');
@@ -53,14 +69,7 @@ export function SipNumberVerification({ open, onOpenChange, trunkId, number }: R
       setSent(true);
       toast.success(t.sent);
     } catch (err) {
-      const found = sipTrunkErrorCode(err);
-      setError(
-        found === 'verification_refused'
-          ? t.errors.refused
-          : found === 'already_verified'
-            ? t.errors.alreadyVerified
-            : t.errors.failed,
-      );
+      setError(sendErrorText(sipTrunkErrorCode(err), t.errors));
     }
   };
 
@@ -72,14 +81,7 @@ export function SipNumberVerification({ open, onOpenChange, trunkId, number }: R
       toast.success(t.success);
       close(false);
     } catch (err) {
-      const found = sipTrunkErrorCode(err);
-      setError(
-        found === 'code_expired'
-          ? t.errors.codeExpired
-          : found === 'already_verified'
-            ? t.errors.alreadyVerified
-            : t.errors.wrongCode,
-      );
+      setError(confirmErrorText(sipTrunkErrorCode(err), t.errors));
     }
   };
 

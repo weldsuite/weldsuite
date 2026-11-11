@@ -10,7 +10,7 @@ import {
 describe('sip trunk form', () => {
   it('recognises IPv4 addresses', () => {
     expect(isIpv4('8.8.8.8')).toBe(true);
-    expect(isIpv4(' 203.0.114.10 ')).toBe(true);
+    expect(isIpv4(' 203.0.113.10 ')).toBe(true);
     expect(isIpv4('256.1.1.1')).toBe(false);
     expect(isIpv4('1.1.1')).toBe(false);
     expect(isIpv4('example.com')).toBe(false);

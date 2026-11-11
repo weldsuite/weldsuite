@@ -74,6 +74,12 @@ function notFound(c: AppContext, id: string) {
   return error.notFound(c, 'Asset source', id);
 }
 
+/** When a source imports next after its schedule changed: one interval after the last import; never imported yet: now; switched off: not at all. */
+function nextSyncAfterChange(enabled: boolean, intervalHours: number, lastSyncAt: Date | null, now: Date): Date | null {
+  if (!enabled) return null;
+  return lastSyncAt ? new Date(lastSyncAt.getTime() + intervalHours * HOUR_MS) : now;
+}
+
 app.get('/', requirePermission('weldobjects:manage'), async (c) => {
   const rows = await c.get('tenantDb').select().from(t).orderBy(asc(t.createdAt), asc(t.id));
   return list(c, rows.map(toView), cursorPagination(rows.length, false, null));
@@ -164,12 +170,7 @@ app.patch('/:id', requirePermission('weldobjects:manage'), zValidator('json', up
   if (body.enabled !== undefined) update.enabled = body.enabled;
   if (body.intervalHours !== undefined) update.intervalHours = body.intervalHours;
   if (body.enabled !== undefined || body.intervalHours !== undefined) {
-    // The next import is one interval after the last; never imported yet: now.
-    update.nextSyncAt = enabled
-      ? existing.lastSyncAt
-        ? new Date(existing.lastSyncAt.getTime() + intervalHours * HOUR_MS)
-        : now
-      : null;
+    update.nextSyncAt = nextSyncAfterChange(enabled, intervalHours, existing.lastSyncAt, now);
   }
 
   const [row] = await db.update(t).set(update).where(eq(t.id, id)).returning();

@@ -78,6 +78,152 @@ function formatDateTime(iso: string | null): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+type ProblemLabels = ReturnType<typeof getTranslations<'deskProblems'>>;
+
+/** Follow the server, but never overwrite what is being typed. */
+function followServer(problem: DeskProblem, current: Draft | null): Draft {
+  return current && Object.keys(draftPatch(problem, current)).length > 0 ? current : draftOf(problem);
+}
+
+/** Why a change was refused, in the reader's language, else the server's message, else `fallback`. */
+function refusalMessage(refusals: ProblemLabels['refusals'], err: unknown, fallback: string): string {
+  const reason = deskLinkRefusal(err);
+  const known = reason ? (refusals as Record<string, string>)[reason] : undefined;
+  return known ?? deskLinkErrorMessage(err) ?? fallback;
+}
+
+/** The dates a problem has reached, for the details grid. */
+function problemDates(problem: DeskProblem, fields: ProblemLabels['detail']['fields']) {
+  return [
+    { label: fields.created, value: formatDateTime(problem.createdAt) },
+    ...(problem.knownErrorAt ? [{ label: fields.knownError, value: formatDateTime(problem.knownErrorAt) }] : []),
+    ...(problem.resolvedAt ? [{ label: fields.resolved, value: formatDateTime(problem.resolvedAt) }] : []),
+    ...(problem.closedAt ? [{ label: fields.closed, value: formatDateTime(problem.closedAt) }] : []),
+  ];
+}
+
+/** The page when the problem did not load: gone (back to the list) or failed (try again). */
+function ProblemLoadError({
+  error,
+  t,
+  onBack,
+  onRetry,
+}: Readonly<{ error: unknown; t: ProblemLabels; onBack: () => void; onRetry: () => void }>) {
+  const missing = isApiError(error) && error.status === 404;
+  return (
+    <DetailPage>
+      <ErrorState
+        message={missing ? t.detail.notFound : t.detail.loadError}
+        onRetry={missing ? onBack : onRetry}
+        retryLabel={missing ? t.detail.back : t.list.retry}
+      />
+    </DetailPage>
+  );
+}
+
+interface ProblemActionsProps {
+  problem: DeskProblem;
+  t: ProblemLabels;
+  canUpdate: boolean;
+  canDelete: boolean;
+  canWriteArticle: boolean;
+  updating: boolean;
+  creatingArticle: boolean;
+  onStatus: (status: DeskProblemStatus) => void;
+  onShare: () => void;
+  onWriteArticle: () => void;
+  onDelete: () => void;
+}
+
+/** The header's actions: the status, sharing the workaround, the help-center article and deleting. */
+function ProblemActions({
+  problem,
+  t,
+  canUpdate,
+  canDelete,
+  canWriteArticle,
+  updating,
+  creatingArticle,
+  onStatus,
+  onShare,
+  onWriteArticle,
+  onDelete,
+}: Readonly<ProblemActionsProps>) {
+  const td = t.detail;
+  return (
+    <>
+      <Select value={problem.status} onValueChange={(value) => onStatus(value as DeskProblemStatus)} disabled={!canUpdate || updating}>
+        <SelectTrigger className="h-8 w-[160px]" aria-label={td.statusLabel} data-testid="desk-problem-status-select">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DESK_PROBLEM_STATUSES.map((status) => (
+            <SelectItem key={status} value={status}>
+              {t.status[status]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {canUpdate && (
+        <Button variant="outline" size="sm" onClick={onShare} data-testid="desk-problem-share-open">
+          <Send className="mr-1.5 h-4 w-4" />
+          {td.actions.share}
+        </Button>
+      )}
+      {problem.articleId ? (
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/welddesk/help-center/articles/${problem.articleId}/edit`}>
+            <BookOpen className="mr-1.5 h-4 w-4" />
+            {td.actions.openArticle}
+          </Link>
+        </Button>
+      ) : (
+        canWriteArticle && (
+          <Button variant="outline" size="sm" onClick={onWriteArticle} disabled={creatingArticle} data-testid="desk-problem-create-article">
+            <BookOpen className="mr-1.5 h-4 w-4" />
+            {creatingArticle ? td.actions.creatingArticle : td.actions.createArticle}
+          </Button>
+        )
+      )}
+      {canDelete && (
+        <Button variant="outline" size="sm" onClick={onDelete} data-testid="desk-problem-delete">
+          <Trash2 className="mr-1.5 h-4 w-4" />
+          {td.actions.delete}
+        </Button>
+      )}
+    </>
+  );
+}
+
+/** Unsaved texts: discard them or save. */
+function ProblemSaveBar({
+  td,
+  dirty,
+  titleEmpty,
+  saving,
+  onDiscard,
+  onSave,
+}: Readonly<{
+  td: ProblemLabels['detail'];
+  dirty: boolean;
+  titleEmpty: boolean;
+  saving: boolean;
+  onDiscard: () => void;
+  onSave: () => void;
+}>) {
+  return (
+    <div className="flex items-center justify-end gap-3" data-testid="desk-problem-save-bar">
+      {dirty && <span className="text-sm text-muted-foreground">{td.unsaved}</span>}
+      <Button variant="outline" onClick={onDiscard} disabled={!dirty || saving}>
+        {td.discard}
+      </Button>
+      <Button onClick={onSave} disabled={!dirty || titleEmpty || saving} data-testid="desk-problem-save">
+        {td.save}
+      </Button>
+    </div>
+  );
+}
+
 export default function DeskProblemPage() {
   const t = getTranslations('deskProblems');
   const td = t.detail;
@@ -102,35 +248,24 @@ export default function DeskProblemPage() {
     { label: problem ? td.heading.replace('{number}', String(problem.problemNumber)) : '…' },
   ]);
 
-  // Follow the server, but never overwrite what is being typed.
   useEffect(() => {
     if (!problem) return;
-    setDraft((current) => (current && Object.keys(draftPatch(problem, current)).length > 0 ? current : draftOf(problem)));
+    setDraft((current) => followServer(problem, current));
   }, [problem]);
 
   if (isLoading || (problem && !draft)) return <PageLoader />;
   if (isError || !problem || !draft) {
-    const missing = isApiError(error) && error.status === 404;
     return (
-      <DetailPage>
-        <ErrorState
-          message={missing ? td.notFound : td.loadError}
-          onRetry={missing ? () => router.push('/welddesk/problems') : () => void refetch()}
-          retryLabel={missing ? td.back : t.list.retry}
-        />
-      </DetailPage>
+      <ProblemLoadError error={error} t={t} onBack={() => router.push('/welddesk/problems')} onRetry={() => void refetch()} />
     );
   }
 
-  const refusalText = (err: unknown, fallback: string) => {
-    const reason = deskLinkRefusal(err);
-    const known = reason ? (t.refusals as Record<string, string>)[reason] : undefined;
-    return known ?? deskLinkErrorMessage(err) ?? fallback;
-  };
+  const refusalText = (err: unknown, fallback: string) => refusalMessage(t.refusals, err, fallback);
 
   const patch = draftPatch(problem, draft);
   const dirty = Object.keys(patch).length > 0;
   const titleEmpty = draft.title.trim() === '';
+  const locked = !canUpdate || update.isPending;
 
   const save = () =>
     update.mutate(
@@ -177,12 +312,7 @@ export default function DeskProblemPage() {
     }
   };
 
-  const dates = [
-    { label: td.fields.created, value: formatDateTime(problem.createdAt) },
-    ...(problem.knownErrorAt ? [{ label: td.fields.knownError, value: formatDateTime(problem.knownErrorAt) }] : []),
-    ...(problem.resolvedAt ? [{ label: td.fields.resolved, value: formatDateTime(problem.resolvedAt) }] : []),
-    ...(problem.closedAt ? [{ label: td.fields.closed, value: formatDateTime(problem.closedAt) }] : []),
-  ];
+  const dates = problemDates(problem, td.fields);
 
   const textField = (field: TextField, label: string, hint: string, rows: number) => (
     <SectionCard title={label} description={hint} key={field}>
@@ -207,47 +337,19 @@ export default function DeskProblemPage() {
         subtitle={td.heading.replace('{number}', String(problem.problemNumber))}
         badges={<ProblemStatusBadge status={problem.status} />}
         actions={
-          <>
-            <Select value={problem.status} onValueChange={(value) => changeStatus(value as DeskProblemStatus)} disabled={!canUpdate || update.isPending}>
-              <SelectTrigger className="h-8 w-[160px]" aria-label={td.statusLabel} data-testid="desk-problem-status-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DESK_PROBLEM_STATUSES.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {t.status[status]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {canUpdate && (
-              <Button variant="outline" size="sm" onClick={() => setSharing(true)} data-testid="desk-problem-share-open">
-                <Send className="mr-1.5 h-4 w-4" />
-                {td.actions.share}
-              </Button>
-            )}
-            {problem.articleId ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/welddesk/help-center/articles/${problem.articleId}/edit`}>
-                  <BookOpen className="mr-1.5 h-4 w-4" />
-                  {td.actions.openArticle}
-                </Link>
-              </Button>
-            ) : (
-              canWriteArticle && (
-                <Button variant="outline" size="sm" onClick={writeArticle} disabled={createArticle.isPending} data-testid="desk-problem-create-article">
-                  <BookOpen className="mr-1.5 h-4 w-4" />
-                  {createArticle.isPending ? td.actions.creatingArticle : td.actions.createArticle}
-                </Button>
-              )
-            )}
-            {canDelete && (
-              <Button variant="outline" size="sm" onClick={() => setDeleting(true)} data-testid="desk-problem-delete">
-                <Trash2 className="mr-1.5 h-4 w-4" />
-                {td.actions.delete}
-              </Button>
-            )}
-          </>
+          <ProblemActions
+            problem={problem}
+            t={t}
+            canUpdate={canUpdate}
+            canDelete={canDelete}
+            canWriteArticle={canWriteArticle}
+            updating={update.isPending}
+            creatingArticle={createArticle.isPending}
+            onStatus={changeStatus}
+            onShare={() => setSharing(true)}
+            onWriteArticle={writeArticle}
+            onDelete={() => setDeleting(true)}
+          />
         }
       />
 
@@ -275,7 +377,7 @@ export default function DeskProblemPage() {
               noneLabel={t.priority.none}
               items={DESK_PRIORITIES.map((value) => ({ value, label: t.priority[value] }))}
               onChange={(value) => change({ priority: value as DeskPriority | null })}
-              disabled={!canUpdate || update.isPending}
+              disabled={locked}
               testId="desk-problem-priority"
             />
           </div>
@@ -286,7 +388,7 @@ export default function DeskProblemPage() {
               noneLabel={t.list.unowned}
               items={members.map((member) => ({ value: member.userId, label: member.name }))}
               onChange={(value) => change({ assigneeId: value })}
-              disabled={!canUpdate || update.isPending}
+              disabled={locked}
               testId="desk-problem-owner"
             />
           </div>
@@ -297,7 +399,7 @@ export default function DeskProblemPage() {
               noneLabel={t.list.noTeam}
               items={(options?.teams ?? []).map((team) => ({ value: team.id, label: team.name }))}
               onChange={(value) => change({ departmentId: value })}
-              disabled={!canUpdate || update.isPending}
+              disabled={locked}
               testId="desk-problem-team"
             />
           </div>
@@ -311,15 +413,14 @@ export default function DeskProblemPage() {
       {textField('resolution', td.texts.resolution, td.texts.resolutionHint, 3)}
 
       {canUpdate && (
-        <div className="flex items-center justify-end gap-3" data-testid="desk-problem-save-bar">
-          {dirty && <span className="text-sm text-muted-foreground">{td.unsaved}</span>}
-          <Button variant="outline" onClick={() => setDraft(draftOf(problem))} disabled={!dirty || update.isPending}>
-            {td.discard}
-          </Button>
-          <Button onClick={save} disabled={!dirty || titleEmpty || update.isPending} data-testid="desk-problem-save">
-            {td.save}
-          </Button>
-        </div>
+        <ProblemSaveBar
+          td={td}
+          dirty={dirty}
+          titleEmpty={titleEmpty}
+          saving={update.isPending}
+          onDiscard={() => setDraft(draftOf(problem))}
+          onSave={save}
+        />
       )}
 
       <ProblemIncidentsCard problem={problem} canUpdate={canUpdate} />

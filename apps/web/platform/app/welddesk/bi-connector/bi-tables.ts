@@ -25,8 +25,15 @@ export const ODATA_FEED_PATH = '/v1/odata';
 
 const DEFAULT_API_URL = 'https://api.weldsuite.org';
 
+/** The address without the slashes it ends on. */
+function withoutTrailingSlashes(address: string): string {
+  let end = address.length;
+  while (end > 0 && address[end - 1] === '/') end--;
+  return address.slice(0, end);
+}
+
 /** The feed URL: the public API's address (as the API keys page shows it) plus the feed path. */
 export function feedUrl(): string {
-  const base = (publicEnv('VITE_EXTERNAL_API_URL') ?? DEFAULT_API_URL).replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(publicEnv('VITE_EXTERNAL_API_URL') ?? DEFAULT_API_URL);
   return `${base}${ODATA_FEED_PATH}`;
 }

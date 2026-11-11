@@ -243,7 +243,7 @@ describe('entity sets', () => {
     it(`${set.name} returns rows with exactly its declared properties and types`, async () => {
       const body = await get(`/v1/odata/${set.name}`, { $top: '20' });
       expect(body['@odata.context']).toBe(`http://localhost/v1/odata/$metadata#${set.name}`);
-      expect(body.value.length).toBe(Math.min(counts[set.name]!, 20));
+      expect(body.value).toHaveLength(Math.min(counts[set.name]!, 20));
       for (const row of body.value) {
         expect(Object.keys(row), set.name).toEqual(set.properties.map((p) => p.name));
         for (const prop of set.properties) typeOk(prop.type, prop.nullable, row[prop.name], `${set.name}.${prop.name}`);
@@ -551,6 +551,36 @@ describe('single entities', () => {
     await errorOf("/v1/odata/Teams('team_1')", { $filter: "name eq 'x'" }, 400);
     await errorOf("/v1/odata/Teams('team_1')", { $top: '1' }, 400);
   });
+
+  // A set name is ASCII letters, digits and `_`; the key is what stands between the first `(` and the last `)`.
+  it.each<[string, number, string]>([
+    ['/v1/odata/Nope', 404, "The entity set 'Nope' does not exist"],
+    ['/v1/odata/Te_ams9', 404, "The entity set 'Te_ams9' does not exist"],
+    ['/v1/odata/_', 404, "The entity set '_' does not exist"],
+    ['/v1/odata/9', 404, "The entity set '9' does not exist"],
+    [`/v1/odata/${'a'.repeat(3000)}`, 404, `The entity set '${'a'.repeat(3000)}' does not exist`],
+    ['/v1/odata/Te%C3%A9ms', 404, 'Resource not found: Teéms'],
+    ['/v1/odata/Teams%C5%BF', 404, 'Resource not found: Teamsſ'],
+    ['/v1/odata/Teams%E2%84%AA', 404, 'Resource not found: TeamsK'],
+    ['/v1/odata/%D9%A3', 404, 'Resource not found: ٣'],
+    ['/v1/odata/Te-ams', 404, 'Resource not found: Te-ams'],
+    ['/v1/odata/Teams%20', 404, 'Resource not found: Teams '],
+    ['/v1/odata/Teams%0A', 404, 'Resource not found: Teams\n'],
+    ['/v1/odata/(x)', 404, 'Resource not found: (x)'],
+    ["/v1/odata/Teams('x'", 404, "Resource not found: Teams('x'"],
+    ["/v1/odata/Teams('x')y", 404, "Resource not found: Teams('x')y"],
+    ["/v1/odata/Teams('a')('b')", 400, "A key must be a string in single quotes, like Conversations('cnv_1')"],
+    ["/v1/odata/Teams('a'b')", 400, "A key must be a string in single quotes, like Conversations('cnv_1')"],
+    ["/v1/odata/Teams('te''am')", 404, "Team 'te'am' not found"],
+    ["/v1/odata/Teams('a%0Ab')", 404, "Team 'a\nb' not found"],
+    ["/v1/odata/Nope('x')", 404, "The entity set 'Nope' does not exist"],
+  ])('answers %j with %i', async (path, status, message) => {
+    expect((await errorOf(path, {}, status)).message).toBe(message);
+  });
+
+  it('reads Teams() as the collection', async () => {
+    expect((await get('/v1/odata/Teams()')).value).toHaveLength(1);
+  });
 });
 
 describe('server paging', () => {
@@ -605,7 +635,7 @@ describe('server paging', () => {
     const { pages } = await walk(`/v1/odata/Messages?$count=true&$select=id&$filter=${enc("kind eq 'message'")}`);
     const total = MESSAGE_IDS.filter((_, i) => (i + 1) % 7 !== 0).length;
     expect(pages.map((p) => p['@odata.count'])).toEqual(pages.map(() => total));
-    expect(pages.flatMap((p) => p.value).length).toBe(total);
+    expect(pages.flatMap((p) => p.value)).toHaveLength(total);
     expect(new Set(pages.flatMap((p) => p.value.map((r) => r.id))).size).toBe(total);
   });
 

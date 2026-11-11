@@ -539,9 +539,10 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       clerkOrgId,
     );
 
+    const toSync = telnyxNumbers.filter((number) => !trunkNumbers.has(number.phone_number));
+
     let synced = 0;
-    for (const number of telnyxNumbers) {
-      if (trunkNumbers.has(number.phone_number)) continue;
+    for (const number of toSync) {
       try {
         const existingNumber = existing.find(
           (p: any) => p.providerPhoneNumberId === number.id || p.phoneNumber === number.phone_number,

@@ -559,9 +559,8 @@ export interface UpdateDeskProblemResult {
 
 const TEXT_FIELDS = ['description', 'rootCause', 'workaround', 'resolution'] as const;
 
-export async function updateDeskProblem(db: AnyDb, input: UpdateDeskProblemInput): Promise<UpdateDeskProblemResult> {
-  const current = await loadProblem(db, input.id);
-  const { patch } = input;
+/** The columns a patch sets, in the order its fields are read; a new status brings its timestamps. */
+function patchedColumns(current: DeskProblem, patch: DeskProblemPatch): Partial<DeskProblem> {
   const next: Partial<DeskProblem> = {};
 
   if (patch.title !== undefined) next.title = patch.title.trim();
@@ -572,11 +571,30 @@ export async function updateDeskProblem(db: AnyDb, input: UpdateDeskProblemInput
   if (patch.assigneeId !== undefined) next.assigneeId = patch.assigneeId;
   if (patch.departmentId !== undefined) next.departmentId = patch.departmentId;
 
-  const status = patch.status ?? current.status;
   if (patch.status !== undefined) {
     next.status = patch.status;
     Object.assign(next, deskProblemStatusPatch(current, patch.status, new Date()));
   }
+  return next;
+}
+
+/** The columns whose new value differs from the stored one, with both; two dates at the same instant are the same. */
+function changedFields(current: DeskProblem, next: Partial<DeskProblem>): Record<string, DeskProblemFieldChange> {
+  const changes: Record<string, DeskProblemFieldChange> = {};
+  for (const [key, value] of Object.entries(next) as Array<[keyof DeskProblem, unknown]>) {
+    const before = current[key];
+    const same = before instanceof Date && value instanceof Date ? before.getTime() === value.getTime() : before === value;
+    if (!same) changes[key] = { from: before, to: value };
+  }
+  return changes;
+}
+
+export async function updateDeskProblem(db: AnyDb, input: UpdateDeskProblemInput): Promise<UpdateDeskProblemResult> {
+  const current = await loadProblem(db, input.id);
+  const { patch } = input;
+  const next = patchedColumns(current, patch);
+
+  const status = patch.status ?? current.status;
   assertKnownErrorBacked(
     status,
     next.workaround === undefined ? current.workaround : next.workaround,
@@ -587,12 +605,7 @@ export async function updateDeskProblem(db: AnyDb, input: UpdateDeskProblemInput
     departmentId: next.departmentId === current.departmentId ? undefined : next.departmentId,
   });
 
-  const changes: Record<string, DeskProblemFieldChange> = {};
-  for (const [key, value] of Object.entries(next) as Array<[keyof DeskProblem, unknown]>) {
-    const before = current[key];
-    const same = before instanceof Date && value instanceof Date ? before.getTime() === value.getTime() : before === value;
-    if (!same) changes[key] = { from: before, to: value };
-  }
+  const changes = changedFields(current, next);
 
   if (Object.keys(changes).length === 0) {
     const unchanged = await getDeskProblem(db, current.id);

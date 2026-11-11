@@ -347,7 +347,13 @@ export function mapCompliance(state: unknown): string {
   return COMPLIANCE_BY_STATE[String(state ?? '').toLowerCase()] ?? 'unknown';
 }
 
-const DESKTOP_MODEL = /imac|mac ?mini|mac ?studio|mac ?pro(?![a-z])|optiplex|thinkcentre|prodesk|elitedesk|\bnuc(?![a-z])|desktop|tower/i;
+// The names a desktop model goes by, in two expressions: the plain words, and the ones that need a look around them.
+const DESKTOP_WORD = /imac|optiplex|thinkcentre|prodesk|elitedesk|desktop|tower/i;
+const DESKTOP_MAC_OR_NUC = /mac ?mini|mac ?studio|mac ?pro(?![a-z])|\bnuc(?![a-z])/i;
+
+function isDesktopModel(model: string): boolean {
+  return DESKTOP_WORD.test(model) || DESKTOP_MAC_OR_NUC.test(model);
+}
 
 /** Asset type of a new record, from the operating system and the model. */
 export function assetTypeFor(operatingSystem: string | null, model: string | null): string {
@@ -358,7 +364,7 @@ export function assetTypeFor(operatingSystem: string | null, model: string | nul
     return hardware.trim().toLowerCase().startsWith('ipad') ? 'tablet' : 'phone';
   }
   if (os.includes('windows') || os.includes('macos') || os.includes('mac os') || os.includes('linux')) {
-    return DESKTOP_MODEL.test(hardware) ? 'desktop' : 'laptop';
+    return isDesktopModel(hardware) ? 'desktop' : 'laptop';
   }
   return 'other';
 }
@@ -756,40 +762,7 @@ async function step(
   const userId = state.startedById ?? source.createdById ?? 'system';
   const stats: AssetSourceRunStats = { ...state.stats };
   let index = state.offset ?? 0;
-  const remaining = page.devices.slice(index);
-
-  // The page's mappings, and the records they point to, in one query each.
-  const ids = remaining.flatMap((device) => {
-    const id = text(device.id);
-    return id ? [id] : [];
-  });
-  const mappings = new Map<string, MappingRow>();
-  if (ids.length > 0) {
-    const rows = await db
-      .select()
-      .from(integrationEntityMappings)
-      .where(
-        and(
-          eq(integrationEntityMappings.connectionId, source.id),
-          eq(integrationEntityMappings.externalEntityType, INTUNE_DEVICE_ENTITY_TYPE),
-          inArray(integrationEntityMappings.externalEntityId, ids),
-        ),
-      );
-    for (const row of rows) mappings.set(row.externalEntityId, row);
-  }
-  const records = new Map<string, RecordRow>();
-  if (mappings.size > 0) {
-    const rows = await db
-      .select()
-      .from(customObjectRecords)
-      .where(
-        and(
-          eq(customObjectRecords.entityKey, entityKey),
-          inArray(customObjectRecords.id, [...mappings.values()].map((row) => row.internalEntityId)),
-        ),
-      );
-    for (const row of rows) records.set(row.id, row);
-  }
+  const { mappings, records } = await loadMappedRecords(db, source, entityKey, page.devices.slice(index));
 
   const lookups = await prepareLookups(db, entityKey);
   const claimed = new Set<string>();
@@ -834,6 +807,47 @@ async function step(
     return { done: false, source: { ...source, syncState: next } };
   }
   return { done: true, source: await endRun(ctx, source, { ...state, stats }, now, null) };
+}
+
+/** The devices' mappings, and the records they point to, in one query each. */
+async function loadMappedRecords(
+  db: TenantDb,
+  source: AssetSource,
+  entityKey: string,
+  devices: IntuneDevice[],
+): Promise<{ mappings: Map<string, MappingRow>; records: Map<string, RecordRow> }> {
+  const ids = devices.flatMap((device) => {
+    const id = text(device.id);
+    return id ? [id] : [];
+  });
+  const mappings = new Map<string, MappingRow>();
+  if (ids.length > 0) {
+    const rows = await db
+      .select()
+      .from(integrationEntityMappings)
+      .where(
+        and(
+          eq(integrationEntityMappings.connectionId, source.id),
+          eq(integrationEntityMappings.externalEntityType, INTUNE_DEVICE_ENTITY_TYPE),
+          inArray(integrationEntityMappings.externalEntityId, ids),
+        ),
+      );
+    for (const row of rows) mappings.set(row.externalEntityId, row);
+  }
+  const records = new Map<string, RecordRow>();
+  if (mappings.size > 0) {
+    const rows = await db
+      .select()
+      .from(customObjectRecords)
+      .where(
+        and(
+          eq(customObjectRecords.entityKey, entityKey),
+          inArray(customObjectRecords.id, [...mappings.values()].map((row) => row.internalEntityId)),
+        ),
+      );
+    for (const row of rows) records.set(row.id, row);
+  }
+  return { mappings, records };
 }
 
 async function saveState(db: TenantDb, source: AssetSource, state: AssetSourceSyncState, now: Date): Promise<void> {

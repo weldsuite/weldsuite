@@ -45,7 +45,7 @@ function errorResponse(c: Context<HonoEnv>, error: ODataError) {
 
 /** `Conversations`, `Conversations('abc')` (with `''` for a quote) or `Conversations()`. */
 function parseSegment(segment: string): { name: string; key: string | null } {
-  const match = /^([A-Za-z0-9_]+)(?:\((.*)\))?$/s.exec(segment);
+  const match = /^(\w+)(?:\((.*)\))?$/s.exec(segment);
   if (!match) throw new ODataError(404, `Resource not found: ${segment}`);
   const inner = match[2];
   if (inner === undefined || inner === '') return { name: match[1]!, key: null };

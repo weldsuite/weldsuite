@@ -62,7 +62,7 @@ export const deskSipTrunks = {
       transport: 'Transport',
       ipAddresses: 'Public IP addresses of your phone system',
       ipAddressesHelp: 'Up to 10. Private addresses (like 192.168.x.x) cannot be used.',
-      ipPlaceholder: '203.0.114.10',
+      ipPlaceholder: '203.0.113.10',
       portPlaceholder: 'Port',
       addIp: 'Add IP address',
       removeIp: 'Remove IP address',

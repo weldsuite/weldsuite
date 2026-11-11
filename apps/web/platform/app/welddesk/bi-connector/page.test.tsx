@@ -57,6 +57,27 @@ describe('feedUrl', () => {
     state.env = 'https://api-test.weldsuite.org/';
     expect(feedUrl()).toBe('https://api-test.weldsuite.org/v1/odata');
   });
+
+  // Only slashes at the very end of the address go, however many there are.
+  it.each<[string, string]>([
+    ['https://api.x.test', 'https://api.x.test/v1/odata'],
+    ['https://api.x.test/', 'https://api.x.test/v1/odata'],
+    ['https://api.x.test///', 'https://api.x.test/v1/odata'],
+    ['https://api.x.test//base//', 'https://api.x.test//base/v1/odata'],
+    ['https://api.x.test/base', 'https://api.x.test/base/v1/odata'],
+    ['', '/v1/odata'],
+    ['/', '/v1/odata'],
+    ['////', '/v1/odata'],
+    ['https://api.x.test/ ', 'https://api.x.test/ /v1/odata'],
+    ['https://api.x.test/\n/', 'https://api.x.test/\n/v1/odata'],
+    ['https://api.x.test/\n', 'https://api.x.test/\n/v1/odata'],
+    ['https://api.x.test/é/', 'https://api.x.test/é/v1/odata'],
+    [`https://api.x.test${'/'.repeat(5000)}`, 'https://api.x.test/v1/odata'],
+    [`${'/'.repeat(5000)}x`, `${'/'.repeat(5000)}x/v1/odata`],
+  ])('takes the trailing slashes off %j', (configured, expected) => {
+    state.env = configured;
+    expect(feedUrl()).toBe(expected);
+  });
 });
 
 describe('DeskBiConnectorPage', () => {

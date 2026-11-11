@@ -241,6 +241,12 @@ export async function startTranslation(
   return next;
 }
 
+/** The caller's language after a change: as it was when the change leaves it out, unknown again for `auto`. */
+function changedCallerLanguage(current: string | null, changed: UpdateCallTranslation['callerLanguage']): string | null {
+  if (changed === undefined) return current;
+  return changed === 'auto' ? null : changed;
+}
+
 export async function updateTranslation(
   ctx: PhoneCtx,
   call: VoipCallRow,
@@ -251,8 +257,7 @@ export async function updateTranslation(
   const current = activeTranslation(call);
   if (!current) throw new CallTranslationError('not_translating', 'The call is not being translated');
 
-  const callerLanguage =
-    patch.callerLanguage === undefined ? current.callerLanguage : patch.callerLanguage === 'auto' ? null : patch.callerLanguage;
+  const callerLanguage = changedCallerLanguage(current.callerLanguage, patch.callerLanguage);
   const next: VoipCallTranslation = {
     ...current,
     callerLanguage,
@@ -538,49 +543,106 @@ export async function handleCallTranscription(ev: CallTranscriptionEvent): Promi
   }
 }
 
-async function processLine(ev: CallTranscriptionEvent): Promise<void> {
+/**
+ * A line through the model: its translation, and the language it was spoken
+ * in. Null when the line is dropped: the workspace is out of credits (which
+ * stops the translation) or the model failed.
+ */
+async function modelTranslation(
+  ctx: PhoneCtx,
+  call: VoipCallRow,
+  t: VoipCallTranslation,
+  line: { text: string; source: string | null; target: string },
+): Promise<{ translation: string | null; sourceLanguage: string | null } | null> {
+  const { text, source, target } = line;
+  try {
+    const metering = await resolveAiMetering(ctx.env, ctx.workspaceId, t.startedById);
+    await assertAiCredits(metering);
+    aiOf(ctx.env);
+    const answer = await translateLine(ctx, metering, { callId: call.id, text, source, target });
+    return { translation: answer.translation || null, sourceLanguage: source ?? answer.language };
+  } catch (err) {
+    if (err instanceof InsufficientAiCreditsError) {
+      await stopTranslation(ctx, call, { reason: 'no_credits' });
+      return null;
+    }
+    console.error('[desk-phone-translation] translation failed, line dropped:', err);
+    return null;
+  }
+}
+
+/** The caller's language was unknown: the model named it; lock it in once enough utterances agree. */
+async function detectCallerLanguage(
+  ctx: PhoneCtx,
+  call: VoipCallRow,
+  t: VoipCallTranslation,
+  language: string,
+  transcriptConfidence: unknown,
+): Promise<VoipCallTranslation> {
+  const confidence = typeof transcriptConfidence === 'number' ? transcriptConfidence : 1;
+  if (await lockedByDetection(ctx, call.id, language, confidence >= MIN_DETECTION_CONFIDENCE)) {
+    return lockCallerLanguage(ctx, call, t, language);
+  }
+  return t;
+}
+
+/** The agent's translated words, spoken on the caller's leg when the call is set to and a voice exists. */
+async function speakToCaller(
+  ctx: PhoneCtx,
+  call: VoipCallRow,
+  t: VoipCallTranslation,
+  speaker: TranslationSide,
+  translation: string | null,
+): Promise<void> {
+  const locale = callTranslationTtsLocale(t.callerLanguage);
+  if (speaker === 'agent' && translation && t.speakToCaller && locale && call.providerCallId) {
+    const control = call.providerCallId;
+    await bestEffort('speak translation to the caller', () =>
+      telnyxSpeak(ctx.env, control, translation, { voice: PHONE_VOICE, language: locale, targetLegs: 'self' }),
+    );
+  }
+}
+
+/** The line of a webhook worth translating: final, long enough, its speaker named. Null otherwise. */
+function spokenLine(ev: CallTranscriptionEvent): { text: string; speaker: TranslationSide; confidence: unknown } | null {
   const data = (ev.payload.transcription_data ?? {}) as TranscriptionData;
   const text = typeof data.transcript === 'string' ? data.transcript.trim() : '';
   const speaker = ev.clientState.translate;
-  if (data.is_final !== true || text.length < MIN_LINE_CHARS) return;
-  if (speaker !== 'caller' && speaker !== 'agent') return;
+  if (data.is_final !== true || text.length < MIN_LINE_CHARS) return null;
+  if (speaker !== 'caller' && speaker !== 'agent') return null;
+  return { text, speaker, confidence: data.confidence };
+}
+
+/** The language a side speaks, and the one its words are translated into. */
+function sideLanguages(speaker: TranslationSide, t: VoipCallTranslation): { source: string | null; target: string | null } {
+  return speaker === 'caller'
+    ? { source: t.callerLanguage, target: t.agentLanguage }
+    : { source: t.agentLanguage, target: t.callerLanguage };
+}
+
+async function processLine(ev: CallTranscriptionEvent): Promise<void> {
+  const line = spokenLine(ev);
+  if (!line) return;
+  const { text, speaker } = line;
 
   const { ctx } = ev;
   const call = await loadCall(ctx.db, ev.callId);
   let t = call ? activeTranslation(call) : null;
   if (!call || !t) return;
 
-  const source = speaker === 'caller' ? t.callerLanguage : t.agentLanguage;
-  const target = speaker === 'caller' ? t.agentLanguage : t.callerLanguage;
+  const { source, target } = sideLanguages(speaker, t);
 
   let translation: string | null = null;
   let sourceLanguage = source;
   // Nothing to translate into (the caller's language is unknown), or the same language on both sides.
-  const needsModel = target !== null && !(source && primaryLanguage(source) === primaryLanguage(target));
-  if (needsModel) {
-    try {
-      const metering = await resolveAiMetering(ctx.env, ctx.workspaceId, t.startedById);
-      await assertAiCredits(metering);
-      aiOf(ctx.env);
-      const answer = await translateLine(ctx, metering, { callId: call.id, text, source, target });
-      translation = answer.translation || null;
-      sourceLanguage = source ?? answer.language;
-    } catch (err) {
-      if (err instanceof InsufficientAiCreditsError) {
-        await stopTranslation(ctx, call, { reason: 'no_credits' });
-        return;
-      }
-      console.error('[desk-phone-translation] translation failed, line dropped:', err);
-      return;
-    }
+  if (target !== null && !(source && primaryLanguage(source) === primaryLanguage(target))) {
+    const answer = await modelTranslation(ctx, call, t, { text, source, target });
+    if (!answer) return;
+    ({ translation, sourceLanguage } = answer);
   }
 
-  // The caller's language was unknown: the model named it; lock it in once enough utterances agree.
   if (speaker === 'caller' && source === null && sourceLanguage) {
-    const confidence = typeof data.confidence === 'number' ? data.confidence : 1;
-    if (await lockedByDetection(ctx, call.id, sourceLanguage, confidence >= MIN_DETECTION_CONFIDENCE)) {
-      t = await lockCallerLanguage(ctx, call, t, sourceLanguage);
-    }
+    t = await detectCallerLanguage(ctx, call, t, sourceLanguage, line.confidence);
     // The caller speaks the agent's language: the text says it all.
     if (primaryLanguage(sourceLanguage) === primaryLanguage(t.agentLanguage)) translation = null;
   }
@@ -592,17 +654,12 @@ async function processLine(ev: CallTranscriptionEvent): Promise<void> {
     text,
     translation,
     sourceLanguage,
-    targetLanguage: speaker === 'caller' ? t.agentLanguage : t.callerLanguage,
+    // Read again: the caller's language may just have been locked in.
+    targetLanguage: sideLanguages(speaker, t).target,
     at: ev.at,
   };
   await sendPhoneInboxEvent(ctx.env, ctx.workspaceId, call.answeredByUserId ?? t.startedById, 'phone.caption', caption);
 
-  const locale = callTranslationTtsLocale(t.callerLanguage);
-  if (speaker === 'agent' && translation && t.speakToCaller && locale && call.providerCallId) {
-    const control = call.providerCallId;
-    await bestEffort('speak translation to the caller', () =>
-      telnyxSpeak(ctx.env, control, translation, { voice: PHONE_VOICE, language: locale, targetLegs: 'self' }),
-    );
-  }
+  await speakToCaller(ctx, call, t, speaker, translation);
   await bestEffort('record translated line', () => recordLine(ctx, call, caption));
 }

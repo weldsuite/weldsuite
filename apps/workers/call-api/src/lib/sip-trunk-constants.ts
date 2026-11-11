@@ -14,6 +14,7 @@ export const TELNYX_SIP_HOSTS = [
   { region: 'EU', host: 'sip.telnyx.eu' },
 ] as const;
 
+/* eslint-disable sonarjs/no-hardcoded-ip -- Telnyx's published SIP signalling addresses, shown to the customer to allow-list in their firewall: data, not an address this code connects to. */
 /** Signalling IPs a PBX may need to allow-list. */
 export const TELNYX_SIGNALING_IPS = [
   { region: 'US', ip: '192.76.120.10' },
@@ -21,6 +22,7 @@ export const TELNYX_SIGNALING_IPS = [
   { region: 'EU', ip: '185.246.41.140' },
   { region: 'EU', ip: '185.246.41.141' },
 ] as const;
+/* eslint-enable sonarjs/no-hardcoded-ip */
 
 export const SIP_PORT_PLAIN = 5060;
 export const SIP_PORT_TLS = 5061;

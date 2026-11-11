@@ -25,6 +25,15 @@ export interface SipTrunkNumbersProps {
   canEdit: boolean;
 }
 
+type NumbersLabels = ReturnType<typeof getTranslations<'deskSipTrunks'>>['numbers'];
+
+/** What to say when a number could not be added. */
+function addErrorText(code: string | null, t: NumbersLabels): string {
+  if (code === 'number_taken') return t.errors.numberTaken;
+  if (code === 'invalid_number') return t.errors.invalidNumber;
+  return t.addFailed;
+}
+
 export function SipTrunkNumbers({ trunkId, numbers, canEdit }: Readonly<SipTrunkNumbersProps>) {
   const t = getTranslations('deskSipTrunks').numbers;
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -46,10 +55,7 @@ export function SipTrunkNumbers({ trunkId, numbers, canEdit }: Readonly<SipTrunk
       setPhoneNumber('');
       setDisplayName('');
     } catch (err) {
-      const code = sipTrunkErrorCode(err);
-      setError(
-        code === 'number_taken' ? t.errors.numberTaken : code === 'invalid_number' ? t.errors.invalidNumber : t.addFailed,
-      );
+      setError(addErrorText(sipTrunkErrorCode(err), t));
     }
   };
 

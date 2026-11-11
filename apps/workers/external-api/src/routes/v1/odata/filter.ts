@@ -57,20 +57,51 @@ type Token =
   | { t: 'datetime'; v: Literal & { type: 'datetime' } }
   | { t: 'ident'; v: string };
 
+// A date-time is a date, then a time when one follows, then a zone when one follows the time.
+const DATE = /(\d{4})-(\d{2})-(\d{2})/y;
+const TIME = /T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?/y;
 // A space where the offset's `+` was: an unescaped `+` in a query string reads as a space.
-const DATETIME = /(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+\- ](\d{2}):(\d{2}))?)?/y;
+const ZONE = /Z|[+\- ](\d{2}):(\d{2})/y;
 const NUMBER = /-?\d+(\.\d+)?([eE][+-]?\d+)?/y;
-const IDENT = /[A-Za-z_][A-Za-z0-9_]*/y;
+const IDENT = /[A-Za-z_]\w*/y;
 
-function dateLiteral(m: RegExpExecArray): Literal & { type: 'datetime' } {
-  const [, ys, ms, ds, hs, mins, ss, frac, zone, zh, zm] = m;
+/** What a sticky expression matches at `at`, or null. */
+function matchAt(expression: RegExp, text: string, at: number): RegExpExecArray | null {
+  expression.lastIndex = at;
+  return expression.exec(text);
+}
+
+/** A date-time as written: all of it, and its date, time and zone as matched. */
+interface WrittenDateTime {
+  text: string;
+  date: RegExpExecArray;
+  time: RegExpExecArray | null;
+  zone: RegExpExecArray | null;
+}
+
+/** The date-time that starts at `at`, or null when no date does. */
+function readDateTime(text: string, at: number): WrittenDateTime | null {
+  const date = matchAt(DATE, text, at);
+  if (!date) return null;
+  let end = at + date[0].length;
+  const time = matchAt(TIME, text, end);
+  if (time) end += time[0].length;
+  const zone = time ? matchAt(ZONE, text, end) : null;
+  if (zone) end += zone[0].length;
+  return { text: text.slice(at, end), date, time, zone };
+}
+
+function dateLiteral(written: WrittenDateTime): Literal & { type: 'datetime' } {
+  const [, ys, ms, ds] = written.date;
+  const [, hs, mins, ss, frac] = written.time ?? [];
+  const [zone, zh, zm] = written.zone ?? [];
   const [y, mo, d] = [Number(ys), Number(ms), Number(ds)];
   const [h, mi, s] = [Number(hs ?? 0), Number(mins ?? 0), Number(ss ?? 0)];
   const milli = frac ? Number(frac.slice(0, 3).padEnd(3, '0')) : 0;
   const probe = new Date(0);
   probe.setUTCFullYear(y, mo - 1, d);
   if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d || h > 23 || mi > 59 || s > 59) {
-    throw badRequest(`'${m[0]}' is not a valid date or time`);
+    throw badRequest(`'${written.text}' is not a valid date or time`);
   }
   probe.setUTCHours(h, mi, s, milli);
   let epoch = probe.getTime();
@@ -79,63 +110,87 @@ function dateLiteral(m: RegExpExecArray): Literal & { type: 'datetime' } {
     epoch += zone.startsWith('-') ? offset : -offset;
   }
   const at = new Date(epoch);
-  if (at.getUTCFullYear() < 1 || at.getUTCFullYear() > 9999) throw badRequest(`'${m[0]}' is out of range`);
+  if (at.getUTCFullYear() < 1 || at.getUTCFullYear() > 9999) throw badRequest(`'${written.text}' is out of range`);
   const text = (when: Date) => `${when.toISOString().slice(0, 10)} ${when.toISOString().slice(11, 23)}`;
   if (hs === undefined) return { type: 'datetime', ts: text(at), dayEnd: text(new Date(epoch + 86_400_000)) };
   return { type: 'datetime', ts: text(at) };
+}
+
+/** A token, and where the text goes on after it. */
+interface Read {
+  token: Token;
+  end: number;
+}
+
+/** A string literal, from its opening quote at `start`; a doubled quote is a quote. */
+function readString(text: string, start: number): Read {
+  let value = '';
+  let j = start + 1;
+  for (;;) {
+    if (j >= text.length) throw badRequest('Unterminated string literal in $filter');
+    if (text[j] === "'") {
+      if (text[j + 1] === "'") {
+        value += "'";
+        j += 2;
+        continue;
+      }
+      break;
+    }
+    value += text[j];
+    j++;
+  }
+  return { token: { t: 'string', v: value }, end: j + 1 };
+}
+
+/** Whether a number or a date-time starts at `at`: a digit, or a minus sign before one. */
+function startsNumber(text: string, at: number): boolean {
+  const ch = text[at]!;
+  return /\d/.test(ch) || (ch === '-' && /\d/.test(text[at + 1] ?? ''));
+}
+
+function readNumber(text: string, start: number): Read {
+  const num = matchAt(NUMBER, text, start)!;
+  const value = Number(num[0]);
+  const integer = num[1] === undefined && num[2] === undefined;
+  if (!Number.isFinite(value) || (integer && !Number.isSafeInteger(value))) throw badRequest(`'${num[0]}' is out of range`);
+  return { token: { t: integer ? 'int' : 'double', v: value }, end: start + num[0].length };
+}
+
+/** A date-time, else a number (a negative one is never a date), with nothing glued onto it. */
+function readNumberOrDate(text: string, start: number): Read {
+  const date = text[start] === '-' ? null : readDateTime(text, start);
+  const read: Read = date
+    ? { token: { t: 'datetime', v: dateLiteral(date) }, end: start + date.text.length }
+    : readNumber(text, start);
+  if (/[A-Za-z0-9_.]/.test(text[read.end] ?? '')) throw badRequest(`Unexpected character '${text[read.end]}' in $filter`);
+  return read;
+}
+
+function readIdent(text: string, start: number): Read {
+  const id = matchAt(IDENT, text, start)![0];
+  return { token: { t: 'ident', v: id }, end: start + id.length };
+}
+
+/** The token that starts at `at`, which is not white space. */
+function readToken(text: string, at: number): Read {
+  const ch = text[at]!;
+  if (ch === '(' || ch === ')' || ch === ',' || ch === ':' || ch === '/') return { token: { t: ch }, end: at + 1 };
+  if (ch === "'") return readString(text, at);
+  if (startsNumber(text, at)) return readNumberOrDate(text, at);
+  if (/[A-Za-z_]/.test(ch)) return readIdent(text, at);
+  throw badRequest(`Unexpected character '${ch}' in $filter`);
 }
 
 function tokenize(text: string): Token[] {
   const out: Token[] = [];
   let i = 0;
   while (i < text.length) {
-    const ch = text[i]!;
-    if (ch === ' ' || ch === '\t') {
+    if (text[i] === ' ' || text[i] === '\t') {
       i++;
-    } else if (ch === '(' || ch === ')' || ch === ',' || ch === ':' || ch === '/') {
-      out.push({ t: ch });
-      i++;
-    } else if (ch === "'") {
-      let value = '';
-      let j = i + 1;
-      for (;;) {
-        if (j >= text.length) throw badRequest('Unterminated string literal in $filter');
-        if (text[j] === "'") {
-          if (text[j + 1] === "'") {
-            value += "'";
-            j += 2;
-            continue;
-          }
-          break;
-        }
-        value += text[j];
-        j++;
-      }
-      out.push({ t: 'string', v: value });
-      i = j + 1;
-    } else if (/[0-9]/.test(ch) || (ch === '-' && /[0-9]/.test(text[i + 1] ?? ''))) {
-      DATETIME.lastIndex = i;
-      const date = ch === '-' ? null : DATETIME.exec(text);
-      if (date) {
-        out.push({ t: 'datetime', v: dateLiteral(date) });
-        i += date[0].length;
-      } else {
-        NUMBER.lastIndex = i;
-        const num = NUMBER.exec(text)!;
-        const value = Number(num[0]);
-        const integer = num[1] === undefined && num[2] === undefined;
-        if (!Number.isFinite(value) || (integer && !Number.isSafeInteger(value))) throw badRequest(`'${num[0]}' is out of range`);
-        out.push({ t: integer ? 'int' : 'double', v: value });
-        i += num[0].length;
-      }
-      if (/[A-Za-z0-9_.]/.test(text[i] ?? '')) throw badRequest(`Unexpected character '${text[i]}' in $filter`);
-    } else if (/[A-Za-z_]/.test(ch)) {
-      IDENT.lastIndex = i;
-      const id = IDENT.exec(text)![0];
-      out.push({ t: 'ident', v: id });
-      i += id.length;
     } else {
-      throw badRequest(`Unexpected character '${ch}' in $filter`);
+      const read = readToken(text, i);
+      out.push(read.token);
+      i = read.end;
     }
   }
   out.push({ t: 'end' });
@@ -159,37 +214,40 @@ type Operand =
 
 const INT32_MAX = 2_147_483_647;
 
-/** The literal, checked against the type it is compared with. */
-function checkLiteral(op: CmpOp, name: string, type: EdmType, lit: Literal): Literal {
-  if (lit.type === 'null') {
-    if (op !== 'eq' && op !== 'ne') throw badRequest(`null can only be compared with eq or ne (property '${name}')`);
-    return lit;
-  }
-  const mismatch = () => badRequest(`Cannot compare ${type} '${name}' with a ${lit.type} literal`);
+/** The kinds of literal a type is compared with; null for a collection, which is compared with none. */
+function literalTypesFor(type: EdmType): ReadonlyArray<Literal['type']> | null {
   switch (type) {
     case 'Edm.String':
-      if (lit.type !== 'string') throw mismatch();
-      return lit;
+      return ['string'];
     case 'Edm.Int32':
-      if (lit.type !== 'int') throw mismatch();
-      if (Math.abs(lit.value) > INT32_MAX) throw badRequest(`'${lit.value}' does not fit ${type} '${name}'`);
-      return lit;
     case 'Edm.Int64':
-      if (lit.type !== 'int') throw mismatch();
-      return lit;
+      return ['int'];
     case 'Edm.Double':
-      if (lit.type !== 'int' && lit.type !== 'double') throw mismatch();
-      return lit;
+      return ['int', 'double'];
     case 'Edm.Boolean':
-      if (lit.type !== 'boolean') throw mismatch();
-      if (op !== 'eq' && op !== 'ne') throw badRequest(`Booleans can only be compared with eq or ne (property '${name}')`);
-      return lit;
+      return ['boolean'];
     case 'Edm.DateTimeOffset':
-      if (lit.type !== 'datetime') throw mismatch();
-      return lit;
+      return ['datetime'];
     default:
-      throw badRequest(`Property '${name}' is a collection: use ${name}/any(t: t eq 'value')`);
+      return null;
   }
+}
+
+/** The literal, checked against the type it is compared with. */
+function checkLiteral(op: CmpOp, name: string, type: EdmType, lit: Literal): Literal {
+  const equality = op === 'eq' || op === 'ne';
+  if (lit.type === 'null') {
+    if (!equality) throw badRequest(`null can only be compared with eq or ne (property '${name}')`);
+    return lit;
+  }
+  const accepted = literalTypesFor(type);
+  if (!accepted) throw badRequest(`Property '${name}' is a collection: use ${name}/any(t: t eq 'value')`);
+  if (!accepted.includes(lit.type)) throw badRequest(`Cannot compare ${type} '${name}' with a ${lit.type} literal`);
+  if (type === 'Edm.Int32' && lit.type === 'int' && Math.abs(lit.value) > INT32_MAX) {
+    throw badRequest(`'${lit.value}' does not fit ${type} '${name}'`);
+  }
+  if (type === 'Edm.Boolean' && !equality) throw badRequest(`Booleans can only be compared with eq or ne (property '${name}')`);
+  return lit;
 }
 
 class Parser {

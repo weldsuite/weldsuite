@@ -69,6 +69,55 @@ describe('assetTypeFor', () => {
   ])('%s / %s is %s', (os, model, expected) => {
     expect(assetTypeFor(os, model)).toBe(expected);
   });
+
+  // A computer is a desktop when its model names one, in any case; else a laptop.
+  it.each<[string, 'desktop' | 'laptop']>([
+    ['iMac', 'desktop'],
+    ['IMAC PRO', 'desktop'],
+    ['Mac mini', 'desktop'],
+    ['MACMINI', 'desktop'],
+    ['Mac  mini', 'laptop'],
+    ['Mac\tmini', 'laptop'],
+    ['Mac-mini', 'laptop'],
+    ['MacStudio', 'desktop'],
+    ['mac studio', 'desktop'],
+    ['Mac Pro', 'desktop'],
+    ['MacPro', 'desktop'],
+    ['Mac Pro 2023', 'desktop'],
+    ['Mac Proé', 'desktop'],
+    ['Mac ProX', 'laptop'],
+    ['Mac Processor', 'laptop'],
+    ['MacBook Pro', 'laptop'],
+    ['OPTIPLEX', 'desktop'],
+    ['thinkcentre', 'desktop'],
+    ['elitedesk', 'desktop'],
+    ['prodesk', 'desktop'],
+    ['NUC', 'desktop'],
+    ['nuc', 'desktop'],
+    ['Intel-NUC-8', 'desktop'],
+    ['NUC_1', 'desktop'],
+    ['éNUC', 'desktop'],
+    ['XNUC', 'laptop'],
+    ['9NUC', 'laptop'],
+    ['_NUC', 'laptop'],
+    ['NUCLEUS', 'laptop'],
+    ['ＮＵＣ', 'laptop'],
+    ['Desktop-ABC123', 'desktop'],
+    ['MyDESKTOPx', 'desktop'],
+    ['tOwEr', 'desktop'],
+    ['Hightower Book', 'desktop'],
+    ['İMAC', 'laptop'],
+    ['ımac', 'laptop'],
+    ['', 'laptop'],
+    ['   ', 'laptop'],
+    ['Latitude\nTower', 'desktop'],
+    ['mac '.repeat(5000), 'laptop'],
+    [`${'mac '.repeat(5000)}mini`, 'desktop'],
+    [`${'x'.repeat(20000)}nuc`, 'laptop'],
+    [`${'x'.repeat(20000)} nuc`, 'desktop'],
+  ])('a Windows computer of model %j is a %s', (model, expected) => {
+    expect(assetTypeFor('Windows', model)).toBe(expected);
+  });
 });
 
 describe('mapCompliance', () => {

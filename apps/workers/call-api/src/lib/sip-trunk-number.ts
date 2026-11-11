@@ -16,9 +16,18 @@ export function toTrunkE164(raw: string): string | null {
   return E164.test(text) ? text : null;
 }
 
+const LINE_BREAKS = ['\n', '\r', ' ', ' '];
+
+/** The text up to the first `>` of its last line: what `/>.*$/` took off, without its backtracking. */
+function beforeClosingBracket(value: string): string {
+  const lastBreak = Math.max(...LINE_BREAKS.map((ch) => value.lastIndexOf(ch)));
+  const close = value.indexOf('>', lastBreak + 1);
+  return close < 0 ? value : value.slice(0, close);
+}
+
 /** The number in a call's `to`: a bare number, `tel:` or the user part of a `sip:` URI (parameters and `<>` dropped). */
 export function dialedNumberOf(raw: string): string | null {
-  let value = raw.trim().replace(/^[^<]*</, '').replace(/>.*$/, '');
+  let value = beforeClosingBracket(raw.trim().replace(/^[^<]*</, ''));
   value = value.replace(/^(sips?|tel):/i, '');
   const at = value.indexOf('@');
   if (at >= 0) value = value.slice(0, at);

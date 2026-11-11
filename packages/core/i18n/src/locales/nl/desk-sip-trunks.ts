@@ -61,7 +61,7 @@ export const deskSipTrunks = {
       transport: 'Transport',
       ipAddresses: 'Openbare IP-adressen van je centrale',
       ipAddressesHelp: 'Maximaal 10. Privéadressen (zoals 192.168.x.x) kunnen niet worden gebruikt.',
-      ipPlaceholder: '203.0.114.10',
+      ipPlaceholder: '203.0.113.10',
       portPlaceholder: 'Poort',
       addIp: 'IP-adres toevoegen',
       removeIp: 'IP-adres verwijderen',

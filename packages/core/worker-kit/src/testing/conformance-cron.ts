@@ -193,6 +193,26 @@ async function dueTimes(opts: ConformanceSweep<unknown>, master: PGliteClient | 
   };
 }
 
+/** What Rust is asked to run the job with. */
+async function cronRequest<R>(opts: ConformanceSweep<R>, tenant: PGliteClient, master: PGliteClient | null) {
+  return {
+    now: opts.now.toISOString(),
+    databaseUrl: await databaseUrlFor(tenant),
+    ...(master ? { masterDatabaseUrl: await databaseUrlFor(master) } : {}),
+    env: forwardedEnv(opts.env),
+    files: (await bucketUrls(opts.env)) ?? {},
+    ledgers: (await ledgerUrls(opts.env)) ?? {},
+    workspaces: opts.workspaces,
+    ...(opts.kv ? { seedScope: seedScope(opts.kv) } : {}),
+    seeded: opts.seeded ?? false,
+    ...(opts.input === undefined ? {} : { input: opts.input }),
+    // The test's SEND_EMAIL stub, for a job that mails through it.
+    ...(opts.mailBindings ? { sendEmail: await sendEmailUrl(opts.env) } : {}),
+    // The test's fetch stub, for a job that calls a third party.
+    ...(opts.outbound ? { outbound: await outboundBridgeUrl() } : {}),
+  };
+}
+
 /** Run a cron job on both runtimes and compare; returns Rust's result. */
 export async function conformanceSweep<R extends object>(opts: ConformanceSweep<R>): Promise<R> {
   const target = conformanceTarget();
@@ -236,22 +256,7 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
     const response = await harnessFetch(`${target.url}/__conformance/cron/${opts.job}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        now: opts.now.toISOString(),
-        databaseUrl: await databaseUrlFor(tenant),
-        ...(master ? { masterDatabaseUrl: await databaseUrlFor(master) } : {}),
-        env: forwardedEnv(opts.env),
-        files: (await bucketUrls(opts.env)) ?? {},
-        ledgers: (await ledgerUrls(opts.env)) ?? {},
-        workspaces: opts.workspaces,
-        ...(opts.kv ? { seedScope: seedScope(opts.kv) } : {}),
-        seeded: opts.seeded ?? false,
-        ...(opts.input === undefined ? {} : { input: opts.input }),
-        // The test's SEND_EMAIL stub, for a job that mails through it.
-        ...(opts.mailBindings ? { sendEmail: await sendEmailUrl(opts.env) } : {}),
-        // The test's fetch stub, for a job that calls a third party.
-        ...(opts.outbound ? { outbound: await outboundBridgeUrl() } : {}),
-      }),
+      body: JSON.stringify(await cronRequest(opts, tenant, master)),
     });
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);
     rust = (await response.json()) as R;

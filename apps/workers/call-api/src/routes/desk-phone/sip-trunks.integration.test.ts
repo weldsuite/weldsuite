@@ -256,7 +256,7 @@ describe('creating a trunk', () => {
     });
     expect(half.status).toBe(400);
     expect(callsTo('DELETE', '/ip_connections/ipc-RollbackPbx', mark)).toHaveLength(1);
-    expect((await db.select().from(schema.voipSipTrunks)).length).toBe(before);
+    expect(await db.select().from(schema.voipSipTrunks)).toHaveLength(before);
   });
 
   it('answers like the other phone routes when Telnyx is not configured', async () => {

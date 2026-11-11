@@ -217,19 +217,36 @@ async function bestEffort(label: string, run: () => Promise<void>): Promise<void
 
 // ── Trunks ────────────────────────────────────────────────────────────────
 
-export async function createSipTrunk(ctx: SipTrunkContext, input: CreateDeskSipTrunkInput) {
-  requireTelnyx(ctx.env);
-  const { env, db } = ctx;
-  const transport = input.transport ?? 'udp';
-  const ips = input.authMode === 'ip' ? validateIpAddresses(input.ipAddresses ?? []) : [];
-  if (input.authMode === 'credentials' && (input.ipAddresses ?? []).length > 0) {
-    throw new SipTrunkError(400, 'ip_not_applicable', 'IP addresses only apply to an IP-authenticated trunk');
-  }
+/** Delete a trunk's connection at Telnyx: the one that signs in with a username, or the one by IP address. */
+function deleteConnection(env: TelnyxEnv, authMode: SipTrunkRow['authMode'], connectionId: string): Promise<void> {
+  return authMode === 'credentials'
+    ? telnyxDeleteCredentialConnection(env, connectionId)
+    : telnyxDeleteIpConnection(env, connectionId);
+}
 
-  const id = generateId('strk');
-  const username = input.authMode === 'credentials' ? sipUsernameFor(ctx.workspaceId, id) : null;
-  const password = input.authMode === 'credentials' ? generateSipPassword() : null;
+/** Nothing is left behind: the connection (and with it its addresses) goes. */
+async function rollBackConnection(env: TelnyxEnv, authMode: SipTrunkRow['authMode'], connectionId: string | null): Promise<void> {
+  if (!connectionId) return;
+  await bestEffort('rolling back the connection', () => deleteConnection(env, authMode, connectionId));
+}
 
+interface NewConnection {
+  transport: NonNullable<CreateDeskSipTrunkInput['transport']>;
+  ips: IpInput[];
+  username: string | null;
+  password: string | null;
+}
+
+/**
+ * The trunk's connection at Telnyx: one that signs in with a username, or one
+ * by IP address with its addresses. When a step fails the connection is rolled
+ * back and the failure is Telnyx's.
+ */
+async function createConnection(
+  env: TelnyxEnv,
+  input: CreateDeskSipTrunkInput,
+  { transport, ips, username, password }: NewConnection,
+): Promise<{ connectionId: string | null; ipAddresses: SipTrunkIpAddress[] }> {
   let connectionId: string | null = null;
   const ipAddresses: SipTrunkIpAddress[] = [];
   try {
@@ -247,17 +264,26 @@ export async function createSipTrunk(ctx: SipTrunkContext, input: CreateDeskSipT
       }
     }
   } catch (err) {
-    // Nothing is left behind: the connection (and with it its addresses) goes.
-    if (connectionId) {
-      const created = connectionId;
-      await bestEffort('rolling back the connection', () =>
-        input.authMode === 'credentials'
-          ? telnyxDeleteCredentialConnection(env, created)
-          : telnyxDeleteIpConnection(env, created),
-      );
-    }
+    await rollBackConnection(env, input.authMode, connectionId);
     throw telnyxFailure('Creating the connection', err);
   }
+  return { connectionId, ipAddresses };
+}
+
+export async function createSipTrunk(ctx: SipTrunkContext, input: CreateDeskSipTrunkInput) {
+  requireTelnyx(ctx.env);
+  const { env, db } = ctx;
+  const transport = input.transport ?? 'udp';
+  const ips = input.authMode === 'ip' ? validateIpAddresses(input.ipAddresses ?? []) : [];
+  if (input.authMode === 'credentials' && (input.ipAddresses ?? []).length > 0) {
+    throw new SipTrunkError(400, 'ip_not_applicable', 'IP addresses only apply to an IP-authenticated trunk');
+  }
+
+  const id = generateId('strk');
+  const username = input.authMode === 'credentials' ? sipUsernameFor(ctx.workspaceId, id) : null;
+  const password = input.authMode === 'credentials' ? generateSipPassword() : null;
+
+  const { connectionId, ipAddresses } = await createConnection(env, input, { transport, ips, username, password });
 
   const now = new Date();
   try {
@@ -284,16 +310,118 @@ export async function createSipTrunk(ctx: SipTrunkContext, input: CreateDeskSipT
       credentials: username && password ? { username, password } : null,
     };
   } catch (err) {
-    const created = connectionId;
-    if (created) {
-      await bestEffort('rolling back the connection', () =>
-        input.authMode === 'credentials'
-          ? telnyxDeleteCredentialConnection(env, created)
-          : telnyxDeleteIpConnection(env, created),
-      );
-    }
+    await rollBackConnection(env, input.authMode, connectionId);
     throw err;
   }
+}
+
+/** Whether a change touches what the Telnyx connection carries: its name, its status or (by IP address only) its transport. */
+function changesConnection(trunk: SipTrunkRow, input: UpdateDeskSipTrunkInput, isIp: boolean): boolean {
+  return (
+    (input.name !== undefined && input.name !== trunk.name) ||
+    (input.status !== undefined && input.status !== trunk.status) ||
+    (input.transport !== undefined && input.transport !== trunk.transport && isIp)
+  );
+}
+
+/** Add the addresses that are new. When one fails, the ones added before it are taken back and the failure is Telnyx's. */
+async function addIpAddresses(
+  env: TelnyxEnv,
+  connectionId: string,
+  current: Map<string, SipTrunkIpAddress>,
+  wanted: Map<string, IpInput>,
+): Promise<SipTrunkIpAddress[]> {
+  const added: SipTrunkIpAddress[] = [];
+  try {
+    for (const [key, ip] of wanted) {
+      if (current.has(key)) continue;
+      const providerIpId = await telnyxCreateIp(env, { connectionId, ip: ip.ip, port: ip.port });
+      added.push({ ...ip, providerIpId });
+    }
+  } catch (err) {
+    for (const a of added) {
+      if (a.providerIpId) {
+        const ipId = a.providerIpId;
+        await bestEffort('rolling back an address', () => telnyxDeleteIp(env, ipId));
+      }
+    }
+    throw telnyxFailure('Adding an IP address', err);
+  }
+  return added;
+}
+
+/** Remove the addresses that are gone. One Telnyx would not let go stays, with the failure of the last such one. */
+async function removeIpAddresses(
+  env: TelnyxEnv,
+  current: Map<string, SipTrunkIpAddress>,
+  wanted: Map<string, IpInput>,
+): Promise<{ stillThere: SipTrunkIpAddress[]; failure: SipTrunkError | null }> {
+  const stillThere: SipTrunkIpAddress[] = [];
+  let failure: SipTrunkError | null = null;
+  for (const [key, old] of current) {
+    if (wanted.has(key)) continue;
+    try {
+      if (old.providerIpId) {
+        const ipId = old.providerIpId;
+        await ignoreNotFound(() => telnyxDeleteIp(env, ipId));
+      }
+    } catch (err) {
+      stillThere.push(old);
+      failure = telnyxFailure('Removing an IP address', err);
+    }
+  }
+  return { stillThere, failure };
+}
+
+/** Addresses by diff: add the new ones first, then remove the gone ones. */
+async function syncIpAddresses(
+  env: TelnyxEnv,
+  connectionId: string,
+  existing: SipTrunkIpAddress[],
+  wantedIps: IpInput[],
+): Promise<{ ipAddresses: SipTrunkIpAddress[]; failure: SipTrunkError | null }> {
+  const current = new Map(existing.map((a) => [keyOf(a), a]));
+  const wanted = new Map(wantedIps.map((a) => [keyOf(a), a]));
+  const kept: SipTrunkIpAddress[] = existing.filter((a) => wanted.has(keyOf(a)));
+  const added = await addIpAddresses(env, connectionId, current, wanted);
+  const { stillThere, failure } = await removeIpAddresses(env, current, wanted);
+  return { ipAddresses: [...kept, ...added, ...stillThere], failure };
+}
+
+/** Carry a change of name, transport or status over to the Telnyx connection. Answers the failure when Telnyx refuses. */
+async function updateConnection(
+  env: TelnyxEnv,
+  connectionId: string,
+  isIp: boolean,
+  input: UpdateDeskSipTrunkInput,
+): Promise<SipTrunkError | null> {
+  try {
+    if (isIp) {
+      await telnyxUpdateIpConnection(env, connectionId, {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.transport !== undefined ? { transport: input.transport } : {}),
+        ...(input.status !== undefined ? { active: input.status === 'active' } : {}),
+      });
+    } else {
+      await telnyxUpdateCredentialConnection(env, connectionId, {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.status !== undefined ? { active: input.status === 'active' } : {}),
+      });
+    }
+  } catch (err) {
+    return telnyxFailure('Updating the connection', err);
+  }
+  return null;
+}
+
+/** The columns a change writes on the trunk's row. */
+function rowChange(input: UpdateDeskSipTrunkInput) {
+  return {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    ...(input.status !== undefined ? { status: input.status } : {}),
+    ...(input.transport !== undefined ? { transport: input.transport } : {}),
+  };
 }
 
 export async function updateSipTrunk(ctx: SipTrunkContext, id: string, input: UpdateDeskSipTrunkInput) {
@@ -307,68 +435,17 @@ export async function updateSipTrunk(ctx: SipTrunkContext, id: string, input: Up
   }
   const wantedIps = input.ipAddresses !== undefined ? validateIpAddresses(input.ipAddresses) : null;
 
-  const connectionChange =
-    (input.name !== undefined && input.name !== trunk.name) ||
-    (input.status !== undefined && input.status !== trunk.status) ||
-    (input.transport !== undefined && input.transport !== trunk.transport && isIp);
+  const connectionChange = changesConnection(trunk, input, isIp);
   if ((connectionChange || wantedIps) && connectionId) requireTelnyx(env);
 
-  // Addresses by diff: add the new ones first, then remove the gone ones.
   let ipAddresses = trunk.ipAddresses;
   let ipFailure: SipTrunkError | null = null;
   if (wantedIps && connectionId) {
-    const current = new Map(trunk.ipAddresses.map((a) => [keyOf(a), a]));
-    const wanted = new Map(wantedIps.map((a) => [keyOf(a), a]));
-    const kept: SipTrunkIpAddress[] = trunk.ipAddresses.filter((a) => wanted.has(keyOf(a)));
-    const added: SipTrunkIpAddress[] = [];
-    try {
-      for (const [key, ip] of wanted) {
-        if (current.has(key)) continue;
-        const providerIpId = await telnyxCreateIp(env, { connectionId, ip: ip.ip, port: ip.port });
-        added.push({ ...ip, providerIpId });
-      }
-    } catch (err) {
-      for (const a of added) {
-        if (a.providerIpId) {
-          const ipId = a.providerIpId;
-          await bestEffort('rolling back an address', () => telnyxDeleteIp(env, ipId));
-        }
-      }
-      throw telnyxFailure('Adding an IP address', err);
-    }
-    const stillThere: SipTrunkIpAddress[] = [];
-    for (const [key, old] of current) {
-      if (wanted.has(key)) continue;
-      try {
-        if (old.providerIpId) {
-          const ipId = old.providerIpId;
-          await ignoreNotFound(() => telnyxDeleteIp(env, ipId));
-        }
-      } catch (err) {
-        stillThere.push(old);
-        ipFailure = telnyxFailure('Removing an IP address', err);
-      }
-    }
-    ipAddresses = [...kept, ...added, ...stillThere];
+    ({ ipAddresses, failure: ipFailure } = await syncIpAddresses(env, connectionId, trunk.ipAddresses, wantedIps));
   }
 
   if (connectionChange && connectionId && !ipFailure) {
-    try {
-      if (isIp) {
-        await telnyxUpdateIpConnection(env, connectionId, {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.transport !== undefined ? { transport: input.transport } : {}),
-          ...(input.status !== undefined ? { active: input.status === 'active' } : {}),
-        });
-      } else {
-        await telnyxUpdateCredentialConnection(env, connectionId, {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.status !== undefined ? { active: input.status === 'active' } : {}),
-        });
-      }
-    } catch (err) {
-      ipFailure = telnyxFailure('Updating the connection', err);
-    }
+    ipFailure = await updateConnection(env, connectionId, isIp, input);
   }
 
   // The addresses already changed at Telnyx are kept in our row even when a later step failed.
@@ -377,14 +454,7 @@ export async function updateSipTrunk(ctx: SipTrunkContext, id: string, input: Up
     .set({
       ipAddresses,
       updatedAt: new Date(),
-      ...(ipFailure
-        ? {}
-        : {
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.provider !== undefined ? { provider: input.provider } : {}),
-            ...(input.status !== undefined ? { status: input.status } : {}),
-            ...(input.transport !== undefined ? { transport: input.transport } : {}),
-          }),
+      ...(ipFailure ? {} : rowChange(input)),
     })
     .where(eq(schema.voipSipTrunks.id, id))
     .returning();

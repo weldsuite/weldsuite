@@ -10,7 +10,7 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 import { isPlainColumn, type EdmType, type ODataEntitySet, type ODataProperty } from './catalog';
-import type { CmpOp, FilterNode, Literal } from './filter';
+import type { CmpOp, FilterNode, Literal, TextFn } from './filter';
 
 const SQL_OPS: Record<Exclude<CmpOp, 'eq' | 'ne'>, SQL> = {
   gt: sql.raw('>'),
@@ -78,23 +78,35 @@ function compare(node: Extract<FilterNode, { kind: 'cmp' }>, set: ODataEntitySet
   return sql`COALESCE(${column} ${SQL_OPS[op]} ${value}, false)`;
 }
 
+/** The conditions of `args` in brackets, with `separator` between them. */
+function joined(args: FilterNode[], set: ODataEntitySet, separator: SQL): SQL {
+  const conditions = sql.join(
+    args.map((arg) => filterToSql(arg, set)),
+    separator,
+  );
+  return sql`(${conditions})`;
+}
+
+/** The LIKE pattern of a text function over an escaped value. */
+function likePattern(fn: TextFn, escaped: string): string {
+  if (fn === 'contains') return `%${escaped}%`;
+  if (fn === 'startswith') return `${escaped}%`;
+  return `%${escaped}`;
+}
+
 /** The WHERE condition for a parsed `$filter`. */
 export function filterToSql(node: FilterNode, set: ODataEntitySet): SQL {
   switch (node.kind) {
     case 'and':
-      return sql`(${sql.join(node.args.map((arg) => filterToSql(arg, set)), sql` AND `)})`;
+      return joined(node.args, set, sql` AND `);
     case 'or':
-      return sql`(${sql.join(node.args.map((arg) => filterToSql(arg, set)), sql` OR `)})`;
+      return joined(node.args, set, sql` OR `);
     case 'not':
       return sql`(NOT ${filterToSql(node.arg, set)})`;
     case 'cmp':
       return compare(node, set);
-    case 'text': {
-      const escaped = escapeLike(node.value);
-      const pattern =
-        node.fn === 'contains' ? `%${escaped}%` : node.fn === 'startswith' ? `${escaped}%` : `%${escaped}`;
-      return like(propExpr(set, node.prop), pattern);
-    }
+    case 'text':
+      return like(propExpr(set, node.prop), likePattern(node.fn, escapeLike(node.value)));
     case 'any':
       return sql`COALESCE(${propExpr(set, node.prop)} @> jsonb_build_array(${node.value}::text), false)`;
   }

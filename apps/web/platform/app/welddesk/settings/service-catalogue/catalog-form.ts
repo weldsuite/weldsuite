@@ -79,7 +79,7 @@ export const MAX_TASKS = DESK_CATALOG_MAX_FULFILMENT_TASKS;
 
 /** A client-side id for a row that has none yet; the server only needs it unique within the item. */
 export function newRowId(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
 }
 
 export function emptyStep(): CatalogStepValues {

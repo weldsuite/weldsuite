@@ -39,6 +39,7 @@ export function ApprovalsPage() {
       <ul className="divide-y rounded-lg border" data-testid="approvals-list">
         {rows.map((row) => {
           const approver = nameOf(row.approverId);
+          const approverText = approver ? t.approverLabel.replace('{name}', approver) : t.noApprover;
           return (
             <li key={row.approvalId}>
               <Link
@@ -56,7 +57,7 @@ export function ApprovalsPage() {
                   <span className="block truncate text-xs text-muted-foreground">
                     {t.requestedBy.replace('{name}', row.requesterName ?? t.unknownRequester)}
                     {row.stepName ? ` · ${t.step.replace('{name}', row.stepName)}` : ''}
-                    {effective === 'all' ? ` · ${approver ? t.approverLabel.replace('{name}', approver) : t.noApprover}` : ''}
+                    {effective === 'all' ? ` · ${approverText}` : ''}
                     {` · ${t.waitingSince.replace('{time}', formatDistanceToNowStrict(new Date(row.requestedAt)))}`}
                   </span>
                 </span>
