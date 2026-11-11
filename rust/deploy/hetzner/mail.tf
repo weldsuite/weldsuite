@@ -49,6 +49,24 @@ resource "hcloud_rdns" "mail" {
   dns_ptr       = each.value.rdns
 }
 
+# Pools on existing nodes (mail_pool_nodes): the node's own IPv4 gets the PTR
+# mail1-<pool>.<domain>. It is the server's primary IP, so a replaced node
+# comes back with a new address and starts its warm-up again.
+resource "hcloud_rdns" "node_mail" {
+  for_each = var.mail_pool_nodes
+
+  server_id  = hcloud_server.node[each.value].id
+  ip_address = hcloud_server.node[each.value].ipv4_address
+  dns_ptr    = "mail1-${each.key}.${var.domain}"
+
+  lifecycle {
+    precondition {
+      condition     = !contains(keys(var.mail_pools), each.key)
+      error_message = "mail_pool_nodes: pool ${each.key} is in mail_pools too; put it in one of them."
+    }
+  }
+}
+
 resource "hcloud_server" "mail" {
   for_each = local.mail_nodes
 
@@ -95,7 +113,7 @@ resource "hcloud_server" "mail" {
 # the private address only and stay closed here (a Hetzner firewall denies
 # what it doesn't allow, and never filters the private network).
 resource "hcloud_firewall" "mail" {
-  count = length(local.mail_nodes) > 0 ? 1 : 0
+  count = length(local.mail_nodes) + length(var.mail_pool_nodes) > 0 ? 1 : 0
 
   name   = "${var.cluster_name}-mail"
   labels = local.labels

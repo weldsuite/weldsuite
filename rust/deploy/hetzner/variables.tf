@@ -150,6 +150,28 @@ variable "mail_pools" {
   }
 }
 
+# A pool can also send from a node the cluster already has, instead of a
+# dedicated mail server: no extra server or address, at the price of sharing
+# the node (and its address) with the node's other workloads.
+variable "mail_pool_nodes" {
+  description = "Mail pools on existing cluster nodes: pool name => node key (cp-2, pg-1, worker-3 …). The node sends from its own public IPv4, which gets the PTR mail1-<pool>.<domain>, the mail firewall (inbound 25) and the weldsuite.org/mail-pool label, but no taint, so its other workloads stay. A pool is in mail_pools or here, not both. Empty: none."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for pool, node in var.mail_pool_nodes :
+      can(regex("^[a-z][a-z0-9]{0,15}$", pool)) && can(regex("^(cp|worker|pg)-[0-9]+$", node))
+    ])
+    error_message = "mail_pool_nodes: pool names are lowercase letters and digits; nodes are keys such as cp-2, worker-1 or pg-1."
+  }
+
+  validation {
+    condition     = length(distinct(values(var.mail_pool_nodes))) == length(var.mail_pool_nodes)
+    error_message = "mail_pool_nodes: one pool per node (each pool needs its own address)."
+  }
+}
+
 variable "postgres_locations" {
   description = "CloudNativePG nodes, one per entry: primary and synchronous replica in different locations."
   type        = list(string)
