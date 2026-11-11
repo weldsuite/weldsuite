@@ -684,6 +684,7 @@ mod tests {
             },
             video_configured: true,
             live_editing: false,
+            custom_mail_domains: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");

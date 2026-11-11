@@ -49,13 +49,14 @@ import {
 import { toast } from 'sonner';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 import { isFeatureAvailable } from '@/lib/edition';
+import { isRustBackend } from '@/lib/runtime-config';
 import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 
 type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
 
-// Free WeldMail addresses and custom domains each need a route the Kubernetes
-// editions lack (`mail-free-addresses`, `mail-domains`); a method that is
-// unavailable is not offered.
+// Free WeldMail addresses and custom domains each need a route a Kubernetes
+// edition may lack (`mail-free-addresses` always, `mail-domains` without an
+// MX); a method that is unavailable is not offered.
 function setupMethodsAvailable() {
   return {
     weldmail: isFeatureAvailable('mail-free-addresses'),
@@ -381,7 +382,12 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
           type="button"
           variant="outline"
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => (window.location.href = toPublicPath('/settings/apps/weldmail'))}
+          onClick={() =>
+            (window.location.href = toPublicPath(
+              // Kubernetes editions add and verify the domain on the Domains tab.
+              isRustBackend() ? '/settings/apps/weldmail?tab=domains' : '/settings/apps/weldmail',
+            ))
+          }
         >
           <Bolt className="size-7 text-gray-500" />
           <div className="flex flex-col items-start">
@@ -389,19 +395,21 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
             <span className="text-xs text-muted-foreground">{t.mail.setupPage.configureDomainDescription}</span>
           </div>
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => (window.location.href = toPublicPath('/weldhost/domains/register'))}
-        >
-          <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
-          <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
-          <div className="flex flex-col items-start">
-            <span className="font-medium">{t.mail.setupPage.buyNewDomain}</span>
-            <span className="text-xs text-muted-foreground">{t.mail.setupPage.buyNewDomainDescription}</span>
-          </div>
-        </Button>
+        {isFeatureAvailable('domain-purchase') && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+            onClick={() => (window.location.href = toPublicPath('/weldhost/domains/register'))}
+          >
+            <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
+            <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
+            <div className="flex flex-col items-start">
+              <span className="font-medium">{t.mail.setupPage.buyNewDomain}</span>
+              <span className="text-xs text-muted-foreground">{t.mail.setupPage.buyNewDomainDescription}</span>
+            </div>
+          </Button>
+        )}
       </div>
     );
   }

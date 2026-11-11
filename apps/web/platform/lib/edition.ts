@@ -48,7 +48,11 @@ export const EDITION_FEATURES = [
   'search-reindex',
   /** Company logos fetched from each company's website (`POST /api/company-logos/resolve`). */
   'company-logos',
-  /** Custom mail domains (`/api/mail-domains`, Cloudflare Email Routing and DNS; ADR MAIL-010). */
+  /**
+   * Custom mail domains (`/api/mail-domains`; ADR MAIL-010, MAIL-011). Offered
+   * on Kubernetes when the deployment has an MX for them (`MAIL_MX_HOST`);
+   * the domain is then added and verified under WeldMail settings › Domains.
+   */
   'mail-domains',
   /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
   'mail-free-addresses',

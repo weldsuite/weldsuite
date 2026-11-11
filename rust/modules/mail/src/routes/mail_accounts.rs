@@ -612,9 +612,20 @@ async fn assert_weldmail_domain_allowed(
 
 /// `ensureManagedDomain`: the domain must be a WeldMail mail domain already,
 /// or a WeldHost domain (then it is recorded as one). On Kubernetes there is
-/// no Cloudflare Email Routing to re-assert (MAIL-010): the records come from
-/// the `MailDomains` port when the domain is added.
-async fn ensure_managed_domain(caller: &Caller, domain: &str, at: &str) -> MailResult<()> {
+/// no Cloudflare Email Routing to re-assert (MAIL-010). With a `MailDomains`
+/// adapter (the deployment offers custom domains) the domain must be a
+/// verified mail domain or an active WeldHost domain, which is registered
+/// with the adapter (`mail_domains::ensure_provisioned`); without one, as in
+/// the conformance builds, the worker's checks apply as they are.
+async fn ensure_managed_domain(
+    state: &MailState,
+    caller: &Caller,
+    domain: &str,
+    at: &str,
+) -> MailResult<()> {
+    if let Some(adapter) = &state.domains {
+        return super::mail_domains::ensure_provisioned(caller, adapter.as_ref(), domain, at).await;
+    }
     let managed: Option<String> = sqlx::query_scalar(
         "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",
     )
@@ -761,7 +772,7 @@ async fn create(
             }
         };
 
-        ensure_managed_domain(&caller, &domain, &at).await?;
+        ensure_managed_domain(&state, &caller, &domain, &at).await?;
 
         if data.flag("isDefault") == Some(true) {
             sqlx::query("update mail_accounts set is_default = false where deleted_at is null")

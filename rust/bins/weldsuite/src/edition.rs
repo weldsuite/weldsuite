@@ -6,9 +6,10 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here. One entry
-//!   follows the deployment instead: [`COLLAB_ROOMS_FEATURE`], when no
-//!   collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
+//!   both follow the code, and a port removes its entry here. Two entries
+//!   follow the deployment instead: [`MAIL_DOMAINS_FEATURE`], when it has no
+//!   MX for customer domains (`MAIL_MX_HOST`), and [`COLLAB_ROOMS_FEATURE`],
+//!   when no collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -67,9 +68,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `POST /api/company-logos/resolve` (crm-api) fetches each company's
     // website and keeps the logo in R2; not served, so avatars keep initials.
     "company-logos",
-    // WeldMail custom domains (`/api/mail-domains`) are Cloudflare Email
-    // Routing and DNS on Global; the Kubernetes answers differ (MAIL-010).
-    "mail-domains",
     // Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`): that
     // domain's MX and reputation belong to Global (MAIL-010).
     "mail-free-addresses",
@@ -143,6 +141,13 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
 /// engine answers 503, so the platform hides the three apps.
 pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
 
+/// WeldMail custom domains (`/api/mail-domains`, MAIL-010 and MAIL-011): the
+/// records point at the deployment's own MX (`MAIL_MX_HOST`, Haraka) and, on
+/// the EU edition, the MTA mints each domain's DKIM key (`MTA_API_URL`).
+/// Unavailable when the deployment has no MX: no domain could receive mail,
+/// and the routes answer 503 (`crate::routes::mail_domains`).
+pub(crate) const MAIL_DOMAINS_FEATURE: &str = "mail-domains";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -173,6 +178,9 @@ pub(crate) struct EditionConfig {
     pub(crate) video_configured: bool,
     /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
     pub(crate) live_editing: bool,
+    /// Custom mail domains have an adapter (`MAIL_MX_HOST`, and the MTA's API
+    /// when set): [`MAIL_DOMAINS_FEATURE`].
+    pub(crate) custom_mail_domains: bool,
 }
 
 impl Default for EditionConfig {
@@ -183,6 +191,7 @@ impl Default for EditionConfig {
             video: ClientSettings::default(),
             video_configured: false,
             live_editing: false,
+            custom_mail_domains: false,
         }
     }
 }
@@ -218,6 +227,7 @@ impl EditionConfig {
             video_configured: weldsuite_video_rooms::configured(lookup),
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
+            custom_mail_domains: crate::routes::mail_domains::offered(lookup),
         }
     }
 
@@ -237,9 +247,13 @@ impl EditionConfig {
 }
 
 impl EditionConfig {
-    /// [`UNAVAILABLE_FEATURES`], and live editing when it isn't configured.
+    /// [`UNAVAILABLE_FEATURES`], and custom mail domains and live editing when
+    /// they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if !self.custom_mail_domains {
+            features.push(MAIL_DOMAINS_FEATURE);
+        }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
         }
@@ -309,7 +323,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + 1
+            UNAVAILABLE_FEATURES.len() + 2
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -329,10 +343,42 @@ mod tests {
         assert!(config.live_editing);
         let mut body = json!({});
         config.describe(&mut body);
-        assert_eq!(body["unavailableFeatures"], json!(UNAVAILABLE_FEATURES));
+        let mut lacks = UNAVAILABLE_FEATURES.to_vec();
+        lacks.push(MAIL_DOMAINS_FEATURE);
+        assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
         assert!(!blank.live_editing);
+    }
+
+    #[test]
+    fn offers_custom_mail_domains_with_an_mx() {
+        let lacks = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config
+                .unavailable_features()
+                .contains(&MAIL_DOMAINS_FEATURE)
+        };
+        assert!(lacks(&[]));
+        assert!(lacks(&[("MAIL_MX_HOST", " ")]), "a blank MX is none");
+        assert!(!lacks(&[("MAIL_MX_HOST", "mx.weldsuite.eu")]));
+        assert!(!lacks(&[
+            ("MAIL_MX_HOST", "mx.weldsuite.eu"),
+            (
+                "MTA_API_URL",
+                "http://weldsuite-mta-api.weldsuite-mail.svc:8025"
+            ),
+            ("MTA_API_SECRET", "s3cret"),
+        ]));
+        // Half the MTA's settings: the server builds no adapter, so none is offered.
+        assert!(lacks(&[
+            ("MAIL_MX_HOST", "mx.weldsuite.eu"),
+            (
+                "MTA_API_URL",
+                "http://weldsuite-mta-api.weldsuite-mail.svc:8025"
+            ),
+        ]));
     }
 
     #[test]
@@ -414,7 +460,10 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES.iter().chain([&COLLAB_ROOMS_FEATURE]) {
+        for feature in UNAVAILABLE_FEATURES
+            .iter()
+            .chain([&MAIL_DOMAINS_FEATURE, &COLLAB_ROOMS_FEATURE])
+        {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{feature}"

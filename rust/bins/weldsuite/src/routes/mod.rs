@@ -10,7 +10,7 @@ pub(crate) mod books;
 mod feature_flags;
 mod host;
 pub(crate) mod integrations;
-mod mail_domains;
+pub(crate) mod mail_domains;
 mod me;
 pub(crate) mod personal;
 

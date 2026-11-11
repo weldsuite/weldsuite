@@ -5,6 +5,7 @@ pub(crate) mod internal_outbound;
 pub(crate) mod mail_accounts;
 pub(crate) mod mail_attachments;
 pub(crate) mod mail_campaigns;
+pub(crate) mod mail_domains;
 pub(crate) mod mail_drafts;
 pub(crate) mod mail_folders;
 pub(crate) mod mail_labels;

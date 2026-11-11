@@ -56,7 +56,8 @@ pub struct MailState {
     pub doh: Option<Arc<dyn DnsOverHttps>>,
     /// Custom domains (`MailDomains`, MAIL-010): the MTA's domain API on the
     /// EU edition, the manual records otherwise; `None` when the edition
-    /// offers none. For the `/api/mail-domains` routes, not ported yet.
+    /// offers none (`MAIL_MX_HOST` unset). The `/api/mail-domains` routes and
+    /// a new mailbox on a WeldHost domain register domains through it.
     pub domains: Option<Arc<dyn MailDomains>>,
     /// Another workspace's tenant database and whether it is suspended,
     /// by reference (`/api/mailboxes`).
@@ -129,6 +130,7 @@ where
         .merge(routes::mail_templates::routes(state.clone(), gate))
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
+        .merge(routes::mail_domains::routes(state.clone(), gate))
         .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
