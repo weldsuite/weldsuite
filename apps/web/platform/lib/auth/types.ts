@@ -116,6 +116,13 @@ export interface MembershipList {
 export interface SetActiveParams {
   /** Provider organization id to make active; null leaves every workspace. */
   organization: string | null;
+  /**
+   * Where to continue when the provider switches workspace with a redirect
+   * (OIDC): an in-app path. Default: this page, or the new workspace's home
+   * when this page's URL names another workspace. Clerk switches in place
+   * and ignores it.
+   */
+  returnTo?: string;
 }
 
 export type SetActive = (params: SetActiveParams) => Promise<void>;

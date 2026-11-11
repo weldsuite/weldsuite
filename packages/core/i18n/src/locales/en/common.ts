@@ -597,6 +597,7 @@ export const common = {
         nameHint: 'You can change this later in workspace settings.',
         locationSettings: 'Country and data storage',
         locationHint: 'We suggested a location using your browser language. Check it here if you need your data stored in a specific region.',
+        countryHint: 'We suggested a country using your browser language. Change it if your company is based elsewhere.',
         chooseApps: 'Choose apps',
         appsRequired: 'Pick at least one app to start with. You can add more later from the App Store.',
         appsLater: 'You can add apps later from the App Store.',

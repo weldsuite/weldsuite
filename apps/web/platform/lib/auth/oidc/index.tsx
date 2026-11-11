@@ -51,6 +51,7 @@ import type {
   AuthUser,
   OrganizationListState,
   OrganizationState,
+  SetActiveParams,
   UserState,
 } from '../types';
 import type { OidcOrganization } from './claims';
@@ -82,8 +83,9 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
   const getToken = () => session.getToken();
   const signOut = (opts?: { redirectUrl?: string }) => session.signOut(opts?.redirectUrl);
   const reload = () => session.reload();
-  const setActive = ({ organization }: { organization: string | null }) =>
-    session.setActiveOrganization(organization);
+  const revalidate = () => session.reloadWorkspaces();
+  const setActive = ({ organization, returnTo }: SetActiveParams) =>
+    session.setActiveOrganization(organization, returnTo);
 
   // Derived objects are cached per snapshot so hooks hand out stable references.
   let cachedFor: OidcSnapshot | null = null;
@@ -148,7 +150,19 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
       user,
       organization: { isLoaded: snapshot.isLoaded, organization: snapshot.isLoaded ? active : undefined },
       list: snapshot.isLoaded
-        ? { isLoaded: true, setActive, userMemberships: { ...EMPTY_MEMBERSHIPS, data: memberships } }
+        ? {
+            isLoaded: true,
+            setActive,
+            userMemberships: {
+              ...EMPTY_MEMBERSHIPS,
+              data: memberships,
+              // Names, slugs and new workspaces are on their way: a `/w/{slug}`
+              // URL waits for them rather than reading as an unknown workspace.
+              isLoading: snapshot.isLoadingWorkspaces,
+              isFetching: snapshot.isLoadingWorkspaces,
+              revalidate,
+            },
+          }
         : { isLoaded: false, setActive: undefined, userMemberships: EMPTY_MEMBERSHIPS },
     };
     return derived;

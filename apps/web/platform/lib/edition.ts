@@ -83,6 +83,11 @@ export const EDITION_FEATURES = [
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
   /**
+   * Choosing where a new workspace's data is stored (a Neon region per
+   * workspace). A Kubernetes install keeps every workspace in its one cluster.
+   */
+  'data-regions',
+  /**
    * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.
    */

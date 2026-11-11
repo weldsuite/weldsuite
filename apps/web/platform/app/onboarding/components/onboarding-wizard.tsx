@@ -6,6 +6,7 @@ import { useCompleteOnboarding } from "@/hooks/use-onboarding";
 import type { PartnerTerritoryErrorDetails } from "@weldsuite/app-api-client/schemas/partners";
 import { TerritoryScreen } from "@/components/partner/territory-screen";
 import { territoryErrorDetails } from "@/lib/partner/api-errors";
+import { setPendingOrganization } from "@/lib/pending-organization";
 import { ProvisioningScreen } from "./provisioning-screen";
 import {
   OnboardingSetup,
@@ -62,8 +63,12 @@ export function OnboardingWizard(props: Readonly<OnboardingWizardProps>) {
         selected_apps: data.selectedApps,
       });
 
-      if (result.clerkOrgId && setActive) {
-        await setActive({ organization: result.clerkOrgId });
+      if (result.clerkOrgId) {
+        // Provisioning has started: an OIDC provider activates the org with a
+        // redirect back to /onboarding, whose ProvisioningScreen then mustn't
+        // start it again.
+        setPendingOrganization(result.clerkOrgId);
+        if (setActive) await setActive({ organization: result.clerkOrgId });
       }
       // Keep the existing readiness polling, retry, and finalization flow.
       setShowProvisioning(true);
