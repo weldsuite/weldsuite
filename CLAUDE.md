@@ -481,6 +481,7 @@ which supersedes OPS-004.
 | `ci.yml` | PR + push to `main` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
+| `sonarqube.yml` | PR | not yet (fails on a red quality gate; blocks once "SonarQube" is a required check) — full SonarQube Cloud analysis of **only the files the PR changes** (`scripts/sonar-changed.mjs` narrows `sonar-project.properties`; preview the scope with `pnpm sonar:changed`) |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
 | `handoff.yml` | CI passed on a push to `main` → starts the private `deploy-test` | n/a |
 | `release-desktop.yml` | manual | n/a |
