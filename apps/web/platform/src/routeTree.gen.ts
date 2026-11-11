@@ -308,6 +308,9 @@ import { Route as WeldformsFormIdLogicRouteImport } from './routes/weldforms/$fo
 import { Route as WeldformsFormIdIntegrationsRouteImport } from './routes/weldforms/$formId/integrations'
 import { Route as WeldformsFormIdEditRouteImport } from './routes/weldforms/$formId/edit'
 import { Route as WeldformsFormIdDesignRouteImport } from './routes/weldforms/$formId/design'
+import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/reports/wallboard'
+import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
+import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
@@ -2145,6 +2148,23 @@ const WeldformsFormIdDesignRoute = WeldformsFormIdDesignRouteImport.update({
   id: '/design',
   path: '/design',
   getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WelddeskReportsWallboardRoute =
+  WelddeskReportsWallboardRouteImport.update({
+    id: '/reports/wallboard',
+    path: '/reports/wallboard',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskReportsSchedulesRoute =
+  WelddeskReportsSchedulesRouteImport.update({
+    id: '/reports/schedules',
+    path: '/reports/schedules',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskReportsPhoneRoute = WelddeskReportsPhoneRouteImport.update({
+  id: '/reports/phone',
+  path: '/reports/phone',
+  getParentRoute: () => WelddeskRouteRoute,
 } as any)
 const WeldconnectIntegrationsCallbackRoute =
   WeldconnectIntegrationsCallbackRouteImport.update({
@@ -4066,6 +4086,9 @@ export interface FileRoutesByFullPath {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
   '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
   '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
   '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
@@ -4620,6 +4643,9 @@ export interface FileRoutesByTo {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
   '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
   '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
   '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
@@ -5221,6 +5247,9 @@ export interface FileRoutesById {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
   '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
   '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
   '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
@@ -5830,6 +5859,9 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
     | '/weldforms/$formId/design'
     | '/weldforms/$formId/edit'
     | '/weldforms/$formId/integrations'
@@ -6384,6 +6416,9 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
     | '/weldforms/$formId/design'
     | '/weldforms/$formId/edit'
     | '/weldforms/$formId/integrations'
@@ -6984,6 +7019,9 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
     | '/weldforms/$formId/design'
     | '/weldforms/$formId/edit'
     | '/weldforms/$formId/integrations'
@@ -9630,6 +9668,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldforms/$formId/design'
       preLoaderRoute: typeof WeldformsFormIdDesignRouteImport
       parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/welddesk/reports/wallboard': {
+      id: '/welddesk/reports/wallboard'
+      path: '/reports/wallboard'
+      fullPath: '/welddesk/reports/wallboard'
+      preLoaderRoute: typeof WelddeskReportsWallboardRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/reports/schedules': {
+      id: '/welddesk/reports/schedules'
+      path: '/reports/schedules'
+      fullPath: '/welddesk/reports/schedules'
+      preLoaderRoute: typeof WelddeskReportsSchedulesRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/reports/phone': {
+      id: '/welddesk/reports/phone'
+      path: '/reports/phone'
+      fullPath: '/welddesk/reports/phone'
+      preLoaderRoute: typeof WelddeskReportsPhoneRouteImport
+      parentRoute: typeof WelddeskRouteRoute
     }
     '/weldconnect/integrations/callback': {
       id: '/weldconnect/integrations/callback'
@@ -12550,6 +12609,9 @@ const WelddataRouteRouteWithChildren = WelddataRouteRoute._addFileChildren(
 interface WelddeskRouteRouteChildren {
   WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
+  WelddeskReportsPhoneRoute: typeof WelddeskReportsPhoneRoute
+  WelddeskReportsSchedulesRoute: typeof WelddeskReportsSchedulesRoute
+  WelddeskReportsWallboardRoute: typeof WelddeskReportsWallboardRoute
   WelddeskAiAgentsIndexRoute: typeof WelddeskAiAgentsIndexRoute
   WelddeskChatWidgetIndexRoute: typeof WelddeskChatWidgetIndexRoute
   WelddeskEmailIndexRoute: typeof WelddeskEmailIndexRoute
@@ -12585,6 +12647,9 @@ interface WelddeskRouteRouteChildren {
 const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
+  WelddeskReportsPhoneRoute: WelddeskReportsPhoneRoute,
+  WelddeskReportsSchedulesRoute: WelddeskReportsSchedulesRoute,
+  WelddeskReportsWallboardRoute: WelddeskReportsWallboardRoute,
   WelddeskAiAgentsIndexRoute: WelddeskAiAgentsIndexRoute,
   WelddeskChatWidgetIndexRoute: WelddeskChatWidgetIndexRoute,
   WelddeskEmailIndexRoute: WelddeskEmailIndexRoute,

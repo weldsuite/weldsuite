@@ -158,6 +158,10 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::post(crate::conformance::desk_sla_sweep),
         )
         .route(
+            "/__conformance/cron/desk-report-sweep",
+            axum::routing::post(crate::conformance::desk_report_sweep),
+        )
+        .route(
             "/__conformance/cron/flow-approval-due",
             axum::routing::post(crate::conformance::flow_approval_due),
         )

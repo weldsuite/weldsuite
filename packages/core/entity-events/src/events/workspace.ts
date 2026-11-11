@@ -25,6 +25,8 @@ export const WORKSPACE_ENTITY_EVENTS = {
   legal_entity_bank_account: ['created', 'updated', 'deleted'],
   /** Who may see a legal entity, and with which role (per-entity access). */
   legal_entity_member: ['created', 'updated', 'deleted'],
+  /** A destination the audit log is pushed to (SIEM). Event data never carries the token, only `hasToken`. */
+  audit_log_stream: ['created', 'updated', 'deleted'],
   /**
    * A tenant's connection to a third-party app through the connector
    * framework (WeldConnect › Connectors).

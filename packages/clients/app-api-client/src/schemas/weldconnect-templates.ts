@@ -156,6 +156,7 @@ export type BuiltInTemplateKey =
   | 'aiLeadTriage'
   | 'welcomeEmail'
   | 'weldmergeReleaseShipped'
+  | 'alertToTicket'
   | 'formResponseToChat';
 
 /** One template's strings in one language (`@weldsuite/i18n/locales/<locale>/weldconnect-templates`). */
@@ -576,6 +577,39 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: readonly BuiltInTemplateDefinition[] =
         ]),
       };
     },
+  },
+  {
+    // No setup: the alert is read by the parse_alert step, so the webhook URL is all it needs. A repeat of the same alert
+    // (the external id) updates and escalates its ticket; a resolved one adds its message and closes it.
+    id: 'builtin_alert_to_ticket',
+    key: 'alertToTicket',
+    category: 'support',
+    icon: 'Siren',
+    setup: [],
+    build: ({ steps }) => ({
+      triggers: [{ id: MAIN_TRIGGER, type: 'webhook', isEnabled: true }],
+      steps: ordered([
+        {
+          id: 'step_parse',
+          type: 'parse_alert',
+          name: at(steps, 'parse'),
+          config: { payload: '{{trigger.body}}', source: 'auto', defaultPriority: 'medium' },
+        },
+        {
+          id: 'step_ticket',
+          type: 'create_conversation',
+          name: at(steps, 'ticket'),
+          config: {
+            title: '{{steps.step_parse.title}}',
+            message: '{{steps.step_parse.message}}',
+            externalId: '{{steps.step_parse.externalId}}',
+            priority: '{{steps.step_parse.priority}}',
+            tags: '{{steps.step_parse.tags}}',
+            state: '{{steps.step_parse.state}}',
+          },
+        },
+      ]),
+    }),
   },
   {
     // WeldForms: every completed response is posted in a chat channel (`form_response.submitted`, catalog-driven).

@@ -12,7 +12,7 @@
  */
 
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import {
   validateCustomFieldValue,
   type CustomFieldDefinitionLike,
@@ -50,7 +50,7 @@ import { deskMergeFollowUpTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const messages = schema.deskMessages;

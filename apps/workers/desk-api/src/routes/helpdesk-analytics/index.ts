@@ -21,7 +21,17 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { ChartLayout } from '@weldsuite/db/schema/helpdesk-analytics-charts';
+import { csvResponse } from '@weldsuite/worker-kit/csv';
 import { deskChartData, deskReportsOverview } from '../../services/desk-reports';
+import {
+  loadSavedReport,
+  overviewCsv,
+  overviewCsvFilename,
+  reportCsvFilename,
+  savedReportCsv,
+} from '../../services/desk-report-export';
+import { reportSchedulesRoutes } from './schedules';
+import { helpdeskLiveReportRoutes } from './live';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -108,6 +118,32 @@ app.get('/overview', requirePermission('settings:read'), async (c) => {
   } catch (err) {
     console.error('[desk-api/helpdesk-analytics] overview failed:', err);
     return error.internal(c, 'Failed to fetch the reports overview');
+  }
+});
+
+// The overview as CSV: `section,label,metric,value,previous` (services/desk-report-export.ts).
+app.get('/overview/export', requirePermission('settings:read'), async (c) => {
+  try {
+    const now = new Date();
+    const overview = await deskReportsOverview(c.get('tenantDb'), c.req.query('range'), now);
+    return csvResponse(overviewCsv(overview), overviewCsvFilename(overview.range.key, now));
+  } catch (err) {
+    console.error('[desk-api/helpdesk-analytics] overview export failed:', err);
+    return error.internal(c, 'Failed to export the reports overview');
+  }
+});
+
+// Every chart of a saved report as CSV: `chart,label,value`.
+app.get('/reports/:reportId/export', requirePermission('settings:read'), async (c) => {
+  const reportId = c.req.param('reportId');
+  try {
+    const now = new Date();
+    const report = await loadSavedReport(c.get('tenantDb'), reportId, now);
+    if (!report) return error.notFound(c, 'Report', reportId);
+    return csvResponse(savedReportCsv(report), reportCsvFilename(report, now));
+  } catch (err) {
+    console.error('[desk-api/helpdesk-analytics] report export failed:', err);
+    return error.internal(c, 'Failed to export the report');
   }
 });
 
@@ -483,5 +519,11 @@ app.post('/charts/batch-data', requirePermission('settings:read'), async (c) => 
     return error.internal(c, 'Failed to fetch batch chart data');
   }
 });
+
+// Scheduled report emails (./schedules.ts): /schedules, /schedules/:id, /schedules/:id/send.
+app.route('/schedules', reportSchedulesRoutes);
+
+// The wallboard and the phone report (./live.ts): static GET paths, no `/:id` GET to clash with.
+app.route('/', helpdeskLiveReportRoutes);
 
 export const helpdeskAnalyticsRoutes = app;

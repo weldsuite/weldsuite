@@ -41,6 +41,8 @@ export type DueIndexKind =
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
   | 'desk_sla'
+  // WeldDesk (desk-api): scheduled report emails coming due (helpdesk_report_schedules).
+  | 'desk_report'
   // WeldFlow (flow-api): approval reminders a day before they are due, and overdue notices to the requester (FLOW-016).
   | 'approval_due'
   // WeldMerge (merge-api): chat subscriptions whose daily digest hour comes due.

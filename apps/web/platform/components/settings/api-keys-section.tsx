@@ -142,6 +142,8 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'members', group: 'settings', scopes: ro('members') },
   // Companies of the workspace; bank accounts only as a masked IBAN.
   { entityKey: 'legalEntities', group: 'settings', scopes: ro('legal_entities') },
+  // The workspace audit trail; pushing it to a SIEM is set up in Settings → Activity → Log streaming.
+  { entityKey: 'auditLogs', group: 'settings', scopes: ro('audit_logs') },
 ] as const;
 
 // Get all scope IDs the bulk buttons may select (named-only scopes excluded)

@@ -78,6 +78,7 @@ export const HELPDESK_ENTITY_EVENTS = {
   helpdesk_feedback: ['created', 'updated', 'deleted'],
   helpdesk_review: ['created', 'updated', 'deleted'],
   helpdesk_analytics_report: ['created', 'updated', 'deleted'],
+  helpdesk_report_schedule: ['created', 'updated', 'deleted'],
   helpdesk_email: ['created', 'deleted'],
   helpcenter_settings: ['updated'],
 } as const;

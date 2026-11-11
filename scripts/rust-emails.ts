@@ -26,6 +26,12 @@
  *   body, and a render with several rows of every kind must equal the loop's
  *   output. A row's own branches (an optional part) are row variants, which
  *   Rust names per row (`row.v`), as it names a template's variant.
+ * - A template with several lists, rows whose shape follows from their
+ *   figures, or a list inside a row (WeldDesk's report: KPIs, agents, a table
+ *   per chart) cannot be rendered with one row and with two. It is rendered
+ *   once, with one sample row per shape a row can take; each sample row is
+ *   cut out and becomes a branch of a minijinja loop over the list it names
+ *   (`ShapeListSpec`, `row.shape`).
  *
  * Templates are listed in SPECS; one not listed has no Rust version yet.
  */
@@ -38,8 +44,9 @@ import type { EmailBrand } from '../packages/core/emails/src/brand';
 import { EmailLayout } from '../packages/core/emails/src/components/layout';
 import type { EmailTemplate } from '../packages/core/emails/src/define';
 import { formatDate, formatTime, formatWhen } from '../packages/core/emails/src/format';
-import type { EmailLocale } from '../packages/core/emails/src/i18n';
+import { emailStrings, type EmailLocale } from '../packages/core/emails/src/i18n';
 import { renderEmail, renderHtml, renderTemplate } from '../packages/core/emails/src/render';
+import { formatReportNumber } from '../packages/core/emails/src/templates/desk/report';
 import { templates, type TemplateId } from '../packages/core/emails/src/templates/index';
 import { theme } from '../packages/core/emails/src/theme';
 import { emails as en } from '../packages/core/i18n/src/locales/en/emails';
@@ -128,10 +135,51 @@ interface Spec {
   texts?: (locale: EmailLocale, flags: Set<string>) => Record<string, string>;
   /** A list of rows (`rows`), when the template has one. */
   list?: ListSpec;
+  /**
+   * The lists of a template that has several, in the order it renders them
+   * (see `ShapeListSpec`). Not together with `list`.
+   */
+  lists?: (locale: EmailLocale, flags: Set<string>) => ShapeListSpec[];
   /** Flag combinations that cannot happen (a list's rows without the list): not exported. */
   exclude?: (flags: Set<string>) => boolean;
   /** The props for the flags; `rows` are the list's rows (empty without one). */
   props: (flags: Set<string>, rows: unknown[]) => Record<string, unknown>;
+}
+
+/**
+ * One of several lists a template renders (the KPIs, agents and charts of a
+ * report), where `ListSpec` does not fit: it is for one list, `rows`, whose
+ * rows differ by flags. React renders one sample row per shape a row can
+ * take; each row is cut out of the render with the element around it and put
+ * back inside a loop, so Rust passes the rows and re-implements no markup:
+ *
+ *   {% for row in kpis %}{% if row.shape == "value" %}…{% elif row.shape == "green" %}…{% endif %}{% endfor %}
+ */
+interface ShapeListSpec {
+  /** The list in the template's values (`kpis`; `chart.rows` inside a row of `charts`). */
+  list: string;
+  /** The loop variable. */
+  item: string;
+  /**
+   * React leaves the section around the rows out when the list is empty, so
+   * the section goes inside `{% if list %}`: the table around the rows, and in
+   * the plain text the title line above them when `titled`.
+   */
+  section?: 'plain' | 'titled';
+  /** One sample row per shape, in the order they are rendered. Rust sets `shape` on every row it passes. */
+  shapes: ShapeSpec[];
+}
+
+interface ShapeSpec {
+  name: string;
+  /** A text only this sample row renders: how the row is found. */
+  marker: string;
+  /** What the row is: the innermost table around the marker (default), or its paragraph. */
+  element?: 'table' | 'p';
+  /** Rendered text → sentinel, inside the row. Each must occur exactly once there. */
+  texts?: Record<string, string>;
+  /** Lists inside the row. */
+  lists?: ShapeListSpec[];
 }
 
 const SPECS: Spec[] = [
@@ -406,8 +454,130 @@ const SPECS: Spec[] = [
       joinUrl: S('join_url'),
     }),
   },
+  deskReportSpec(),
   ...calendarSpecs(),
 ];
+
+/**
+ * WeldDesk's scheduled report (`desk.report`): the overview (KPI rows, the
+ * backlog, the top agents) or a saved report (a table per chart). The rows
+ * are lists (`ShapeListSpec`); the numbers in them are formatted by Rust
+ * (`weldsuite_emails::desk`, as the template's `formatReportNumber`,
+ * `formatReportDuration` and `changeOf` do), so each sample number's text
+ * becomes a placeholder.
+ */
+function deskReportSpec(): Spec {
+  // Sample figures no other part of the email contains.
+  const KPI = { value: 900001, change: 900002, green: 900003, red: 900004 };
+  const AGENT = { csat: 910001, plain: 910002, score: 12345.5 };
+  const POINT = 920001.5;
+  return {
+    id: 'desk.report',
+    flags: ['saved', 'backlog', 'by', 'csv'],
+    fields: [
+      'schedule_name',
+      'report_title',
+      'period_label',
+      'backlog_open',
+      'backlog_unassigned',
+      'backlog_waiting',
+      'url',
+      'scheduled_by',
+    ],
+    lists: (locale) => {
+      const t = emailStrings(locale).deskReport;
+      const number = (value: number) => formatReportNumber(value, locale);
+      return [
+        {
+          list: 'kpis',
+          item: 'row',
+          section: 'plain',
+          shapes: [
+            // The figure alone (no previous figure, or none at all).
+            {
+              name: 'value',
+              marker: String(KPI.value),
+              texts: { [t.kpi.created]: S('row.label'), [String(KPI.value)]: S('row.value') },
+            },
+            // A change that is neither good nor bad (new tickets).
+            {
+              name: 'change',
+              marker: String(KPI.change),
+              texts: { [t.kpi.created]: S('row.label'), [String(KPI.change)]: S('row.value'), '+100%': S('row.change') },
+            },
+            {
+              name: 'green',
+              marker: String(KPI.green),
+              texts: { [t.kpi.resolved]: S('row.label'), [String(KPI.green)]: S('row.value'), '+100%': S('row.change') },
+            },
+            {
+              name: 'red',
+              marker: String(KPI.red),
+              texts: { [t.kpi.resolved]: S('row.label'), [String(KPI.red)]: S('row.value'), '-50%': S('row.change') },
+            },
+          ],
+        },
+        {
+          list: 'agents',
+          item: 'agent',
+          section: 'titled',
+          shapes: [
+            {
+              name: 'csat',
+              marker: String(AGENT.csat),
+              texts: { [String(AGENT.csat)]: S('agent.resolved'), [number(AGENT.score)]: S('agent.csat') },
+            },
+            { name: 'plain', marker: String(AGENT.plain), texts: { [String(AGENT.plain)]: S('agent.resolved') } },
+          ],
+        },
+        {
+          list: 'charts',
+          item: 'chart',
+          shapes: [
+            {
+              name: 'rows',
+              marker: S('chart.title'),
+              lists: [
+                {
+                  list: 'chart.rows',
+                  item: 'point',
+                  shapes: [{ name: 'row', marker: number(POINT), texts: { [number(POINT)]: S('point.value') } }],
+                },
+              ],
+            },
+            // A chart without data is one muted line.
+            { name: 'empty', marker: S('empty.title'), element: 'p', texts: { [S('empty.title')]: S('chart.title') } },
+          ],
+        },
+      ];
+    },
+    props: (f) => ({
+      scheduleName: S('schedule_name'),
+      reportTitle: f.has('saved') ? S('report_title') : null,
+      periodLabel: S('period_label'),
+      kpis: [
+        { key: 'created', value: KPI.value, previous: null },
+        { key: 'created', value: KPI.change, previous: KPI.change / 2 },
+        { key: 'resolved', value: KPI.green, previous: KPI.green / 2 },
+        { key: 'resolved', value: KPI.red, previous: KPI.red * 2 },
+      ],
+      backlog: f.has('backlog')
+        ? { open: S('backlog_open'), unassigned: S('backlog_unassigned'), waiting: S('backlog_waiting') }
+        : null,
+      agents: [
+        { name: S('agent.name'), resolved: AGENT.csat, csat: AGENT.score },
+        { name: S('agent.name'), resolved: AGENT.plain, csat: null },
+      ],
+      charts: [
+        { title: S('chart.title'), rows: [{ label: S('point.label'), value: POINT }] },
+        { title: S('empty.title'), rows: [] },
+      ],
+      url: S('url'),
+      scheduledBy: f.has('by') ? S('scheduled_by') : null,
+      csvAttached: f.has('csv'),
+    }),
+  };
+}
 
 /**
  * WeldCalendar's attendee mail (`calendar.event`), one export per kind. The
@@ -539,8 +709,151 @@ function placeholders(
     if (mode === 'html') out = out.replaceAll(`<span>${S(name)}</span>`, `{{ ${name}|multiline }}`);
     else if (mode === 'text') out = out.replaceAll(S(name), `{{ ${name}|text_lines }}`);
   }
-  out = out.replace(/⟦(\w+)⟧/g, (_, name: string) => (mode === 'text' ? `{{ ${name}|collapse }}` : `{{ ${name} }}`));
+  // A list row's field is `⟦row.label⟧`: the loop variable and its field.
+  out = out.replace(/⟦([\w.]+)⟧/g, (_, name: string) => (mode === 'text' ? `{{ ${name}|collapse }}` : `{{ ${name} }}`));
   if (mode === 'html') out = out.replaceAll(ACCENT, '{{ accent }}');
+  return out;
+}
+
+// ── lists ───────────────────────────────────────────────────────────────────
+
+/** React's text escaping (`escapeTextForBrowser`), as a sample text sits in the HTML. */
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#x27;');
+}
+
+/** Where `needle` is in `text`; it must be there exactly once. */
+function indexOfOnce(text: string, needle: string, where: string): number {
+  const at = text.indexOf(needle);
+  if (at < 0) throw new Error(`${where}: "${needle}" is not in the render`);
+  if (text.indexOf(needle, at + needle.length) >= 0) throw new Error(`${where}: "${needle}" is in the render more than once`);
+  return at;
+}
+
+/** Every `<tag>…</tag>` element of `html`, as `[start, end)`. */
+function elementsOf(html: string, tag: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const open: number[] = [];
+  for (const match of html.matchAll(new RegExp(`<${tag}[ >]|</${tag}>`, 'g'))) {
+    if (match[0].startsWith('</')) {
+      const start = open.pop();
+      if (start === undefined) throw new Error(`a </${tag}> without its <${tag}>`);
+      ranges.push([start, match.index + match[0].length]);
+    } else open.push(match.index);
+  }
+  return ranges;
+}
+
+/** The smallest `tag` element for which `fits` holds. */
+function innermost(html: string, tag: string, fits: (start: number, end: number) => boolean, where: string): [number, number] {
+  const found = elementsOf(html, tag)
+    .filter(([start, end]) => fits(start, end))
+    .sort((a, b) => a[1] - a[0] - (b[1] - b[0]))[0];
+  if (!found) throw new Error(`${where}: no <${tag}> around the row`);
+  return found;
+}
+
+/** A row's sample texts as sentinels; each text is in the row exactly once. */
+function rowSentinels(row: string, shape: ShapeSpec, escape: (text: string) => string, where: string): string {
+  let out = row;
+  for (const [text, sentinel] of Object.entries(shape.texts ?? {})) {
+    const at = indexOfOnce(out, escape(text), `${where} ${shape.name}`);
+    out = out.slice(0, at) + sentinel + out.slice(at + escape(text).length);
+  }
+  return out;
+}
+
+/** A row behind the test for its shape: `if` for the first shape, `elif` for the others. */
+function shapeBranch(list: ShapeListSpec, row: string, i: number): string {
+  const keyword = i === 0 ? 'if' : 'elif';
+  return `{% ${keyword} ${list.item}.shape == "${list.shapes[i]!.name}" %}${row}`;
+}
+
+/** The loop over a list's rows, each shape behind its `shape`. */
+function loopOf(list: ShapeListSpec, rows: string[]): string {
+  const body = rows.length === 1 ? rows[0]! : rows.map((row, i) => shapeBranch(list, row, i)).join('') + '{% endif %}';
+  return `{% for ${list.item} in ${list.list} %}${body}{% endfor %}`;
+}
+
+/** The shapes' rows must follow each other in the render, in the order given. */
+function adjacent(ranges: Array<[number, number]>, list: ShapeListSpec, where: string): [number, number] {
+  ranges.forEach(([start], i) => {
+    if (i > 0 && start !== ranges[i - 1]![1]) throw new Error(`${where}: the rows of ${list.list} do not follow each other`);
+  });
+  return [ranges[0]![0], ranges.at(-1)![1]];
+}
+
+/** `html` with each list's sample rows replaced by a loop (see `ShapeListSpec`). */
+function loopHtml(html: string, lists: ShapeListSpec[], where: string): string {
+  let out = html;
+  for (const list of lists) {
+    const at = `${where} ${list.list}`;
+    const ranges = list.shapes.map((shape) => {
+      const marker = indexOfOnce(out, escapeHtml(shape.marker), at);
+      return innermost(out, shape.element ?? 'table', (start, end) => start <= marker && marker < end, at);
+    });
+    let [start, end] = adjacent(ranges, list, at);
+    const rows = list.shapes.map((shape, i) => {
+      const row = out.slice(ranges[i]![0], ranges[i]![1]);
+      return rowSentinels(shape.lists ? loopHtml(row, shape.lists, at) : row, shape, escapeHtml, at);
+    });
+    let loop = loopOf(list, rows);
+    if (list.section) {
+      const [from, to] = innermost(out, 'table', (s, e) => s < start && end < e, at);
+      loop = `{% if ${list.list} %}${out.slice(from, start)}${loop}${out.slice(end, to)}{% endif %}`;
+      [start, end] = [from, to];
+    }
+    out = out.slice(0, start) + loop + out.slice(end);
+  }
+  return out;
+}
+
+/** html-to-text writes every row as a line of its own, a blank line after it. */
+const TEXT_ROW_END = '\n\n';
+
+/** The line `marker` is on, with the blank line after it, as `[start, end)`. */
+function textLine(text: string, marker: string, where: string): [number, number] {
+  const at = indexOfOnce(text, marker, where);
+  const before = text.lastIndexOf(TEXT_ROW_END, at);
+  const after = text.indexOf(TEXT_ROW_END, at);
+  if (after < 0) throw new Error(`${where}: a list is the last line of the plain text`);
+  return [before < 0 ? 0 : before + TEXT_ROW_END.length, after + TEXT_ROW_END.length];
+}
+
+/** A row in the plain text: its own line, and the lines of the lists inside it. */
+function textRow(text: string, shape: ShapeSpec, where: string): [number, number] {
+  const [start, own] = textLine(text, shape.marker, where);
+  const ends = (shape.lists ?? []).flatMap((list) => list.shapes.map((inner) => textRow(text, inner, where)[1]));
+  return [start, Math.max(own, ...ends)];
+}
+
+/** The plain text with each list's sample rows replaced by a loop. */
+function loopText(text: string, lists: ShapeListSpec[], where: string): string {
+  let out = text;
+  // The last list first: a loop's closing tags sit at the start of the line
+  // after it, so the lines above a list must still be as they were rendered.
+  for (const list of [...lists].reverse()) {
+    const at = `${where} ${list.list} (text)`;
+    const ranges = list.shapes.map((shape) => textRow(out, shape, at));
+    let [start, end] = adjacent(ranges, list, at);
+    const rows = list.shapes.map((shape, i) => {
+      const row = out.slice(ranges[i]![0], ranges[i]![1]);
+      return rowSentinels(shape.lists ? loopText(row, shape.lists, at) : row, shape, (plain) => plain, at);
+    });
+    let loop = loopOf(list, rows);
+    if (list.section) {
+      // The title line above the rows belongs to the section.
+      const from = list.section === 'titled' ? out.lastIndexOf(TEXT_ROW_END, start - TEXT_ROW_END.length - 1) + TEXT_ROW_END.length : start;
+      loop = `{% if ${list.list} %}${out.slice(from, start)}${loop}{% endif %}`;
+      start = from;
+    }
+    out = out.slice(0, start) + loop + out.slice(end);
+  }
   return out;
 }
 
@@ -625,7 +938,15 @@ async function sentinels(
   guard(rendered.html, where);
   guard(rendered.text, where);
   const parts = await splitContent(rendered.html, locale, brand, `${where} ${brand}`);
-  const out: Sentinels = { subject: rendered.subject, preview: parts.preview, footer: parts.footer, content: parts.content, text: rendered.text };
+  // A template with several lists (`lists`): its sample rows become loops here; any other is left as rendered.
+  const lists = spec.lists?.(locale, flags) ?? [];
+  const out: Sentinels = {
+    subject: rendered.subject,
+    preview: parts.preview,
+    footer: parts.footer,
+    content: loopHtml(parts.content, lists, where),
+    text: loopText(rendered.text, lists, where),
+  };
   for (const [literal, replacement] of Object.entries(spec.list?.counted?.(locale, rows.length) ?? {})) {
     out.subject = out.subject.replaceAll(literal, replacement);
     out.preview = out.preview.replaceAll(literal, replacement);
@@ -838,8 +1159,19 @@ async function exportTemplate(spec: Spec): Promise<string> {
       variants[locale][variantKey(spec, flags)] = await exportVariant(spec, locale, flags);
     }
   }
+  if (spec.list && spec.lists) throw new Error(`${spec.name ?? spec.id}: a template has "list" or "lists", not both`);
   const list = spec.list ? { flag: spec.list.flag, flags: spec.list.flags, fields: spec.list.fields } : undefined;
-  return stableJson({ id: spec.name ?? spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], list, variants });
+  // A template with several lists: the lists and their rows' shapes (documentation for the Rust side, like `fields`).
+  const shapesOf = (lists: ShapeListSpec[]): Record<string, string[]> =>
+    Object.assign(
+      {},
+      ...lists.map((shaped) => ({
+        [shaped.list]: shaped.shapes.map((shape) => shape.name),
+        ...shapesOf(shaped.shapes.flatMap((shape) => shape.lists ?? [])),
+      })),
+    ) as Record<string, string[]>;
+  const lists = spec.lists ? shapesOf(spec.lists('en', new Set())) : undefined;
+  return stableJson({ id: spec.name ?? spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], list, lists, variants });
 }
 
 /**

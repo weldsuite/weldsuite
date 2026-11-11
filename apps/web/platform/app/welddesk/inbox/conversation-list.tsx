@@ -34,6 +34,7 @@ import {
   type DeskConversationState,
 } from '@/hooks/queries/use-desk-queries';
 import { deskSlaDisplay, SLA_TONE_COLORS, useNow } from './sla-badge';
+import { DeskTakeCallsSwitch } from '@/components/welddesk/phone/desk-take-calls-switch';
 
 export type InboxAssigneeFilter = 'all' | 'mine' | 'unassigned';
 
@@ -362,6 +363,7 @@ export function ConversationList({
         <>
           {filterContent}
           <AvailabilityToggle />
+          <DeskTakeCallsSwitch />
         </>
       }
       onSearchChange={onSearchChange}

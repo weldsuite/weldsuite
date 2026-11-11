@@ -516,6 +516,238 @@ Of open deze link: https://meet.weldsuite.org/r/abc-defg-hij
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'desk.report' / 'overview' / 'en' > matches the text snapshot 1`] = `
+"WeldDesk report: Overview (Mar 9 to Mar 15, 2026)
+
+WeldDesk report · Mar 9 to Mar 15, 2026
+
+Overview
+
+How the team did in this period, against the period before.
+
+New tickets: 128 · +16%
+
+Resolved: 119 · +18%
+
+First response (median): 21m · -30%
+
+Resolution (median): 4h 15m · +6%
+
+SLA achievement: 93.5% · +2.3 pts
+
+CSAT: 88.4% · -1.6 pts
+
+Backlog now
+
+Open — 42
+
+Unassigned — 7
+
+Waiting on the team — 15
+
+Top agents
+
+Ann de Vries · 38 resolved — CSAT 92.5%
+
+Bob Jansen · 31 resolved —
+
+Chloe Smit · 24 resolved — CSAT 85%
+
+Open the report https://app.weldsuite.org/w/org_acme/welddesk/reports
+
+The numbers are attached as a CSV file.
+
+Sanne Jansen scheduled this report ("Weekly team report") in WeldDesk. To stop it, turn the schedule off under Reports.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'desk.report' / 'overview' / 'nl' > matches the text snapshot 1`] = `
+"WeldDesk-rapport: Overzicht (Mar 9 to Mar 15, 2026)
+
+WeldDesk-rapport · Mar 9 to Mar 15, 2026
+
+Overzicht
+
+Hoe het team het deed in deze periode, vergeleken met de periode ervoor.
+
+Nieuwe tickets: 128 · +16%
+
+Opgelost: 119 · +18%
+
+Eerste reactie (mediaan): 21m · -30%
+
+Oplossing (mediaan): 4u 15m · +6%
+
+SLA-behaling: 93,5% · +2,3 pnt
+
+CSAT: 88,4% · -1,6 pnt
+
+Backlog nu
+
+Open — 42
+
+Niet toegewezen — 7
+
+Wacht op het team — 15
+
+Beste medewerkers
+
+Ann de Vries · 38 opgelost — CSAT 92,5%
+
+Bob Jansen · 31 opgelost —
+
+Chloe Smit · 24 opgelost — CSAT 85%
+
+Het rapport openen https://app.weldsuite.org/w/org_acme/welddesk/reports
+
+De cijfers zitten als CSV-bestand in de bijlage.
+
+Sanne Jansen heeft dit rapport ("Weekly team report") ingepland in WeldDesk. Zet het schema uit onder Rapporten om te stoppen.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'desk.report' / 'overviewQuiet' / 'en' > matches the text snapshot 1`] = `
+"WeldDesk report: Overview (Mar 15, 2026)
+
+WeldDesk report · Mar 15, 2026
+
+Overview
+
+How the team did in this period, against the period before.
+
+New tickets: 0 · no change
+
+Resolved: 3 · new
+
+First response (median): No data
+
+Resolution (median): No data
+
+SLA achievement: No data
+
+CSAT: No data
+
+Backlog now
+
+Open — 0
+
+Unassigned — 0
+
+Waiting on the team — 0
+
+Open the report https://app.weldsuite.org/welddesk/reports
+
+This report is sent by the schedule "Daily check" in WeldDesk. To stop it, turn the schedule off under Reports.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'desk.report' / 'overviewQuiet' / 'nl' > matches the text snapshot 1`] = `
+"WeldDesk-rapport: Overzicht (Mar 15, 2026)
+
+WeldDesk-rapport · Mar 15, 2026
+
+Overzicht
+
+Hoe het team het deed in deze periode, vergeleken met de periode ervoor.
+
+Nieuwe tickets: 0 · ongewijzigd
+
+Opgelost: 3 · nieuw
+
+Eerste reactie (mediaan): Geen gegevens
+
+Oplossing (mediaan): Geen gegevens
+
+SLA-behaling: Geen gegevens
+
+CSAT: Geen gegevens
+
+Backlog nu
+
+Open — 0
+
+Niet toegewezen — 0
+
+Wacht op het team — 0
+
+Het rapport openen https://app.weldsuite.org/welddesk/reports
+
+Dit rapport wordt verstuurd door het schema "Daily check" in WeldDesk. Zet het schema uit onder Rapporten om te stoppen.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'desk.report' / 'saved' / 'en' > matches the text snapshot 1`] = `
+"WeldDesk report: Support volume by channel (Mar 15, 2026)
+
+WeldDesk report · Mar 15, 2026
+
+Support volume by channel
+
+The latest numbers of this report.
+
+Tickets by channel
+
+email — 212
+
+messenger — 96
+
+phone — 18
+
+Average first response (minutes)
+
+Mar 14 — 21.5
+
+Mar 15 — 17
+
+Ratings distribution: no data.
+
+Open the report https://app.weldsuite.org/w/org_acme/welddesk/reports/custom/rpt_1
+
+The numbers are attached as a CSV file.
+
+Sanne Jansen scheduled this report ("Monthly volume") in WeldDesk. To stop it, turn the schedule off under Reports.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'desk.report' / 'saved' / 'nl' > matches the text snapshot 1`] = `
+"WeldDesk-rapport: Support volume by channel (Mar 15, 2026)
+
+WeldDesk-rapport · Mar 15, 2026
+
+Support volume by channel
+
+De laatste cijfers van dit rapport.
+
+Tickets by channel
+
+email — 212
+
+messenger — 96
+
+phone — 18
+
+Average first response (minutes)
+
+Mar 14 — 21,5
+
+Mar 15 — 17
+
+Ratings distribution: geen gegevens.
+
+Het rapport openen https://app.weldsuite.org/w/org_acme/welddesk/reports/custom/rpt_1
+
+De cijfers zitten als CSV-bestand in de bijlage.
+
+Sanne Jansen heeft dit rapport ("Monthly volume") ingepland in WeldDesk. Zet het schema uit onder Rapporten om te stoppen.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'flow.digest' / 'default' / 'en' > matches the text snapshot 1`] = `
 "Your tasks: 1 overdue
 

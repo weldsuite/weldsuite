@@ -140,6 +140,15 @@ const ROUTES: VolatileRoute[] = [
   },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
+  // An audit log stream's test event: how long the destination took to
+  // answer, and in the request the moment it was sent as Splunk HEC's epoch
+  // seconds (the event's own ISO timestamp is masked like any other).
+  {
+    method: 'POST',
+    route: '/api/audit-log-streams/:id/test',
+    fields: [{ path: 'data.durationMs' }],
+    outbound: [{ path: 'body.time' }],
+  },
   // WeldDesk OAuth starts: a fresh state nonce (`crypto.randomUUID()`) per run.
   ...['discord', 'slack'].map((provider) => ({
     method: 'POST',
@@ -315,6 +324,18 @@ const ROUTES: VolatileRoute[] = [
       toolToken('body.assistant.tools.1.webhook.headers.0.value'),
     ],
   },
+  // The WeldDesk phone queue rings a member's softphone outside the webhook
+  // too (a queue pickup, "take calls" switched on with a caller waiting):
+  // the dial carries the new leg's id in the same base64 JSON.
+  ...[
+    { method: 'POST', route: '/api/desk/phone/queue/:callId/pickup' },
+    { method: 'PUT', route: '/api/desk/phone/softphone' },
+  ].map(({ method, route }) => ({
+    method,
+    route,
+    fields: [],
+    outbound: [{ path: 'body.client_state', decode: 'base64-json' as const }],
+  })),
   // WeldBooks VAT: a Digipoort filing reference (`WS-<Date.now() base 36>-<6 random>`) per run,
   // the moment a status was asked, and the creation time inside an XBRL message built on request.
   { method: 'POST', route: '/api/vat-returns/:id/file', fields: [{ path: 'data.kenmerk' }] },

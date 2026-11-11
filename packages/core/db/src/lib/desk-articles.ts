@@ -28,12 +28,12 @@
  */
 
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { DeskMessage } from '../schema/desk-messages';
 import { normalizeDeskEmail } from './desk-portal';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const articles = schema.helpdeskArticles;
 

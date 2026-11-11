@@ -1,11 +1,10 @@
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import type * as schema from '../schema';
+import type { TenantDb } from './any-db';
 import type { TenantTier } from '../schema/master';
 
 // Database instance type — base class shared by neon-serverless (platform)
 // and neon-http (mcp-server). Both extend PgDatabase, so this is the
 // common surface for select/insert/update/delete.
-type DbInstance = PgDatabase<PgQueryResultHKT, typeof schema>;
+type DbInstance = TenantDb;
 
 export interface ScopedDbOptions {
   db: DbInstance;

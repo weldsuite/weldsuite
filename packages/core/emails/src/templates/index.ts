@@ -8,6 +8,7 @@
 import workspaceDeletion from './admin/workspace-deletion';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
+import deskReport from './desk/report';
 import flowDigest from './flow/digest';
 import flowPortalInvitation from './flow/portal-invitation';
 import flowStatusReport from './flow/status-report';
@@ -45,6 +46,7 @@ export const templates = {
   'workspace.invitation': workspaceInvitation,
   notification,
   'task.assigned': taskAssigned,
+  'desk.report': deskReport,
   'flow.digest': flowDigest,
   'flow.status-report': flowStatusReport,
   'flow.portal-invitation': flowPortalInvitation,
@@ -82,6 +84,13 @@ export type TemplateProps<Id extends TemplateId> =
 export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
+export type {
+  DeskReportAgent,
+  DeskReportChart,
+  DeskReportEmailProps,
+  DeskReportKpi,
+  DeskReportKpiKey,
+} from './desk/report';
 export type { DigestTask, FlowDigestEmailProps } from './flow/digest';
 export type { FlowPortalInvitationEmailProps } from './flow/portal-invitation';
 export type { FlowStatusReportEmailProps } from './flow/status-report';

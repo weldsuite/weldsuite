@@ -13,14 +13,38 @@
 //!   surfaces in the write, and it gets the same lock wait as a lookup that
 //!   fails with the lock's error. Any other write error is retried and then
 //!   dead-lettered. Same in both backends.
+//! - `stream-flusher.ts`: after the batch, every workspace that had an audit
+//!   row written gets one flush of its audit log streams (the SIEM push,
+//!   [`crate::audit_streams`]). The dispositions are decided by then, and a
+//!   flush that fails is logged and otherwise ignored: the streams keep their
+//!   own cursor and catch up on the next flush, so it never fails or retries
+//!   a message.
+//!
+//!   That flush is not immediate. Delivery only reads rows older than a
+//!   settle window, so a workspace that has an active stream is flushed
+//!   [`STREAM_FLUSH_DELAY`] after its rows were written; a workspace without
+//!   one costs a single small query and no wait. The worker hands the flushes
+//!   to `ctx.waitUntil`; here they run in a task of their own
+//!   ([`PendingStreamFlushes`]), so the batch is answered, and its messages
+//!   acked, without waiting for them, and `consume` waits for the ones still
+//!   on their way before it stops.
 
+use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use futures_util::future::join_all;
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use tokio::sync::Notify;
+use weldsuite_db::{Keyring, PgPool};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
 
+use crate::audit_streams::{
+    AUDIT_STREAM_SETTLE, AuditStreamSender, FlushOptions, FlushOutcome, flush_audit_log_streams,
+    has_active_audit_log_streams,
+};
 use crate::event::{HubEvent, OrderedObject};
 use crate::js;
 use crate::tenants::{Tenants, is_tenant_locked};
@@ -398,6 +422,97 @@ pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> Result<AuditOutco
 #[derive(Clone)]
 pub struct AuditSubscriber {
     tenants: Arc<dyn Tenants>,
+    /// Where each workspace's new audit rows are pushed on; `None` writes
+    /// the rows only.
+    streams: Option<AuditStreams>,
+}
+
+/// How long after a batch's writes its streams are flushed: the settle
+/// window and a second (`STREAM_FLUSH_DELAY_MS`). A flush only reads rows
+/// older than the window, so one that ran straight after the writes would
+/// leave them behind until the workspace's next audit event.
+pub const STREAM_FLUSH_DELAY: Duration = AUDIT_STREAM_SETTLE.saturating_add(Duration::from_secs(1));
+
+/// What the push to a workspace's audit log streams needs: the sender and
+/// the keyring that opens the collectors' tokens.
+#[derive(Clone)]
+struct AuditStreams {
+    sender: AuditStreamSender,
+    keyring: Keyring,
+    /// The pause between a batch's writes and its flush.
+    delay: Duration,
+    /// The flushes on their way.
+    pending: PendingStreamFlushes,
+}
+
+/// The delayed stream flushes that have not finished. The subscriber gives
+/// each batch's flush a task of its own, so the batch is answered at once;
+/// [`PendingStreamFlushes::settled`] waits for them, which `consume` does
+/// before it stops: a flush dropped there would leave the batch's rows
+/// behind until the workspace's next audit event.
+#[derive(Clone, Default)]
+pub struct PendingStreamFlushes {
+    inner: Arc<Pending>,
+}
+
+#[derive(Default)]
+struct Pending {
+    running: AtomicUsize,
+    idle: Notify,
+}
+
+/// One flush on its way; counted out when it ends, however it ends.
+struct Running(Arc<Pending>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if self.0.running.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.0.idle.notify_waiters();
+        }
+    }
+}
+
+impl std::fmt::Debug for PendingStreamFlushes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingStreamFlushes")
+            .field("running", &self.running())
+            .finish()
+    }
+}
+
+impl PendingStreamFlushes {
+    /// How many flushes have not finished.
+    pub fn running(&self) -> usize {
+        self.inner.running.load(Ordering::Acquire)
+    }
+
+    /// Runs `flush` in a task of its own.
+    fn spawn<F>(&self, flush: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.inner.running.fetch_add(1, Ordering::AcqRel);
+        let running = Running(Arc::clone(&self.inner));
+        tokio::spawn(async move {
+            let _running = running;
+            flush.await;
+        });
+    }
+
+    /// Waits until no flush is on its way. Giving up on the wait leaves the
+    /// flushes running.
+    pub async fn settled(&self) {
+        loop {
+            let idle = self.inner.idle.notified();
+            tokio::pin!(idle);
+            // Listen before looking, so a flush that ends in between is not missed.
+            idle.as_mut().enable();
+            if self.running() == 0 {
+                return;
+            }
+            idle.await;
+        }
+    }
 }
 
 impl std::fmt::Debug for AuditSubscriber {
@@ -408,17 +523,69 @@ impl std::fmt::Debug for AuditSubscriber {
 
 impl AuditSubscriber {
     pub fn new(tenants: Arc<dyn Tenants>) -> Self {
-        Self { tenants }
+        Self {
+            tenants,
+            streams: None,
+        }
+    }
+
+    /// Also push each workspace's new audit rows to its audit log streams
+    /// once a batch is written and its rows have settled
+    /// (`flushStreamsForWorkspace`); `keyring` opens the collectors' tokens.
+    #[must_use]
+    pub fn with_streams(mut self, sender: AuditStreamSender, keyring: Keyring) -> Self {
+        self.streams = Some(AuditStreams {
+            sender,
+            keyring,
+            delay: STREAM_FLUSH_DELAY,
+            pending: PendingStreamFlushes::default(),
+        });
+        self
+    }
+
+    /// Count the delayed flushes in `pending`, for the caller that waits for
+    /// them before it stops. After [`AuditSubscriber::with_streams`].
+    #[must_use]
+    pub fn with_pending_stream_flushes(mut self, pending: PendingStreamFlushes) -> Self {
+        if let Some(streams) = &mut self.streams {
+            streams.pending = pending;
+        }
+        self
+    }
+
+    /// Another pause between a batch's writes and its flush than
+    /// [`STREAM_FLUSH_DELAY`] (tests). After [`AuditSubscriber::with_streams`].
+    #[must_use]
+    pub fn with_stream_flush_delay(mut self, delay: Duration) -> Self {
+        if let Some(streams) = &mut self.streams {
+            streams.delay = delay;
+        }
+        self
+    }
+
+    /// The delayed flushes that have not finished; empty without streams.
+    pub fn pending_stream_flushes(&self) -> PendingStreamFlushes {
+        self.streams
+            .as_ref()
+            .map(|streams| streams.pending.clone())
+            .unwrap_or_default()
     }
 
     /// `processEntityEvent` plus the batch processor's failure handling for
-    /// one delivery.
+    /// one delivery. Writes the row only; the streams are flushed per batch
+    /// ([`AuditSubscriber::flush_streams`]).
     pub async fn handle_one(&self, delivery: &Delivery) -> Disposition {
+        self.process(delivery).await.0
+    }
+
+    /// One delivery: what to do with it and, when its event was written (or
+    /// already had a row), the workspace it names.
+    async fn process(&self, delivery: &Delivery) -> (Disposition, Option<String>) {
         let event = match HubEvent::parse(&delivery.payload) {
             Ok(event) => event,
             Err(error) => {
                 tracing::error!(%error, subject = delivery.subject, "audit: not an entity event; dropped");
-                return Disposition::Ack;
+                return (Disposition::Ack, None);
             }
         };
         if event.metadata.workspace_id.is_empty() {
@@ -426,26 +593,77 @@ impl AuditSubscriber {
                 event_id = event.id,
                 "audit: event missing workspaceId, skipping"
             );
-            return Disposition::Ack;
+            return (Disposition::Ack, None);
         }
         let tenant = match self.tenants.tenant(&event.metadata.workspace_id).await {
             Ok(tenant) => tenant,
             Err(error) => {
-                return failed(
+                let retry = failed(
                     delivery,
                     &error,
                     format!("cannot resolve the workspace: {error}"),
                 );
+                return (retry, None);
             }
         };
         match write_audit_log(&tenant.db, &event).await {
-            Ok(_) => Disposition::Ack,
-            Err(error) => failed(
-                delivery,
-                error.as_ref(),
-                format!("failed to write the audit log: {error}"),
-            ),
+            Ok(_) => (Disposition::Ack, Some(event.metadata.workspace_id)),
+            Err(error) => {
+                let retry = failed(
+                    delivery,
+                    error.as_ref(),
+                    format!("failed to write the audit log: {error}"),
+                );
+                (retry, None)
+            }
         }
+    }
+
+    /// `flushWorkspaceStreams`: one flush per workspace a batch wrote for,
+    /// side by side; a failure of one never touches another, and none fails
+    /// into the caller. `workspaces` are the events' own references, which
+    /// an event whose row carries no `metadata.workspaceId` is sent with.
+    ///
+    /// Each flush is `flushStreamsForWorkspace`: a workspace without an
+    /// active stream is done after one small query; one that has a stream
+    /// waits out the delay first, so the rows the batch just wrote are older
+    /// than the settle window when it reads them. The time of the flush is
+    /// taken after that wait.
+    ///
+    /// Log lines name the workspace and the stream only: an error's text can
+    /// quote a connection string or what a destination answered.
+    pub async fn flush_streams(&self, workspaces: &[String]) {
+        let Some(streams) = &self.streams else {
+            return;
+        };
+        join_all(workspaces.iter().map(|workspace| async move {
+            let Ok(tenant) = self.tenants.tenant(workspace).await else {
+                tracing::error!(
+                    workspace_id = workspace,
+                    "audit: stream flush skipped, the workspace does not resolve"
+                );
+                return;
+            };
+            if !has_active_audit_log_streams(&tenant.db).await {
+                return;
+            }
+            tokio::time::sleep(streams.delay).await;
+            let options = FlushOptions {
+                keyring: &streams.keyring,
+                workspace_id: Some(workspace),
+                now: OffsetDateTime::now_utc(),
+            };
+            for result in flush_audit_log_streams(&tenant.db, &streams.sender, &options).await {
+                if result.outcome == FlushOutcome::Failed {
+                    tracing::warn!(
+                        workspace_id = workspace,
+                        stream_id = result.stream_id,
+                        "audit: stream delivery failed"
+                    );
+                }
+            }
+        }))
+        .await;
     }
 }
 
@@ -469,8 +687,26 @@ impl BatchHandler for AuditSubscriber {
     fn handle<'a>(&'a self, batch: &'a [Delivery]) -> BoxFuture<'a, Vec<Disposition>> {
         Box::pin(async move {
             let mut out = Vec::with_capacity(batch.len());
+            // The workspaces the batch wrote for, once each.
+            let mut written: Vec<String> = Vec::new();
             for delivery in batch {
-                out.push(self.handle_one(delivery).await);
+                let (disposition, workspace) = self.process(delivery).await;
+                if let Some(workspace) = workspace
+                    && !written.contains(&workspace)
+                {
+                    written.push(workspace);
+                }
+                out.push(disposition);
+            }
+            // Every delivery has its answer. The flushes wait for the settle
+            // window, so they run behind the batch (`ctx.waitUntil`).
+            if let Some(streams) = &self.streams
+                && !written.is_empty()
+            {
+                let subscriber = self.clone();
+                streams
+                    .pending
+                    .spawn(async move { subscriber.flush_streams(&written).await });
             }
             out
         })
@@ -485,6 +721,62 @@ mod tests {
     fn locked_delays_double_to_fifteen_minutes() {
         let delays: Vec<u64> = (1..=6).map(|n| locked_retry_delay(n).as_secs()).collect();
         assert_eq!(delays, vec![60, 120, 240, 480, 900, 900]);
+    }
+
+    #[test]
+    fn streams_are_flushed_a_second_after_the_settle_window() {
+        assert_eq!(AUDIT_STREAM_SETTLE, Duration::from_secs(5));
+        assert_eq!(STREAM_FLUSH_DELAY, Duration::from_secs(6));
+    }
+
+    #[tokio::test]
+    async fn pending_flushes_run_behind_the_caller_and_can_be_waited_for() {
+        let pending = PendingStreamFlushes::default();
+        // Nothing on its way: no wait.
+        pending.settled().await;
+
+        let done = Arc::new(AtomicUsize::new(0));
+        for _ in 0..3 {
+            let done = Arc::clone(&done);
+            pending.spawn(async move {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                done.fetch_add(1, Ordering::AcqRel);
+            });
+        }
+        // Handed over, not awaited.
+        assert_eq!(pending.running(), 3);
+        assert_eq!(done.load(Ordering::Acquire), 0);
+
+        // Giving up on the wait leaves them running.
+        let gave_up = tokio::time::timeout(Duration::from_millis(5), pending.settled()).await;
+        assert!(gave_up.is_err());
+        assert_eq!(pending.running(), 3);
+
+        pending.settled().await;
+        assert_eq!(done.load(Ordering::Acquire), 3);
+        assert_eq!(pending.running(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_subscriber_shares_the_pending_flushes_it_is_given() {
+        let tenants: Arc<dyn Tenants> = Arc::new(crate::tenants::StaticTenants::default());
+        let without = AuditSubscriber::new(Arc::clone(&tenants));
+        assert_eq!(without.pending_stream_flushes().running(), 0);
+
+        let pending = PendingStreamFlushes::default();
+        let sender = AuditStreamSender::new(false).expect("a client");
+        let with = AuditSubscriber::new(tenants)
+            .with_streams(sender, Keyring { v1: None, v2: None })
+            .with_pending_stream_flushes(pending.clone())
+            .with_stream_flush_delay(Duration::ZERO);
+        pending.spawn(std::future::pending());
+        assert_eq!(with.pending_stream_flushes().running(), 1);
+
+        // A batch that wrote nothing has nothing to flush: no task, and the
+        // answer does not wait for one.
+        let dispositions = with.handle(&[]).await;
+        assert_eq!(dispositions.len(), 0);
+        assert_eq!(pending.running(), 1);
     }
 
     #[test]

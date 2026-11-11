@@ -36,7 +36,10 @@ modules, each with conformance suites that reach every route:
   `AssignmentRouter` keeps each workspace's round robin on Valkey;
   `crates/desk-domain/src/workflow`; the SLA engine, `crates/desk-domain/src/sla.rs`,
   re-derives a conversation's clocks on every write and `weldsuite cron
-  desk-sla-sweep` announces warnings and breaches) and **stash** (the WMS, with the
+  desk-sla-sweep` announces warnings and breaches; the reports' CSV exports,
+  the wallboard and the phone report, and the scheduled report emails, which
+  `weldsuite cron desk-report-sweep` sends on the customer mail relay behind
+  the outbound guard) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -79,7 +82,12 @@ modules, each with conformance suites that reach every route:
 - **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
   call intelligence (phone numbers, the WebRTC token, statistics, call
   transcriptions), the WeldDesk phone channel's voice agents (Telnyx AI
-  assistants) and inbound routes, number porting with its documents in the
+  assistants) and inbound routes (an AI agent, a forward, the team's agents
+  rung in their browsers on a softphone credential each, with the waiting
+  queue, voicemail and a keypad menu: `desk_phone_inbound`, `_queue`,
+  `_ring`, `_legs` and `_softphone` in `modules/call/src`, as the worker's
+  services are split; the queue's events go out on the realtime port and
+  who is online is read from live presence), number porting with its documents in the
   `STORAGE` bucket, telephony (searching and syncing the account's numbers,
   addresses, ordering requirements, the price list), and the Telnyx webhook
   at `/public/webhooks/telnyx`, its Ed25519 signatures checked as on Global:
@@ -471,6 +479,9 @@ rust/
                         their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
+                        audit log streams (audit_streams.rs: the SIEM push the audit subscriber makes a few
+                        seconds after each batch, once its rows have settled, Splunk HEC or an HTTPS collector;
+                        safe_url.rs: the URL rules of a stream);
                         tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
   crates/mail-inbound/  mail-inbound-worker's port (MAIL-010): postal-mime's parser, the Authentication-Results read,
                         spam and promotion scoring, thread matching, the registry lookup, the Postgres mailbox store's
@@ -576,8 +587,8 @@ rust/
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
-                        modules/core-platform (notifications, audit logs, appstore, API keys, credits,
-                        dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
+                        modules/core-platform (notifications, audit logs and audit log streams, appstore,
+                        API keys, credits, dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps),
                         modules/core-signin (/api/sign-in: the backend of the platform's own sign-in
@@ -756,7 +767,8 @@ share one origin and the app finds the API through `/config.json`
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
-and breaches), `reach-send-sweep` every minute (WeldReach's sends: queued
+and breaches), `desk-report-sweep` every minute (WeldDesk's scheduled report
+emails), `reach-send-sweep` every minute (WeldReach's sends: queued
 on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
 which the chart sets with `consume.enabled`, else sent by the job itself),
 `reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's

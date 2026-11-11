@@ -738,6 +738,7 @@ pub async fn send_and_persist(
                     message_id,
                     delivered_message_ids: error.delivered_message_ids().to_vec(),
                     pending_verification: false,
+                    pending_recipients: Vec::new(),
                     suppressed_recipients: Vec::new(),
                 },
                 Some(Partial {
@@ -1133,6 +1134,7 @@ mod tests {
                 .map(|(r, id)| ((*r).to_owned(), (*id).to_owned()))
                 .collect(),
             pending_verification: false,
+            pending_recipients: Vec::new(),
             suppressed_recipients: Vec::new(),
         }
     }

@@ -2,6 +2,7 @@
 
 pub(crate) mod api_keys;
 pub(crate) mod appstore;
+pub(crate) mod audit_log_streams;
 pub(crate) mod audit_logs;
 pub(crate) mod auth_sessions;
 pub(crate) mod credits;

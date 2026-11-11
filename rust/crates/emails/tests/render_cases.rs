@@ -6,13 +6,17 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::desk::{
+    DeskReport, DeskReportAgent, DeskReportBacklog, DeskReportChart, DeskReportKpi,
+    DeskReportPoint, KpiKey,
+};
 use weldsuite_emails::flow::{FlowPortalInvitation, FlowStatusReport, Overall};
 use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, forms, hr, meet, portal,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, desk, flow, forms, hr, meet, portal,
     reach, sign,
 };
 
@@ -226,6 +230,7 @@ fn render(case: &Case) -> RenderedEmail {
             &s(p, "url"),
         ),
         "calendar.event" => calendar::event(locale, &brand, &calendar_props(p)),
+        "desk.report" => desk::report(locale, &brand, &desk_report_props(p)),
         "portal.sign-in" => portal::sign_in(
             locale,
             &brand,
@@ -385,6 +390,61 @@ fn calendar_props(p: &Value) -> CalendarEventEmail {
         all_day: p["allDay"].as_bool().unwrap_or(false),
         meeting_url: opt("meetingUrl"),
         event_url: opt("eventUrl"),
+    }
+}
+
+/// A preview's `DeskReportEmailProps`.
+fn desk_report_props(p: &Value) -> DeskReport {
+    let opt = |key: &str| p[key].as_str().map(str::to_owned);
+    let items = |key: &str| p[key].as_array().cloned().unwrap_or_default();
+    DeskReport {
+        schedule_name: s(p, "scheduleName"),
+        report_title: opt("reportTitle"),
+        period_label: s(p, "periodLabel"),
+        kpis: items("kpis")
+            .iter()
+            .map(|kpi| DeskReportKpi {
+                key: kpi["key"]
+                    .as_str()
+                    .and_then(KpiKey::parse)
+                    .expect("a KPI key"),
+                value: kpi["value"].as_f64(),
+                previous: kpi["previous"].as_f64(),
+            })
+            .collect(),
+        backlog: p["backlog"].as_object().map(|backlog| DeskReportBacklog {
+            open: backlog["open"].as_f64().unwrap_or_default(),
+            unassigned: backlog["unassigned"].as_f64().unwrap_or_default(),
+            waiting: backlog["waiting"].as_f64().unwrap_or_default(),
+        }),
+        agents: items("agents")
+            .iter()
+            .map(|agent| DeskReportAgent {
+                name: s(agent, "name"),
+                resolved: agent["resolved"].as_f64().unwrap_or_default(),
+                csat: agent["csat"].as_f64(),
+            })
+            .collect(),
+        charts: items("charts")
+            .iter()
+            .map(|chart| DeskReportChart {
+                title: s(chart, "title"),
+                rows: chart["rows"]
+                    .as_array()
+                    .map(|rows| {
+                        rows.iter()
+                            .map(|row| DeskReportPoint {
+                                label: s(row, "label"),
+                                value: row["value"].as_f64().unwrap_or_default(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect(),
+        url: s(p, "url"),
+        scheduled_by: opt("scheduledBy"),
+        csv_attached: p["csvAttached"].as_bool().unwrap_or(false),
     }
 }
 

@@ -3,6 +3,11 @@
 //! (`helpdesk_analytics_charts`) and chart data.
 //! Permissions `settings:read|create|update|delete`.
 //!
+//! Mounted here too, as the worker mounts them: the CSV exports
+//! ([`super::export`]), the scheduled report emails at `/schedules`
+//! ([`super::schedules`]) and the live reports ([`super::live`]: the
+//! wallboard, which takes `conversations:read`, and the phone report).
+//!
 //! The overview (`GET /overview`) and the chart data are aggregated from the
 //! live inbox in the tenant database (`services/desk-reports.ts`, ADR
 //! DESK-011), by [`reports`], which runs the worker's statements. An unknown
@@ -24,8 +29,8 @@ use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use super::lenient_json;
 use super::reports::{self, ChartQuery};
+use super::{export, lenient_json, live, schedules};
 use crate::crud::write_failed;
 use crate::js::query_param;
 use crate::tables::{HELPDESK_ANALYTICS_CHARTS as CHARTS, HELPDESK_ANALYTICS_REPORTS as REPORTS};
@@ -86,6 +91,23 @@ where
             "/overview",
             get(overview).route_layer(need("settings:read")),
         )
+        .route(
+            "/overview/export",
+            get(export::overview_export).route_layer(need("settings:read")),
+        )
+        .route(
+            "/reports/{report_id}/export",
+            get(export::report_export).route_layer(need("settings:read")),
+        )
+        .route(
+            "/wallboard",
+            get(live::wallboard_route).route_layer(need("conversations:read")),
+        )
+        .route(
+            "/phone",
+            get(live::phone_route).route_layer(need("settings:read")),
+        )
+        .nest("/schedules", schedules::routes(gate))
         .route(
             "/charts/data",
             post(chart_data).route_layer(need("settings:read")),

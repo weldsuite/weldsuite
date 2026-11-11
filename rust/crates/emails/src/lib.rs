@@ -16,6 +16,9 @@
 //!   combination of flags is its own **variant**, rendered by React. Rust
 //!   re-implements no template logic, it only picks the variant: a request
 //!   with a message and an expiry date is variant `message+expires`.
+//! - A list (the rows of a report) is a loop in the exported template: React
+//!   rendered one sample row per shape a row can take, and Rust passes the
+//!   rows, each with its `shape` ([`desk`]).
 //! - Dates are formatted here (`formatDate`: `Saturday, February 3, 2001`,
 //!   `zaterdag 3 februari 2001`), in the recipient's time zone.
 //! - A list of rows (`<Details>`, `<List>`: WeldForms' answers and digest)
@@ -25,7 +28,7 @@
 //!   brand and wrapped around the variant's content; the plain text is stored
 //!   per brand.
 //!
-//! The typed functions in [`sign`] (and [`hr`]) choose flags and placeholders for each
+//! The typed functions in [`sign`] (and [`hr`], [`desk`], …) choose flags and placeholders for each
 //! template the way its React component does; [`render`] is the generic entry.
 //!
 //! # Not supported yet
@@ -36,6 +39,7 @@
 pub mod calendar;
 mod catalog;
 mod date;
+pub mod desk;
 mod escape;
 pub mod flow;
 pub mod forms;

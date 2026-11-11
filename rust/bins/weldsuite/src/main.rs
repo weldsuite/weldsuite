@@ -62,7 +62,7 @@ commands:
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
              calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure,
              flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew,
-             desk-sla-sweep,
+             desk-sla-sweep, desk-report-sweep,
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,

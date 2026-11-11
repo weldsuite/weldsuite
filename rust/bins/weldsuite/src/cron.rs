@@ -47,6 +47,11 @@
 //! - `desk-sla-sweep` (every minute): WeldDesk's SLA warnings and breaches
 //!   on inbox conversations, for the workspaces the due index lists
 //!   (`apps/workers/desk-api/src/cron/sla-sweep.ts`).
+//! - `desk-report-sweep` (every minute): WeldDesk's scheduled report emails
+//!   that came due, for the workspaces the due index lists (kind
+//!   `desk_report`, `apps/workers/desk-api/src/cron/report-schedule-sweep.ts`).
+//!   The mail goes out on the customer mail relay behind the outbound guard,
+//!   as WeldCalendar's invitations do.
 //! - `reach-send-sweep` (every minute): WeldReach's send sweep over the
 //!   due index (kind `reach_send`, `apps/workers/reach-api/src/cron/send-sweep.ts`).
 //!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
@@ -128,7 +133,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -147,6 +152,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
+        | "desk-report-sweep"
         | "reach-send-sweep"
         | "reach-warmup-sweep"
         | "reach-slot-reconciliation"
@@ -205,6 +211,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 Ok(())
             }
             "desk-sla-sweep" => desk_sla_sweep(config).await,
+            "desk-report-sweep" => desk_report_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
             "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
@@ -918,6 +925,67 @@ async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>
         .is_err()
     {
         tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `desk-report-sweep`: the due workspaces' scheduled report emails.
+async fn desk_report_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_desk::sla_sweep::SlaTenant {
+                db: tenant.db,
+                clerk_org_id: tenant.clerk_org_id.unwrap_or(tenant.workspace_id),
+            })
+        })
+    });
+    let read = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let services = weldsuite_desk::report_sweep::ReportSweepServices {
+        // Reports go out like the desk API's replies: the relay, behind the guard.
+        outbound: if cfg!(feature = "conformance") {
+            weldsuite_mail_domain::outbound::OutboundBindings::default()
+        } else {
+            crate::routes::mail_outbound_for(&master, &infra.flags)
+                .0
+                .clone()
+        },
+        master: Some(master.clone()),
+        cache: infra.cache.clone(),
+        environment: read("ENVIRONMENT"),
+        public_app_url: read("PUBLIC_APP_URL"),
+        from_override: read("SYSTEM_EMAIL_FROM"),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result =
+        weldsuite_desk::report_sweep::run_report_sweep(&master, &tenants, &services, now).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "desk-report-sweep", "result": result.to_json() })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with work still in flight");
     }
     Ok(())
 }

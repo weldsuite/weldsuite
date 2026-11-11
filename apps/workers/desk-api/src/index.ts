@@ -6,7 +6,8 @@
  * satisfaction surveys, canned responses, knowledge-base articles, the help
  * center settings and the public help-center feed.
  *
- * A cron runs the SLA sweep (warnings and breaches): src/cron/sla-sweep.ts.
+ * A cron runs the SLA sweep (warnings and breaches): src/cron/sla-sweep.ts,
+ * and the report schedule sweep (scheduled report emails): src/cron/report-schedule-sweep.ts.
  *
  * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
@@ -15,6 +16,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
+import { isReportSweepCron, runReportScheduleSweep } from './cron/report-schedule-sweep';
 import { isSlaSweepCron, runSlaSweep } from './cron/sla-sweep';
 import { articleFoldersRoutes } from './routes/article-folders';
 import { articlesRoutes } from './routes/articles';
@@ -122,6 +124,15 @@ export default {
       ctx.waitUntil(
         runSlaSweep(env).catch((err) => {
           console.error('[DeskSla] Failed:', err);
+        }),
+      );
+    }
+    // Scheduled report emails that came due (src/cron/report-schedule-sweep.ts). Its own
+    // waitUntil, so a slow report never holds up the SLA sweep.
+    if (isReportSweepCron(event.cron)) {
+      ctx.waitUntil(
+        runReportScheduleSweep(env).catch((err) => {
+          console.error('[DeskReports] Failed:', err);
         }),
       );
     }

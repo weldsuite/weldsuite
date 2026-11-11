@@ -14,7 +14,7 @@
 
 use serde_json::{Map, Value, json};
 use weldsuite_desk_domain::assignment::Picker;
-use weldsuite_desk_domain::attributes::Update;
+use weldsuite_desk_domain::attributes::{PRIORITIES, Update};
 use weldsuite_desk_domain::inbox::{
     self, Actor, InboxDeps, InboxError, IngestApi, OpenConversation, RealtimeEmitter,
     UpdateConversation,
@@ -116,9 +116,77 @@ fn text(value: Option<&Value>) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
+/// Tags as a list: an array, or a comma-separated string. Blanks and repeats
+/// drop out.
+fn tag_list(value: Option<&Value>) -> Vec<String> {
+    let raw: Vec<Option<String>> = match value {
+        Some(Value::Array(items)) => items.iter().map(|item| text(Some(item))).collect(),
+        Some(Value::String(joined)) => joined
+            .split(',')
+            .map(|tag| text(Some(&json!(tag))))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut tags: Vec<String> = Vec::new();
+    for tag in raw.into_iter().flatten() {
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    }
+    tags
+}
+
+/// `ticketFields(inputs)`: the ticket fields the step sets; an unknown
+/// priority is ignored rather than failing the step.
+fn ticket_fields(inputs: &Map<String, Value>) -> Update {
+    let priority = text(inputs.get("priority")).map(|p| p.to_lowercase());
+    let tags = tag_list(inputs.get("tags"));
+    let set = |key: &str| text(inputs.get(key)).map_or(Field::Absent, Field::Set);
+    Update {
+        priority: match priority {
+            Some(p) if PRIORITIES.contains(&p.as_str()) => Field::Set(p),
+            _ => Field::Absent,
+        },
+        tags: (!tags.is_empty()).then_some(tags),
+        department_id: set("teamId"),
+        ticket_type_id: set("ticketTypeId"),
+        ..Update::default()
+    }
+}
+
+/// `priorityRank`: low < medium < high < urgent; none ranks below all.
+fn priority_rank(priority: &str) -> u8 {
+    match priority {
+        "low" => 1,
+        "medium" => 2,
+        "high" => 3,
+        "urgent" => 4,
+        _ => 0,
+    }
+}
+
+/// `priorityApplies`: whether the step's priority may be written onto the
+/// conversation that already carries its external id. A repeat only ever
+/// raises the priority, except that a reopened ticket is a new episode and
+/// takes the priority as given, and the run that closes a ticket never
+/// changes it.
+fn priority_applies(existing: &Value, incoming: &str, closing: bool) -> bool {
+    if closing {
+        return false;
+    }
+    if existing["state"] == "closed" {
+        return true;
+    }
+    priority_rank(incoming) > priority_rank(existing["priority"].as_str().unwrap_or_default())
+}
+
 /// `handleCreateConversation`: open a conversation in the inbox, or add to
 /// the one that carries `externalId` (reopening it). Inputs: title, message
-/// (or body), name, email, contactId, externalId.
+/// (or body), name, email, contactId, externalId, and the ticket fields
+/// priority, tags (a list or a comma-separated string), teamId and
+/// ticketTypeId (applied on a repeat too, so an alert can escalate).
+/// `state: 'closed'` closes the conversation once the message is in. A
+/// repeat never lowers the priority (see `priority_applies`).
 pub(super) async fn create_conversation(
     inputs: &Map<String, Value>,
     ctx: &ActionCtx<'_>,
@@ -131,10 +199,22 @@ pub(super) async fn create_conversation(
     };
     let mut metadata = Map::new();
     metadata.insert("executionId".to_owned(), json!(ctx.info.execution_id));
+    let external_id = text(inputs.get("externalId"));
+    let closing = text(inputs.get("state")).is_some_and(|s| s.eq_ignore_ascii_case("closed"));
+    let mut fields = ticket_fields(inputs);
+    if let (Field::Set(priority), Some(key)) = (&fields.priority, &external_id) {
+        // Two deliveries for a new id at once can both see none and both write: the later priority wins, as before.
+        let existing = inbox::find_by_external_id(ctx.db, key)
+            .await
+            .map_err(|e| ActionError::plain(&e.to_string()))?;
+        if existing.is_some_and(|row| !priority_applies(&row, priority, closing)) {
+            fields.priority = Field::Absent;
+        }
+    }
     let input = OpenConversation {
         ingest: IngestApi {
             via: "workflow".to_owned(),
-            external_id: text(inputs.get("externalId")),
+            external_id,
             title: text(inputs.get("title")).or_else(|| text(inputs.get("subject"))),
             body,
             name: text(inputs.get("name")).or_else(|| text(inputs.get("customerName"))),
@@ -143,19 +223,33 @@ pub(super) async fn create_conversation(
             attachments: None,
             metadata,
         },
+        fields,
         ..OpenConversation::default()
     };
     let inbox = Inbox::new(ctx).await;
     let result = inbox::open_desk_api_conversation(&inbox.deps(ctx), &input, None)
         .await
         .map_err(|e| thrown(&e))?;
-    let conversation = &result.conversation;
+    let mut conversation = result.conversation;
+    if closing && conversation["state"] != "closed" {
+        let close = UpdateConversation {
+            conversation_id: conversation["id"].as_str().unwrap_or_default().to_owned(),
+            state: Some("closed".to_owned()),
+            ..UpdateConversation::default()
+        };
+        conversation =
+            inbox::update_desk_conversation_from_api(&inbox.deps(ctx), &close, actor(ctx))
+                .await
+                .map_err(|e| thrown(&e))?
+                .conversation;
+    }
     Ok(json!({
         "success": true,
         "created": result.created,
         "conversationId": conversation["id"],
         "conversationNumber": conversation["conversationNumber"],
         "state": conversation["state"],
+        "priority": conversation["priority"],
         "assigneeId": conversation["assigneeId"],
     }))
 }
@@ -375,5 +469,24 @@ pub(super) async fn add_message(
             Ok(json!({ "success": false, "error": error.to_string() }))
         }
         Err(error) => Err(thrown(&error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_repeat_only_raises_the_priority() {
+        let open = |priority: Value| json!({ "state": "open", "priority": priority });
+        assert!(!priority_applies(&open(json!("urgent")), "medium", false));
+        assert!(!priority_applies(&open(json!("high")), "high", false));
+        assert!(priority_applies(&open(json!("medium")), "urgent", false));
+        assert!(priority_applies(&open(Value::Null), "low", false));
+        // The run that closes never changes it; a reopen takes it as given.
+        assert!(!priority_applies(&open(json!("low")), "urgent", true));
+        let closed = json!({ "state": "closed", "priority": "urgent" });
+        assert!(priority_applies(&closed, "medium", false));
+        assert!(!priority_applies(&closed, "medium", true));
     }
 }

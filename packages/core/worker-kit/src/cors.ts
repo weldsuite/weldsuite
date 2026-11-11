@@ -119,7 +119,9 @@ export const apiCors = () =>
     ],
     // Retry-After: a browser client reads it off a 503 WORKSPACE_MOVING to know
     // how long to back off while a workspace's database is being moved.
-    exposeHeaders: ['X-Request-Id', 'X-Partner-Warnings', 'Retry-After'],
+    // Content-Disposition: the platform reads the file name off a download it
+    // fetched with the session token (a report's CSV export).
+    exposeHeaders: ['X-Request-Id', 'X-Partner-Warnings', 'Retry-After', 'Content-Disposition'],
     credentials: true,
     maxAge: CORS_MAX_AGE_SECONDS,
   });

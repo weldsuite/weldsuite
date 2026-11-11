@@ -55,14 +55,14 @@ pub(super) fn clock_ms(caller: &Caller) -> i64 {
     i64::try_from(fixed.unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or_default()
 }
 
-fn iso_of(ms: i64) -> String {
+pub(super) fn iso_of(ms: i64) -> String {
     let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
         .unwrap_or(OffsetDateTime::UNIX_EPOCH);
     iso_timestamp(at)
 }
 
 /// `dateKey`: `toISOString().slice(0, 10)`.
-fn date_key(ms: i64) -> String {
+pub(super) fn date_key(ms: i64) -> String {
     iso_of(ms).chars().take(10).collect()
 }
 
@@ -79,16 +79,16 @@ fn first_of(year: i32, month: u8, fallback: i64) -> i64 {
 // ── periods ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy)]
-struct Period {
-    range: &'static str,
+pub(super) struct Period {
+    pub(super) range: &'static str,
     /// UTC midnight, inclusive.
-    start: i64,
+    pub(super) start: i64,
     /// UTC midnight, exclusive.
-    end: i64,
+    pub(super) end: i64,
 }
 
 /// `deskReportRangeOf`: a known key, else the last 30 days.
-fn range_of(value: Option<&str>) -> &'static str {
+pub(super) fn range_of(value: Option<&str>) -> &'static str {
     value
         .and_then(|value| RANGES.iter().find(|range| **range == value))
         .copied()
@@ -110,7 +110,7 @@ fn last_days(range: &str) -> Option<i64> {
 /// `deskReportPeriod`: the days a range covers on `now`'s UTC calendar.
 /// `all_time` starts on the day of `first_activity` (the oldest
 /// conversation), today when there is none.
-fn period_of(range: &'static str, now: i64, first_activity: Option<i64>) -> Period {
+pub(super) fn period_of(range: &'static str, now: i64, first_activity: Option<i64>) -> Period {
     let today = now.div_euclid(DAY_MS) * DAY_MS;
     let tomorrow = today + DAY_MS;
     let at = OffsetDateTime::from_unix_timestamp(now.div_euclid(1000))
@@ -140,7 +140,7 @@ fn period_of(range: &'static str, now: i64, first_activity: Option<i64>) -> Peri
 }
 
 /// The period of the same length just before `period`.
-fn previous_of(period: Period) -> Period {
+pub(super) fn previous_of(period: Period) -> Period {
     let length = period.end - period.start;
     Period {
         range: period.range,
@@ -152,7 +152,7 @@ fn previous_of(period: Period) -> Period {
 // ── buckets ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Unit {
+pub(super) enum Unit {
     Hour,
     Day,
     Week,
@@ -171,7 +171,7 @@ const UNITS: [Unit; 6] = [
 ];
 
 impl Unit {
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::Hour => "hour",
             Self::Day => "day",
@@ -235,7 +235,7 @@ fn unit_of(group_by: Option<&str>, period: Period) -> Unit {
 /// The overview's series: days up to three months, weeks up to a year, then
 /// months.
 #[allow(clippy::cast_precision_loss)]
-fn overview_unit(period: Period) -> Unit {
+pub(super) fn overview_unit(period: Period) -> Unit {
     let days = (period.end - period.start) as f64 / DAY_MS as f64;
     if days <= 92.0 {
         Unit::Day
@@ -250,24 +250,30 @@ fn overview_unit(period: Period) -> Unit {
 
 /// Period timestamps, bound in the order they are numbered.
 #[derive(Default)]
-struct Binds(Vec<String>);
+pub(super) struct Binds(Vec<String>);
 
 impl Binds {
     /// `$n::timestamp` for a moment.
-    fn ts(&mut self, ms: i64) -> String {
+    pub(super) fn ts(&mut self, ms: i64) -> String {
         self.0.push(iso_of(ms));
         format!("${}::timestamp", self.0.len())
     }
 
+    /// `$n` for a text value (a team id).
+    pub(super) fn text(&mut self, value: &str) -> String {
+        self.0.push(value.to_owned());
+        format!("${}", self.0.len())
+    }
+
     /// `inPeriod`.
-    fn in_period(&mut self, column: &str, period: Period) -> String {
+    pub(super) fn in_period(&mut self, column: &str, period: Period) -> String {
         let start = self.ts(period.start);
         let end = self.ts(period.end);
         format!("({column} >= {start} and {column} < {end})")
     }
 
     /// `trunc(unit, …)` of the period's start, to its end, as `buckets(bucket)`.
-    fn buckets(&mut self, unit: Unit, period: Period) -> String {
+    pub(super) fn buckets(&mut self, unit: Unit, period: Period) -> String {
         let start = self.ts(period.start);
         let end = self.ts(period.end);
         format!(
@@ -284,7 +290,7 @@ impl Binds {
     }
 }
 
-fn trunc(unit: Unit, column: &str) -> String {
+pub(super) fn trunc(unit: Unit, column: &str) -> String {
     format!("date_trunc('{}', {column})", unit.name())
 }
 
@@ -292,8 +298,8 @@ fn label_of(unit: Unit, column: &str) -> String {
     format!("to_char({column}, '{}')", unit.label())
 }
 
-async fn rows(db: &PgPool, sql: &str, binds: Binds) -> Result<Vec<PgRow>, sqlx::Error> {
-    // Built only from this file's whitelisted fragments; every value is a bind.
+pub(super) async fn rows(db: &PgPool, sql: &str, binds: Binds) -> Result<Vec<PgRow>, sqlx::Error> {
+    // Built only from the report files' whitelisted fragments; every value is a bind.
     let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()));
     for value in binds.0 {
         query = query.bind(value);
@@ -311,11 +317,11 @@ fn js_num(value: f64) -> Value {
     serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
-fn opt_num(value: Option<f64>) -> Value {
+pub(super) fn opt_num(value: Option<f64>) -> Value {
     value.map_or(Value::Null, js_num)
 }
 
-fn opt_int(value: Option<i32>) -> Value {
+pub(super) fn opt_int(value: Option<i32>) -> Value {
     value.map_or(Value::Null, Value::from)
 }
 
@@ -326,17 +332,20 @@ async fn first_activity(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
     )
     .fetch_one(db)
     .await?;
-    Ok(first.and_then(|day| {
-        let mut parts = day.split('-').map(str::parse::<i32>);
-        let (year, month, date) = (
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-        );
-        let month = Month::try_from(u8::try_from(month).ok()?).ok()?;
-        let day = Date::from_calendar_date(year, month, u8::try_from(date).ok()?).ok()?;
-        Some(day.midnight().assume_utc().unix_timestamp() * 1000)
-    }))
+    Ok(first.as_deref().and_then(day_start))
+}
+
+/// `new Date(`${day}T00:00:00.000Z`).getTime()` of a `YYYY-MM-DD` day.
+pub(super) fn day_start(day: &str) -> Option<i64> {
+    let mut parts = day.split('-').map(str::parse::<i32>);
+    let (year, month, date) = (
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+    );
+    let month = Month::try_from(u8::try_from(month).ok()?).ok()?;
+    let day = Date::from_calendar_date(year, month, u8::try_from(date).ok()?).ok()?;
+    Some(day.midnight().assume_utc().unix_timestamp() * 1000)
 }
 
 async fn resolve_period(db: &PgPool, range: Option<&str>, now: i64) -> Result<Period, sqlx::Error> {
@@ -497,6 +506,12 @@ fn dimension(dim: Dim) -> DimSpec {
         Dim::Customer => plain(customer_key!(), "coalesce(max(c.name), max(c.email), '')"),
         Dim::SlaMetric => plain("s.metric", "s.metric"),
     }
+}
+
+/// `!!deskChartMetric(metric)?.dimension`: the metric is a breakdown (by
+/// channel, agent, …) rather than a time series.
+pub(super) fn is_breakdown(metric: &str) -> bool {
+    metric_spec(metric).is_some_and(|spec| spec.dimension.is_some())
 }
 
 /// How the value of a group is computed.
@@ -963,22 +978,22 @@ async fn counts_by(db: &PgPool, period: Period, column: &str) -> Result<Vec<Valu
     Ok(out)
 }
 
-fn int(row: Option<&PgRow>, column: &str) -> Result<i32, sqlx::Error> {
+pub(super) fn int(row: Option<&PgRow>, column: &str) -> Result<i32, sqlx::Error> {
     row.map_or(Ok(None), |row| row.try_get::<Option<i32>, _>(column))
         .map(Option::unwrap_or_default)
 }
 
-fn int_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
+pub(super) fn int_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
     row.map_or(Ok(None), |row| row.try_get::<Option<i32>, _>(column))
         .map(opt_int)
 }
 
-fn float_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
+pub(super) fn float_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
     row.map_or(Ok(None), |row| row.try_get::<Option<f64>, _>(column))
         .map(opt_num)
 }
 
-fn pair(value: Value, previous: Value) -> Value {
+pub(super) fn pair(value: Value, previous: Value) -> Value {
     let mut out = Map::new();
     out.insert("value".to_owned(), value);
     out.insert("previous".to_owned(), previous);

@@ -2021,9 +2021,9 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 }
 
 /// The smaller core platform route groups (`weldsuite-core-platform`), each
-/// at its app-api prefix: notifications, audit logs, API keys, the dashboard,
-/// credits, support, feature requests, SSO, auth sessions and the app store
-/// (P4, sub-phases 4b/4d).
+/// at its app-api prefix: notifications, audit logs and their streams, API
+/// keys, the dashboard, credits, support, feature requests, SSO, auth
+/// sessions and the app store (P4, sub-phases 4b/4d).
 ///
 /// Mounted with core, like [`core_team`].
 fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState> {
@@ -2038,6 +2038,7 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
         // Zitadel when configured; conformance builds take the test's per
         // request.
         identity: state.infra.identity.clone(),
+        audit_streams: audit_stream_gateway(),
     };
     let gate = &state.permissions;
     router
@@ -2048,6 +2049,10 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
         .nest(
             "/audit-logs",
             weldsuite_core_platform::audit_logs(platform.clone(), gate),
+        )
+        .nest(
+            "/audit-log-streams",
+            weldsuite_core_platform::audit_log_streams(platform.clone(), gate),
         )
         .nest(
             "/api-keys",
@@ -2082,6 +2087,87 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
             "/appstore",
             weldsuite_core_platform::appstore(platform, gate),
         )
+}
+
+/// Audit log stream delivery for `/api/audit-log-streams`: the URL rules and
+/// the test event, over `weldsuite_subscribers::audit_streams`, which
+/// `weldsuite consume` delivers the streams with.
+struct AuditStreamDelivery {
+    /// `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, as `weldsuite consume` reads it:
+    /// private addresses are refused unless it is set.
+    allow_private: bool,
+    /// The process's own client; `None` when it could not be built.
+    sender: Option<weldsuite_subscribers::AuditStreamSender>,
+}
+
+impl weldsuite_core_platform::AuditStreamGateway for AuditStreamDelivery {
+    fn check_url(&self, raw: &str) -> Result<String, String> {
+        weldsuite_subscribers::safe_url::check_url(raw, self.allow_private)
+            .map(String::from)
+            .map_err(str::to_owned)
+    }
+
+    fn send_test<'a>(
+        &'a self,
+        test: weldsuite_core_platform::AuditStreamTest<'a>,
+    ) -> weldsuite_ports::BoxFuture<'a, weldsuite_core_platform::AuditStreamTestResult> {
+        use weldsuite_core_platform::AuditStreamTestResult;
+        Box::pin(async move {
+            // The request's outbound HTTP (conformance builds: the test's
+            // fetch stub), else the process's client.
+            let sender = test
+                .http
+                .clone()
+                .map(weldsuite_subscribers::AuditStreamSender::over)
+                .or_else(|| self.sender.clone());
+            let Some(sender) = sender else {
+                return AuditStreamTestResult {
+                    ok: false,
+                    status: None,
+                    error: Some("Request failed".to_owned()),
+                    duration_ms: 0,
+                };
+            };
+            let sent = sender
+                .send_test(
+                    &weldsuite_subscribers::AuditStreamDestination {
+                        kind: test.kind,
+                        url: test.url,
+                        settings: test.settings,
+                    },
+                    test.token_encrypted,
+                    test.keyring,
+                    Some(test.workspace_id),
+                    time::OffsetDateTime::now_utc(),
+                )
+                .await;
+            AuditStreamTestResult {
+                ok: sent.ok,
+                status: sent.status,
+                error: sent.error,
+                duration_ms: sent.duration_ms,
+            }
+        })
+    }
+}
+
+/// The one [`AuditStreamDelivery`] of the process.
+fn audit_stream_gateway() -> Arc<dyn weldsuite_core_platform::AuditStreamGateway> {
+    static GATEWAY: OnceLock<Arc<AuditStreamDelivery>> = OnceLock::new();
+    let gateway = GATEWAY.get_or_init(|| {
+        let allow_private =
+            std::env::var("WEBHOOK_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "true");
+        let sender = weldsuite_subscribers::AuditStreamSender::new(allow_private)
+            .inspect_err(|error| {
+                tracing::error!(%error, "core: the audit log stream HTTP client could not be built");
+            })
+            .ok();
+        Arc::new(AuditStreamDelivery {
+            allow_private,
+            sender,
+        })
+    });
+    Arc::clone(gateway) as Arc<dyn weldsuite_core_platform::AuditStreamGateway>
 }
 
 /// The routes that need a session but no workspace (app-api mounts them
