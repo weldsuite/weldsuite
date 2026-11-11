@@ -8,18 +8,23 @@
  *
  * The Microsoft stub answers by URL and method (never by call order) and is
  * installed as the global `fetch`, so a Rust run of the same tick calls it too.
+ *
+ * In conformance mode a tick runs on both backends. Rust keeps the due index
+ * in the master database (keyed by `workspaces.id`), so a mark the test makes
+ * goes there too, and the events it asserts on are Rust's.
  */
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { encryptField } from '@weldsuite/db/lib/crypto';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
 
 const dbs = vi.hoisted(() => ({ tenant: null as unknown, opened: [] as string[] }));
@@ -72,6 +77,8 @@ afterAll(async () => {
 
 interface Graph {
   value: unknown[];
+  /** Pages by URL, each with the link to the next; without it `value` is the one page. */
+  pages?: Record<string, { value: unknown[]; next?: string }>;
   status?: number;
   retryAfter?: string;
   secret: string;
@@ -130,6 +137,10 @@ beforeEach(async () => {
       }
       return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 });
     }
+    const page = method === 'GET' ? graph.pages?.[url] : undefined;
+    if (page) {
+      return new Response(JSON.stringify({ value: page.value, ...(page.next ? { '@odata.nextLink': page.next } : {}) }), { status: 200 });
+    }
     if (method === 'GET' && url === DEVICES) {
       if (graph.status) return new Response('{}', { status: graph.status, headers: graph.retryAfter ? { 'Retry-After': graph.retryAfter } : {} });
       return new Response(JSON.stringify({ value: graph.value }), { status: 200 });
@@ -160,6 +171,8 @@ function sweep(env: Env, now: Date = NOW) {
     env: env as unknown as Record<string, unknown>,
     dueIndex: { d1: env.SCHEDULE_INDEX as never, kind: 'asset_import' },
     kv: env.WORKSPACE_CACHE as object,
+    // Microsoft is the stub above for Rust too, and both runs' calls are compared.
+    outbound: true,
     workspaces: { [WORKSPACE]: ORG },
     runTypeScript: async (tenantDb, runEnv) => {
       dbs.tenant = tenantDb;
@@ -169,7 +182,10 @@ function sweep(env: Env, now: Date = NOW) {
         dbs.tenant = db;
       }
     },
-    takeTypeScriptEvents: () => published.splice(0),
+    // As the queue carries them: JSON (a record's dates as ISO strings).
+    takeTypeScriptEvents: () => JSON.parse(JSON.stringify(published.splice(0))) as Array<Record<string, unknown>>,
+    // The assertions on `published` then check Rust's events.
+    onRustEvents: (events) => void published.push(...events),
   });
 }
 
@@ -203,8 +219,27 @@ async function dueAt(env: Env): Promise<number | null> {
   return results[0] ? Number(results[0].next_due_at) : null;
 }
 
+const swept = new WeakSet<object>();
+
+/** Mark the workspace due in the test's D1 index and, for Rust, in the master one. */
 async function markDue(env: Env, at: Date) {
+  if (!conformanceTarget()) {
+    await markWorkspaceDue(env.SCHEDULE_INDEX as never, 'asset_import', ORG, at);
+    return;
+  }
+  // The harness clears the master index the first time it sees a D1 (a new,
+  // empty index): let that happen before the row goes in.
+  if (!swept.has(env.SCHEDULE_INDEX)) {
+    swept.add(env.SCHEDULE_INDEX);
+    expect(await sweep(env, new Date(0))).toMatchObject({ due: 0, steps: 0 });
+    dbs.opened.length = 0;
+  }
   await markWorkspaceDue(env.SCHEDULE_INDEX as never, 'asset_import', ORG, at);
+  await master.execute(sql`
+    insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version)
+    values ('asset_import', ${WORKSPACE}, ${at.toISOString()}::timestamptz, now(), 1)
+    on conflict (kind, workspace_id) do update set
+      next_due_at = least(workspace_due_index.next_due_at, excluded.next_due_at)`);
 }
 
 const recordCount = async () => (await db.select().from(schema.customObjectRecords)).length;
@@ -348,5 +383,124 @@ describe('asset import sweep on the due index', () => {
     expect(row.syncState).toBeNull();
     expect(await dueAt(env)).toBe(Date.parse('2026-11-11T08:00:30Z'));
     expect(eventTypes()).toEqual(['asset_source:updated']);
+  });
+});
+
+describe('asset import sweep: matching, later imports and stopped runs', () => {
+  const PAGE_2 = `${DEVICES}?$skiptoken=p2`;
+  const at = new Date('2026-06-01T09:00:00Z');
+
+  it('adopts a record by serial number, links the owner, follows the next page, and later writes only what changed', async () => {
+    await db.insert(schema.customObjectLinks).values({
+      id: 'colk_owner',
+      slug: 'owner',
+      sourceEntityKey: 'co_asset',
+      targetEntityKey: 'person',
+      cardinality: 'many_to_one',
+      sourceLabel: 'Assets',
+      targetLabel: 'Owner',
+      onDelete: 'set_null',
+      createdAt: at,
+      updatedAt: at,
+    });
+    await db.delete(schema.people);
+    await db.insert(schema.people).values({ id: 'per_sanne', displayName: 'Sanne', email: 'Sanne@Example.com' });
+    // A laptop entered by hand, with the serial number device 2 reports.
+    await db.insert(schema.customObjectRecords).values({
+      id: 'cor_hand',
+      objectId: 'cobj_asset',
+      entityKey: 'co_asset',
+      title: 'Old laptop',
+      ownerId: 'user_admin',
+      createdBy: 'user_admin',
+      updatedBy: 'user_admin',
+      createdAt: at,
+      updatedAt: at,
+    });
+    await db.insert(schema.customFieldValues).values([
+      { id: 'cfv_hand_name', fieldId: 'cfld_name', entityType: 'co_asset', entityId: 'cor_hand', valueText: 'Old laptop', createdAt: at, updatedAt: at },
+      { id: 'cfv_hand_serial', fieldId: 'cfld_serial', entityType: 'co_asset', entityId: 'cor_hand', valueText: 'SN-2', createdAt: at, updatedAt: at },
+    ]);
+    await addSource('asrc_a');
+    graph.pages = {
+      [DEVICES]: { value: [device(1), device(2)], next: PAGE_2 },
+      [PAGE_2]: { value: [{ ...device(3), emailAddress: 'sanne@example.com' }, { deviceName: 'no id' }] },
+    };
+    const env = makeEnv();
+    await markDue(env, new Date(NOW.getTime() - MINUTE));
+
+    // The first page: one record created, the hand-entered one adopted.
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 0 });
+    expect((await rowOf('asrc_a')).syncState).toMatchObject({ nextLink: PAGE_2, offset: 0, stats: { total: 2, created: 1, updated: 1 } });
+    // The second page: a record with its owner, and a device that cannot be imported.
+    const second = new Date(NOW.getTime() + MINUTE);
+    expect(await sweep(env, second)).toMatchObject({ steps: 1, ended: 1 });
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 4, created: 2, updated: 1, unchanged: 0, failed: 1 });
+    expect(await recordCount()).toBe(3);
+
+    const mappings = await db.select().from(schema.integrationEntityMappings);
+    const recordOf = (id: string) => mappings.find((m) => m.externalEntityId === id)!.internalEntityId;
+    expect(mappings).toHaveLength(3);
+    expect(recordOf('dev-2')).toBe('cor_hand');
+    const [adopted] = await db.select().from(schema.customObjectRecords).where(eq(schema.customObjectRecords.id, 'cor_hand'));
+    expect(adopted!.title).toBe('DEVICE-2');
+    const relations = await db.select().from(schema.customObjectRelations);
+    expect(relations.map((r) => [r.linkId, r.sourceId, r.targetEntityKey, r.targetId])).toEqual([
+      ['colk_owner', recordOf('dev-3'), 'person', 'per_sanne'],
+    ]);
+    const checksums = new Map(mappings.map((m) => [m.externalEntityId, m.syncChecksum]));
+
+    // A day later device 1 runs a newer system, device 2 is as it was, and a
+    // person deleted device 3's record.
+    const later = new Date(second.getTime() + 24 * HOUR);
+    await db.update(schema.customObjectRecords).set({ deletedAt: later }).where(eq(schema.customObjectRecords.id, recordOf('dev-3')));
+    graph.pages = {
+      [DEVICES]: { value: [{ ...device(1), osVersion: '10.0.26100' }, device(2)], next: PAGE_2 },
+      [PAGE_2]: { value: [{ ...device(3), emailAddress: 'sanne@example.com', osVersion: '17.2' }, { deviceName: 'no id' }] },
+    };
+    expect(await sweep(env, later)).toMatchObject({ due: 1, steps: 1, ended: 0 });
+    expect(await sweep(env, new Date(later.getTime() + MINUTE))).toMatchObject({ steps: 1, ended: 1 });
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 4, created: 0, updated: 1, unchanged: 2, failed: 1 });
+    expect(await recordCount()).toBe(3);
+
+    const after = new Map((await db.select().from(schema.integrationEntityMappings)).map((m) => [m.externalEntityId, m.syncChecksum]));
+    expect(after.get('dev-1')).not.toBe(checksums.get('dev-1'));
+    expect(after.get('dev-2')).toBe(checksums.get('dev-2'));
+    // The deleted record stays deleted, and its device is not written again.
+    expect(after.get('dev-3')).toBe(checksums.get('dev-3'));
+    const [deleted] = await db.select().from(schema.customObjectRecords).where(eq(schema.customObjectRecords.id, recordOf('dev-3')));
+    expect(deleted!.deletedAt).not.toBeNull();
+    expect(await db.select().from(schema.customObjectRelations)).toHaveLength(1);
+  });
+
+  it('stops a run that is older than a day, and fails one whose asset register is gone', async () => {
+    await addSource('asrc_a', {
+      lastStatus: 'running',
+      syncState: {
+        startedAt: new Date(NOW.getTime() - 25 * HOUR).toISOString(),
+        nextLink: null,
+        offset: 0,
+        stats: { total: 7, created: 7, updated: 0, unchanged: 0, failed: 0 },
+      },
+    });
+    const env = makeEnv();
+    await markDue(env, NOW);
+
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
+    const stopped = await rowOf('asrc_a');
+    expect(stopped.lastStatus).toBe('failed');
+    expect(stopped.lastError).toMatch(/^throttled: The import did not finish within 24 hours/);
+    expect(stopped.lastStats).toEqual({ total: 7, created: 7, updated: 0, unchanged: 0, failed: 0 });
+    expect(stopped.nextSyncAt?.toISOString()).toBe(new Date(NOW.getTime() + 24 * HOUR).toISOString());
+    expect(graph.calls).toEqual([]);
+
+    // The next scheduled run finds no asset register, before it calls Microsoft.
+    await db.delete(schema.customObjects);
+    expect(await sweep(env, new Date(NOW.getTime() + 24 * HOUR))).toMatchObject({ due: 1, steps: 1, ended: 1 });
+    const failed = await rowOf('asrc_a');
+    expect(failed.lastStatus).toBe('failed');
+    expect(failed.lastError).toMatch(/^asset_register_missing: /);
+    expect(graph.calls).toEqual([]);
+    expect(await recordCount()).toBe(0);
   });
 });

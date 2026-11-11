@@ -73,6 +73,21 @@ impl ReqwestOutbound {
         })
     }
 
+    /// A client that follows no redirect (`fetch` with `redirect: 'manual'`):
+    /// a 3xx comes back as the answer, so a bearer token is never carried to
+    /// the host a redirect names. Requests give up after `timeout`.
+    pub fn without_redirects(timeout: Duration) -> Result<Self, PortError> {
+        let client = Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(PortError::backend)?;
+        Ok(Self {
+            client,
+            public_only: false,
+        })
+    }
+
     /// A client for URLs a user chose (a self-managed GitLab host): it
     /// connects only to public addresses, on every redirect too, so a host
     /// cannot point it at the cluster's own services. Requests give up after

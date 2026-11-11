@@ -19,6 +19,12 @@
  * `runTypeScript` is handed), and every envelope and ledger call must match
  * too. The stub's `sent` then holds Rust's envelopes only.
  *
+ * A job that calls a third-party API through `fetch` (the asset import:
+ * Microsoft) sets `outbound`: Rust's calls then go through the outbound
+ * bridge into the test's own `fetch` stub (./outbound-bridge.ts), and the
+ * calls both runs made (method, URL, body) must match. The stub answers both
+ * runs, so it must answer by URL and method, never by call order.
+ *
  * The due index lives in a D1 database on Global and in the master table
  * `workspace_due_index` on Kubernetes (keyed by `workspaces.id`, not the
  * Clerk org id), so the two are compared by their due times. A D1 the
@@ -52,6 +58,7 @@ import {
 import { createMailCollector, mailRecord } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import { ledgerUrls, recordTypeScriptLedgerCalls, sortLedgerCalls, takeRustLedgerCalls } from './ledger-bridge';
+import { outboundBridgeUrl, recordOutbound, sortOutbound, takeRustOutbound, type OutboundCall } from './outbound-bridge';
 
 /** The part of a D1 binding the comparison reads. */
 interface D1Like {
@@ -82,6 +89,12 @@ export interface ConformanceSweep<R> {
    * sent and asked. Without it Rust gets neither binding, as before.
    */
   mailBindings?: boolean;
+  /**
+   * The job calls a third-party API through `fetch`: send Rust's calls to the
+   * test's own `fetch` stub and compare what each run called. Without it
+   * Rust gets no outbound bridge, as before.
+   */
+  outbound?: boolean;
   /** The test's due index and the kind the job keeps in it (a job that keeps one). */
   dueIndex?: { d1: D1Like; kind: string };
   /** The test's KV namespace, where the job keeps its seed flag (a job that has one). */
@@ -176,6 +189,16 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   await rustSideEffects(target);
   takeRustSends();
   takeRustLedgerCalls();
+  if (opts.outbound) takeRustOutbound();
+
+  // The TypeScript run, with its third-party calls recorded when they are compared.
+  let tsOutbound: OutboundCall[] = [];
+  const runTypeScript = async (db: Database, env: Record<string, unknown>): Promise<R> => {
+    if (!opts.outbound) return opts.runTypeScript(db, env);
+    const { result, calls } = await recordOutbound(() => opts.runTypeScript(db, env));
+    tsOutbound = calls;
+    return result;
+  };
 
   const clone = await cloneDatabase(tenant);
   let rust: R;
@@ -187,6 +210,7 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   let rustLedger: ReturnType<typeof takeRustLedgerCalls>;
   let tsSends: ReturnType<typeof takeRustSends>;
   let tsLedger: ReturnType<typeof takeRustLedgerCalls>;
+  let rustOutbound: OutboundCall[] = [];
   try {
     const response = await harnessFetch(`${target.url}/__conformance/cron/${opts.job}`, {
       method: 'POST',
@@ -202,6 +226,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
         ...(opts.input === undefined ? {} : { input: opts.input }),
         // The test's SEND_EMAIL stub and outbound ledgers, for a job that mails through them.
         ...(opts.mailBindings ? { sendEmail: await sendEmailUrl(opts.env), ledgers: await ledgerUrls(opts.env) } : {}),
+        // The test's fetch stub, for a job that calls a third party.
+        ...(opts.outbound ? { outbound: await outboundBridgeUrl() } : {}),
       }),
     });
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);
@@ -209,18 +235,19 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
     rustSide = await rustSideEffects(target);
     rustSends = takeRustSends();
     rustLedger = takeRustLedgerCalls();
+    if (opts.outbound) rustOutbound = takeRustOutbound();
     if (opts.mailBindings) {
       const sends = recordTypeScriptSends(opts.env);
       const ledger = recordTypeScriptLedgerCalls(sends.env);
       try {
-        typescript = await opts.runTypeScript(clone.db, ledger.env);
+        typescript = await runTypeScript(clone.db, ledger.env);
       } finally {
         // The stub keeps Rust's envelopes only, as the test's result is Rust's.
         tsSends = sends.finish();
         tsLedger = ledger.finish();
       }
     } else {
-      typescript = await opts.runTypeScript(clone.db, opts.env);
+      typescript = await runTypeScript(clone.db, opts.env);
       tsSends = [];
       tsLedger = [];
     }
@@ -253,6 +280,11 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
       normalizeForDiff(sortLedgerCalls(tsLedger), true),
       normalizeForDiff(sortLedgerCalls(rustLedger), true),
       '$ledger',
+    ) ??
+    firstDifference(
+      normalizeForDiff(sortOutbound(tsOutbound), true),
+      normalizeForDiff(sortOutbound(rustOutbound), true),
+      '$outbound',
     ) ??
     firstDifference(due.typescript, due.rust, '$dueIndex');
 

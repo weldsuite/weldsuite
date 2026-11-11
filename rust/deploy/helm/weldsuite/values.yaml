@@ -819,6 +819,14 @@ cron:
       enabled: true
       schedule: "* * * * *"
       activeDeadlineSeconds: 290
+    # Asset register: the device imports from Microsoft Intune, for the
+    # workspaces the due index lists. A tick runs one bounded step (a token,
+    # one page of devices, at most 20 records); an import continues on the
+    # next tick. Calls login.microsoftonline.com and graph.microsoft.com.
+    asset-import-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 110
     # WeldReach: the send sweep over the due index (workspaces with outreach
     # due). With consume.enabled it publishes each one on NATS for the
     # reach-send subscriber; otherwise it runs their sends itself.

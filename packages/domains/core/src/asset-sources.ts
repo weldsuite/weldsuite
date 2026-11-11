@@ -287,12 +287,17 @@ export async function fetchIntunePage(
   const body = await jsonOf(response);
   const value = body?.value;
   if (!Array.isArray(value)) throw new AssetSourceError('unreachable');
+  // An entry that is not an object becomes a device without an id: it counts
+  // as failed, in its place on the page, instead of stopping the whole import.
+  const devices = value.map((entry): IntuneDevice =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? (entry as IntuneDevice) : {},
+  );
   const next = body?.['@odata.nextLink'];
   if (typeof next === 'string' && next !== '') {
     if (!isGraphUrl(next)) throw new AssetSourceError('unreachable', 'Microsoft sent a link to another host; the import was stopped.');
-    return { devices: value as IntuneDevice[], nextLink: next };
+    return { devices, nextLink: next };
   }
-  return { devices: value as IntuneDevice[], nextLink: null };
+  return { devices, nextLink: null };
 }
 
 export type AssetSourceTestResult =

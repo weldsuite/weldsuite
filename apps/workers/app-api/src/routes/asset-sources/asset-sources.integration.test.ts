@@ -6,15 +6,20 @@
  * secret, and the permission gate.
  *
  * The Microsoft stub answers by URL and method, never by call order.
+ *
+ * In conformance mode every request runs on both backends and the answer is
+ * Rust's. Rust keeps the due index in the master database (keyed by
+ * `workspaces.id`), so the test gives it one and reads the mark there.
  */
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { decryptField } from '@weldsuite/db/lib/crypto';
@@ -26,22 +31,30 @@ const TENANT = '11111111-2222-3333-4444-555555555555';
 const CLIENT = 'cccccccc-2222-3333-4444-555555555555';
 const MOUNT = '/api/asset-sources';
 const ORG = 'org_test_default';
+const WORKSPACE = 'ws_test_default';
+/** How many backends a request runs on: Rust's and TypeScript's in conformance mode. */
+const RUNS = conformanceTarget() ? 2 : 1;
 const MIGRATION = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../../../../workflow-worker/migrations/d1/0004_workspace_due_index.sql'),
   'utf8',
 );
 
 let db: Database;
+/** Rust's due index (conformance mode only). */
+let master: Database | undefined;
 let d1: ReturnType<typeof createSqliteD1>;
 const sent: Array<{ entityType: string; action: string; entityId: string; data: Record<string, unknown> }> = [];
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  if (conformanceTarget()) master = (await createMasterPgliteDb()).db as Database;
 }, 120_000);
 
 beforeEach(async () => {
   sent.length = 0;
   d1 = createSqliteD1(MIGRATION);
+  // A new, empty index for Rust too.
+  if (master) await master.execute(sql`delete from workspace_due_index where kind = 'asset_import'`);
   for (const table of [schema.integrationEntityMappings, schema.assetSources, schema.customObjects]) await db.delete(table);
   await db.insert(schema.customObjects).values({
     id: 'cobj_asset',
@@ -65,7 +78,12 @@ interface Result {
 
 async function call(path: string, opts: { method?: string; body?: unknown; perms?: string[] } = {}): Promise<Result> {
   const { request } = createTestApp(MOUNT, assetSourcesRoutes, {
-    context: { permissions: permissions(...(opts.perms ?? ['weldobjects:manage'])), tenantDb: db, userId: 'user_admin' },
+    context: {
+      permissions: permissions(...(opts.perms ?? ['weldobjects:manage'])),
+      tenantDb: db,
+      userId: 'user_admin',
+      ...(master ? { masterDb: master } : {}),
+    },
     env: {
       DATABASE_ENCRYPTION_KEY: KEY,
       SCHEDULE_INDEX: d1,
@@ -90,6 +108,15 @@ async function create(overrides: Record<string, unknown> = {}) {
 }
 
 async function dueAt(): Promise<number | null> {
+  if (master) {
+    // The answer is Rust's, so the mark to check is the one Rust made.
+    const { rows } = (await master.execute(sql`
+      select (extract(epoch from next_due_at) * 1000)::float8 as at
+      from workspace_due_index where kind = 'asset_import' and workspace_id = ${WORKSPACE}`)) as unknown as {
+      rows: Array<{ at: number }>;
+    };
+    return rows[0] ? Math.round(Number(rows[0].at)) : null;
+  }
   const { results } = await (d1 as never as {
     prepare(q: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } };
   })
@@ -203,7 +230,9 @@ describe('POST /', () => {
     const { id } = await create();
     await flush();
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ entityType: 'asset_source', action: 'created', entityId: id });
+    // In conformance mode the binding saw the TypeScript run's event, a row with an id of its own.
+    const createdId = conformanceTarget() ? expect.stringMatching(/^asrc_/) : id;
+    expect(sent[0]).toMatchObject({ entityType: 'asset_source', action: 'created', entityId: createdId });
     expect(sent[0]!.data).toMatchObject({ hasSecret: true, name: 'Contoso Intune' });
     expect(JSON.stringify(sent)).not.toContain(SECRET);
     expect(JSON.stringify(sent)).not.toContain('ecretEncrypted');
@@ -319,10 +348,12 @@ describe('POST /test and POST /:id/test', () => {
     const res = await call('/test', { method: 'POST', body: { config: valid.config, secret: SECRET } });
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ ok: true, deviceCount: 3 });
-    expect(calls).toEqual([
+    // The stub answers every backend the request runs on, one after the other.
+    const perRun = [
       `POST https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`,
       'GET https://graph.microsoft.com/v1.0/deviceManagement/managedDevices',
-    ]);
+    ];
+    expect(calls).toEqual(Array.from({ length: RUNS }, () => perRun).flat());
     expect(await db.select().from(schema.assetSources)).toHaveLength(0);
   });
 

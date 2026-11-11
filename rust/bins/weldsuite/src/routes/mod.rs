@@ -70,6 +70,10 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
                 "/grid-views",
                 weldsuite_core_objects::grid_views_router(objects, gate),
             )
+            .nest(
+                "/asset-sources",
+                weldsuite_core_objects::asset_sources_router(asset_sources_state(state), gate),
+            )
     } else {
         router
     };
@@ -966,6 +970,48 @@ pub(crate) fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
     })
     .clone()
+}
+
+/// What the asset register's device import calls Microsoft through
+/// (`ASSET_IMPORT_REQUEST_TIMEOUT_MS`, 20 s): it follows no redirect, as the
+/// worker's `redirect: 'manual'`, so the Graph token never reaches another
+/// host. None when it cannot be built.
+pub(crate) fn asset_import_http() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        weldsuite_adapters_oss::ReqwestOutbound::without_redirects(std::time::Duration::from_secs(
+            20,
+        ))
+        .ok()
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
+}
+
+/// `keyringFromEnv(env)`: the field-encryption keys of the process.
+pub(crate) fn field_keyring() -> weldsuite_db::Keyring {
+    let key = |name: &str| std::env::var(name).ok().filter(|key| !key.is_empty());
+    weldsuite_db::Keyring {
+        v1: key("DATABASE_ENCRYPTION_KEY"),
+        v2: key("DATABASE_ENCRYPTION_KEY_V2"),
+    }
+}
+
+/// What `/api/asset-sources` works with (`weldsuite-core-objects`): the due
+/// index in the master database, Microsoft's HTTP client and the field keys.
+/// Conformance builds take the test's per request.
+fn asset_sources_state(state: &AppState) -> weldsuite_core_objects::AssetSourcesState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_core_objects::AssetSourcesState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance {
+            None
+        } else {
+            asset_import_http()
+        },
+        keyring: field_keyring(),
+    }
 }
 
 /// No HTTP client: every call fails like a `fetch` that can't connect.

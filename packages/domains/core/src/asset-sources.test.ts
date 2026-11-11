@@ -255,6 +255,12 @@ describe('fetchIntunePage', () => {
     expect(await fetchIntunePage('tok', null, fetch)).toEqual({ devices: [], nextLink: null });
   });
 
+  it('keeps an entry that is not an object in its place, as a device without an id', async () => {
+    // Such a device fails on its own later; the rest of the page is still imported.
+    const { fetch } = stub(() => json({ value: [null, { id: 'a' }, 'x', [1], 7] }));
+    expect(await fetchIntunePage('tok', null, fetch)).toEqual({ devices: [{}, { id: 'a' }, {}, {}, {}], nextLink: null });
+  });
+
   it('refuses a link to another host before calling it, and a nextLink to another host', async () => {
     const calls = stub(() => json({ value: [] }));
     await expect(fetchIntunePage('tok', 'https://evil.example.com/x', calls.fetch)).rejects.toMatchObject({ code: 'unreachable' });
