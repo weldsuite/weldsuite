@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { Fragment, useState, type ReactNode } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -69,7 +71,7 @@ export function Divider() {
 export interface MenuItemSpec {
   key: string;
   label: ReactNode;
-  hint?: string;
+  /** Set on a choice among several: the current one gets a check at the right. */
   checked?: boolean;
   disabled?: boolean;
   onSelect: () => void;
@@ -100,16 +102,18 @@ export function Menu({
           </button>
         </DropdownMenuTrigger>
       </WithTooltip>
-      <DropdownMenuContent align="start" className="max-h-[70vh] min-w-44 overflow-y-auto" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="start" className="min-w-44" onCloseAutoFocus={(e) => e.preventDefault()}>
         {items?.map((item) => <MenuEntry key={item.key} item={item} />)}
         {sections?.map((section, i) => (
-          <div key={section.title ?? i}>
+          <Fragment key={section.title ?? i}>
             {i > 0 && <DropdownMenuSeparator />}
-            {section.title && <DropdownMenuLabel className="text-xs text-muted-foreground">{section.title}</DropdownMenuLabel>}
-            {section.items.map((item) => (
-              <MenuEntry key={item.key} item={item} />
-            ))}
-          </div>
+            <DropdownMenuGroup>
+              {section.title && <DropdownMenuLabel>{section.title}</DropdownMenuLabel>}
+              {section.items.map((item) => (
+                <MenuEntry key={item.key} item={item} />
+              ))}
+            </DropdownMenuGroup>
+          </Fragment>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -118,10 +122,14 @@ export function Menu({
 
 export function MenuEntry({ item }: { item: MenuItemSpec }) {
   return (
-    <DropdownMenuItem onSelect={item.onSelect} disabled={item.disabled}>
-      <span className="w-4 text-center text-xs">{item.checked ? '✓' : ''}</span>
-      <span className="flex-1">{item.label}</span>
-      {item.hint && <span className="ml-4 text-xs text-muted-foreground">{item.hint}</span>}
+    <DropdownMenuItem
+      role={item.checked === undefined ? undefined : 'menuitemradio'}
+      aria-checked={item.checked}
+      disabled={item.disabled}
+      onSelect={item.onSelect}
+    >
+      {item.label}
+      {item.checked && <Check className="ml-auto" />}
     </DropdownMenuItem>
   );
 }
@@ -157,9 +165,9 @@ export function ColorButton({
         </PopoverTrigger>
       </WithTooltip>
       <PopoverContent className="w-auto p-2" align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <button type="button" className="mb-2 w-full rounded px-2 py-1 text-left text-sm hover:bg-accent" onClick={() => pick(null)}>
+        <Button variant="ghost" size="sm" className="mb-2 w-full justify-start" onClick={() => pick(null)}>
           {reset}
-        </button>
+        </Button>
         <div className="grid grid-cols-10 gap-1">
           {PALETTE.map((color) => (
             <button

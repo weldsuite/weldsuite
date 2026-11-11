@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -130,7 +131,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           {tm.pageless}
         </Item>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>{tm.zoom}</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>{tm.zoom}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             {ZOOMS.map((z) => (
               <Item key={z} checked={controller.zoom === z} onSelect={() => controller.setZoom(z)}>
@@ -188,10 +189,10 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{tm.headersFooters}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              <Item disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('header', controller.caretPage())}>
+              <Item inset disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('header', controller.caretPage())}>
                 {tm.header}
               </Item>
-              <Item disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('footer', controller.caretPage())}>
+              <Item inset disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('footer', controller.caretPage())}>
                 {tm.footer}
               </Item>
               <DropdownMenuSeparator />
@@ -327,24 +328,41 @@ function TopMenu({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/**
+ * A menu command; one that is on or off (`checked` set) is a checkbox item.
+ * `inset` lines a plain command up with the checkbox items in its menu.
+ */
 function Item({
   children,
   onSelect,
   shortcut,
   checked,
   disabled,
+  inset,
 }: {
   children: ReactNode;
   onSelect: () => void;
   shortcut?: string;
   checked?: boolean;
   disabled?: boolean;
+  inset?: boolean;
 }) {
-  return (
-    <DropdownMenuItem onSelect={onSelect} disabled={disabled}>
-      <span className="w-4 text-center text-xs">{checked ? '✓' : ''}</span>
-      <span className="flex-1">{children}</span>
+  const content = (
+    <>
+      {children}
       {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
-    </DropdownMenuItem>
+    </>
+  );
+  if (checked === undefined) {
+    return (
+      <DropdownMenuItem inset={inset} onSelect={onSelect} disabled={disabled}>
+        {content}
+      </DropdownMenuItem>
+    );
+  }
+  return (
+    <DropdownMenuCheckboxItem checked={checked} onSelect={onSelect} disabled={disabled}>
+      {content}
+    </DropdownMenuCheckboxItem>
   );
 }

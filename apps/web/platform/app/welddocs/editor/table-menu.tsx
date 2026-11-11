@@ -36,9 +36,9 @@ export function TableMenuItems({ controller }: { controller: DocController }) {
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{tt.cellBackground}</DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="p-2">
-          <button type="button" className="mb-2 w-full rounded px-2 py-1 text-left text-sm hover:bg-accent" onClick={() => formatCell(controller, { background: null })}>
+          <DropdownMenuItem className="mb-2" onSelect={() => formatCell(controller, { background: null })}>
             {tt.noColor}
-          </button>
+          </DropdownMenuItem>
           <div className="grid grid-cols-10 gap-1">
             {PALETTE.map((c) => (
               <button key={c} type="button" aria-label={c} className="h-5 w-5 rounded-sm border" style={{ background: c }} onClick={() => formatCell(controller, { background: c })} />
