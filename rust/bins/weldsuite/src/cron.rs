@@ -198,43 +198,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let run = async {
-        match job {
-            "identity-sync" => identity_sync(config).await,
-            "workspace-deletion" => workspace_deletion(config).await,
-            "workspace-teardown" => workspace_teardown(config).await,
-            "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
-            "calendar-replan" => calendar_replan(config).await,
-            "flow-file-purge" => flow_file_purge(config).await,
-            "flow-approval-due" => flow_approval_due(config).await,
-            "flow-benefit-measure" => flow_benefit_measure(config).await,
-            "flow-status-reports" => flow_status_reports(config).await,
-            "flow-finance-snapshot" => flow_finance_snapshot(config).await,
-            "workflow-schedules" => workflow_schedules(config).await,
-            "books-sweep" => books_sweep(config).await,
-            "domain-auto-renew" => {
-                domain_auto_renew();
-                Ok(())
-            }
-            "desk-sla-sweep" => desk_sla_sweep(config).await,
-            "desk-report-sweep" => desk_report_sweep(config).await,
-            "asset-import-sweep" => asset_import_sweep(config).await,
-            "reach-send-sweep" => reach_send_sweep(config).await,
-            "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
-            "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
-                reach_warmup_network(config, job).await
-            }
-            "bank-feed-due" => bank_feed_due(config).await,
-            "crm-due" => crm_due(config).await,
-            "ad-sync" => ad_sync(config).await,
-            "connector-catchup" | "moneybird-push" => connectors(config, job).await,
-            "workflow-polls" => workflow_polls(config).await,
-            "merge-digest-sweep" => merge_digest_sweep(config).await,
-            "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
-            _ => sign_lifecycle(config).await,
-        }
-    };
-    let code = match runtime.block_on(run) {
+    let code = match runtime.block_on(run_job(config, job)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(%error, job, "cron job failed to start");
@@ -243,6 +207,45 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// The job `main` accepted, by name; anything else it let through is
+/// `sign-lifecycle`.
+async fn run_job(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    match job {
+        "identity-sync" => identity_sync(config).await,
+        "workspace-deletion" => workspace_deletion(config).await,
+        "workspace-teardown" => workspace_teardown(config).await,
+        "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
+        "calendar-replan" => calendar_replan(config).await,
+        "flow-file-purge" => flow_file_purge(config).await,
+        "flow-approval-due" => flow_approval_due(config).await,
+        "flow-benefit-measure" => flow_benefit_measure(config).await,
+        "flow-status-reports" => flow_status_reports(config).await,
+        "flow-finance-snapshot" => flow_finance_snapshot(config).await,
+        "workflow-schedules" => workflow_schedules(config).await,
+        "books-sweep" => books_sweep(config).await,
+        "domain-auto-renew" => {
+            domain_auto_renew();
+            Ok(())
+        }
+        "desk-sla-sweep" => desk_sla_sweep(config).await,
+        "desk-report-sweep" => desk_report_sweep(config).await,
+        "asset-import-sweep" => asset_import_sweep(config).await,
+        "reach-send-sweep" => reach_send_sweep(config).await,
+        "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
+        "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
+            reach_warmup_network(config, job).await
+        }
+        "bank-feed-due" => bank_feed_due(config).await,
+        "crm-due" => crm_due(config).await,
+        "ad-sync" => ad_sync(config).await,
+        "connector-catchup" | "moneybird-push" => connectors(config, job).await,
+        "workflow-polls" => workflow_polls(config).await,
+        "merge-digest-sweep" => merge_digest_sweep(config).await,
+        "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
+        _ => sign_lifecycle(config).await,
+    }
 }
 
 /// `forms-reminders` / `forms-digest`: one tick of WeldForms' sweep;

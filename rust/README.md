@@ -39,7 +39,12 @@ modules, each with conformance suites that reach every route:
   desk-sla-sweep` announces warnings and breaches; the reports' CSV exports,
   the wallboard and the phone report, and the scheduled report emails, which
   `weldsuite cron desk-report-sweep` sends on the customer mail relay behind
-  the outbound guard) and **stash** (the WMS, with the
+  the outbound guard; problem management, `/api/desk/problems` and a
+  conversation's problem link, `crates/desk-domain/src/problems.rs`; and the
+  service catalogue, `/api/desk/catalog` with requests, approval steps and
+  the WeldFlow tasks of an approved request through `flow-domain`,
+  `catalog.rs` and `fulfilment.rs`; the help center's catalogue pages are
+  part of `/api/portal`, which is not served here) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -97,7 +102,15 @@ modules, each with conformance suites that reach every route:
   Buying a number and submitting a port are Stripe checkouts through Global's
   billing-worker: they answer as when billing-worker cannot be reached, and
   billing-worker's fulfilment callback (`/api/internal/telephony`) as without
-  Stripe. An inbound call marks the desk SLA due, as the worker does)
+  Stripe. An inbound call marks the desk SLA due, as the worker does. A
+  customer's own phone system (`/api/desk/phone/sip-trunks`: a Telnyx IP or
+  credential connection per trunk, its numbers ordinary numbers, a call to
+  one let in only on its trunk's connection; `sip_trunks`, `sip_trunk_routes`,
+  `sip_trunk_inbound`, `telnyx_connections`; the optional
+  `TELNYX_OUTBOUND_VOICE_PROFILE_ID` and `TELNYX_SIP_HOST`). Live call
+  translation needs `@weldsuite/ai`: its routes answer 503 `ai_unavailable`
+  and the `call.transcription` webhook is ignored, under the `desk-ai`
+  feature the platform already hides)
 - **host** (WeldHost: domains, their dashboard, search and availability
   through Realtime Register's ADAC checker (its REST check on OTE), priced
   from the master `domain_pricing`, the registrar toggles, sync, auth codes,
@@ -400,6 +413,12 @@ drive (files with their content, folders, drive aggregates), WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
 schedules and executions)
 and WeldFlow's project-sheets list (with `sheets`).
+WeldDesk's BI connector, the read-only OData 4.0 feed at `/v1/odata`
+(`modules/external-api/src/odata`), is mounted with desk's groups: its
+tables come from `catalogs/odata.json`, which `pnpm rust:catalogs` exports
+from the worker's catalog, the API key is also accepted as the Basic
+password on that path, and request values reach SQL only as bound
+parameters.
 Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
@@ -585,7 +604,9 @@ rust/
 
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
-                        modules/core-objects (WeldObjects, custom fields, object templates, grid views),
+                        modules/core-objects (WeldObjects, custom fields, object templates, grid views,
+                        and asset sources: `/api/asset-sources` and the import of Microsoft Intune's
+                        devices into the asset register, `asset_sources/`),
                         modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
                         modules/core-platform (notifications, audit logs and audit log streams, appstore,
                         API keys, credits, dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
@@ -768,7 +789,9 @@ share one origin and the app finds the API through `/config.json`
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
 and breaches), `desk-report-sweep` every minute (WeldDesk's scheduled report
-emails), `reach-send-sweep` every minute (WeldReach's sends: queued
+emails), `asset-import-sweep` every minute (one bounded step of a device
+import that is due: desk-api's sweep on Global, core-objects' code here),
+`reach-send-sweep` every minute (WeldReach's sends: queued
 on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
 which the chart sets with `consume.enabled`, else sent by the job itself),
 `reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
