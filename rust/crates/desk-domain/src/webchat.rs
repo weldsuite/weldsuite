@@ -533,7 +533,7 @@ pub struct NewConversation<'a> {
 }
 
 /// A Postgres unique violation (`23505`).
-fn unique_violation(error: &WriteError) -> bool {
+pub(crate) fn unique_violation(error: &WriteError) -> bool {
     matches!(
         error,
         WriteError::Database(sqlx::Error::Database(db)) if db.code().as_deref() == Some("23505")
@@ -1065,8 +1065,9 @@ pub async fn resolve_authors(
     Ok(authors)
 }
 
-/// `isPublicDeskMessage`: notes, ticket-field changes, SLA events and
-/// linked-ticket changes (links, merges, major incidents) stay with the team.
+/// `isPublicDeskMessage`: notes, ticket-field changes, SLA events,
+/// linked-ticket changes (links, merges, major incidents), problem links and
+/// a service request's approval and fulfilment events stay with the team.
 pub fn is_public(message: &Value) -> bool {
     if message["kind"] == "note" {
         return false;
@@ -1084,6 +1085,12 @@ pub fn is_public(message: &Value) -> bool {
                 | "merged_from"
                 | "incident_marked"
                 | "incident_unmarked"
+                | "problem_linked"
+                | "problem_unlinked"
+                | "approval_requested"
+                | "approval_approved"
+                | "approval_rejected"
+                | "fulfilment_started"
         )
     );
     !(message["kind"] == "event" && internal)

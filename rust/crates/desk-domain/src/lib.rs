@@ -26,6 +26,15 @@
 //!   `@weldsuite/db/lib/desk`): a conversation's ticket fields, as any author.
 //! - [`links`] (`@weldsuite/db/lib/desk-links`): parent/child links, major
 //!   incidents and merging duplicates; [`webchat::append`] follows a merge.
+//! - [`problems`] (`@weldsuite/db/lib/desk-problems`): problem management,
+//!   i.e. the cause behind one or more incidents, its status and known-error
+//!   rules, and linking incidents to it.
+//! - [`catalog`] (`@weldsuite/db/lib/desk-catalog`): the service catalogue,
+//!   i.e. request items with their form, approval steps and fulfilment
+//!   tasks, making a conversation a request and deciding its approvals.
+//! - [`fulfilment`] (`@weldsuite/desk-domain/catalog`): what a service
+//!   request does after the rows change, i.e. its WeldFlow tasks and the
+//!   approver's notification.
 //! - [`priority_matrix`] (`@weldsuite/db/lib/desk-priority-matrix`): ITIL
 //!   impact × urgency → priority, which [`attributes`] applies.
 //! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
@@ -58,8 +67,10 @@ pub mod articles;
 pub mod assignment;
 pub mod assignment_router;
 pub mod attributes;
+pub mod catalog;
 pub mod email;
 pub mod escalation;
+pub mod fulfilment;
 pub mod http;
 pub mod inbox;
 pub mod links;
@@ -67,6 +78,7 @@ pub mod list;
 pub mod notify;
 pub mod phone;
 pub mod priority_matrix;
+pub mod problems;
 pub mod realtime;
 pub mod report_schedule;
 pub mod routing;

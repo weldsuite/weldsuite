@@ -1392,6 +1392,31 @@
       ]
     },
     {
+      "name": "desk: service catalogue",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-catalog/catalog.integration.test.ts",
+        "src/routes/desk-conversations/request.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/catalog",
+        "/api/desk/conversations/:id/request",
+        "/api/desk/conversations/:id/catalog-item",
+        "/api/desk/conversations/:id/approval"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-catalog/",
+        "apps/workers/desk-api/src/routes/desk-conversations/request.ts",
+        "packages/core/db/src/lib/desk-catalog.ts",
+        "packages/domains/desk/src/catalog.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "desk: SLA sweep",
       "module": "desk",
       "workspace": "apps/workers/desk-api",
@@ -1523,6 +1548,18 @@
         },
         {
           "route": "POST /api/portal/requests/:id/messages",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/catalog",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/catalog/:id",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/catalog/:id/requests",
           "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
         }
       ]
@@ -1910,6 +1947,39 @@
         "rust/modules/core-platform/src/groups/audit_log_streams.rs",
         "rust/crates/subscribers/src/audit_streams.rs",
         "rust/crates/subscribers/src/safe_url.rs"
+      ]
+    },
+    {
+      "name": "core: asset-sources",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/asset-sources/asset-sources.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/asset-sources/",
+        "packages/clients/core-api-client/src/schemas/asset-sources.ts",
+        "packages/domains/core/src/asset-sources.ts",
+        "rust/modules/core-objects/src/asset_sources/"
+      ]
+    },
+    {
+      "name": "core: asset import sweep",
+      "module": "core",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/cron/asset-import-sweep.due-index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/cron/asset-import-sweep.ts",
+        "apps/workers/desk-api/src/cron/asset-import-sweep.due-index.test.ts",
+        "packages/domains/core/src/asset-sources.ts",
+        "packages/core/db/src/lib/custom-objects.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/core/worker-kit/src/due-index.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/modules/core-objects/",
+        "rust/crates/db/src/due_index.rs"
       ]
     },
     {

@@ -9,6 +9,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
@@ -19,7 +20,7 @@ vi.setConfig({ testTimeout: 120_000 });
 const BASE = '/api/desk/catalog';
 
 let db: Database;
-const events: Array<{ entityType: string; action: string; entityId: string }> = [];
+const events: Array<{ entityType: string; action: string; entityId: string; data?: Record<string, unknown> }> = [];
 
 const routes = new Hono<{ Bindings: Env; Variables: Variables }>().route('/', deskCatalogRoutes);
 
@@ -29,7 +30,7 @@ const app = (keys: string[], userId = 'user_test_default') =>
     env: {
       DATABASE_URL_MASTER: undefined,
       ENTITY_EVENTS: {
-        send: async (message: { entityType: string; action: string; entityId: string }) => {
+        send: async (message: { entityType: string; action: string; entityId: string; data?: Record<string, unknown> }) => {
           events.push(message);
         },
       },
@@ -137,7 +138,14 @@ describe('POST /api/desk/catalog', () => {
     expect(data.approvalSteps).toEqual([{ id: expect.stringMatching(/^dstep_/), name: 'Budget', approverType: 'member', approverId: 'user_alice' }]);
     expect(data.fulfilmentTasks.map((t) => [t.title, t.dueInDays ?? null])).toEqual([['Order it', 3], ['Image it', null]]);
     expect(data.fulfilmentTasks[0]?.id).toMatch(/^dtask_/);
-    expect(events).toContainEqual(expect.objectContaining({ entityType: 'desk_catalog_item', action: 'created', entityId: data.id }));
+    const created = events.filter((e) => e.entityType === 'desk_catalog_item' && e.action === 'created').at(-1);
+    expect(created).toMatchObject({
+      // In conformance mode the event kept here is the TypeScript run's, about the row that
+      // run created (the answer is Rust's, with Rust's new id); the harness compares the two.
+      entityId: conformanceTarget() ? expect.any(String) : data.id,
+      data: { name: 'New laptop', category: 'Hardware' },
+    });
+    expect(created!.entityId).toBe(created!.data?.id);
   });
 
   it('refuses a form that is not an active customer ticket type', async () => {
