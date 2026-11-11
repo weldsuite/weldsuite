@@ -220,7 +220,7 @@ fn route_json(row: &Value) -> Value {
 }
 
 /// `list(c, data, cursorPagination(data.length, false, null))`.
-fn whole_list(data: Vec<Value>) -> Response {
+pub(crate) fn whole_list(data: Vec<Value>) -> Response {
     let count = u64::try_from(data.len()).unwrap_or(0);
     List::new(data, Pagination::new(count, false, None)).into_response()
 }

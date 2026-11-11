@@ -2,7 +2,8 @@
 //! (`/api/calls`), call intelligence (`/api/call-intelligence`: phone
 //! numbers, the WebRTC token, statistics, call transcriptions), the WeldDesk
 //! phone channel (`/api/desk/phone`: voice agents, inbound routes, the
-//! member's softphone and the call queue), number
+//! member's softphone, the call queue and a customer's own phone system
+//! connected as a SIP trunk), number
 //! porting (`/api/porting`), telephony (`/api/telephony`: searching, syncing
 //! and pricing numbers, addresses, regulatory requirements), billing-worker's
 //! phone-number fulfilment (`/api/internal/telephony`) and the Telnyx Call
@@ -21,6 +22,14 @@
 //! execution in `desk_phone_inbound`, the caller's side in
 //! `desk_phone_queue`, ringing in `desk_phone_ring`, the agents' legs in
 //! `desk_phone_legs`, a credential per member in `desk_phone_softphone`.
+//!
+//! A customer's own phone system (SIP trunk / PBX) is a Telnyx connection of
+//! its own (`sip_trunks`, `sip_trunk_routes`, `telnyx_connections`); its
+//! numbers are ordinary numbers with provider `sip_trunk`, and a call to one
+//! is let in only on its trunk's connection (`sip_trunk_inbound`). Live call
+//! translation runs on `@weldsuite/ai`, which the Kubernetes editions do not
+//! have: starting, changing and stopping one answer 503 `ai_unavailable`,
+//! and its state reads as stored (`desk_phone_translation`).
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `call`
@@ -41,6 +50,7 @@ mod desk_phone_realtime;
 mod desk_phone_ring;
 mod desk_phone_schema;
 mod desk_phone_softphone;
+mod desk_phone_translation;
 mod desk_routing;
 mod intelligence;
 mod internal;
@@ -48,8 +58,13 @@ mod js;
 mod numbers;
 mod porting;
 mod registry;
+mod sip_trunk_inbound;
+mod sip_trunk_number;
+mod sip_trunk_routes;
+mod sip_trunks;
 mod telephony;
 mod telnyx;
+mod telnyx_connections;
 mod tool_auth;
 mod webhook;
 
@@ -247,6 +262,51 @@ where
         .route(
             "/queue/{call_id}/pickup",
             post(desk_phone_queue_routes::pickup).route_layer(conversations_update()),
+        )
+        .route(
+            "/sip-trunks",
+            get(sip_trunk_routes::list).route_layer(conversations_read()),
+        )
+        .route(
+            "/sip-trunks",
+            post(sip_trunk_routes::create).route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}",
+            patch(sip_trunk_routes::update)
+                .delete(sip_trunk_routes::remove)
+                .route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}/rotate-password",
+            post(sip_trunk_routes::rotate_password).route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}/numbers",
+            post(sip_trunk_routes::add_number).route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}/numbers/{number_id}",
+            delete(sip_trunk_routes::remove_number).route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}/numbers/{number_id}/verification",
+            post(sip_trunk_routes::start_verification).route_layer(settings_manage()),
+        )
+        .route(
+            "/sip-trunks/{id}/numbers/{number_id}/verification/confirm",
+            post(sip_trunk_routes::confirm_verification).route_layer(settings_manage()),
+        )
+        .route(
+            "/calls/{call_id}/translation",
+            get(desk_phone_translation::state).route_layer(conversations_read()),
+        )
+        .route(
+            "/calls/{call_id}/translation",
+            post(desk_phone_translation::unavailable)
+                .patch(desk_phone_translation::unavailable)
+                .delete(desk_phone_translation::unavailable)
+                .route_layer(conversations_update()),
         );
     let porting = Router::new()
         .route("/preflight", post(porting::preflight))
@@ -461,6 +521,12 @@ impl Caller {
     /// `c.env.<name>`.
     pub(crate) fn env(&self, name: &str) -> Option<String> {
         env_value(self.env.as_ref(), name)
+    }
+
+    /// The request's env (conformance), for the helpers that read `c.env`
+    /// themselves.
+    pub(crate) fn request_env(&self) -> Option<&RequestEnv> {
+        self.env.as_ref()
     }
 
     /// `getMasterDb(c.env)`: the test's (conformance), else the state's.

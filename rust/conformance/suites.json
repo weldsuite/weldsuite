@@ -1371,6 +1371,27 @@
       ]
     },
     {
+      "name": "desk: problems",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-problems/problems.integration.test.ts",
+        "src/routes/desk-conversations/problem.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/problems",
+        "/api/desk/conversations/:id/problem"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-problems/",
+        "apps/workers/desk-api/src/routes/desk-conversations/problem.ts",
+        "packages/core/db/src/lib/desk-problems.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
       "name": "desk: SLA sweep",
       "module": "desk",
       "workspace": "apps/workers/desk-api",
@@ -2863,6 +2884,15 @@
         "src/routes/webhooks-telnyx/menu.integration.test.ts",
         "src/routes/webhooks-telnyx/outbound.integration.test.ts"
       ],
+      "coverage": [
+        "/api/desk/phone/agents",
+        "/api/desk/phone/routes",
+        "/api/desk/phone/forward-live",
+        "/api/desk/phone/softphone",
+        "/api/desk/phone/queue",
+        "/api/desk/phone/calls",
+        "/public/webhooks/telnyx"
+      ],
       "paths": [
         "apps/workers/call-api/src/routes/desk-phone/",
         "apps/workers/call-api/src/routes/webhooks-telnyx/",
@@ -2879,6 +2909,55 @@
         "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
         "packages/clients/app-api-client/src/schemas/call-responses.ts",
         "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/desk/phone/calls/:callId/translation",
+          "reason": "Live call translation runs on @weldsuite/ai (each line is translated by a model and charged in AI credits); the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same conversations:update and /config.json lists desk-ai as unavailable (the platform hides the control). Tested on TypeScript in desk-phone/translation.integration.test.ts, the 503 in rust/modules/call/src/desk_phone_translation.rs."
+        },
+        {
+          "route": "PATCH /api/desk/phone/calls/:callId/translation",
+          "reason": "Changes a running translation, which cannot be started on the Kubernetes editions (no AI provider, ADR AI-011): Rust answers 503 ai_unavailable behind the same conversations:update. Tested on TypeScript in desk-phone/translation.integration.test.ts."
+        },
+        {
+          "route": "DELETE /api/desk/phone/calls/:callId/translation",
+          "reason": "Stops a running translation, which cannot be started on the Kubernetes editions (no AI provider, ADR AI-011): Rust answers 503 ai_unavailable behind the same conversations:update. Tested on TypeScript in desk-phone/translation.integration.test.ts."
+        },
+        {
+          "route": "GET /api/desk/phone/calls/:callId/translation",
+          "reason": "Reads the state the three routes above write. Rust answers it as the worker does (404, null, or a stored state), but the only tests that reach it start a translation first (desk-phone/translation.integration.test.ts, TypeScript only); the stored state's shape is tested in rust/modules/call/src/desk_phone_translation.rs."
+        }
+      ]
+    },
+    {
+      "name": "call: SIP trunks",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/desk-phone/sip-trunks.integration.test.ts",
+        "src/routes/webhooks-telnyx/sip-trunk.integration.test.ts",
+        "src/routes/telephony/sip-trunk-sync.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/phone/sip-trunks"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/desk-phone/",
+        "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "apps/workers/call-api/src/routes/telephony/",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/schema/voip-sip-trunks.ts",
+        "packages/domains/desk/src/",
+        "rust/crates/desk-domain/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-sip-trunks.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
         "rust/modules/call/"
       ]
@@ -3049,6 +3128,18 @@
       ],
       "tests": [
         "src/test/audit-logs.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: odata feed",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/odata.test.ts"
       ]
     },
     {

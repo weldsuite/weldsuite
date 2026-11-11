@@ -14,6 +14,7 @@ use weldsuite_kit::{ApiError, Created, Data, NoContent};
 use weldsuite_ports::HttpRequest;
 
 use crate::calls::query_param;
+use crate::sip_trunks::{TRUNK_NUMBER_REFUSAL, TRUNK_PROVIDER};
 use crate::{CallState, Caller, internal, js, now, rows, validate};
 
 const CALL_DENIED: &str = "You do not have access to this call";
@@ -201,14 +202,14 @@ fn read_number_changes(issues: &mut Issues, fields: &Map<String, Value>) -> Numb
     }
 }
 
-async fn live_number(caller: &Caller, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from voip_phone_numbers where id = $1 and deleted_at is null limit 1",
+/// A live number's provider, when the number exists.
+async fn live_number(caller: &Caller, id: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "select provider from voip_phone_numbers where id = $1 and deleted_at is null limit 1",
     )
     .bind(id)
     .fetch_optional(&caller.db)
-    .await?;
-    Ok(found.is_some())
+    .await
 }
 
 /// `PATCH /api/call-intelligence/phone-numbers/:id`.
@@ -224,8 +225,8 @@ pub(crate) async fn update_number(
         Err(response) => return *response,
     };
     match live_number(&caller, &id).await {
-        Ok(true) => {}
-        Ok(false) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
+        Ok(Some(_)) => {}
+        Ok(None) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to update phone number"),
     }
     let updated = sqlx::query(
@@ -269,8 +270,13 @@ pub(crate) async fn delete_number(
     Path(id): Path<String>,
 ) -> Response {
     match live_number(&caller, &id).await {
-        Ok(true) => {}
-        Ok(false) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
+        // A number on the customer's own phone system is removed from that
+        // system (desk/phone/sip-trunks).
+        Ok(Some(provider)) if provider == TRUNK_PROVIDER => {
+            return ApiError::conflict(TRUNK_NUMBER_REFUSAL).into_response();
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to delete phone number"),
     }
     let now = now();

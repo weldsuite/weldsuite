@@ -57,6 +57,9 @@ interface VolatileRoute {
 /** A connector connection id (`generateId('conn')`) inside a string. */
 const CONNECTOR_ID = /conn_[0-9a-z]{16}/g;
 
+/** The new trunk's id at the end of its SIP username (`generateId('strk')` without the `_`). */
+const SIP_USERNAME_TRUNK_ID = /strk[0-9a-z]{16}$/g;
+
 function toolToken(path: string): VolatileField {
   return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
@@ -190,6 +193,15 @@ const ROUTES: VolatileRoute[] = [
   })),
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
+  // A problem's article: its slug ends in the first six characters of the new
+  // article's id, `Date.now()` in base 36, which roll over every 1.3 seconds
+  // (two runs either side of that differ). The slug's words are still compared.
+  {
+    method: 'POST',
+    route: '/api/desk/problems/:id/article',
+    fields: [],
+    events: [{ path: 'data.slug', pattern: /-[0-9a-z]{6}$/g, replacement: '-<volatile>' }],
+  },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
   // minted, so its payload and signature differ per run. Its content is checked
   // by the test itself. The route is the prefixed one Rust serves the worker at.
@@ -336,6 +348,31 @@ const ROUTES: VolatileRoute[] = [
     fields: [],
     outbound: [{ path: 'body.client_state', decode: 'base64-json' as const }],
   })),
+  // WeldCall: the SIP login of a customer's own phone system (a `credentials`
+  // trunk). Its password is 24 characters drawn at random per run, shown once
+  // in the answer and sent to Telnyx (`POST /credential_connections`); its
+  // username ends in the new trunk's id (`wd<workspace><strk…>`), whose
+  // prefix is still compared. An IP trunk has neither.
+  {
+    method: 'POST',
+    route: '/api/desk/phone/sip-trunks',
+    fields: [
+      { path: 'data.credentials.password' },
+      { path: 'data.credentials.username', pattern: SIP_USERNAME_TRUNK_ID, replacement: 'strk<id>' },
+      { path: 'data.connection.username', pattern: SIP_USERNAME_TRUNK_ID, replacement: 'strk<id>' },
+    ],
+    outbound: [
+      { path: 'body.password' },
+      { path: 'body.user_name', pattern: SIP_USERNAME_TRUNK_ID, replacement: 'strk<id>' },
+    ],
+  },
+  // A new password for it is drawn the same way (`PATCH /credential_connections/:id`).
+  {
+    method: 'POST',
+    route: '/api/desk/phone/sip-trunks/:id/rotate-password',
+    fields: [{ path: 'data.credentials.password' }],
+    outbound: [{ path: 'body.password' }],
+  },
   // WeldBooks VAT: a Digipoort filing reference (`WS-<Date.now() base 36>-<6 random>`) per run,
   // the moment a status was asked, and the creation time inside an XBRL message built on request.
   { method: 'POST', route: '/api/vat-returns/:id/file', fields: [{ path: 'data.kenmerk' }] },
