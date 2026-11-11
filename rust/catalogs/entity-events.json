@@ -58,6 +58,11 @@
     "updated",
     "deleted"
   ],
+  "asset_source": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "audit_log_stream": [
     "created",
     "updated",
@@ -254,6 +259,11 @@
   "desk_attachment": [
     "created"
   ],
+  "desk_catalog_item": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "desk_conversation": [
     "created",
     "updated",
@@ -264,6 +274,11 @@
   ],
   "desk_message": [
     "created"
+  ],
+  "desk_problem": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "desk_widget": [
     "created",
@@ -1279,6 +1294,11 @@
     "expired"
   ],
   "sign_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sip_trunk": [
     "created",
     "updated",
     "deleted"

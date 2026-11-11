@@ -57,6 +57,7 @@ import {
   SHEET_DATA_OBJECT_KEYS,
   SHEET_DATA_OBJECTS,
 } from '../packages/clients/app-api-client/src/schemas/sheet-data';
+import { odataCatalogJson } from '../apps/workers/external-api/src/routes/v1/odata/catalog';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -162,6 +163,9 @@ async function main(): Promise<void> {
     'catalogs/weldconnect.json': weldconnectCatalog(),
     'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/sheet-data.json': sheetDataCatalog(),
+    // The public API's OData feed (`/v1/odata`): its entity sets and properties,
+    // in order, as external-api exports them (rust/modules/external-api/src/odata).
+    'catalogs/odata.json': JSON.parse(odataCatalogJson()),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,
