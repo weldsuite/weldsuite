@@ -196,6 +196,14 @@ config:
   # a relay that only takes its own domain.
   mail:
     from: ""
+    # WeldMail's free addresses, `<name>@<workspace slug>.<this domain>`
+    # (ADR MAIL-012): weldmail.eu on the EU edition. Empty: no free addresses.
+    # Needs inbound mail (mailInbound) and, to send, the domain registered
+    # with the MTA for the customer pool (`weldsuite mta domains add <domain>
+    # --pool customer`), plus a wildcard MX and SPF record (deploy/hetzner
+    # README, "Mail"). weldmail.com and weldmail.org are Global's: the server
+    # refuses to start with them.
+    freeAddressDomain: ""
   # WeldSign: the signer portal's origin; signing links are <portalUrl>/r/<token>
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:

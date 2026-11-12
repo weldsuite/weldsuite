@@ -24,7 +24,8 @@ them. Groups outside `/api` (`/internal/*`) have their own router.
 | `/api/mail-subscriptions` | | not started |
 | `/api/mailboxes` | | not started (cross-workspace, org-less) |
 | `/api/mail-domains` | `routes::mail_domains` | ported over the `MailDomains` adapter in `MailState::domains` (`RelayDomains` over the MTA's API with `MTA_API_URL`, else `ManualDomains`; none without `MAIL_MX_HOST`, and then `/config.json` lists `mail-domains` as unavailable). Not conformance-checked: Global provisions Cloudflare, so the answers differ by design (MAIL-010). A domain added here carries its workspace's ownership TXT record (`_weldmail-verify.<domain>`) and is verified only once that resolves too; a mailbox goes on a verified domain or an active WeldHost domain |
-| `/api/mail-weldmail`, `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (MAIL-010, the AI port, the object store) |
+| `/api/mail-weldmail` | `routes::mail_weldmail` | ported on the deployment's own free-address domain, `WELDMAIL_DOMAIN` (`weldmail.eu` on the EU edition, MAIL-012); unset, or one of Global's (`weldmail.com`, `weldmail.org`), the routes answer 503 and `/config.json` lists `mail-free-addresses` as unavailable. Reserved mailboxes get their system labels |
+| `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (the AI port, the object store) |
 | `mail-sending-events` consumer | `consumers::SendingEventsSubscriber` | ported: the `mail-sending-events` subscriber of `consume`, on `MAIL_SENDING_EVENTS` (MAIL-011) |
 | `mail-outbound-review` consumer | `consumers` | handler ported |
 | inbound (mail-inbound-worker) | `crates/mail-inbound` (the `RCPT TO` check in `serve`, the `mail.inbound` subscriber in `consume`, Haraka in `deploy/haraka`) | ported (MAIL-010) |

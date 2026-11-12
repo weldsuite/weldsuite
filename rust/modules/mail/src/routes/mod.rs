@@ -19,4 +19,5 @@ pub(crate) mod mail_subscriptions;
 pub(crate) mod mail_sync;
 pub(crate) mod mail_templates;
 pub(crate) mod mail_threads;
+pub(crate) mod mail_weldmail;
 pub(crate) mod mailboxes;

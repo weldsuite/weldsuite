@@ -21,13 +21,14 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE, MESSAGES_CREATE,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_body};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::{
     AccountAccess, can_manage_account, check_account_access, check_account_manage_access,
     has_access_to_account, is_admin_or_owner,
 };
+use weldsuite_mail_domain::outbound::limits::{SHARED_WELDMAIL_APEXES, is_shared_weldmail_domain};
 use weldsuite_mail_domain::send::{SendInput, SendOptions, send_and_persist};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
@@ -534,17 +535,6 @@ fn read_account(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -
     AccountInput { fields: out }
 }
 
-/// The shared WeldMail apexes (`SHARED_WELDMAIL_APEXES`).
-const SHARED_WELDMAIL_APEXES: [&str; 2] = ["weldmail.com", "weldmail.org"];
-
-/// `isSharedWeldMailDomain(domain)`.
-fn is_shared_weldmail_domain(domain: &str) -> bool {
-    let d = domain.to_lowercase();
-    SHARED_WELDMAIL_APEXES
-        .iter()
-        .any(|apex| d == *apex || d.ends_with(&format!(".{apex}")))
-}
-
 /// The system labels a new mailbox starts with (`SYSTEM_LABEL_SEEDS`).
 const SYSTEM_LABEL_SEEDS: [(&str, &str); 11] = [
     ("Inbox", "INBOX"),
@@ -559,6 +549,35 @@ const SYSTEM_LABEL_SEEDS: [(&str, &str); 11] = [
     ("Scheduled", "SCHEDULED"),
     ("Promotions", "PROMOTIONS"),
 ];
+
+/// A new mailbox's system labels ([`SYSTEM_LABEL_SEEDS`]), in their order.
+pub(crate) async fn seed_system_labels(
+    db: &PgPool,
+    account_id: &str,
+    at: &str,
+) -> Result<(), sqlx::Error> {
+    let label_ids: Vec<String> = SYSTEM_LABEL_SEEDS
+        .iter()
+        .map(|_| generate_id("label"))
+        .collect();
+    let names: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(n, _)| *n).collect();
+    let slugs: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(_, s)| *s).collect();
+    sqlx::query(
+        "insert into mail_labels (id, account_id, name, slug, is_system, message_count,
+           created_at, updated_at)
+         select l.id, $2, l.name, l.slug, true, 0, $5::timestamp, $5::timestamp
+         from unnest($1::varchar[], $3::varchar[], $4::varchar[]) with ordinality as l(id, name, slug, ord)
+         order by l.ord",
+    )
+    .bind(&label_ids)
+    .bind(account_id)
+    .bind(&names)
+    .bind(&slugs)
+    .bind(at)
+    .execute(db)
+    .await?;
+    Ok(())
+}
 
 /// `MailAccountError` with its HTTP mapping (`mapMailAccountError`).
 fn bad_request(message: &str) -> MailError {
@@ -811,26 +830,7 @@ async fn create(
         .execute(&caller.db)
         .await?;
 
-        let label_ids: Vec<String> = SYSTEM_LABEL_SEEDS
-            .iter()
-            .map(|_| generate_id("label"))
-            .collect();
-        let names: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(n, _)| *n).collect();
-        let slugs: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(_, s)| *s).collect();
-        sqlx::query(
-            "insert into mail_labels (id, account_id, name, slug, is_system, message_count,
-               created_at, updated_at)
-             select l.id, $2, l.name, l.slug, true, 0, $5::timestamp, $5::timestamp
-             from unnest($1::varchar[], $3::varchar[], $4::varchar[]) with ordinality as l(id, name, slug, ord)
-             order by l.ord",
-        )
-        .bind(&label_ids)
-        .bind(&id)
-        .bind(&names)
-        .bind(&slugs)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        seed_system_labels(&caller.db, &id, &at).await?;
 
         register_in_master_registry(&state, &caller, &org, &id, &email).await;
         bump_mailbox_directory(&caller, &state).await;

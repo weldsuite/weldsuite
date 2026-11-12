@@ -246,7 +246,7 @@ function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
             {weldMailDomainQuery.isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : (
-              <span className="text-sm text-muted-foreground">@{domain || 'weldmail.com'}</span>
+              <span className="text-sm text-muted-foreground">@{domain || '…'}</span>
             )}
           </div>
         </div>
@@ -260,7 +260,7 @@ function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
         {address && (
           <p className="text-xs text-muted-foreground">
             {t.mail.setupPage.emailAddressWillBe}{' '}
-            <strong>{address}@{domain || 'weldmail.com'}</strong>
+            <strong>{address}@{domain || '…'}</strong>
           </p>
         )}
       </div>
