@@ -8,6 +8,7 @@ import {
   RECORD_CHAT_FILTER_LABEL_KEYS,
   RECORD_CHAT_FILTERS,
   recordChatsEmptyKeys,
+  recordChatsListFilter,
   resolveRecordChatsType,
 } from './record-chats-page';
 import { getRecordChatTypeInfo, RECORD_CHAT_TYPES, recordChatsPageHref } from './record-chat-types';
@@ -20,8 +21,22 @@ function lookup(locale: unknown, key: string): unknown {
 }
 
 describe('parseRecordChatsSearch', () => {
-  it('keeps a known type and filter', () => {
-    expect(parseRecordChatsSearch({ type: 'company', filter: 'unread' })).toEqual({ type: 'company', filter: 'unread' });
+  it('keeps a known type, filter and the Unread switch', () => {
+    expect(parseRecordChatsSearch({ type: 'company', filter: 'mentions', unread: true })).toEqual({
+      type: 'company',
+      filter: 'mentions',
+      unread: true,
+    });
+    expect(parseRecordChatsSearch({ unread: 'true' })).toEqual({ unread: true });
+  });
+
+  it('leaves the Unread switch out when it is off', () => {
+    expect(parseRecordChatsSearch({ filter: 'all', unread: false })).toEqual({ filter: 'all' });
+    expect(parseRecordChatsSearch({ unread: 'yes' })).toEqual({});
+  });
+
+  it('reads an old filter=unread link as Unread on over the followed chats', () => {
+    expect(parseRecordChatsSearch({ type: 'task', filter: 'unread' })).toEqual({ type: 'task', unread: true });
   });
 
   it('drops unknown and legacy types', () => {
@@ -42,6 +57,20 @@ describe('parseRecordChatsSearch', () => {
       expect(url.pathname).toBe('/weldchat/records');
       expect(parseRecordChatsSearch(Object.fromEntries(url.searchParams))).toEqual({ type });
     }
+  });
+});
+
+describe('recordChatsListFilter', () => {
+  it('lists the chosen filter with Unread off', () => {
+    expect(recordChatsListFilter('following', false)).toBe('following');
+    expect(recordChatsListFilter('mentions', false)).toBe('mentions');
+    expect(recordChatsListFilter('all', false)).toBe('all');
+  });
+
+  it('lists unread chats with Unread on, mentions staying mentions', () => {
+    expect(recordChatsListFilter('following', true)).toBe('unread');
+    expect(recordChatsListFilter('all', true)).toBe('unread');
+    expect(recordChatsListFilter('mentions', true)).toBe('mentions');
   });
 });
 

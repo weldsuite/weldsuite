@@ -7,7 +7,7 @@
  * first follow). A sheet's or a document's comment threads are threads in its
  * chat (ADR CHAT-007).
  *
- *   GET    /                                    — record chats, cursor paginated (?type=&filter=&search=)
+ *   GET    /                                    — record chats, cursor paginated (?type=&filter=&sort=&search=)
  *   GET    /summary                             — per type: followed / unread / mention counts
  *   PATCH  /:entityType/mute                    — mute/unmute every chat of this type the caller follows
  *   GET    /:entityType/:entityId/channel       — linked channel or null (no create)
@@ -136,7 +136,8 @@ async function resolveAccess(
 /**
  * GET / — record chats of the types the caller may read, most recent activity
  * first. `filter=following` (default) is the sidebar; `unread`, `mentions` and
- * `all` (every record chat the caller may read) are for the record chats page.
+ * `all` (every record chat the caller may read) are for the record chats page,
+ * which also sorts the caller's unread chats first (`sort=unread`).
  */
 app.get('/', readPerm, zValidator('query', listEntityChannelsQuerySchema), async (c) => {
   const q = c.req.valid('query');
@@ -154,6 +155,7 @@ app.get('/', readPerm, zValidator('query', listEntityChannelsQuerySchema), async
       can: callerCan(c),
       providers,
       filter: q.filter,
+      sort: q.sort,
       search: q.search || undefined,
       cursor: q.cursor,
       limit: q.limit,
