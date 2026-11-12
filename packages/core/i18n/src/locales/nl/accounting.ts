@@ -3401,7 +3401,7 @@ export const accounting = {
       askAdmin: 'Vraag iemand die de bedrijfsinstellingen mag wijzigen om ze in te vullen.',
       createBlocked: 'Vul eerst uw bedrijfsgegevens in',
       dialogTitle: 'Bedrijfsgegevens',
-      dialogDescription: 'Komt op elke factuur van {entity}.',
+      dialogDescription: '{entity} zet deze gegevens op elke factuur.',
       businessAddress: 'Bedrijfsadres',
       required: 'Verplicht',
       addressRequired: 'Vul minimaal een straat en een plaats in',

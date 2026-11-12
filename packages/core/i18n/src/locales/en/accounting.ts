@@ -3368,7 +3368,7 @@ export const accounting = {
       askAdmin: 'Ask someone who can edit the company settings to add them.',
       createBlocked: 'Add your business details first',
       dialogTitle: 'Business details',
-      dialogDescription: 'Printed on every invoice of {entity}.',
+      dialogDescription: '{entity} prints these on every invoice.',
       businessAddress: 'Business address',
       required: 'Required',
       addressRequired: 'Enter at least a street and a city',
