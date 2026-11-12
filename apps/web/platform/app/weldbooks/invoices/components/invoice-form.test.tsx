@@ -11,6 +11,8 @@ const env = vi.hoisted(() => ({
   createMutate: vi.fn(),
   sendMutate: vi.fn(),
   customerEmail: null as string | null,
+  /** The company details an invoice needs that the entity lacks. */
+  missingDetails: [] as string[],
   previewState: null as unknown,
   requests: [] as unknown[],
   taxRates: [
@@ -35,6 +37,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useCreateInvoice: () => ({ mutateAsync: env.createMutate }),
   useSendInvoice: () => ({ mutateAsync: env.sendMutate }),
   useUpdateInvoice: () => ({ mutateAsync: env.updateMutate }),
+  useUpdateAccountingEntity: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAccountingCustomer: () => ({
     data: { data: { id: 'cus_1', name: 'Globex', email: env.customerEmail, paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
   }),
@@ -54,6 +57,15 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
     useJurisdictionLabels: () => ({ labels, features: { salesTax: env.salesTax, form1099: false }, isResolved: true }),
   };
 });
+vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
+vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
+  useEntityInvoiceDetails: () => ({
+    entity: { id: 'ent_1', name: 'Acme', jurisdictionCode: 'NL', baseCurrency: 'EUR' },
+    missing: env.missingDetails,
+    labels: { vatNumber: 'VAT number', registrationNumber: 'KvK number', iban: 'IBAN', bic: 'BIC', address: 'Business address' },
+    isLoading: false,
+  }),
+}));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     currency: 'USD',
@@ -154,6 +166,7 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
     env.createMutate.mockReset().mockResolvedValue({});
     env.sendMutate.mockReset().mockResolvedValue({});
     env.customerEmail = null;
+    env.missingDetails = [];
     env.previewState = previewState();
     env.requests = [];
   });
@@ -464,6 +477,25 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       await fillIn(user);
       expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
+    });
+
+    it('waits for the company details every invoice must show, and offers to add them', async () => {
+      const user = userEvent.setup();
+      env.customerEmail = 'ap@globex.test';
+      env.missingDetails = ['vatNumber', 'iban'];
+      await fillIn(user);
+
+      const notice = screen.getByTestId('entity-invoice-details-notice');
+      expect(notice).toHaveTextContent('VAT number, IBAN');
+      expect(screen.getByRole('button', { name: 'Create draft' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
+
+      await user.click(within(notice).getByRole('button', { name: 'Add business details' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByLabelText('VAT number')).toBeInTheDocument();
+      expect(within(dialog).getByLabelText('IBAN')).toBeInTheDocument();
+      expect(within(dialog).queryByLabelText('KvK number')).not.toBeInTheDocument();
+      expect(env.createMutate).not.toHaveBeenCalled();
     });
   });
 });

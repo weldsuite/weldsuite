@@ -47,6 +47,8 @@ export interface JurisdictionSummary {
   terminology: JurisdictionTerminology;
   /** US only: the legal forms with their allowed tax classifications and the return each files. */
   entityTypes?: UsEntityTypeSummary[];
+  /** The entity fields an invoice needs before it is issued (`vatNumber`, `iban`, ...). Older APIs leave it out. */
+  invoiceRequiredFields?: string[];
 }
 
 /** Every jurisdiction-specific module off — used until the jurisdiction is known. */
