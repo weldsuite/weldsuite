@@ -317,9 +317,13 @@ async fn keep_visible(
 
 const FILTERS: [&str; 4] = ["following", "unread", "mentions", "all"];
 
+/// `RECORD_CHAT_SORTS`: `recent` (the sidebar) or `unread` (unread first, the records page).
+const SORTS: [&str; 2] = ["recent", "unread"];
+
 struct ListQuery {
     kind: Option<String>,
     filter: String,
+    sort: String,
     search: Option<String>,
     cursor: Option<String>,
     limit: i64,
@@ -331,6 +335,10 @@ fn read_list(issues: &mut Issues, values: &Map<String, Value>) -> ListQuery {
         .choice(values, "filter", Presence::Optional, &FILTERS)
         .into_option()
         .unwrap_or_else(|| "following".to_owned());
+    let sort = issues
+        .choice(values, "sort", Presence::Optional, &SORTS)
+        .into_option()
+        .unwrap_or_else(|| "recent".to_owned());
     let search = issues
         .text_with(
             values,
@@ -357,6 +365,7 @@ fn read_list(issues: &mut Issues, values: &Map<String, Value>) -> ListQuery {
     ListQuery {
         kind,
         filter,
+        sort,
         search,
         cursor,
         limit,
@@ -375,7 +384,8 @@ fn escape_like(value: &str) -> String {
     out
 }
 
-/// `GET /`: record chats, most recent activity first.
+/// `GET /`: record chats, most recent activity first; with `sort=unread` the
+/// caller's unread chats first (`unreadRank`), each part in that order.
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), read_list) {
         Ok(query) => query,
@@ -409,8 +419,24 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             if i64::try_from(page.len()).unwrap_or(i64::MAX) > limit {
                 break;
             }
+            // `rank` is 0 for a chat unread to the caller under `sort=unread`
+            // and 1 otherwise, so `recent` keeps the plain activity order.
             let batch: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(t) from chat_channels t
+                "with cur as (
+                   select coalesce(c2.last_message_at, c2.created_at) as at, c2.id,
+                          case when $7 = 'unread' and exists (select 1 from chat_channel_members m2
+                               where m2.channel_id = c2.id and m2.user_id = $3 and m2.is_muted = false
+                                 and c2.last_message_at is not null
+                                 and (m2.last_read_at is null or c2.last_message_at > m2.last_read_at))
+                          then 0 else 1 end as rank
+                   from chat_channels c2 where c2.id = $5)
+                 select to_jsonb(t) from chat_channels t
+                 cross join lateral (
+                   select case when $7 = 'unread' and exists (select 1 from chat_channel_members m2
+                               where m2.channel_id = t.id and m2.user_id = $3 and m2.is_muted = false
+                                 and t.last_message_at is not null
+                                 and (m2.last_read_at is null or t.last_message_at > m2.last_read_at))
+                          then 0 else 1 end as rank) r
                  where t.type = 'entity' and t.deleted_at is null and t.entity_type = any($1)
                    and ($2 = 'all' or exists (select 1 from chat_channel_members m
                         where m.channel_id = t.id and m.user_id = $3
@@ -418,10 +444,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                                and (m.last_read_at is null or t.last_message_at > m.last_read_at)))
                           and ($2 <> 'mentions' or m.unread_mention_count > 0)))
                    and ($4::text is null or coalesce(t.entity_display_name, t.name) ilike $4)
-                   and ($5::text is null or (coalesce(t.last_message_at, t.created_at), t.id) <
-                        (select coalesce(c2.last_message_at, c2.created_at), c2.id
-                         from chat_channels c2 where c2.id = $5))
-                 order by coalesce(t.last_message_at, t.created_at) desc, t.id desc
+                   and ($5::text is null or exists (select 1 from cur
+                        where r.rank > cur.rank
+                           or (r.rank = cur.rank
+                               and (coalesce(t.last_message_at, t.created_at), t.id) < (cur.at, cur.id))))
+                 order by r.rank, coalesce(t.last_message_at, t.created_at) desc, t.id desc
                  limit $6",
             )
             .bind(&types)
@@ -430,6 +457,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .bind(&search)
             .bind(&after)
             .bind(limit + 1)
+            .bind(query.sort.as_str())
             .fetch_all(&caller.db)
             .await?;
             let batch: Vec<Value> = batch.into_iter().map(weldsuite_db::js_row).collect();
