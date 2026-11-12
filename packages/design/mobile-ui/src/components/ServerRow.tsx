@@ -37,7 +37,7 @@ export function ServerRow({
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const runtime = peekMobileRuntime();
-  if (!runtime || !runtime.serverPickerEnabled) return null;
+  if (!runtime?.serverPickerEnabled) return null;
   const labels = serverCopy(language, copy);
   const name = serverDisplayName(runtime.server, labels);
 

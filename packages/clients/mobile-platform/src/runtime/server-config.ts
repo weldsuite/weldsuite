@@ -41,7 +41,7 @@ export async function fetchServerConfig(
       return { ok: false, problem: 'not-weldsuite' };
     }
     const config = parseRuntimeConfig(await res.json());
-    if (!config || config.backend !== 'rust') return { ok: false, problem: 'not-weldsuite' };
+    if (config?.backend !== 'rust') return { ok: false, problem: 'not-weldsuite' };
     return { ok: true, config };
   } catch {
     return { ok: false, problem: 'unreachable' };

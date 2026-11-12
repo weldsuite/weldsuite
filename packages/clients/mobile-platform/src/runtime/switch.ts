@@ -13,8 +13,8 @@
 import { saveServerChoice, type KeyValueStore } from './state';
 import type { MobileRuntime, ServerChoice } from './types';
 
-type LeaveTask = (runtime: MobileRuntime) => Promise<unknown> | unknown;
-type Cleaner = () => Promise<unknown> | unknown;
+type LeaveTask = (runtime: MobileRuntime) => unknown;
+type Cleaner = () => unknown;
 
 const leaveTasks = new Map<string, LeaveTask>();
 const cleaners = new Map<string, Cleaner>();
@@ -38,7 +38,7 @@ export function onClearServerData(name: string, cleaner: Cleaner): () => void {
 }
 
 /** A step that never throws and never takes longer than the timeout. */
-async function settle(step: () => Promise<unknown> | unknown): Promise<void> {
+async function settle(step: () => unknown): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -65,11 +65,10 @@ export interface ServerSwitchDeps {
 /** Leave the current server, save `next` and restart the app. */
 export async function performServerSwitch(next: ServerChoice, deps: ServerSwitchDeps): Promise<void> {
   const { runtime } = deps;
-  if (runtime) {
-    for (const task of leaveTasks.values()) await settle(() => task(runtime));
-  }
+  // Each group runs together: the tasks are independent and each has its own timeout.
+  if (runtime) await Promise.all([...leaveTasks.values()].map((task) => settle(() => task(runtime))));
   await settle(deps.signOut);
-  for (const cleaner of cleaners.values()) await settle(cleaner);
+  await Promise.all([...cleaners.values()].map((cleaner) => settle(cleaner)));
   await saveServerChoice(deps.store, next);
   await deps.reload();
 }

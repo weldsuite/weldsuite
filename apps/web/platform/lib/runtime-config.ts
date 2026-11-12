@@ -92,7 +92,6 @@
 import {
   parseRuntimeConfig,
   RUNTIME_CONFIG_PATH,
-  runtimeConfigSchema,
   type RuntimeAuthConfig,
   type RuntimeConfig,
   type RuntimeOidcAuthConfig,
@@ -100,7 +99,11 @@ import {
 import { isRuntimeConfigOn } from '@/src/boot/mode';
 
 // The contract itself (Zod v3) is shared with the mobile apps.
-export { parseRuntimeConfig, RUNTIME_CONFIG_PATH, runtimeConfigSchema };
+export {
+  parseRuntimeConfig,
+  RUNTIME_CONFIG_PATH,
+  runtimeConfigSchema,
+} from '@weldsuite/app-api-client/schemas/runtime-config';
 export type { RuntimeConfig };
 export type AuthConfig = RuntimeAuthConfig;
 export type OidcAuthConfig = RuntimeOidcAuthConfig;

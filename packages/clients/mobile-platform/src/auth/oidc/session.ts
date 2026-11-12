@@ -207,7 +207,7 @@ export class OidcMobileSession {
   init(): Promise<void> {
     this.initialised ??= (async () => {
       const [stored, profile] = await Promise.all([this.readStored(), this.readProfile()]);
-      if (stored && profile && stored.sub === profile.sub && stored.tokens[stored.active]) {
+      if (stored && stored.sub === profile?.sub && stored.tokens[stored.active]) {
         this.stored = stored;
         this.profile = profile;
       } else if (stored || profile) {
@@ -224,7 +224,7 @@ export class OidcMobileSession {
     const key = this.stored?.active;
     if (!key) return null;
     const access = this.access;
-    if (access && access.key === key && access.expiresAt - EXPIRY_MARGIN_MS > this.now()) return access.token;
+    if (access?.key === key && access.expiresAt - EXPIRY_MARGIN_MS > this.now()) return access.token;
     return this.refreshKey(key);
   }
 
@@ -400,7 +400,7 @@ export class OidcMobileSession {
     }
     const claims = this.claimsOf(response);
     const person = personFromClaims(claims);
-    if (person && person.id === stored.sub && this.profile) {
+    if (person?.id === stored.sub && this.profile) {
       const named = organizationsFromClaims(claims, this.orgClaim);
       this.profile = {
         ...this.profile,

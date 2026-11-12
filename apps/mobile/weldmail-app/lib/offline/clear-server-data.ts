@@ -14,19 +14,19 @@ import { onClearServerData } from '@weldsuite/mobile-platform/runtime';
 const SERVER_KEY_PREFIXES = ['weldmail.cache', 'weldmail.outbox', 'weldmail.realtime.cursor.'];
 
 /** Single keys stored per server (selected account, handled push, pins, tray counts). */
-const SERVER_KEYS = [
+const SERVER_KEYS = new Set([
   '@weldmail_selected_account',
   '@weldmail_handled_notification_id',
   '@weldmail_inbox_unread',
   'weldmail:pinnedMessages',
-];
+]);
 
 /** Remove every AsyncStorage entry WeldMail keeps for the current server. Never throws. */
 export async function clearServerData(): Promise<void> {
   try {
     const keys = await AsyncStorage.getAllKeys();
     const doomed = keys.filter(
-      (key) => SERVER_KEYS.includes(key) || SERVER_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
+      (key) => SERVER_KEYS.has(key) || SERVER_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
     );
     if (doomed.length > 0) await AsyncStorage.multiRemove(doomed);
   } catch {
