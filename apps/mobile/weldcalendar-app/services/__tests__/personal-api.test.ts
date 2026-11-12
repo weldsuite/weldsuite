@@ -1,41 +1,25 @@
-// `services/personal-api.ts` builds its PersonalApiClient lazily, from
-// `personalApiOrigin()` (the booted server runtime), never at import time.
-// (The Global app-api <-> personal-api pairing is tested in mobile-platform.)
+// `services/personal-api.ts` builds its PersonalApiClient lazily from the booted
+// server runtime's personal-api origin (`lazyClient` and the Global pairing are
+// tested in @weldsuite/mobile-platform).
 
 describe('services/personal-api', () => {
-  beforeEach(() => {
+  it('wires PersonalApiClient to the runtime origin through lazyClient', () => {
     jest.resetModules();
-  });
-
-  function load(origin: { current: string }) {
-    const ctor = jest.fn(function PersonalApiClient(this: { me: () => string }, baseUrl: string) {
-      this.me = () => baseUrl;
+    const ctor = jest.fn(function PersonalApiClient(this: { baseUrl: string }, baseUrl: string) {
+      this.baseUrl = baseUrl;
     });
+    const personalApiOrigin = jest.fn(() => 'https://personal-api.example');
+    const lazyClient = jest.fn((origin: () => string, build: (origin: string) => unknown) => ({ origin, build }));
     jest.doMock('@weldsuite/personal-api-client', () => ({ PersonalApiClient: ctor }));
-    jest.doMock('@weldsuite/mobile-platform/api', () => ({ personalApiOrigin: () => origin.current }));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
-    const mod = require('../personal-api');
-    return { ctor, personalApi: mod.personalApi as { me: () => string } };
-  }
+    jest.doMock('@weldsuite/mobile-platform/api', () => ({ personalApiOrigin, lazyClient }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() needs a fresh synchronous require
+    const { personalApi } = require('../personal-api') as {
+      personalApi: { origin: () => string; build: (origin: string) => { baseUrl: string } };
+    };
 
-  it('does not read the runtime when the module is imported', () => {
-    const { ctor } = load({ current: 'https://personal-api.example' });
-    expect(ctor).not.toHaveBeenCalled();
-  });
-
-  it('builds the client on first use, against the runtime origin', () => {
-    const { ctor, personalApi } = load({ current: 'https://personal-api.example' });
-    expect(personalApi.me()).toBe('https://personal-api.example');
-    personalApi.me();
+    expect(personalApiOrigin).not.toHaveBeenCalled();
+    expect(personalApi.origin).toBe(personalApiOrigin);
+    expect(personalApi.build('https://personal-api.example').baseUrl).toBe('https://personal-api.example');
     expect(ctor).toHaveBeenCalledTimes(1);
-  });
-
-  it('follows the origin when it changes', () => {
-    const origin = { current: 'https://one.example' };
-    const { ctor, personalApi } = load(origin);
-    expect(personalApi.me()).toBe('https://one.example');
-    origin.current = 'https://two.example';
-    expect(personalApi.me()).toBe('https://two.example');
-    expect(ctor).toHaveBeenCalledTimes(2);
   });
 });

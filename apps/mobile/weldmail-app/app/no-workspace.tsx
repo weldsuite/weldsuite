@@ -32,7 +32,7 @@ export default function NoWorkspaceScreen() {
   const [checking, setChecking] = useState(false);
 
   const handleOpenWebsite = () => {
-    Linking.openURL(platformUrl());
+    void Linking.openURL(platformUrl());
   };
 
   const handleRefresh = useCallback(async () => {

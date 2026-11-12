@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
-import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import { useUnregisterPushOnServerLeave } from '@weldsuite/mobile-ui/hooks/useUnregisterPushOnServerLeave';
 import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter } from 'expo-router';
 
@@ -61,15 +61,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const cleanupRef = useRef<(() => void) | null>(null);
 
   // Leaving this server (switching to another): stop it pushing to this device.
-  useEffect(
-    () =>
-      onLeaveServer('push-token', async (runtime) => {
-        if (!runtime.pushEnabled || !notifUtils) return;
-        const credentials = await getCredentials();
-        if (credentials?.accessToken) await notifUtils.unregisterDeviceToken(credentials.accessToken, runtime.apiOrigin);
-      }),
-    [getCredentials],
-  );
+  useUnregisterPushOnServerLeave(getCredentials, notifUtils?.unregisterDeviceToken);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     // Push reaches the apps on WeldSuite cloud only, until the content-free relay.

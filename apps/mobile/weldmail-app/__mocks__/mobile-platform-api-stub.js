@@ -28,8 +28,21 @@ function createMobileApiClient({ appCode, getToken }) {
   return { client, requestInit };
 }
 
+// Builds on first use, like the real one (which also rebuilds on an origin change).
+function lazyClient(origin, build) {
+  let instance = null;
+  return new Proxy({}, {
+    get(_target, prop) {
+      instance ??= build(origin());
+      const value = instance[prop];
+      return typeof value === 'function' ? value.bind(instance) : value;
+    },
+  });
+}
+
 module.exports = {
   createMobileApiClient,
+  lazyClient,
   apiOrigin: () => origins.api,
   apiOriginForPath: () => origins.api,
   personalApiOrigin: () => origins.personal,

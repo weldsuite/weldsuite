@@ -87,6 +87,31 @@ export function createMobileApiClient(options: MobileApiClientOptions) {
   return { client, requestInit };
 }
 
+/**
+ * A client whose base URL comes from the runtime: built on first use (never at
+ * import time, before the runtime boots) and rebuilt if `origin()` changes.
+ * For clients that only take a fixed base URL, such as personal-api's.
+ */
+export function lazyClient<T extends object>(origin: () => string, build: (origin: string) => T): T {
+  let instance: T | null = null;
+  let builtFor = '';
+  const current = (): T => {
+    const next = origin();
+    if (!instance || next !== builtFor) {
+      instance = build(next);
+      builtFor = next;
+    }
+    return instance;
+  };
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const client = current();
+      const value: unknown = Reflect.get(client, prop, client);
+      return typeof value === 'function' ? value.bind(client) : value;
+    },
+  });
+}
+
 /** For tests: forget the cached host resolver. */
 export function resetApiOrigins(): void {
   resolver = null;

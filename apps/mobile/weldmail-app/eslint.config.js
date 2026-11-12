@@ -3,6 +3,7 @@ const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const globals = require('globals');
+const authFacadeImports = require('../_shared/eslint/auth-facade.cjs');
 
 module.exports = defineConfig([
   expoConfig,
@@ -17,27 +18,8 @@ module.exports = defineConfig([
       globals: { ...globals.node, ...globals.jest },
     },
   },
-  {
-    // Sign-in state comes from the auth facade, which is Clerk on WeldSuite
-    // cloud and the server's OIDC provider on EU and self-hosted servers
-    // (docs/plans/mobile-server-choice.md). Clerk-only files (passkeys, …)
-    // are listed in `ignores` and render inside <ClerkOnly>.
-    files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['lib/clerk-passkeys.ts'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['@clerk/expo', '@clerk/expo/*'],
-              message: 'Import sign-in state from @weldsuite/mobile-platform/auth (the auth facade).',
-            },
-          ],
-        },
-      ],
-    },
-  },
+  // Sign-in state only through the auth facade (ADR MOB-006).
+  authFacadeImports(['lib/clerk-passkeys.ts']),
   {
     // Same '_' opt-out the rest of the monorepo uses (packages/config/eslint-config):
     // an underscore marks a binding as deliberately unused — required positional

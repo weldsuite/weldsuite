@@ -22,17 +22,17 @@ export function base64UrlFromBytes(bytes: Uint8Array): string {
     if (i + 1 < bytes.length) out += ALPHABET[(triple >> 6) & 63];
     if (i + 2 < bytes.length) out += ALPHABET[triple & 63];
   }
-  return out.replace(/\+/g, '-').replace(/\//g, '_');
+  return out.replaceAll('+', '-').replaceAll('/', '_');
 }
 
 /** Standard base64 (as `expo-crypto` returns digests) → base64url without padding. */
 export function base64ToBase64Url(value: string): string {
-  return trimTrailing(value, '=').replace(/\+/g, '-').replace(/\//g, '_');
+  return trimTrailing(value, '=').replaceAll('+', '-').replaceAll('/', '_');
 }
 
 /** base64 or base64url (padding optional) → bytes. Null on invalid input. */
 export function bytesFromBase64(value: string): Uint8Array | null {
-  const clean = trimTrailing(value.replace(/-/g, '+').replace(/_/g, '/'), '=');
+  const clean = trimTrailing(value.replaceAll('-', '+').replaceAll('_', '/'), '=');
   if (clean.length % 4 === 1) return null;
   const out: number[] = [];
   let buffer = 0;
@@ -109,7 +109,7 @@ export function queryParams(url: string): Record<string, string> {
     if (!pair) continue;
     const [rawKey, rawValue = ''] = pair.split('=');
     try {
-      out[decodeURIComponent(rawKey ?? '')] = decodeURIComponent(rawValue.replace(/\+/g, ' '));
+      out[decodeURIComponent(rawKey ?? '')] = decodeURIComponent(rawValue.replaceAll('+', ' '));
     } catch {
       // A malformed pair is ignored.
     }

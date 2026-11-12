@@ -62,101 +62,56 @@ export interface ServerCopy {
   accountAtServer: string;
 }
 
-const en: ServerCopy = {
-  serverLabel: 'Server',
-  change: 'Change',
-  globalName: 'WeldSuite cloud',
-  euName: 'WeldSuite EU',
-  selfHostedName: 'Your own server',
-  globalHint: 'The standard WeldSuite service.',
-  euHint: 'Your data stays in the EU, on WeldSuite’s EU servers.',
-  selfHostedHint: 'A WeldSuite server your organisation runs.',
-
-  pickerTitle: 'Choose a server',
-  pickerSubtitle: 'Where does your organisation use WeldSuite?',
-  addressLabel: 'Server address',
-  addressPlaceholder: 'weldsuite.example.com',
-  connect: 'Connect',
-  checking: 'Checking…',
-  useServer: 'Use this server',
-  cancel: 'Cancel',
-  current: 'Current',
-  serverFound: '{server} · version {version}',
-  switchTitle: 'Switch server?',
-  switchBody: '{app} signs you out and restarts on {server}.',
-  switchConfirm: 'Switch',
-  switching: 'Switching…',
-
-  invalidAddress: 'That isn’t a valid server address.',
-  insecureAddress: 'The server must use HTTPS.',
-  unreachable: 'The server can’t be reached. Check the address and your connection.',
-  notWeldsuite: 'This address isn’t a WeldSuite server.',
-  noMobileSignIn: 'This server doesn’t allow the mobile apps yet. Ask your administrator.',
-  appUnavailable: '{app} isn’t available on this server.',
-
-  bootFailedTitle: 'Can’t open {server}',
-  tryAgain: 'Try again',
-  useCloud: 'Use WeldSuite cloud',
-  changeServer: 'Change server',
-
-  hostedSignIn: 'Sign in',
-  hostedSignUp: 'Create account',
-  hostedHint: 'You sign in on {server}’s own sign-in page.',
-  hostedFailed: 'Sign-in failed. Please try again.',
-
-  settingsSwitch: 'Switch server',
-  pushOff: 'Notifications aren’t available on this server yet.',
-  accountAtServer: 'Manage your account',
+/** Every string as [English, Dutch]: one table, so no key can miss a language. */
+const STRINGS: Record<keyof ServerCopy, readonly [en: string, nl: string]> = {
+  serverLabel: ['Server', 'Server'],
+  change: ['Change', 'Wijzigen'],
+  globalName: ['WeldSuite cloud', 'WeldSuite cloud'],
+  euName: ['WeldSuite EU', 'WeldSuite EU'],
+  selfHostedName: ['Your own server', 'Eigen server'],
+  globalHint: ['The standard WeldSuite service.', 'De standaard WeldSuite-dienst.'],
+  euHint: ['Your data stays in the EU, on WeldSuite’s EU servers.', 'Je gegevens blijven in de EU, op de EU-servers van WeldSuite.'],
+  selfHostedHint: ['A WeldSuite server your organisation runs.', 'Een WeldSuite-server die je organisatie zelf draait.'],
+  pickerTitle: ['Choose a server', 'Kies een server'],
+  pickerSubtitle: ['Where does your organisation use WeldSuite?', 'Waar gebruikt je organisatie WeldSuite?'],
+  addressLabel: ['Server address', 'Serveradres'],
+  addressPlaceholder: ['weldsuite.example.com', 'weldsuite.voorbeeld.nl'],
+  connect: ['Connect', 'Verbinden'],
+  checking: ['Checking…', 'Controleren…'],
+  useServer: ['Use this server', 'Deze server gebruiken'],
+  cancel: ['Cancel', 'Annuleren'],
+  current: ['Current', 'Huidig'],
+  serverFound: ['{server} · version {version}', '{server} · versie {version}'],
+  switchTitle: ['Switch server?', 'Van server wisselen?'],
+  switchBody: ['{app} signs you out and restarts on {server}.', '{app} meldt je af en start opnieuw op {server}.'],
+  switchConfirm: ['Switch', 'Wisselen'],
+  switching: ['Switching…', 'Wisselen…'],
+  invalidAddress: ['That isn’t a valid server address.', 'Dat is geen geldig serveradres.'],
+  insecureAddress: ['The server must use HTTPS.', 'De server moet HTTPS gebruiken.'],
+  unreachable: ['The server can’t be reached. Check the address and your connection.', 'De server is niet bereikbaar. Controleer het adres en je verbinding.'],
+  notWeldsuite: ['This address isn’t a WeldSuite server.', 'Dit adres is geen WeldSuite-server.'],
+  noMobileSignIn: ['This server doesn’t allow the mobile apps yet. Ask your administrator.', 'Deze server staat de mobiele apps nog niet toe. Vraag het je beheerder.'],
+  appUnavailable: ['{app} isn’t available on this server.', '{app} is niet beschikbaar op deze server.'],
+  bootFailedTitle: ['Can’t open {server}', '{server} kan niet worden geopend'],
+  tryAgain: ['Try again', 'Opnieuw proberen'],
+  useCloud: ['Use WeldSuite cloud', 'WeldSuite cloud gebruiken'],
+  changeServer: ['Change server', 'Andere server kiezen'],
+  hostedSignIn: ['Sign in', 'Inloggen'],
+  hostedSignUp: ['Create account', 'Account aanmaken'],
+  hostedHint: ['You sign in on {server}’s own sign-in page.', 'Je logt in op de eigen inlogpagina van {server}.'],
+  hostedFailed: ['Sign-in failed. Please try again.', 'Inloggen is mislukt. Probeer het opnieuw.'],
+  settingsSwitch: ['Switch server', 'Van server wisselen'],
+  pushOff: ['Notifications aren’t available on this server yet.', 'Meldingen zijn op deze server nog niet beschikbaar.'],
+  accountAtServer: ['Manage your account', 'Je account beheren'],
 };
 
-const nl: ServerCopy = {
-  serverLabel: 'Server',
-  change: 'Wijzigen',
-  globalName: 'WeldSuite cloud',
-  euName: 'WeldSuite EU',
-  selfHostedName: 'Eigen server',
-  globalHint: 'De standaard WeldSuite-dienst.',
-  euHint: 'Je gegevens blijven in de EU, op de EU-servers van WeldSuite.',
-  selfHostedHint: 'Een WeldSuite-server die je organisatie zelf draait.',
+function catalog(index: 0 | 1): ServerCopy {
+  const out = {} as ServerCopy;
+  for (const key of Object.keys(STRINGS) as Array<keyof ServerCopy>) out[key] = STRINGS[key][index];
+  return out;
+}
 
-  pickerTitle: 'Kies een server',
-  pickerSubtitle: 'Waar gebruikt je organisatie WeldSuite?',
-  addressLabel: 'Serveradres',
-  addressPlaceholder: 'weldsuite.voorbeeld.nl',
-  connect: 'Verbinden',
-  checking: 'Controleren…',
-  useServer: 'Deze server gebruiken',
-  cancel: 'Annuleren',
-  current: 'Huidig',
-  serverFound: '{server} · versie {version}',
-  switchTitle: 'Van server wisselen?',
-  switchBody: '{app} meldt je af en start opnieuw op {server}.',
-  switchConfirm: 'Wisselen',
-  switching: 'Wisselen…',
-
-  invalidAddress: 'Dat is geen geldig serveradres.',
-  insecureAddress: 'De server moet HTTPS gebruiken.',
-  unreachable: 'De server is niet bereikbaar. Controleer het adres en je verbinding.',
-  notWeldsuite: 'Dit adres is geen WeldSuite-server.',
-  noMobileSignIn: 'Deze server staat de mobiele apps nog niet toe. Vraag het je beheerder.',
-  appUnavailable: '{app} is niet beschikbaar op deze server.',
-
-  bootFailedTitle: '{server} kan niet worden geopend',
-  tryAgain: 'Opnieuw proberen',
-  useCloud: 'WeldSuite cloud gebruiken',
-  changeServer: 'Andere server kiezen',
-
-  hostedSignIn: 'Inloggen',
-  hostedSignUp: 'Account aanmaken',
-  hostedHint: 'Je logt in op de eigen inlogpagina van {server}.',
-  hostedFailed: 'Inloggen is mislukt. Probeer het opnieuw.',
-
-  settingsSwitch: 'Van server wisselen',
-  pushOff: 'Meldingen zijn op deze server nog niet beschikbaar.',
-  accountAtServer: 'Je account beheren',
-};
-
-export const SERVER_COPY: Record<ServerLanguage, ServerCopy> = { en, nl };
+export const SERVER_COPY: Record<ServerLanguage, ServerCopy> = { en: catalog(0), nl: catalog(1) };
 
 /** Fill `{name}` placeholders. */
 export function fillCopy(template: string, values: Record<string, string>): string {

@@ -8,7 +8,7 @@
  */
 
 import { PersonalApiClient } from '@weldsuite/personal-api-client';
-import { personalApiOrigin } from '@weldsuite/mobile-platform/api';
+import { lazyClient, personalApiOrigin } from '@weldsuite/mobile-platform/api';
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
@@ -17,24 +17,6 @@ export function setPersonalApiTokenGetter(fn: (() => Promise<string | null>) | n
   tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
-let instance: PersonalApiClient | null = null;
-let instanceOrigin = '';
-
-function current(): PersonalApiClient {
-  const origin = personalApiOrigin();
-  if (!instance || origin !== instanceOrigin) {
-    instance = new PersonalApiClient(origin, () => tokenGetter());
-    instanceOrigin = origin;
-  }
-  return instance;
-}
-
-export const personalApi: PersonalApiClient = new Proxy({} as PersonalApiClient, {
-  get(_target, prop) {
-    const client = current();
-    const value: unknown = Reflect.get(client, prop, client);
-    return typeof value === 'function' ? value.bind(client) : value;
-  },
-});
+export const personalApi: PersonalApiClient = lazyClient(personalApiOrigin, (origin) => new PersonalApiClient(origin, () => tokenGetter()));
 
 export default personalApi;
