@@ -479,7 +479,7 @@ async function runSync(
 
   if (options.refresh && provider.capabilities.onDemandRefresh && provider.refresh) {
     try {
-      await provider.refresh(stored, { customerIp: options.customerIp ?? null });
+      await provider.refresh(stored, { customerIp: options.customerIp });
     } catch (err) {
       // A refused refresh (rate limit) must not stop the read of what the provider already has.
       console.warn(`[bank-feeds] refresh failed for ${row.id}:`, err instanceof Error ? err.message : err);
@@ -502,7 +502,7 @@ async function runSync(
   let cursor = startCursor;
   const accountStatuses: Record<string, ConnectionStatus> = {};
   // The consent end the provider reports on this read, when it reports one.
-  let consentExpiresAt: Date | null = null;
+  let reportedConsent: Date | null = null;
   let restarts = 0;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -522,8 +522,7 @@ async function runSync(
 
     await applyPage(db, run, result);
     Object.assign(accountStatuses, result.accountStatuses ?? {});
-    const reportedConsent = result.consentExpiresAt ? new Date(result.consentExpiresAt) : null;
-    if (reportedConsent && !Number.isNaN(reportedConsent.getTime())) consentExpiresAt = reportedConsent;
+    reportedConsent = consentReportedBy(result, reportedConsent);
     if (result.credentials) {
       credentialsUpdate = result.credentials;
       stored = { ...stored, credentials: result.credentials };
@@ -551,7 +550,7 @@ async function runSync(
   });
   const mappedStatuses = feedAccounts.filter((fa) => byFeedId.has(fa.providerAccountId)).map((fa) => fa.status);
   let nextStatus = connectionStatus(mappedStatuses);
-  const consent = consentExpiresAt ?? row.consentExpiresAt;
+  const { consent, patch: consentPatch } = consentAfterRun(row, reportedConsent);
   if (nextStatus === 'active' && consent) {
     const daysLeft = (consent.getTime() - timestamp.getTime()) / 86_400_000;
     if (daysLeft <= 0) nextStatus = 'reauth_required';
@@ -592,7 +591,7 @@ async function runSync(
       lastSyncedAt: timestamp,
       lastError: null,
       ...(credentialsEncrypted ? { credentialsEncrypted } : {}),
-      ...(consentExpiresAt ? { consentExpiresAt } : {}),
+      ...consentPatch,
       metadata: finishedMetadata(
         {
           feedAccounts,
@@ -617,6 +616,17 @@ async function runSync(
   else if (!wasInactive && nowInactive) await ctx.index.setActive(row.id, false, `Connection needs attention: ${nextStatus}`);
 
   return outcome;
+}
+
+/** The consent end a page reports (Ponto, on every read), else the one an earlier page reported; an unreadable date says nothing. */
+function consentReportedBy(result: SyncResult, before: Date | null): Date | null {
+  const reported = result.consentExpiresAt ? new Date(result.consentExpiresAt) : null;
+  return reported && !Number.isNaN(reported.getTime()) ? reported : before;
+}
+
+/** The consent end to judge the status by, and the column update when the provider reported a new one. */
+function consentAfterRun(row: ConnectionRow, reported: Date | null): { consent: Date | null; patch: { consentExpiresAt?: Date } } {
+  return reported ? { consent: reported, patch: { consentExpiresAt: reported } } : { consent: row.consentExpiresAt, patch: {} };
 }
 
 function warningsOf(row: ConnectionRow): ConnectionWarning[] {

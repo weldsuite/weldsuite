@@ -169,6 +169,38 @@ function pontoSignatureFromEnv(env: BankFeedEnv): PontoSignatureConfig | undefin
   return { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY };
 }
 
+/**
+ * Ponto with its OAuth client, and the webhook receiver's Ponto: that one, or
+ * with only `PONTO_APPLICATION_ID` the application id and certificate that
+ * verify deliveries.
+ */
+function pontoConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions): Pick<BankFeedConfig, 'ponto' | 'pontoWebhook'> {
+  const out: Pick<BankFeedConfig, 'ponto' | 'pontoWebhook'> = {};
+  const fetch = options.pontoFetch ?? options.fetch;
+  if (env.PONTO_CLIENT_ID && env.PONTO_CLIENT_SECRET) {
+    out.ponto = {
+      clientId: env.PONTO_CLIENT_ID,
+      clientSecret: env.PONTO_CLIENT_SECRET,
+      // A sandbox application authorizes on its own host; the API host is the same.
+      authorizeUrl: env.PONTO_ENV === 'sandbox' ? PONTO_SANDBOX_AUTHORIZE_URL : undefined,
+      fetch,
+      signature: pontoSignatureFromEnv(env),
+      applicationId: env.PONTO_APPLICATION_ID || undefined,
+      keyCache: options.keyCache,
+    };
+  }
+  if (env.PONTO_APPLICATION_ID) {
+    out.pontoWebhook = out.ponto ?? {
+      clientId: '',
+      clientSecret: '',
+      applicationId: env.PONTO_APPLICATION_ID,
+      keyCache: options.keyCache,
+      fetch,
+    };
+  }
+  return out;
+}
+
 export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions = {}): BankFeedConfig {
   const config: BankFeedConfig = { routing: env.BANK_FEED_PROVIDERS ?? null };
   const webhookBase = env.BANK_FEED_WEBHOOK_URL?.replace(/\/+$/, '');
@@ -188,27 +220,7 @@ export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigO
   if (env.STRIPE_FC_SECRET_KEY) {
     config.stripeFc = { secretKey: env.STRIPE_FC_SECRET_KEY, apiVersion: env.STRIPE_FC_API_VERSION || undefined, fetch: options.fetch };
   }
-  if (env.PONTO_CLIENT_ID && env.PONTO_CLIENT_SECRET) {
-    config.ponto = {
-      clientId: env.PONTO_CLIENT_ID,
-      clientSecret: env.PONTO_CLIENT_SECRET,
-      // A sandbox application authorizes on its own host; the API host is the same.
-      authorizeUrl: env.PONTO_ENV === 'sandbox' ? PONTO_SANDBOX_AUTHORIZE_URL : undefined,
-      fetch: options.pontoFetch ?? options.fetch,
-      signature: pontoSignatureFromEnv(env),
-      applicationId: env.PONTO_APPLICATION_ID || undefined,
-      keyCache: options.keyCache,
-    };
-  }
-  if (env.PONTO_APPLICATION_ID) {
-    config.pontoWebhook = config.ponto ?? {
-      clientId: '',
-      clientSecret: '',
-      applicationId: env.PONTO_APPLICATION_ID,
-      keyCache: options.keyCache,
-      fetch: options.pontoFetch ?? options.fetch,
-    };
-  }
+  Object.assign(config, pontoConfigFromEnv(env, options));
   if (env.ENABLE_BANKING_APP_ID && env.ENABLE_BANKING_PRIVATE_KEY) {
     config.enableBanking = {
       appId: env.ENABLE_BANKING_APP_ID,

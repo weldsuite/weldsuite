@@ -265,6 +265,13 @@ export interface IbanityWebhookKey {
 
 export type IbanityKeyResolver = (kid: string) => Promise<IbanityWebhookKey>;
 
+/** A base64url value without its trailing `=` padding. */
+function withoutPadding(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '=') end -= 1;
+  return value.slice(0, end);
+}
+
 /** Base64 (standard, padded) of the body's SHA-512, as the `digest` claim carries it. */
 export async function sha512Base64(body: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-512', utf8(body)));
@@ -313,7 +320,7 @@ export async function verifyIbanityWebhook(args: {
     const key = await crypto.subtle.importKey(
       'jwk',
       // Ibanity pads its base64url; JWK import wants it bare.
-      { kty: 'RSA', n: jwk.n.replace(/=+$/, ''), e: jwk.e.replace(/=+$/, ''), ext: true },
+      { kty: 'RSA', n: withoutPadding(jwk.n), e: withoutPadding(jwk.e), ext: true },
       { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
       false,
       ['verify'],

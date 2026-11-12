@@ -179,6 +179,33 @@ function accountIdsOf(connection: StoredConnection): string[] {
   return connection.accountIds ?? asArray(connection.metadata.accountIds).filter((v): v is string => typeof v === 'string');
 }
 
+/** The earlier of two consent ends (ISO timestamps); either may be missing. */
+function earlierEnd(current: string | undefined, next: string | undefined): string | undefined {
+  if (!next) return current;
+  if (!current) return next;
+  return next < current ? next : current;
+}
+
+/**
+ * One page of transactions (newest first): the ones inside the window, and
+ * whether one fell below it, after which the pages that follow are older.
+ */
+function pageInWindow(
+  data: JsonRecord[],
+  accountId: string,
+  window: { from: string; to: string },
+): { inWindow: FeedTransaction[]; olderSeen: boolean } {
+  const inWindow: FeedTransaction[] = [];
+  let olderSeen = false;
+  for (const raw of data) {
+    const tx = mapPontoTransaction(raw, accountId);
+    if (!tx) continue;
+    if (tx.date < window.from) olderSeen = true;
+    else if (tx.date <= window.to) inWindow.push(tx);
+  }
+  return { inWindow, olderSeen };
+}
+
 /** A synchronization that is done, well or not. */
 function isFinished(synchronization: JsonRecord): boolean {
   const status = asString(asRecord(synchronization.attributes).status);
@@ -442,36 +469,10 @@ export class PontoProvider implements BankFeedProvider {
     const accountStatuses: Record<string, ConnectionStatus> = {};
     let consentExpiresAt: string | undefined;
     for (const accountId of accountIdsOf(connection)) {
-      // The account first: whether Ponto can still reach the bank for it, and until when.
-      const details = await this.accountDetails(accountId, tokens.accessToken);
-      this.details.set(accountId, details);
-      if (!details) {
-        // Taken out of the integration in Ponto: adding it back is a reconnect.
-        accountStatuses[accountId] = 'reauth_required';
-        continue;
-      }
-      const problem = authorizationProblem(details);
-      if (problem) accountStatuses[accountId] = problem;
-      const expires = asString(asRecord(details.attributes).authorizationExpirationExpectedAt);
-      if (expires && (!consentExpiresAt || expires < consentExpiresAt)) consentExpiresAt = expires;
-
-      let url: string | null = `${this.apiUrl}/accounts/${encodeURIComponent(accountId)}/transactions${queryString([['page[limit]', String(PAGE_SIZE)]])}`;
-      let reachedWindowStart = false;
-      for (let page = 0; page < MAX_PAGES && url && !reachedWindowStart; page += 1) {
-        const response = await this.get(url, tokens.accessToken);
-        const data = asArray(response.data).map(asRecord);
-        for (const raw of data) {
-          const tx = mapPontoTransaction(raw, accountId);
-          if (!tx) continue;
-          // Newest first: once a page dips below the window the rest is older.
-          if (tx.date < window.from) {
-            reachedWindowStart = true;
-            continue;
-          }
-          if (tx.date <= window.to) upserts.push(tx);
-        }
-        url = data.length === 0 ? null : asString(asRecord(response.links).next);
-      }
+      const read = await this.readAccount(accountId, tokens.accessToken, window);
+      upserts.push(...read.upserts);
+      if (read.status) accountStatuses[accountId] = read.status;
+      consentExpiresAt = earlierEnd(consentExpiresAt, read.consentExpiresAt);
     }
 
     return {
@@ -483,6 +484,43 @@ export class PontoProvider implements BankFeedProvider {
       credentials: changed ? { ...tokens } : undefined,
       ...(consentExpiresAt ? { consentExpiresAt } : {}),
     };
+  }
+
+  /**
+   * One account: first whether Ponto can still reach the bank for it, and
+   * until when (its details, kept for the balances), then its transactions in
+   * the window. An account taken out of the integration in Ponto needs a
+   * reconnect to add it back.
+   */
+  private async readAccount(
+    accountId: string,
+    accessToken: string,
+    window: { from: string; to: string },
+  ): Promise<{ upserts: FeedTransaction[]; status: ConnectionStatus | null; consentExpiresAt?: string }> {
+    const details = await this.accountDetails(accountId, accessToken);
+    this.details.set(accountId, details);
+    if (!details) return { upserts: [], status: 'reauth_required' };
+    return {
+      upserts: await this.windowTransactions(accountId, accessToken, window),
+      status: authorizationProblem(details),
+      consentExpiresAt: asString(asRecord(details.attributes).authorizationExpirationExpectedAt) ?? undefined,
+    };
+  }
+
+  /** The account's transactions in the window, page by page until a page dips below it. */
+  private async windowTransactions(accountId: string, accessToken: string, window: { from: string; to: string }): Promise<FeedTransaction[]> {
+    const upserts: FeedTransaction[] = [];
+    let url: string | null = `${this.apiUrl}/accounts/${encodeURIComponent(accountId)}/transactions${queryString([['page[limit]', String(PAGE_SIZE)]])}`;
+    let reachedWindowStart = false;
+    for (let page = 0; page < MAX_PAGES && url && !reachedWindowStart; page += 1) {
+      const response = await this.get(url, accessToken);
+      const data = asArray(response.data).map(asRecord);
+      const { inWindow, olderSeen } = pageInWindow(data, accountId, window);
+      upserts.push(...inWindow);
+      reachedWindowStart = olderSeen;
+      url = data.length === 0 ? null : asString(asRecord(response.links).next);
+    }
+    return upserts;
   }
 
   async getBalances(connection: StoredConnection): Promise<FeedBalance[]> {
@@ -512,29 +550,45 @@ export class PontoProvider implements BankFeedProvider {
     let refused: FeedProviderError | null = null;
     for (const accountId of accountIdsOf(connection)) {
       for (const subtype of REFRESH_SUBTYPES) {
-        try {
-          const response = await this.request(`${this.apiUrl}/synchronizations`, {
-            method: 'POST',
-            headers: { Accept: JSON_API, Authorization: `Bearer ${tokens.accessToken}`, 'Content-Type': JSON_API },
-            json: {
-              data: {
-                type: 'synchronization',
-                attributes: { resourceType: 'account', resourceId: accountId, subtype, customerIpAddress: customerIp },
-              },
-            },
-          });
-          const synchronization = asRecord(response.data);
-          const id = asString(synchronization.id);
-          if (id && !isFinished(synchronization)) started.push(id);
-        } catch (err) {
-          // Too soon after the last one, or the day's limit: the read takes what Ponto has.
-          if (!(err instanceof FeedProviderError) || err.kind === 'reauth_required' || err.kind === 'revoked') throw err;
-          refused ??= err;
-        }
+        const outcome = await this.startSynchronization(accountId, subtype, tokens.accessToken, customerIp);
+        if (outcome instanceof FeedProviderError) refused ??= outcome;
+        else if (outcome) started.push(outcome);
       }
     }
     await this.waitForSynchronizations(started, tokens.accessToken);
     if (started.length === 0 && refused) throw refused;
+  }
+
+  /**
+   * Ask Ponto for one synchronization: its id while it runs, null when it is
+   * already done, or Ponto's refusal (too soon after the last one, the day's
+   * limit), after which the read takes what Ponto has. A lapsed or revoked
+   * authorization stops the refresh.
+   */
+  private async startSynchronization(
+    accountId: string,
+    subtype: string,
+    accessToken: string,
+    customerIp: string,
+  ): Promise<string | null | FeedProviderError> {
+    try {
+      const response = await this.request(`${this.apiUrl}/synchronizations`, {
+        method: 'POST',
+        headers: { Accept: JSON_API, Authorization: `Bearer ${accessToken}`, 'Content-Type': JSON_API },
+        json: {
+          data: {
+            type: 'synchronization',
+            attributes: { resourceType: 'account', resourceId: accountId, subtype, customerIpAddress: customerIp },
+          },
+        },
+      });
+      const synchronization = asRecord(response.data);
+      const id = asString(synchronization.id);
+      return id && !isFinished(synchronization) ? id : null;
+    } catch (err) {
+      if (!(err instanceof FeedProviderError) || err.kind === 'reauth_required' || err.kind === 'revoked') throw err;
+      return err;
+    }
   }
 
   /** Poll the synchronizations until each is done, for 15 seconds at most. */
