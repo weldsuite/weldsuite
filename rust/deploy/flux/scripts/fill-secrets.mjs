@@ -165,16 +165,20 @@ function writeNew(out) {
 
 // The Secrets of a YAML stream as the examples and sops write them: one
 // Secret per document, its values one plain or quoted scalar per line under
-// `stringData:` (or base64 under `data:`).
+// `stringData:` (or base64 under `data:`), or a block scalar (`key: |`, a
+// certificate) whose more-indented lines that follow belong to it.
 function parseSecrets(text) {
   const docs = [];
   let doc = null;
   let block = '';
+  // The indent of the key whose block scalar the lines below belong to; -1: none.
+  let scalarIndent = -1;
   const lines = text.split(/\r?\n/);
   const start = (index) => {
     doc = { start: index, end: index, name: '', namespace: '', values: new Map(), dataEnd: -1, indent: '  ' };
     docs.push(doc);
     block = '';
+    scalarIndent = -1;
   };
   start(0);
   lines.forEach((line, index) => {
@@ -184,6 +188,15 @@ function parseSecrets(text) {
       return;
     }
     doc.end = index + 1;
+    if (scalarIndent >= 0) {
+      // Still the block scalar: blank, or indented past its key. New keys go
+      // after it, never inside it.
+      if (line.trim() === '' || /^ */.exec(line)[0].length > scalarIndent) {
+        if (block === 'stringData') doc.dataEnd = index + 1;
+        return;
+      }
+      scalarIndent = -1;
+    }
     const top = /^([A-Za-z]+):/.exec(line);
     if (top) {
       block = top[1];
@@ -192,6 +205,7 @@ function parseSecrets(text) {
     const entry = /^( +)([A-Za-z0-9_.-]+): ?(.*)$/.exec(line);
     if (!entry) return;
     const [, indent, key, raw] = entry;
+    if (/^[|>]/.test(raw)) scalarIndent = indent.length;
     if (block === 'metadata' && key === 'name') doc.name = scalar(raw);
     if (block === 'metadata' && key === 'namespace') doc.namespace = scalar(raw);
     if (block === 'stringData' || block === 'data') {
