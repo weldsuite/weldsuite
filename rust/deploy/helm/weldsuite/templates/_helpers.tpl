@@ -122,6 +122,10 @@ cron jobs and the migration Job read the same settings
 - name: OIDC_WEB_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.mobileClientId }}
+- name: OIDC_MOBILE_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
 {{- else if ne .provider "clerk" }}
 {{- fail "config.auth.provider must be clerk or oidc" }}
 {{- end }}

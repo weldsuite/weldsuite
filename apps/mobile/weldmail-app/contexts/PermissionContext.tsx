@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { hasAppPermission } from '@weldsuite/permissions';
 
 /** Permissions are per app; this app checks them as WeldMail. */
@@ -29,7 +29,7 @@ export function PermissionProvider({ children }: Readonly<{ children: React.Reac
   // carries the active org. This provider mounts above the AuthGuard, so guard
   // both conditions and retry a few times to self-heal (same race MailContext
   // handles for the account list).
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [denies, setDenies] = useState<string[]>([]);

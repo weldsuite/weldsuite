@@ -4,9 +4,11 @@ import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
 import * as Application from 'expo-application';
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -14,7 +16,7 @@ import { useMail } from '@/contexts/MailContext';
 import { LogOut, Moon, Sun, Building2, Check, User } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
-import { t } from '@/lib/i18n';
+import { language, t } from '@/lib/i18n';
 
 function getUpdateStatus(): string {
   if (!Updates.isEnabled) return 'Dev build';
@@ -41,11 +43,13 @@ function WorkspaceTrailing({ isSwitching, isActive, borderColor }: Readonly<{
 
 export default function SettingsScreen() {
   const { theme, preference, colors, setPreference } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const { unregisterDevice, prepareWorkspaceSwitch } = useNotifications();
   const { hasPersonalAccount, accounts, selectAccount, selectUnifiedInbox } = useMail();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
+  // Adding a free @weldmail personal address is a WeldSuite cloud feature.
+  const freeAddresses = useEditionFeature('mail-free-addresses');
   const router = useRouter();
 
   const appVersion = Application.nativeApplicationVersion ?? '—';
@@ -96,10 +100,14 @@ export default function SettingsScreen() {
               <Text style={[styles.value, { color: colors.mutedForeground }]}>{currentWorkspace.name}</Text>
             </View>
           ) : null}
+          {/* Which server the app talks to; both rows render nothing when the picker is off / on Clerk. */}
+          <ServerRow variant="settings" language={language} accentColor={BRAND} />
+          <ProviderAccountRow language={language} />
         </Card>
 
         <SectionLabel>Inboxes</SectionLabel>
         <Card style={styles.card}>
+          {hasPersonalAccount || freeAddresses ? (
           <TouchableOpacity
             style={[
               styles.row,
@@ -129,6 +137,7 @@ export default function SettingsScreen() {
               <View style={[styles.emptyCircle, { borderColor: colors.border }]} />
             ) : null}
           </TouchableOpacity>
+          ) : null}
           {workspaces.map((ws, i) => {
             const isActive = currentWorkspace?.clerkOrgId === ws.clerkOrgId;
             const isLast = i === workspaces.length - 1;

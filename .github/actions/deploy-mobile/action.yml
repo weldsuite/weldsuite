@@ -60,14 +60,21 @@ runs:
         TARGET: ${{ inputs.environment }}
       run: |
         set -euo pipefail
+        # Server choice (docs/plans/mobile-server-choice.md): test builds show the
+        # picker with the EU test cluster; production keeps it off (Global only)
+        # until the EU edition launches. Same values as each app's eas.json.
         if [ "$TARGET" = "test" ]; then
           APP_API_URL=https://app-api-test.weldsuite.org
           PERSONAL_API_URL=https://personal-api-test.weldsuite.org
           CLERK_KEY=pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk
+          SERVER_PICKER=on
+          EU_SERVER_URL=https://app.test.weldsuite.eu
         elif [ "$TARGET" = "production" ]; then
           APP_API_URL=https://app-api.weldsuite.org
           PERSONAL_API_URL=https://personal-api.weldsuite.org
           CLERK_KEY=pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ
+          SERVER_PICKER=off
+          EU_SERVER_URL=
         else
           echo "::error::environment must be test or production (got '$TARGET')"
           exit 1
@@ -81,6 +88,8 @@ runs:
         {
           echo "EXPO_PUBLIC_APP_API_URL=$APP_API_URL"
           echo "EXPO_PUBLIC_API_MODULES=all"
+          echo "EXPO_PUBLIC_SERVER_PICKER=$SERVER_PICKER"
+          if [ -n "$EU_SERVER_URL" ]; then echo "EXPO_PUBLIC_EU_SERVER_URL=$EU_SERVER_URL"; fi
           case "$APP" in
             weldmail)
               echo "EXPO_PUBLIC_PERSONAL_API_URL=$PERSONAL_API_URL" ;;

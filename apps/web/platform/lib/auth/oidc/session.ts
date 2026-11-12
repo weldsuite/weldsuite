@@ -26,13 +26,13 @@ import { User, UserManager, WebStorageStateStore, type UserManagerSettings } fro
 import type { OidcAuthConfig } from '@/lib/runtime-config';
 import {
   activeOrganizationId,
+  DEFAULT_OIDC_SCOPES as SHARED_DEFAULT_OIDC_SCOPES,
   DEFAULT_ORG_CLAIM,
   organizationsFromClaims,
   personFromClaims,
   scopeFor,
   ZITADEL_AUDIENCE_SCOPE,
   ZITADEL_ORG_ROLES_SCOPE,
-  ZITADEL_ROLES_SCOPE,
   type Claims,
   type OidcOrganization,
   type OidcPerson,
@@ -40,7 +40,7 @@ import {
 
 /** The redirect URI to register at the provider: an existing route, so no new page is needed. */
 export const OIDC_CALLBACK_PATH = '/auth/sso-callback';
-export const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email', 'offline_access', ZITADEL_ROLES_SCOPE];
+export const DEFAULT_OIDC_SCOPES = [...SHARED_DEFAULT_OIDC_SCOPES];
 const MEMBERSHIPS_KEY = 'weldsuite:oidc:memberships';
 
 export type OidcSessionConfig = OidcAuthConfig & { clientId: string };

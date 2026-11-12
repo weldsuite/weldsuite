@@ -4,8 +4,9 @@ import { router } from 'expo-router';
 import { Check, ChevronRight, FileText, ListChecks, LogOut, Moon, Send, Sun, Target, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { TabHeader } from '@/components/headers';
 import { APP_LANGUAGES, isAppLanguage, useI18n } from '@/lib/i18n';
@@ -53,7 +54,7 @@ function LinkRow({ icon, color, label, hint, onPress, last }: Readonly<LinkRowPr
 
 export default function MoreScreen() {
   const { theme, colors, toggleTheme } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const { t, language, setLanguage } = useI18n();
   const toast = useToast();
@@ -144,6 +145,12 @@ export default function MoreScreen() {
             </Text>
           </View>
         )}
+      </View>
+
+      {/* Which server the app talks to; renders nothing when the build has the picker off. */}
+      <View style={[styles.section, { backgroundColor: colors.card }]}>
+        <ServerRow variant="settings" language={language} accentColor="#7C3AED" />
+        <ProviderAccountRow language={language} />
       </View>
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>

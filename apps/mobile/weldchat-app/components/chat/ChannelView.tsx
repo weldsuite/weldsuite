@@ -20,7 +20,8 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { useOrganization, useAuth, useUser } from '@clerk/expo';
+import { useOrganization, useAuth, useUser } from '@weldsuite/mobile-platform/auth';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, Extrapolation } from 'react-native-reanimated';
@@ -1027,6 +1028,8 @@ function ChannelHeader({
   onStartCall: (callType: 'voice' | 'video') => void;
 }>) {
   const { t } = useI18n();
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have.
+  const callsAvailable = useEditionFeature('chat-calls');
   const subtitle = headerSubtitle(t, isDm, peerIsOnline, record);
   const identityContent = (
     <>
@@ -1093,7 +1096,7 @@ function ChannelHeader({
 
         {record && <FollowButton record={record} styles={styles} />}
 
-        {joinableCall ? (
+        {!callsAvailable ? null : joinableCall ? (
           <TouchableOpacity
             style={styles.headerJoin}
             activeOpacity={0.7}

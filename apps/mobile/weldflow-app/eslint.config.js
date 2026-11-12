@@ -18,6 +18,27 @@ module.exports = defineConfig([
     },
   },
   {
+    // Sign-in state comes from the auth facade, which is Clerk on WeldSuite
+    // cloud and the server's OIDC provider on EU and self-hosted servers
+    // (docs/plans/mobile-server-choice.md). Clerk-only files (passkeys, …)
+    // are listed in `ignores` and render inside <ClerkOnly>.
+    files: ['**/*.ts', '**/*.tsx'],
+    ignores: [],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@clerk/expo', '@clerk/expo/*'],
+              message: 'Import sign-in state from @weldsuite/mobile-platform/auth (the auth facade).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Same '_' opt-out the rest of the monorepo uses (packages/config/eslint-config):
     // an underscore marks a binding as deliberately unused — required positional
     // params, discarded destructured keys, ignored catch bindings.

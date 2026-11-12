@@ -31,6 +31,9 @@ config:
       # is the workspace, not for someone in several.)
       orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
       webClientId: "${ZITADEL_WEB_CLIENT_ID}"
+      # The mobile apps' native application (runbook step 7, item 2b).
+      # Empty: the apps can't sign in to this cluster yet.
+      mobileClientId: "${ZITADEL_MOBILE_CLIENT_ID}"
   # Flag values from the master database (feature_flag_overrides).
   featureFlags: master-db
   nats:

@@ -15,7 +15,7 @@
  */
 
 import { useRef } from 'react';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useMail } from '@/contexts/MailContext';
 import type { WorkspaceEvent } from '@weldsuite/realtime';

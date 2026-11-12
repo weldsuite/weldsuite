@@ -22,6 +22,10 @@ data:
   # Zitadel's console after its first start (Hetzner runbook, step 7).
   ZITADEL_PROJECT_ID: "000000000000000000"
   ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # The mobile apps' native application (PKCE, <app scheme>://sso-callback
+  # redirects; runbook step 7, item 2b). Empty until it is made: the apps
+  # then can't sign in to this cluster.
+  ZITADEL_MOBILE_CLIENT_ID: ""
   # Mapbox's public token (pk.…) for maps and address search in the
   # platform, served in /config.json; empty for none.
   MAPBOX_PUBLIC_TOKEN: ""

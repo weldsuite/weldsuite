@@ -8,6 +8,8 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./schemas/ai": "./src/schemas/ai.ts",
+    "./schemas/runtime-config": "./src/schemas/runtime-config.ts",
+    "./auth/oidc-claims": "./src/auth/oidc-claims.ts",
     "./schemas/accounting-settings": "./src/schemas/accounting-settings.ts",
     "./schemas/legal-entities": "./src/schemas/legal-entities.ts",
     "./schemas/tasks": "./src/schemas/tasks.ts",

@@ -1,13 +1,14 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 import { LogOut, Moon, Sun } from 'lucide-react-native';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace } = useWorkspace();
 
   return (
@@ -28,6 +29,12 @@ export default function SettingsScreen() {
             <Text style={[styles.value, { color: colors.muted }]}>{currentWorkspace.name}</Text>
           </View>
         )}
+      </View>
+
+      {/* Which server the app talks to; renders nothing when the build has the picker off. */}
+      <View style={[styles.section, { backgroundColor: colors.card }]}>
+        <ServerRow variant="settings" accentColor="{{PRIMARY_COLOR}}" />
+        <ProviderAccountRow />
       </View>
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>

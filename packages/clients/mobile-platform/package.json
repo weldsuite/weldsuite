@@ -1,0 +1,32 @@
+{
+  "name": "@weldsuite/mobile-platform",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Server choice (Global, EU, self-hosted), runtime config, auth facade and API client for the WeldSuite mobile apps. Uses the app's own @clerk/expo, expo-*, AsyncStorage, React and React Native (hoisted; Metro keeps one copy).",
+  "exports": {
+    "./runtime": "./src/runtime/index.ts",
+    "./auth": "./src/auth/index.tsx",
+    "./api": "./src/api/index.ts",
+    "./edition": "./src/edition/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/api-modules": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "~19.2.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

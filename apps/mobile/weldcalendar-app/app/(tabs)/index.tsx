@@ -18,7 +18,7 @@ import { CalendarRange, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 
 import { BRAND } from '@/lib/brand';
 import { calendarPickerLabel } from '@/lib/calendar-access';

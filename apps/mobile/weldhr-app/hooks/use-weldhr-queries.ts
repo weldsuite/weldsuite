@@ -16,7 +16,7 @@ import type {
   HrSelfServiceOpenShiftRequestInput,
   HrSelfServiceShiftRequestInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import { NO_ACCESS, resolveAccess, type HrAccess } from '@/lib/access';
 import { weldhrKeys } from '@/lib/query-client';
@@ -38,7 +38,7 @@ export function isNotFound(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 export function useHrAccess(): { access: HrAccess; isLoading: boolean } {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const query = useQuery({
     queryKey: [...weldhrKeys.access(), organizationId ?? ''],
     queryFn: async () => {

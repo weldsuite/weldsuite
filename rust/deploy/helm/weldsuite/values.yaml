@@ -86,6 +86,10 @@ config:
       # The platform's public client (PKCE), told to the frontends by
       # /config.json (optional).
       webClientId: ""
+      # The mobile apps' public native client (PKCE, redirect URIs
+      # <app scheme>://sso-callback), told to the apps by /config.json.
+      # Without it the mobile apps can't sign in to this server (optional).
+      mobileClientId: ""
   # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10

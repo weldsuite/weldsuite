@@ -23,6 +23,7 @@ weldmail:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
 weldmail-web:
   - 'apps/web/weldmail/**'
   - 'packages/clients/personal-api-client/**'
@@ -78,19 +79,24 @@ weldchat:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/realtime/**'
 weldbooks:
   - 'apps/mobile/weldbooks-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
 weldflow:
   - 'apps/mobile/weldflow-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldagent:
   - 'apps/mobile/weldagent-app/**'
@@ -98,6 +104,7 @@ weldagent:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldcalendar:
   - 'apps/mobile/weldcalendar-app/**'
@@ -106,13 +113,16 @@ weldcalendar:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldhr:
   - 'apps/mobile/weldhr-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 all_workers:
   - 'pnpm-lock.yaml'

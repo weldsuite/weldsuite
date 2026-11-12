@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ClipboardList } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { appApi } from '@/services/app-api';
 import { weldstashKeys } from '@/lib/query-client';
 import { useWeldstashPickLists } from '@/hooks/use-weldstash-queries';
@@ -25,7 +25,7 @@ export default function PicksScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { t, format } = useI18n();
 
   const picksQuery = useWeldstashPickLists(user?.id);

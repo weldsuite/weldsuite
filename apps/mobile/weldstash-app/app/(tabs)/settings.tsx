@@ -2,7 +2,8 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { LogOut, Moon, Sun } from 'lucide-react-native';
 import { useI18n } from '@/lib/i18n';
@@ -10,10 +11,10 @@ import { isZebraScannerAvailable } from '@/modules/zebra-datawedge';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace } = useWorkspace();
   const insets = useSafeAreaInsets();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const zebraReady = isZebraScannerAvailable();
 
   return (
@@ -35,6 +36,12 @@ export default function SettingsScreen() {
             <Text style={[styles.value, { color: colors.muted }]}>{currentWorkspace.name}</Text>
           </View>
         )}
+      </View>
+
+      {/* Which server the app talks to; renders nothing when the build has the picker off. */}
+      <View style={[styles.section, { backgroundColor: colors.card }]}>
+        <ServerRow variant="settings" language={language} accentColor="#EA580C" />
+        <ProviderAccountRow language={language} />
       </View>
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>

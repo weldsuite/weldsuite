@@ -9,6 +9,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CURSOR_KEY_PREFIX } from '@/lib/realtime/cursor-store';
 
 const PREFIX = 'weldchat.cache';
 /** Bump to invalidate every cached entry after a stored-shape change. */
@@ -52,6 +53,27 @@ export async function clearOrgCache(orgId: string): Promise<void> {
   try {
     const keys = await AsyncStorage.getAllKeys();
     const mine = keys.filter((k) => k.startsWith(`${PREFIX}.${orgId}.`));
+    if (mine.length) await AsyncStorage.multiRemove(mine);
+  } catch {
+    // best-effort
+  }
+}
+
+/** Recent search terms (`app/search.tsx`); kept here so leaving a server can clear them. */
+const RECENT_SEARCHES_KEY = 'weldchat_recent_searches';
+
+/**
+ * Forget everything this app stored about the server it is leaving: the list
+ * caches, the cached-org latch, the realtime replay cursors and recent
+ * searches. Registered with `onClearServerData` in `app/_layout.tsx`, so none
+ * of one server's data is shown (or replayed) against another.
+ */
+export async function clearServerData(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const mine = keys.filter(
+      (k) => k.startsWith(`${PREFIX}.`) || k.startsWith(CURSOR_KEY_PREFIX) || k === RECENT_SEARCHES_KEY,
+    );
     if (mine.length) await AsyncStorage.multiRemove(mine);
   } catch {
     // best-effort

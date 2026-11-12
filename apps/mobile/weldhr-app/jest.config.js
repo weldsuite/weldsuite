@@ -31,6 +31,7 @@ module.exports = {
     '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto-stub.js',
     '^expo/virtual/env$': '<rootDir>/__mocks__/expo-virtual-env.js',
     '^@weldsuite/api-client/client$': '<rootDir>/__mocks__/api-client-stub.js',
+    '^@weldsuite/mobile-platform/api$': '<rootDir>/__mocks__/mobile-platform-api-stub.js',
     '^@weldsuite/app-api-client/domains/(.*)$': '<rootDir>/__mocks__/app-api-domains-stub.js',
   },
 };

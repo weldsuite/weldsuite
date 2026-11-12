@@ -19,14 +19,14 @@
  *     refreshMail) drive revalidation, so server changes and queued local
  *     changes both reconcile on reconnect.
  *
- * Must live inside NetworkProvider (connectivity), ClerkAuthProvider (org id),
+ * Must live inside NetworkProvider (connectivity), AuthSessionProvider (org id),
  * and MailProvider (refreshMail). flushMailOutbox guards against overlapping
  * runs, so firing from several triggers at once is safe.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useNetworkStatus } from '@/contexts/NetworkContext';
 import { useMail } from '@/contexts/MailContext';
 import { useCacheOrgId } from '@/hooks/useCacheOrgId';
@@ -34,7 +34,7 @@ import { flushMailOutbox } from '@/lib/offline/flush';
 import { shouldReconcileAfterFlush } from '@/lib/offline/outbox';
 
 export function OutboxFlusher() {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   // Same latched scope as useMailOutbox writes to (see useCacheOrgId).
   const orgId = useCacheOrgId() ?? 'no-org';
   const { isOnline } = useNetworkStatus();

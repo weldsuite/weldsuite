@@ -24,6 +24,10 @@ data:
   # start (runbook step 7). Until then the server runs but refuses sign-ins.
   ZITADEL_PROJECT_ID: "397293722078806067"
   ZITADEL_WEB_CLIENT_ID: "397293960835366963"
+  # The mobile apps' native application (PKCE, <app scheme>://sso-callback
+  # redirects; runbook step 7, item 2b). Empty until it is made: the apps
+  # then can't sign in to this cluster.
+  ZITADEL_MOBILE_CLIENT_ID: ""
   # Mapbox's public token (pk.…) for maps and address search; none here.
   MAPBOX_PUBLIC_TOKEN: ""
   # Unused here: the chart is the newest develop build's (layers.yaml,

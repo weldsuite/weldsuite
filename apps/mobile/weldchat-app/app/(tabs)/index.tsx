@@ -32,7 +32,8 @@ import {
   MoreHorizontal,
 } from 'lucide-react-native';
 import type { RecordChatListItem } from '@weldsuite/app-api-client/domains/chat-entity-channels';
-import { useAuth, useOrganization, useOrganizationList, useUser } from '@clerk/expo';
+import { useAuth, useOrganization, useOrganizationList, useUser } from '@weldsuite/mobile-platform/auth';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -121,6 +122,8 @@ export default function HomeTab() {
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [draftCount, setDraftCount] = useState<number | null>(null);
   const [liveCallCount, setLiveCallCount] = useState<number | null>(null);
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have.
+  const callsAvailable = useEditionFeature('chat-calls');
   const [loading, setLoading] = useState(true);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [switching, setSwitching] = useState(false);
@@ -537,13 +540,15 @@ export default function HomeTab() {
 
         {/* Calls, Saved and Drafts, with how many there are. */}
         <View style={styles.quickActions}>
-          <QuickTile
-            icon={<PhoneLogIcon size={16} color={colors.text} strokeWidth={2} />}
-            title={t.tabs.calls}
-            subtitle={countLabel(liveCallCount, t.home.liveCount)}
-            onPress={() => router.navigate('/calls' as any)}
-            styles={styles}
-          />
+          {callsAvailable ? (
+            <QuickTile
+              icon={<PhoneLogIcon size={16} color={colors.text} strokeWidth={2} />}
+              title={t.tabs.calls}
+              subtitle={countLabel(liveCallCount, t.home.liveCount)}
+              onPress={() => router.navigate('/calls' as any)}
+              styles={styles}
+            />
+          ) : null}
           <QuickTile
             icon={<Bookmark size={16} color={colors.text} strokeWidth={2} />}
             title={t.home.saved}

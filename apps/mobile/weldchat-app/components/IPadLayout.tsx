@@ -21,7 +21,7 @@ import {
   PenSquare,
   MoreHorizontal,
 } from 'lucide-react-native';
-import { useUser } from '@clerk/expo';
+import { useUser } from '@weldsuite/mobile-platform/auth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';

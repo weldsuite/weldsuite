@@ -38,6 +38,10 @@ pub(crate) enum AuthConfig {
         /// `OIDC_WEB_CLIENT_ID`: the platform's public PKCE client, told to
         /// the frontends by `/config.json`.
         web_client_id: Option<String>,
+        /// `OIDC_MOBILE_CLIENT_ID`: the mobile apps' public native client
+        /// (PKCE, `<app scheme>://sso-callback` redirects), told to the
+        /// apps by `/config.json`. Without it the apps can't sign in here.
+        mobile_client_id: Option<String>,
     },
 }
 
@@ -53,10 +57,12 @@ impl fmt::Debug for AuthConfig {
             Self::Oidc {
                 settings,
                 web_client_id,
+                mobile_client_id,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
+                .field("mobile_client_id", mobile_client_id)
                 .finish(),
         }
     }
@@ -96,6 +102,7 @@ impl AuthConfig {
                 Self::Oidc {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
+                    mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
                 }
             }
             Some(_) => {
@@ -801,11 +808,13 @@ abc",
             ("OIDC_ISSUER", "https://auth.eu.example"),
             ("OIDC_AUDIENCE", "300000000000000100, 300000000000000200"),
             ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
+            ("OIDC_MOBILE_CLIENT_ID", "300000000000000400"),
         ])
         .expect("valid");
         let AuthConfig::Oidc {
             settings,
             web_client_id,
+            mobile_client_id,
         } = &oidc.auth
         else {
             panic!("oidc expected");
@@ -818,6 +827,7 @@ abc",
         assert_eq!(settings.org_claim, weldsuite_auth::ZITADEL_ORG_CLAIM);
         assert_eq!(settings.jwks_url, None);
         assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
+        assert_eq!(mobile_client_id.as_deref(), Some("300000000000000400"));
 
         let error = config(&[
             ("DATABASE_URL_MASTER", "postgres://master"),
