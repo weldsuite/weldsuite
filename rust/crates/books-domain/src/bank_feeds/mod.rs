@@ -225,6 +225,11 @@ pub struct SyncResult {
     pub has_more: bool,
     pub account_statuses: Option<Map<String, Value>>,
     pub credentials: Option<Value>,
+    /// When the bank consent now ends, as the provider reports it on this
+    /// read (Ponto: the accounts' earliest
+    /// `authorizationExpirationExpectedAt`, which moves on when the customer
+    /// reauthorizes in Ponto). None leaves the stored end as it is.
+    pub consent_expires_at: Option<String>,
 }
 
 /// What a feed operation needs (`FeedContext`).

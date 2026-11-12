@@ -14,6 +14,7 @@ import type {
   LinkSession,
   LinkSessionInput,
   ProviderCapabilities,
+  RefreshOptions,
   StoredConnection,
   SyncResult,
 } from '@weldsuite/bank-feeds';
@@ -83,8 +84,18 @@ export class FakeProvider implements BankFeedProvider {
     return this.balances;
   }
 
-  async refresh(): Promise<void> {
+  /** The options of each `refresh` call. */
+  refreshOptions: RefreshOptions[] = [];
+  /** What `pendingCredentials` hands back (credentials rotated before a failure). */
+  pending: Record<string, unknown> | undefined;
+
+  async refresh(_connection: StoredConnection, options: RefreshOptions = {}): Promise<void> {
     this.refreshed += 1;
+    this.refreshOptions.push(options);
+  }
+
+  pendingCredentials(): Record<string, unknown> | undefined {
+    return this.pending;
   }
 
   async parseWebhook(): Promise<FeedEvent[]> {

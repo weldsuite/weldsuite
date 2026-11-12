@@ -106,6 +106,7 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
         master: (!conformance).then(|| master.clone()),
         cache: (!conformance).then(|| state.infra.cache.clone()).flatten(),
         http: (!conformance).then(super::books::books_http).flatten(),
+        ponto_http: (!conformance).then(super::books::ponto_http).flatten(),
         env: Arc::new(weldsuite_integrations::env_from_process()),
         books: (!conformance)
             .then(|| {

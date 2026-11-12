@@ -69,6 +69,9 @@ pub struct BooksState {
     pub env: Arc<HashMap<String, String>>,
     /// The live ECB rates, kept an hour (`accounting-currency`'s module cache).
     pub rates: Arc<RateCache>,
+    /// `TRUSTED_PROXIES`: where the member's address sits in
+    /// `X-Forwarded-For`, counted from the right ([`Caller::client_ip`]).
+    pub trusted_proxies: usize,
 }
 
 impl std::fmt::Debug for BooksState {
@@ -99,6 +102,7 @@ impl BooksState {
             keyring: Keyring::default(),
             env: Arc::default(),
             rates: Arc::default(),
+            trusted_proxies: 1,
         }
     }
 }
@@ -159,6 +163,33 @@ impl Caller {
     /// The request's headers.
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
+    }
+
+    /// The member's IP address: the `X-Forwarded-For` entry
+    /// `trusted_proxies` from the right (the proxies in front append theirs),
+    /// when it looks like an address. `CF-Connecting-IP` is not read: on
+    /// Kubernetes nothing in front sets it, so a client could. Ponto takes it
+    /// as evidence that the customer asked for a synchronization.
+    pub fn client_ip(&self, trusted_proxies: usize) -> Option<String> {
+        let hops: Vec<&str> = self
+            .headers
+            .get_all("x-forwarded-for")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .filter(|hop| !hop.is_empty())
+            .collect();
+        hops.len()
+            .checked_sub(trusted_proxies.max(1))
+            .and_then(|at| hops.get(at))
+            .filter(|ip| {
+                (2..=45).contains(&ip.len())
+                    && ip
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || matches!(b, b'.' | b':'))
+            })
+            .map(|ip| (*ip).to_owned())
     }
 
     /// What `legal_entity_context` settled for this request, when it ran.
