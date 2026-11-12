@@ -104,7 +104,7 @@ function collect(value: unknown, into: Map<string, string>): void {
 export function activeOrganizationId(claims: Claims, orgClaim: string): string | null {
   const found = new Map<string, string>();
   collect(claims[orgClaim], found);
-  return found.size === 1 ? [...found.keys()][0] : null;
+  return found.size === 1 ? ([...found.keys()][0] ?? null) : null;
 }
 
 /**
