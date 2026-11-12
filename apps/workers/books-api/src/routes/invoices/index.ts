@@ -32,7 +32,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
-import { documentContactFields, loadContactSnapshot, withContactNames } from '../../lib/contact-snapshot';
+import { documentContactFields, loadContactSnapshot, withContactEmail, withContactNames } from '../../lib/contact-snapshot';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -677,7 +677,8 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
       .orderBy(desc(paymentsTable.date));
     const allocatedAmount = new Map(allocations.map((a) => [a.paymentId, a.amount]));
     const invoicePayments = paymentRows.map((p) => ({ ...p, allocatedAmount: allocatedAmount.get(p.id) ?? p.amount }));
-    const [named] = await withContactNames(db, [invoice]);
+    // Stored without the contact's name or email: the contact's current ones (the send dialog shows the email).
+    const named = await withContactEmail(db, (await withContactNames(db, [invoice]))[0]);
 
     // Credit notes issued against this invoice; once finalized they lower its open balance.
     const creditNotes =

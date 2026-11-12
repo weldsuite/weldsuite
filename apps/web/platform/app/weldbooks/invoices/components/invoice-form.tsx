@@ -43,6 +43,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-details';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { addDaysToIsoDate, toCalendarDate } from '@/lib/weldbooks/format';
 import {
@@ -80,6 +81,7 @@ import { InvoicePreview } from './invoice-preview';
 import { AddressNeededNotice, DocumentTaxPanel } from './document-tax-panel';
 import { InvoiceLineExtras } from './invoice-line-extras';
 import { BrDocumentSection, BrLineFields, BrTaxSummary } from './br-fields';
+import { EntityInvoiceDetailsNotice } from './entity-invoice-details';
 import { GstTaxSplit, PlaceOfSupplySelect } from './gst-fields';
 import { buildInvoicePayload } from './invoice-payload';
 import { ProductPicker } from './product-picker';
@@ -255,18 +257,29 @@ function previewCustomerOf(
   return { name: data?.name || label, email: data?.email || listEmail || '' };
 }
 
-/** "Create and send": held back while the picked customer has no email address to send to. */
+/**
+ * "Create and send": held back while the company details an invoice needs are missing, or the
+ * picked customer has no email address to send to.
+ */
 function createAndSendAction(
   customer: PreviewCustomer,
-  texts: { label: string; pendingText: string; noEmail: string; pending: boolean; onClick: () => void },
+  texts: {
+    label: string;
+    pendingText: string;
+    noEmail: string;
+    /** Why the company details hold it back; undefined when they are complete. */
+    detailsMissing: string | undefined;
+    pending: boolean;
+    onClick: () => void;
+  },
 ) {
   const noEmail = customer !== null && !customer.email;
   return {
     label: texts.label,
     pendingText: texts.pendingText,
     pending: texts.pending,
-    disabled: noEmail,
-    title: noEmail ? texts.noEmail : undefined,
+    disabled: noEmail || texts.detailsMissing !== undefined,
+    title: texts.detailsMissing ?? (noEmail ? texts.noEmail : undefined),
     onClick: texts.onClick,
   };
 }
@@ -312,6 +325,9 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Brazil: NCM / CFOP and fiscal details per line, withholdings per invoice, taxes grouped by treatment.
   const br = features.brTaxReturn;
   const describeError = useDescribeError();
+  // The company details every invoice must show (VAT number, KvK, IBAN, address): a new invoice waits for them.
+  const invoiceDetails = useEntityInvoiceDetails();
+  const detailsMissing = mode === 'add' && invoiceDetails.missing.length > 0;
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
@@ -526,6 +542,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   };
 
   const onSubmit = (values: InvoiceFormValues, intent: 'save' | 'send' = 'save') => {
+    if (detailsMissing) return;
     setSending(intent === 'send');
     startTransition(async () => {
       try {
@@ -578,6 +595,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       icon: FileText,
       content: (
         <>
+          <EntityInvoiceDetailsNotice
+            entity={invoiceDetails.entity}
+            missing={invoiceDetails.missing}
+            labels={invoiceDetails.labels}
+            context={mode === 'add' ? 'create' : 'issue'}
+          />
           {isCreditMemo && <InfoBanner variant="info">{td.form.creditMemoNote}</InfoBanner>}
           <div className="space-y-2">
             <Label htmlFor="contactId">{tf.customer}</Label>
@@ -982,11 +1005,13 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   // A new invoice is saved as a draft, or saved and sent in one go.
   const canCreateAndSend = mode === 'add' && !isCreditMemo;
+  const detailsBlocked = detailsMissing ? t.accounting.entityInvoiceDetails.createBlocked : undefined;
   const sendAction = canCreateAndSend
     ? createAndSendAction(previewCustomer, {
         label: tf.createAndSend,
         pendingText: t.accounting.sendInvoice.sending,
         noEmail: tf.customerHasNoEmail,
+        detailsMissing: detailsBlocked,
         pending: isPending && sending,
         onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
       })
@@ -1031,6 +1056,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
       submitText={canCreateAndSend ? tf.createDraft : submitText}
+      submitDisabled={detailsMissing}
+      submitTitle={detailsBlocked}
       primaryAction={sendAction}
       backLink="/weldbooks/invoices"
       backText={tf.backToInvoices}

@@ -3392,6 +3392,27 @@ export const accounting = {
       weldbooksSwitched: "WeldBooks werkt nu in {name}, dus deze instellingen en de pagina's die ze openen gelden voor deze entiteit.",
     },
 
+    // De bedrijfsgegevens die op elke factuur moeten staan (factuurformulier, verzenddialoog, factuurpaneel)
+    entityInvoiceDetails: {
+      title: 'Bedrijfsgegevens nodig voor facturen',
+      createDescription: 'Op elke factuur moeten uw {fields} staan. Vul ze in voordat u een factuur maakt.',
+      issueDescription: 'Deze factuur kan pas worden gefinaliseerd of verstuurd als uw {fields} zijn ingevuld.',
+      add: 'Bedrijfsgegevens invullen',
+      askAdmin: 'Vraag iemand die de bedrijfsinstellingen mag wijzigen om ze in te vullen.',
+      createBlocked: 'Vul eerst uw bedrijfsgegevens in',
+      dialogTitle: 'Bedrijfsgegevens',
+      dialogDescription: 'Komt op elke factuur van {entity}.',
+      businessAddress: 'Bedrijfsadres',
+      required: 'Verplicht',
+      addressRequired: 'Vul minimaal een straat en een plaats in',
+      otherDetails: 'Overige bedrijfsgegevens staan in',
+      openSettings: 'de entiteitinstellingen',
+      save: 'Gegevens opslaan',
+      saving: 'Opslaan…',
+      saved: 'Bedrijfsgegevens opgeslagen',
+      saveFailed: 'Bedrijfsgegevens opslaan mislukt',
+    },
+
     // Juridische entiteiten zoals WeldBooks en WeldHR ze gebruiken (wisselaar, kiezer, alleen-lezen meldingen)
     legalEntities: {
       label: 'Juridische entiteit',

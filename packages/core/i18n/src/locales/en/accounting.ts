@@ -3359,6 +3359,27 @@ export const accounting = {
       weldbooksSwitched: 'WeldBooks now works in {name}, so these settings and the pages they open apply to this entity.',
     },
 
+    // The company details every invoice must show (invoice form, send dialog, invoice panel)
+    entityInvoiceDetails: {
+      title: 'Business details needed for invoices',
+      createDescription: 'Every invoice must show your {fields}. Add them before you create an invoice.',
+      issueDescription: 'This invoice cannot be finalized or sent until your {fields} are filled in.',
+      add: 'Add business details',
+      askAdmin: 'Ask someone who can edit the company settings to add them.',
+      createBlocked: 'Add your business details first',
+      dialogTitle: 'Business details',
+      dialogDescription: 'Printed on every invoice of {entity}.',
+      businessAddress: 'Business address',
+      required: 'Required',
+      addressRequired: 'Enter at least a street and a city',
+      otherDetails: 'Other company details are in',
+      openSettings: 'the entity settings',
+      save: 'Save details',
+      saving: 'Saving…',
+      saved: 'Business details saved',
+      saveFailed: 'Could not save the business details',
+    },
+
     // Legal entities as WeldBooks and WeldHR use them (switcher, picker, read-only notices)
     legalEntities: {
       label: 'Legal entity',
