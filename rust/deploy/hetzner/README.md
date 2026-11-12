@@ -688,6 +688,27 @@ routes, `MTA_API_URL`) for the `customer` pool; their DNS needs that DKIM
 record and `include:_spf.<domain>` in their SPF. Until a domain has a key
 the pool can use, submission refuses its mail (`550 5.7.1`).
 
+**Free addresses** (`config.mail.freeAddressDomain`, `weldmail.eu` on the EU
+edition; ADR MAIL-012) are `<name>@<workspace slug>.<free domain>`. Register
+the free domain once for the `customer` pool; the MTA signs every workspace
+subdomain with its key (`d=<free domain>`, which DMARC's relaxed alignment
+accepts), so a new workspace needs no DNS of its own:
+
+```bash
+M="kubectl -n weldsuite-mail exec ds/weldsuite-mta-customer -- weldsuite mta"
+$M domains add <free domain> --pool customer   # prints the TXT record to publish
+```
+
+| Name | Type | Value |
+|---|---|---|
+| `*.<free domain>` | MX | `10 mx.<domain>` |
+| `*.<free domain>` | TXT | `v=spf1 include:_spf.<domain> -all` |
+| `<selector>._domainkey.<free domain>` | TXT | what `weldsuite mta domains add` printed |
+| `_dmarc.<free domain>` | TXT | `v=DMARC1; p=none; sp=none; rua=mailto:<an address you read>`, tightened as for the system domain |
+
+Never `weldmail.com` or `weldmail.org`: they are Global's, and the server
+refuses to start with them.
+
 Check with a message to a Gmail and an Outlook address ("Show original":
 SPF, DKIM and DMARC `pass`, the PTR name in the first `Received`) and with
 mail-tester.com.

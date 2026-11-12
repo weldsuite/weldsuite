@@ -2055,9 +2055,48 @@ export const settings = {
       domains: {
         description:
           'Bezorg mail naar onbekende adressen op een eigen domein in een gekozen mailbox. Standaard uitgeschakeld.',
+        selfServedDescription:
+          'Gebruik uw eigen domein voor WeldMail. Voeg het hier toe, publiceer de getoonde DNS-records bij uw DNS-provider en maak er mailboxen op aan zodra het geverifieerd is.',
         noDomains: 'Geen eigen domeinen',
         noDomainsDescription:
           'Voeg een eigen domein toe in WeldHost en maak er een mailaccount op aan om catch-all in te stellen.',
+        selfServedNoDomainsDescription: 'Voeg hierboven een domein toe om er mailboxen op aan te maken.',
+        addLabel: 'Domein',
+        addPlaceholder: 'voorbeeld.nl',
+        add: 'Domein toevoegen',
+        invalidDomain: 'Voer een domeinnaam in, zoals voorbeeld.nl',
+        weldmailDomain: 'De eigen domeinen van WeldMail kunnen hier niet worden toegevoegd. Voeg een domein toe dat u bezit.',
+        statusVerified: 'Geverifieerd',
+        statusPending: 'Wacht op DNS',
+        recordsHint:
+          'Publiceer deze records bij de DNS-provider van uw domein en controleer daarna opnieuw. Het kan tot een uur duren voordat nieuwe records zichtbaar zijn.',
+        ownershipHint:
+          'Laat eerst zien dat het domein van u is: publiceer dit eigendomsrecord bij de DNS-provider van uw domein en controleer daarna opnieuw. De mailrecords verschijnen zodra het is gevonden. Laat het record daarna staan.',
+        showRecords: 'DNS-records tonen',
+        hideRecords: 'DNS-records verbergen',
+        check: 'DNS controleren',
+        remove: 'Verwijderen',
+        removeTitle: '{domain} verwijderen?',
+        removeDescription:
+          'Mailboxen op dit domein kunnen geen mail meer versturen of ontvangen totdat het domein opnieuw is toegevoegd en geverifieerd.',
+        copy: 'Kopiëren',
+        columns: {
+          purpose: 'Doel',
+          type: 'Type',
+          name: 'Naam',
+          value: 'Waarde',
+          priority: 'Prioriteit',
+          status: 'Status',
+        },
+        recordFound: 'Gevonden',
+        recordMissing: 'Nog niet gevonden',
+        purposes: {
+          verification: 'Eigendom',
+          mx: 'Ontvangen',
+          spf: 'SPF',
+          dkim: 'DKIM',
+          dmarc: 'DMARC (aanbevolen)',
+        },
         catchAll: 'Catch-all',
         catchAllHint: 'Ontvang mail voor elk adres op dit domein dat geen geregistreerde mailbox is.',
         mailbox: 'Catch-all mailbox',
@@ -2066,6 +2105,14 @@ export const settings = {
         messages: {
           updated: 'Domeininstellingen bijgewerkt',
           updateFailed: 'Domeininstellingen bijwerken mislukt',
+          added: 'Domein toegevoegd. Publiceer de DNS-records om het te gaan gebruiken.',
+          addFailed: 'Domein toevoegen mislukt',
+          verified: 'Domein geverifieerd',
+          stillPending: 'Nog niet alle records zijn gevonden',
+          checkFailed: 'DNS-records controleren mislukt',
+          removed: 'Domein verwijderd',
+          removeFailed: 'Domein verwijderen mislukt',
+          copied: 'Gekopieerd',
         },
       },
       accounts: {

@@ -29,11 +29,17 @@ impl HttpCache {
         }
     }
 
+    /// A request to the bridge's fixed `/value` URL; the key and the TTL go in
+    /// the query string, encoded by reqwest, never into the URL itself.
     fn request(&self, method: Method, key: &str, ttl: Option<Duration>) -> RequestBuilder {
-        let key: String = form_urlencoded::byte_serialize(key.as_bytes()).collect();
-        let ttl = ttl.map_or_else(String::new, |ttl| format!("&ttl={}", ttl.as_secs().max(1)));
-        self.client
-            .request(method, format!("{}/value?key={key}{ttl}", self.base))
+        let request = self
+            .client
+            .request(method, format!("{}/value", self.base))
+            .query(&[("key", key)]);
+        match ttl {
+            Some(ttl) => request.query(&[("ttl", ttl.as_secs().max(1))]),
+            None => request,
+        }
     }
 }
 
@@ -102,6 +108,37 @@ impl Cache for HttpCache {
     }
 }
 
+/// The bridge's URL as the harness serves it (`serveOnLoopback` in
+/// `packages/core/worker-kit/src/testing/bucket-bridge.ts`:
+/// `http://127.0.0.1:<port>`), rebuilt from the port alone. The test context
+/// arrives in a request header, so any other host, scheme or path is refused
+/// rather than called.
+fn loopback_bridge(url: &str) -> Option<String> {
+    let port: u16 = url
+        .strip_prefix("http://127.0.0.1:")?
+        .trim_end_matches('/')
+        .parse()
+        .ok()
+        .filter(|port| *port != 0)?;
+    Some(format!("http://127.0.0.1:{port}"))
+}
+
+/// The cache over the bridge at `url`, made once per bridge.
+fn bridge_cache(bridges: &KvBridges, name: &str, url: &str) -> Option<Arc<dyn DynCache>> {
+    let Some(base) = loopback_bridge(url) else {
+        tracing::warn!("conformance: the test's {name} is not a loopback bridge; ignored");
+        return None;
+    };
+    let mut caches = bridges
+        .caches
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let cache = caches
+        .entry(base.clone())
+        .or_insert_with(|| Arc::new(HttpCache::new(&base, bridges.client.clone())));
+    Some(Arc::clone(cache))
+}
+
 /// The bridge caches by URL, made once.
 #[derive(Default)]
 pub(crate) struct KvBridges {
@@ -114,11 +151,7 @@ impl KvBridges {
     /// (`{ WORKSPACE_CACHE: url }`); `None` when the test has no KV.
     pub(crate) fn request_cache(&self, kv: &HashMap<String, String>) -> Option<RequestCache> {
         let url = kv.get("WORKSPACE_CACHE")?;
-        let mut caches = self.caches.lock().unwrap_or_else(PoisonError::into_inner);
-        let cache = caches
-            .entry(url.clone())
-            .or_insert_with(|| Arc::new(HttpCache::new(url, self.client.clone())));
-        Some(RequestCache(Arc::clone(cache)))
+        bridge_cache(self, "WORKSPACE_CACHE", url).map(RequestCache)
     }
 
     /// The public API's own cache from the test context's `kv`
@@ -126,11 +159,7 @@ impl KvBridges {
     /// test has none, and then the routes cache nothing.
     pub(crate) fn api_cache(&self, kv: &HashMap<String, String>) -> Option<Arc<dyn DynCache>> {
         let url = kv.get("API_CACHE")?;
-        let mut caches = self.caches.lock().unwrap_or_else(PoisonError::into_inner);
-        let cache = caches
-            .entry(url.clone())
-            .or_insert_with(|| Arc::new(HttpCache::new(url, self.client.clone())));
-        Some(Arc::clone(cache))
+        bridge_cache(self, "API_CACHE", url)
     }
 }
 
@@ -168,6 +197,29 @@ mod tests {
                 None => StatusCode::NOT_FOUND.into_response(),
             },
         }
+    }
+
+    #[test]
+    fn only_a_loopback_bridge_is_called() {
+        assert_eq!(
+            loopback_bridge("http://127.0.0.1:41234/").as_deref(),
+            Some("http://127.0.0.1:41234")
+        );
+        for refused in [
+            "http://evil.example:80",
+            "https://127.0.0.1:41234",
+            "http://127.0.0.1:41234/elsewhere",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:notaport",
+            "http://127.0.0.1.evil.example:80",
+        ] {
+            assert_eq!(loopback_bridge(refused), None, "{refused}");
+        }
+        let kv = HashMap::from([(
+            "WORKSPACE_CACHE".to_owned(),
+            "http://10.0.0.1:80".to_owned(),
+        )]);
+        assert!(KvBridges::default().request_cache(&kv).is_none());
     }
 
     #[tokio::test]

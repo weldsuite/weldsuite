@@ -2059,9 +2059,48 @@ export const settings = {
       domains: {
         description:
           'Deliver mail sent to unknown addresses on a custom domain into a chosen mailbox. Off by default.',
+        selfServedDescription:
+          'Use your own domain for WeldMail. Add it here, publish the DNS records shown at your DNS provider, and create mailboxes on it once it is verified.',
         noDomains: 'No custom domains',
         noDomainsDescription:
           'Add a custom domain in WeldHost and create a mail account on it to configure catch-all.',
+        selfServedNoDomainsDescription: 'Add a domain above to create mailboxes on it.',
+        addLabel: 'Domain',
+        addPlaceholder: 'example.com',
+        add: 'Add domain',
+        invalidDomain: 'Enter a domain name such as example.com',
+        weldmailDomain: 'WeldMail\'s own domains can\'t be added here. Add a domain you own.',
+        statusVerified: 'Verified',
+        statusPending: 'Waiting for DNS',
+        recordsHint:
+          'Publish these records at your domain\'s DNS provider, then check again. New records can take up to an hour to show up.',
+        ownershipHint:
+          'First show that the domain is yours: publish this ownership record at your domain\'s DNS provider, then check again. The mail records appear once it is found. Keep the record in place afterwards.',
+        showRecords: 'Show DNS records',
+        hideRecords: 'Hide DNS records',
+        check: 'Check DNS',
+        remove: 'Remove',
+        removeTitle: 'Remove {domain}?',
+        removeDescription:
+          'Mailboxes on this domain stop sending and receiving mail until the domain is added and verified again.',
+        copy: 'Copy',
+        columns: {
+          purpose: 'Purpose',
+          type: 'Type',
+          name: 'Name',
+          value: 'Value',
+          priority: 'Priority',
+          status: 'Status',
+        },
+        recordFound: 'Found',
+        recordMissing: 'Not found yet',
+        purposes: {
+          verification: 'Ownership',
+          mx: 'Receiving',
+          spf: 'SPF',
+          dkim: 'DKIM',
+          dmarc: 'DMARC (recommended)',
+        },
         catchAll: 'Catch-all',
         catchAllHint: 'Receive mail for any address on this domain that is not a registered mailbox.',
         mailbox: 'Catch-all mailbox',
@@ -2070,6 +2109,14 @@ export const settings = {
         messages: {
           updated: 'Domain settings updated',
           updateFailed: 'Failed to update domain settings',
+          added: 'Domain added. Publish its DNS records to start using it.',
+          addFailed: 'Failed to add the domain',
+          verified: 'Domain verified',
+          stillPending: 'Not all records were found yet',
+          checkFailed: 'Failed to check the DNS records',
+          removed: 'Domain removed',
+          removeFailed: 'Failed to remove the domain',
+          copied: 'Copied',
         },
       },
       accounts: {

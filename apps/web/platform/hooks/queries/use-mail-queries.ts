@@ -749,7 +749,7 @@ export function useMailAttachments(messageId: string, enabled = true) {
     enabled: !!messageId && enabled,
   });
 }// =============================================================================
-// Domains (`mail-domains`: not served on the Kubernetes editions)
+// Domains (`mail-domains`: on the Kubernetes editions only with an MX)
 // =============================================================================
 
 /**
@@ -761,12 +761,12 @@ function assertFeature(feature: EditionFeature): void {
   if (!isFeatureAvailable(feature)) throw new Error(`${feature} is not available in this edition`);
 }
 
-export function useMailDomains() {
+export function useMailDomains(enabled = true) {
   const { mailDomains } = useAppApi();
   return useQuery({
     queryKey: mailKeys.domains(),
     queryFn: () => mailDomains.list(),
-    enabled: isFeatureAvailable('mail-domains'),
+    enabled: enabled && isFeatureAvailable('mail-domains'),
   });
 }
 
@@ -789,6 +789,38 @@ export function useUpdateMailDomain() {
       qc.invalidateQueries({ queryKey: appSettingsKeys.mail() });
     },
   });
+}
+
+/** A mutation on the mail domains that refreshes every list of them. */
+function useMailDomainMutation<TVars, TResult>(
+  call: (api: ReturnType<typeof useAppApi>['mailDomains'], vars: TVars) => Promise<TResult>,
+) {
+  const { mailDomains } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: TVars) => {
+      assertFeature('mail-domains');
+      return call(mailDomains, vars);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.domains() });
+      qc.invalidateQueries({ queryKey: appSettingsKeys.mail() });
+    },
+  });
+}
+
+/** Add a domain: on the Kubernetes editions it starts pending until its DNS records resolve. */
+export function useCreateMailDomain() {
+  return useMailDomainMutation((api, domainName: string) => api.create({ domainName }));
+}
+
+/** Look a domain's DNS records up again ("Check DNS"). */
+export function useVerifyMailDomain() {
+  return useMailDomainMutation((api, id: string) => api.verify(id));
+}
+
+export function useDeleteMailDomain() {
+  return useMailDomainMutation((api, id: string) => api.delete(id));
 }
 // =============================================================================
 // WeldMail (shared {slug}.weldmail.com addresses; `mail-free-addresses`)
