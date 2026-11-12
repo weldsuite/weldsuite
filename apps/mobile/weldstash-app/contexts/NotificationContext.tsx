@@ -58,11 +58,9 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Leaving this server (switching to another): stop it pushing to this device.
   useUnregisterPushOnServerLeave(getCredentials, notifUtils?.unregisterDeviceToken);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
     if (!notifUtils || !EAS_PROJECT_ID || !isPushAvailable()) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -131,7 +129,6 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           },
           (response: any) => {
             const data = response.notification.request.content.data;
-            // A notification left over from another server points at records this one doesn't have.
             if (!isNotificationForThisServer(data)) return;
             // Customize deep-link routing per app. Default: go home.
             if (data?.route) {
