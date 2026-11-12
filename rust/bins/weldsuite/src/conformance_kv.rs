@@ -29,11 +29,17 @@ impl HttpCache {
         }
     }
 
+    /// A request to the bridge's fixed `/value` URL; the key and the TTL go in
+    /// the query string, encoded by reqwest, never into the URL itself.
     fn request(&self, method: Method, key: &str, ttl: Option<Duration>) -> RequestBuilder {
-        let key: String = form_urlencoded::byte_serialize(key.as_bytes()).collect();
-        let ttl = ttl.map_or_else(String::new, |ttl| format!("&ttl={}", ttl.as_secs().max(1)));
-        self.client
-            .request(method, format!("{}/value?key={key}{ttl}", self.base))
+        let request = self
+            .client
+            .request(method, format!("{}/value", self.base))
+            .query(&[("key", key)]);
+        match ttl {
+            Some(ttl) => request.query(&[("ttl", ttl.as_secs().max(1))]),
+            None => request,
+        }
     }
 }
 
