@@ -23,6 +23,7 @@
 //! - [`events`]: delivery events in Cloudflare Email Sending's shape, from
 //!   the outbox to NATS.
 //! - [`api`]: the HTTP API (domains, queue, health).
+//! - [`monitoring`]: the Prometheus metrics (deliveries, the database pool).
 //! - [`config`], [`run`]: settings and the process.
 
 pub mod api;
@@ -36,6 +37,7 @@ pub mod events;
 pub mod feedback;
 pub mod inbound;
 pub mod message;
+pub mod monitoring;
 pub mod mta_sts;
 pub mod retry;
 pub mod run;

@@ -39,7 +39,9 @@
 //!   MAIL-011). Dead letters go to `MAIL_SENDING_EVENTS_DLQ`.
 //!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
-//! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
+//! not draining) and `/health` on `PORT`, and `/metrics` on `METRICS_ADDR`
+//! (`crate::monitoring`: each consumer's messages by outcome, the webhook
+//! retry sweep's runs, the database pools). On SIGTERM it stops fetching,
 //! finishes the batches in hand within `CONSUME_DRAIN_SECONDS` and exits.
 //! The audit log stream flushes those batches left behind (they run a few
 //! seconds after a batch, once its rows have settled) are waited for inside
@@ -654,12 +656,15 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         version = env!("CARGO_PKG_VERSION"),
         "consume: starting"
     );
+    // Before any consumer registers its counters.
+    crate::monitoring::start(config.metrics_addr).await;
     let master = master_pool(&config.master_database_url, config.master_max_connections)?;
     let workspaces = Arc::new(Workspaces::new(
         master.clone(),
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
+    crate::monitoring::sample_pools(&workspaces);
     let tenants: Arc<dyn Tenants> = Arc::new(WorkspaceTenants::new(Arc::clone(&workspaces)));
     let services = connect(&config).await?;
     // Workflow runs the weldconnect subscriber starts go to Restate, where
@@ -891,8 +896,13 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     Ok(())
 }
 
+/// The webhook retry sweep's `job` label in the job metrics.
+const WEBHOOK_SWEEP_JOB: &str = "webhooks.retry-sweep";
+
 /// Every ten minutes (and at start), the webhook retry sweep, by one pod at
 /// a time: the integration-webhook-worker's cron, until the cron role exists.
+/// Each sweep this pod runs is a run of [`WEBHOOK_SWEEP_JOB`] in the job
+/// metrics; one another pod holds the lock for is not.
 async fn webhook_retry_sweeps(
     master: PgPool,
     tenants: Arc<dyn Tenants>,
@@ -905,17 +915,24 @@ async fn webhook_retry_sweeps(
             _ = ticker.tick() => {},
             _ = stop.wait_for(|stopping| *stopping) => return,
         }
-        if let Err(error) = sweep_once(&master, &*tenants, &http).await {
-            tracing::warn!(%error, "webhooks: retry sweep skipped");
+        let started = Instant::now();
+        match sweep_once(&master, &*tenants, &http).await {
+            Ok(true) => weldsuite_ports::record_job_run(WEBHOOK_SWEEP_JOB, true, started.elapsed()),
+            Ok(false) => {}
+            Err(error) => {
+                weldsuite_ports::record_job_run(WEBHOOK_SWEEP_JOB, false, started.elapsed());
+                tracing::warn!(%error, "webhooks: retry sweep skipped");
+            }
         }
     }
 }
 
+/// One sweep, if this pod gets the lock: whether it ran.
 async fn sweep_once(
     master: &PgPool,
     tenants: &dyn Tenants,
     http: &WebhookHttp,
-) -> Result<(), sqlx::Error> {
+) -> Result<bool, sqlx::Error> {
     let mut lock = master.begin().await?;
     let mine: bool = sqlx::query_scalar("select pg_try_advisory_xact_lock($1)")
         .bind(WEBHOOK_SWEEP_LOCK)
@@ -924,7 +941,8 @@ async fn sweep_once(
     if mine {
         run_webhook_retry_sweep(master, tenants, http).await;
     }
-    lock.commit().await
+    lock.commit().await?;
+    Ok(mine)
 }
 
 #[cfg(test)]

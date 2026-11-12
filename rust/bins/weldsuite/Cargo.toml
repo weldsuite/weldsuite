@@ -87,6 +87,8 @@ base64 = { workspace = true, optional = true }
 form_urlencoded = { workspace = true, optional = true }
 futures-util = { workspace = true, features = ["sink"] }
 http = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
