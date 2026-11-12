@@ -22,6 +22,7 @@ import {
   type MobileAppIdentity,
   type MobileBuildEnv,
 } from '@weldsuite/mobile-platform/runtime';
+import { AuthLoaded, AuthLoading, AuthProvider, type ClerkProviderOptions } from '@weldsuite/mobile-platform/auth';
 import { Button } from './Button';
 import { ServerPicker, serverCopy, serverDisplayName, serverProblemMessage } from './ServerPicker';
 import { useTheme } from '../contexts/ThemeContext';
@@ -74,6 +75,37 @@ export function ServerRuntimeGate({
       copy={copy}
       accentColor={accentColor}
     />
+  );
+}
+
+export interface ServerAuthRootProps extends Omit<ServerRuntimeGateProps, 'children'> {
+  /** The app, rendered once the server is known and sign-in has loaded. */
+  children: ReactNode;
+  /** Shown while the identity provider loads (Clerk's `ClerkLoading`). */
+  loading?: ReactNode;
+  /** Clerk options, such as `@clerk/expo/passkeys` for apps with passkey sign-in. */
+  clerk?: ClerkProviderOptions;
+}
+
+/**
+ * The root every app's layout renders: the server (`ServerRuntimeGate`), its
+ * sign-in (`AuthProvider`: Clerk on WeldSuite cloud, OIDC elsewhere), then the
+ * app once that has loaded.
+ *
+ * ```tsx
+ * <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash}>
+ *   <AuthenticatedApp />
+ * </ServerAuthRoot>
+ * ```
+ */
+export function ServerAuthRoot({ children, loading = null, clerk, ...gate }: Readonly<ServerAuthRootProps>) {
+  return (
+    <ServerRuntimeGate {...gate}>
+      <AuthProvider clerk={clerk}>
+        <AuthLoading>{loading}</AuthLoading>
+        <AuthLoaded>{children}</AuthLoaded>
+      </AuthProvider>
+    </ServerRuntimeGate>
   );
 }
 

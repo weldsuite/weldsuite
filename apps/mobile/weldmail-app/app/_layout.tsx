@@ -1,4 +1,4 @@
-import { AuthLoaded, AuthLoading, AuthProvider, useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { isFeatureAvailable } from '@weldsuite/mobile-platform/edition';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
@@ -16,7 +16,7 @@ import '@/utils/notification-tasks';
 import { hideAppSplash } from '@/utils/splash';
 
 import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
-import { ServerRuntimeGate } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -385,22 +385,9 @@ function RootLayout() {
         <ErrorBoundary>
           {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
               in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
-          <ServerRuntimeGate
-            app={APP}
-            build={BUILD}
-            language={language}
-            accentColor={BRAND}
-            onFailed={hideAppSplash}
-          >
-            <AuthProvider clerk={{ passkeys }}>
-              <AuthLoading>
-                {null}
-              </AuthLoading>
-              <AuthLoaded>
-                <AuthenticatedApp />
-              </AuthLoaded>
-            </AuthProvider>
-          </ServerRuntimeGate>
+          <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash} clerk={{ passkeys }}>
+            <AuthenticatedApp />
+          </ServerAuthRoot>
         </ErrorBoundary>
       </KeyboardProvider>
     </GestureHandlerRootView>

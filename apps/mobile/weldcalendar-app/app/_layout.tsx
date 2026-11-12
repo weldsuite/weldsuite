@@ -1,4 +1,4 @@
-import { AuthLoaded, AuthProvider, useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -15,7 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { hideAppSplash } from '@/utils/splash';
 
 import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
-import { ServerRuntimeGate } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -276,19 +276,9 @@ function RootLayout() {
             <ErrorBoundary>
               {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
                   in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
-              <ServerRuntimeGate
-                app={APP}
-                build={BUILD}
-                language={language}
-                accentColor={BRAND}
-                onFailed={hideAppSplash}
-              >
-                <AuthProvider>
-                  <AuthLoaded>
-                    <AuthenticatedApp />
-                  </AuthLoaded>
-                </AuthProvider>
-              </ServerRuntimeGate>
+              <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash}>
+                <AuthenticatedApp />
+              </ServerAuthRoot>
             </ErrorBoundary>
           </KeyboardProvider>
         </GestureHandlerRootView>
