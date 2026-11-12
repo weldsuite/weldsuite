@@ -237,7 +237,8 @@ impl Spa {
 /// The SPA replaces the root router's fallback after its layers, so it gets
 /// none of them (tracing, CORS, the app context): static files need none,
 /// and a span per chunk would drown the API's traces. It keeps the request
-/// id.
+/// id, and the request metrics count what it serves as `route="static"`
+/// (`crate::monitoring::track_http`, layered on top of this).
 pub(crate) fn mount(app: Router, spa: Option<Arc<Spa>>) -> Router {
     let Some(spa) = spa else {
         return app;
@@ -265,7 +266,11 @@ async fn serve(State(spa): State<Arc<Spa>>, request: Request) -> Response {
         )
         .into_response();
     }
-    spa.respond(request).await
+    let mut response = spa.respond(request).await;
+    response
+        .extensions_mut()
+        .insert(crate::monitoring::StaticRoute);
+    response
 }
 
 fn no_store(mut response: Response) -> Response {
@@ -762,5 +767,34 @@ mod tests {
         assert!(check("\"x\", \"abc-1\""));
         assert!(check("*"));
         assert!(!check("\"abc-2\""));
+    }
+
+    /// The request metrics: what the SPA serves is `static`, the backend's
+    /// 404 under it `unmatched`, a route keeps its template.
+    #[tokio::test]
+    async fn the_spa_counts_as_static_in_the_request_metrics() {
+        let local = crate::monitoring::tests::LocalMetrics::new();
+        let _guard = local.guard();
+        let build = Build::new("metrics");
+        let app = crate::monitoring::track_http(mount(app(), Some(build.spa())));
+        for path in [
+            "/weldcrm/contacts",
+            "/assets/app-Dk3x9aQe.js",
+            "/assets/gone.js",
+            "/api/nope",
+            "/livez",
+        ] {
+            call(app.clone(), "GET", path, &[]).await;
+        }
+        let text = local.render();
+        for line in [
+            r#"weldsuite_http_requests_total{method="GET",route="static",status="200"} 2"#,
+            r#"weldsuite_http_requests_total{method="GET",route="static",status="404"} 1"#,
+            r#"weldsuite_http_requests_total{method="GET",route="unmatched",status="404"} 1"#,
+            r#"weldsuite_http_requests_total{method="GET",route="/livez",status="200"} 1"#,
+        ] {
+            assert!(text.contains(line), "{line}\n{text}");
+        }
+        assert!(!text.contains("/weldcrm/contacts"), "{text}");
     }
 }

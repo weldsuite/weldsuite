@@ -82,8 +82,10 @@ spec:
               containerPort: {{ .Values.config.jobs.port }}
               protocol: TCP
             {{- end }}
+            {{- with include "weldsuite.metricsPort" . }}{{ . | nindent 12 }}{{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- include "weldsuite.metricsEnv" . | nindent 12 }}
             {{- with include "weldsuite.mta.clientEnv" . }}{{ . | nindent 12 }}{{- end }}
             {{- with .Values.config.realtime }}
             {{- if .publicUrl }}

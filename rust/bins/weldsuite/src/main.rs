@@ -34,6 +34,7 @@ mod desk_http;
 mod edition;
 mod infra;
 mod migrate;
+mod monitoring;
 mod mta;
 mod reach;
 mod realtime;
@@ -135,6 +136,9 @@ fn serve() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // First: a metric handle taken before the recorder exists records
+    // nowhere. Its listener keeps running on the runtime's workers.
+    runtime.block_on(monitoring::start(config.metrics_addr));
     let code = match runtime.block_on(run(config)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -227,6 +231,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         conformance_pools: Arc::default(),
     };
 
+    monitoring::sample_pools(&state.workspaces);
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
     let gateway = realtime::start(&config, &state).await?;
@@ -234,7 +239,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, spa::mount(app, spa))
+    axum::serve(listener, monitoring::track_http(spa::mount(app, spa)))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             realtime::stop(gateway.as_ref()).await;

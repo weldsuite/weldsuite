@@ -878,6 +878,7 @@ log none.
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |
 | `PORT`, `HOST` | listen address (default `0.0.0.0:8080`) |
+| `METRICS_ADDR` | Prometheus metrics, `GET /metrics`, on a listener of their own, never the API's port (default `0.0.0.0:9464`; `off` or empty turns it off). `serve`, `consume` and `mta` serve it, `cron` runs don't; names, labels and buckets in `bins/weldsuite/src/monitoring.rs` (chart `metrics`) |
 | `TRUSTED_PROXIES` | how many proxies in front of the server append to `X-Forwarded-For` (default 1, the ingress controller; 2 with a CDN the ingress trusts): the client's address, which the helpdesk widget's rate limit keys on, is that many entries from the right. `CF-Connecting-IP` is not trusted on Kubernetes |
 | `ENVIRONMENT`, `LOG_FORMAT` (`json`/`text`), `RUST_LOG` | reporting and logs |
 | `DATABASE_MASTER_MAX_CONNECTIONS`, `TENANT_POOL_MAX_CONNECTIONS`, `TENANT_POOLS_MAX`, `WORKSPACE_CACHE_TTL_SECONDS` | pools and the workspace cache |

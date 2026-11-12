@@ -78,8 +78,9 @@ pub use imap::{
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
-    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL,
-    StepFn, StepRetry, step,
+    DynJobs, JOB_DURATION_METRIC, JOB_RUNS_METRIC, Job, JobContext, JobError, JobRegistry,
+    JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL, StepFn, StepRetry, record_job_run, run_job,
+    step,
 };
 pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerStore};
 pub use mail::{

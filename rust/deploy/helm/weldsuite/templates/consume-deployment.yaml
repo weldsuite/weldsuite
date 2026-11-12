@@ -6,7 +6,8 @@
 {{- end }}
 # The entity-event subscribers (`weldsuite consume`): durable consumers on the
 # NATS JetStream hub for the audit log, the search index, outgoing webhooks
-# and realtime fan-out. Same image as the API; no Service, only probes.
+# and realtime fan-out. Same image as the API; no Service, only probes and
+# the metrics port (servicemonitor.yaml adds a headless Service for those).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,8 +58,10 @@ spec:
             - name: probes
               containerPort: 8080
               protocol: TCP
+            {{- with include "weldsuite.metricsPort" . }}{{ . | nindent 12 }}{{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- include "weldsuite.metricsEnv" . | nindent 12 }}
             {{- with include "weldsuite.mta.clientEnv" . }}{{ . | nindent 12 }}{{- end }}
             {{- with .Values.consume }}
             - name: NATS_STREAM_REPLICAS

@@ -669,3 +669,32 @@ resources exist, so a chart-made Secret (secret.values) gets a hook copy.
 {{- printf "%s-migrate" (include "weldsuite.fullname" .) }}
 {{- end }}
 {{- end }}
+
+{{/*
+METRICS_ADDR for the server and consume: /metrics on every address at the
+metrics port, apart from the API's, or off. The MTA sets its own: it runs on
+the host network, so it listens on the node's private address only.
+*/}}
+{{- define "weldsuite.metricsEnv" -}}
+- name: METRICS_ADDR
+  value: {{ ternary (printf "0.0.0.0:%v" .Values.metrics.port) "off" .Values.metrics.enabled | quote }}
+{{- end }}
+
+{{/* The container port Prometheus scrapes, with metrics.enabled. */}}
+{{- define "weldsuite.metricsPort" -}}
+{{- if .Values.metrics.enabled -}}
+- name: metrics
+  containerPort: {{ .Values.metrics.port }}
+  protocol: TCP
+{{- end }}
+{{- end }}
+
+{{/* The metrics port on a Service, with metrics.enabled. */}}
+{{- define "weldsuite.metricsServicePort" -}}
+{{- if .Values.metrics.enabled -}}
+- name: metrics
+  port: {{ .Values.metrics.port }}
+  targetPort: metrics
+  protocol: TCP
+{{- end }}
+{{- end }}

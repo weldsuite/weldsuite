@@ -184,6 +184,9 @@ pub(crate) enum LogFormat {
 #[derive(Clone)]
 pub(crate) struct Config {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`: where `GET /metrics` listens, apart from the API
+    /// (`monitoring.rs`); `None` is off.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     /// `ENVIRONMENT`, reported by `/health`.
     pub(crate) environment: String,
     /// `EDITION` and `PUBLIC_ENV`, for `/config.json` (`edition.rs`).
@@ -579,6 +582,7 @@ impl fmt::Debug for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Config")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("edition", &self.edition)
             .field("master_max_connections", &self.master_max_connections)
@@ -609,14 +613,15 @@ impl std::error::Error for ConfigError {}
 
 impl Config {
     pub(crate) fn from_env() -> Result<Self, ConfigError> {
-        Self::from_lookup(
-            |name| std::env::var(name).ok().filter(|v| !v.is_empty()),
-            |path| std::fs::read_to_string(path),
-        )
+        Self::from_lookup(env_value, |path| std::fs::read_to_string(path))
     }
 
     /// `lookup` reads a variable, `read_file` a file; both injectable for
     /// tests.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one variable after the other, as ConsumeConfig::from_lookup"
+    )]
     pub(crate) fn from_lookup(
         lookup: impl Fn(&str) -> Option<String>,
         read_file: impl Fn(&str) -> std::io::Result<String>,
@@ -645,6 +650,10 @@ impl Config {
         }
         let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
         let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let host: IpAddr = match lookup("HOST") {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -687,6 +696,7 @@ impl Config {
 
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             edition,
             master_database_url,
@@ -729,6 +739,14 @@ impl Config {
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
         })
     }
+}
+
+/// A variable as `serve` and `consume` read it: empty counts as unset,
+/// except `METRICS_ADDR`, where empty turns the metrics listener off.
+pub(crate) fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.is_empty() || name == crate::monitoring::METRICS_ADDR)
 }
 
 fn saturate(value: u64) -> u32 {
@@ -850,6 +868,34 @@ mod tests {
             AuthConfig::Clerk { key: ClerkKey::Pem(pem), .. } if pem.contains('\n')
         ));
         assert!(!format!("{config:?}").contains("postgres://master"));
+    }
+
+    #[test]
+    fn metrics_listen_apart_from_the_api_unless_off() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let with = |value: Option<&'static str>| {
+            let mut vars = base.to_vec();
+            vars.extend(value.map(|value| ("METRICS_ADDR", value)));
+            config(&vars)
+        };
+        let metrics = with(None).expect("valid").metrics_addr;
+        assert_eq!(
+            metrics.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
+        assert_ne!(metrics, Some(with(None).expect("valid").listen));
+        for off in ["off", ""] {
+            assert_eq!(
+                with(Some(off)).expect("valid").metrics_addr,
+                None,
+                "{off:?}"
+            );
+        }
+        let error = with(Some("everywhere")).expect_err("invalid");
+        assert!(error.to_string().contains("METRICS_ADDR"), "{error}");
     }
 
     #[test]

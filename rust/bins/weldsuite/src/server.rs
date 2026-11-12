@@ -1,25 +1,28 @@
 //! `weldsuite serve`: the HTTP API.
 //!
-//! Global middleware, outermost first: request id, request tracing, CORS and
-//! the `X-Weld-App` app context, as in worker-kit's `createModuleApi`. Under
-//! `/api` every request is authenticated (session token → tenant database),
-//! as `apiAuth()` does.
+//! Global middleware, outermost first: request id, request tracing (a span
+//! with the method, route template and path, never the query string:
+//! [`RequestSpan`]), CORS and the `X-Weld-App` app context, as in
+//! worker-kit's `createModuleApi`. Under `/api` every request is
+//! authenticated (session token → tenant database), as `apiAuth()` does.
 //!
 //! Probes for Kubernetes: `/livez` (the process answers), `/readyz` (the
 //! master database answers and the pod is not draining). `/health` keeps the
-//! workers' JSON shape.
+//! workers' JSON shape. The request metrics are layered on top of all of it
+//! (`crate::monitoring::track_http`); `/metrics` is not served here but on
+//! its own listener (`METRICS_ADDR`), out of the ingress's reach.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use axum::extract::{OriginalUri, State};
+use axum::extract::{MatchedPath, OriginalUri, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::{Value, json};
-use tower_http::trace::{DefaultMakeSpan, TraceLayer};
+use tower_http::trace::TraceLayer;
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::{TenantPermissionQueries, Workspaces};
 use weldsuite_kit::{ApiError, api_cors, request_id};
@@ -226,11 +229,31 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(mcp)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
-        )
+        .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// The span of one request: `method`, `route` (the route's template, when a
+/// route took the request), `path` and `request_id`. Never the query
+/// string: sign and invite links and OAuth callbacks carry tokens there,
+/// and every JSON log line inside the request carries this span's fields
+/// (`DefaultMakeSpan` records the whole URI).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RequestSpan;
+
+impl<B> tower_http::trace::MakeSpan<B> for RequestSpan {
+    fn make_span(&mut self, request: &http::Request<B>) -> tracing::Span {
+        let extensions = request.extensions();
+        tracing::info_span!(
+            "request",
+            method = %request.method(),
+            route = extensions.get::<MatchedPath>().map(MatchedPath::as_str),
+            path = request.uri().path(),
+            request_id = extensions
+                .get::<weldsuite_kit::RequestId>()
+                .map(|id| id.0.as_str()),
+        )
+    }
 }
 
 /// connect-api's internal integration calls (`X-Internal-Secret`) go to
@@ -888,5 +911,148 @@ mod tests {
         let stamp = iso_timestamp();
         assert_eq!(stamp.len(), 24, "{stamp}");
         assert!(stamp.ends_with('Z'));
+    }
+
+    /// What the JSON log layer writes, kept for the test to read.
+    #[derive(Clone, Default)]
+    struct CapturedLogs(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl CapturedLogs {
+        fn text(&self) -> String {
+            let bytes = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+
+        fn clear(&self) {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+        }
+    }
+
+    impl std::io::Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'w> tracing_subscriber::fmt::MakeWriter<'w> for CapturedLogs {
+        type Writer = Self;
+
+        fn make_writer(&'w self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Sign links, invite links and OAuth callbacks carry tokens in the query
+    /// string: the request span, which every JSON log line inside the
+    /// request carries, names the route and the path only.
+    #[tokio::test]
+    async fn request_logs_never_carry_the_query_string() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let logs = CapturedLogs::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::DEBUG)
+            .with(crate::telemetry::json_logs(logs.clone()));
+        let _default = tracing::subscriber::set_default(subscriber);
+        // Other tests run on other threads, with no subscriber. While this
+        // is the only dispatcher, a callsite one of them registers first
+        // takes its interest from that thread's (none) and stays off here
+        // too; with a second dispatcher alive, interest comes from both.
+        let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        // Register the requests' callsites, then rebuild every interest.
+        call(state(), get("/health")).await;
+        call(state(), get("/nope")).await;
+        tracing::callsite::rebuild_interest_cache();
+        logs.clear();
+
+        // `/health` logs a warning inside the request: the master database
+        // this state points at answers nothing.
+        let (status, _, _) = call(
+            state(),
+            get("/health?token=secret123&next=%2Finvite%3Ftoken%3Dsecret123"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        call(state(), get("/nope?token=secret123")).await;
+
+        let text = logs.text();
+        let warning = text
+            .lines()
+            .find(|line| line.contains("health: master database ping failed"))
+            .unwrap_or_else(|| panic!("no warning inside the request:\n{text}"));
+        let line: Value = serde_json::from_str(warning).expect("a JSON log line");
+        assert_eq!(line["span"]["name"], "request", "{warning}");
+        assert_eq!(line["span"]["method"], "GET", "{warning}");
+        assert_eq!(line["span"]["route"], "/health", "{warning}");
+        assert_eq!(line["span"]["path"], "/health", "{warning}");
+        assert!(line["span"]["request_id"].is_string(), "{warning}");
+        assert!(text.contains(r#""path":"/nope""#), "{text}");
+        assert!(!text.contains("secret123"), "{text}");
+        assert!(!text.contains("token="), "{text}");
+    }
+
+    /// `/metrics` lives on its own listener (`METRICS_ADDR`): the API's port,
+    /// which the ingress reaches, answers it like any unknown path.
+    #[tokio::test]
+    async fn metrics_are_not_served_on_the_api_port() {
+        let local = crate::monitoring::tests::LocalMetrics::new();
+        let _guard = local.guard();
+        let app = crate::monitoring::track_http(router(state()));
+        let response = app.oneshot(get("/metrics")).await.expect("response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let body = String::from_utf8_lossy(&body);
+        assert!(!body.contains("weldsuite_"), "{body}");
+        assert!(
+            local.render().contains(
+                r#"weldsuite_http_requests_total{method="GET",route="unmatched",status="404"} 1"#
+            ),
+            "{}",
+            local.render()
+        );
+    }
+
+    /// The server's routes count by their template, the API's included,
+    /// never by the path or query a client sent.
+    #[tokio::test]
+    async fn api_requests_count_by_route_template() {
+        let local = crate::monitoring::tests::LocalMetrics::new();
+        let _guard = local.guard();
+        let app = crate::monitoring::track_http(router(state()));
+        for path in [
+            "/livez",
+            "/version?token=secret123",
+            "/api/me/permissions?token=secret123",
+        ] {
+            app.clone().oneshot(get(path)).await.expect("response");
+        }
+        let text = local.render();
+        for line in [
+            r#"weldsuite_http_requests_total{method="GET",route="/livez",status="200"} 1"#,
+            r#"weldsuite_http_requests_total{method="GET",route="/version",status="200"} 1"#,
+            r#"route="/api/me/permissions""#,
+        ] {
+            assert!(text.contains(line), "{line}\n{text}");
+        }
+        assert!(!text.contains("secret123"), "{text}");
     }
 }

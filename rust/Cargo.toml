@@ -124,6 +124,10 @@ opentelemetry = { version = "0.33.1", default-features = false, features = ["tra
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+# Prometheus metrics (`GET /metrics` on `METRICS_ADDR`): the facade for every
+# crate that records, the exporter for the binary only.
+metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"

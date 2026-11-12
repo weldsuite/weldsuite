@@ -52,8 +52,8 @@ pub use nats::{
     JetStreamEventBus, NatsOptions, entity_events_stream_config, panel_events_stream_config,
 };
 pub use nats_consume::{
-    Action, ConsumerSpec, dead_letter_stream_config, dead_letter_subject, decide, ensure_consumer,
-    run_consumer,
+    Action, CONSUMER_MESSAGES_METRIC, ConsumerSpec, dead_letter_stream_config, dead_letter_subject,
+    decide, ensure_consumer, run_consumer,
 };
 pub use restate::{
     JOBS_SERVICE, JobCall, RestateJobs, SIGNALS_OBJECT, WeldsuiteJobSignals, WeldsuiteJobs,
