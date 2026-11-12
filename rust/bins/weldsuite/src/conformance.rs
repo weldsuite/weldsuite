@@ -439,6 +439,10 @@ impl Pools {
         extensions.insert(weldsuite_connect::RequestCrmSyncRuns(
             self.workflows.crm_sync_runs(&context.workflows),
         ));
+        // WeldForms' ProcessResponse runs start on the test's `PROCESS_RESPONSE`.
+        if let Some(runs) = self.workflows.process_runs(&context.workflows) {
+            extensions.insert(weldsuite_forms::RequestProcessRuns(runs));
+        }
         // The headers the test's request carried, as the Hono app saw them.
         if let Some(names) = &context.request_headers {
             extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
@@ -466,6 +470,43 @@ impl Pools {
             // WeldDesk's Discord and Slack calls.
             extensions.insert(self.outbound.desk_http(bridge));
         }
+    }
+
+    /// What a cron job or a job run in a test gets in place of a request's
+    /// context: the master database, the forwarded env, the test's buckets
+    /// and outbound ledgers over HTTP, and the cache of its KV namespace's
+    /// seed scope (this side's own, so the TypeScript run that follows sees
+    /// only its own keys).
+    pub(crate) fn job_extensions(
+        &self,
+        master_database_url: Option<&str>,
+        env: &HashMap<String, String>,
+        files: &HashMap<String, String>,
+        ledgers: &HashMap<String, String>,
+        seed_scope: Option<&str>,
+    ) -> Result<http::Extensions, ApiError> {
+        let mut extensions = http::Extensions::new();
+        if let Some(url) = master_database_url {
+            extensions.insert(weldsuite_db::MasterDb(self.get(url)?));
+        }
+        extensions.insert(weldsuite_kit::RequestEnv(Arc::new(env.clone())));
+        if let Some(stores) = self.buckets.file_stores(files) {
+            extensions.insert(stores);
+        }
+        extensions.insert(weldsuite_mail_domain::outbound::RequestOutbound(
+            self.mail.bindings(None, ledgers),
+        ));
+        let cache = Arc::clone(
+            self.caches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(seed_scope.unwrap_or("job").to_owned())
+                .or_default(),
+        );
+        extensions.insert(weldsuite_ports::RequestCache(
+            cache as Arc<dyn weldsuite_ports::DynCache>,
+        ));
+        Ok(extensions)
     }
 
     pub(crate) fn get(&self, url: &str) -> Result<PgPool, ApiError> {
@@ -776,6 +817,46 @@ pub(crate) async fn public_tenant(
     next.run(request).await
 }
 
+/// Middleware for WeldForms' respondent side (`/public/forms`): what
+/// [`public`] and [`public_tenant`] insert together (the test's master
+/// database, env, buckets, KV, Workflow binding and fetch stub, and its
+/// tenant database as the `Tenant` every link opens, as its
+/// `getWorkspaceContextForOrg` mock hands out one database for any
+/// workspace), on every path under the mount: the portal's key guard runs
+/// inside it.
+pub(crate) async fn forms_public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        if let Some(url) = context.master_database_url.as_deref() {
+            match pools.get(url) {
+                Ok(master) => {
+                    request
+                        .extensions_mut()
+                        .insert(weldsuite_db::MasterDb(master));
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        pools.insert_shared(request.extensions_mut(), &context);
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    run_reporting_route(request, next).await
+}
+
 /// Middleware for personal-api (`weldsuite-personal`): the test's database
 /// is the shared personal database (personal-api has no tenant), so the
 /// context's `databaseUrl` goes in as the request's
@@ -875,6 +956,13 @@ pub(crate) struct SweepRequest {
     /// The test set the seed flag itself: the scope starts with it.
     #[serde(default)]
     seeded: bool,
+    /// The test's `SEND_EMAIL` binding over HTTP, for a job that mails
+    /// through it (`conformance_mail`).
+    #[serde(default)]
+    send_email: Option<String>,
+    /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
+    #[serde(default)]
+    ledgers: HashMap<String, String>,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -930,6 +1018,7 @@ pub(crate) async fn sign_lifecycle_sweep(
         flags: Arc::clone(&state.infra.flags),
         portal_url: request.env.get("SIGN_PORTAL_URL").cloned(),
         environment: request.env.get("ENVIRONMENT").cloned(),
+        app_url: request.env.get("PUBLIC_APP_URL").cloned(),
     };
     let tenants: Arc<dyn weldsuite_sign::TenantResolver> = Arc::new(TestTenants {
         db,
@@ -1036,6 +1125,56 @@ pub(crate) async fn desk_sla_sweep(
         assignment: None,
     };
     let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
+/// `POST /__conformance/cron/desk-report-sweep`: one tick of the WeldDesk
+/// report schedule sweep against the test's databases, as
+/// `runReportScheduleSweep(env, now)` runs it there. Every workspace opens
+/// the test's tenant database, with the Clerk org id the test maps it to.
+/// The reports go out through the test's `SEND_EMAIL` stub and its outbound
+/// ledgers (the harness's bridges), or nowhere when the test has none, as the
+/// worker then runs without the bindings.
+pub(crate) async fn desk_report_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_desk::sla_sweep::SlaTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::report_sweep::ReportSweepServices {
+        outbound: pools
+            .mail
+            .bindings(request.send_email.as_deref(), &request.ledgers),
+        master: Some(master.clone()),
+        cache: None,
+        environment: request.env.get("ENVIRONMENT").cloned(),
+        public_app_url: request.env.get("PUBLIC_APP_URL").cloned(),
+        from_override: request.env.get("SYSTEM_EMAIL_FROM").cloned(),
+    };
+    let result =
+        weldsuite_desk::report_sweep::run_report_sweep(&master, &tenants, &services, now).await;
     axum::Json(result.to_json()).into_response()
 }
 

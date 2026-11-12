@@ -12,7 +12,7 @@
  */
 
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import {
   validateCustomFieldValue,
   type CustomFieldDefinitionLike,
@@ -32,7 +32,7 @@ import type { IdGenerator } from './mail-contacts';
 import { getDefinitionsForTicket, getValuesForEntity, setValues, type CustomFieldMap } from './custom-field-values';
 import { createDeskConversation, DESK_CONVERSATION_FIELD_ENTITY } from './desk';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const visitors = schema.deskVisitors;

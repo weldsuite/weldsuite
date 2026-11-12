@@ -7,6 +7,7 @@
  *
  * Usage:
  *   pnpm --filter docs capture-screenshots
+ *   pnpm --filter docs capture-screenshots weldforms   # only entries whose file starts with a prefix
  *   pnpm --filter docs capture-screenshots:all   # build, start servers, capture
  */
 import { chromium } from '@playwright/test'
@@ -19,6 +20,9 @@ import { screenshotManifest } from './screenshots.config.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const docsRoot = path.resolve(__dirname, '..')
 const outputDir = path.resolve(docsRoot, 'public/images/help')
+
+// Optional file-name prefixes: capture just those entries (e.g. `weldforms`).
+const only = process.argv.slice(2)
 
 const env = {
   platformBase: process.env.PLATFORM_URL ?? 'http://127.0.0.1:3000',
@@ -42,7 +46,8 @@ export async function captureScreenshots() {
   await mkdir(outputDir, { recursive: true })
 
   await waitForServer(`${env.platformBase}/preview/help-docs?scene=domains`)
-  await waitForServer(`${env.docsBase}/`)
+  // The docs site is only needed when the whole set is captured.
+  if (only.length === 0) await waitForServer(`${env.docsBase}/`)
 
   const browser = await chromium.launch()
   const page = await browser.newPage({
@@ -50,7 +55,10 @@ export async function captureScreenshots() {
     deviceScaleFactor: 2,
   })
 
-  for (const shot of screenshotManifest) {
+  const shots = only.length ? screenshotManifest.filter((s) => only.some((prefix) => s.file.startsWith(prefix))) : screenshotManifest
+  if (shots.length === 0) throw new Error(`No screenshot matches ${only.join(', ')}`)
+
+  for (const shot of shots) {
     const url = shot.url(env)
     await page.goto(url, { waitUntil: 'networkidle' })
     await page.waitForSelector(shot.readySelector ?? shot.selector, {

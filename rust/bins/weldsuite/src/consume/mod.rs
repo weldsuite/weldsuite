@@ -41,6 +41,9 @@
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
 //! finishes the batches in hand within `CONSUME_DRAIN_SECONDS` and exits.
+//! The audit log stream flushes those batches left behind (they run a few
+//! seconds after a batch, once its rows have settled) are waited for inside
+//! the same deadline.
 
 mod config;
 
@@ -65,9 +68,9 @@ use weldsuite_db::{PgPool, Workspaces, master_pool};
 use weldsuite_ports::{BatchHandler, DynFileStore, DynJobs, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
-    AuditSubscriber, RealtimeSubscriber, Routed, SearchSubscriber, Subscriber, Tenants,
-    WebhookHttp, WebhooksSubscriber, WorkspaceTenants, filter_subject, run_webhook_retry_sweep,
-    subscriber,
+    AuditStreamSender, AuditSubscriber, PendingStreamFlushes, RealtimeSubscriber, Routed,
+    SearchSubscriber, Subscriber, Tenants, WebhookHttp, WebhooksSubscriber, WorkspaceTenants,
+    filter_subject, run_webhook_retry_sweep, subscriber,
 };
 
 pub(crate) use config::ConsumeConfig;
@@ -437,20 +440,27 @@ fn handlers(
     config: &ConsumeConfig,
     tenants: &Arc<dyn Tenants>,
     master: &PgPool,
-    realtime: Option<&Arc<dyn DynRealtimePublisher>>,
-    embeddings: Option<&Arc<dyn Embeddings>>,
-    http: &WebhookHttp,
+    services: &Services,
     jobs: Option<&Arc<dyn DynJobs>>,
 ) -> Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> {
+    let realtime = services.realtime.as_ref();
+    let embeddings = services.embeddings.as_ref();
     let mut out: Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> = Vec::new();
     for id in &config.subscribers {
         let Some(sub) = subscriber(id) else { continue };
         let handler: Arc<dyn BatchHandler> = match id.as_str() {
-            "audit" => Arc::new(AuditSubscriber::new(Arc::clone(tenants))),
+            // The audit rows, then each workspace's audit log streams (the
+            // SIEM push), their tokens opened with the keyring. The push
+            // runs behind the batch; the drain waits for it.
+            "audit" => Arc::new(
+                AuditSubscriber::new(Arc::clone(tenants))
+                    .with_streams(services.streams.clone(), config.keyring.clone())
+                    .with_pending_stream_flushes(services.stream_flushes.clone()),
+            ),
             "webhooks" => Arc::new(WebhooksSubscriber::new(
                 Arc::clone(tenants),
                 Some(master.clone()),
-                http.clone(),
+                services.http.clone(),
             )),
             "weldconnect" => {
                 let Some(jobs) = jobs else {
@@ -503,10 +513,14 @@ struct Services {
     realtime: Option<Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<Arc<dyn Embeddings>>,
     http: WebhookHttp,
+    /// Audit log streams go out under the webhooks' private-network rule.
+    streams: AuditStreamSender,
+    /// The audit subscriber's stream flushes that are still on their way.
+    stream_flushes: PendingStreamFlushes,
 }
 
 /// Connects NATS (creating the streams when asked) and Valkey, and builds
-/// the embeddings and webhook clients. A configured service that can't be
+/// the embeddings, webhook and audit log stream clients. A configured service that can't be
 /// reached fails the start, so a broken pod crash-loops visibly.
 /// The queue streams others publish to: WeldReach's, which crons publish to
 /// (`REACH_SEND`, the send sweep; `REACH_WARMUP`, the warmup dispatch), and
@@ -625,6 +639,8 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         realtime,
         embeddings,
         http: WebhookHttp::new(config.webhook_allow_private)?,
+        streams: AuditStreamSender::new(config.webhook_allow_private)?,
+        stream_flushes: PendingStreamFlushes::default(),
     })
 }
 
@@ -645,19 +661,7 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         config.workspaces.clone(),
     ));
     let tenants: Arc<dyn Tenants> = Arc::new(WorkspaceTenants::new(Arc::clone(&workspaces)));
-    let Services {
-        bus,
-        realtime,
-        embeddings,
-        http,
-    } = connect(&config).await?;
-
-    let services = Services {
-        bus,
-        realtime,
-        embeddings,
-        http,
-    };
+    let services = connect(&config).await?;
     // Workflow runs the weldconnect subscriber starts go to Restate, where
     // `serve` runs them.
     let jobs: Option<Arc<dyn DynJobs>> = config.restate_ingress_url.as_ref().map(|url| {
@@ -666,15 +670,7 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             reqwest::Client::new(),
         )) as Arc<dyn DynJobs>
     });
-    let running = handlers(
-        &config,
-        &tenants,
-        &master,
-        services.realtime.as_ref(),
-        services.embeddings.as_ref(),
-        &services.http,
-        jobs.as_ref(),
-    );
+    let running = handlers(&config, &tenants, &master, &services, jobs.as_ref());
     let mail_inbound = match &config.mail_inbound {
         Some(inbound) if config.subscribers.iter().any(|s| s == MAIL_INBOUND) => Some((
             mail_inbound_spec(inbound),
@@ -736,7 +732,12 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             reach_warmup.push(((*id).to_owned(), crate::reach::warmup_spec(kind), handler));
         }
     }
-    let Services { bus, http, .. } = services;
+    let Services {
+        bus,
+        http,
+        stream_flushes,
+        ..
+    } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
     let mut names = Vec::new();
@@ -870,6 +871,17 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             );
             break;
         }
+    }
+    // The batches are answered; their audit log stream flushes may still be
+    // waiting for the settle window.
+    if tokio::time::timeout_at(deadline, stream_flushes.settled())
+        .await
+        .is_err()
+    {
+        tracing::warn!(
+            waiting = stream_flushes.running(),
+            "consume: audit log stream flushes still waiting at the drain deadline; the streams catch up with each workspace's next audit event"
+        );
     }
     let _ = probes.await;
     tracing::info!(

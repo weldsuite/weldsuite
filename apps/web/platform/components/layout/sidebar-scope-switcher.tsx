@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import { useId, type ComponentType, type ReactNode } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +20,7 @@ export interface ScopeOption {
   description?: string;
   /** Shown in the rounded square instead of the name's initial. */
   icon?: ComponentType<{ className?: string }>;
-  /** Names shown as a 2×2 grid of coloured squares (e.g. "All accounts"). */
+  /** Names shown as two overlapping coloured squares, the first in front (e.g. "All accounts"). */
   stack?: string[];
   /** Extra content at the end of the menu row (a badge, a default toggle). */
   trailing?: ReactNode;
@@ -38,29 +38,51 @@ interface SidebarScopeSwitcherProps {
   onAdd?: () => void;
 }
 
+/**
+ * The first two names as overlapping rounded squares: the second behind at the
+ * top right, the first in front at the bottom left. The gap between them is
+ * cut out of the back square, so it reads on any background (hover, menu).
+ */
+function StackAvatar({ names, size }: { names: string[]; size: 'sm' | 'lg' }) {
+  const maskId = useId();
+  const [front, back] = names;
+  // The sidebar button shrinks a direct svg child to 16px, and the menu item any
+  // svg without a size- class: hence the sized span and size-full.
+  return (
+    <span className={cn('flex shrink-0', size === 'lg' ? 'h-7 w-7' : 'h-5 w-5')}>
+      <svg viewBox="0 0 28 28" aria-hidden="true" className="size-full">
+        {back ? (
+          <>
+            <mask id={maskId}>
+              <rect width="28" height="28" fill="white" />
+              <rect x="-2" y="6" width="24" height="24" rx="9" fill="black" />
+            </mask>
+            <rect x="8" width="20" height="20" rx="7" fill={getAvatarColor(back)} mask={`url(#${maskId})`} />
+          </>
+        ) : null}
+        <rect y="8" width="20" height="20" rx="7" fill={getAvatarColor(front)} />
+        {size === 'lg' ? (
+          <text
+            x="10"
+            y="18"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="white"
+            className="text-[11px] font-semibold"
+          >
+            {front.trim().charAt(0).toUpperCase()}
+          </text>
+        ) : null}
+      </svg>
+    </span>
+  );
+}
+
 /** Letter (or icon) on a colour picked from the name, like the conversation-list avatars. */
 function ScopeAvatar({ option, size }: { option: ScopeOption; size: 'sm' | 'lg' }) {
   const Icon = option.icon;
-  const stack = option.stack ?? [];
-  if (stack.length > 0) {
-    return (
-      <span
-        className={cn(
-          'grid shrink-0 grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-[32%]',
-          size === 'lg' ? 'h-7 w-7' : 'h-5 w-5',
-        )}
-      >
-        {Array.from({ length: 4 }, (_, i) => stack[i % stack.length]).map((name, i) => (
-          <span
-            key={i}
-            className="flex items-center justify-center text-[8px] font-semibold text-white"
-            style={{ backgroundColor: getAvatarColor(name) }}
-          >
-            {size === 'lg' ? name.trim().charAt(0).toUpperCase() : null}
-          </span>
-        ))}
-      </span>
-    );
+  if (option.stack && option.stack.length > 0) {
+    return <StackAvatar names={option.stack} size={size} />;
   }
   return (
     <Avatar className={cn(size === 'lg' ? 'h-7 w-7' : 'h-5 w-5')}>

@@ -23,6 +23,9 @@ interface InvoiceEditorLayoutProps {
   submitText: string;
   /** Shown while the submit button's save runs; the default is the generic "Saving…". */
   submitPendingText?: string;
+  /** Holds the save back (e.g. the company details an invoice needs are missing); `submitTitle` says why. */
+  submitDisabled?: boolean;
+  submitTitle?: string;
   /**
    * A second, main action next to the submit button (e.g. "Create and send").
    * The submit button then turns into the quieter one: Enter in a field still
@@ -44,6 +47,8 @@ export function InvoiceEditorLayout({
   isPending,
   submitText,
   submitPendingText,
+  submitDisabled = false,
+  submitTitle,
   primaryAction,
   backLink,
   backText,
@@ -69,7 +74,8 @@ export function InvoiceEditorLayout({
             type="submit"
             size="sm"
             variant={primaryAction ? 'outline' : 'default'}
-            disabled={isPending}
+            disabled={isPending || submitDisabled}
+            title={submitTitle}
             className="shadow-none"
           >
             {isPending && !primaryAction?.pending ? (

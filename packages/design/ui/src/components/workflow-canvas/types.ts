@@ -163,6 +163,7 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     log_activity: 'Log Activity',
     create_task: 'Create Task',
     create_conversation: 'Open Inbox Conversation',
+    parse_alert: 'Read Alert',
     update_record: 'Update Record',
     delete_record: 'Delete Record',
     query_data: 'Query Data',

@@ -2,9 +2,9 @@ name: Deploy prepare
 description: >-
   Works out what a deploy ships: path-filter change detection (filters.yml),
   the module API workers and Vercel apps that changed, and the deploy plan
-  (.github/scripts/deploy-plan.mjs). Used by deploy.yml here and by the
-  private deploy repo, which checks this repo out at the commit it deploys
-  (docs/plans/main-only-private-deploys.md). Expects this repo checked out at
+  (.github/scripts/deploy-plan.mjs). Used by the deploy workflow of the
+  private repo weldsuite-deploy, which checks this repo out at the commit it
+  deploys (ADR OPS-018, docs/plans/main-only-private-deploys.md). Expects this repo checked out at
   the workspace root with full history (fetch-depth: 0).
 
 inputs:
@@ -50,6 +50,9 @@ outputs:
   run_d1_schedule_migrations:
     description: '"true" when the schedule index D1 migrations changed.'
     value: ${{ steps.plan.outputs.d1_schedule_migrations }}
+  run_hosted_apps:
+    description: '"true" when the first-party hosted apps (deploy-hosted-apps) may have changed.'
+    value: ${{ steps.plan.outputs.hosted_apps }}
   run_d1_migrations:
     description: '"true" when the D1 migrations job runs.'
     value: ${{ steps.plan.outputs.run_d1_migrations }}

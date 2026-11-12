@@ -124,7 +124,13 @@ templates).
    tokens and an upload key's random segment, and what a signing route
    derives from the current second (an `expiresAt` within two days of now, a
    signed URL's `exp` and `sig`). Rust's signature is still checked: the
-   reads that redeem it run on both backends.
+   reads that redeem it run on both backends. Whole seconds counted to the
+   moment of the write, next to the instant they were counted to (WeldDesk's
+   `resolutionSeconds` and `resolvedAt`, `firstResponseSeconds` and
+   `firstResponseAt`; `CLOCK_SECONDS` in `conformance.ts`), may differ by
+   exactly what the two runs' instants differ by (`alignClockSeconds`): the
+   runs read "now" milliseconds apart, so the count can fall either side of
+   a second. Equal instants still compare exactly.
 5. Third-party APIs (Clerk's Backend API today) are ports
    (`weldsuite_ports::Identity`). In conformance mode Rust's calls go through
    the harness's outbound bridge (`outbound-bridge.ts`,

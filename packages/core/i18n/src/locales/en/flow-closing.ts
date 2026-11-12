@@ -1,8 +1,8 @@
 /**
  * WeldFlow closing a project, lessons learned and templates (project-control slice F). Strings of the slice go here, in en and nl.
  *
- * `close` is the Close project page, `templates` the Templates page (and the
- * "Save as template" dialog the two share). Counts that read "1 task" / "2
+ * `close` is the Close project page, `templates` the "Save as template" dialog
+ * (on the Close page and in the project menu). Counts that read "1 task" / "2
  * tasks" are plural objects: pick one with `plural(count, forms)`.
  */
 export const flowClosing = {
@@ -339,126 +339,8 @@ export const flowClosing = {
     },
   },
 
-  // ── Templates page ────────────────────────────────────────────────────────
+  // ── Save as template ─────────────────────────────────────────────────────
   templates: {
-    title: 'New project from template',
-    description: 'A template sets up phases, tasks, boards, RAID items, change rules and reporting in one go.',
-
-    gallery: {
-      title: 'Templates · {count}',
-      search: 'Search templates',
-      loadingLabel: 'Loading templates',
-      badge: { shared: 'Shared', private: 'Only you' },
-      meta: {
-        weeks: { one: '{count} week', other: '{count} weeks' },
-        tasks: { one: '{count} task', other: '{count} tasks' },
-        used: { one: 'used {count} time', other: 'used {count} times' },
-        neverUsed: 'not used yet',
-      },
-      emptyTitle: 'No templates yet',
-      emptyManage: 'Save a finished project as a template, and everyone can start the next one from it.',
-      emptyMember: 'Ask someone who manages templates to save a project as a template.',
-      noMatchTitle: 'No templates match your search',
-      noMatchDescription: 'Try another word, or clear the search.',
-      saveProject: 'Save a project as template…',
-      errorTitle: 'The templates could not be loaded',
-      errorDescription: 'Check your connection and try again.',
-      forbiddenTitle: 'No access to templates',
-      forbiddenDescription: 'Starting a project from a template needs permission to create projects.',
-    },
-
-    preview: {
-      selectPrompt: 'Select a template to see what it creates.',
-      loadingLabel: 'Loading the template',
-      errorTitle: 'The template could not be loaded',
-      errorDescription: 'It may have been deleted, or no longer be valid.',
-      sharedWith: 'Shared with the workspace',
-      onlyYou: 'Only you can see this template',
-      edit: 'Edit',
-      delete: 'Delete',
-      editAria: 'Edit template {name}',
-      deleteAria: 'Delete template {name}',
-      tiles: {
-        length: 'Length',
-        tasks: 'Tasks',
-        milestones: 'Milestones',
-        deliverables: 'Deliverables',
-        weeks: { one: '{count} week', other: '{count} weeks' },
-      },
-      phases: {
-        title: 'Phases and gates',
-        empty: 'This template has no phases.',
-        weeks: 'Week {from}–{to}',
-        week: 'Week {week}',
-        tasks: { one: '{count} task', other: '{count} tasks' },
-        gate: { one: 'Gate: {count} criterion', other: 'Gate: {count} criteria' },
-        noGate: 'No gate criteria',
-      },
-      milestones: {
-        title: 'Milestones',
-        empty: 'This template has no milestones.',
-        endOfWeek: 'End of week {week}',
-      },
-      stages: { title: 'Board stages', empty: 'This template has no board stages.' },
-      deliverables: { title: 'Deliverables', empty: 'This template has no deliverables.' },
-      raid: { title: 'Starting RAID items', empty: 'No starting risks or assumptions.' },
-      control: {
-        title: 'Control and reporting',
-        changeApproval: 'Change approval',
-        changeBoard: 'Change board',
-        statusReport: 'Status report',
-        riskAppetite: 'Risk appetite',
-        notSet: 'Not set',
-        changeApprovalValue: 'Project manager up to {cost} and {days}, change board above',
-        changeBoardEmpty: 'No change board yet',
-        workingDays: { one: '{count} working day', other: '{count} working days' },
-        statusReportValue: '{cadence} on {weekday} at {time} to {recipients}',
-        cadence: { weekly: 'Every week', biweekly: 'Every other week', monthly: 'Every month' },
-        recipients: {
-          sponsor: 'the sponsor',
-          all_stakeholders: 'the sponsor and all stakeholders',
-          portal_contacts: 'the client portal contacts',
-        },
-        riskAppetiteValue: 'Score {score} of 25',
-      },
-    },
-
-    form: {
-      title: 'Create project',
-      selectFirst: 'Select a template to create a project from it.',
-      noAccess: 'Creating a project needs permission to create projects.',
-      name: 'Project name',
-      namePlaceholder: 'For example: Supplier portal',
-      client: 'Client',
-      clientHint: 'From WeldCRM',
-      clientPlaceholder: 'Choose a client (optional)',
-      clientSearch: 'Search companies',
-      clientLoading: 'Loading companies…',
-      clientClear: 'Remove the client',
-      start: 'Start',
-      end: 'End',
-      datesHint: 'Dates move with the start. Tasks keep their offsets and dependencies.',
-      roles: {
-        title: 'Roles to fill',
-        none: 'This template has no roles to fill.',
-      },
-      copy: {
-        title: 'Copy from the template',
-        phases: 'Phases and gates',
-        milestones: 'Milestones',
-        deliverables: 'Deliverables',
-        tasks: 'Tasks with dependencies',
-        stages: 'Board stages',
-        raid: 'Starting risks and assumptions',
-        changeControl: 'Change-control rules',
-        statusReport: 'Status report schedule',
-      },
-      submit: 'Create project',
-      submitting: 'Creating…',
-      created: 'Project “{name}” created',
-      failed: 'The project could not be created',
-    },
-
     saveDialog: {
       title: 'Save as template',
       description:
@@ -474,27 +356,7 @@ export const flowClosing = {
       sharedHint: 'Everyone who can create projects can use it. Off: only you can.',
       submit: 'Save template',
       saved: 'Template “{name}” saved',
-      openTemplates: 'Open templates',
       failed: 'The template could not be saved',
-    },
-
-    editDialog: {
-      title: 'Edit template',
-      name: 'Template name',
-      descriptionLabel: 'Description',
-      shared: 'Share with the workspace',
-      sharedHint: 'Everyone who can create projects can use it. Off: only you can.',
-      submit: 'Save changes',
-      saved: 'Template updated',
-      failed: 'The template could not be updated',
-    },
-
-    deleteConfirm: {
-      title: 'Delete “{name}”?',
-      description: 'Projects already made from it are not affected. This cannot be undone.',
-      confirm: 'Delete template',
-      success: 'Template deleted',
-      failed: 'The template could not be deleted',
     },
   },
 };

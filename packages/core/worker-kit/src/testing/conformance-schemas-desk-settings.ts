@@ -33,7 +33,10 @@ import {
   helpdeskAnalyticsDataPointSchema,
   helpdeskAnalyticsLayoutsUpdatedSchema,
   helpdeskAnalyticsReportSchema,
+  helpdeskReportScheduleSchema,
+  helpdeskReportScheduleSendResultSchema,
 } from '@weldsuite/core-api-client/schemas/helpdesk-analytics';
+import { deskPhoneReportSchema, deskWallboardSchema } from '@weldsuite/core-api-client/schemas/helpdesk-live-reports';
 import type { RouteSchema } from './conformance-schemas';
 
 export const DESK_SETTINGS_ROUTES: RouteSchema[] = [
@@ -99,4 +102,12 @@ export const DESK_SETTINGS_ROUTES: RouteSchema[] = [
   { method: 'DELETE', route: '/api/helpdesk-analytics/charts/:chartId', envelope: 'single', data: deskIdRefSchema },
   { method: 'POST', route: '/api/helpdesk-analytics/charts/data', envelope: 'array', data: helpdeskAnalyticsDataPointSchema },
   { method: 'POST', route: '/api/helpdesk-analytics/charts/batch-data', envelope: 'single', data: helpdeskAnalyticsBatchDataSchema },
+  // helpdesk analytics: the live reports (the CSV exports answer text/csv, so they have no schema)
+  { method: 'GET', route: '/api/helpdesk-analytics/wallboard', envelope: 'single', data: deskWallboardSchema },
+  { method: 'GET', route: '/api/helpdesk-analytics/phone', envelope: 'single', data: deskPhoneReportSchema },
+  // helpdesk analytics: scheduled report emails
+  { method: 'GET', route: '/api/helpdesk-analytics/schedules', envelope: 'array', data: helpdeskReportScheduleSchema },
+  { method: 'POST', route: '/api/helpdesk-analytics/schedules', envelope: 'single', data: helpdeskReportScheduleSchema },
+  { method: 'PATCH', route: '/api/helpdesk-analytics/schedules/:id', envelope: 'single', data: helpdeskReportScheduleSchema },
+  { method: 'POST', route: '/api/helpdesk-analytics/schedules/:id/send', envelope: 'single', data: helpdeskReportScheduleSendResultSchema },
 ];

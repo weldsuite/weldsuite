@@ -14,7 +14,7 @@
  */
 
 import { isNull } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type {
   DeskConversation,
@@ -24,7 +24,7 @@ import type {
 } from '../schema/desk-conversations';
 import type { DeskAttributeChange } from '../schema/desk-messages';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 export const DESK_IMPACTS = ['low', 'medium', 'high'] as const satisfies readonly DeskImpact[];
 export const DESK_URGENCIES = ['low', 'medium', 'high'] as const satisfies readonly DeskUrgency[];

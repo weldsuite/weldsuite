@@ -45,11 +45,13 @@ const ALLOW_HEADERS: [&str; 10] = [
     "idempotency-key",
 ];
 
-const EXPOSE_HEADERS: [&str; 3] = [
+const EXPOSE_HEADERS: [&str; 4] = [
     "x-request-id",
     "x-partner-warnings",
     // A client reads it off a 503 WORKSPACE_MOVING to know how long to wait.
     "retry-after",
+    // The file name of a download fetched with the session token.
+    "content-disposition",
 ];
 
 /// The `Access-Control-Allow-Origin` value for a request `Origin`: the origin

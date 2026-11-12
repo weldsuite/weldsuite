@@ -9,6 +9,7 @@ import {
   Video,
   SquareCheck,
   Folder,
+  FileText,
   History,
 } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
@@ -32,6 +33,7 @@ export interface PersonTab extends ObjectPanelTabDescriptor {
     | 'meetings'
     | 'tasks'
     | 'files'
+    | 'forms'
     | 'audit';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
@@ -49,5 +51,6 @@ export const PERSON_TABS: PersonTab[] = [
   { id: 'meetings', label: 'Meetings', icon: Video, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'tasks', label: 'Tasks', icon: SquareCheck, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'files', label: 'Files', icon: Folder, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  { id: 'forms', label: 'Forms', icon: FileText, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'audit', label: 'Audit Log', icon: History, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
 ];

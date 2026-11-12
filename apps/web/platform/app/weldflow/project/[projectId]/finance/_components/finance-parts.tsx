@@ -24,11 +24,6 @@ export function FinanceLoadingState() {
   const { copy } = useFinanceEnv();
   return (
     <div role="status" aria-busy="true" aria-label={copy.title} className="flex flex-col gap-4">
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
-        {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-24 rounded-lg" />
-        ))}
-      </div>
       <Skeleton className="h-80 rounded-lg" />
     </div>
   );

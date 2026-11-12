@@ -95,6 +95,7 @@ fn doubles() -> Doubles {
         flags: Arc::new(DefaultFlags),
         portal_url: Some("https://sign.test".to_owned()),
         environment: Some("test".to_owned()),
+        app_url: None,
     };
     Doubles {
         events,

@@ -20,10 +20,18 @@
  * (`audienceScope`) so the project is in `aud`, which the backend checks
  * (`OIDC_AUDIENCE`). Refreshes reuse the granted scopes, so a refreshed token
  * stays on its workspace.
+ *
+ * The token only knows organization ids and generated domains. Names, slugs
+ * and workspaces created since the token was issued come from WeldSuite's
+ * own list (`workspaces.ts`), read once a person is signed in and kept in
+ * storage so the next page load has them at once.
  */
 
 import { User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
+import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
+import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
+import { endProviderSession } from './sign-in-api';
 import {
   activeOrganizationId,
   DEFAULT_ORG_CLAIM,
@@ -42,6 +50,7 @@ import {
 export const OIDC_CALLBACK_PATH = '/auth/sso-callback';
 export const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email', 'offline_access', ZITADEL_ROLES_SCOPE];
 const MEMBERSHIPS_KEY = 'weldsuite:oidc:memberships';
+const DIRECTORY_KEY = 'weldsuite:oidc:workspaces';
 
 export type OidcSessionConfig = OidcAuthConfig & { clientId: string };
 
@@ -50,6 +59,8 @@ export interface OidcSnapshot {
   person: OidcPerson | null;
   organizations: readonly OidcOrganization[];
   activeOrgId: string | null;
+  /** WeldSuite's workspace list is being read. */
+  isLoadingWorkspaces: boolean;
 }
 
 interface SignInState {
@@ -63,6 +74,11 @@ interface StoredMemberships {
   organizations: OidcOrganization[];
 }
 
+interface StoredDirectory {
+  sub: string;
+  workspaces: WorkspaceDirectoryEntry[];
+}
+
 export interface OidcSessionOptions {
   /** The SPA origin; defaults to `window.location.origin`. */
   origin?: string;
@@ -70,6 +86,8 @@ export interface OidcSessionOptions {
   storage?: Storage;
   /** Overrides for the UserManager (tests). */
   settings?: Partial<UserManagerSettings>;
+  /** Reads WeldSuite's workspace list; defaults to `GET /api/workspaces`. */
+  loadWorkspaces?: LoadWorkspaces;
 }
 
 function safeStorage(storage: Storage | undefined): Storage | undefined {
@@ -98,15 +116,28 @@ export class OidcSession {
   private readonly baseScope: string;
   private readonly storage: Storage | undefined;
   private readonly origin: string;
+  private readonly loadWorkspaces: LoadWorkspaces;
+  /** WeldSuite's own sign-in screens: the backend holds the provider session in a cookie. */
+  private readonly platformSignIn: boolean;
   private user: User | null = null;
-  private snapshot: OidcSnapshot = { isLoaded: false, person: null, organizations: [], activeOrgId: null };
+  private snapshot: OidcSnapshot = {
+    isLoaded: false,
+    person: null,
+    organizations: [],
+    activeOrgId: null,
+    isLoadingWorkspaces: false,
+  };
   private readonly listeners = new Set<() => void>();
   private refreshing: Promise<User | null> | null = null;
   private initialised: Promise<void> | null = null;
+  /** The person and active workspace the directory was last read for. */
+  private directoryReadFor: string | null = null;
+  private directoryReading: Promise<void> | null = null;
 
   constructor(config: OidcSessionConfig, options: OidcSessionOptions = {}) {
     this.origin = options.origin ?? (typeof window === 'undefined' ? '' : window.location.origin);
     this.storage = safeStorage(options.storage);
+    this.loadWorkspaces = options.loadWorkspaces ?? loadWorkspacesFromApi;
     this.orgClaim = config.orgClaim ?? DEFAULT_ORG_CLAIM;
     this.organizationScope = config.organizationScope ?? ZITADEL_ORG_ROLES_SCOPE;
     const audienceScope = config.audienceScope ?? ZITADEL_AUDIENCE_SCOPE;
@@ -114,6 +145,7 @@ export class OidcSession {
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
     this.accountUrl = config.accountUrl;
+    this.platformSignIn = config.signIn === 'platform';
     this.manager = new UserManager({
       authority: config.issuer,
       client_id: config.clientId,
@@ -182,6 +214,9 @@ export class OidcSession {
 
   async signOut(redirectUrl?: string): Promise<void> {
     this.forgetMemberships();
+    // The session the sign-in screens opened: without this the next visit to
+    // `/auth/login` would sign the same person straight back in.
+    if (this.platformSignIn) await endProviderSession();
     const post = redirectUrl ? `${this.origin}${sameOriginPath(redirectUrl)}` : undefined;
     try {
       await this.manager.signoutRedirect(post ? { post_logout_redirect_uri: post } : undefined);
@@ -192,15 +227,44 @@ export class OidcSession {
     }
   }
 
-  /** Activate or switch workspace: a token requested for it (see the file comment). */
-  async setActiveOrganization(orgId: string | null): Promise<void> {
+  /**
+   * Activate or switch workspace: a token requested for it (see the file
+   * comment), coming back to `returnTo`, or else to `returnPathFor(orgId)`.
+   */
+  async setActiveOrganization(orgId: string | null, returnTo?: string): Promise<void> {
     if (!orgId || orgId === this.snapshot.activeOrgId || !this.organizationScope) return;
-    await this.signIn({ returnTo: currentPath(), orgId });
+    await this.signIn({ returnTo: returnTo ?? this.returnPathFor(orgId), orgId });
   }
 
   /** Re-read the profile (refresh with the refresh token). */
   async reload(): Promise<void> {
     await this.refresh();
+  }
+
+  /** Read WeldSuite's workspace list again (after creating a workspace server-side). */
+  async reloadWorkspaces(): Promise<void> {
+    const person = this.snapshot.person;
+    if (!person) return;
+    this.directoryReadFor = null;
+    this.readDirectory(person.id, this.snapshot.activeOrgId);
+    this.publish(this.snapshot.isLoaded);
+    await this.directoryReading;
+  }
+
+  /**
+   * Where to come back after switching to `orgId`: this page, unless its URL
+   * names another workspace. That page belongs to the workspace it names,
+   * which the new token may not even list (the "Workspace not found" screen
+   * after creating one), so the switch lands on the new workspace's home.
+   */
+  private returnPathFor(orgId: string): string {
+    const here = currentPath();
+    const named = typeof window === 'undefined' ? null : parseWorkspacePath(window.location.pathname);
+    if (!named) return here;
+    const target = this.snapshot.organizations.find((o) => o.id === orgId);
+    const namesTarget =
+      named.ref === orgId || (!!target?.slug && target.slug.toLowerCase() === named.ref.toLowerCase());
+    return namesTarget ? here : workspacePath(target?.slug || orgId, '/');
   }
 
   private refresh(): Promise<User | null> {
@@ -232,9 +296,56 @@ export class OidcSession {
   private forgetMemberships(): void {
     try {
       this.storage?.removeItem(MEMBERSHIPS_KEY);
+      this.storage?.removeItem(DIRECTORY_KEY);
     } catch {
       // Nothing stored.
     }
+  }
+
+  /** WeldSuite's workspace list from the last read, for this person. */
+  private storedDirectory(sub: string): WorkspaceDirectoryEntry[] {
+    try {
+      const raw = this.storage?.getItem(DIRECTORY_KEY);
+      const parsed = raw ? (JSON.parse(raw) as StoredDirectory) : null;
+      return parsed?.sub === sub && Array.isArray(parsed.workspaces) ? parsed.workspaces : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * What a successful read said, an empty list included: the person belongs
+   * to no workspace (the backend answers an error, never `[]`, when its own
+   * read fails, and a failed read never gets here).
+   */
+  private rememberDirectory(sub: string, workspaces: WorkspaceDirectoryEntry[]): void {
+    try {
+      this.storage?.setItem(DIRECTORY_KEY, JSON.stringify({ sub, workspaces } satisfies StoredDirectory));
+    } catch {
+      // Storage blocked: names come back on the next read.
+    }
+  }
+
+  /**
+   * Read the list once per person and active workspace (a token without a
+   * workspace may be refused; the next one is asked again). Failures keep
+   * what is stored.
+   */
+  private readDirectory(sub: string, activeOrgId: string | null): void {
+    const key = `${sub}|${activeOrgId ?? ''}`;
+    if (this.directoryReadFor === key) return;
+    this.directoryReadFor = key;
+    const reading = (async () => {
+      const token = await this.getToken().catch(() => null);
+      const workspaces = token ? await this.loadWorkspaces(token).catch(() => null) : null;
+      if (workspaces && this.snapshot.person?.id === sub) this.rememberDirectory(sub, workspaces);
+    })();
+    this.directoryReading = reading;
+    void reading.finally(() => {
+      if (this.directoryReading !== reading) return;
+      this.directoryReading = null;
+      this.publish(this.snapshot.isLoaded);
+    });
   }
 
   /** The workspace list from the last unscoped token, for this person. */
@@ -258,18 +369,24 @@ export class OidcSession {
   private publish(loaded: boolean): void {
     const claims = (this.user?.profile ?? {}) as Claims;
     const person = this.user ? personFromClaims(claims) : null;
+    const activeOrgId = person ? activeOrganizationId(claims, this.orgClaim) : null;
     let organizations: OidcOrganization[] = [];
     if (person) {
       // The stored list, plus whatever this token names (a narrowed token names one).
       const merged = new Map(this.storedMemberships(person.id).map((o) => [o.id, o]));
       for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);
+      // WeldSuite's name and slug over the provider's domain; workspaces the
+      // token can't name yet (created since it was issued) join the list.
+      for (const { id, name, slug } of this.storedDirectory(person.id)) merged.set(id, { id, name, slug });
       organizations = [...merged.values()];
+      if (loaded) this.readDirectory(person.id, activeOrgId);
     }
     this.snapshot = {
       isLoaded: loaded,
       person,
       organizations,
-      activeOrgId: person ? activeOrganizationId(claims, this.orgClaim) : null,
+      activeOrgId,
+      isLoadingWorkspaces: this.directoryReading !== null,
     };
     for (const listener of this.listeners) listener();
   }

@@ -53,6 +53,26 @@ const agentToolEntrySchema = z.object({
 /** A developer's preview session (`.returning({ url, expiresAt })`). */
 const devSessionSchema = z.object({ url: z.string(), expiresAt: timestamp });
 
+/**
+ * An audit log as `/v1/audit-logs` shows it (`PublicAuditLog`). Strict: the
+ * `data` snapshot and the metadata are never part of it.
+ */
+const publicAuditLogSchema = z
+  .object({
+    id: z.string(),
+    createdAt: timestamp,
+    action: z.string(),
+    entityType: z.string(),
+    entityId: z.string(),
+    description: z.string(),
+    changes: z.record(z.string(), z.unknown()).nullable(),
+    performedBy: z.string().nullable(),
+    performedByName: z.string().nullable(),
+    ipAddress: z.string().nullable(),
+    source: z.string().nullable(),
+  })
+  .strict();
+
 export const EXTERNAL_ROUTES: RouteSchema[] = [
   {
     method: 'GET',
@@ -67,6 +87,8 @@ export const EXTERNAL_ROUTES: RouteSchema[] = [
     data: z.object({ status: z.literal('connected'), workspace: workspaceRefSchema, timestamp }),
   },
   { method: 'POST', route: '/v1/oauth/token', envelope: 'body', data: oauthTokenSchema },
+  { method: 'GET', route: '/v1/audit-logs', envelope: 'list', data: publicAuditLogSchema },
+  { method: 'GET', route: '/v1/audit-logs/:id', envelope: 'single', data: publicAuditLogSchema },
   { method: 'GET', route: '/v1/app-storage/collections/:collection/records', envelope: 'list', data: appRecordSchema },
   { method: 'POST', route: '/v1/app-storage/collections/:collection/records', envelope: 'single', data: appRecordSchema },
   { method: 'GET', route: '/v1/app-storage/collections/:collection/records/:id', envelope: 'single', data: appRecordSchema },

@@ -1,7 +1,8 @@
 //! `/api/desk/phone` (`routes/desk-phone`): the WeldDesk phone channel's
 //! voice agents (each kept in sync with a Telnyx AI assistant when Telnyx is
 //! configured), the inbound route of each number, and the live transfer of
-//! an inbound call.
+//! an inbound call. The member's softphone and the call queue are
+//! `desk_phone_softphone` and `desk_phone_queue_routes`.
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -11,6 +12,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 
+use crate::desk_phone_schema::{self as schema, Options};
 use crate::js::Ordered;
 use crate::telnyx::{AssistantInput, Telnyx, encode_client_state};
 use crate::tool_auth::{self, Claims};
@@ -112,10 +114,25 @@ fn call_api_origin(origin: &str) -> String {
     }
 }
 
+/// `originForPathFrom(getHelpdeskWorkerUrl(env), path) + path` for a
+/// call-api path: a URL Telnyx calls or fetches, on call-api's own host.
+fn public_url(environment: Option<&str>, override_url: Option<&str>, path: &str) -> String {
+    let base = helpdesk_worker_url(environment, override_url);
+    format!("{}{path}", call_api_origin(&base))
+}
+
+/// [`public_url`] with the request's `ENVIRONMENT` and `APP_API_PUBLIC_URL`.
+pub(crate) fn call_api_url(env: Option<&weldsuite_kit::RequestEnv>, path: &str) -> String {
+    public_url(
+        env_value(env, "ENVIRONMENT").as_deref(),
+        env_value(env, "APP_API_PUBLIC_URL").as_deref(),
+        path,
+    )
+}
+
 /// `lookupCrmUrl(env)`: where Telnyx calls the `lookup_crm` tool.
 pub(crate) fn lookup_crm_url(environment: Option<&str>, override_url: Option<&str>) -> String {
-    let base = helpdesk_worker_url(environment, override_url);
-    format!("{}{LOOKUP_CRM_PATH}", call_api_origin(&base))
+    public_url(environment, override_url, LOOKUP_CRM_PATH)
 }
 
 /// `lookupCrmWebhookTool({ lookupCrmUrl, toolAuthHeader })`.
@@ -198,6 +215,7 @@ fn route_json(row: &Value) -> Value {
         "voiceAgentId": row["voiceAgentId"],
         "forwardToE164": row["forwardToE164"],
         "schedule": row["schedule"],
+        "options": row["options"],
     })
 }
 
@@ -490,6 +508,8 @@ struct RouteInput {
     action: String,
     voice_agent_id: Option<String>,
     forward_to_e164: Option<String>,
+    /// `None` when left out or null.
+    options: Option<Options>,
 }
 
 fn read_route(issues: &mut Issues, fields: &Map<String, Value>) -> RouteInput {
@@ -504,12 +524,7 @@ fn read_route(issues: &mut Issues, fields: &Map<String, Value>) -> RouteInput {
         )
         .into_option();
     let action = issues
-        .choice(
-            fields,
-            "action",
-            Presence::Required,
-            &["ai_agent", "forward", "hangup"],
-        )
+        .choice(fields, "action", Presence::Required, &schema::ROUTE_ACTIONS)
         .into_option();
     let voice_agent_id = issues
         .text_with(fields, "voiceAgentId", Presence::Nullish, Text::default())
@@ -531,15 +546,30 @@ fn read_route(issues: &mut Issues, fields: &Map<String, Value>) -> RouteInput {
             "Must be E.164",
         )
         .into_option();
-    // `.superRefine` runs when no field failed its type (or enum) check.
-    let aborted = issues.issues_since(start).iter().any(|issue| {
-        matches!(
-            issue["code"].as_str(),
-            Some("invalid_type" | "invalid_enum_value")
-        )
+    // The options' own refinements (the menu's, its choices') settle
+    // after every check of the body, and before the route's.
+    let mut deferred = Vec::new();
+    let mut options = None;
+    let mut options_aborted = false;
+    issues.nested(fields, "options", Presence::Nullish, |issues, fields| {
+        let (read, aborted) = schema::read_options(issues, fields, &mut deferred);
+        options = Some(read);
+        options_aborted = aborted;
     });
+    // `.superRefine` runs when no field failed its type (or enum) check.
+    let aborted = options_aborted || schema::aborted_since(issues, start);
+    for issue in deferred {
+        issues.push_raw(issue);
+    }
     if !aborted {
         let action = action.as_deref().unwrap_or_default();
+        // `!data.options?.menu`: an object there got past its type check.
+        if action == "menu" && !fields.get("options").is_some_and(|o| o["menu"].is_object()) {
+            issues.custom_at(
+                &[json!("options"), json!("menu")],
+                "options.menu is required for menu routes",
+            );
+        }
         if action == "ai_agent" && voice_agent_id.as_deref().is_none_or(str::is_empty) {
             issues.custom(
                 "voiceAgentId",
@@ -558,7 +588,25 @@ fn read_route(issues: &mut Issues, fields: &Map<String, Value>) -> RouteInput {
         action: action.unwrap_or_default(),
         voice_agent_id,
         forward_to_e164,
+        options,
     }
+}
+
+const LIVE_PHONE_NUMBER: &str =
+    "select id from voip_phone_numbers where id = $1 and deleted_at is null limit 1";
+const LIVE_TEAM: &str =
+    "select id from helpdesk_departments where id = $1 and deleted_at is null limit 1";
+
+/// The id of a row that is not deleted, by one of the lookups above.
+async fn live_id(
+    caller: &Caller,
+    lookup: &'static str,
+    id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(lookup)
+        .bind(id)
+        .fetch_optional(&caller.db)
+        .await
 }
 
 /// `PUT /api/desk/phone/routes`: a number's inbound route, created or
@@ -568,20 +616,41 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
         Ok(data) => data,
         Err(response) => return *response,
     };
+    // The new actions keep their settings in `options`; the old ones keep
+    // the columns.
+    let classic = matches!(data.action.as_str(), "ai_agent" | "forward" | "hangup");
+    let voice_agent_id = data.voice_agent_id.filter(|_| classic);
+    let forward_to_e164 = data.forward_to_e164.filter(|_| classic);
+    let options = schema::normalize(&data.action, data.options.as_ref());
     let result = async {
-        let phone: Option<String> = sqlx::query_scalar(
-            "select id from voip_phone_numbers where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&data.phone_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if phone.is_none() {
+        if live_id(&caller, LIVE_PHONE_NUMBER, &data.phone_id)
+            .await?
+            .is_none()
+        {
             return Ok(ApiError::not_found("Phone number", Some(&data.phone_id)).into_response());
         }
-        if let Some(agent) = data.voice_agent_id.as_deref().filter(|a| !a.is_empty())
+        if let Some(agent) = voice_agent_id.as_deref().filter(|a| !a.is_empty())
             && live_agent(&caller, agent).await?.is_none()
         {
             return Ok(ApiError::not_found("Voice agent", Some(agent)).into_response());
+        }
+        // A menu's AI choices need an existing, enabled voice agent.
+        for agent in schema::referenced_voice_agent_ids(options.as_ref()) {
+            let Some(row) = live_agent(&caller, &agent).await? else {
+                return Ok(ApiError::not_found("Voice agent", Some(&agent)).into_response());
+            };
+            if row["enabled"] != true {
+                return Ok(
+                    ApiError::bad_request(format!("Voice agent {agent} is disabled"))
+                        .into_response(),
+                );
+            }
+        }
+        // Teams must exist.
+        for team in schema::referenced_team_ids(options.as_ref()) {
+            if live_id(&caller, LIVE_TEAM, &team).await?.is_none() {
+                return Ok(ApiError::not_found("Team", Some(&team)).into_response());
+            }
         }
         let existing: Option<String> = sqlx::query_scalar(
             "select id from desk_phone_routes where voip_phone_number_id = $1 limit 1",
@@ -593,13 +662,14 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
         if let Some(route_id) = existing {
             let row: Value = sqlx::query_scalar(
                 "update desk_phone_routes set action = $2, voice_agent_id = $3, forward_to_e164 = $4,
-                     updated_at = $5::timestamp
+                     options = $5, updated_at = $6::timestamp
                  where id = $1 returning to_jsonb(desk_phone_routes)",
             )
             .bind(&route_id)
             .bind(&data.action)
-            .bind(&data.voice_agent_id)
-            .bind(&data.forward_to_e164)
+            .bind(&voice_agent_id)
+            .bind(&forward_to_e164)
+            .bind(&options)
             .bind(&now)
             .fetch_one(&caller.db)
             .await?;
@@ -607,16 +677,17 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
         }
         let row: Value = sqlx::query_scalar(
             "insert into desk_phone_routes (id, created_at, updated_at, voip_phone_number_id, action,
-                 voice_agent_id, forward_to_e164, schedule)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, null)
+                 voice_agent_id, forward_to_e164, schedule, options)
+             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, null, $7)
              returning to_jsonb(desk_phone_routes)",
         )
         .bind(weldsuite_kit::generate_id("dpr"))
         .bind(&now)
         .bind(&data.phone_id)
         .bind(&data.action)
-        .bind(&data.voice_agent_id)
-        .bind(&data.forward_to_e164)
+        .bind(&voice_agent_id)
+        .bind(&forward_to_e164)
+        .bind(&options)
         .fetch_one(&caller.db)
         .await?;
         Ok::<_, sqlx::Error>(Created(route_json(&row)).into_response())
@@ -686,12 +757,9 @@ pub(crate) async fn forward_live(
     Data(json!({ "ok": true })).into_response()
 }
 
-/// `env_value` for the webhook's tool settings.
+/// `lookupCrmUrl(env)` with the request's settings, for the webhook.
 pub(crate) fn tool_url_for(env: Option<&weldsuite_kit::RequestEnv>) -> String {
-    lookup_crm_url(
-        env_value(env, "ENVIRONMENT").as_deref(),
-        env_value(env, "APP_API_PUBLIC_URL").as_deref(),
-    )
+    call_api_url(env, LOOKUP_CRM_PATH)
 }
 
 #[cfg(test)]

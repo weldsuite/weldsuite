@@ -1,0 +1,258 @@
+{
+  "name": "Condition operators, traced through a text variable",
+  "definition": {
+    "hidden": [{ "name": "src" }],
+    "variables": [{ "name": "hits", "type": "text" }],
+    "blocks": [
+      { "id": "b_text", "ref": "text", "type": "short_text", "title": "Text" },
+      { "id": "b_num", "ref": "num", "type": "number", "title": "Number", "properties": { "decimals": 1 } },
+      {
+        "id": "b_pick",
+        "ref": "pick",
+        "type": "multiple_choice",
+        "title": "Pick",
+        "properties": {
+          "multiple": true,
+          "allowOther": true,
+          "choices": [
+            { "id": "c_1", "label": "One" },
+            { "id": "c_2", "label": "Two" },
+            { "id": "c_3", "label": "Three" }
+          ]
+        }
+      },
+      {
+        "id": "b_grid",
+        "ref": "grid",
+        "type": "matrix",
+        "title": "Grid",
+        "properties": {
+          "rows": [
+            { "id": "r_1", "label": "Speed" },
+            { "id": "r_2", "label": "Price" }
+          ],
+          "columns": [
+            { "id": "k_1", "label": "Bad" },
+            { "id": "k_2", "label": "Good" }
+          ]
+        }
+      },
+      { "id": "b_who", "ref": "who", "type": "contact_info", "title": "Who" },
+      { "id": "b_when", "ref": "when", "type": "date", "title": "When" },
+      { "id": "b_min", "ref": "min", "type": "number", "title": "Minimum" },
+      { "id": "b_end", "ref": "end_statement", "type": "statement", "title": "The end" }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "End" }],
+    "logic": [
+      {
+        "blockId": "b_end",
+        "calculations": [
+          {
+            "id": "x_a",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "contains", "right": { "type": "constant", "value": "ell" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "A" }
+          },
+          {
+            "id": "x_b",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "not_contains", "right": { "type": "constant", "value": "xyz" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "B" }
+          },
+          {
+            "id": "x_c",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "starts_with", "right": { "type": "constant", "value": "HE" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "C" }
+          },
+          {
+            "id": "x_d",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "ends_with", "right": { "type": "constant", "value": "lo" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "D" }
+          },
+          {
+            "id": "x_e",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "is", "right": { "type": "constant", "value": " hello " } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "E" }
+          },
+          {
+            "id": "x_f",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_text" }, "operator": "is_not", "right": { "type": "constant", "value": "world" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "F" }
+          },
+          {
+            "id": "x_g",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_num" }, "operator": "greater_or_equal", "right": { "type": "constant", "value": 2.5 } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "G" }
+          },
+          {
+            "id": "x_h",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_num" }, "operator": "less_than", "right": { "type": "field", "id": "b_min" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "H" }
+          },
+          {
+            "id": "x_i",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_pick" }, "operator": "all_of", "right": { "type": "constant", "value": ["c_1", "other"] } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "I" }
+          },
+          {
+            "id": "x_j",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_pick" }, "operator": "none_of", "right": { "type": "constant", "value": ["c_3"] } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "J" }
+          },
+          {
+            "id": "x_k",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_pick" }, "operator": "is_not", "right": { "type": "constant", "value": "c_2" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "K" }
+          },
+          {
+            "id": "x_l",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_grid", "rowId": "r_1" }, "operator": "is", "right": { "type": "constant", "value": "k_2" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "L" }
+          },
+          {
+            "id": "x_m",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_grid", "rowId": "r_2" }, "operator": "is_empty" }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "M" }
+          },
+          {
+            "id": "x_n",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_who", "part": "email" }, "operator": "ends_with", "right": { "type": "constant", "value": "@example.com" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "N" }
+          },
+          {
+            "id": "x_o",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_when" }, "operator": "after", "right": { "type": "constant", "value": "2024-06-30" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "O" }
+          },
+          {
+            "id": "x_p",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "hidden", "name": "src" }, "operator": "is_not", "right": { "type": "constant", "value": "ads" } }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "P" }
+          },
+          {
+            "id": "x_q",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_grid" }, "operator": "is_answered" }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "Q" }
+          },
+          {
+            "id": "x_r",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_who", "part": "company" }, "operator": "is_empty" }] },
+            "variable": "hits",
+            "op": "add",
+            "value": { "type": "constant", "value": "R" }
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "every condition holds except the one on an empty hidden value",
+      "answers": {
+        "b_text": "Hello",
+        "b_num": 2.5,
+        "b_pick": { "choiceIds": ["c_1"], "other": "Four" },
+        "b_grid": { "r_1": ["k_2"] },
+        "b_who": { "firstName": "A", "lastName": "B", "email": "a@EXAMPLE.com" },
+        "b_when": "2024-07-01",
+        "b_min": 3
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_text", "b_num", "b_pick", "b_grid", "b_who", "b_when", "b_min", "b_end"],
+        "endingId": "e_end",
+        "variables": { "score": 0, "hits": "ABCDEFGHIJKLMNOQR" },
+        "errors": {},
+        "answers": {
+          "b_text": "Hello",
+          "b_num": 2.5,
+          "b_pick": { "choiceIds": ["c_1"], "other": "Four" },
+          "b_grid": { "r_1": ["k_2"] },
+          "b_who": { "firstName": "A", "lastName": "B", "email": "a@EXAMPLE.com" },
+          "b_when": "2024-07-01",
+          "b_min": 3
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "the opposite answers",
+      "answers": {
+        "b_text": "world",
+        "b_num": 1,
+        "b_pick": { "choiceIds": ["c_2", "c_3"] },
+        "b_grid": { "r_1": ["k_1"], "r_2": ["k_1"] },
+        "b_who": { "firstName": "A", "lastName": "B", "email": "a@test.org", "company": "Acme" },
+        "b_when": "2024-06-30",
+        "b_min": 1
+      },
+      "hidden": { "src": "ADS" },
+      "expect": {
+        "ok": true,
+        "path": ["b_text", "b_num", "b_pick", "b_grid", "b_who", "b_when", "b_min", "b_end"],
+        "endingId": "e_end",
+        "variables": { "score": 0, "hits": "BQ" },
+        "errors": {},
+        "answers": {
+          "b_text": "world",
+          "b_num": 1,
+          "b_pick": { "choiceIds": ["c_2", "c_3"] },
+          "b_grid": { "r_1": ["k_1"], "r_2": ["k_1"] },
+          "b_who": { "firstName": "A", "lastName": "B", "email": "a@test.org", "company": "Acme" },
+          "b_when": "2024-06-30",
+          "b_min": 1
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "nothing answered: only is_empty and the hidden value hold",
+      "answers": { "b_num": 2.55 },
+      "hidden": { "src": "search" },
+      "expect": {
+        "ok": false,
+        "path": ["b_text", "b_num", "b_pick", "b_grid", "b_who", "b_when", "b_min", "b_end"],
+        "endingId": "e_end",
+        "variables": { "score": 0, "hits": "MPR" },
+        "errors": { "b_num": { "code": "too_many_decimals" } },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ]
+}

@@ -244,10 +244,15 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         // org stash covers the reload either way.
       }
 
-      // Auto-select the new workspace as the active org right away.
+      // Auto-select the new workspace as the active org right away. Clerk
+      // switches in place and this dialog carries on below. An OIDC provider
+      // switches with a redirect and comes back to `returnTo`: /onboarding,
+      // which shows the new workspace's provisioning and then opens it
+      // (`ProvisioningScreen`; the pending org above tells it provisioning
+      // already started).
       if (setActive) {
         try {
-          await setActive({ organization: result.organizationId });
+          await setActive({ organization: result.organizationId, returnTo: '/onboarding' });
         } catch (err) {
           console.error('[Workspace] Error activating new org (continuing):', err);
         }

@@ -450,7 +450,7 @@ function buildPrompt(pr, deep) {
 2. \`task-enricher\`: interview me with dynamic questions until the spec is concrete. Append an \`## Enriched analysis\` block (with my approval) before continuing.
 3. \`weldsuite-dispatcher\`: classify and route to the specialist(s) above.
 4. \`bug-triage\`: reproduce the bug locally, write the fix plan with file paths + line numbers, do NOT write code yet.
-5. Implement on a new branch \`fix/${ids[0]}-<slug>\` off \`develop\`.
+5. Implement on a new branch \`fix/${ids[0]}-<slug>\` off \`main\`.
 6. Run the Definition of Done from \`.claude/workflows/bug-fix-and-feature-workflow.md\`:
    - Reproduces before, doesn't after
    - Tenant scoping (workspaceId) on every Drizzle query

@@ -21,7 +21,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use serde_json::{Map, Value, json};
-use weldsuite_books_domain::contacts::with_contact_names;
+use weldsuite_books_domain::contacts::{with_contact_email, with_contact_names};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, ok, paged, reply};
 use weldsuite_books_domain::js::{self, parse_int};
@@ -348,10 +348,12 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
             payment
         })
         .collect();
-    let mut named = with_contact_names(db, vec![invoice.clone()])
+    // Stored without the contact's name or email: the contact's current ones (the send dialog shows the email).
+    let named = with_contact_names(db, vec![invoice.clone()])
         .await?
         .pop()
         .unwrap_or(invoice);
+    let mut named = with_contact_email(db, named).await?;
 
     // Credit notes issued against this invoice.
     let credit_notes: Vec<Value> = if named["type"] == "credit_note" {

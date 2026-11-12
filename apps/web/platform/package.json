@@ -43,6 +43,8 @@
     "@weldsuite/df3-noise-suppression": "workspace:*",
     "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/forms-engine": "workspace:*",
+    "@weldsuite/forms-renderer": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/permissions": "workspace:*",

@@ -14,21 +14,24 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { useManageDeskConversation, type DeskConversation } from '@/hooks/queries/use-desk-queries';
+import { useManageDeskConversation, type DeskConversation, type DeskMessage } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { DeskSlaBadge } from './sla-badge';
 import { TranslateToggle } from './translation/translate-toggle';
 import { CreateArticleAction } from './create-article-action';
 import { ConversationLinkMenu } from './conversation-link-menu';
+import { DeskCallButton } from '@/components/welddesk/phone/desk-call-button';
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
+  /** The loaded timeline; the call button reads the caller's number from it. */
+  messages?: readonly DeskMessage[];
   liveCall?: boolean;
   /** The visitor currently has the widget open on this conversation. */
   visitorOnline?: boolean;
 }
 
-export function ConversationHeader({ conversation, liveCall = false, visitorOnline = false }: Readonly<ConversationHeaderProps>) {
+export function ConversationHeader({ conversation, messages, liveCall = false, visitorOnline = false }: Readonly<ConversationHeaderProps>) {
   const t = getTranslations('deskInbox2');
   const router = useRouter();
   const { user } = useUser();
@@ -129,6 +132,7 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
         )}
       </div>
       <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
+        <DeskCallButton conversation={conversation} messages={messages} />
         <TranslateToggle conversation={conversation} />
         <CreateArticleAction conversationId={conversation.id} />
         {user?.id && conversation.assigneeId !== user.id && (

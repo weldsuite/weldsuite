@@ -7,6 +7,7 @@ import {
   CreditCard,
   Database,
   Flag,
+  FileText,
   Flame,
   Globe,
   Handshake,
@@ -107,6 +108,7 @@ function allNavAreas(): NavArea[] {
           { title: 'Access requests', href: '/access-requests', icon: ShieldCheck },
           { title: 'Warmup network', href: '/warmup', icon: Flame },
           { title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning },
+          { title: 'WeldForms', href: '/weldforms', icon: FileText },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: databases.databases, href: '/databases', icon: Database, globalOnly: true },
           { title: billing.plans, href: '/plans', icon: CreditCard },
@@ -184,6 +186,18 @@ function allNavAreas(): NavArea[] {
       {
         group: 'WeldMail',
         items: [{ title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning }],
+      },
+    ],
+  },
+  {
+    key: 'weldforms',
+    name: 'WeldForms',
+    icon: FileText,
+    href: '/weldforms',
+    groups: [
+      {
+        group: 'Moderation',
+        items: [{ title: 'WeldForms', href: '/weldforms', icon: FileText }],
       },
     ],
   },

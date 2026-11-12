@@ -338,6 +338,10 @@ export const navigation: Array<NavGroup> = [
     title: 'WeldBooks',
     links: WELDBOOKS_NAV_LINKS,
   },
+  {
+    title: 'Workspace',
+    links: [{ title: 'Audit Logs', href: '/audit-logs' }],
+  },
 ]
 
 export function Navigation(props: Readonly<React.ComponentPropsWithoutRef<'nav'>>) {

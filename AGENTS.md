@@ -23,8 +23,9 @@ it has real work:
   (`app-api/src/lib/weldagent-routine-index.ts` → `app-api/src/cron/weldagent-routines.ts`).
   Write the row on every create / update / pause / delete and re-derive it
   from the tenant when the tenant is open anyway; the sweep reads only D1.
-  Migrations live in `apps/workers/workflow-worker/migrations/d1/` and
-  `deploy.yml` applies them.
+  Migrations live in `apps/workers/workflow-worker/migrations/d1/` and the
+  deploy applies them (`.github/actions/deploy-d1-migrations`, run by
+  `weldsuite-deploy`).
 - **Per-workspace "next due" sweeps** use the generic `workspace_due_index`
   in the same D1 through `@weldsuite/worker-kit/due-index`:
   `runDueIndexSweep` (one-time seed, D1-only quiet ticks, compare-and-set
@@ -53,7 +54,7 @@ Toolchain is already provisioned (Node 22, pnpm 10.34.5). The startup update
 script runs `pnpm install`; you normally don't need to reinstall.
 
 ### Branches
-Daily work goes to **`develop`** and deploys to test (`app-test.weldsuite.org`). Merge `develop` → **`main`** to deploy production (`app.weldsuite.org`).
+One branch: **`main`**. Every PR targets `main`, and a merge that passes CI deploys to test (`app-test.weldsuite.org`). Production (`app.weldsuite.org`) goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`.
 
 The hosted product depends on Clerk, Neon, Cloudflare, and Stripe. Local UI needs `VITE_CLERK_PUBLISHABLE_KEY`; a logged-in flow also needs a provisioned workspace.
 

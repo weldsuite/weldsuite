@@ -25,6 +25,8 @@ export interface KpiCardProps {
   hint?: ReactNode;
   /** Colors the value: amber for warning, red for danger, green for success. */
   tone?: KpiTone;
+  /** `large` for a tile read from a distance (a wallboard): a much bigger value. */
+  size?: 'default' | 'large';
   /** Shows a skeleton in place of the value. */
   loading?: boolean;
   /**
@@ -43,6 +45,7 @@ export function KpiCard({
   icon: Icon,
   hint,
   tone = 'default',
+  size = 'default',
   loading = false,
   interactive = false,
   className,
@@ -57,7 +60,15 @@ export function KpiCard({
         {loading ? (
           <Skeleton className="h-8 w-16" />
         ) : (
-          <div className={cn('text-2xl font-bold tabular-nums', TONE_CLASS[tone])}>{value}</div>
+          <div
+            className={cn(
+              'font-bold tabular-nums',
+              size === 'large' ? 'text-5xl leading-tight xl:text-6xl' : 'text-2xl',
+              TONE_CLASS[tone],
+            )}
+          >
+            {value}
+          </div>
         )}
         {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       </CardContent>

@@ -91,6 +91,8 @@ beforeAll(async () => {
   await seedArticle('art_login', 31, { title: 'Trouble signing in', content: '<p>If you cannot <b>log</b> in, reset your password.</p>', visibility: 'logged_in', locale: 'en' });
   await seedArticle('art_reset_nl', 32, { title: 'Wachtwoord resetten', content: '<p>password</p>', locale: 'nl', translationOfId: 'art_reset', visibility: 'groups', audienceCompanyIds: ['comp_a'] });
   await seedArticle('art_internal', 33, { title: 'Internal password reset runbook', visibility: 'internal' });
+  // A public version of an internal original: the help center serves neither, so it is never suggested.
+  await seedArticle('art_internal_nl', 38, { title: 'Intern wachtwoord resetten', content: '<p>password reset</p>', locale: 'nl', translationOfId: 'art_internal' });
   await seedArticle('art_draft', 34, { title: 'Draft password article', status: 'draft' });
   await seedArticle('art_deleted', 35, { title: 'Deleted password article', deletedAt: at(36) });
   await seedArticle('art_invoice', 37, { title: 'Find your invoices', excerpt: 'Billing' });

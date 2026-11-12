@@ -1,0 +1,37 @@
+{
+  "name": "A hidden field declared twice",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "hidden": [
+      {
+        "name": "src"
+      },
+      {
+        "name": "src"
+      }
+    ]
+  },
+  "expectIssues": [
+    "duplicate_hidden"
+  ]
+}

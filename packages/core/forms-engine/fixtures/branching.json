@@ -1,0 +1,143 @@
+{
+  "name": "Jumps between blocks and to an ending",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_role",
+        "ref": "role",
+        "type": "multiple_choice",
+        "title": "What is your role?",
+        "required": true,
+        "properties": {
+          "choices": [
+            { "id": "c_dev", "label": "Developer" },
+            { "id": "c_design", "label": "Designer" },
+            { "id": "c_mgr", "label": "Manager" }
+          ]
+        }
+      },
+      { "id": "b_lang", "ref": "language", "type": "short_text", "title": "Favourite language?", "required": true },
+      { "id": "b_tool", "ref": "tool", "type": "short_text", "title": "Favourite design tool?", "required": true },
+      { "id": "b_team", "ref": "team_size", "type": "number", "title": "How big is your team?", "required": true },
+      { "id": "b_more", "ref": "more", "type": "long_text", "title": "Anything else?" }
+    ],
+    "endings": [
+      { "id": "e_default", "ref": "done", "title": "Thanks" },
+      { "id": "e_big", "ref": "big_team", "title": "Big team!" }
+    ],
+    "logic": [
+      {
+        "blockId": "b_role",
+        "jumps": [
+          {
+            "id": "j_design",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_role" }, "operator": "is", "right": { "type": "constant", "value": "c_design" } }] },
+            "to": { "type": "block", "id": "b_tool" }
+          },
+          {
+            "id": "j_mgr",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_role" }, "operator": "is", "right": { "type": "constant", "value": "c_mgr" } }] },
+            "to": { "type": "block", "id": "b_team" }
+          }
+        ]
+      },
+      { "blockId": "b_lang", "otherwise": { "type": "block", "id": "b_team" } },
+      {
+        "blockId": "b_team",
+        "jumps": [
+          {
+            "id": "j_big",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "field", "id": "b_team" }, "operator": "greater_than", "right": { "type": "constant", "value": 50 } }] },
+            "to": { "type": "ending", "id": "e_big" }
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "developer path skips the design question",
+      "answers": { "b_role": { "choiceIds": ["c_dev"] }, "b_lang": "TypeScript", "b_team": 5 },
+      "expect": {
+        "ok": true,
+        "path": ["b_role", "b_lang", "b_team", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_role": { "choiceIds": ["c_dev"] }, "b_lang": "TypeScript", "b_team": 5 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "designer path drops the answer to the skipped question",
+      "answers": { "b_role": { "choiceIds": ["c_design"] }, "b_lang": "Rust", "b_tool": "  Figma  ", "b_team": 3, "b_more": "" },
+      "expect": {
+        "ok": true,
+        "path": ["b_role", "b_tool", "b_team", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_role": { "choiceIds": ["c_design"] }, "b_tool": "Figma", "b_team": 3 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "manager with a big team jumps to an ending",
+      "answers": { "b_role": { "choiceIds": ["c_mgr"] }, "b_team": 120, "b_more": "skipped" },
+      "expect": {
+        "ok": true,
+        "path": ["b_role", "b_team"],
+        "endingId": "e_big",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_role": { "choiceIds": ["c_mgr"] }, "b_team": 120 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "required questions on the path are missing",
+      "answers": { "b_role": { "choiceIds": ["c_dev"] } },
+      "expect": {
+        "ok": false,
+        "path": ["b_role", "b_lang", "b_team", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0 },
+        "errors": { "b_lang": { "code": "required" }, "b_team": { "code": "required" } },
+        "answers": { "b_role": { "choiceIds": ["c_dev"] } },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "answers to unknown ids and to skipped blocks are dropped",
+      "answers": { "b_role": { "choiceIds": ["c_mgr"] }, "b_team": 10, "b_nope": "x", "b_tool": "Sketch" },
+      "expect": {
+        "ok": true,
+        "path": ["b_role", "b_team", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_role": { "choiceIds": ["c_mgr"] }, "b_team": 10 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "an invalid answer counts as unanswered for the logic",
+      "answers": { "b_role": { "choiceIds": ["c_unknown"] }, "b_lang": "Go", "b_team": 2 },
+      "expect": {
+        "ok": false,
+        "path": ["b_role", "b_lang", "b_team", "b_more"],
+        "endingId": "e_default",
+        "variables": { "score": 0 },
+        "errors": { "b_role": { "code": "invalid_choice" } },
+        "answers": { "b_lang": "Go", "b_team": 2 },
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { authGateStatuses, type AuthGateCase } from '@weldsuite/worker-kit/testing/sweeps';
 
+import { auditLogStreamsRoutes } from './audit-log-streams';
 import { customFieldsRoutes } from './custom-fields';
 import { legalEntitiesRoutes } from './legal-entities';
 import type { Env, Variables } from '../types';
@@ -29,6 +30,8 @@ const cases: RouteCase[] = [
   // custom-fields updates via PUT /:id (not PATCH), gated on settings:manage.
   { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/legal-entities', router: legalEntitiesRoutes, prefix: 'legal_entities' },
+  // Audit log streams: read is general:read; create / update / delete (and the test) all take general:update.
+  { mount: '/api/audit-log-streams', router: auditLogStreamsRoutes, prefix: 'general' },
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {

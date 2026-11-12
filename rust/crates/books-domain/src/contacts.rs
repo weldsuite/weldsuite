@@ -274,6 +274,27 @@ pub async fn document_contact_fields(
     })
 }
 
+/// `withContactEmail(db, row)`: `contactEmail` filled on a document stored
+/// without one, from its contact's current address (the PDF does the same).
+pub async fn with_contact_email(db: &PgPool, mut row: Value) -> Result<Value, sqlx::Error> {
+    let email_set = row["contactEmail"]
+        .as_str()
+        .is_some_and(|email| !js_trim(email).is_empty());
+    let contact_id = row["contactId"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
+    let Some(contact_id) = contact_id.filter(|_| !email_set) else {
+        return Ok(row);
+    };
+    if let Some(email) = load_contact_snapshot(db, Some(&contact_id)).await?.email
+        && let Value::Object(map) = &mut row
+    {
+        map.insert("contactEmail".to_owned(), Value::String(email));
+    }
+    Ok(row)
+}
+
 /// `withContactNames(db, rows)`: `contactName` filled on documents stored
 /// without one, from their contacts' current names (one query for the lot).
 pub async fn with_contact_names(

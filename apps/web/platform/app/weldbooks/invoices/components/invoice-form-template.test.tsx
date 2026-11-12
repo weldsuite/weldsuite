@@ -39,6 +39,9 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
     useJurisdictionLabels: () => ({ labels, features: { salesTax: false, form1099: false }, isResolved: true }),
   };
 });
+vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
+  useEntityInvoiceDetails: () => ({ entity: undefined, missing: [], labels: {}, isLoading: false }),
+}));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     currency: 'EUR',

@@ -2,6 +2,13 @@
 //! the objects and their fields (`rust/catalogs/sheet-data.json`, exported by
 //! `pnpm rust:catalogs`), `sheetDataDefinitionSchema` as Zod reads it, and
 //! `checkSheetDataDefinition`.
+//!
+//! WeldForms' `form_responses` takes the form it lists as `formId`, and a
+//! column per question (`qb…`) and hidden field (`h…`) on top of its
+//! catalog fields. Which of those a form has, and the listing itself, are
+//! `@weldsuite/forms-domain`'s: the rows of every object come from the
+//! sheets engine's `listDataTable` (the worker's `buildRefresh`, run by the
+//! collab-rooms service), so here a definition is only checked.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -200,6 +207,9 @@ fn parsed_definition(fields: &Map<String, Value>) -> Value {
         out.insert("sort".into(), Value::Object(item));
     }
     out.insert("limit".into(), js_value(&fields["limit"]));
+    if let Some(form_id) = fields.get("formId").filter(|id| id.is_string()) {
+        out.insert("formId".into(), form_id.clone());
+    }
     Value::Object(out)
 }
 
@@ -290,6 +300,13 @@ pub(crate) fn definition(
                 ..Number::default()
             },
         );
+        // The parameter of `form_responses`: the form whose responses are listed.
+        issues.text_with(
+            fields,
+            "formId",
+            Presence::Optional,
+            Text::length(Some(1), Some(30)),
+        );
     });
     match read {
         Field::Absent if issues.count() == before => return Field::Absent,
@@ -343,6 +360,44 @@ fn string_items(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The object whose definition takes a form (`formId`) and dynamic columns.
+const FORM_RESPONSES: &str = "form_responses";
+
+/// `FORM_RESPONSE_DYNAMIC_COLUMN` (`/^(?:qb|h)[A-Za-z0-9]+$/`): a column a
+/// form adds to `form_responses`, a question (`qb` + its block id without
+/// the underscore) or a hidden field (`h` + its name).
+fn form_response_dynamic_column(key: &str) -> bool {
+    let rest = key
+        .strip_prefix("qb")
+        .filter(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphanumeric()));
+    rest.is_some()
+        || key
+            .strip_prefix('h')
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// Whether a value reads as true in JavaScript.
+fn js_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Array(_) | Value::Object(_)) => true,
+    }
+}
+
+/// `checkParameter(objectType, def)`: `form_responses` needs the form it
+/// lists; no other object takes one.
+fn check_parameter(object_type: &str, def: &Map<String, Value>) -> Option<String> {
+    if object_type == FORM_RESPONSES {
+        return (!js_truthy(def.get("formId")))
+            .then(|| "Pick the form whose responses to list".to_owned());
+    }
+    def.contains_key("formId")
+        .then(|| format!("A form only applies to form_responses, not {object_type}"))
+}
+
 /// `checkSheetDataDefinition(objectType, def)`: `None` when the definition
 /// fits the object, else the reason.
 pub(crate) fn check_definition(object_type: &str, def: &Map<String, Value>) -> Option<String> {
@@ -350,6 +405,9 @@ pub(crate) fn check_definition(object_type: &str, def: &Map<String, Value>) -> O
     let Some(object) = catalog.objects.get(object_type) else {
         return Some(format!("Unknown object '{object_type}'"));
     };
+    if let Some(problem) = check_parameter(object_type, def) {
+        return Some(problem);
+    }
     let fields: HashMap<&str, &FieldDef> = object
         .fields
         .iter()
@@ -368,7 +426,11 @@ pub(crate) fn check_definition(object_type: &str, def: &Map<String, Value>) -> O
     if def["headers"].as_array().map_or(0, Vec::len) != columns.len() {
         return Some("Every column needs exactly one header".into());
     }
-    if let Some(unknown) = columns.iter().find(|c| !fields.contains_key(c.as_str())) {
+    if let Some(unknown) = columns.iter().find(|c| {
+        // A form's own columns are its own to check, when it lists.
+        let dynamic = object_type == FORM_RESPONSES && form_response_dynamic_column(c);
+        !(fields.contains_key(c.as_str()) || dynamic)
+    }) {
         return Some(format!("Unknown field '{unknown}' on {object_type}"));
     }
     for filter in def
@@ -449,6 +511,113 @@ mod tests {
             check_definition("companies", &filter).as_deref(),
             Some("Filter 'gt' does not fit the text field 'name'")
         );
+        let limit = def(json!({ "columns": ["name"], "headers": ["A"], "limit": 1.5 }));
+        assert_eq!(
+            check_definition("companies", &limit).as_deref(),
+            Some("The limit must be between 1 and 10000")
+        );
+    }
+
+    /// `form-responses.test.ts`, "needs the form, accepts question and
+    /// hidden-field columns, and filters only on metadata".
+    #[test]
+    fn form_responses_take_a_form_and_its_own_columns() {
+        assert_eq!(permission_of("form_responses"), Some("form_responses:read"));
+        assert!(object_keys().contains(&"form_responses"));
+        let check = |value: Value| check_definition("form_responses", &def(value));
+        assert_eq!(
+            check(json!({ "columns": ["number"], "headers": ["a"], "filters": [], "limit": 10 }))
+                .as_deref(),
+            Some("Pick the form whose responses to list")
+        );
+        assert_eq!(
+            check(json!({ "columns": ["number"], "headers": ["a"], "limit": 10, "formId": "" }))
+                .as_deref(),
+            Some("Pick the form whose responses to list")
+        );
+        assert_eq!(
+            check(json!({
+                "columns": ["number", "qbname", "hsource"], "headers": ["a", "b", "c"],
+                "filters": [], "limit": 10, "formId": "frm_x",
+            })),
+            None
+        );
+        assert_eq!(
+            check(json!({ "columns": ["nonsense"], "headers": ["a"], "filters": [], "limit": 10, "formId": "frm_x" }))
+                .as_deref(),
+            Some("Unknown field 'nonsense' on form_responses")
+        );
+        for bad in ["qb", "h", "qb_x", "h-x", "qbx_y"] {
+            assert_eq!(
+                check(
+                    json!({ "columns": [bad], "headers": ["a"], "limit": 10, "formId": "frm_x" })
+                ),
+                Some(format!("Unknown field '{bad}' on form_responses")),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            check(json!({
+                "columns": ["number"], "headers": ["a"], "limit": 10, "formId": "frm_x",
+                "filters": [{ "field": "qbname", "op": "eq", "value": "x" }],
+            }))
+            .as_deref(),
+            Some("Unknown filter field 'qbname' on form_responses")
+        );
+        assert_eq!(
+            check_definition(
+                "companies",
+                &def(json!({ "columns": ["name"], "headers": ["a"], "filters": [], "limit": 10, "formId": "frm_x" }))
+            )
+            .as_deref(),
+            Some("A form only applies to form_responses, not companies")
+        );
+        // A question or hidden-field column is only for form_responses.
+        assert_eq!(
+            check_definition(
+                "companies",
+                &def(json!({ "columns": ["qbname"], "headers": ["a"], "limit": 10 }))
+            )
+            .as_deref(),
+            Some("Unknown field 'qbname' on companies")
+        );
+    }
+
+    #[test]
+    fn the_definition_keeps_the_form() {
+        let body = def(json!({
+            "definition": { "columns": ["number"], "headers": [" A "], "limit": 10, "formId": "frm_x", "extra": 1 },
+        }));
+        let mut issues = Issues::default();
+        let read = definition(&mut issues, &body, "definition", Presence::Required).into_option();
+        assert_eq!(issues.count(), 0);
+        assert_eq!(
+            read.and_then(|read| read.value),
+            Some(
+                json!({ "columns": ["number"], "headers": ["A"], "filters": [], "limit": 10, "formId": "frm_x" })
+            )
+        );
+        let long = def(json!({
+            "definition": { "columns": ["number"], "headers": ["A"], "limit": 10, "formId": "x".repeat(31) },
+        }));
+        let mut issues = Issues::default();
+        let read = definition(&mut issues, &long, "definition", Presence::Required).into_option();
+        assert_eq!(issues.count(), 1);
+        assert!(read.is_some_and(|read| read.value.is_none() && read.raw.is_some()));
+    }
+
+    #[test]
+    fn dynamic_columns_match_the_pattern() {
+        for key in ["qbx7Kp2QaZ", "hsource", "qb1", "h1", "hqb"] {
+            assert!(form_response_dynamic_column(key), "{key}");
+        }
+        for key in ["number", "q", "qb", "h", "qbx-1", "h_x", "Hsource", "QBx"] {
+            assert!(!form_response_dynamic_column(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn limits_are_checked_last() {
         let limit = def(json!({ "columns": ["name"], "headers": ["A"], "limit": 1.5 }));
         assert_eq!(
             check_definition("companies", &limit).as_deref(),
