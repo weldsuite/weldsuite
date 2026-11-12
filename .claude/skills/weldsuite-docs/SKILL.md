@@ -49,7 +49,7 @@ been checked or updated in `weldsuite-documentation`; say what is blocked.
 4. Most ADRs were recorded retroactively on 2026-10-16. Rationale marked
    *Inferred* is a reconstruction, not a confirmed reason; weigh it that way.
    `open-questions.md` lists what is still unconfirmed.
-5. The docs can lag the code. When they disagree, `develop` is what runs; fix
+5. The docs can lag the code. When they disagree, `main` is what runs; fix
    or flag the docs (section 3).
 
 Cite ADRs by ID when explaining a design (`API-003`, `SEC-001`).
@@ -73,7 +73,7 @@ Mechanics:
 - Next number for a prefix: `ls "$DOCS/adr" | grep "^<PREFIX>-" | sort | tail -1`, plus one. Numbers are never reused. A new prefix needs a row in the table in `CONTRIBUTING.md`.
 - Start from `templates/adr.md` or `templates/design-doc.md`.
 - In the same change, update the design doc that links the ADR, the area's table in `adr/README.md` (and the decision count in its first line), and `design/README.md` when a design doc is added.
-- Style per `CONTRIBUTING.md`: code paths relative to this repo's root in backticks; links into this repo as full GitHub URLs on `develop`; name secrets and bindings, never their values; no credentials or customer data.
+- Style per `CONTRIBUTING.md`: code paths relative to this repo's root in backticks; links into this repo as full GitHub URLs on `main`; name secrets and bindings, never their values; no credentials or customer data.
 
 ## 4. Branch, commit, PR
 

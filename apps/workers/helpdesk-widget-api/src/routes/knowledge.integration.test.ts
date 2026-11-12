@@ -177,6 +177,18 @@ describe('GET /api/articles/search', () => {
     expect(ids(await search('?q=passw'))).toEqual(['art_reset']);
   });
 
+  it('finds the article for a whole question: any of its longer words, not every word', async () => {
+    const q = (text: string) => `?q=${encodeURIComponent(text)}`;
+    // No article holds "how", "do", "i" and "my"; the one about resetting a password still answers.
+    expect(ids(await search(q('How do I reset my password?')))).toEqual(['art_reset']);
+    expect(ids(await search(q('where can I see my invoices, and change my password'))).sort()).toEqual([
+      'art_billing',
+      'art_reset',
+    ]);
+    // Only short words: searched as typed, every word.
+    expect(ids(await search(q('my pin')))).toEqual([]);
+  });
+
   it('answers nothing for an empty query or one without words', async () => {
     for (const query of ['', '?q=', '?q=%20%20', '?q=%3F%21']) {
       expect(await search(query), query).toEqual([]);

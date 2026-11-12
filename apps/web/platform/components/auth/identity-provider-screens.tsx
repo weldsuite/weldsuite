@@ -14,7 +14,9 @@ import { useRouter } from '@/lib/router';
 /** Only paths on this origin; anything else lands on the dashboard. */
 function returnPath(): string {
   if (typeof window === 'undefined') return '/';
-  const value = new URLSearchParams(window.location.search).get('redirect_url');
+  const params = new URLSearchParams(window.location.search);
+  // `callbackUrl` is what the app shell sends a signed-out visitor with.
+  const value = params.get('callbackUrl') ?? params.get('redirect_url');
   return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
 }
 

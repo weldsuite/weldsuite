@@ -31,7 +31,7 @@ import {
 import { ConversationActionsMenu } from './conversation-actions-menu';
 import { TicketPickerDialog } from './ticket-picker-dialog';
 
-type Open = 'merge' | 'unmark' | 'update' | 'close' | null;
+type Open = 'merge' | 'confirm-merge' | 'unmark' | 'update' | 'close' | null;
 
 /**
  * The conversation header's "more actions" menu with the linked-ticket
@@ -48,6 +48,7 @@ export function ConversationLinkMenu({ conversation }: Readonly<{ conversation: 
   const closeIncident = useCloseDeskIncident();
   const [open, setOpen] = useState<Open>(null);
   const [mergeNotice, setMergeNotice] = useState<string | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<DeskConversation | null>(null);
   const [update, setUpdate] = useState('');
   const [closeChildren, setCloseChildren] = useState(true);
 
@@ -58,6 +59,14 @@ export function ConversationLinkMenu({ conversation }: Readonly<{ conversation: 
   const openChildren = children.filter((child) => child.state === 'open').length;
   const close = () => setOpen(null);
 
+  // A merge closes this ticket for good, so picking a ticket only asks; the
+  // merge runs on the confirmation. A refusal goes back to the picker.
+  const pickMergeTarget = (target: DeskConversation) => {
+    setMergeNotice(null);
+    setMergeTarget(target);
+    setOpen('confirm-merge');
+  };
+
   const onMerge = (target: DeskConversation) =>
     merge.mutate(
       { id: conversation.id, targetId: target.id },
@@ -65,12 +74,16 @@ export function ConversationLinkMenu({ conversation }: Readonly<{ conversation: 
         onSuccess: () => {
           toast.success(t.mergedInto.replace('{number}', String(target.conversationNumber)));
           setMergeNotice(null);
+          setMergeTarget(null);
           close();
         },
-        onError: (err) =>
+        onError: (err) => {
           setMergeNotice(
             deskLinkRefusal(err) === 'different_customer' ? t.mergeDifferentCustomer : deskLinkErrorMessage(err) ?? t.saveError,
-          ),
+          );
+          setMergeTarget(null);
+          setOpen('merge');
+        },
       },
     );
 
@@ -146,7 +159,26 @@ export function ConversationLinkMenu({ conversation }: Readonly<{ conversation: 
         exclude={[conversation.id]}
         disabled={merge.isPending}
         notice={mergeNotice ? <InfoBanner variant="warning">{mergeNotice}</InfoBanner> : undefined}
-        onPick={onMerge}
+        onPick={pickMergeTarget}
+      />
+
+      <ConfirmDialog
+        open={open === 'confirm-merge' && mergeTarget !== null}
+        // Cancelling goes back to the picker, to choose another ticket.
+        onOpenChange={(next) => {
+          if (!next) {
+            setMergeTarget(null);
+            setOpen('merge');
+          }
+        }}
+        title={t.mergeConfirmTitle.replace('{number}', String(mergeTarget?.conversationNumber ?? ''))}
+        description={t.mergeConfirmDescription.replace('{number}', String(mergeTarget?.conversationNumber ?? ''))}
+        confirmLabel={t.mergeConfirm}
+        variant="destructive"
+        loading={merge.isPending}
+        onConfirm={() => {
+          if (mergeTarget) onMerge(mergeTarget);
+        }}
       />
 
       <ConfirmDialog

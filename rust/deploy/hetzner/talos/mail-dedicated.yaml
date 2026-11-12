@@ -1,0 +1,8 @@
+# The dedicated mail nodes (mail.tf, mail_pools): only the MTA (`weldsuite
+# mta`, the chart's mta DaemonSets, which tolerate the taint) runs here, so
+# nothing else sends from the pool's addresses. A node in mail_pool_nodes
+# doesn't get this: it keeps its other workloads.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  weldsuite.org/mail: "true:NoSchedule"

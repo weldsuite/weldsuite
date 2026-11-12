@@ -4,14 +4,15 @@
  * docs/plans/app-api-module-split.md) to deploy.
  *
  * The module list comes from @weldsuite/api-modules, so a new module worker
- * deploys without editing deploy.yml. A module worker is selected when:
+ * deploys without editing a workflow. A module worker is selected when:
  *   - FORCE_ALL is "true" (manual dispatch, lockfile / workspace / db change), or
  *   - the push changed its folder or any workspace package it depends on
  *     (transitively, e.g. @weldsuite/worker-kit), or the api-modules manifest, or
  *   - BEFORE is missing / unreachable (first push, force push): deploy all, to be safe.
  *
  * Env: FORCE_ALL, BEFORE (push `before` SHA), SHA. Writes
- * `module_workers=<JSON array>` to GITHUB_OUTPUT; deploy.yml deploys them in
+ * `module_workers=<JSON array>` to GITHUB_OUTPUT; the deploy (deploy-prepare
+ * action, run by the private repo weldsuite-deploy) deploys them in
  * their own job BEFORE the other workers, because app-api's forwarder binds
  * to them.
  * With `--list` it prints the module workers that exist (ci.yml).
@@ -94,6 +95,7 @@ const TEST_SECONDS = {
   'commerce-api': 27,
   'agent-api': 24,
   'host-api': 24,
+  'forms-api': 24,
   'sign-api': 22,
   'docs-api': 22,
   'board-api': 20,

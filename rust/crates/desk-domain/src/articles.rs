@@ -187,6 +187,56 @@ pub fn related_search(text: &str) -> Option<Search> {
     })
 }
 
+/// `deskSuggestSearch(text)`: what a customer is writing before they send a
+/// request. An OR of its distinct words of four characters or more, at most
+/// twelve, in order, the one still being typed (the text ends on it) as a
+/// prefix; as typed when every word is short.
+#[must_use]
+pub fn suggest_search(text: &str) -> Option<Search> {
+    let term: String = weldsuite_kit::validation::js_trim(text)
+        .chars()
+        .take(200)
+        .collect();
+    let all = search_words(&term);
+    let mut words: Vec<String> = Vec::new();
+    for word in &all {
+        if word.chars().count() < 4 || words.contains(word) {
+            continue;
+        }
+        words.push(word.clone());
+        if words.len() == 12 {
+            break;
+        }
+    }
+    if words.is_empty() {
+        return typed_search(&term);
+    }
+    // `/[\p{L}\p{N}]$/u`: the text ends inside a word.
+    let mut end = [0u8; 4];
+    let typing = term
+        .chars()
+        .next_back()
+        .filter(|c| WORD.is_match(c.encode_utf8(&mut end)))
+        .and_then(|_| all.last());
+    let last = words.len() - 1;
+    let tsquery = words
+        .iter()
+        .enumerate()
+        .map(|(i, word)| {
+            if i == last && Some(word) == typing {
+                format!("'{word}':*")
+            } else {
+                format!("'{word}'")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" | ");
+    Some(Search {
+        websearch: None,
+        tsquery,
+    })
+}
+
 /// `deskArticleQuery(search)`, with [`Search::websearch`] at `$w` and
 /// [`Search::tsquery`] at `$q`.
 #[must_use]
@@ -405,6 +455,46 @@ mod tests {
             Some(12)
         );
         assert_eq!(related_search("hi to me"), None);
+    }
+
+    #[test]
+    fn a_question_suggests_on_any_of_its_longer_words() {
+        assert_eq!(
+            suggest_search("How do I reset my password"),
+            Some(Search {
+                websearch: None,
+                tsquery: "'reset' | 'password':*".to_owned()
+            })
+        );
+        let tsquery = |text: &str| suggest_search(text).map(|s| s.tsquery);
+        assert_eq!(
+            tsquery("How do I reset my password? "),
+            Some("'reset' | 'password'".to_owned())
+        );
+        assert_eq!(
+            tsquery("reset password for my vpn"),
+            Some("'reset' | 'password'".to_owned())
+        );
+        assert_eq!(
+            tsquery("password reset password"),
+            Some("'password' | 'reset'".to_owned())
+        );
+        let many: Vec<String> = (0..20).map(|i| format!("word{i}")).collect();
+        let capped = tsquery(&many.join(" ")).unwrap_or_default();
+        assert_eq!(capped.split(" | ").count(), 12);
+        assert!(!capped.contains(":*"));
+    }
+
+    #[test]
+    fn short_words_suggest_as_typed() {
+        assert_eq!(
+            suggest_search("vpn 2fa"),
+            Some(Search {
+                websearch: Some("vpn 2fa".to_owned()),
+                tsquery: "'vpn' & '2fa':*".to_owned()
+            })
+        );
+        assert_eq!(suggest_search(" ?! "), None);
     }
 
     #[test]

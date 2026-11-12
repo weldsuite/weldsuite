@@ -61,6 +61,7 @@ import {
   ListChecks,
   ClipboardList,
   Inbox,
+  Siren,
   Sparkles,
   Tags,
   Plug,
@@ -344,6 +345,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   'merge.update_issue': { icon: GitPullRequest, color: 'text-violet-600', bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
   'merge.comment_on_issue': { icon: MessageCircle, color: 'text-violet-600', bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
   create_conversation: { icon: Inbox, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
+  parse_alert: { icon: Siren, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -456,6 +458,7 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'merge.update_issue', name: 'WeldMerge: Update Issue', description: 'Change the status, priority, assignee or text of an issue', icon: GitPullRequest, category: 'data' },
   { id: 'merge.comment_on_issue', name: 'WeldMerge: Comment on Issue', description: 'Add a comment to a WeldMerge issue', icon: MessageCircle, category: 'data' },
   { id: 'create_conversation', name: 'Open Inbox Conversation', description: 'Open a WeldDesk inbox conversation, or add to the one with the same external id', icon: Inbox, category: 'data' },
+  { id: 'parse_alert', name: 'Read Alert', description: 'Turn a Splunk, Datadog or Grafana alert into ticket fields: priority, state and an external id', icon: Siren, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },

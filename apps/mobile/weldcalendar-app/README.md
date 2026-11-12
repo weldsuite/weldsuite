@@ -26,4 +26,4 @@ See [`store/README.md`](./store/README.md) for Firebase, Clerk native apps, App 
 ## CI
 
 - Native builds: `.github/workflows/mobile-build.yml` (tick **WeldCalendar**)
-- OTA updates: `.github/workflows/deploy.yml` job `mobile` (Release WeldCalendar)
+- OTA updates: the deploy's mobile step (`.github/actions/deploy-mobile`, run by `weldsuite-deploy`): channel `preview` on test, `production` on Promote

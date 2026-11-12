@@ -22,7 +22,7 @@ use weldsuite_events::{EventContext, iso_timestamp, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::Permissions;
-use weldsuite_ports::{Identity, IdentityProvider};
+use weldsuite_ports::{Identity, IdentityProvider, OutboundHttp};
 
 use crate::CorePlatformState;
 
@@ -32,6 +32,7 @@ struct Overrides {
     master: Option<PgPool>,
     identity: Option<Arc<dyn Identity>>,
     env: Option<RequestEnv>,
+    http: Option<OutboundHttp>,
 }
 
 impl Overrides {
@@ -43,6 +44,7 @@ impl Overrides {
                 .get::<IdentityProvider>()
                 .map(|p| Arc::clone(&p.0)),
             env: parts.extensions.get::<RequestEnv>().cloned(),
+            http: parts.extensions.get::<OutboundHttp>().cloned(),
         }
     }
 }
@@ -95,6 +97,22 @@ impl Caller {
     /// A per-request env value (conformance mode forwards a few).
     pub fn env(&self, name: &str) -> Option<&str> {
         self.overrides.env.as_ref().and_then(|env| env.get(name))
+    }
+
+    /// `c.env.<name>`: the request's env when it brings one (conformance
+    /// mode), else the process's. Empty counts as unset.
+    pub fn env_value(&self, name: &str) -> Option<String> {
+        match &self.overrides.env {
+            Some(env) => env.get(name).map(str::to_owned),
+            None => std::env::var(name).ok(),
+        }
+        .filter(|value| !value.is_empty())
+    }
+
+    /// The request's own outbound HTTP, when it brings one (conformance
+    /// mode: the test's fetch stub).
+    pub fn outbound(&self) -> Option<OutboundHttp> {
+        self.overrides.http.clone()
     }
 
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.

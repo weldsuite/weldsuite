@@ -7,6 +7,7 @@
   "exports": {
     "./agent-access": "./src/agent-access.ts",
     "./ai-billing": "./src/ai-billing.ts",
+    "./audit-streams": "./src/audit-streams.ts",
     "./analytics-query": "./src/analytics-query.ts",
     "./custom-field-query": "./src/custom-field-query.ts",
     "./custom-field-values": "./src/custom-field-values.ts",
@@ -16,6 +17,7 @@
     "./folders": "./src/folders.ts",
     "./legal-entities": "./src/legal-entities/index.ts",
     "./partners": "./src/partners/index.ts",
+    "./plan-limits": "./src/plan-limits.ts",
     "./sso": "./src/sso.ts",
     "./workspaces": "./src/workspaces.ts"
   },

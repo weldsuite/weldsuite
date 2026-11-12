@@ -34,8 +34,8 @@ export interface ResolvedPerson {
   created: boolean;
 }
 
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+import type { TenantDb } from './any-db';
+type AnyDb = TenantDb;
 
 function normalizeEmail(raw: string | null | undefined): string | null {
   if (!raw) return null;

@@ -178,6 +178,38 @@ interface Case {
 
 const RUN = { workspaceId: 'org_test', userId: 'user_owner' };
 
+/** A parse_alert step and the create_conversation step the alert template wires after it. */
+function alertSteps(n: number, payload: Record<string, unknown>) {
+  const parse = `s${n}`;
+  return [
+    { id: parse, type: 'parse_alert', config: { payload } },
+    {
+      id: `${parse}t`,
+      type: 'create_conversation',
+      config: {
+        title: `{{steps.${parse}.title}}`,
+        message: `{{steps.${parse}.message}}`,
+        externalId: `{{steps.${parse}.externalId}}`,
+        priority: `{{steps.${parse}.priority}}`,
+        tags: `{{steps.${parse}.tags}}`,
+        state: `{{steps.${parse}.state}}`,
+      },
+    },
+  ];
+}
+
+function datadogGroup(group: string, transition: string, priority: string, type: string) {
+  return {
+    alert_id: '77',
+    alert_title: 'Disk space is low',
+    alert_scope: group,
+    alert_transition: transition,
+    alert_priority: priority,
+    alert_type: type,
+    body: `${transition} on ${group}`,
+  };
+}
+
 const CASES: Case[] = [
   {
     name: 'variables, a passing condition branch and a transform',
@@ -752,6 +784,184 @@ const CASES: Case[] = [
          order by c.conversation_number, m.kind collate "C", coalesce(m.metadata ->> 'eventType', '') collate "C",
            coalesce(m.body, '') collate "C", m.metadata::text collate "C"`,
       'select name, email from desk_visitors order by email',
+    ],
+  },
+  {
+    name: 'alert to ticket: Grafana firing then resolved, Datadog, Splunk, an unreadable payload, and ignored ticket values',
+    instanceId: 'inst_alerts',
+    seed: [
+      MEMBERS,
+      workflowRow('wf_alerts', [
+        { id: 's1', type: 'parse_alert', config: { payload: '{{trigger.body}}', source: 'auto', defaultPriority: 'low' } },
+        {
+          id: 's2',
+          type: 'create_conversation',
+          config: {
+            title: '{{steps.s1.title}}',
+            message: '{{steps.s1.message}}',
+            externalId: '{{steps.s1.externalId}}',
+            priority: '{{steps.s1.priority}}',
+            tags: '{{steps.s1.tags}}',
+            state: '{{steps.s1.state}}',
+          },
+        },
+        {
+          id: 's3',
+          type: 'parse_alert',
+          config: {
+            payload: {
+              receiver: 'weldsuite',
+              status: 'resolved',
+              groupKey: '{}:{alertname="HighCPU"}',
+              title: '[RESOLVED:1] HighCPU web-1',
+              commonLabels: { alertname: 'HighCPU', severity: 'critical' },
+              alerts: [{ status: 'resolved', labels: { alertname: 'HighCPU', severity: 'critical' }, annotations: { summary: 'CPU back to normal' }, fingerprint: 'abc123' }],
+            },
+          },
+        },
+        {
+          id: 's4',
+          type: 'create_conversation',
+          config: {
+            title: '{{steps.s3.title}}',
+            message: '{{steps.s3.message}}',
+            externalId: '{{steps.s3.externalId}}',
+            priority: '{{steps.s3.priority}}',
+            tags: '{{steps.s3.tags}}',
+            state: '{{steps.s3.state}}',
+          },
+        },
+        {
+          id: 's5',
+          type: 'parse_alert',
+          config: {
+            payload: {
+              id: '1234567890',
+              alert_id: '77',
+              alert_title: '[Triggered on {host:db-1}] Disk space is low',
+              alert_transition: 'Triggered',
+              alert_type: 'warning',
+              alert_priority: 'P2',
+              body: 'Disk usage is above 90% on db-1',
+              link: 'https://app.datadoghq.com/monitors/77',
+            },
+          },
+        },
+        {
+          id: 's6',
+          type: 'create_conversation',
+          config: {
+            title: '{{steps.s5.title}}',
+            message: '{{steps.s5.message}}',
+            externalId: '{{steps.s5.externalId}}',
+            priority: '{{steps.s5.priority}}',
+            tags: '{{steps.s5.tags}}',
+            state: '{{steps.s5.state}}',
+          },
+        },
+        {
+          id: 's7',
+          type: 'parse_alert',
+          config: {
+            source: 'SPLUNK',
+            payload: {
+              sid: 'scheduler__admin__search__RMD5',
+              search_name: 'Failed logins',
+              app: 'search',
+              owner: 'admin',
+              results_link: 'https://splunk.example.com/app/search/@go?sid=1',
+              result: { host: 'auth-1', count: '41', urgency: 'High' },
+            },
+          },
+        },
+        {
+          id: 's8',
+          type: 'create_conversation',
+          config: {
+            title: '{{steps.s7.title}}',
+            message: '{{steps.s7.message}}',
+            externalId: '{{steps.s7.externalId}}',
+            priority: '{{steps.s7.priority}}',
+            tags: '{{steps.s7.tags}}',
+            state: '{{steps.s7.state}}',
+          },
+        },
+        { id: 's9', type: 'parse_alert', config: { payload: 'not json', defaultPriority: 'urgent' } },
+        { id: 's10', type: 'parse_alert', config: { payload: { name: 'Nightly backup', status: 'OK', level: 'sev-1', url: 'https://status.example.com/1' }, defaultPriority: 'bogus' } },
+        {
+          id: 's11',
+          type: 'create_conversation',
+          config: { title: 'Odd values', message: 'Priority and state are ignored', priority: 'blocker', state: 'pending', tags: ' a, b ,, a' },
+        },
+      ]),
+    ],
+    params: {
+      ...RUN,
+      workflowId: 'wf_alerts',
+      triggerType: 'webhook',
+      triggerData: {
+        body: {
+          receiver: 'weldsuite',
+          status: 'firing',
+          groupKey: '{}:{alertname="HighCPU"}',
+          title: '[FIRING:1] HighCPU web-1',
+          message: '**Firing**\n\nCPU is above 90%',
+          externalURL: 'https://grafana.example.com/',
+          commonLabels: { alertname: 'HighCPU', severity: 'critical' },
+          commonAnnotations: { summary: 'CPU is above 90%' },
+          alerts: [
+            {
+              status: 'firing',
+              labels: { alertname: 'HighCPU', severity: 'critical', instance: 'web-1' },
+              annotations: { summary: 'CPU is above 90%' },
+              fingerprint: 'abc123',
+              generatorURL: 'https://grafana.example.com/alerting/1/view',
+            },
+          ],
+        },
+      },
+    },
+    inspect: [
+      `select conversation_number, title, state, channel, name, email, assignee_id, priority, tags, external_id, last_message_preview
+       from desk_conversations order by conversation_number`,
+      `select c.conversation_number, m.kind, m.author_type, m.body, m.metadata
+         from desk_messages m join desk_conversations c on c.id = m.conversation_id
+         order by c.conversation_number, m.kind collate "C", coalesce(m.metadata ->> 'eventType', '') collate "C",
+           coalesce(m.body, '') collate "C", m.metadata::text collate "C"`,
+    ],
+  },
+  {
+    name: 'alerts: Datadog groups get a ticket each, a repeat never lowers the priority, a reopen takes the new one, long ids are cut',
+    instanceId: 'inst_alert_groups',
+    seed: [
+      MEMBERS,
+      workflowRow('wf_alert_groups', [
+        ...alertSteps(1, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(2, datadogGroup('host:b', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(3, datadogGroup('host:a', 'Triggered', 'P1', 'error')),
+        ...alertSteps(4, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(5, datadogGroup('host:a', 'Recovered', '', 'success')),
+        ...alertSteps(6, datadogGroup('host:a', 'Triggered', 'P3', 'warning')),
+        ...alertSteps(7, datadogGroup('host:b', 'Triggered', 'P2', 'error')),
+        ...alertSteps(8, { ...datadogGroup('', 'Triggered', 'P2', 'error'), scope: 'region:eu,host:c' }),
+        ...alertSteps(9, { ...datadogGroup('', 'Triggered', 'P1', 'error'), aggreg_key: 'agg-1' }),
+        ...alertSteps(10, datadogGroup(`host:${'é'.repeat(300)}`, 'Triggered', 'P2', 'error')),
+        {
+          id: 's11',
+          type: 'create_conversation',
+          config: { message: 'no external id one', priority: 'low' },
+        },
+        {
+          id: 's12',
+          type: 'create_conversation',
+          config: { message: 'no external id two', priority: 'urgent' },
+        },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_alert_groups', triggerType: 'manual' },
+    inspect: [
+      `select conversation_number, state, priority, tags, external_id, char_length(external_id) as id_length
+       from desk_conversations order by conversation_number`,
     ],
   },
   {

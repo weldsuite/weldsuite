@@ -76,6 +76,7 @@ import type { ChartDataPoint } from '../../lib/analytics-data';
 import { reportDimensionOf, reportLabel } from '../../lib/report-labels';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { ReportShareActions } from '../../schedules/report-share-actions';
 
 interface ReportViewClientProps {
   report: AnalyticsReport;
@@ -456,6 +457,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
               <p className="text-muted-foreground mt-1">{pageDescription}</p>
             </div>
             <div className="flex gap-2">
+              <ReportShareActions reportId={reportId} />
               <Popover open={reportSelectorOpen} onOpenChange={setReportSelectorOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -698,6 +700,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
               </>
             ) : (
               <>
+                <ReportShareActions reportId={reportId} />
                 <Popover open={reportSelectorOpen} onOpenChange={setReportSelectorOpen}>
                   <PopoverTrigger asChild>
                     <Button

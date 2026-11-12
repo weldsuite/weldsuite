@@ -7,7 +7,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOidcAuth } from './index';
-import type { OidcSessionConfig } from './session';
+import type { OidcSessionConfig, OidcSessionOptions } from './session';
+import { parseWorkspaceDirectory, type WorkspaceDirectoryEntry } from './workspaces';
 import { clerkAuth } from '../clerk-adapter';
 import {
   getAuthProvider,
@@ -16,6 +17,7 @@ import {
   useAuth,
   useOrganization,
   useOrganizationList,
+  usesPlatformSignIn,
   useUser,
 } from '../index';
 
@@ -157,8 +159,8 @@ async function answerRedirect(auth: ReturnType<typeof createOidcAuth>, index: nu
 }
 
 /** Sign in through the mocked issuer and return the facade's implementation. */
-async function signedIn() {
-  const auth = createOidcAuth(CONFIG, { origin: ORIGIN, storage: window.localStorage });
+async function signedIn(options: Pick<OidcSessionOptions, 'loadWorkspaces'> = {}) {
+  const auth = createOidcAuth(CONFIG, { origin: ORIGIN, storage: window.localStorage, ...options });
   setAuthImplementation(auth);
   void auth.redirectToSignIn?.({ returnTo: '/weldknow' });
   const { authorize, next } = await answerRedirect(auth, 0);
@@ -290,6 +292,175 @@ describe('the facade on OIDC', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("names workspaces from WeldSuite's list, with their slugs, and adds ones the token doesn't name yet", async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    const directory: WorkspaceDirectoryEntry[] = [
+      { id: 'org_acme', name: 'Acme', slug: 'acme' },
+      { id: 'org_new', name: 'New Co', slug: 'new-co' },
+    ];
+    const loadWorkspaces = vi.fn(async (_token: string) => directory);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.auth.orgSlug).toBe('acme'));
+
+    expect(loadWorkspaces).toHaveBeenCalledWith('at-1');
+    expect(result.current.list.userMemberships.isLoading).toBe(false);
+    expect(result.current.list.userMemberships.data?.map((m) => m.organization)).toEqual([
+      expect.objectContaining({ id: 'org_acme', name: 'Acme', slug: 'acme' }),
+      expect.objectContaining({ id: 'org_new', name: 'New Co', slug: 'new-co' }),
+    ]);
+    // Kept for the next page load, which has them before the API answers.
+    expect(JSON.parse(window.localStorage.getItem('weldsuite:oidc:workspaces') ?? '{}').workspaces).toEqual(directory);
+  });
+
+  it("keeps the last names when the backend's read fails", async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    window.localStorage.setItem(
+      'weldsuite:oidc:workspaces',
+      JSON.stringify({ sub: 'user_2891', workspaces: [{ id: 'org_acme', name: 'Acme', slug: 'acme' }] }),
+    );
+    const loadWorkspaces = vi.fn(async (_token: string) => null);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(loadWorkspaces).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.list.userMemberships.isLoading).toBe(false));
+    expect(result.current.auth.orgSlug).toBe('acme');
+    expect(result.current.list.userMemberships.data?.[0].organization.name).toBe('Acme');
+  });
+
+  it('takes an empty answer as no workspaces: a workspace the person left is not listed again', async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    window.localStorage.setItem(
+      'weldsuite:oidc:workspaces',
+      JSON.stringify({ sub: 'user_2891', workspaces: [{ id: 'org_gone', name: 'Gone Co', slug: 'gone' }] }),
+    );
+    const loadWorkspaces = vi.fn(async (_token: string) => [] as WorkspaceDirectoryEntry[]);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(loadWorkspaces).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.userMemberships.isLoading).toBe(false));
+    expect(result.current.userMemberships.data?.map((m) => m.organization.id)).toEqual(['org_acme']);
+    expect(JSON.parse(window.localStorage.getItem('weldsuite:oidc:workspaces') ?? '{}').workspaces).toEqual([]);
+  });
+
+  it("switching from a page of another workspace comes back to the new workspace's home", async () => {
+    const loadWorkspaces = async () => [
+      { id: 'org_acme', name: 'Acme', slug: 'acme' },
+      { id: 'org_globex', name: 'Globex', slug: 'globex' },
+    ];
+    const { auth } = await signedIn({ loadWorkspaces });
+    stubLocation(`${ORIGIN}/w/acme/weldknow/spaces/space_1`);
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.list.userMemberships.data?.[1]?.organization.slug).toBe('globex'));
+
+    void result.current.list.setActive?.({ organization: 'org_globex' });
+    let next: string | undefined;
+    await act(async () => {
+      next = (await answerRedirect(auth, 1)).next;
+    });
+    // The old URL names Acme: Globex's token couldn't open it.
+    expect(next).toBe('/w/globex/');
+  });
+
+  it('comes back to the same page when its URL already names the workspace, or to returnTo', async () => {
+    const loadWorkspaces = async () => [{ id: 'org_globex', name: 'Globex', slug: 'globex' }];
+    const { auth } = await signedIn({ loadWorkspaces });
+    stubLocation(`${ORIGIN}/w/globex/weldknow?tab=recent`);
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.list.userMemberships.isLoading).toBe(false));
+
+    void result.current.list.setActive?.({ organization: 'org_globex' });
+    await act(async () => {
+      expect((await answerRedirect(auth, 1)).next).toBe('/w/globex/weldknow?tab=recent');
+    });
+
+    stubLocation(`${ORIGIN}/w/globex/weldknow`);
+    void result.current.list.setActive?.({ organization: 'org_acme', returnTo: '/onboarding' });
+    await act(async () => {
+      expect((await answerRedirect(auth, 2)).next).toBe('/onboarding');
+    });
+  });
+
+  it('reads the list again on request, after a workspace was created server-side', async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    let directory: WorkspaceDirectoryEntry[] = [{ id: 'org_acme', name: 'Acme', slug: 'acme' }];
+    const loadWorkspaces = vi.fn(async (_token: string) => directory);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(result.current.userMemberships.data?.[0]?.organization.name).toBe('Acme'));
+
+    directory = [...directory, { id: 'org_new', name: 'New Co', slug: 'new-co' }];
+    await act(async () => {
+      await result.current.userMemberships.revalidate?.();
+    });
+    expect(result.current.userMemberships.data?.map((m) => m.organization.name)).toEqual(['Acme', 'New Co']);
+    expect(loadWorkspaces).toHaveBeenCalledTimes(2);
+  });
+
+  it('switches to a workspace by its id while no slug is known', async () => {
+    const { auth } = await signedIn({ loadWorkspaces: async () => null });
+    stubLocation(`${ORIGIN}/w/org_acme/weldknow`);
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.list.userMemberships.isLoading).toBe(false));
+
+    void result.current.list.setActive?.({ organization: 'org_globex' });
+    await act(async () => {
+      expect((await answerRedirect(auth, 1)).next).toBe('/w/org_globex/');
+    });
+    // What the token says stays the name until WeldSuite's list answers: the
+    // person's own organization by name, any other by its domain.
+    expect(result.current.list.userMemberships.data?.map((m) => m.organization.name)).toEqual([
+      'Acme BV',
+      'globex.id.example.test',
+    ]);
+  });
+
+  it('reads the API answer into directory entries', () => {
+    expect(
+      parseWorkspaceDirectory({
+        data: [
+          { id: 'org_acme', workspaceId: 'ws_1', name: 'Acme', slug: 'acme', role: 'OWNER' },
+          { id: 'org_x', name: '' },
+          'junk',
+        ],
+      }),
+    ).toEqual([{ id: 'org_acme', name: 'Acme', slug: 'acme' }]);
+    expect(parseWorkspaceDirectory({ error: { code: 'ORG_REQUIRED' } })).toBeNull();
+  });
+
+  it('shows the provider’s pages unless the deployment has the platform show the sign-in screens', () => {
+    setAuthImplementation(createOidcAuth(CONFIG, { origin: ORIGIN }));
+    expect(usesPlatformSignIn()).toBe(false);
+    setAuthImplementation(createOidcAuth({ ...CONFIG, signIn: 'platform' }, { origin: ORIGIN }));
+    expect(usesPlatformSignIn()).toBe(true);
+  });
+
+  it('ends the session the sign-in screens opened, then signs out at the provider as before', async () => {
+    const calls = () =>
+      vi
+        .mocked(fetch)
+        .mock.calls.map(([input]) => String(input))
+        .filter((url) => url.endsWith('/api/sign-in/sign-out'));
+    const endSessions = () =>
+      assign.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith(`${ISSUER}/oidc/v1/end_session`));
+    // The redirect never resolves (the page would unload), so it is not awaited.
+    const signOut = async (config: OidcSessionConfig, redirects: number) => {
+      setAuthImplementation(createOidcAuth(config, { origin: ORIGIN }));
+      const { result, unmount } = renderHook(() => useAuth());
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+      void result.current.signOut({ redirectUrl: '/auth/login' });
+      await waitFor(() => expect(endSessions()).toHaveLength(redirects));
+      unmount();
+    };
+
+    // The provider's own pages: nothing of WeldSuite's to end.
+    await signOut(CONFIG, 1);
+    expect(calls()).toHaveLength(0);
+
+    await signOut({ ...CONFIG, signIn: 'platform' }, 2);
+    expect(calls()).toHaveLength(1);
   });
 
   it('is signed out without a session', async () => {

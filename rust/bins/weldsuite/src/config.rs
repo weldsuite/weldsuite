@@ -42,6 +42,11 @@ pub(crate) enum AuthConfig {
         /// (PKCE, `<app scheme>://sso-callback` redirects), told to the
         /// apps by `/config.json`. Without it the apps can't sign in here.
         mobile_client_id: Option<String>,
+        /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
+        /// screens and this server is the provider's login client behind
+        /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
+        /// provider's own pages.
+        platform_sign_in: bool,
     },
 }
 
@@ -58,11 +63,13 @@ impl fmt::Debug for AuthConfig {
                 settings,
                 web_client_id,
                 mobile_client_id,
+                platform_sign_in,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
                 .field("mobile_client_id", mobile_client_id)
+                .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
     }
@@ -99,10 +106,19 @@ impl AuthConfig {
                     settings.org_claim = claim;
                 }
                 settings.jwks_url = lookup("OIDC_JWKS_URL");
+                let platform_sign_in = match lookup("OIDC_SIGN_IN").as_deref() {
+                    None | Some("" | "provider") => false,
+                    Some("platform") => true,
+                    Some(_) => {
+                        problems.push("OIDC_SIGN_IN must be provider or platform".to_owned());
+                        false
+                    }
+                };
                 Self::Oidc {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
                     mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
+                    platform_sign_in,
                 }
             }
             Some(_) => {
@@ -112,6 +128,26 @@ impl AuthConfig {
                     authorized_parties: None,
                 }
             }
+        }
+    }
+}
+
+impl AuthConfig {
+    /// The platform's own sign-in screens are served by the provider's
+    /// login API: without it there is nothing behind them.
+    fn check_sign_in_screens(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
+        if matches!(
+            self,
+            Self::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ) && infra.identity.is_none()
+        {
+            problems.push(
+                "OIDC_SIGN_IN=platform needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                    .to_owned(),
+            );
         }
     }
 }
@@ -181,6 +217,12 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
     /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
     pub(crate) sign_portal_url: Option<String>,
+    /// `PUBLIC_APP_URL`: the platform links in WeldSign's mail go to; unset,
+    /// Global's for the `ENVIRONMENT`.
+    pub(crate) public_app_url: Option<String>,
+    /// Settings still on a default that names Global (`global_defaults`),
+    /// one sentence each: logged at start, and for `weldsuite doctor`.
+    pub(crate) global_defaults: Vec<String>,
     /// `PROJECT_PORTAL_URL`: the WeldFlow client portal's origin, for the links in the
     /// portal invitation and in status reports emailed to client contacts.
     pub(crate) project_portal_url: Option<String>,
@@ -201,9 +243,17 @@ pub(crate) struct Config {
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
+    /// `S3_PUBLIC_VIA_SERVER=true`: this server serves the public bucket's
+    /// objects at `/api/storage/public/<key>` (for an object store with no
+    /// public endpoint of its own; the chart then points `S3_PUBLIC_URL` there).
+    pub(crate) files_public_via_server: bool,
     /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
     /// open private objects; the same value as app-api's.
     pub(crate) storage_signing_key: Option<String>,
+    /// `PLATFORM_URL`: the platform's origin, for the links in the emails
+    /// the sign-in screens have the identity provider send (verify an
+    /// address, reset a password). Unset: the provider's own pages.
+    pub(crate) platform_url: Option<String>,
     /// `REALTIME_*`: the WebSocket gateway (`realtime.rs`).
     pub(crate) realtime: weldsuite_realtime::GatewayConfig,
     /// `TRUSTED_PROXIES`: how many proxies in front of the server append
@@ -282,6 +332,10 @@ pub(crate) struct IdentityConfig {
     pub(crate) api_url: String,
     /// `ZITADEL_SERVICE_TOKEN`: a service user's personal access token.
     pub(crate) token: String,
+    /// `ZITADEL_LOGIN_TOKEN`: the token of a service user with only the
+    /// `IAM_LOGIN_CLIENT` role, for the sign-in screens (`/api/sign-in`).
+    /// Unset: `token`, whose user then needs that role as well.
+    pub(crate) login_token: Option<String>,
     /// `ZITADEL_PROJECT_ID`.
     pub(crate) project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`.
@@ -315,6 +369,7 @@ impl IdentityConfig {
             (Some(api_url), Some(token), Some(project_id)) => Some(Self {
                 api_url,
                 token,
+                login_token: set("ZITADEL_LOGIN_TOKEN"),
                 project_id,
                 invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
                 host: set("ZITADEL_HOST"),
@@ -381,6 +436,9 @@ pub(crate) struct FilesConfig {
     pub(crate) private: weldsuite_adapters_oss::S3Options,
     /// `S3_BUCKET_PUBLIC`: read for objects stored before the private bucket.
     pub(crate) public_bucket: Option<String>,
+    /// `S3_ENSURE_BUCKETS=true`: create the buckets at start when the store
+    /// doesn't have them (the object store a self-hosted chart bundles).
+    pub(crate) ensure_buckets: bool,
 }
 
 impl FilesConfig {
@@ -409,6 +467,14 @@ impl FilesConfig {
                 false
             }
         };
+        let ensure_buckets = match lookup("S3_ENSURE_BUCKETS").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                problems.push("S3_ENSURE_BUCKETS must be true or false".to_owned());
+                false
+            }
+        };
         Some(Self {
             private: weldsuite_adapters_oss::S3Options {
                 endpoint,
@@ -419,6 +485,7 @@ impl FilesConfig {
                 path_style,
             },
             public_bucket: lookup("S3_BUCKET_PUBLIC"),
+            ensure_buckets,
         })
     }
 
@@ -609,6 +676,7 @@ impl Config {
         };
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
+        auth.check_sign_in_screens(&infra, &mut problems);
         let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
@@ -645,6 +713,8 @@ impl Config {
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
+            public_app_url: lookup("PUBLIC_APP_URL").filter(|s| !s.trim().is_empty()),
+            global_defaults: global_defaults(&lookup),
             project_portal_url: lookup("PROJECT_PORTAL_URL").filter(|s| !s.is_empty()),
             sign_portal_secret: lookup("SIGN_PORTAL_SECRET").filter(|s| !s.is_empty()),
             collab_rooms_urls: lookup("COLLAB_ROOMS_URLS")
@@ -659,7 +729,9 @@ impl Config {
             collab_rooms_secret: lookup("COLLAB_ROOMS_SECRET").filter(|s| !s.is_empty()),
             mail_inbound_secret: lookup("MAIL_INBOUND_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
+            files_public_via_server: lookup("S3_PUBLIC_VIA_SERVER").as_deref() == Some("true"),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
+            platform_url: lookup("PLATFORM_URL").filter(|s| !s.trim().is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
         })
@@ -668,6 +740,84 @@ impl Config {
 
 fn saturate(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// The URL settings that name the install's own host: the platform, `/api`,
+/// `/v1`, the integration webhooks and the WeldPanel collector are all served
+/// there. The chart sets each to `config.publicUrl` (`PUBLIC_URL`) unless
+/// `extraEnv` names it (`weldsuite.publicUrlEnv` in `_helpers.tpl`); unset,
+/// the modules fall back to Global's `*.weldsuite.org` hosts.
+pub(crate) const PUBLIC_URL_SETTINGS: &[&str] = &[
+    "PUBLIC_APP_URL",
+    "APP_URL",
+    "PLATFORM_URL",
+    "APP_API_PUBLIC_URL",
+    "PUBLIC_API_URL",
+    "CONNECT_API_URL",
+    "CONNECTOR_WEBHOOK_BASE_URL",
+    "WEBHOOK_BASE_URL",
+    "PANEL_COLLECTOR_URL",
+];
+
+/// The settings still on a default that assumes the Global edition, one
+/// sentence each with the setting that fixes it. Not problems: the server
+/// starts (conformance and the kind test run on Global's defaults on
+/// purpose), but an EU or self-hosted install should have none.
+pub(crate) fn global_defaults(lookup: &impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let set = |name: &str| lookup(name).is_some_and(|value| !value.trim().is_empty());
+    let mut out = Vec::new();
+    if lookup("AUTH_PROVIDER").is_none_or(|provider| provider == "clerk") {
+        out.push(
+            "AUTH_PROVIDER is clerk: sign-in takes Global's Clerk session tokens; an EU or \
+             self-hosted install signs in through its OIDC provider (AUTH_PROVIDER=oidc, chart \
+             config.auth.provider)"
+                .to_owned(),
+        );
+    }
+    let unset: Vec<&str> = PUBLIC_URL_SETTINGS
+        .iter()
+        .copied()
+        .filter(|name| !set(name))
+        .collect();
+    if !set("PUBLIC_URL") && unset.len() == PUBLIC_URL_SETTINGS.len() {
+        out.push(
+            "PUBLIC_URL is not set: links in mail, OAuth redirects and webhook registrations name \
+             Global's *.weldsuite.org hosts (chart config.publicUrl)"
+                .to_owned(),
+        );
+    } else if !unset.is_empty() {
+        out.push(format!(
+            "{} not set: those links name Global's *.weldsuite.org hosts (the chart sets them \
+             from config.publicUrl)",
+            match unset.as_slice() {
+                [one] => format!("{one} is"),
+                many => format!("{} are", many.join(", ")),
+            }
+        ));
+    }
+    if set("S3_ENDPOINT") && !set("S3_PUBLIC_URL") {
+        out.push(
+            "S3_PUBLIC_URL is not set: public object links (avatars, logos, published documents) \
+             name Global's test bucket host (chart config.files.publicUrl)"
+                .to_owned(),
+        );
+    }
+    if set("SMTP_URL") && !set("SYSTEM_EMAIL_FROM") {
+        out.push(
+            "SYSTEM_EMAIL_FROM is not set: system mail is sent from \
+             notifications@mail.weldsuite.org, which a relay may refuse and receivers may treat \
+             as spoofed (chart config.mail.from)"
+                .to_owned(),
+        );
+    }
+    if !weldsuite_video_rooms::configured(lookup) {
+        out.push(
+            "no video service is configured (LiveKit's URL and key pair): WeldMeet is hidden \
+             (chart config.video)"
+                .to_owned(),
+        );
+    }
+    out
 }
 
 #[cfg(test)]
@@ -815,10 +965,12 @@ abc",
             settings,
             web_client_id,
             mobile_client_id,
+            platform_sign_in,
         } = &oidc.auth
         else {
             panic!("oidc expected");
         };
+        assert!(!platform_sign_in, "the provider's own pages by default");
         assert_eq!(settings.issuer, "https://auth.eu.example");
         assert_eq!(
             settings.audiences,
@@ -862,6 +1014,47 @@ abc",
     }
 
     #[test]
+    fn the_platforms_own_sign_in_screens_need_the_providers_login_api() {
+        let oidc = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.eu.example"),
+            ("OIDC_AUDIENCE", "300000000000000100"),
+            ("OIDC_SIGN_IN", "platform"),
+        ];
+        let error = config(&oidc).expect_err("no login API");
+        assert!(error.0[0].contains("OIDC_SIGN_IN=platform"), "{error}");
+
+        let mut vars = oidc.to_vec();
+        vars.extend([
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+            ("ZITADEL_LOGIN_TOKEN", "login"),
+            ("PLATFORM_URL", "https://app.eu.example"),
+        ]);
+        let config_with = config(&vars).expect("valid");
+        assert!(matches!(
+            config_with.auth,
+            AuthConfig::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ));
+        let identity = config_with.infra.identity.expect("identity");
+        assert_eq!(identity.login_token.as_deref(), Some("login"));
+        assert_eq!(
+            config_with.platform_url.as_deref(),
+            Some("https://app.eu.example")
+        );
+
+        let mut vars = oidc.to_vec();
+        vars[4] = ("OIDC_SIGN_IN", "embedded");
+        let error = config(&vars).expect_err("unknown value");
+        assert!(error.0[0].contains("OIDC_SIGN_IN must be"), "{error}");
+    }
+
+    #[test]
     fn jobs_run_in_process_unless_restate_is_set() {
         let base = [
             ("DATABASE_URL_MASTER", "postgres://master"),
@@ -890,5 +1083,91 @@ abc",
         let error = config(&vars).expect_err("invalid");
         assert!(error.0.iter().any(|p| p.contains("RESTATE_DEPLOYMENT_URI")));
         assert!(error.0.iter().any(|p| p.contains("RESTATE_INGRESS_URL")));
+    }
+
+    fn defaults(vars: &[(&str, &str)]) -> Vec<String> {
+        let lookup = |name: &str| {
+            vars.iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        };
+        global_defaults(&lookup)
+    }
+
+    #[test]
+    fn names_every_global_default_still_in_use() {
+        let all = defaults(&[
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("SMTP_URL", "smtp://relay:25"),
+        ]);
+        for start in [
+            "AUTH_PROVIDER is clerk",
+            "PUBLIC_URL is not set",
+            "S3_PUBLIC_URL is not set",
+            "SYSTEM_EMAIL_FROM is not set",
+            "no video service",
+        ] {
+            assert!(
+                all.iter().any(|line| line.starts_with(start)),
+                "{start}: {all:?}"
+            );
+        }
+        // Without S3 or SMTP there is nothing to say about them.
+        assert_eq!(defaults(&[]).len(), 3);
+    }
+
+    #[test]
+    fn a_configured_install_has_no_global_defaults() {
+        let mut vars = vec![
+            ("AUTH_PROVIDER", "oidc"),
+            ("PUBLIC_URL", "https://weldsuite.example.com"),
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("S3_PUBLIC_URL", "https://files.weldsuite.example.com"),
+            ("SMTP_URL", "smtp://relay:25"),
+            ("SYSTEM_EMAIL_FROM", "WeldSuite <noreply@example.com>"),
+            ("LIVEKIT_URL", "wss://lk.example.com"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ];
+        vars.extend(
+            PUBLIC_URL_SETTINGS
+                .iter()
+                .map(|name| (*name, "https://weldsuite.example.com")),
+        );
+        assert_eq!(defaults(&vars), Vec::<String>::new());
+    }
+
+    #[test]
+    fn lists_the_url_settings_public_url_left_unset() {
+        // PUBLIC_URL without the chart: the settings it would have filled.
+        let lines = defaults(&[
+            ("AUTH_PROVIDER", "oidc"),
+            ("PUBLIC_URL", "https://weldsuite.example.com"),
+            ("PLATFORM_URL", "https://weldsuite.example.com"),
+        ]);
+        let urls = lines
+            .iter()
+            .find(|line| line.contains("are not set"))
+            .expect("listed");
+        assert!(
+            urls.starts_with("PUBLIC_APP_URL, APP_URL, APP_API_PUBLIC_URL"),
+            "{urls}"
+        );
+        assert!(!urls.contains("PLATFORM_URL"), "{urls}");
+    }
+
+    #[test]
+    fn reads_the_public_app_url() {
+        let config = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+            ("PUBLIC_APP_URL", "https://weldsuite.example.com"),
+        ])
+        .expect("valid");
+        assert_eq!(
+            config.public_app_url.as_deref(),
+            Some("https://weldsuite.example.com")
+        );
+        assert!(!config.global_defaults.is_empty(), "clerk, no video");
     }
 }

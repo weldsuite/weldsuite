@@ -35,6 +35,13 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
     audienceScope: z.string().optional(),
     organizationScope: z.string().optional(),
     accountUrl: z.string().url().optional(),
+    /**
+     * Who shows the sign-in screens on the web (`OIDC_SIGN_IN`, ADR SEC-016):
+     * `platform` = WeldSuite's own over the backend's `/api/sign-in`, absent or
+     * `provider` = the provider's pages. A value this build doesn't know reads
+     * as the provider's pages, never as a broken document.
+     */
+    signIn: z.enum(['provider', 'platform']).optional().catch(undefined),
   }),
 ]);
 

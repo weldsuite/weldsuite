@@ -108,9 +108,13 @@ runs:
           esac
         } >> "$GITHUB_ENV"
 
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages (Metro bundles in
+    # eas update).
     - name: Release
       if: steps.eas.outputs.ready != 'false'
       uses: ./.github/actions/mobile-release
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
       with:
         app-dir: apps/mobile/${{ inputs.app }}-app
         channel: ${{ inputs.environment == 'test' && 'preview' || 'production' }}

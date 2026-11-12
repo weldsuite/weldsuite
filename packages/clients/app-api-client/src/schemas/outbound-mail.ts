@@ -49,6 +49,10 @@ export const OUTBOUND_SOURCES = [
   'meet',
   // WeldSign signing requests and codes (sign-api), from WeldSuite's address.
   'sign',
+  // WeldDesk scheduled report emails (desk-api), from WeldSuite's address.
+  'desk_report',
+  // WeldForms invitations and reminders (forms-api), from WeldSuite's address.
+  'forms',
   'personal',
   'subscription',
 ] as const;
@@ -153,13 +157,14 @@ export function resolveOutboundLimits(
 }
 
 /**
- * Apex zones that host shared WeldMail addresses: production's, and the test
+ * Apex zones that host shared WeldMail addresses: production's, the test
  * environment's own zone (so test mail has its own Email Routing catch-all,
- * docs/plans/weldmail-test-mail-zone.md). Which one new domains are built on
- * is the worker's `WELDMAIL_DOMAIN` var; recognising a shared domain is not
- * environment-dependent.
+ * docs/plans/weldmail-test-mail-zone.md), and the EU edition's free-address
+ * domain (`weldmail.eu`, ADR MAIL-012; Global never builds on it). Which one
+ * new domains are built on is the `WELDMAIL_DOMAIN` setting; recognising a
+ * shared domain is not environment-dependent.
  */
-export const SHARED_WELDMAIL_APEXES = ['weldmail.com', 'weldmail.org'] as const;
+export const SHARED_WELDMAIL_APEXES = ['weldmail.com', 'weldmail.org', 'weldmail.eu'] as const;
 
 /** The apex a worker builds `{slug}.{apex}` on when `WELDMAIL_DOMAIN` is unset. */
 export const DEFAULT_WELDMAIL_APEX = 'weldmail.com';

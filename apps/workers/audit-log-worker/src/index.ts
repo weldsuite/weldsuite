@@ -40,7 +40,8 @@ export default {
     return Promise.resolve(app.fetch(request, env, ctx));
   },
 
-  async queue(batch: MessageBatch<AuditQueueMessage>, env: Env): Promise<void> {
-    await processAuditBatch(batch, env);
+  async queue(batch: MessageBatch<AuditQueueMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+    // `ctx` carries the delayed audit log stream flushes (`ctx.waitUntil`).
+    await processAuditBatch(batch, env, undefined, undefined, ctx);
   },
 };

@@ -25,7 +25,7 @@
  */
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type {
@@ -41,7 +41,7 @@ import { autoAssignDeskConversation, type DeskAssigneePicker } from './desk-assi
 
 export type { DeskRoutingActions, DeskRoutingConditions, DeskRoutingRule, DeskRoutingSettings };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 

@@ -10,6 +10,11 @@ migrations:
   - 'packages/core/db/drizzle/**'
   - 'packages/core/db/src/schema/**'
   - 'apps/tools/migrate-databases/**'
+# First-party WeldApps (deploy-hosted-apps action).
+hosted_apps:
+  - 'apps/hosted-apps/**'
+  - 'packages/sdk/app-sdk/**'
+  - 'packages/sdk/cli/**'
 d1_connector_migrations:
   - 'apps/workers/integration-sync-worker/migrations/d1/**'
   - 'apps/workers/integration-sync-worker/wrangler.toml'
@@ -58,6 +63,14 @@ project-portal:
   - 'apps/web/project-portal/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
+  - 'packages/core/i18n/**'
+  - 'packages/design/ui/**'
+forms-portal:
+  - 'apps/web/forms-portal/**'
+  - 'packages/design/forms-renderer/**'
+  - 'packages/sdk/forms-embed/**'
+  - 'packages/core/forms-engine/**'
+  - 'packages/clients/app-api-client/**'
   - 'packages/core/i18n/**'
   - 'packages/design/ui/**'
 # The admin console and the workspace packages it bundles.

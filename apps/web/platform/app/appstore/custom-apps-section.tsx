@@ -361,7 +361,7 @@ function UserAppStoreGrid({
     );
   } else if (emptyTitle) {
     gridBody = (
-      <div className="bg-card border border-dashed border-border rounded-xl p-6 text-center">
+      <div className="flex h-[125px] flex-col items-center justify-center bg-card border border-dashed border-border rounded-xl p-6 text-center">
         <p className="text-sm font-medium text-foreground mb-1">{emptyTitle}</p>
         {emptyDescription ? <p className="text-xs text-muted-foreground">{emptyDescription}</p> : null}
       </div>

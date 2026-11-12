@@ -48,6 +48,8 @@ import {
   TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
 } from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
 import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
+import { STARTER_TEMPLATES } from '../packages/core/forms-engine/src/templates';
+import { formDefinitionSchema } from '../packages/core/forms-engine/src/definition';
 import {
   MAX_SHEET_DATA_COLUMNS,
   MAX_SHEET_DATA_FILTERS,
@@ -148,6 +150,21 @@ function sheetDataCatalog(): unknown {
   };
 }
 
+/**
+ * WeldForms' starter templates (`STARTER_TEMPLATES` of `@weldsuite/forms-engine`),
+ * in gallery order, each definition as `formDefinitionSchema.parse` returns it:
+ * what forms-api stores when a member creates a form from a template.
+ */
+function formsTemplatesCatalog(): unknown {
+  return STARTER_TEMPLATES.map((template) => ({
+    id: template.id,
+    category: template.category,
+    name: template.name,
+    description: template.description,
+    definition: formDefinitionSchema.parse(template.definition),
+  }));
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -162,6 +179,7 @@ async function main(): Promise<void> {
     'catalogs/weldconnect.json': weldconnectCatalog(),
     'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/sheet-data.json': sheetDataCatalog(),
+    'catalogs/forms-templates.json': formsTemplatesCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

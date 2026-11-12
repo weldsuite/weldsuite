@@ -1,0 +1,159 @@
+{
+  "name": "Hidden fields in conditions, and recall",
+  "definition": {
+    "hidden": [{ "name": "utm_source" }, { "name": "ref_code" }, { "name": "email" }],
+    "blocks": [
+      { "id": "b_name", "ref": "first_name", "type": "short_text", "title": "What is your name?", "required": true },
+      { "id": "b_partner", "ref": "partner_code", "type": "short_text", "title": "Your partner code?", "required": true },
+      {
+        "id": "b_source",
+        "ref": "heard_from",
+        "type": "multiple_choice",
+        "title": "Where did you hear about us, {{field:first_name}}?",
+        "properties": {
+          "multiple": true,
+          "allowOther": true,
+          "choices": [
+            { "id": "c_search", "label": "Search engine" },
+            { "id": "c_friend", "label": "A friend" }
+          ]
+        }
+      },
+      { "id": "b_email", "ref": "email", "type": "email", "title": "And your email?" }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "Thanks {{field:first_name}}",
+        "redirectUrl": "https://example.com/?name={{field:first_name}}&src={{hidden:utm_source}}"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_name",
+        "jumps": [
+          {
+            "id": "j_partner",
+            "when": {
+              "op": "or",
+              "conditions": [
+                { "left": { "type": "hidden", "name": "utm_source" }, "operator": "starts_with", "right": { "type": "constant", "value": "partner" } },
+                {
+                  "op": "and",
+                  "conditions": [
+                    { "left": { "type": "hidden", "name": "ref_code" }, "operator": "is_answered" },
+                    { "left": { "type": "hidden", "name": "ref_code" }, "operator": "ends_with", "right": { "type": "constant", "value": "-VIP" } }
+                  ]
+                }
+              ]
+            },
+            "to": { "type": "block", "id": "b_partner" }
+          }
+        ],
+        "otherwise": { "type": "block", "id": "b_source" }
+      },
+      {
+        "blockId": "b_source",
+        "jumps": [
+          {
+            "id": "j_has_email",
+            "when": { "op": "and", "conditions": [{ "left": { "type": "hidden", "name": "email" }, "operator": "contains", "right": { "type": "constant", "value": "@" } }] },
+            "to": { "type": "ending", "id": "e_end" }
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "a partner utm source asks for the partner code",
+      "answers": { "b_name": "Ann", "b_partner": "P-1", "b_source": { "choiceIds": ["c_friend"] } },
+      "hidden": { "utm_source": "Partner_Newsletter", "email": "" },
+      "expect": {
+        "ok": true,
+        "path": ["b_name", "b_partner", "b_source", "b_email"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_name": "Ann", "b_partner": "P-1", "b_source": { "choiceIds": ["c_friend"] } },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a VIP ref code (nested AND) and a known email skip to the end",
+      "answers": { "b_name": "Bo", "b_partner": "X", "b_source": { "choiceIds": [], "other": " Podcast " } },
+      "hidden": { "ref_code": "abc-vip", "email": "bo@example.com", "not_declared": "x" },
+      "expect": {
+        "ok": true,
+        "path": ["b_name", "b_partner", "b_source"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_name": "Bo", "b_partner": "X", "b_source": { "choiceIds": [], "other": "Podcast" } },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "without hidden values the partner question is skipped and its answer dropped",
+      "answers": { "b_name": "Cy", "b_partner": "ignored", "b_email": "cy@example.com" },
+      "expect": {
+        "ok": true,
+        "path": ["b_name", "b_source", "b_email"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_name": "Cy", "b_email": "cy@example.com" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "a blank hidden value is empty; the VIP rule still applies",
+      "answers": {},
+      "hidden": { "utm_source": "   ", "ref_code": "gold-VIP" },
+      "expect": {
+        "ok": false,
+        "path": ["b_name", "b_partner", "b_source", "b_email"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": { "b_name": { "code": "required" }, "b_partner": { "code": "required" } },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ],
+  "recall": [
+    {
+      "name": "field, hidden and variable",
+      "text": "Hi {{field:first_name}} from {{hidden:utm_source}}, score {{var:score}}",
+      "answers": { "b_name": "  Ann " },
+      "hidden": { "utm_source": "mail" },
+      "variables": { "score": 2.5 },
+      "expect": "Hi Ann from mail, score 2.5"
+    },
+    {
+      "name": "unknown references become empty; spaces inside braces are allowed",
+      "text": "{{field:nope}}|{{hidden:nope}}|{{var:nope}}|{{ field:first_name }}",
+      "answers": { "b_name": "Ann" },
+      "expect": "|||Ann"
+    },
+    {
+      "name": "choice labels in definition order, then the Other text",
+      "text": "{{field:heard_from}}",
+      "answers": { "b_source": { "choiceIds": ["c_friend", "c_search"], "other": "Podcast" } },
+      "expect": "Search engine, A friend, Podcast"
+    },
+    {
+      "name": "URL-encoded for a redirect",
+      "text": "https://example.com/?name={{field:first_name}}&src={{hidden:utm_source}}",
+      "answers": { "b_name": "Ann & Bo" },
+      "hidden": { "utm_source": "a/b c" },
+      "encode": true,
+      "expect": "https://example.com/?name=Ann%20%26%20Bo&src=a%2Fb%20c"
+    }
+  ]
+}

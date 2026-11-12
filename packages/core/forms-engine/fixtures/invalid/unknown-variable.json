@@ -1,0 +1,68 @@
+{
+  "name": "A calculation and a condition on an undeclared variable",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_1",
+        "calculations": [
+          {
+            "id": "x_1",
+            "variable": "total",
+            "op": "add",
+            "value": {
+              "type": "constant",
+              "value": 1
+            }
+          }
+        ]
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_a",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "variable",
+                "name": "total"
+              },
+              "operator": "greater_than",
+              "right": {
+                "type": "constant",
+                "value": 1
+              }
+            }
+          ]
+        },
+        "endingId": "e_end"
+      }
+    ]
+  },
+  "expectIssues": [
+    "unknown_variable",
+    "unknown_variable"
+  ]
+}

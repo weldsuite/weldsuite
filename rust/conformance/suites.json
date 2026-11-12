@@ -399,6 +399,7 @@
         "packages/clients/app-api-client/src/schemas/sheets.ts",
         "packages/clients/app-api-client/src/schemas/sheet-data.ts",
         "packages/core/sheets-engine/src/",
+        "packages/domains/forms/src/",
         "packages/core/worker-kit/src/testing/ledger-bridge.ts",
         "packages/core/worker-kit/src/testing/write-isolation.ts",
         "rust/catalogs/sheet-data.json",
@@ -1270,6 +1271,9 @@
         "src/routes/helpdesk-email/routes.test.ts",
         "src/routes/helpdesk-analytics/routes.test.ts",
         "src/routes/helpdesk-analytics/reports.integration.test.ts",
+        "src/routes/helpdesk-analytics/live.integration.test.ts",
+        "src/routes/helpdesk-analytics/export.integration.test.ts",
+        "src/routes/helpdesk-analytics/schedules.integration.test.ts",
         "src/routes/helpdesk-settings/priority-matrix.integration.test.ts"
       ],
       "paths": [
@@ -1281,12 +1285,22 @@
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
         "apps/workers/desk-api/src/services/desk-reports.ts",
+        "apps/workers/desk-api/src/services/desk-wallboard.ts",
+        "apps/workers/desk-api/src/services/desk-phone-report.ts",
+        "apps/workers/desk-api/src/services/desk-report-export.ts",
+        "apps/workers/desk-api/src/services/desk-report-schedules.ts",
+        "apps/workers/desk-api/src/lib/report-due.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/core/worker-kit/src/csv.ts",
+        "packages/core/emails/src/templates/desk/",
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/db/src/lib/desk-priority-matrix.ts",
         "packages/core/db/src/lib/desk-routing.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
-        "rust/crates/desk-domain/"
+        "rust/crates/desk-domain/",
+        "rust/crates/emails/",
+        "rust/catalogs/emails/"
       ],
       "excludedRoutes": [
         {
@@ -1363,7 +1377,8 @@
       "workspace": "apps/workers/desk-api",
       "tests": [
         "src/cron/sla-sweep.due-index.test.ts",
-        "src/cron/escalation-sweep.due-index.test.ts"
+        "src/cron/escalation-sweep.due-index.test.ts",
+        "src/cron/report-schedule-sweep.due-index.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/cron/",
@@ -1377,8 +1392,15 @@
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/notifications/src/helpers/helpdesk.ts",
         "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "apps/workers/desk-api/src/services/desk-reports.ts",
+        "apps/workers/desk-api/src/services/desk-report-export.ts",
+        "apps/workers/desk-api/src/services/desk-report-schedules.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/core/emails/src/templates/desk/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
+        "rust/crates/emails/",
+        "rust/catalogs/emails/",
         "rust/bins/weldsuite/src/conformance.rs"
       ]
     },
@@ -1851,6 +1873,23 @@
         "packages/clients/core-api-client/src/schemas/audit-logs.ts",
         "rust/modules/core-platform/src/groups/audit_logs.rs",
         "rust/modules/core-platform/src/groups/notifications/body.rs"
+      ]
+    },
+    {
+      "name": "core: audit-log-streams",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/audit-log-streams/audit-log-streams.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/audit-log-streams/",
+        "packages/clients/core-api-client/src/schemas/audit-log-streams.ts",
+        "packages/domains/core/src/audit-streams.ts",
+        "packages/core/worker-kit/src/safe-url.ts",
+        "rust/modules/core-platform/src/groups/audit_log_streams.rs",
+        "rust/crates/subscribers/src/audit_streams.rs",
+        "rust/crates/subscribers/src/safe_url.rs"
       ]
     },
     {
@@ -2766,11 +2805,14 @@
       "tests": [
         "src/routes/calls/integration.test.ts",
         "src/routes/calls/writes.integration.test.ts",
+        "src/routes/calls/click-to-call.integration.test.ts",
         "src/routes/call-intelligence/integration.test.ts"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/calls/",
         "apps/workers/call-api/src/routes/call-intelligence/",
+        "packages/core/db/src/lib/desk.ts",
+        "rust/crates/desk-domain/",
         "apps/workers/call-api/src/lib/",
         "apps/workers/call-api/src/services/",
         "apps/workers/call-api/src/test/",
@@ -2813,12 +2855,21 @@
       "workspace": "apps/workers/call-api",
       "tests": [
         "src/routes/desk-phone/integration.test.ts",
-        "src/routes/webhooks-telnyx/integration.test.ts"
+        "src/routes/desk-phone/route-options.integration.test.ts",
+        "src/routes/desk-phone/softphone.integration.test.ts",
+        "src/routes/desk-phone/queue.integration.test.ts",
+        "src/routes/webhooks-telnyx/integration.test.ts",
+        "src/routes/webhooks-telnyx/agents.integration.test.ts",
+        "src/routes/webhooks-telnyx/voicemail.integration.test.ts",
+        "src/routes/webhooks-telnyx/menu.integration.test.ts",
+        "src/routes/webhooks-telnyx/outbound.integration.test.ts"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/desk-phone/",
         "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/domains/desk/src/",
         "rust/crates/desk-domain/",
@@ -2987,6 +3038,18 @@
         "src/test/accounting-read-only.test.ts",
         "src/test/accounting-routes.test.ts",
         "src/test/legal-entities.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: audit logs",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/audit-logs.test.ts"
       ]
     },
     {
@@ -3475,6 +3538,57 @@
         "rust/modules/merge/",
         "rust/crates/connect-domain/src/github_app.rs",
         "rust/crates/chat-domain/src/system_message.rs"
+      ]
+    },
+    {
+      "name": "forms",
+      "module": "forms",
+      "workspace": "apps/workers/forms-api",
+      "tests": [
+        "src/flow.test.ts",
+        "src/public.test.ts",
+        "src/results.test.ts",
+        "src/invitations.test.ts",
+        "src/integrations.test.ts",
+        "src/routes/_sweeps.test.ts",
+        "src/workflows/process-response.test.ts"
+      ],
+      "paths": [
+        "apps/workers/forms-api/src/",
+        "packages/core/forms-engine/src/",
+        "packages/clients/app-api-client/src/schemas/weldforms.ts",
+        "packages/domains/core/src/plan-limits.ts",
+        "packages/core/emails/src/templates/forms/",
+        "rust/modules/forms/",
+        "rust/crates/core-domain/src/plan_limits.rs",
+        "rust/crates/emails/",
+        "packages/domains/forms/src/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/crates/forms-engine/",
+        "rust/crates/crm-domain/",
+        "rust/crates/desk-domain/",
+        "rust/crates/flow-domain/",
+        "rust/crates/notifications/",
+        "rust/bins/weldsuite/src/conformance_forms.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/forms/ai/generate",
+          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
+        },
+        {
+          "route": "POST /api/forms/ai/suggest-blocks",
+          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
+        },
+        {
+          "route": "GET /api/forms/forms/:id/ai/summary",
+          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
+        },
+        {
+          "route": "POST /api/forms/forms/:id/ai/summary",
+          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
+        }
       ]
     },
     {

@@ -1,7 +1,5 @@
 
-import { Link } from '@/lib/router';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { Button } from '@weldsuite/ui/components/button';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { useAvailableApps, useAppCategories, useCanManageApps } from '@/hooks/queries/use-settings-queries';
@@ -9,11 +7,9 @@ import { AppStoreClient } from './app-store-client';
 import { AppStoreNoAccess } from './appstore-no-access';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
-import { useI18n } from '@/lib/i18n/provider';
 
 export default function AppStorePage() {
   const t = getTranslations('navigation');
-  const { t: allT } = useI18n();
   const { can, isOwner } = usePermissions();
   const { data: apps, isLoading: appsLoading } = useAvailableApps();
 
@@ -36,16 +32,9 @@ export default function AppStorePage() {
         segments={[
           { label: t.appstore.title }
         ]}
-        actions={
-          canDevelopWeldApps ? (
-            <Button asChild variant="outline" size="sm">
-              <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
-            </Button>
-          ) : undefined
-        }
       />
       <ModuleContent className="overflow-auto">
-        <AppStoreClient initialApps={apps || []} categories={categories || []} canManage={canManage ?? false} />
+        <AppStoreClient initialApps={apps || []} categories={categories || []} canManage={canManage ?? false} canDevelop={canDevelopWeldApps} />
       </ModuleContent>
     </div>
   );

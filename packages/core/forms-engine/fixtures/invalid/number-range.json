@@ -1,0 +1,27 @@
+{
+  "name": "A number minimum above its maximum",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_n",
+        "ref": "amount",
+        "type": "number",
+        "title": "Amount",
+        "properties": {
+          "min": 10,
+          "max": 1
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ]
+  },
+  "expectIssues": [
+    "number_range"
+  ]
+}

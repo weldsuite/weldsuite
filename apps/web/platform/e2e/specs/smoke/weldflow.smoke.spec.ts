@@ -10,7 +10,6 @@ const routes = [
   '/weldflow',
   '/weldflow/analytics',
   '/weldflow/analytics/builder',
-  '/weldflow/capacity',
   '/weldflow/files',
   '/weldflow/goals',
   '/weldflow/intake',
@@ -18,9 +17,9 @@ const routes = [
   '/weldflow/my-tasks',
   '/weldflow/projects',
   '/weldflow/reviews',
-  '/weldflow/templates',
   '/weldflow/whiteboard',
   '/weldflow/workload',
+  '/weldflow/workload/capacity',
 ];
 
 test.describe('WeldFlow · smoke', () => {

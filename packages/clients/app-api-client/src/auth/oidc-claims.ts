@@ -52,8 +52,11 @@ export type Claims = Record<string, unknown>;
 export interface OidcOrganization {
   id: string;
   name: string;
-  /** Providers don't have WeldSuite's workspace slug; the URL falls back to the id. */
-  slug: null;
+  /**
+   * WeldSuite's workspace slug. Providers don't have it: the session fills it
+   * in from the API (`workspaces.ts`); until then the URL falls back to the id.
+   */
+  slug: string | null;
 }
 
 export interface OidcPerson {

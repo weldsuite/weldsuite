@@ -208,6 +208,25 @@ impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_forms::ProcessRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`; on a failure, `binding.get(id)`
+    /// tells a run that is already there (left alone) from a failure.
+    fn start<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            match self
+                .call("create", id, json!({ "id": id, "params": params }))
+                .await
+            {
+                Ok(()) => Ok(()),
+                Err(error) => match self.call("get", id, Value::Null).await {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(error),
+                },
+            }
+        })
+    }
+}
+
 impl weldsuite_meet::MeetWorkflow for BridgedWorkflow {
     /// `binding.create({ id, params })`.
     fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -329,6 +348,20 @@ impl WorkflowBridges {
                 binding: "CRM_SYNC",
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
+        })
+    }
+
+    /// The test's `PROCESS_RESPONSE` (WeldForms), from `{ PROCESS_RESPONSE: url }`.
+    pub(crate) fn process_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_forms::ProcessRuns>> {
+        workflows.get("PROCESS_RESPONSE").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "PROCESS_RESPONSE",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_forms::ProcessRuns>
         })
     }
 

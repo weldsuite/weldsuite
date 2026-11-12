@@ -2,12 +2,14 @@
 //! ran each TypeScript consumer on pglite and wrote what it did into
 //! `tests/fixtures/*.json`; these tests seed the same rows into Postgres, feed
 //! the same events to the Rust subscribers and compare the acks and retries,
-//! the rows written, the outbound requests and the realtime publishes.
+//! the rows written, the outbound requests and the realtime publishes; for
+//! audit log streams the requests built, and what four flushes send and
+//! leave behind.
 //!
 //! The database tests need `WELDSUITE_TEST_TENANT_URL` (a tenant database
-//! built by `scripts/rust-test-db.ts`) and skip without it; the registry and
-//! realtime tests always run. Regenerate the fixtures with
-//! `pnpm exec tsx scripts/rust-subscriber-fixtures.ts`.
+//! built by `scripts/rust-test-db.ts`) and skip without it; the registry,
+//! realtime and audit log stream request tests always run. Regenerate the
+//! fixtures with `pnpm exec tsx scripts/rust-subscriber-fixtures.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -18,16 +20,24 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, Uri};
 use serde_json::{Map, Value, json};
 use sqlx::{AssertSqlSafe, PgPool};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use weldsuite_db::Keyring;
 use weldsuite_ports::{
     BatchHandler, BoxFuture, Delivery, Disposition, Embeddings, PortError, RealtimeMessage,
     RealtimePublisher,
+};
+use weldsuite_subscribers::audit_streams::{
+    AuditStreamEvent, AuditStreamRow, StreamAnswer, StreamCall, StreamFailure, StreamTransport,
+    build_audit_stream_event, build_audit_stream_request, build_test_audit_stream_event,
 };
 use weldsuite_subscribers::registry::matching_subscribers;
 use weldsuite_subscribers::tenants::ResolvedTenant;
 use weldsuite_subscribers::webhooks::{retry_failed_webhook_deliveries, sign_webhook_payload};
 use weldsuite_subscribers::{
-    AuditSubscriber, RealtimeSubscriber, SUBSCRIBERS, SearchSubscriber, StaticTenants, TenantError,
-    Tenants, WebhookHttp, WebhooksSubscriber, topic_matches,
+    AuditStreamDestination, AuditStreamSender, AuditSubscriber, FlushOptions, RealtimeSubscriber,
+    SUBSCRIBERS, SearchSubscriber, StaticTenants, TenantError, Tenants, WebhookHttp,
+    WebhooksSubscriber, flush_audit_log_streams, topic_matches,
 };
 
 fn fixture(name: &str) -> Value {
@@ -658,4 +668,268 @@ async fn search_index_matches_typescript() {
             assert_eq!(Some(&row), expected.get(&key), "batch {number}: {key}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Audit log streams
+// ---------------------------------------------------------------------------
+
+fn text(value: &Value, key: &str) -> String {
+    value[key].as_str().unwrap_or_default().to_owned()
+}
+
+fn optional(value: &Value, key: &str) -> Option<String> {
+    value[key].as_str().map(str::to_owned)
+}
+
+/// A fixture row as delivery reads it from `audit_logs`.
+fn stream_row(row: &Value) -> AuditStreamRow {
+    AuditStreamRow {
+        id: text(row, "id"),
+        created_at: text(row, "createdAt"),
+        entity_type: text(row, "entityType"),
+        entity_id: text(row, "entityId"),
+        action: text(row, "action"),
+        description: text(row, "description"),
+        changes: optional(row, "changes"),
+        performed_by: optional(row, "performedBy"),
+        performed_by_name: optional(row, "performedByName"),
+        ip_address: optional(row, "ipAddress"),
+        workspace_id: optional(row, "workspaceId"),
+        source: optional(row, "source"),
+    }
+}
+
+/// Headers as the generator lists them (`Object.entries`).
+fn header_pairs(headers: &[(String, String)]) -> Value {
+    Value::Array(
+        headers
+            .iter()
+            .map(|(name, value)| json!([name, value]))
+            .collect(),
+    )
+}
+
+fn instant(value: &Value) -> OffsetDateTime {
+    OffsetDateTime::parse(value.as_str().expect("a timestamp"), &Rfc3339).expect("an ISO timestamp")
+}
+
+/// The wire formats, byte for byte: both stream types, both HTTP formats,
+/// with and without a token, and the test event.
+#[test]
+fn audit_stream_requests_match_typescript() {
+    let fixture = fixture("audit_streams");
+    for case in fixture["requests"].as_array().expect("requests") {
+        let name = case["name"].as_str().expect("name");
+        let workspace = case["workspaceId"].as_str();
+        let events: Vec<AuditStreamEvent> = case["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| build_audit_stream_event(&stream_row(row), workspace))
+            .collect();
+        let stream = &case["stream"];
+        let request = build_audit_stream_request(
+            &AuditStreamDestination {
+                kind: stream["type"].as_str().expect("type"),
+                url: stream["url"].as_str().expect("url"),
+                settings: stream["settings"].as_str(),
+            },
+            case["token"].as_str(),
+            &events,
+        );
+        assert_eq!(request.body, case["body"].as_str().expect("body"), "{name}");
+        assert_eq!(header_pairs(&request.headers), case["headers"], "{name}");
+    }
+
+    let test = &fixture["testEvent"];
+    let now = instant(&test["now"]);
+    assert_eq!(
+        build_test_audit_stream_event(now, test["workspaceId"].as_str()).json(),
+        test["event"].as_str().expect("event")
+    );
+    assert_eq!(
+        build_test_audit_stream_event(now, None).json(),
+        test["eventWithoutWorkspace"].as_str().expect("event")
+    );
+}
+
+/// The ids of the events in a request body, whatever its format (the
+/// generator's `streamEventIds`).
+fn stream_event_ids(body: &str) -> Vec<String> {
+    let id = |value: &Value| {
+        value["event"]["id"]
+            .as_str()
+            .or_else(|| value["id"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    if let Ok(document) = serde_json::from_str::<Value>(body)
+        && let Some(events) = document["events"].as_array()
+    {
+        return events.iter().map(id).collect();
+    }
+    body.split('\n')
+        .map(|line| id(&serde_json::from_str::<Value>(line).expect("a JSON line")))
+        .collect()
+}
+
+/// Answers a flush step's requests from its script and keeps what was sent,
+/// as the generator's `streamFetch` does.
+struct ScriptedStreams {
+    db: PgPool,
+    /// By URL, one answer per request in order (the last repeats); `200 ok`
+    /// for a URL without any.
+    answers: Value,
+    seen: Mutex<HashMap<String, usize>>,
+    requests: Mutex<Vec<Value>>,
+}
+
+impl StreamTransport for ScriptedStreams {
+    fn post<'a>(
+        &'a self,
+        call: StreamCall<'a>,
+    ) -> BoxFuture<'a, Result<StreamAnswer, StreamFailure>> {
+        Box::pin(async move {
+            let ids = stream_event_ids(call.body);
+            let sha256 = digest::digest(&digest::SHA256, call.body.as_bytes());
+            self.requests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(json!({
+                    "url": call.url,
+                    "headers": header_pairs(call.headers),
+                    "count": ids.len(),
+                    "first": ids.first(),
+                    "last": ids.last(),
+                    "sha256": hex::encode(sha256.as_ref()),
+                }));
+            let index = {
+                let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+                let count = seen.entry(call.url.to_owned()).or_insert(0);
+                *count += 1;
+                *count - 1
+            };
+            let answer = self.answers[call.url]
+                .as_array()
+                .and_then(|script| script.get(index.min(script.len().saturating_sub(1))));
+            let Some(answer) = answer else {
+                return Ok(StreamAnswer {
+                    status: 200,
+                    text: "ok".to_owned(),
+                });
+            };
+            // Another flush moving the cursor under this one.
+            if let Some(sql) = answer["exec"].as_str() {
+                sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
+                    .execute(&self.db)
+                    .await
+                    .expect("the statement of the step runs");
+            }
+            if let Some(message) = answer["error"].as_str() {
+                return Err(StreamFailure::Failed(message.to_owned()));
+            }
+            if answer["timeout"] == true {
+                return Err(StreamFailure::TimedOut);
+            }
+            Ok(StreamAnswer {
+                status: answer["status"]
+                    .as_u64()
+                    .and_then(|status| u16::try_from(status).ok())
+                    .expect("a status"),
+                text: text(answer, "body"),
+            })
+        })
+    }
+}
+
+/// Four flushes of one workspace: the cursor walk in batches of 200 (the
+/// first batch ends inside a millisecond that six rows share), the cap of
+/// five requests, failures with their backoff and recovery, the auto-disable
+/// at twenty, an unreadable token, an unsafe URL, a redirect, a timeout, a
+/// cursor another flush moved, the streams that are never asked, and the
+/// settle window: rows younger than five seconds wait, the row exactly five
+/// seconds old with them, and two rows that commit late in front of a row an
+/// earlier flush already saw are still delivered, in order.
+///
+/// TypeScript's `now` is a `Date`, whole milliseconds. Here every flush runs
+/// 999 microseconds later than the fixture says: the time of a flush is read
+/// to the millisecond, so nothing may change, and the settle bound may not
+/// cut a millisecond's rows in two.
+#[tokio::test]
+async fn audit_stream_flushes_match_typescript() {
+    let Some(pool) = tenant_pool().await else {
+        return;
+    };
+    let fixture = fixture("audit_streams");
+    let flush = &fixture["flush"];
+    exec(&pool, &flush["seed"]).await;
+    let keyring = Keyring {
+        v1: optional(&flush["keys"], "v1"),
+        v2: optional(&flush["keys"], "v2"),
+    };
+    let state = flush["state"].as_str().expect("the state query");
+
+    for step in flush["steps"].as_array().expect("steps") {
+        let name = step["name"].as_str().expect("name");
+        exec(&pool, &step["before"]).await;
+        let transport = Arc::new(ScriptedStreams {
+            db: pool.clone(),
+            answers: step["answers"].clone(),
+            seen: Mutex::default(),
+            requests: Mutex::default(),
+        });
+        let sender = AuditStreamSender::with_transport(transport.clone(), false);
+        let options = FlushOptions {
+            keyring: &keyring,
+            workspace_id: flush["workspaceId"].as_str(),
+            now: instant(&step["now"]) + time::Duration::microseconds(999),
+        };
+        // Only the streams of the fixture: the test database may hold others.
+        let mut results: Vec<Value> = flush_audit_log_streams(&pool, &sender, &options)
+            .await
+            .iter()
+            .filter(|result| result.stream_id.starts_with("als_fx"))
+            .map(|result| {
+                json!({
+                    "streamId": result.stream_id,
+                    "outcome": result.outcome.as_str(),
+                    "delivered": result.delivered,
+                    "error": result.error,
+                })
+            })
+            .collect();
+        results.sort_by_key(|result| text(result, "streamId"));
+        assert_eq!(Value::Array(results), step["results"], "{name}: results");
+
+        let requests: Vec<Value> = transport
+            .requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|request| text(request, "url").contains(".fx.example.com"))
+            .cloned()
+            .collect();
+        assert_eq!(
+            sorted(&requests),
+            sorted(step["requests"].as_array().expect("requests")),
+            "{name}: requests"
+        );
+
+        let streams: Vec<Value> = sqlx::query_scalar(AssertSqlSafe(state.to_owned()))
+            .fetch_all(&pool)
+            .await
+            .expect("the streams");
+        assert_eq!(Value::Array(streams), step["streams"], "{name}: streams");
+    }
+
+    // Rows dated 2099 would be news to every stream another test adds.
+    exec(
+        &pool,
+        &json!([
+            "delete from audit_log_streams where id like 'als_fx%'",
+            "delete from audit_logs where id like 'fxa_%' or id like 'fxb_%'",
+        ]),
+    )
+    .await;
 }

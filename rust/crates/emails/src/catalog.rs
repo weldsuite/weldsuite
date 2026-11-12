@@ -38,12 +38,40 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/calendar.event.update.json"),
     ),
     (
+        "desk.report",
+        include_str!("../../../catalogs/emails/templates/desk.report.json"),
+    ),
+    (
         "flow.portal-invitation",
         include_str!("../../../catalogs/emails/templates/flow.portal-invitation.json"),
     ),
     (
         "flow.status-report",
         include_str!("../../../catalogs/emails/templates/flow.status-report.json"),
+    ),
+    (
+        "forms.code",
+        include_str!("../../../catalogs/emails/templates/forms.code.json"),
+    ),
+    (
+        "forms.digest",
+        include_str!("../../../catalogs/emails/templates/forms.digest.json"),
+    ),
+    (
+        "forms.invite",
+        include_str!("../../../catalogs/emails/templates/forms.invite.json"),
+    ),
+    (
+        "forms.quota",
+        include_str!("../../../catalogs/emails/templates/forms.quota.json"),
+    ),
+    (
+        "forms.receipt",
+        include_str!("../../../catalogs/emails/templates/forms.receipt.json"),
+    ),
+    (
+        "forms.response",
+        include_str!("../../../catalogs/emails/templates/forms.response.json"),
     ),
     (
         "hr.bank-changed",

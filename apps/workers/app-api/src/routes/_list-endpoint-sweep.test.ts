@@ -16,6 +16,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database, } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../types';
 
+import { auditLogStreamsRoutes } from './audit-log-streams';
 import { customFieldsRoutes } from './custom-fields';
 import { legalEntitiesRoutes } from './legal-entities';
 
@@ -27,6 +28,7 @@ const cases: SweepCase[] = [
   // _sweeps.test.ts.)
   { mount: '/api/custom-fields', router: customFieldsRoutes, permission: 'settings:read' },
   { mount: '/api/legal-entities', router: legalEntitiesRoutes, permission: 'legal_entities:read' },
+  { mount: '/api/audit-log-streams', router: auditLogStreamsRoutes, permission: 'general:update' },
 ];
 
 let db: Database;

@@ -40,6 +40,8 @@ export interface SourceDraft {
   sort: { field: string; descending: boolean } | null;
   limit: string;
   refresh: SheetDataRefresh;
+  /** `form_responses` only: the form whose responses the table lists. */
+  formId?: string;
 }
 
 /** A field's name in the viewer's language. */
@@ -67,6 +69,7 @@ export function draftOf(source: SheetDataSource): SourceDraft {
     sort: definition.sort ? { field: definition.sort.field, descending: !!definition.sort.descending } : null,
     limit: String(definition.limit),
     refresh: source.refresh,
+    ...(definition.formId ? { formId: definition.formId } : {}),
   };
 }
 
@@ -102,6 +105,7 @@ export function definitionOf(draft: SourceDraft): SheetDataDefinitionInput {
     filters: draft.filters.map((f) => filterOf(draft.objectType, f)),
     ...(draft.sort ? { sort: { field: draft.sort.field, descending: draft.sort.descending } } : {}),
     limit: Number(draft.limit),
+    ...(draft.objectType === 'form_responses' && draft.formId ? { formId: draft.formId } : {}),
   };
 }
 

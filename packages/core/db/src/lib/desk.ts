@@ -12,7 +12,7 @@
  */
 
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import {
   validateCustomFieldValue,
   type CustomFieldDefinitionLike,
@@ -50,7 +50,7 @@ import { deskMergeFollowUpTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const messages = schema.deskMessages;
@@ -1521,6 +1521,8 @@ export interface IngestDeskApiInput {
   name?: string | null;
   email?: string | null;
   contactId?: string | null;
+  /** Files the first message carries (WeldForms uploads), already stored where the inbox can open them. */
+  attachments?: DeskMessageAttachment[];
   metadata?: DeskMessageMetadata;
 }
 
@@ -1564,6 +1566,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       authorType: 'visitor',
       authorId: visitorId,
       body: input.body,
+      attachments: input.attachments,
       metadata,
     });
     const { state, waitingSince, assigneeId } = conversation;
@@ -1585,6 +1588,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       contactId: input.contactId ?? null,
       title: input.title?.trim() || null,
       body: input.body,
+      attachments: input.attachments,
       authorType: 'visitor',
       authorId: visitorId,
       metadata,

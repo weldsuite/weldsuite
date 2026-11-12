@@ -6,7 +6,7 @@ Cursor Automations cannot be created via API/MCP — activate this in the UI.
 
 1. Open the Cursor Automations “new agent” page (or `/automate` in a local agent chat).
 2. **Trigger:** Scheduled → cron `0 8 * * 1` (Monday 08:00), timezone **Europe/Amsterdam**.
-3. **Repository:** `weldsuite/weldsuite` @ `develop` (needed for `scripts/social` + asset hosting).
+3. **Repository:** `weldsuite/weldsuite` @ `main` (needed for `scripts/social` + asset hosting).
 4. **Tools:** enable **WeldSuite MCP**, **Higgsfield MCP**, and **Memories** (optional: Send to Slack for the digest). Prefer omitting publish/schedule tools if your allowlist is per-tool. **Do not enable Buffer** (or any Buffer connector) on this automation — existing Buffer schedules must stay untouched.
 5. **Prompt:** paste the full prompt from [`.cursor/automations/weldsocial-weekly-prompt.md`](../../../.cursor/automations/weldsocial-weekly-prompt.md).
 6. Authenticate both MCPs for the automation identity (Private = your OAuth; Team Owned = team service account). Higgsfield uses OAuth to your Higgsfield account (credits apply on MCP generations).

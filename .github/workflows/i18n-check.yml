@@ -2,7 +2,7 @@ name: i18n parity check
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'packages/core/i18n/**'
       - 'apps/web/platform/lib/i18n/**'
