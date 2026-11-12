@@ -144,14 +144,14 @@ export const ColorPickerSelection = memo(({ className, ...props }: ColorPickerSe
             hsl(${hue}, 100%, 50%)`;
   }, [hue]);
 
-  const handlePointerMove = useCallback(
-    (event: PointerEvent) => {
-      if (!(isDragging && containerRef.current)) {
+  const pickAt = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!containerRef.current) {
         return;
       }
       const rect = containerRef.current.getBoundingClientRect();
-      const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
       setPositionX(x);
       setPositionY(y);
       setSaturation(x * 100);
@@ -160,7 +160,16 @@ export const ColorPickerSelection = memo(({ className, ...props }: ColorPickerSe
 
       setLightness(lightness);
     },
-    [isDragging, setSaturation, setLightness],
+    [setSaturation, setLightness],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: PointerEvent) => {
+      if (isDragging) {
+        pickAt(event.clientX, event.clientY);
+      }
+    },
+    [isDragging, pickAt],
   );
 
   useEffect(() => {
@@ -183,7 +192,8 @@ export const ColorPickerSelection = memo(({ className, ...props }: ColorPickerSe
       onPointerDown={(e) => {
         e.preventDefault();
         setIsDragging(true);
-        handlePointerMove(e.nativeEvent);
+        // Picks on the press itself, so a click without dragging chooses a colour too.
+        pickAt(e.clientX, e.clientY);
       }}
       ref={containerRef}
       style={{
