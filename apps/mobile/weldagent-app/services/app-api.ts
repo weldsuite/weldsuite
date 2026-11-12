@@ -14,7 +14,6 @@ import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent'
 import { createWorkspaceAgentsApi } from '@weldsuite/app-api-client/domains/workspace-agents';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
-import { APP } from '@/lib/server';
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
@@ -24,7 +23,10 @@ export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) 
 
 // Hosts come from the booted server runtime and are read per request, never at import time.
 const { client } = createMobileApiClient({
-  appCode: APP.code,
+  // WeldAgent isn't an app in the permission registry
+  // (@weldsuite/permissions PERMISSION_APPS): `workspace` is the explicit
+  // "no app" context, the same checks as sending no header (as before).
+  appCode: 'workspace',
   getToken: () => tokenGetter(),
 });
 

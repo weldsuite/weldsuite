@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
-import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
+import { ServerSettingsSection } from '@weldsuite/mobile-ui/components/ServerRow';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { LogOut, Moon, Sun } from 'lucide-react-native';
 import { useI18n } from '@/lib/i18n';
@@ -38,11 +38,12 @@ export default function SettingsScreen() {
         )}
       </View>
 
-      {/* Which server the app talks to; renders nothing when the build has the picker off. */}
-      <View style={[styles.section, { backgroundColor: colors.card }]}>
-        <ServerRow variant="settings" language={language} accentColor="#EA580C" />
-        <ProviderAccountRow language={language} />
-      </View>
+      {/* Which server the app talks to; renders nothing on production Global builds. */}
+      <ServerSettingsSection
+        style={[styles.section, { backgroundColor: colors.card }]}
+        language={language}
+        accentColor="#EA580C"
+      />
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
         <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.settings.scanner}</Text>

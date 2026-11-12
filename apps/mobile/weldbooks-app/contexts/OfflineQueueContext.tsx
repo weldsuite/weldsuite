@@ -18,11 +18,17 @@ import React, {
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onClearServerData } from '@weldsuite/mobile-platform/runtime';
 import NetInfo from '@react-native-community/netinfo';
 import { randomUUID } from 'expo-crypto';
 import api from '@/services/api';
 
 const QUEUE_STORAGE_KEY = '@weldbooks/offline-queue';
+
+// Items queued on one server must never be replayed against another: a server
+// switch (WeldSuite cloud, EU, self-hosted) drops the queue with the rest of
+// that server's local data (docs/plans/mobile-server-choice.md, section 7).
+onClearServerData('weldbooks-offline-queue', () => AsyncStorage.removeItem(QUEUE_STORAGE_KEY));
 
 export interface QueueItem {
   id: string;

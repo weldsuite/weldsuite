@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 import { useHostedSignIn } from '@weldsuite/mobile-platform/auth';
@@ -98,6 +98,34 @@ export function ServerRow({
         <Text style={[styles.note, { color: colors.mutedForeground }]}>{labels.pushOff}</Text>
       )}
       {picker}
+    </View>
+  );
+}
+
+/**
+ * Whether the settings screen has anything to show about the server: the
+ * picker (when the build has it on) or the provider's account page (OIDC).
+ * False on production Global builds, so their settings look as before.
+ */
+export function useServerSettingsVisible(): boolean {
+  const hosted = useHostedSignIn();
+  return Boolean(peekMobileRuntime()?.serverPickerEnabled || hosted?.accountUrl);
+}
+
+/**
+ * The settings card with `ServerRow` and `ProviderAccountRow`, rendered only
+ * when one of them has something to show (no empty card on production Global).
+ */
+export function ServerSettingsSection({
+  style,
+  ...row
+}: Readonly<Omit<ServerRowProps, 'variant'> & { style?: StyleProp<ViewStyle> }>) {
+  const visible = useServerSettingsVisible();
+  if (!visible) return null;
+  return (
+    <View style={style}>
+      <ServerRow variant="settings" {...row} />
+      <ProviderAccountRow language={row.language} copy={row.copy} />
     </View>
   );
 }
