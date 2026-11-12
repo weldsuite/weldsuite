@@ -284,6 +284,22 @@ function createAndSendAction(
   };
 }
 
+/**
+ * The company details every invoice must show (VAT number, KvK, IBAN, address): a new invoice
+ * waits for them, a draft being edited only says which are missing.
+ */
+function useInvoiceDetailsGate(mode: 'add' | 'edit') {
+  const { t } = useI18n();
+  const details = useEntityInvoiceDetails();
+  const blocked = mode === 'add' && details.missing.length > 0;
+  return {
+    details,
+    noticeContext: mode === 'add' ? ('create' as const) : ('issue' as const),
+    /** Why saving waits, for the buttons' title; undefined when it doesn't. */
+    blockedReason: blocked ? t.accounting.entityInvoiceDetails.createBlocked : undefined,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -325,9 +341,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Brazil: NCM / CFOP and fiscal details per line, withholdings per invoice, taxes grouped by treatment.
   const br = features.brTaxReturn;
   const describeError = useDescribeError();
-  // The company details every invoice must show (VAT number, KvK, IBAN, address): a new invoice waits for them.
-  const invoiceDetails = useEntityInvoiceDetails();
-  const detailsMissing = mode === 'add' && invoiceDetails.missing.length > 0;
+  const detailsGate = useInvoiceDetailsGate(mode);
+  const detailsBlocked = detailsGate.blockedReason;
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
@@ -542,7 +557,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   };
 
   const onSubmit = (values: InvoiceFormValues, intent: 'save' | 'send' = 'save') => {
-    if (detailsMissing) return;
+    if (detailsBlocked) return;
     setSending(intent === 'send');
     startTransition(async () => {
       try {
@@ -596,10 +611,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       content: (
         <>
           <EntityInvoiceDetailsNotice
-            entity={invoiceDetails.entity}
-            missing={invoiceDetails.missing}
-            labels={invoiceDetails.labels}
-            context={mode === 'add' ? 'create' : 'issue'}
+            entity={detailsGate.details.entity}
+            missing={detailsGate.details.missing}
+            labels={detailsGate.details.labels}
+            context={detailsGate.noticeContext}
           />
           {isCreditMemo && <InfoBanner variant="info">{td.form.creditMemoNote}</InfoBanner>}
           <div className="space-y-2">
@@ -1005,7 +1020,6 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   // A new invoice is saved as a draft, or saved and sent in one go.
   const canCreateAndSend = mode === 'add' && !isCreditMemo;
-  const detailsBlocked = detailsMissing ? t.accounting.entityInvoiceDetails.createBlocked : undefined;
   const sendAction = canCreateAndSend
     ? createAndSendAction(previewCustomer, {
         label: tf.createAndSend,
@@ -1056,7 +1070,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
       submitText={canCreateAndSend ? tf.createDraft : submitText}
-      submitDisabled={detailsMissing}
+      submitDisabled={detailsBlocked !== undefined}
       submitTitle={detailsBlocked}
       primaryAction={sendAction}
       backLink="/weldbooks/invoices"
