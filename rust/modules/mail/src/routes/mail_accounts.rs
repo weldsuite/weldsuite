@@ -643,7 +643,14 @@ async fn ensure_managed_domain(
     at: &str,
 ) -> MailResult<()> {
     if let Some(adapter) = &state.domains {
-        return super::mail_domains::ensure_provisioned(caller, adapter.as_ref(), domain, at).await;
+        return super::mail_domains::ensure_provisioned(
+            state,
+            caller,
+            adapter.as_ref(),
+            domain,
+            at,
+        )
+        .await;
     }
     let managed: Option<String> = sqlx::query_scalar(
         "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",

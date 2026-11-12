@@ -111,6 +111,35 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
     expect(within(row).queryByText(td.catchAll)).not.toBeInTheDocument();
   });
 
+  it('asks for the ownership record first while it is the only one', () => {
+    state.settings = {
+      data: {
+        accounts: [],
+        domains: [
+          domain({
+            dkimSelector: null,
+            dnsRecords: [
+              {
+                type: 'TXT',
+                name: '_weldmail-verify.acme.nl',
+                value: 'weldmail-verify=tok123',
+                purpose: 'verification',
+                verified: false,
+              },
+            ],
+          }),
+        ],
+        usage: null,
+      },
+      isLoading: false,
+    };
+    render(<MailDomainsSettingsPage />);
+    const row = screen.getByTestId('mail-domain-acme.nl');
+    expect(within(row).getByText(td.ownershipHint)).toBeInTheDocument();
+    expect(within(row).queryByText(td.recordsHint)).not.toBeInTheDocument();
+    expect(within(row).getByText('weldmail-verify=tok123')).toBeInTheDocument();
+  });
+
   it('checks the DNS again and says when records are still missing', async () => {
     state.verify.mockResolvedValue({ data: domain() });
     render(<MailDomainsSettingsPage />);

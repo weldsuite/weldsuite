@@ -115,20 +115,24 @@ pub fn is_free_apex(apex: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
 }
 
-/// The configured apex, or 503.
-fn free_apex(state: &MailState, caller: &Caller) -> MailResult<String> {
+/// The configured apex (`WELDMAIL_DOMAIN`), when it may carry free addresses.
+pub(crate) fn configured_apex(state: &MailState, caller: &Caller) -> Option<String> {
     caller
         .bindings
         .env_value(state, "WELDMAIL_DOMAIN")
         .map(|apex| apex.trim().to_lowercase())
         .filter(|apex| is_free_apex(apex))
-        .ok_or_else(|| {
-            MailError::api(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "FREE_ADDRESSES_NOT_CONFIGURED",
-                "Free WeldMail addresses are not set up on this server",
-            ))
-        })
+}
+
+/// The configured apex, or 503.
+fn free_apex(state: &MailState, caller: &Caller) -> MailResult<String> {
+    configured_apex(state, caller).ok_or_else(|| {
+        MailError::api(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "FREE_ADDRESSES_NOT_CONFIGURED",
+            "Free WeldMail addresses are not set up on this server",
+        ))
+    })
 }
 
 fn not_found(message: &str) -> MailError {

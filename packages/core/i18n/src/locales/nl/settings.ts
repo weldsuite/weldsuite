@@ -2070,6 +2070,8 @@ export const settings = {
         statusPending: 'Wacht op DNS',
         recordsHint:
           'Publiceer deze records bij de DNS-provider van uw domein en controleer daarna opnieuw. Het kan tot een uur duren voordat nieuwe records zichtbaar zijn.',
+        ownershipHint:
+          'Laat eerst zien dat het domein van u is: publiceer dit eigendomsrecord bij de DNS-provider van uw domein en controleer daarna opnieuw. De mailrecords verschijnen zodra het is gevonden. Laat het record daarna staan.',
         showRecords: 'DNS-records tonen',
         hideRecords: 'DNS-records verbergen',
         check: 'DNS controleren',

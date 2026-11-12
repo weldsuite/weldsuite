@@ -6,18 +6,24 @@
 //! customer publishes the records `dnsRecords` lists (MX to the edition's MX,
 //! the SPF include, the DKIM key, a DMARC suggestion). `verify` looks them up.
 //!
-//! The MTA is shared by every workspace and keeps one DKIM key per domain,
-//! so a domain added here also gets an ownership record of its own workspace
-//! (`_weldmail-verify.<domain>`, TXT `weldmail-verify=<token>`, the token in
-//! `metadata.verificationToken`). It is verified only once that record
-//! resolves too, and mailboxes are created only on a verified domain or an
-//! active WeldHost domain, whose ownership WeldHost proved
+//! The MTA is shared by every workspace, keeps one DKIM key per domain and
+//! signs with the most specific domain it knows, so registering a name
+//! changes how mail from that name (and its subdomains) is signed for
+//! whoever sends it. A domain added here therefore gets an ownership record
+//! of its own workspace first (`_weldmail-verify.<domain>`, TXT
+//! `weldmail-verify=<token>`, the token in `metadata.verificationToken`), and
+//! reaches the MTA only once that record has resolved
+//! (`metadata.ownershipVerifiedAt`, [`may_reach_adapter`]): until then its
+//! `dnsRecords` hold the ownership record alone. It is verified only while
+//! that record resolves, and mailboxes are created only on a verified domain
+//! or an active WeldHost domain, whose ownership WeldHost proved
 //! ([`ensure_provisioned`]). Removing a domain deregisters it at the MTA only
 //! when the workspace proved it and no other workspace has addresses on it.
 //!
-//! WeldMail's own domains (`weldmail.com`, `weldmail.org` and their
-//! subdomains) are Global's: they are refused here, as a custom domain and for
-//! a mailbox, so the MTA never registers one ([`weldmail_domain_refused`]).
+//! WeldMail's own domains (`weldmail.com`, `weldmail.org`, this edition's
+//! free-address domain `WELDMAIL_DOMAIN`, and their subdomains) are refused
+//! here, as a custom domain and for a mailbox, so the MTA never registers one
+//! for a workspace ([`is_weldmail_domain`]).
 //!
 //! Without an adapter (`MAIL_MX_HOST` unset, so `/config.json` lists
 //! `mail-domains` as unavailable) the reads, the catch-all settings and
@@ -122,6 +128,24 @@ struct Provisioned {
 }
 
 impl Provisioned {
+    /// A domain whose ownership is not proven: the adapter was not asked, and
+    /// the ownership record is all there is to publish.
+    fn unproven(ownership: Option<DnsRecord>) -> Self {
+        Self {
+            setup: DomainSetup {
+                records: Vec::new(),
+                verified: false,
+                dkim_selector: None,
+            },
+            ownership,
+        }
+    }
+
+    /// The ownership record resolved on this lookup.
+    fn ownership_resolved(&self) -> bool {
+        self.ownership.as_ref().is_some_and(|r| r.verified)
+    }
+
     /// Mail can flow and the workspace proved the domain is its own.
     fn verified(&self) -> bool {
         self.setup.verified && self.ownership.as_ref().is_none_or(|r| r.verified)
@@ -143,52 +167,81 @@ impl Provisioned {
     }
 }
 
-/// Look `domain`'s records up, the ownership record included.
+/// The workspace's ownership record of `domain`, looked up; `None` for a
+/// domain without one (a WeldHost domain).
+async fn look_up_ownership(
+    adapter: &dyn MailDomains,
+    domain: &str,
+    token: Option<&str>,
+) -> Result<Option<DnsRecord>, DomainError> {
+    let Some(token) = token else {
+        return Ok(None);
+    };
+    let mut record = ownership_record(domain, token);
+    record.verified = adapter.check_record(&record).await?;
+    Ok(Some(record))
+}
+
+/// Whether `domain` may be registered with (or verified through, which
+/// registers at a relay) the adapter: a domain without an ownership record
+/// (a WeldHost domain) may, one with a record once it has resolved, on this
+/// lookup or an earlier one (`proven`).
+fn may_reach_adapter(proven: bool, ownership: Option<&DnsRecord>) -> bool {
+    proven || ownership.is_none_or(|record| record.verified)
+}
+
+/// Look `domain`'s records up, the ownership record first: the adapter is
+/// asked only when [`may_reach_adapter`].
 async fn check(
     adapter: &dyn MailDomains,
     domain: &str,
     token: Option<&str>,
+    proven: bool,
 ) -> Result<Provisioned, DomainError> {
+    let ownership = look_up_ownership(adapter, domain, token).await?;
+    if !may_reach_adapter(proven, ownership.as_ref()) {
+        return Ok(Provisioned::unproven(ownership));
+    }
     let setup = adapter.verify(domain).await?;
-    let ownership = match token {
-        Some(token) => {
-            let mut record = ownership_record(domain, token);
-            record.verified = adapter.check_record(&record).await?;
-            Some(record)
-        }
-        None => None,
-    };
     Ok(Provisioned { setup, ownership })
 }
 
-/// Register `domain` with the adapter (idempotent), then look its records up:
-/// a domain added again may resolve already. A failed lookup keeps the
-/// registration's records, none verified.
+/// Register `domain` with the adapter (idempotent) once [`may_reach_adapter`],
+/// then look its records up: a domain added again may resolve already. A
+/// failed lookup keeps the registration's records, none verified.
 async fn provision(
     adapter: &dyn MailDomains,
     domain: &str,
     token: Option<&str>,
+    proven: bool,
 ) -> Result<Provisioned, DomainError> {
+    let ownership = look_up_ownership(adapter, domain, token).await?;
+    if !may_reach_adapter(proven, ownership.as_ref()) {
+        return Ok(Provisioned::unproven(ownership));
+    }
     let registered = adapter.register(domain).await?;
-    match check(adapter, domain, token).await {
-        Ok(checked) => Ok(checked),
+    match adapter.verify(domain).await {
+        Ok(setup) => Ok(Provisioned { setup, ownership }),
         Err(error) => {
             tracing::warn!(%error, "[mail-domains] looking up {domain} after registering it failed");
             Ok(Provisioned {
                 setup: registered,
-                ownership: token.map(|token| ownership_record(domain, token)),
+                ownership,
             })
         }
     }
 }
 
 /// Write what the adapter answered to the row; `provider` replaces the
-/// row's providers (a re-sync through this edition's adapter).
+/// row's providers (a re-sync through this edition's adapter). `proven`
+/// records, once, that the workspace proved the domain is its own (on a row
+/// with an ownership token), so the adapter is asked from then on.
 async fn store(
     db: &PgPool,
     id: &str,
     provider: Option<&str>,
     outcome: &Provisioned,
+    proven: bool,
     at: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
@@ -200,6 +253,11 @@ async fn store(
            dkim_selector = coalesce($8, dkim_selector),
            cloudflare_routing_enabled = false,
            verified_at = case when $9 then $10::timestamp else verified_at end,
+           metadata = case
+             when $11 and metadata ? 'verificationToken'
+               and coalesce(metadata->>'ownershipVerifiedAt', '') = ''
+             then metadata || jsonb_build_object('ownershipVerifiedAt', $10::text)
+             else metadata end,
            last_verification_attempt = $10::timestamp, updated_at = $10::timestamp
          where id = $1",
     )
@@ -213,6 +271,7 @@ async fn store(
     .bind(outcome.setup.dkim_selector.as_deref())
     .bind(outcome.verified())
     .bind(at)
+    .bind(proven)
     .execute(db)
     .await?;
     Ok(())
@@ -240,29 +299,53 @@ fn provider_error(code: &'static str, message: String, error: &DomainError) -> M
     MailError::api(ApiError::new(status, code, message).with_details(error.to_string()))
 }
 
-/// WeldMail's own domains (`weldmail.com`, `weldmail.org` and their
-/// workspace subdomains) belong to Global: their MX, DKIM and reputation are
-/// Global's, and free addresses are off on Kubernetes (MAIL-010). Neither a
-/// custom domain nor a mailbox goes on one here, and the MTA never registers
-/// one.
+/// WeldMail's own domains: Global's (`weldmail.com`, `weldmail.org`, whose
+/// MX, DKIM and reputation are Global's, MAIL-010), this edition's
+/// free-address domain (`WELDMAIL_DOMAIN`, whose workspace subdomains the MTA
+/// signs with the apex key, MAIL-013), and their subdomains. Neither a custom
+/// domain nor a mailbox of a workspace's own goes on one, and the MTA never
+/// registers one for a workspace: a key minted for `acme.weldmail.eu` would
+/// replace the apex key on that workspace's free-address mail.
+fn is_weldmail_domain(state: &MailState, caller: &Caller, domain: &str) -> bool {
+    let domain = domain.to_lowercase();
+    is_shared_weldmail_domain(&domain)
+        || super::mail_weldmail::configured_apex(state, caller)
+            .is_some_and(|apex| domain == apex || domain.ends_with(&format!(".{apex}")))
+}
+
 fn weldmail_domain_refused(domain: &str) -> MailError {
     MailError::bad_request(format!(
         "{domain} is a WeldMail domain. Add a domain you own instead."
     ))
 }
 
+/// The refusal when `domain` is one of WeldMail's own.
+fn refuse_weldmail_domain(state: &MailState, caller: &Caller, domain: &str) -> MailResult<()> {
+    if is_weldmail_domain(state, caller, domain) {
+        return Err(weldmail_domain_refused(domain));
+    }
+    Ok(())
+}
+
+/// Whether the workspace proved `row`'s domain is its own on an earlier
+/// lookup.
+fn ownership_proven(row: &Value) -> bool {
+    row["metadata"]["ownershipVerifiedAt"]
+        .as_str()
+        .is_some_and(|at| !at.is_empty())
+}
+
 /// `ensureManagedDomain` with an adapter: a mailbox goes on a verified mail
 /// domain, or on an active WeldHost domain of the workspace (WeldHost proved
 /// ownership), which is then registered with the adapter.
 pub(crate) async fn ensure_provisioned(
+    state: &MailState,
     caller: &Caller,
     adapter: &dyn MailDomains,
     domain: &str,
     at: &str,
 ) -> MailResult<()> {
-    if is_shared_weldmail_domain(domain) {
-        return Err(weldmail_domain_refused(domain));
-    }
+    refuse_weldmail_domain(state, caller, domain)?;
     let row: Option<(String, Option<String>)> = sqlx::query_as(
         "select id, dns_status::text from mail_domains
          where domain_name = $1 and deleted_at is null limit 1",
@@ -294,13 +377,15 @@ pub(crate) async fn ensure_provisioned(
             )
         }));
     }
-    let outcome = provision(adapter, domain, None).await.map_err(|error| {
-        provider_error(
-            "DOMAIN_PROVISION_FAILED",
-            format!("Couldn't set up mail for {domain}"),
-            &error,
-        )
-    })?;
+    let outcome = provision(adapter, domain, None, true)
+        .await
+        .map_err(|error| {
+            provider_error(
+                "DOMAIN_PROVISION_FAILED",
+                format!("Couldn't set up mail for {domain}"),
+                &error,
+            )
+        })?;
     let id = if let Some((id, _)) = row {
         id
     } else {
@@ -317,7 +402,16 @@ pub(crate) async fn ensure_provisioned(
         .await?;
         id
     };
-    store(&caller.db, &id, Some(adapter.provider()), &outcome, at).await?;
+    // WeldHost proved the domain, so a row added here before is proven too.
+    store(
+        &caller.db,
+        &id,
+        Some(adapter.provider()),
+        &outcome,
+        true,
+        at,
+    )
+    .await?;
     Ok(())
 }
 
@@ -660,8 +754,9 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     answer(result, "Failed to fetch domain")
 }
 
-/// `POST /` (`createDomain`): register the domain with the adapter before the
-/// row exists, as the worker provisions Cloudflare before inserting.
+/// `POST /` (`createDomain`): the row, pending, with the ownership record to
+/// publish. The worker provisions Cloudflare before inserting; here nothing
+/// reaches the MTA until the ownership record resolves (`verify`).
 async fn create(
     State(state): State<MailState>,
     caller: Caller,
@@ -689,9 +784,7 @@ async fn create(
     };
     let result = async {
         let domain = domain.trim().to_lowercase();
-        if is_shared_weldmail_domain(&domain) {
-            return Err(weldmail_domain_refused(&domain));
-        }
+        refuse_weldmail_domain(&state, &caller, &domain)?;
         let existing: Option<String> = sqlx::query_scalar(
             "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",
         )
@@ -705,15 +798,8 @@ async fn create(
         }
         let adapter = domains_adapter(&state)?;
         let token = uuid::Uuid::new_v4().simple().to_string();
-        let outcome = provision(adapter.as_ref(), &domain, Some(&token))
-            .await
-            .map_err(|error| {
-                provider_error(
-                    "DOMAIN_PROVISION_FAILED",
-                    format!("Couldn't set up mail for {domain}"),
-                    &error,
-                )
-            })?;
+        // A new token cannot resolve yet: no lookup, and no MTA call.
+        let outcome = Provisioned::unproven(Some(ownership_record(&domain, &token)));
         let id = generate_id("mdom");
         let at = now();
         insert(
@@ -726,7 +812,7 @@ async fn create(
             &at,
         )
         .await?;
-        store(&caller.db, &id, None, &outcome, &at).await?;
+        store(&caller.db, &id, None, &outcome, false, &at).await?;
         if fields.is_primary == Some(true) {
             mark_as_sole_primary(&caller.db, &id, &at).await?;
         }
@@ -882,7 +968,9 @@ async fn remove(
 }
 
 /// `POST /:id/verify` (`verifyDomain`): look the records up again. Safe to
-/// call from a "Check now" button.
+/// call from a "Check now" button. The first lookup that finds the ownership
+/// record registers the domain with the adapter, so the mail records (the
+/// MTA's DKIM key among them) appear then.
 async fn verify(
     State(state): State<MailState>,
     caller: Caller,
@@ -893,17 +981,25 @@ async fn verify(
             return Err(MailError::not_found("Domain", None));
         };
         let domain = text(&existing, "domainName").to_owned();
+        refuse_weldmail_domain(&state, &caller, &domain)?;
         let adapter = domains_adapter(&state)?;
-        let outcome = check(adapter.as_ref(), &domain, token(&existing))
-            .await
-            .map_err(|error| {
-                provider_error(
-                    "DOMAIN_VERIFY_FAILED",
-                    format!("Couldn't verify {domain}"),
-                    &error,
-                )
-            })?;
-        store(&caller.db, &id, None, &outcome, &now()).await?;
+        let proven = ownership_proven(&existing);
+        // Registered already: proven, or a WeldHost domain (no token).
+        let outcome = if proven || token(&existing).is_none() {
+            check(adapter.as_ref(), &domain, token(&existing), proven).await
+        } else {
+            // Registering is idempotent; the first proof needs it.
+            provision(adapter.as_ref(), &domain, token(&existing), false).await
+        }
+        .map_err(|error| {
+            provider_error(
+                "DOMAIN_VERIFY_FAILED",
+                format!("Couldn't verify {domain}"),
+                &error,
+            )
+        })?;
+        let proven = proven || outcome.ownership_resolved();
+        store(&caller.db, &id, None, &outcome, proven, &now()).await?;
         let after = reread(&caller.db, &id).await?;
         if outcome.verified() {
             caller.publish(&state, MAIL_DOMAIN_VERIFIED, &id, &event_data(&after));
@@ -916,15 +1012,17 @@ async fn verify(
 
 /// `POST /:id/sync` (`syncDomain`): register the domain with this edition's
 /// adapter again (a key the MTA lost, a row from another provider) and look
-/// it up.
+/// it up; a domain whose ownership is not proven yet is only looked up.
 async fn sync(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         let Some(existing) = find(&caller.db, &id).await? else {
             return Err(MailError::not_found("Domain", None));
         };
         let domain = text(&existing, "domainName").to_owned();
+        refuse_weldmail_domain(&state, &caller, &domain)?;
         let adapter = domains_adapter(&state)?;
-        let outcome = provision(adapter.as_ref(), &domain, token(&existing))
+        let proven = ownership_proven(&existing);
+        let outcome = provision(adapter.as_ref(), &domain, token(&existing), proven)
             .await
             .map_err(|error| {
                 provider_error(
@@ -933,7 +1031,16 @@ async fn sync(State(state): State<MailState>, caller: Caller, Path(id): Path<Str
                     &error,
                 )
             })?;
-        store(&caller.db, &id, Some(adapter.provider()), &outcome, &now()).await?;
+        let proven = proven || outcome.ownership_resolved();
+        store(
+            &caller.db,
+            &id,
+            Some(adapter.provider()),
+            &outcome,
+            proven,
+            &now(),
+        )
+        .await?;
         let after = reread(&caller.db, &id).await?;
         caller.publish(&state, MAIL_DOMAIN_UPDATED, &id, &event_data(&after));
         Ok(Data(after).into_response())
@@ -943,7 +1050,8 @@ async fn sync(State(state): State<MailState>, caller: Caller, Path(id): Path<Str
 }
 
 /// `POST /:id/generate-dkim`: the domain's DKIM record from the adapter (the
-/// MTA mints the key on first registration).
+/// MTA mints the key on first registration), once the workspace proved the
+/// domain is its own.
 async fn generate_dkim(
     State(state): State<MailState>,
     caller: Caller,
@@ -954,7 +1062,24 @@ async fn generate_dkim(
             return Err(MailError::not_found("Domain", None));
         };
         let domain = text(&existing, "domainName").to_owned();
+        refuse_weldmail_domain(&state, &caller, &domain)?;
         let adapter = domains_adapter(&state)?;
+        if !ownership_proven(&existing) {
+            let ownership = look_up_ownership(adapter.as_ref(), &domain, token(&existing))
+                .await
+                .map_err(|error| {
+                    provider_error(
+                        "DOMAIN_VERIFY_FAILED",
+                        format!("Couldn't verify {domain}"),
+                        &error,
+                    )
+                })?;
+            if !may_reach_adapter(false, ownership.as_ref()) {
+                return Err(MailError::bad_request(format!(
+                    "Publish the ownership record of {domain} and check its DNS before generating its DKIM key."
+                )));
+            }
+        }
         let setup = adapter.register(&domain).await.map_err(|error| {
             provider_error(
                 "DOMAIN_PROVISION_FAILED",
@@ -1060,6 +1185,27 @@ mod tests {
         assert!(outcome.verified());
         assert_eq!(outcome.records_json().as_array().map(Vec::len), Some(1));
     }
+
+    #[test]
+    fn only_a_proven_domain_reaches_the_adapter() {
+        let mut ownership = ownership_record("acme.test", "tok");
+        assert!(!may_reach_adapter(false, Some(&ownership)));
+        assert!(may_reach_adapter(true, Some(&ownership)));
+        ownership.verified = true;
+        assert!(may_reach_adapter(false, Some(&ownership)));
+        // A WeldHost domain: WeldHost proved it.
+        assert!(may_reach_adapter(false, None));
+    }
+
+    #[test]
+    fn an_unproven_domain_lists_its_ownership_record_alone() {
+        let outcome = Provisioned::unproven(Some(ownership_record("acme.test", "tok")));
+        assert!(!outcome.verified());
+        assert!(!outcome.ownership_resolved());
+        let records = outcome.records_json();
+        assert_eq!(records.as_array().map(Vec::len), Some(1));
+        assert_eq!(records[0]["purpose"], "verification");
+    }
 }
 
 /// The routes on the real schema (databases built from the journaled
@@ -1082,11 +1228,25 @@ mod db_tests {
     use super::*;
     use crate::caller::Bindings;
 
-    /// Pending until `verified` is set; remembers what it deregistered.
+    /// Pending until `verified` is set; the ownership record resolves once
+    /// `owned` is. Remembers what reached it (registered or verified, which
+    /// registers at a relay) and what it deregistered.
     #[derive(Default)]
     struct FakeDomains {
         verified: AtomicBool,
+        owned: AtomicBool,
+        reached: Mutex<Vec<String>>,
         removed: Mutex<Vec<String>>,
+    }
+
+    impl FakeDomains {
+        fn reached(&self, domain: &str) -> bool {
+            self.reached
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|d| d == domain)
+        }
     }
 
     fn fake_setup(domain: &str, verified: bool) -> DomainSetup {
@@ -1112,12 +1272,14 @@ mod db_tests {
             &'a self,
             domain: &'a str,
         ) -> BoxFuture<'a, Result<DomainSetup, DomainError>> {
+            self.reached.lock().expect("lock").push(domain.to_owned());
             Box::pin(async move { Ok(fake_setup(domain, false)) })
         }
         fn verify<'a>(
             &'a self,
             domain: &'a str,
         ) -> BoxFuture<'a, Result<DomainSetup, DomainError>> {
+            self.reached.lock().expect("lock").push(domain.to_owned());
             let verified = self.verified.load(Ordering::SeqCst);
             Box::pin(async move { Ok(fake_setup(domain, verified)) })
         }
@@ -1129,8 +1291,29 @@ mod db_tests {
             &'a self,
             _record: &'a DnsRecord,
         ) -> BoxFuture<'a, Result<bool, DomainError>> {
-            let verified = self.verified.load(Ordering::SeqCst);
-            Box::pin(async move { Ok(verified) })
+            let owned = self.owned.load(Ordering::SeqCst);
+            Box::pin(async move { Ok(owned) })
+        }
+    }
+
+    fn state(master: Option<PgPool>, fake: &Arc<FakeDomains>, env: &[(&str, &str)]) -> MailState {
+        MailState {
+            events: EntityEventPublisher::new(None, TaskTracker::new()),
+            master,
+            cache: None,
+            outbound: OutboundBindings::default(),
+            files: None,
+            jobs: None,
+            system_mail: None,
+            http: None,
+            doh: None,
+            domains: Some(fake.clone()),
+            workspace_tenants: None,
+            env: Arc::new(
+                env.iter()
+                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                    .collect::<HashMap<_, _>>(),
+            ),
         }
     }
 
@@ -1175,28 +1358,23 @@ mod db_tests {
         )
     }
 
-    /// WeldMail's own domains are refused before any query or MTA call, so a
-    /// pool that never connects is enough.
+    /// WeldMail's own domains, the edition's free-address domain among them,
+    /// are refused before any query or MTA call, so a pool that never
+    /// connects is enough.
     #[tokio::test]
-    async fn weldmail_domains_stay_with_global() {
+    async fn weldmail_domains_are_refused() {
         let offline =
             weldsuite_db::master_pool("postgres://nobody@127.0.0.1:1/none", 1).expect("lazy pool");
         let fake = Arc::new(FakeDomains::default());
-        let state = MailState {
-            events: EntityEventPublisher::new(None, TaskTracker::new()),
-            master: None,
-            cache: None,
-            outbound: OutboundBindings::default(),
-            files: None,
-            jobs: None,
-            system_mail: None,
-            http: None,
-            doh: None,
-            domains: Some(fake.clone()),
-            workspace_tenants: None,
-            env: Arc::new(HashMap::new()),
-        };
-        for name in ["weldmail.com", "acme.weldmail.com", "Acme.WeldMail.org"] {
+        let state = state(None, &fake, &[("WELDMAIL_DOMAIN", "Free.Example")]);
+        for name in [
+            "weldmail.com",
+            "acme.weldmail.com",
+            "Acme.WeldMail.org",
+            "acme.weldmail.eu",
+            "free.example",
+            "acme.free.example",
+        ] {
             let body = Bytes::from(json!({ "domainName": name }).to_string());
             let (status, body) =
                 read(create(State(state.clone()), caller(&offline), json_headers(), body).await)
@@ -1208,13 +1386,18 @@ mod db_tests {
                     .is_some_and(|m| m.contains("is a WeldMail domain")),
                 "{body}"
             );
-            let refused = ensure_provisioned(&caller(&offline), fake.as_ref(), name, &now())
-                .await
-                .expect_err("a WeldMail domain");
+            let refused =
+                ensure_provisioned(&state, &caller(&offline), fake.as_ref(), name, &now())
+                    .await
+                    .expect_err("a WeldMail domain");
             assert_eq!(refused.respond("").status(), StatusCode::BAD_REQUEST);
         }
-        // `weldmail.company` is someone else's domain, not WeldMail's.
-        assert!(!is_shared_weldmail_domain("weldmail.company"));
+        assert!(fake.reached.lock().expect("lock").is_empty());
+        // Someone else's domains, not WeldMail's.
+        let caller = caller(&offline);
+        for name in ["weldmail.company", "notfree.example", "free.example.org"] {
+            assert!(!is_weldmail_domain(&state, &caller, name), "{name}");
+        }
     }
 
     async fn clean(master: &PgPool, tenant: &PgPool) {
@@ -1251,23 +1434,11 @@ mod db_tests {
         .expect("seed workspaces");
 
         let fake = Arc::new(FakeDomains::default());
-        let state = MailState {
-            events: EntityEventPublisher::new(None, TaskTracker::new()),
-            master: Some(master.clone()),
-            cache: None,
-            outbound: OutboundBindings::default(),
-            files: None,
-            jobs: None,
-            system_mail: None,
-            http: None,
-            doh: None,
-            domains: Some(fake.clone()),
-            workspace_tenants: None,
-            env: Arc::new(HashMap::new()),
-        };
+        let state = state(Some(master.clone()), &fake, &[]);
         let add = |name: &str| Bytes::from(json!({ "domainName": name }).to_string());
 
-        // Added: pending, the ownership record first, its token kept.
+        // Added: pending, with the ownership record alone, its token kept;
+        // the MTA has not heard of it.
         let (status, body) = read(
             create(
                 State(state.clone()),
@@ -1284,7 +1455,8 @@ mod db_tests {
         assert_eq!(domain["domainName"], "acme.mdt.test");
         assert_eq!(domain["dnsStatus"], "pending");
         assert_eq!(domain["mailProvider"], "fake");
-        assert_eq!(domain["dkimSelector"], "ws1");
+        assert!(domain["dkimSelector"].is_null());
+        assert_eq!(domain["dnsRecords"].as_array().map(Vec::len), Some(1));
         assert_eq!(domain["dnsRecords"][0]["purpose"], "verification");
         let token = domain["metadata"]["verificationToken"]
             .as_str()
@@ -1294,6 +1466,7 @@ mod db_tests {
             format!("weldmail-verify={token}")
         );
         assert!(domain["verifiedAt"].is_null());
+        assert!(!fake.reached("acme.mdt.test"));
 
         // Once more, and a name the worker's pattern refuses.
         let (status, _) = read(
@@ -1320,21 +1493,66 @@ mod db_tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         // No mailbox on it until it is verified.
-        let refused = ensure_provisioned(&caller(&tenant), fake.as_ref(), "acme.mdt.test", &now())
-            .await
-            .expect_err("pending domain");
+        let refused = ensure_provisioned(
+            &state,
+            &caller(&tenant),
+            fake.as_ref(),
+            "acme.mdt.test",
+            &now(),
+        )
+        .await
+        .expect_err("pending domain");
         assert_eq!(refused.respond("").status(), StatusCode::BAD_REQUEST);
+
+        // Checking, syncing or asking for its DKIM key before the ownership
+        // record resolves leaves the MTA alone.
+        let (status, body) =
+            read(verify(State(state.clone()), caller(&tenant), Path(id.clone())).await).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["data"]["dnsStatus"], "pending");
+        assert_eq!(body["data"]["dnsRecords"].as_array().map(Vec::len), Some(1));
+        let (status, body) =
+            read(sync(State(state.clone()), caller(&tenant), Path(id.clone())).await).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["data"]["dnsRecords"].as_array().map(Vec::len), Some(1));
+        let (status, _) =
+            read(generate_dkim(State(state.clone()), caller(&tenant), Path(id.clone())).await)
+                .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!fake.reached("acme.mdt.test"));
+
+        // The ownership record resolves: registered, its mail records listed
+        // after the ownership record, and the proof kept.
+        fake.owned.store(true, Ordering::SeqCst);
+        let (status, body) =
+            read(verify(State(state.clone()), caller(&tenant), Path(id.clone())).await).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(fake.reached("acme.mdt.test"));
+        assert_eq!(body["data"]["dnsStatus"], "pending");
+        assert_eq!(body["data"]["dkimSelector"], "ws1");
+        assert_eq!(body["data"]["dnsRecords"][0]["verified"], true);
+        assert_eq!(body["data"]["dnsRecords"][1]["type"], "MX");
+        assert!(body["data"]["metadata"]["ownershipVerifiedAt"].is_string());
+        assert_eq!(
+            body["data"]["metadata"]["verificationToken"].as_str(),
+            Some(token)
+        );
 
         fake.verified.store(true, Ordering::SeqCst);
         let (status, body) =
             read(verify(State(state.clone()), caller(&tenant), Path(id.clone())).await).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["data"]["dnsStatus"], "verified");
-        assert_eq!(body["data"]["dnsRecords"][0]["verified"], true);
         assert!(body["data"]["verifiedAt"].is_string());
-        ensure_provisioned(&caller(&tenant), fake.as_ref(), "acme.mdt.test", &now())
-            .await
-            .expect("verified domain");
+        ensure_provisioned(
+            &state,
+            &caller(&tenant),
+            fake.as_ref(),
+            "acme.mdt.test",
+            &now(),
+        )
+        .await
+        .expect("verified domain");
 
         // Listed, filtered, made primary; catch-all needs a mailbox.
         let (_, body) = read(list(caller(&tenant), RawQuery(None)).await).await;
@@ -1390,9 +1608,16 @@ mod db_tests {
         .execute(&tenant)
         .await
         .expect("weldhost domain");
-        ensure_provisioned(&caller(&tenant), fake.as_ref(), "host.mdt.test", &now())
-            .await
-            .expect("weldhost domain");
+        ensure_provisioned(
+            &state,
+            &caller(&tenant),
+            fake.as_ref(),
+            "host.mdt.test",
+            &now(),
+        )
+        .await
+        .expect("weldhost domain");
+        assert!(fake.reached("host.mdt.test"));
         let (provider, metadata): (Option<String>, Option<Value>) = sqlx::query_as(
             "select mail_provider, metadata from mail_domains
              where domain_name = 'host.mdt.test' and deleted_at is null",
@@ -1426,6 +1651,8 @@ mod db_tests {
         )
         .await;
         let shared = body["data"]["id"].as_str().expect("id").to_owned();
+        let (_, body) =
+            read(verify(State(state.clone()), caller(&tenant), Path(shared.clone())).await).await;
         assert_eq!(body["data"]["dnsStatus"], "verified");
         sqlx::query(
             "insert into mail_account_registry (id, email, workspace_id, account_id, is_active)

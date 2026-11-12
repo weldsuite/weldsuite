@@ -2074,6 +2074,8 @@ export const settings = {
         statusPending: 'Waiting for DNS',
         recordsHint:
           'Publish these records at your domain\'s DNS provider, then check again. New records can take up to an hour to show up.',
+        ownershipHint:
+          'First show that the domain is yours: publish this ownership record at your domain\'s DNS provider, then check again. The mail records appear once it is found. Keep the record in place afterwards.',
         showRecords: 'Show DNS records',
         hideRecords: 'Hide DNS records',
         check: 'Check DNS',

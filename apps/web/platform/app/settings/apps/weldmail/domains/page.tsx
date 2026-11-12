@@ -246,6 +246,9 @@ function SelfServedDomainRow({
   }
 
   const records = domain.dnsRecords ?? [];
+  // Until the ownership record resolves the server lists it alone: the mail
+  // records (the MTA's DKIM key among them) come once the domain is proven.
+  const ownershipOnly = records.length > 0 && records.every((r) => r.purpose === 'verification');
 
   return (
     <li className="space-y-4 p-4" data-testid={`mail-domain-${domain.domainName}`}>
@@ -295,7 +298,11 @@ function SelfServedDomainRow({
 
       {showRecords && records.length > 0 && (
         <div className="space-y-2">
-          {!verified && <p className="text-sm text-muted-foreground">{labels.recordsHint}</p>}
+          {!verified && (
+            <p className="text-sm text-muted-foreground">
+              {ownershipOnly ? labels.ownershipHint : labels.recordsHint}
+            </p>
+          )}
           <DnsRecordsTable records={records} labels={labels} />
         </div>
       )}
