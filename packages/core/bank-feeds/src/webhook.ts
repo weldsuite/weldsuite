@@ -276,7 +276,7 @@ function withoutPadding(value: string): string {
 export async function sha512Base64(body: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-512', utf8(body)));
   let binary = '';
-  for (const byte of digest) binary += String.fromCharCode(byte);
+  for (const byte of digest) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }
 
@@ -333,8 +333,8 @@ export async function verifyIbanityWebhook(args: {
 
   const claims = decodeJwtPart(encodedClaims);
   if (claims.iss !== IBANITY_ISSUER) throw new WebhookVerificationError('Webhook token from another issuer');
-  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!audiences.some((aud) => aud === args.applicationId)) throw new WebhookVerificationError('Webhook token for another application');
+  const audiences: unknown[] = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(args.applicationId)) throw new WebhookVerificationError('Webhook token for another application');
 
   const nowSeconds = Math.floor((args.now ?? Date.now()) / 1000);
   const tolerance = args.toleranceSeconds ?? IBANITY_WEBHOOK_TOLERANCE_SECONDS;
