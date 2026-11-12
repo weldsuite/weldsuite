@@ -14,8 +14,10 @@ same namespace. Flux's own failures arrive as warnings.
 **Where to look.** Grafana at `https://grafana.<domain>`: "WeldSuite API",
 "WeldSuite public endpoints", the Kubernetes dashboards, and Explore with
 Loki for logs (`{cluster="<domain>", namespace="weldsuite"}`). Without
-Zitadel: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
-3000:80` and the admin login from the Secret `grafana-admin`.
+Zitadel: `https://grafana.<domain>/login?disableAutoLogin=true` (or, without
+the ingress, `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
+3000:80` and `http://localhost:3000/login?disableAutoLogin=true`) with the
+admin login from the Secret `grafana-admin`.
 
 ## Receivers
 
