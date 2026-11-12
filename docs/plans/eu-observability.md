@@ -1,6 +1,9 @@
 # Alerts, monitoring and logging on the EU clusters
 
-Status: planned (2026-11-12). Item 5.5 of the editions plan ("Observability")
+Status: built, not yet running (2026-11-12). Layers, Talos config and docs:
+weldsuite/weldsuite#1552; test cluster weldsuite-deploy#16, production
+weldsuite-deploy#17 (draft, after the week on test). The Rust server's
+`/metrics` and the request-span fix follow in their own PR. Item 5.5 of the editions plan ("Observability")
 in `weldsuite-documentation` (`design/platform/editions-and-self-hosting-phases.md`).
 Decision record: ADR OPS-021 (Proposed). Built on the test cluster first,
 then production.
@@ -117,13 +120,13 @@ kube-prometheus-stack, as today, grown into the full stack:
 
   A critical alert inhibits the warnings of the same target. Silences for
   planned work are set in Grafana or with `amtool`.
-- **ntfy delivery.** Alertmanager speaks webhooks, ntfy wants a title, a
-  body and a priority. A small bridge in the monitoring namespace
-  (`ntfy-alertmanager` or `alertmanager-ntfy`, picked in phase 1) turns one
-  into the other and sets the priority from the severity. ntfy's own message
-  templates are the fallback if the bridge turns out to be more than it's
-  worth. Messages carry the alert name, the cluster, the object (namespace,
-  pod, database, host) and the summary, never log lines or user data.
+- **ntfy delivery, no bridge.** ntfy (2.10+) applies a message template from
+  the URL (`tpl=1`) to Alertmanager's webhook JSON: a title
+  (`<cluster>: <alertname>`), one line per alert (its summary) and a fixed
+  priority per receiver URL. `rust/deploy/flux/scripts/ntfy-receiver-url.mjs`
+  prints the URL. Messages carry the alert name, the cluster, the object
+  (namespace, pod, database, host) and the summary, never log lines or
+  user data.
 - **The base layer is vendor-neutral.** It defines three receivers by role
   (`critical`, `warning`, `heartbeat`) whose URLs and tokens come from the
   cluster's Secret `alerting-receivers`. ntfy and healthchecks.io are
@@ -146,15 +149,14 @@ Critical (wakes the operator on production):
 | Heartbeat missing (healthchecks.io) | no Watchdog ping for 5 min | the cluster, its network or its monitoring is gone |
 | `EndpointDown` | a probe of app., api., auth. or sign. fails for 3 min | customers can't use it, or can't sign in (auth.) |
 | `ApiErrorRate` | 5xx above 5% of requests for 5 min (Traefik's per-router counts until phase 2, then the server's) | broken while still "up" |
-| `PostgresDown` / `PostgresNoPrimary` | a CNPG cluster has no ready primary for 2 min | no writes anywhere |
-| `PostgresReplicaMissing` | the synchronous replica is gone for 2 min | the clusters set `dataDurability: required`, so commits wait for a replica: no replica, no writes |
+| `PostgresInstanceDown` | any CNPG instance not ready for 2 min (from kube-state-metrics, so it fires when the instance can't be scraped) | the clusters set `dataDurability: required`, so commits wait for a replica: either instance of a two-instance cluster down stops writes |
 | `PostgresWalArchivingFailing` | WAL archiving fails, or nothing archived for 15 min while there are writes | point-in-time recovery is broken from here on |
 | `PostgresBackupStale` | last successful base backup older than 26 h | the nightly backup failed |
 | `DiskFillingUp` | a node filesystem or PVC is predicted full within 24 h, or below 10% free | Postgres and Prometheus stop when full |
 | `NodeNotReady` | a node is NotReady for 5 min | with three workload nodes, one more is an outage |
 | `CertificateExpiring` | a certificate expires within 7 days | renewal has been failing for three weeks |
 | `CoreWorkloadDown` | a Deployment or StatefulSet in weldsuite, zitadel, nats, restate, valkey or traefik has fewer ready replicas than wanted for 10 min, or a pod there crash-loops | the platform is degraded |
-| `EtcdNoLeader` / `EtcdMembersDown` | (phase 2) | the control plane is losing quorum |
+| `etcdNoLeader` / `etcdMembersDown` | kube-prometheus-stack's etcd rules, on once etcd is scraped | the control plane is losing quorum |
 
 Warning (quiet push, daytime):
 
@@ -164,13 +166,14 @@ Warning (quiet push, daytime):
 | `CertificateRenewalLate` | a certificate expires within 21 days |
 | `DiskUsageHigh` | a filesystem or PVC above 80% |
 | `MemoryNearLimit` / `OOMKilled` | a container above 90% of its memory limit for 15 min, or killed for memory |
-| `NodePressure` | node memory above 90% or CPU above 90% for 15 min |
-| `CronJobFailed` | a weldsuite CronJob run failed |
+| `NodeMemoryHighUtilization` | node memory above 90% for 15 min (kube-prometheus-stack's rule) |
+| `KubeJobFailed` | a CronJob run failed (kube-prometheus-stack's rule) |
 | `ConsumerLagGrowing` | a JetStream consumer's pending count grows for 15 min (`weldsuite consume` falls behind) |
 | `ApiLatencyHigh` | p95 above 1 s for 10 min (phase 2) |
 | `PostgresReplicationLag` | replica lag above 60 s for 5 min |
-| `MarketingSiteDown` | a probe of www. or weldsuite.nl fails for 5 min |
-| `LogPipelineDropping` | Fluent Bit retries or drops, or Loki refuses writes, for 15 min |
+| `SiteDown` | a probe of a cluster's own sites (www., weldsuite.nl) fails for 5 min |
+| `LogPipelineDropping` / `LokiRejectingWrites` | Fluent Bit drops records, or Loki discards lines or fails pushes, for 15 min |
+| `PostgresBackupMetricsMissing` | no instance reports a backup timestamp, so backup age isn't watched |
 | Monitoring self-checks | kube-prometheus-stack's Prometheus and Alertmanager rules (failed rule evaluation, failed notifications) |
 
 Dropped from the defaults: the controller manager, scheduler, kube-proxy and
@@ -183,8 +186,9 @@ overcommitted on purpose).
 - **Fluent Bit**, a DaemonSet on every node (it tolerates the Postgres
   taint). Inputs:
   - container logs from `/var/log/pods`;
-  - Kubernetes events (kept as log lines, so "why did that pod restart" has
-    an answer after the event expires);
+  - Kubernetes events, from one Fluent Bit pod of their own (from every
+    node each event would arrive five times), kept as log lines so "why did
+    that pod restart" has an answer after the event expires;
   - Talos's own logs (kubelet, etcd, machined, kernel), sent by Talos to the
     Fluent Bit on the same node (`machine.logging.destinations`, JSON lines
     to 127.0.0.1). This is a machine-config change, so it comes in phase 2
@@ -214,7 +218,7 @@ overcommitted on purpose).
   the monitoring layer (ConfigMaps the sidecar loads), data sources are
   provisioned.
 - **Sign-in:** Zitadel OIDC against `auth.${DOMAIN}`, limited to the
-  WeldSuite Staff org (its org scope), roles from the project's role claim:
+  WeldSuite Staff org (its primary-domain scope, `ZITADEL_STAFF_ORG_DOMAIN`), roles from the project's role claim:
   `grafana-admin` → Admin, anyone else in the Staff org → Viewer, nobody else
   in. Login form and basic auth off.
 - **Break-glass:** when Zitadel itself is down, `kubectl port-forward` to
@@ -250,7 +254,7 @@ overcommitted on purpose).
 
 | What | Repo, path |
 |---|---|
-| Layers, chart values, rules, dashboards, `ALERTS.md`, the secret examples | weldsuite/weldsuite `rust/deploy/flux/infrastructure/monitoring` (grows) and `…/logging` (new); `rust/deploy/flux/secrets/examples/secrets.example.yaml`; chart pins in `rust/deploy/validate.sh` |
+| Layers, chart values, rules, dashboards, `ALERTS.md`, the secret examples | weldsuite/weldsuite `rust/deploy/flux/infrastructure/monitoring` (grows), `…/monitoring-config` (new: monitors, probes, rules, dashboards) and `…/logging` (new); the `monitoring` and `logging` namespaces in `…/controllers`, since the secrets layer fills them first; `rust/deploy/flux/secrets/examples/secrets.example.yaml`; chart pins in `rust/deploy/validate.sh` |
 | `/metrics`, the request-span fix, the ServiceMonitor template | weldsuite/weldsuite `rust/bins/weldsuite`, `rust/deploy/helm/weldsuite` |
 | Talos log destinations, etcd metrics address | weldsuite/weldsuite `rust/deploy/hetzner/talos` |
 | Which cluster runs which layer, retention and size patches, cluster label | weldsuite-deploy `eu/clusters/{test,eu}/layers.yaml`, `cluster-settings.yaml` |
