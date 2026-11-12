@@ -1,0 +1,25 @@
+# The public hosts, probed the way a customer reaches them: public DNS, the
+# load balancer, Traefik, the certificate, the app (the blackbox exporter,
+# monitoring/values/blackbox-exporter.yaml). /readyz fails when the server
+# can't reach its database or NATS. A cluster adds its own sites (group
+# "site", alert SiteDown) in its cluster folder.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: platform
+  namespace: monitoring
+spec:
+  interval: 30s
+  scrapeTimeout: 15s
+  module: https_2xx
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://app.${DOMAIN}/readyz
+        - https://api.${DOMAIN}/readyz
+        - https://auth.${DOMAIN}/debug/healthz
+        - https://sign.${DOMAIN}/healthz
+      labels:
+        group: platform

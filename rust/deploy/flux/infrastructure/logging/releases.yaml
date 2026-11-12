@@ -1,0 +1,83 @@
+# Loki, and Fluent Bit twice: a DaemonSet for the nodes' logs and one pod for
+# the cluster's events. Values in values/ (ConfigMaps generated next to
+# them). Loki's S3 keys come from the Secret loki-s3 (secrets layer); the
+# collectors' cluster label from Flux's substitution of DOMAIN here.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: logging
+spec:
+  interval: 1h
+  timeout: 10m
+  chart:
+    spec:
+      chart: loki
+      version: 7.5.0
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: loki-values
+    - kind: Secret
+      name: loki-s3
+      valuesKey: access-key-id
+      targetPath: loki.storage.s3.accessKeyId
+    - kind: Secret
+      name: loki-s3
+      valuesKey: secret-access-key
+      targetPath: loki.storage.s3.secretAccessKey
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: fluent-bit
+  namespace: logging
+spec:
+  dependsOn:
+    - name: loki
+  interval: 1h
+  timeout: 5m
+  chart:
+    spec:
+      chart: fluent-bit
+      version: 0.58.3
+      sourceRef:
+        kind: HelmRepository
+        name: fluent
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: fluent-bit-values
+  values:
+    envWithTpl:
+      - name: CLUSTER
+        value: ${DOMAIN}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: fluent-bit-events
+  namespace: logging
+spec:
+  dependsOn:
+    - name: loki
+  interval: 1h
+  timeout: 5m
+  chart:
+    spec:
+      chart: fluent-bit
+      version: 0.58.3
+      sourceRef:
+        kind: HelmRepository
+        name: fluent
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: fluent-bit-events-values
+  values:
+    envWithTpl:
+      - name: CLUSTER
+        value: ${DOMAIN}

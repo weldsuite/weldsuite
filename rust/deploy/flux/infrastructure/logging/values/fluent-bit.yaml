@@ -1,0 +1,160 @@
+# Fluent Bit on every node (the Postgres pool included): container logs and
+# Talos's own service logs, to Loki. Kubernetes events come from one pod of
+# their own (fluent-bit-events.yaml), or every node would send each event.
+#
+# Flux does not substitute this file (the ConfigMap's annotation in
+# ../kustomization.yaml): the dollar-brace variables here are Fluent Bit's,
+# read from its environment. CLUSTER comes from the HelmRelease
+# (../releases.yaml), where Flux sets it to the cluster's DOMAIN.
+#
+# Labels stay few: cluster, namespace, app, container, node, level, job.
+# The pod, and anything per workspace, request or user, stays in the line or
+# in Loki's structured metadata.
+kind: DaemonSet
+
+# Talos sends its service logs to udp://127.0.0.1:6051 on each node
+# (rust/deploy/hetzner/talos/common.yaml.tftpl), so Fluent Bit listens on the
+# host network.
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+tolerations:
+  - operator: Exists
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 48Mi
+  limits:
+    memory: 192Mi
+
+env:
+  - name: NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+
+serviceMonitor:
+  enabled: true
+
+# /var/log for the pods' logs and a state directory on the node for the
+# tail positions and the buffer (survives restarts, so nothing is read twice
+# or lost). No Docker directory or machine-id file on Talos.
+daemonSetVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: state
+    hostPath:
+      path: /var/fluent-bit/state
+      type: DirectoryOrCreate
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: state
+    mountPath: /var/fluent-bit/state
+
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush 1
+        Log_Level info
+        Parsers_File /fluent-bit/etc/parsers.conf
+        Parsers_File /fluent-bit/etc/conf/custom_parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port 2020
+        Health_Check On
+        storage.path /var/fluent-bit/state/buffer/
+        storage.sync normal
+        storage.backlog.mem_limit 16M
+        storage.metrics On
+
+  inputs: |
+    [INPUT]
+        Name tail
+        Tag kube.*
+        Path /var/log/containers/*.log
+        Exclude_Path /var/log/containers/fluent-bit*.log
+        multiline.parser cri
+        DB /var/fluent-bit/state/tail.db
+        Mem_Buf_Limit 16MB
+        Skip_Long_Lines On
+        Refresh_Interval 10
+        storage.type filesystem
+
+    [INPUT]
+        Name udp
+        Tag talos
+        Listen 127.0.0.1
+        Port 6051
+        Format json
+        storage.type filesystem
+
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Merge_Log On
+        Keep_Log Off
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+        Labels On
+        Annotations Off
+        Buffer_Size 0
+
+    # Probe and health-check noise.
+    [FILTER]
+        Name grep
+        Match kube.*
+        Logical_Op or
+        Exclude path ^/(livez|readyz|healthz|health|metrics)$
+        Exclude uri ^/(livez|readyz|healthz|health|metrics)$
+
+    # A level label for every line: the JSON field the app wrote (level,
+    # severity or lvl), else unknown.
+    [FILTER]
+        Name modify
+        Match kube.*
+        Copy severity level
+        Copy lvl level
+        Add level unknown
+
+    # Debug and trace lines stay on the node.
+    [FILTER]
+        Name grep
+        Match kube.*
+        Exclude level ^(?i)(debug|trace)$
+
+    # Talos's fields: msg, talos-level, talos-service, talos-time.
+    [FILTER]
+        Name modify
+        Match talos
+        Rename talos-level level
+        Rename talos-service service
+        Add level unknown
+        Add service unknown
+
+  outputs: |
+    [OUTPUT]
+        Name loki
+        Match kube.*
+        Host loki.logging.svc
+        Port 3100
+        Labels job=pods, cluster=${CLUSTER}, namespace=$kubernetes['namespace_name'], container=$kubernetes['container_name'], node=$kubernetes['host'], app=$kubernetes['labels']['app.kubernetes.io/name'], level=$level
+        Structured_Metadata pod=$kubernetes['pod_name']
+        Remove_Keys kubernetes, stream, _p
+        Line_Format json
+        Drop_Single_Key On
+        Retry_Limit 10
+
+    [OUTPUT]
+        Name loki
+        Match talos
+        Host loki.logging.svc
+        Port 3100
+        Labels job=talos, cluster=${CLUSTER}, node=${NODE_NAME}, app=$service, level=$level
+        Line_Format json
+        Retry_Limit 10

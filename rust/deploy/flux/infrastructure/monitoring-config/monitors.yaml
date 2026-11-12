@@ -1,0 +1,163 @@
+# What Prometheus scrapes beyond kube-prometheus-stack's own targets (the
+# kubelet, the node exporter, kube-state-metrics). All here, selecting pods in
+# their own namespaces, so the other layers only open metrics ports in their
+# values and never need the Prometheus Operator's CRDs.
+
+# CloudNativePG's instances: each Postgres pod's exporter (port 9187) with
+# CNPG's default queries (replication, WAL archiving, backends, backups).
+# cnpg_cluster names the Postgres cluster in every series.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: postgres
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [postgres]
+  selector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: Exists
+      - key: cnpg.io/podRole
+        operator: In
+        values: [instance]
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+          targetLabel: cnpg_cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cloudnative-pg-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [cnpg-system]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  podMetricsEndpoints:
+    - port: metrics
+---
+# Requests, errors and latency per router and service (Traefik's entry point
+# "metrics", port 9100).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [traefik]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  podMetricsEndpoints:
+    - port: metrics
+---
+# Certificate expiry and readiness.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cert-manager
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [cert-manager]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/component: controller
+  podMetricsEndpoints:
+    - port: http-metrics
+---
+# Flux's controllers, for their dashboard; failures reach Alertmanager from
+# Flux itself (flux-alerts.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [flux-system]
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [helm-controller, kustomize-controller, notification-controller, source-controller]
+  podMetricsEndpoints:
+    - port: http-prom
+---
+# NATS JetStream: the exporter sidecar (services/values/nats.yaml,
+# promExporter), streams and consumers' pending counts included.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: nats
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [weldsuite]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  podMetricsEndpoints:
+    - port: prom-metrics
+---
+# Restate serves its metrics on the node port.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: restate
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [weldsuite]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: restate
+  podMetricsEndpoints:
+    - port: node
+      path: /metrics
+---
+# Zitadel's API pods (not its login UI): Go runtime, gRPC and projection
+# metrics on the server port.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: zitadel
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [zitadel]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zitadel
+  podMetricsEndpoints:
+    - port: http2-server
+      path: /debug/metrics
+---
+# The weldsuite roles' own metrics (serve, consume, the MTA): the chart's
+# named port "metrics" (helm/weldsuite, metrics.port). The MTA runs in a
+# namespace of its own, hence any namespace; pods without the port (the sign
+# portal, collab-rooms, cron runs) are skipped.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: weldsuite
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: weldsuite
+  podMetricsEndpoints:
+    - port: metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          targetLabel: component

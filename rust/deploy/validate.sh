@@ -101,6 +101,8 @@ for dir in \
   flux/infrastructure/services \
   flux/infrastructure/video \
   flux/infrastructure/monitoring \
+  flux/infrastructure/monitoring-config \
+  flux/infrastructure/logging \
   flux/apps/eu \
   flux/apps/marketing; do
   echo "-- $dir"
@@ -179,6 +181,10 @@ releases=(
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
   "metrics-server kube-system https://kubernetes-sigs.github.io/metrics-server|metrics-server 3.14.0 flux/infrastructure/controllers/values/metrics-server.yaml flux/infrastructure/controllers/releases.yaml"
   "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml"
+  "blackbox-exporter monitoring https://prometheus-community.github.io/helm-charts|prometheus-blackbox-exporter 11.20.2 flux/infrastructure/monitoring/values/blackbox-exporter.yaml flux/infrastructure/monitoring/releases.yaml"
+  "loki logging https://grafana.github.io/helm-charts|loki 7.5.0 flux/infrastructure/logging/values/loki.yaml flux/infrastructure/logging/releases.yaml"
+  "fluent-bit logging https://fluent.github.io/helm-charts|fluent-bit 0.58.3 flux/infrastructure/logging/values/fluent-bit.yaml flux/infrastructure/logging/releases.yaml"
+  "fluent-bit-events logging https://fluent.github.io/helm-charts|fluent-bit 0.58.3 flux/infrastructure/logging/values/fluent-bit-events.yaml flux/infrastructure/logging/releases.yaml"
   "nats weldsuite https://nats-io.github.io/k8s/helm/charts|nats 2.15.0 flux/infrastructure/services/values/nats.yaml flux/infrastructure/services/releases.yaml"
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
   "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/services/releases.yaml"
