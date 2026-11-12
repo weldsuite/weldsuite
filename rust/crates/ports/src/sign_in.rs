@@ -435,6 +435,10 @@ struct MemoryState {
     sent: Vec<(&'static str, String)>,
     next_id: u64,
     failure: Option<SignInError>,
+    /// How many sessions a new account refuses before it is known.
+    new_account_lag: u32,
+    /// Account id → refusals left.
+    unknown_yet: HashMap<String, u32>,
 }
 
 /// A provider in memory, for tests. Every emailed code is [`MemorySignIn::CODE`]
@@ -544,6 +548,13 @@ impl MemorySignIn {
     /// Make every call fail with `error` (`None` to stop).
     pub fn fail_with(&self, error: Option<SignInError>) {
         self.lock().failure = error;
+    }
+
+    /// Accounts created from now on refuse their first `sessions` sessions
+    /// as a wrong password, like a provider whose read side trails its
+    /// writes and does not know a new account for a moment.
+    pub fn lag_new_accounts(&self, sessions: u32) {
+        self.lock().new_account_lag = sessions;
     }
 
     fn run<T>(&self, f: impl FnOnce(&mut MemoryState) -> SignInResult<T>) -> SignInResult<T> {
@@ -675,6 +686,10 @@ impl SignInProvider for MemorySignIn {
     ) -> BoxFuture<'a, SignInResult<SessionRef>> {
         Box::pin(async move {
             self.run(|state| {
+                if let Some(left) = state.unknown_yet.get_mut(user_id).filter(|left| **left > 0) {
+                    *left -= 1;
+                    return Err(SignInError::InvalidCredentials);
+                }
                 let user = state.user_mut(user_id)?;
                 if matches!(user.user.status, UserStatus::Locked | UserStatus::Inactive) {
                     return Err(SignInError::Locked);
@@ -850,6 +865,9 @@ impl SignInProvider for MemorySignIn {
                     },
                 });
                 state.sent.push(("verify", id.clone()));
+                if state.new_account_lag > 0 {
+                    state.unknown_yet.insert(id.clone(), state.new_account_lag);
+                }
                 Ok(id)
             })
         })
