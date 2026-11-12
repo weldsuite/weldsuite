@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AppState } from 'react-native';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { TypingUser } from '@weldsuite/realtime/types';
 import { getRealtimeBaseUrl } from '@/services/realtime-client';

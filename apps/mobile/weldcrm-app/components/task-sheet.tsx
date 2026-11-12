@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar, ChevronRight, Edit3, Repeat, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { DueDateField } from '@/components/due-date-field';
 import { FormField } from '@/components/form';
 import { MemberPicker, useMembers } from '@/components/member-picker';
@@ -165,7 +165,7 @@ export function TaskSheet({
   const { t, intlLocale } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { members, byId } = useMembers();
 
   const [mode, setMode] = useState<TaskSheetMode>(initialMode);

@@ -46,7 +46,8 @@ module.exports = {
     '^@weldsuite/api-client/client$': '<rootDir>/__mocks__/api-client-stub.js',
     '^@weldsuite/app-api-client/domains/(.*)$': '<rootDir>/__mocks__/app-api-domains-stub.js',
     '^@weldsuite/personal-api-client$': '<rootDir>/__mocks__/personal-api-client-stub.js',
-    '^@weldsuite/mobile-ui/contexts/ClerkAuthContext$':
-      '<rootDir>/__mocks__/clerk-auth-context-stub.js',
+    '^@weldsuite/mobile-ui/contexts/AuthContext$': '<rootDir>/__mocks__/auth-context-stub.js',
+    // The real module reads the booted server runtime, which only exists on a device.
+    '^@weldsuite/mobile-platform/api$': '<rootDir>/__mocks__/mobile-platform-api-stub.js',
   },
 };

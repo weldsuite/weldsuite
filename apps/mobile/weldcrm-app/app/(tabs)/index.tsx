@@ -6,7 +6,7 @@ import { useObserve } from 'expo-observe';
 import { Activity, CheckSquare, FileText, Mail, Phone, Plus, Video, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { OptionSheet } from '@/components/option-sheet';
 import { TaskItem } from '@/components/task-item';
 import { TaskSheet } from '@/components/task-sheet';
@@ -46,7 +46,7 @@ export default function HomeScreen() {
   const { t, intlLocale } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
 
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [activities, setActivities] = useState<CrmActivity[]>([]);

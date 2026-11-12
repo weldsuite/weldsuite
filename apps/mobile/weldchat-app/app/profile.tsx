@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useUser } from '@clerk/expo';
+import { useUser } from '@weldsuite/mobile-platform/auth';
 import { Mail, User, Phone, Shield } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';

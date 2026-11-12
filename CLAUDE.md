@@ -74,6 +74,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - Per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
 - The combined `weldsuite-app` was retired; the per-module apps replaced it
 - `_template`, Scaffold for new mobile apps (see root script `create:mobile-app`)
+- **One build per app serves Global, EU and self-hosted** (ADR MOB-006, `docs/plans/mobile-server-choice.md`): the server is chosen at sign-in (`EXPO_PUBLIC_SERVER_PICKER`, off in production for now). Hosts, sign-in and edition flags come from `@weldsuite/mobile-platform` (`getMobileRuntime()`, read inside functions, never at module level; the auth facade, Clerk on Global and OIDC elsewhere). Don't import `@clerk/expo` or read server `EXPO_PUBLIC_*` values outside each app's `lib/server.ts` and its eslint-listed Clerk-only files.
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).
 

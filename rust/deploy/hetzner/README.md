@@ -251,6 +251,22 @@ default) organisation:
    verifies access tokens as JWTs against Zitadel's JWKS and never
    introspects. Its client id is `ZITADEL_WEB_CLIENT_ID`, which the server
    hands the frontends in `/config.json`. Commit the settings.
+   - **2b. Native application** `mobile` in the same project, for the mobile
+     apps: type *Native*, authentication *PKCE*, refresh tokens on, **Auth
+     token type: JWT**, and one redirect URI per app:
+     `weldagent://sso-callback`, `weldbooks://sso-callback`,
+     `weldcalendar://sso-callback`, `weldchat://sso-callback`,
+     `weldcrm://sso-callback`, `welddesk://sso-callback`,
+     `weldflow://sso-callback`, `weldhr://sso-callback`,
+     `weldmail://sso-callback`, `weldmeet://sso-callback`,
+     `weldsocial://sso-callback` and `weldstash://sso-callback` (the
+     route the apps already use for Clerk's SSO). Under *Token settings*
+     turn on **User roles inside ID Token** and **User Info inside ID
+     Token**: the apps read the workspaces and the person's name from the
+     ID token and don't call userinfo. Its
+     client id is `ZITADEL_MOBILE_CLIENT_ID`; until it is set the apps can't
+     sign in to the cluster
+     (`docs/plans/mobile-server-choice.md` in the code repo).
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and

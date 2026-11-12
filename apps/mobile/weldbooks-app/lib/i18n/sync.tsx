@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import api from '@/services/api';
 
@@ -15,7 +15,7 @@ import { persistLanguage } from './storage';
  * next cold start can render in that language before the API responds.
  */
 export function ProfileLanguageSync() {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { language, setLanguage } = useI18n();
   const lastUserId = useRef<string | null>(null);
 

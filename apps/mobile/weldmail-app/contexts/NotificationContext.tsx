@@ -7,7 +7,9 @@ import Constants from 'expo-constants';
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isApiError } from '@weldsuite/api-client/client';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import {
   registerForPushNotificationsAsync,
@@ -94,7 +96,7 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, getCredentials, organizationId, isLoading: authLoading } = useClerkAuth();
+  const { user, getCredentials, organizationId, isLoading: authLoading } = useAuthSession();
   const {
     selectAccountById,
     setSelectedLabel,
@@ -151,6 +153,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const queueNavigationFromResponse = useCallback((response: Notifications.NotificationResponse) => {
+    // A notification left over from another server points at mail this one doesn't have.
+    if (!isNotificationForThisServer(response.notification.request.content.data)) return;
     const notifId = response.notification.request.identifier;
     if (notifId && handledNotifIds.current.has(notifId)) return;
     const target = parseNotificationContent(response.notification.request.content);
@@ -244,6 +248,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   }, [hasPersonalAccount]);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!isPushAvailable()) return false;
     if (!EAS_PROJECT_ID) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -333,6 +339,21 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     await clearInboxUnread();
     await setBadgeCount(0);
   }, []);
+
+  // Leaving this server (switching to another): stop it pushing to this device,
+  // on app-api and on personal-api, both of which belong to the server being left.
+  useEffect(
+    () =>
+      onLeaveServer('push-token', async (runtime) => {
+        if (!runtime.pushEnabled) return;
+        const deviceId = await getDeviceId();
+        await Promise.all([
+          appApi.pushTokens.unregister(deviceId).catch(() => {}),
+          personalApi.pushTokens.unregister(deviceId).catch(() => {}),
+        ]);
+      }),
+    [],
+  );
 
   // Same cleanup as sign-out, but keep the session: deactivate the token while
   // the JWT still points at the *leaving* workspace, then clear the shade.
@@ -446,6 +467,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     let cancelled = false;
 
     const initToken = async () => {
+      // Push reaches the apps on WeldSuite cloud only: no permission prompt, no registration elsewhere.
+      if (!isPushAvailable()) return;
       try {
         await createNotificationChannels([
           { id: 'email', name: 'Email Notifications', description: 'New email notifications' },

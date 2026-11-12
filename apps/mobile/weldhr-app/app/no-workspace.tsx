@@ -4,11 +4,11 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Linking, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { Globe, RefreshCw, LogOut, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
 import { useI18n } from '@/lib/i18n';
@@ -23,7 +23,7 @@ export default function NoWorkspaceScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const { userMemberships } = useOrganizationList({
     userMemberships: { infinite: true },
   });

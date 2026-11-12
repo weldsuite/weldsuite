@@ -784,6 +784,7 @@ mod tests {
             "provider": "oidc",
             "issuer": fixture["issuer"],
             "clientId": "300000000000000300",
+            "mobileClientId": "300000000000000400",
         })));
         (state, fixture)
     }
@@ -823,6 +824,7 @@ mod tests {
         assert_eq!(body["auth"]["provider"], "oidc");
         assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
         assert_eq!(body["auth"]["clientId"], "300000000000000300");
+        assert_eq!(body["auth"]["mobileClientId"], "300000000000000400");
     }
 
     #[tokio::test]

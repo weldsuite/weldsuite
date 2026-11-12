@@ -31,7 +31,8 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { appApi, appApiClient } from '@/services/app-api';
 import { sendFromAccount as sendMailFromAccount, createDraft, isPersonalAccount } from '@/services/mail-tenant';
@@ -1201,6 +1202,7 @@ function ActionsToolbar({ scheduledDate, sending, colors, iconColor, activeBg, o
   onSendLater: () => void;
   onAiAssist: () => void;
 }>) {
+  const aiAvailable = useEditionFeature('mail-ai');
   return (
     <>
       <TouchableOpacity style={styles.toolbarButton} onPress={onAttach} disabled={sending}>
@@ -1223,9 +1225,11 @@ function ActionsToolbar({ scheduledDate, sending, colors, iconColor, activeBg, o
       <TouchableOpacity style={styles.toolbarButton} onPress={onSendLater} disabled={sending}>
         <CalendarClock size={16} color={iconColor} strokeWidth={2} />
       </TouchableOpacity>
-      <TouchableOpacity style={styles.toolbarButton} onPress={onAiAssist}>
-        <Sparkles size={16} color="#8B5CF6" strokeWidth={2} />
-      </TouchableOpacity>
+      {aiAvailable ? (
+        <TouchableOpacity style={styles.toolbarButton} onPress={onAiAssist}>
+          <Sparkles size={16} color="#8B5CF6" strokeWidth={2} />
+        </TouchableOpacity>
+      ) : null}
     </>
   );
 }
@@ -1408,7 +1412,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { accounts: allAccounts, selectedAccount, selectAccount } = useMail();
-  const { organizationId } = useClerkAuth();
+  const { organizationId } = useAuthSession();
   const accounts = useMemo(() => filterSendableAccounts(allAccounts, organizationId), [allAccounts, organizationId]);
   const outbox = useMailOutbox();
   const toast = useToast();

@@ -3,7 +3,7 @@
  *
  * Wires the WeldFlow mobile app to the unified app-api (`/api`) — the
  * successor to the obsolete core-api `/api/weldflow/*` surface. A module-level
- * token getter is wired from `app/_layout.tsx` using Clerk credentials (see
+ * token getter is wired from `app/_layout.tsx` from the session (see
  * `setAppApiTokenGetter`) — the client re-reads the token on every request, so
  * no rebuild is needed when it refreshes.
  *
@@ -32,8 +32,8 @@
  * (204 → `{}`).
  */
 
-import { createClientApi, buildQueryString } from '@weldsuite/api-client/client';
-import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
+import { buildQueryString } from '@weldsuite/api-client/client';
+import { createMobileApiClient } from '@weldsuite/mobile-platform/api';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import type { BoardRender, BoardSummary } from '@weldsuite/app-api-client/schemas/boards';
@@ -59,36 +59,24 @@ import type {
   StopTimerInput,
   CreateTimeEntryInput,
 } from '@/types/weldflow';
+import { APP } from '@/lib/server';
 
 const LIMIT_25 = { limit: 25 } as const;
 const LIMIT_50 = { limit: 50 } as const;
 
-/** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
-export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
-
-/**
- * Modules served by their own worker (`<module>-api` host), from
- * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
- * which forwards moved modules. See docs/plans/app-api-module-split.md.
- */
-const apiOrigins = createApiOriginResolver({
-  coreOrigin: APP_API_URL,
-  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
-});
-
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
-/** Wire the Clerk token getter. Called from `app/_layout.tsx`. */
+/** Wire the session token getter. Called from `app/_layout.tsx`. */
 export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) {
   tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
-const client = createClientApi({
-  baseUrl: apiOrigins.originForPath,
+// Hosts come from the server the app runs against (WeldSuite cloud, EU or
+// self-hosted), read per request. `X-Weld-App` tells the API which app's
+// permissions apply (@weldsuite/permissions APP_CONTEXT_HEADER).
+const { client } = createMobileApiClient({
+  appCode: APP.code,
   getToken: () => tokenGetter(),
-  // Tells app-api which app's permissions apply (per-app permission model,
-  // see @weldsuite/permissions APP_CONTEXT_HEADER).
-  getExtraHeaders: () => ({ 'X-Weld-App': 'weldflow' }),
 });
 
 const weldflow = {

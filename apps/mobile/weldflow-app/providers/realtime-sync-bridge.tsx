@@ -1,5 +1,5 @@
 import { RealtimeSyncBridge as SharedBridge } from '@weldsuite/mobile-realtime';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { weldflowSyncMap } from '@/lib/sync-map';
 
 /**
@@ -7,7 +7,7 @@ import { weldflowSyncMap } from '@/lib/sync-map';
  * WeldFlow mobile caches (projects, tasks, my-tasks, labels).
  */
 export function RealtimeSyncBridge() {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   return (
     <SharedBridge
       syncMap={weldflowSyncMap}

@@ -1,4 +1,4 @@
-import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -12,8 +12,8 @@ import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -26,6 +26,7 @@ import { setActiveWorkspaceId } from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
+import { APP, BUILD } from '@/lib/server';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -34,14 +35,8 @@ Observe.configure({
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!CLERK_PUBLISHABLE_KEY) {
-  console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
-}
-
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const { t } = useI18n();
   const router = useRouter();
   const segments = useSegments();
@@ -202,13 +197,13 @@ function AppStack() {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
   );
 }
 
@@ -234,17 +229,11 @@ function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardProvider>
           <ErrorBoundary>
-            {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-                client sync races browser SSO on Android and signs users out again. */}
-            <ClerkProvider
-              publishableKey={CLERK_PUBLISHABLE_KEY || ''}
-              tokenCache={tokenCache}
-              __experimental_disableNativeClientSync
-            >
-              <ClerkLoaded>
-                <AuthenticatedApp />
-              </ClerkLoaded>
-            </ClerkProvider>
+            {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+                in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+            <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor="#7C3AED" onFailed={hideAppSplash}>
+              <AuthenticatedApp />
+            </ServerAuthRoot>
           </ErrorBoundary>
         </KeyboardProvider>
       </GestureHandlerRootView>

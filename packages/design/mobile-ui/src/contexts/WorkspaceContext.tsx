@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { useOrganizationList, useOrganization } from '@clerk/expo';
-import { useClerkAuth } from './ClerkAuthContext';
+import { useOrganizationList, useOrganization } from '@weldsuite/mobile-platform/auth';
+import { useAuthSession } from './AuthContext';
 import type { Workspace, WorkspaceWithMembership } from '../types';
 
 interface WorkspaceApi {
@@ -34,7 +34,7 @@ export function WorkspaceProvider({ children, api }: Readonly<WorkspaceProviderP
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const { organization } = useOrganization();
   const { setActive, userMemberships } = useOrganizationList({
     userMemberships: {
@@ -104,7 +104,8 @@ export function WorkspaceProvider({ children, api }: Readonly<WorkspaceProviderP
           slug: m.organization.slug || 'workspace',
           imageUrl: m.organization.imageUrl,
           isActive: true,
-          role: m.role,
+          // OIDC providers don't say; the API answers the real role.
+          role: m.role ?? 'org:member',
           membershipStatus: 'ACTIVE',
         }));
         setWorkspaces(fallbackWorkspaces);
@@ -119,7 +120,7 @@ export function WorkspaceProvider({ children, api }: Readonly<WorkspaceProviderP
         slug: m.organization.slug || 'workspace',
         imageUrl: m.organization.imageUrl,
         isActive: true,
-        role: m.role,
+        role: m.role ?? 'org:member',
         membershipStatus: 'ACTIVE',
       }));
       setWorkspaces(fallbackWorkspaces);

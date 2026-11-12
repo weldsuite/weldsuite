@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeOrganizationId, organizationsFromClaims, personFromClaims, scopeFor } from './claims';
+import { activeOrganizationId, organizationsFromClaims, personFromClaims, scopeFor } from './oidc-claims';
 
 const PROJECT_ROLES = 'urn:zitadel:iam:org:project:3001:roles';
 

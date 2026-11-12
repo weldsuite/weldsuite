@@ -26,6 +26,10 @@ data:
   # Zitadel's console after its first start (README, step 7).
   ZITADEL_PROJECT_ID: "000000000000000000"
   ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # The mobile apps' native application (PKCE, <app scheme>://sso-callback
+  # redirects; runbook step 7, item 2b). Empty until it is made: the apps
+  # then can't sign in to this cluster.
+  ZITADEL_MOBILE_CLIENT_ID: ""
   # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN};
   # the WeldSuite Staff org on WeldSuite's clusters): its primary domain, from
   # the organisation's settings in Zitadel's console.

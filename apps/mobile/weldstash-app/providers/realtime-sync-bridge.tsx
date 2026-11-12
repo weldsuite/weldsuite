@@ -1,5 +1,5 @@
 import { RealtimeSyncBridge as SharedBridge } from '@weldsuite/mobile-realtime';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { weldstashSyncMap } from '@/lib/sync-map';
 
 /**
@@ -7,7 +7,7 @@ import { weldstashSyncMap } from '@/lib/sync-map';
  * WMS mobile caches (products, stock, pick lists, warehouses).
  */
 export function RealtimeSyncBridge() {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   return (
     <SharedBridge
       syncMap={weldstashSyncMap}

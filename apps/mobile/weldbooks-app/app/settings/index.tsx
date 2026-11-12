@@ -2,7 +2,7 @@
  * Settings — company, workspace, appearance and sync status.
  *
  * Company figures come from `/api/accounting-settings`, which is entity-scoped;
- * the workspace row reads the Clerk-backed WorkspaceContext.
+ * the workspace row reads the WorkspaceContext.
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -12,11 +12,12 @@ import { Moon, Sun, LogOut, RefreshCw, ChevronRight, Pencil } from 'lucide-react
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Switch } from '@weldsuite/mobile-ui/components/Switch';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 
 import api from '@/services/api';
 import { Screen, ScreenHeader } from '@/components/screen';
@@ -29,6 +30,7 @@ import { useJurisdiction, useJurisdictions } from '@/hooks/useJurisdiction';
 import { fiscalYearStartLabel, missingInvoiceFields, requiredInvoiceFields } from '@/lib/company';
 import { invoiceFieldNames, listInvoiceFields } from '@/lib/company-form';
 import { useI18n } from '@/lib/i18n';
+import { BRAND } from '@/lib/brand';
 import { addressLines } from '@/lib/us';
 import type { AppSettings } from '@/types/accounting';
 
@@ -288,7 +290,7 @@ function SyncCard() {
 
 function SignOutConfirm({ visible, onClose }: Readonly<{ visible: boolean; onClose: () => void }>) {
   const { t, plural } = useI18n();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const { queue } = useOfflineQueue();
   const toast = useToast();
 
@@ -318,7 +320,7 @@ export default function SettingsScreen() {
   // useWorkspace() returns the whole context — the workspace itself is on
   // `currentWorkspace`.
   const { currentWorkspace } = useWorkspace();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { settings, loading, error, refetch } = useCompanySettings();
 
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -340,6 +342,9 @@ export default function SettingsScreen() {
                 label={t.settings.workspace}
                 value={currentWorkspace?.name ?? t.common.dash}
               />
+              {/* Which server the app talks to; both render nothing when the build has the picker off. */}
+              <ServerRow variant="settings" language={language} accentColor={BRAND} />
+              <ProviderAccountRow language={language} />
             </SectionCard>
 
             <AppearanceCard />

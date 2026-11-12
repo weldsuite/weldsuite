@@ -1,39 +1,15 @@
 // `services/app-api.ts` wires the shared app-api client + domain clients and
-// exposes the Clerk token-getter setter. The underlying client factory and the
-// domain factories are stubbed via the jest config moduleNameMapper, so these
-// tests focus on the wiring and the env-driven config the module computes at
-// load time.
+// exposes the session token-getter setter. The client factory
+// (`@weldsuite/mobile-platform/api`) and the domain factories are stubbed via the
+// jest config moduleNameMapper, so these tests focus on the wiring. Which host
+// a request goes to is decided (and tested) in mobile-platform, from the booted
+// server runtime.
 //
-// Env + module-load behaviour is read at import time, so each test resets the
-// module registry and re-requires the module under controlled conditions.
+// Each test resets the module registry and re-requires the module.
 
 describe('services/app-api', () => {
-  const ORIGINAL_ENV = process.env;
-
   beforeEach(() => {
     jest.resetModules();
-    // Fresh copy of env per test so mutations don't leak across cases.
-    process.env = { ...ORIGINAL_ENV };
-  });
-
-  afterAll(() => {
-    process.env = ORIGINAL_ENV;
-  });
-
-  describe('APP_API_URL', () => {
-    it('defaults to the local app-api when the env var is unset', () => {
-      delete process.env.EXPO_PUBLIC_APP_API_URL;
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
-      const { APP_API_URL } = require('../app-api');
-      expect(APP_API_URL).toBe('http://localhost:8789');
-    });
-
-    it('uses EXPO_PUBLIC_APP_API_URL when provided', () => {
-      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org';
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
-      const { APP_API_URL } = require('../app-api');
-      expect(APP_API_URL).toBe('https://app-api.weldsuite.org');
-    });
   });
 
   describe('appApi domain clients', () => {
@@ -75,7 +51,6 @@ describe('services/app-api', () => {
 
   describe('getAppApiRequestInit', () => {
     it('builds an absolute /api URL with the bearer token and app header', async () => {
-      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org/';
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { getAppApiRequestInit, setAppApiTokenGetter } = require('../app-api');
       setAppApiTokenGetter(async () => 'jwt-token-123');
@@ -83,16 +58,6 @@ describe('services/app-api', () => {
         url: 'https://app-api.weldsuite.org/api/mail-attachments/att_1/download',
         headers: { Authorization: 'Bearer jwt-token-123', 'X-Weld-App': 'weldmail' },
       });
-    });
-
-    it('routes to the module worker when the module is enabled', async () => {
-      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org';
-      process.env.EXPO_PUBLIC_API_MODULES = 'all';
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
-      const { getAppApiRequestInit, setAppApiTokenGetter } = require('../app-api');
-      setAppApiTokenGetter(async () => 't');
-      const { url } = await getAppApiRequestInit('/mail-attachments/att_1/download');
-      expect(url).toBe('https://mail-api.weldsuite.org/api/mail-attachments/att_1/download');
     });
 
     it('rejects without a session token', async () => {

@@ -37,6 +37,7 @@ module.exports = {
     '^expo/virtual/env$': '<rootDir>/__mocks__/expo-virtual-env.js',
     // Workspace + native modules pulled in transitively by the units under test.
     '^@weldsuite/api-client/client$': '<rootDir>/__mocks__/api-client-stub.js',
+    '^@weldsuite/mobile-platform/api$': '<rootDir>/__mocks__/mobile-platform-api-stub.js',
     '^@weldsuite/app-api-client/domains/(.*)$': '<rootDir>/__mocks__/app-api-domains-stub.js',
     '^@weldsuite/mobile-ui/types$': '<rootDir>/__mocks__/mobile-ui-types-stub.js',
   },

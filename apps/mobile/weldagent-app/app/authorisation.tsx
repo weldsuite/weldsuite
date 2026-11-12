@@ -7,7 +7,7 @@ import { BRAND } from '@/lib/brand';
 import { hideAppSplash } from '@/utils/splash';
 
 export default function AuthorisationScreen() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { markInteractive } = useObserve();
 
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function AuthorisationScreen() {
       logoSize={{ width: 40, height: 40 }}
       appName={t.appName}
       copy={t.auth}
+      language={language}
       accentColor={BRAND}
     />
   );

@@ -16,10 +16,14 @@
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",
+    "@weldsuite/mobile-platform": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "react": "^19.0.0"
   },
   "peerDependenciesMeta": {
+    "@weldsuite/mobile-platform": {
+      "optional": true
+    },
     "@weldsuite/mobile-ui": {
       "optional": true
     }

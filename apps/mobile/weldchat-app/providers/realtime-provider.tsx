@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
 import { AppState } from 'react-native';
 import { RealtimeProvider as BaseProvider, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 import { createAsyncStorageCursorStore } from '@/lib/realtime/cursor-store';
-
-const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
 /**
  * Re-establish the workspace socket when the app returns to the foreground.
@@ -28,7 +27,7 @@ function ForegroundReconnect() {
 }
 
 export function RealtimeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { getToken, organizationId, user } = useClerkAuth();
+  const { getToken, organizationId, user } = useAuthSession();
 
   // Persist the last-seen eventId per workspace so reconnects replay missed
   // events (`since:` cursor) instead of dropping them. Scoped by org so an org
@@ -49,7 +48,7 @@ export function RealtimeProvider({ children }: Readonly<{ children: React.ReactN
   return (
     <BaseProvider
       key={clientKey}
-      url={`${REALTIME_URL}/ws`}
+      url={`${realtimeUrl()}/ws`}
       getToken={async () => (await getToken()) || ''}
       cursorStore={cursorStore}
     >

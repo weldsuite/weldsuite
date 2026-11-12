@@ -96,6 +96,10 @@ config:
       # The platform's public client (PKCE), told to the frontends by
       # /config.json (optional).
       webClientId: ""
+      # The mobile apps' public native client (PKCE, redirect URIs
+      # <app scheme>://sso-callback), told to the apps by /config.json.
+      # Without it the mobile apps can't sign in to this server (optional).
+      mobileClientId: ""
       # Who shows the sign-in screens (ADR SEC-016). Empty or provider: the
       # provider's own pages. platform: WeldSuite's, the ones Global shows,
       # with the server as Zitadel's login client behind them (/api/sign-in).

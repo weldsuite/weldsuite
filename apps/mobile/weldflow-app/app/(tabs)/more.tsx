@@ -6,7 +6,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 import * as Haptics from 'expo-haptics';
 import {
   Settings,
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react-native';
 
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
@@ -43,7 +43,7 @@ const NEXT_THEME: Record<ThemePreference, ThemePreference> = {
 export default function MoreScreen() {
   const { colors, theme, preference, setPreference } = useTheme();
   const router = useRouter();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { organization } = useOrganization();
   const { isPermissionGranted, requestPermissions, openNotificationSettings, unregisterDevice } =
     useNotifications();

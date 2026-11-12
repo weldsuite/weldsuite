@@ -13,6 +13,7 @@ import {
 import { useIsTablet } from '@/hooks/useIsTablet';
 import { useActivityUnreadCount } from '@/hooks/useActivityUnreadCount';
 import { IPadLayout } from '@/components/IPadLayout';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useI18n } from '@/lib/i18n';
 
 type TabBarRenderer = NonNullable<ComponentProps<typeof Tabs>['tabBar']>;
@@ -40,6 +41,8 @@ export default function TabLayout() {
   const isTablet = useIsTablet();
   const activityUnread = useActivityUnreadCount();
   const { t } = useI18n();
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have.
+  const callsAvailable = useEditionFeature('chat-calls');
 
   if (isTablet) {
     return <IPadLayout />;
@@ -84,6 +87,7 @@ export default function TabLayout() {
         options={{
           title: t.tabs.calls,
           tabBarIcon: CallsTabIcon,
+          href: callsAvailable ? undefined : null,
         }}
       />
     </Tabs>
