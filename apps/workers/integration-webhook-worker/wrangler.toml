@@ -22,6 +22,10 @@ head_sampling_rate = 1
 # WeldBooks bank feed webhooks (POST /webhooks/bank-feeds/:provider, scripts/secrets/manifest.ts):
 # - PLAID_CLIENT_ID / PLAID_SECRET: fetch Plaid's webhook verification key (PLAID_ENV var below)
 # - STRIPE_FC_WEBHOOK_SECRET: signing secret of the Stripe Financial Connections webhook endpoint
+# - PONTO_APPLICATION_ID (a var): the Ponto application's id in Isabel's developer portal, which
+#   its webhook signatures name; with it, a PONTO_CERT mtls_certificates binding (the same
+#   certificate as books-api's) to fetch Ibanity's webhook keys. Register
+#   https://<this worker>/webhooks/bank-feeds/ponto in the application's Webhooks tab.
 
 [vars]
 ENVIRONMENT = "development"

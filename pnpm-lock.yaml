@@ -5183,6 +5183,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -6481,6 +6484,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.27
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
@@ -7919,6 +7925,9 @@ importers:
 
   packages/core/bank-feeds:
     devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config

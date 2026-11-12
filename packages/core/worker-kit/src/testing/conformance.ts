@@ -274,6 +274,8 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'PONTO_SIGNATURE_CERT_ID',
   'PONTO_SIGNATURE_KEY',
+  'PONTO_ENV',
+  'PONTO_APPLICATION_ID',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
   // The integration workers' webhook receivers: Stripe Financial

@@ -1,7 +1,8 @@
 # An example cluster's layers, the way WeldSuite runs its own: in order, chart
 # sources, operators and the ingress, the encrypted secrets, Postgres and the
 # issuer (with the MTA's database after it, configs-extra), the services, and
-# the weldsuite server, with video (LiveKit) next to it. Copy clusters/example
+# the weldsuite server, with video (LiveKit) next to it, and the monitoring
+# and logging layers (docs/plans/eu-observability.md). Copy clusters/example
 # to clusters/<your cluster> and change the paths below that name example.
 #
 # One source: GitRepository flux-system, your copy of this repository (a fork
@@ -184,6 +185,81 @@ spec:
   prune: true
   wait: true
   timeout: 20m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+# Metrics, alerting and Grafana (infrastructure/monitoring; ADR OPS-021).
+# After the secrets: Alertmanager reads alerting-receivers and Grafana its
+# OIDC client. Lens: the cluster's Metrics settings, "Prometheus Operator",
+# monitoring/kube-prometheus-stack-prometheus:9090.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: controllers
+    - name: secrets
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/monitoring
+  prune: true
+  wait: true
+  timeout: 15m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+# What Prometheus scrapes, probes and alerts on (infrastructure/monitoring-
+# config): the Prometheus Operator's kinds, so after the layer with their
+# CRDs. Its probes test the public hosts, so they fail until the apps are up.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring-config
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: monitoring
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/monitoring-config
+  prune: true
+  wait: true
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+# Logs (infrastructure/logging): Loki on the logs bucket (LOGS_*), Fluent
+# Bit on every node. After monitoring (its ServiceMonitors and rule need the
+# CRDs) and the secrets (loki-s3).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: logging
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: monitoring
+    - name: secrets
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/logging
+  prune: true
+  wait: true
+  timeout: 15m
   sourceRef:
     kind: GitRepository
     name: flux-system

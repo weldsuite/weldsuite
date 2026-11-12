@@ -367,6 +367,51 @@ async fn an_address_with_an_account_is_taken_unless_it_is_the_same_person_again(
     assert_eq!(verified.error(), "EMAIL_TAKEN");
 }
 
+#[tokio::test(start_paused = true)]
+async fn sign_up_waits_for_a_provider_that_does_not_know_the_new_account_yet() {
+    let h = harness();
+    let request = h.provider.add_auth_request(&[]);
+    // The provider's read side trails the write: the first sessions of a new
+    // account are refused as if the password were wrong.
+    h.provider.lag_new_accounts(3);
+
+    let created = h
+        .post(
+            "/sign-up",
+            None,
+            json!({ "authRequest": request, "email": "jane@acme.test", "password": PASSWORD }),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::OK);
+    assert_eq!(created.step(), "needs_email_verification");
+    assert!(created.cookie.is_some());
+    assert_eq!(h.provider.session_count(), 1);
+    // One account, one code: the waiting made nothing twice.
+    assert_eq!(h.provider.sent().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_account_the_provider_keeps_not_knowing_goes_on_at_sign_in() {
+    let h = harness();
+    let request = h.provider.add_auth_request(&[]);
+    h.provider.lag_new_accounts(u32::MAX);
+
+    let lost = h
+        .post(
+            "/sign-up",
+            None,
+            json!({ "authRequest": request, "email": "jane@acme.test", "password": PASSWORD }),
+        )
+        .await;
+    // Not "invalid email or password": the account was made, and the screen
+    // sends the person to sign in.
+    assert_eq!(lost.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(lost.error(), "NO_SESSION");
+    assert!(lost.cookie.is_none());
+    assert!(h.provider.user_by_email("jane@acme.test").is_some());
+    assert_eq!(h.provider.session_count(), 0);
+}
+
 #[tokio::test]
 async fn sign_up_is_refused_where_the_provider_has_it_closed() {
     let h = harness();

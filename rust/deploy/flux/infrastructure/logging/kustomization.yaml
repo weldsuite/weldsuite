@@ -1,0 +1,32 @@
+# Logs (docs/plans/eu-observability.md, ADR OPS-021): Loki on the cluster's
+# logs bucket, Fluent Bit on every node and for the cluster's events. After
+# ../monitoring, whose CRDs the ServiceMonitors and the rule need, and after
+# the secrets layer (loki-s3). The namespace is in ../controllers.
+#
+# Grafana reads Loki at http://loki.logging.svc:3100
+# (monitoring/values/kube-prometheus-stack.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - sources.yaml
+  - releases.yaml
+  - rules.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: loki-values
+    namespace: logging
+    files: [values.yaml=values/loki.yaml]
+  # Fluent Bit's own ${VARIABLES}: Flux must leave these alone.
+  - name: fluent-bit-values
+    namespace: logging
+    files: [values.yaml=values/fluent-bit.yaml]
+    options:
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: fluent-bit-events-values
+    namespace: logging
+    files: [values.yaml=values/fluent-bit-events.yaml]
+    options:
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled

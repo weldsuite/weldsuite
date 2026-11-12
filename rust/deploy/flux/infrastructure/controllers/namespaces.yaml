@@ -29,6 +29,24 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
+# Metrics, alerting and Grafana (../monitoring) and the logs (../logging).
+# Here rather than in their layers because the secrets layer, which runs
+# first, puts their Secrets in them. Privileged: the node exporter and Fluent
+# Bit read the host's /proc, /sys and /var/log.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
 apiVersion: v1
 kind: Namespace
 metadata:

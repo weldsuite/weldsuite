@@ -1,14 +1,56 @@
-# Prometheus for Lens's CPU, memory and disk charts (Lens: the cluster's
-# Metrics settings, "Prometheus Operator", monitoring/kube-prometheus-stack-
-# prometheus:9090). Lens needs the kubelet (pods), the node exporter (nodes)
-# and kube-state-metrics (which pod runs on which node), so only those are
-# scraped, kept three days, without alerting or Grafana.
+# Metrics, alerting and Grafana for the cluster (docs/plans/eu-observability.md,
+# ADR OPS-021). Sized for production: Prometheus keeps 30 days; the test
+# cluster patches retention and volumes down in its layers. Lens keeps
+# working against monitoring/kube-prometheus-stack-prometheus:9090.
+#
+# What it scrapes besides the defaults below: ../monitors.yaml (Postgres,
+# Traefik, cert-manager, Flux, NATS, Restate, Zitadel, the weldsuite roles)
+# and ../probes.yaml (the public hosts through the blackbox exporter). The
+# rules are ../rules/*.yaml plus the trimmed defaults here.
+#
+# ${DOMAIN} is the cluster's (Flux substitution). Nothing else in this file
+# may contain a dollar-brace, or Flux would substitute it too.
+
+# kube-prometheus-stack's own rules, without the groups for components that
+# aren't scraped on Talos (API server, controller manager, scheduler,
+# kube-proxy; etcd until rust/deploy/hetzner/talos opens its metrics, see
+# kubeEtcd below) and without the alerts ../rules replaces with WeldSuite's
+# thresholds.
 defaultRules:
-  create: false
-alertmanager:
-  enabled: false
-grafana:
-  enabled: false
+  create: true
+  rules:
+    etcd: false
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    windows: false
+  disabled:
+    # absent() of targets that are never scraped here.
+    KubeAPIDown: true
+    KubeAPITerminatedRequests: true
+    KubeAPIInstanceUnreachable: true
+    KubeControllerManagerDown: true
+    KubeSchedulerDown: true
+    KubeProxyDown: true
+    # Noise on four-vCPU nodes, and limits are overcommitted on purpose.
+    CPUThrottlingHigh: true
+    KubeCPUOvercommit: true
+    KubeMemoryOvercommit: true
+    KubeCPUQuotaOvercommit: true
+    KubeMemoryQuotaOvercommit: true
+    # Replaced by NodeNotReady, DiskFillingUp and DiskUsageHigh (../rules/nodes.yaml).
+    KubeNodeNotReady: true
+    NodeFilesystemSpaceFillingUp: true
+    NodeFilesystemAlmostOutOfSpace: true
+    # Talos runs no systemd.
+    NodeSystemdServiceFailed: true
+    NodeSystemdServiceCrashlooping: true
+
 # Talos binds these to localhost (or doesn't run them as pods), and the API
 # server and CoreDNS series are most of what a scrape would cost.
 kubeApiServer:
@@ -17,14 +59,21 @@ kubeControllerManager:
   enabled: false
 kubeScheduler:
   enabled: false
-kubeEtcd:
-  enabled: false
 kubeProxy:
   enabled: false
 coreDns:
   enabled: false
 kubeDns:
   enabled: false
+# etcd's metrics listen on each control-plane node's private address once
+# the Talos config opens them (rust/deploy/hetzner/talos, port 2381). The
+# endpoints are the cluster's own: a cluster patch sets kubeEtcd.enabled,
+# kubeEtcd.endpoints and defaultRules.rules.etcd.
+kubeEtcd:
+  enabled: false
+  service:
+    port: 2381
+    targetPort: 2381
 # The chart skips verifying the kubelet, whose certificate kubeadm signs
 # itself; here the cluster CA signs it (../controllers/kubelet-serving-cert-
 # approver.yaml), so check it.
@@ -37,17 +86,254 @@ kubelet:
           name: kube-root-ca.crt
           key: ca.crt
 
+# --- Alertmanager --------------------------------------------------------
+#
+# Receivers by role, never by vendor: their URLs and the bearer token come
+# from the Secret alerting-receivers (../../secrets/examples), mounted at
+# /etc/alertmanager/secrets/alerting-receivers. WeldSuite's clusters point
+# critical and warning at ntfy topics (a URL with ntfy's message template,
+# ALERTS.md) and heartbeat at a healthchecks.io check; another install can
+# point them at any webhook.
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    secrets: [alerting-receivers]
+    retention: 120h
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+      limits:
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: openebs-hostpath
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 1Gi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [cluster, alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # The dead-man's switch: always firing, so the check outside the
+        # cluster hears from it every minute and alarms when it stops.
+        - matchers: ['alertname = "Watchdog"']
+          receiver: heartbeat
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 1m
+        - matchers: ['alertname = "InfoInhibitor"']
+          receiver: "null"
+        - matchers: ['severity = "critical"']
+          receiver: critical
+          repeat_interval: 2h
+        # Flux sends its failures straight here with severity "error"
+        # (../flux-alerts.yaml).
+        - matchers: ['severity =~ "warning|error"']
+          receiver: warning
+          repeat_interval: 12h
+          mute_time_intervals: [night]
+    inhibit_rules:
+      # A critical alert silences the warnings of the same namespace.
+      - source_matchers: ['severity = "critical"']
+        target_matchers: ['severity =~ "warning|info"']
+        equal: [cluster, namespace]
+      - source_matchers: ['severity = "warning"']
+        target_matchers: ['severity = "info"']
+        equal: [cluster, namespace]
+      - source_matchers: ['alertname = "InfoInhibitor"']
+        target_matchers: ['severity = "info"']
+        equal: [namespace]
+    # Warnings wait for the morning: 22:00-07:00 in the Netherlands in
+    # winter (an hour earlier in summer). In UTC, since the image may have
+    # no time zone database.
+    time_intervals:
+      - name: night
+        time_intervals:
+          - times:
+              - start_time: "21:00"
+                end_time: "24:00"
+              - start_time: "00:00"
+                end_time: "06:00"
+    receivers:
+      - name: "null"
+      - name: critical
+        webhook_configs:
+          - url_file: /etc/alertmanager/secrets/alerting-receivers/critical-url
+            send_resolved: true
+            max_alerts: 10
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager/secrets/alerting-receivers/token
+      - name: warning
+        webhook_configs:
+          - url_file: /etc/alertmanager/secrets/alerting-receivers/warning-url
+            send_resolved: true
+            max_alerts: 10
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager/secrets/alerting-receivers/token
+      - name: heartbeat
+        webhook_configs:
+          - url_file: /etc/alertmanager/secrets/alerting-receivers/heartbeat-url
+            send_resolved: false
+
+# --- Grafana -------------------------------------------------------------
+#
+# grafana.${DOMAIN}, signed in through Zitadel: only the WeldSuite Staff
+# organisation (its primary-domain scope, which Zitadel enforces;
+# ZITADEL_STAFF_ORG_DOMAIN in the cluster's settings), Admin for the project
+# role grafana-admin, Viewer for the rest.
+# The OIDC client's id and secret come from the Secret grafana-oidc; the
+# break-glass admin login (kubectl port-forward, when Zitadel is down) from
+# grafana-admin. Everything is provisioned: no database worth keeping.
+grafana:
+  enabled: true
+  replicas: 1
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  envFromSecrets:
+    - name: grafana-oidc
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 160Mi
+    limits:
+      memory: 384Mi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts: [grafana.${DOMAIN}]
+    tls:
+      - secretName: grafana-tls
+        hosts: [grafana.${DOMAIN}]
+  grafana.ini:
+    server:
+      root_url: https://grafana.${DOMAIN}
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+      check_for_plugin_updates: false
+    news:
+      news_feed_enabled: false
+    users:
+      allow_sign_up: false
+    auth:
+      disable_login_form: true
+      oauth_auto_login: true
+      signout_redirect_url: https://auth.${DOMAIN}/oidc/v1/end_session
+    auth.basic:
+      enabled: false
+    auth.anonymous:
+      enabled: false
+    # Unified alerting off: the rules are Prometheus's, sent by Alertmanager.
+    unified_alerting:
+      enabled: false
+    auth.generic_oauth:
+      enabled: true
+      name: WeldSuite Staff
+      allow_sign_up: true
+      use_pkce: true
+      auth_url: https://auth.${DOMAIN}/oauth/v2/authorize
+      token_url: https://auth.${DOMAIN}/oauth/v2/token
+      api_url: https://auth.${DOMAIN}/oidc/v1/userinfo
+      scopes: openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:domain:primary:${ZITADEL_STAFF_ORG_DOMAIN}
+      email_attribute_path: email
+      login_attribute_path: preferred_username
+      name_attribute_path: name
+      role_attribute_path: "contains(keys(\"urn:zitadel:iam:org:project:roles\" || `{}`), 'grafana-admin') && 'Admin' || 'Viewer'"
+      role_attribute_strict: true
+      allow_assign_grafana_admin: false
+  # Dashboards: the chart's own (cluster, nodes, workloads, Alertmanager,
+  # Prometheus), the ConfigMaps labelled grafana_dashboard in any namespace
+  # (monitoring-config/dashboards), and the projects' own dashboards below,
+  # pinned by revision and fetched from grafana.com when Grafana starts.
+  defaultDashboardsTimezone: Europe/Amsterdam
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: community
+          orgId: 1
+          folder: Components
+          type: file
+          disableDeletion: true
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/community
+  dashboards:
+    community:
+      cloudnative-pg:
+        gnetId: 20417
+        revision: 4
+        datasource: Prometheus
+      traefik:
+        gnetId: 17347
+        revision: 9
+        datasource: Prometheus
+      blackbox-exporter:
+        gnetId: 13659
+        revision: 1
+        datasource: Prometheus
+      nats-jetstream:
+        gnetId: 14725
+        revision: 2
+        datasource: Prometheus
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.logging.svc:3100
+      jsonData:
+        maxLines: 1000
+
+# --- Prometheus ----------------------------------------------------------
 prometheus:
   prometheusSpec:
     scrapeInterval: 30s
-    retention: 3d
-    retentionSize: 4GB
+    evaluationInterval: 30s
+    retention: 30d
+    retentionSize: 24GB
+    # Every series and alert names its cluster.
+    externalLabels:
+      cluster: ${DOMAIN}
+    # Monitors, probes and rules from every namespace, not only this
+    # release's.
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
     resources:
       requests:
-        cpu: 100m
-        memory: 384Mi
+        cpu: 250m
+        memory: 1Gi
       limits:
-        memory: 1536Mi
+        memory: 3Gi
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -55,7 +341,7 @@ prometheus:
           accessModes: [ReadWriteOnce]
           resources:
             requests:
-              storage: 5Gi
+              storage: 30Gi
 
 prometheusOperator:
   resources:
@@ -65,7 +351,11 @@ prometheusOperator:
     limits:
       memory: 256Mi
 
+# The CloudNativePG pod labels, for the Postgres rules (which instance of
+# which cluster is not ready).
 kube-state-metrics:
+  metricLabelsAllowlist:
+    - pods=[cnpg.io/cluster,cnpg.io/podRole,cnpg.io/instanceRole]
   resources:
     requests:
       cpu: 10m
