@@ -1,0 +1,120 @@
+name: EU production watch
+
+# ADR OPS-020: EU production follows the main builds the EU test cluster runs.
+# Every 10 minutes this compares the build test serves with the one production
+# serves (both public, at https://api.<domain>/version). When test has served
+# a newer main build for SOAK_MINUTES and answers /health, it hands that build
+# to the private repo's eu-continuous workflow, which checks it again and pins
+# production to it. This log names only the two builds.
+#
+# Production starts following once it serves a main build itself (/version
+# answers X.Y.Z-main.N); until then, and while it runs a release, nothing is
+# handed on. Pausing is the private repo's EU_CONTINUOUS_DEPLOY variable; like
+# the hand-off, this runs only while DEPLOYS_PRIVATE is "true".
+#
+# The schedule runs here, not in the private repo, because a public repo's
+# minutes are free: the private repo runs only when there is a build to roll
+# out. The weldsuite-deploy-bot App (Actions read/write on weldsuite-deploy
+# only) starts it, as in handoff.yml.
+
+on:
+  schedule:
+    - cron: '7-59/10 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: eu-production-watch
+  cancel-in-progress: false
+
+env:
+  TEST_URL: https://api.test.weldsuite.eu
+  PRODUCTION_URL: https://api.weldsuite.eu
+  SOAK_MINUTES: '10'
+
+jobs:
+  watch:
+    name: Compare test and production
+    if: vars.DEPLOYS_PRIVATE == 'true' && github.repository == 'weldsuite/weldsuite'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.compare.outputs.release }}
+    steps:
+      - name: Compare the builds
+        id: compare
+        run: |
+          set -euo pipefail
+          # /version of a server running a main build's chart, or nothing (a
+          # release, an older build without /version, or no answer).
+          main_build() {
+            curl -fsS -m 20 "$1/version" 2>/dev/null |
+              jq -ce 'select(type == "object" and ((.release // "") | test("^[0-9]+\\.[0-9]+\\.[0-9]+-main\\.[0-9]+$")))' 2>/dev/null || true
+          }
+          test_build=$(main_build "$TEST_URL")
+          production_build=$(main_build "$PRODUCTION_URL")
+          if [ -z "$test_build" ]; then
+            echo "Test serves no main build at /version; nothing to hand on."
+            exit 0
+          fi
+          if [ -z "$production_build" ]; then
+            echo "Production serves no main build at /version (a release, or it does not follow main yet); nothing to hand on."
+            exit 0
+          fi
+          test_release=$(jq -r .release <<<"$test_build")
+          production_release=$(jq -r .release <<<"$production_build")
+          echo "test: $test_release, production: $production_release"
+          # Main builds rise with the "Rust images" run number.
+          if [ "${test_release##*-main.}" -le "${production_release##*-main.}" ]; then
+            echo "Production runs test's build or a newer one."
+            exit 0
+          fi
+          started=$(jq -r .startedAt <<<"$test_build")
+          minutes=$(( ($(date -u +%s) - $(date -u -d "$started" +%s)) / 60 ))
+          if [ "$minutes" -lt "$SOAK_MINUTES" ]; then
+            echo "Test has served $test_release for $minutes minutes; waiting for $SOAK_MINUTES."
+            exit 0
+          fi
+          health=$(curl -fsS -m 20 "$TEST_URL/health" 2>/dev/null | jq -r '.status // ""' 2>/dev/null || true)
+          case "$health" in
+            pass | warn) ;;
+            *)
+              echo "Test's /health answers '${health:-nothing}'; not handing $test_release on."
+              exit 0
+              ;;
+          esac
+          echo "Test has served $test_release for $minutes minutes and is healthy."
+          echo "release=$test_release" >> "$GITHUB_OUTPUT"
+
+  handoff:
+    name: Hand the build to production
+    needs: watch
+    if: needs.watch.outputs.release != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # As in handoff.yml: the App's key sits on the environment `handoff`,
+    # which only main can use; no deployment record in the public repo.
+    environment:
+      name: handoff
+      deployment: false
+    steps:
+      - name: Token for weldsuite-deploy
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.DEPLOY_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_BOT_PRIVATE_KEY }}
+          owner: weldsuite
+          repositories: weldsuite-deploy
+          permission-actions: write
+
+      - name: Hand off ${{ needs.watch.outputs.release }}
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          RELEASE: ${{ needs.watch.outputs.release }}
+        run: |
+          set -euo pipefail
+          gh api -X POST repos/weldsuite/weldsuite-deploy/actions/workflows/eu-continuous.yml/dispatches \
+            -f ref=main -f "inputs[release]=$RELEASE" > /dev/null
+          echo "Handed $RELEASE to EU production."

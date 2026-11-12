@@ -54,6 +54,11 @@ settings, which weldsuite.env adds.
 {{- define "weldsuite.envBase" -}}
 - name: PORT
   value: "8080"
+{{- /* What /version reports: the chart release and the image it installs. */}}
+- name: WELDSUITE_RELEASE
+  value: {{ .Chart.Version | quote }}
+- name: WELDSUITE_BUILD
+  value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
 - name: ENVIRONMENT
   value: {{ .Values.config.environment | quote }}
 - name: LOG_FORMAT
