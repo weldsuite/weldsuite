@@ -711,11 +711,7 @@ pub(crate) async fn sign_up(
             Ok(user_id) => {
                 // The provider just emailed the code. Its read side may not
                 // know the account yet, so the step is stated, not asked for.
-                let session = state
-                    .provider
-                    .start_session(&user_id, password, Some(lifetime))
-                    .await
-                    .map_err(refusal)?;
+                let session = first_session(&state, &user_id, password, lifetime).await?;
                 let step = Step::NeedsEmailVerification {
                     email: user.email,
                     code: state
@@ -733,6 +729,53 @@ pub(crate) async fn sign_up(
     }
     .await;
     step_response(&headers, answer)
+}
+
+/// The pauses between tries for a new account's first session: about three
+/// seconds in all. The provider usually knows the account within the first.
+const NEW_ACCOUNT_WAITS: [Duration; 6] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+    Duration::from_millis(1500),
+];
+
+/// The first session of an account made a moment ago. Its password is the
+/// one it was just made with, so "wrong password" here means the provider
+/// does not know the account yet: Zitadel looks a session's user up in a
+/// read side that trails the write, and answers "no such user" meanwhile.
+/// Asked again for a few seconds. An account that still isn't known exists
+/// all the same: the sign-in screen takes it from there (`NO_SESSION`),
+/// rather than the form saying the password is wrong.
+async fn first_session(
+    state: &SignInState,
+    user_id: &str,
+    password: &str,
+    lifetime: Duration,
+) -> Result<SessionRef, ApiError> {
+    let mut waits = NEW_ACCOUNT_WAITS.into_iter();
+    loop {
+        match state
+            .provider
+            .start_session(user_id, password, Some(lifetime))
+            .await
+        {
+            Ok(session) => return Ok(session),
+            Err(SignInError::InvalidCredentials) => {
+                let Some(wait) = waits.next() else {
+                    tracing::warn!(
+                        user_id,
+                        "sign-up: the provider still does not know the new account"
+                    );
+                    return Err(no_session());
+                };
+                tokio::time::sleep(wait).await;
+            }
+            Err(error) => return Err(refusal(error)),
+        }
+    }
 }
 
 /// The address has an account. When it is the same person again (back from
