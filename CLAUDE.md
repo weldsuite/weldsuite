@@ -469,12 +469,20 @@ squash or rebase.
 Every merge to `main` runs CI. When CI passes, `handoff.yml` starts
 `deploy-test` in the private repo `weldsuite/weldsuite-deploy`, which deploys
 that commit to **test** (`*-test.weldsuite.org`, `app-test.weldsuite.org`).
-**Production** goes out only through the **Promote** workflow in
+**Global production** goes out only through the **Promote** workflow in
 `weldsuite-deploy`, run by people with write access there (never a bot). It
-deploys a commit test already deployed. Nothing deploys production on a push.
-The GitHub Environments `test` and `production` and their secrets live in
+deploys a commit test already deployed. Nothing deploys Global production on a
+push. The GitHub Environments `test` and `production` and their secrets live in
 `weldsuite-deploy` (see `.github/SECRETS.md`). The decision is ADR OPS-018,
 which supersedes OPS-004.
+
+**EU production deploys continuously** (ADR OPS-020): it follows the main
+builds the EU test cluster runs. `eu-production-watch.yml` compares the build
+each serves (`/version`); once test has served a newer one for 10 minutes and
+answers `/health`, it starts `eu-continuous` in `weldsuite-deploy`, which pins
+production to that chart and commit. Self-hosted installs keep tagged releases
+(`rust-release.yml`). So a merge that touches the Rust server, the chart or the
+platform reaches app.weldsuite.eu without a release: keep migrations additive.
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
@@ -484,6 +492,7 @@ which supersedes OPS-004.
 | `sonarqube.yml` | PR | not yet (fails on a red quality gate; blocks once "SonarQube" is a required check) — full SonarQube Cloud analysis of **only the files the PR changes** (`scripts/sonar-changed.mjs` narrows `sonar-project.properties`; preview the scope with `pnpm sonar:changed`) |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
 | `handoff.yml` | CI passed on a push to `main` → starts the private `deploy-test` | n/a |
+| `eu-production-watch.yml` | every 10 minutes → starts the private `eu-continuous` when test has run a newer main build for 10 minutes | n/a |
 | `release-desktop.yml` | manual | n/a |
 
 The deploy logic stays in this repo: composite actions
@@ -529,7 +538,7 @@ Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions i
 `deploy:production` scripts (which shell out to `vercel`) are **dead code**.
 Cloudflare Pages is the real path.
 
-Environments: local wrangler → **test** (every green `main` commit) → **production** (Promote).
+Environments: local wrangler → **test** (every green `main` commit) → **production** (Global: Promote; EU: the build test ran, automatically).
 
 ## Critical Files
 

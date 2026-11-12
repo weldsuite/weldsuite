@@ -15,10 +15,11 @@
 #   5. every HelmRelease's chart rendered at its pinned version with its own
 #      values file and schema-checked, after checking the pin in the
 #      HelmRelease matches the one here;
-#   6. with an eu cluster: the weldsuite release production pins
-#      (WELDSUITE_VERSION) is X.Y.Z, and a drill cluster pins the same one; a
-#      cluster whose sources.yaml follows a weldsuite-v tag follows its own
-#      release's.
+#   6. with an eu cluster: the weldsuite version production pins
+#      (WELDSUITE_VERSION) is a release X.Y.Z or a main build X.Y.Z-main.N
+#      (ADR OPS-020), and a drill cluster pins the same one; a cluster whose
+#      sources.yaml follows a weldsuite-v tag follows its own release's, and
+#      one that pins a commit runs a main build.
 #
 # By default it checks this repository: the base layers and the example
 # cluster (flux/clusters/example). The deploy repository points it at its own
@@ -208,13 +209,16 @@ substitute "$settings" <flux/apps/eu/values/weldsuite.yaml >"$work/values.yaml"
 helm template weldsuite helm/weldsuite --namespace weldsuite -f "$work/values.yaml" >"$work/rendered.yaml"
 kc "$work/rendered.yaml"
 
-echo "== weldsuite release"
-# A release from the "Rust release" workflow (.github/workflows/rust-release.yml).
+echo "== weldsuite version"
+# A release from the "Rust release" workflow (.github/workflows/rust-release.yml),
+# X.Y.Z, or a main build's chart from "Rust images" (rust-images.yml),
+# X.Y.Z-main.N: EU production follows the main builds the test cluster ran
+# (ADR OPS-020); self-hosted installs take the releases.
 release_of() { tr -d '\r' <"$1" | awk '$1 == "WELDSUITE_VERSION:" { v = $2; gsub(/"/, "", v); print v }'; }
 if [ -f "$clusters/eu/cluster-settings.yaml" ]; then
   production="$(release_of "$clusters/eu/cluster-settings.yaml")"
-  if ! [[ "$production" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "FAIL clusters/eu: WELDSUITE_VERSION '$production' is not X.Y.Z" >&2
+  if ! [[ "$production" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-main\.[0-9]+)?$ ]]; then
+    echo "FAIL clusters/eu: WELDSUITE_VERSION '$production' is neither X.Y.Z nor X.Y.Z-main.N" >&2
     exit 1
   fi
   if [ -f "$clusters/drill/cluster-settings.yaml" ]; then
@@ -228,10 +232,25 @@ if [ -f "$clusters/eu/cluster-settings.yaml" ]; then
 else
   echo "(no eu cluster: production's release not checked)"
 fi
-# Base layers at a release tag (sources.yaml) follow the cluster's own release.
+# Base layers at a release tag (sources.yaml) follow the cluster's own
+# release; base layers at a commit go with a main build (that build's commit).
 for cluster in "$clusters"/*/; do
   cluster="${cluster%/}"
   [ -f "$cluster/sources.yaml" ] || continue
+  commit="$(tr -d '\r' <"$cluster/sources.yaml" | awk '$1 == "commit:" { print $2; exit }')"
+  if [ -n "$commit" ]; then
+    version="$(release_of "$cluster/cluster-settings.yaml")"
+    if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "FAIL $(basename "$cluster"): sources.yaml pins '$commit', not a 40-character commit" >&2
+      exit 1
+    fi
+    if ! [[ "$version" =~ -main\.[0-9]+$ ]]; then
+      echo "FAIL $(basename "$cluster"): base layers at a commit, but WELDSUITE_VERSION '$version' is not a main build" >&2
+      exit 1
+    fi
+    echo "$(basename "$cluster"): base layers at $commit ($version)"
+    continue
+  fi
   tag="$(tr -d '\r' <"$cluster/sources.yaml" | awk '$1 == "tag:" { print $2; exit }')"
   case "$tag" in
     weldsuite-v*) ;;

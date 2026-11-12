@@ -9,8 +9,8 @@
 //! master database answers and the pod is not draining). `/health` keeps the
 //! workers' JSON shape.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use axum::extract::{OriginalUri, State};
@@ -18,7 +18,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use serde_json::json;
+use serde_json::{Value, json};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::{TenantPermissionQueries, Workspaces};
@@ -199,9 +199,12 @@ pub(crate) fn router(state: AppState) -> Router {
         crate::routes::panel_collector(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     // So does the MCP server (`/mcp`, OAuth bearer tokens).
     let mcp = crate::routes::mcp(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // When this process started, for `/version`: taken as the router is built.
+    LazyLock::force(&BUILD);
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
+        .route("/version", get(version))
         .route("/robots.txt", get(robots))
         .route("/config.json", get(config_json))
         .nest("/api", api)
@@ -346,6 +349,35 @@ async fn readyz(State(state): State<AppState>) -> Response {
         )
             .into_response(),
     }
+}
+
+/// What `/version` answers: the server's own version, the chart release and
+/// image tag the Helm chart installed it with (`WELDSUITE_RELEASE`,
+/// `WELDSUITE_BUILD`; `null` outside the chart), and when this process
+/// started. EU production follows the test cluster's build once test has
+/// served it for a while (ADR OPS-020), and reads both from here.
+static BUILD: LazyLock<Value> = LazyLock::new(|| {
+    let read = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "release": read("WELDSUITE_RELEASE"),
+        "build": read("WELDSUITE_BUILD"),
+        "startedAt": iso_timestamp(),
+    })
+});
+
+/// `GET /version`.
+async fn version() -> Response {
+    (
+        [(header::CACHE_CONTROL, "no-cache, no-store")],
+        Json(BUILD.clone()),
+    )
+        .into_response()
 }
 
 /// The workers' `/health`: a master-DB ping with its time.
@@ -606,6 +638,17 @@ mod tests {
         assert_eq!(body["service"], "weldsuite");
         assert_eq!(body["checks"]["master_db"]["status"], "fail");
         assert_eq!(body["timestamp"].as_str().map(str::len), Some(24));
+    }
+
+    #[tokio::test]
+    async fn version_names_the_build_and_when_it_started() {
+        let (status, headers, body) = call(state(), get("/version")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-cache, no-store");
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert!(body.get("release").is_some() && body.get("build").is_some());
+        assert_eq!(body["startedAt"].as_str().map(str::len), Some(24));
     }
 
     #[tokio::test]

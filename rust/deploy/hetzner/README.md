@@ -459,8 +459,9 @@ environment (the image has no shell):
 
 ## Releases
 
-A cluster runs a release, never a development build. WeldSuite cuts a
-release with the "Rust release" workflow (`.github/workflows/rust-release.yml`)
+A cluster runs a release, never a development build. (WeldSuite's own EU
+production is the exception: it follows the main builds its test cluster ran,
+ADR OPS-020.) WeldSuite cuts a release with the "Rust release" workflow (`.github/workflows/rust-release.yml`)
 from a build its own test cluster already ran, promoted unchanged: the four
 images under the version tag (`ghcr.io/weldsuite/weldsuite:X.Y.Z`, `-sign-portal`,
 `-collab-rooms`, `-haraka`; the same digests as the build), the chart of the
