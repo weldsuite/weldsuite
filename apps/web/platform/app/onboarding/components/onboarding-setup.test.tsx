@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { common } from "../../../../../../packages/core/i18n/src/locales/en/common";
+import { setRuntimeConfig } from "@/lib/runtime-config";
 import { OnboardingSetup, type OnboardingSetupProps } from "./onboarding-setup";
 import { OnboardingWizard } from "./onboarding-wizard";
 
@@ -100,6 +101,29 @@ describe("quick workspace setup", () => {
     expect(screen.getByLabelText("Data storage region")).toHaveValue(
       "aws-eu-west-2",
     );
+  });
+
+  it("asks only for the country where the deployment has one location", async () => {
+    setRuntimeConfig({ backend: "rust", edition: "eu", unavailableFeatures: ["data-regions"] });
+    try {
+      const user = userEvent.setup();
+      render(<OnboardingSetup {...props} />);
+      expect(screen.queryByText("Country and data storage")).not.toBeInTheDocument();
+      const summary = screen.getByText("Country", { selector: "summary span" });
+      expect(summary).toHaveTextContent("Netherlands");
+      await user.click(summary);
+      expect(screen.getByLabelText("Country")).toHaveValue("NL");
+      expect(screen.queryByLabelText("Data storage region")).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText("Workspace name"), "Acme");
+      await user.click(screen.getByRole("button", { name: "Create workspace" }));
+      expect(props.onSubmit).toHaveBeenCalledWith({
+        organizationName: "Acme",
+        country: "NL",
+        selectedApps: ["crm"],
+      });
+    } finally {
+      setRuntimeConfig(null);
+    }
   });
 
   it("submits the preselected app and blocks submission once it is deselected", async () => {

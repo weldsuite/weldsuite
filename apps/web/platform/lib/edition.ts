@@ -93,6 +93,11 @@ export const EDITION_FEATURES = [
   /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
   'forms-ai',
   /**
+   * Choosing where a new workspace's data is stored (a Neon region per
+   * workspace). A Kubernetes install keeps every workspace in its one cluster.
+   */
+  'data-regions',
+  /**
    * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.
    */

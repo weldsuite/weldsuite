@@ -597,6 +597,7 @@ export const common = {
         nameHint: 'Je kunt dit later wijzigen in de werkruimte-instellingen.',
         locationSettings: 'Land en gegevensopslag',
         locationHint: 'We hebben een locatie voorgesteld op basis van je browsertaal. Controleer deze als je gegevens in een specifieke regio wilt opslaan.',
+        countryHint: 'We hebben een land voorgesteld op basis van je browsertaal. Pas het aan als je bedrijf ergens anders gevestigd is.',
         chooseApps: 'Apps kiezen',
         appsRequired: 'Kies minimaal één app om mee te beginnen. Je kunt er later meer toevoegen via de App Store.',
         appsLater: 'Je kunt later apps toevoegen via de App Store.',

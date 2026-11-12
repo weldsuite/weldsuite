@@ -132,6 +132,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // WeldForms' AI (`/api/forms/ai/*` and the response summaries) runs on
     // `@weldsuite/ai`; the routes answer 503 `ai_unavailable` here (ADR AI-011).
     "forms-ai",
+    // Choosing where a new workspace's data is stored: Global puts each
+    // workspace's database in the Neon region picked at signup. A Kubernetes
+    // install keeps every workspace in its own one cluster, so there is no
+    // choice to offer (onboarding's `region` only lands in the metadata).
+    "data-regions",
 ];
 
 /// WeldDocs, WeldSheets and WeldBoard: live editing runs in the collab-rooms
