@@ -271,6 +271,18 @@ describe('RecordChatsPage filters', () => {
     ]);
   });
 
+  it('keeps a muted chat with an unread mention under Mentions with Unread on', () => {
+    state.search = { filter: 'mentions', unread: true };
+    state.rows = [
+      chat({ id: 'ch_muted', entityDisplayName: 'Muted Co', isMuted: true, lastReadAt: null, unreadMentionCount: 1 }),
+      chat({ id: 'ch_read', entityDisplayName: 'Read Co' }),
+    ];
+    render(<RecordChatsPage />);
+    expect(screen.getAllByTestId('record-chat-row').map((r) => within(r).getByText(/Co$/).textContent)).toEqual([
+      'Muted Co',
+    ]);
+  });
+
   it('shows read and unread chats with Unread off', () => {
     state.rows = [
       chat({ id: 'ch_unread', lastReadAt: new Date(Date.now() - 60 * 60_000).toISOString() }),

@@ -160,11 +160,15 @@ export default function RecordChatsPage() {
 
   const list = useRecordChats(activeType, { filter, sort: 'unread', search: debouncedSearch, keepPrevious: true });
   // With Unread on, a chat read since it loaded, or a read row of the list
-  // still showing while this one loads, is left out.
+  // still showing while this one loads, is left out. Under Mentions that is
+  // a chat without an unread mention: a muted chat can still hold one.
   const rows = useMemo(() => {
     const all = uniqueRows(list.data?.pages ?? []);
-    return unreadOnly ? all.filter((chat) => chat.isFollowing && isUnreadRecordChat(chat)) : all;
-  }, [list.data, unreadOnly]);
+    if (!unreadOnly) return all;
+    return all.filter((chat) =>
+      filter === 'mentions' ? (chat.unreadMentionCount ?? 0) > 0 : chat.isFollowing && isUnreadRecordChat(chat),
+    );
+  }, [list.data, unreadOnly, filter]);
 
   const { data: membersData } = useWorkspaceMembers();
   const memberNames = useMemo(() => {
@@ -186,7 +190,7 @@ export default function RecordChatsPage() {
   /** Changes the type tab, filter or Unread switch in the URL; the defaults are left out. */
   const go = useCallback(
     (patch: { type?: string; filter?: string; unread?: boolean }) => {
-      navigate({
+      void navigate({
         to: RECORD_CHATS_PAGE_PATH,
         search: parseRecordChatsSearch({ type: activeType, filter: scope, unread: unreadOnly, ...patch }),
       });
