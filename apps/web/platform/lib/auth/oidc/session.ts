@@ -313,10 +313,12 @@ export class OidcSession {
     }
   }
 
+  /**
+   * What a successful read said, an empty list included: the person belongs
+   * to no workspace (the backend answers an error, never `[]`, when its own
+   * read fails, and a failed read never gets here).
+   */
   private rememberDirectory(sub: string, workspaces: WorkspaceDirectoryEntry[]): void {
-    // The backend answers an empty list when its own read fails: keep what
-    // the last good read said rather than lose every name and slug.
-    if (workspaces.length === 0 && this.storedDirectory(sub).length > 0) return;
     try {
       this.storage?.setItem(DIRECTORY_KEY, JSON.stringify({ sub, workspaces } satisfies StoredDirectory));
     } catch {

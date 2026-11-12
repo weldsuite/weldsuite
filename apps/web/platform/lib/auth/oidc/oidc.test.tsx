@@ -321,13 +321,28 @@ describe('the facade on OIDC', () => {
       'weldsuite:oidc:workspaces',
       JSON.stringify({ sub: 'user_2891', workspaces: [{ id: 'org_acme', name: 'Acme', slug: 'acme' }] }),
     );
-    const loadWorkspaces = vi.fn(async (_token: string) => [] as WorkspaceDirectoryEntry[]);
+    const loadWorkspaces = vi.fn(async (_token: string) => null);
     await signedIn({ loadWorkspaces });
     const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
     await waitFor(() => expect(loadWorkspaces).toHaveBeenCalled());
     await waitFor(() => expect(result.current.list.userMemberships.isLoading).toBe(false));
     expect(result.current.auth.orgSlug).toBe('acme');
     expect(result.current.list.userMemberships.data?.[0].organization.name).toBe('Acme');
+  });
+
+  it('takes an empty answer as no workspaces: a workspace the person left is not listed again', async () => {
+    issuer.memberships = { org_acme: 'acme.auth.weldsuite.eu' };
+    window.localStorage.setItem(
+      'weldsuite:oidc:workspaces',
+      JSON.stringify({ sub: 'user_2891', workspaces: [{ id: 'org_gone', name: 'Gone Co', slug: 'gone' }] }),
+    );
+    const loadWorkspaces = vi.fn(async (_token: string) => [] as WorkspaceDirectoryEntry[]);
+    await signedIn({ loadWorkspaces });
+    const { result } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(loadWorkspaces).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.userMemberships.isLoading).toBe(false));
+    expect(result.current.userMemberships.data?.map((m) => m.organization.id)).toEqual(['org_acme']);
+    expect(JSON.parse(window.localStorage.getItem('weldsuite:oidc:workspaces') ?? '{}').workspaces).toEqual([]);
   });
 
   it("switching from a page of another workspace comes back to the new workspace's home", async () => {
