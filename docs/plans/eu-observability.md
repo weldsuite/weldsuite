@@ -306,7 +306,8 @@ buckets fall inside the Object Storage already paid for.
 2. healthchecks.io account; two checks (`weldsuite-eu`, `weldsuite-eu-test`),
    period 1 min, grace 5 min, notifying the production critical topic
    (test's check at low priority) through its ntfy integration.
-3. Zitadel, per cluster: an OIDC web app "Grafana" in the WeldSuite project
+3. Zitadel, per cluster: an OIDC web app "Grafana" in the WeldSuite Staff project (next to the
+   admin console's app)
    (redirect `https://grafana.${DOMAIN}/login/generic_oauth`), the project
    role `grafana-admin`, granted to the operator in the Staff org. Can be
    scripted with the `weldsuite-api` PAT; the operator runs it for production.
