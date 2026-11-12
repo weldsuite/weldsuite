@@ -5,6 +5,7 @@
 
 import { parseModuleList, type ApiModuleId } from '@weldsuite/api-modules';
 import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
+import { trimTrailing } from '../text';
 import { normaliseServerAddress } from './address';
 import type {
   MobileAppIdentity,
@@ -28,7 +29,7 @@ const PERSONAL_API_BY_APP_API: Readonly<Record<string, string>> = {
 };
 
 function trimSlash(value: string): string {
-  return value.replace(/\/+$/, '');
+  return trimTrailing(value, '/');
 }
 
 /** The Rust backend names the socket itself (`wss://host/ws`); the apps append `/ws`. */

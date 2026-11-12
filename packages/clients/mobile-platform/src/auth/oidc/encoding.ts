@@ -4,6 +4,8 @@
  * React Native's runtimes don't all provide.
  */
 
+import { trimTrailing } from '../../text';
+
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const LOOKUP: Record<string, number> = Object.fromEntries([...ALPHABET].map((char, i) => [char, i]));
 
@@ -25,12 +27,12 @@ export function base64UrlFromBytes(bytes: Uint8Array): string {
 
 /** Standard base64 (as `expo-crypto` returns digests) → base64url without padding. */
 export function base64ToBase64Url(value: string): string {
-  return value.replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return trimTrailing(value, '=').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 /** base64 or base64url (padding optional) → bytes. Null on invalid input. */
 export function bytesFromBase64(value: string): Uint8Array | null {
-  const clean = value.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+  const clean = trimTrailing(value.replace(/-/g, '+').replace(/_/g, '/'), '=');
   if (clean.length % 4 === 1) return null;
   const out: number[] = [];
   let buffer = 0;

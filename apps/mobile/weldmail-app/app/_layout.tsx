@@ -56,6 +56,17 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 // Switching server clears the offline cache, outbox and the other per-server mail data.
 registerServerDataCleaner();
 
+/**
+ * Where a person without a workspace goes: their inbox, or claiming a free
+ * address. Free @weldmail addresses are a WeldSuite cloud feature: where the
+ * server has none there is nothing to claim, so without a mailbox they land
+ * on `/no-workspace`.
+ */
+function personalRoute(hasMail: boolean): '/' | '/claim-address' | '/no-workspace' {
+  if (hasMail) return '/';
+  return isFeatureAvailable('mail-free-addresses') ? '/claim-address' : '/no-workspace';
+}
+
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
@@ -136,15 +147,9 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
         const { data: me } = await personalApi.me();
         if (cancelled) return;
 
-        const hasMail = (me.mailAccounts?.length ?? 0) > 0;
-        if (!hasMail) {
-          // Free @weldmail addresses are a WeldSuite cloud feature: where the server
-          // has none there is nothing to claim, so this person has no mailbox here.
-          if (!isFeatureAvailable('mail-free-addresses')) {
-            if (!inNoWorkspace) router.replace('/no-workspace');
-            return;
-          }
-          if (!inClaimAddress) router.replace('/claim-address');
+        const target = personalRoute((me.mailAccounts?.length ?? 0) > 0);
+        if (target !== '/') {
+          if (segments[0] !== target.slice(1)) router.replace(target);
           return;
         }
         if (inAuthGroup || inNoWorkspace || inClaimAddress || inSsoCallback) {

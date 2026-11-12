@@ -12,8 +12,45 @@ export type AddressResult =
   | { ok: false; reason: 'empty' | 'invalid' | 'insecure' };
 
 const SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
-// host: DNS name, IPv4 or bracketed IPv6; optional port.
-const HOST = /^(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*)(?::(\d{1,5}))?$/i;
+const IPV6 = /^\[[0-9a-f:.]+\]$/i;
+const LABEL = /^[a-z0-9-]{1,63}$/i;
+const PORT = /^\d{1,5}$/;
+
+interface Authority {
+  host: string;
+  port: string | undefined;
+}
+
+/** `[v6 address]` or `[v6 address]:port`. */
+function splitBracketed(authority: string): Authority | null {
+  const close = authority.indexOf(']');
+  if (close < 0) return null;
+  const host = authority.slice(0, close + 1);
+  const rest = authority.slice(close + 1);
+  if (!IPV6.test(host)) return null;
+  if (!rest) return { host, port: undefined };
+  return rest.startsWith(':') ? { host, port: rest.slice(1) } : null;
+}
+
+/** `name` or `name:port`, a DNS name or an IPv4 address. */
+function splitPlain(authority: string): Authority | null {
+  const colon = authority.lastIndexOf(':');
+  const host = colon >= 0 ? authority.slice(0, colon) : authority;
+  const port = colon >= 0 ? authority.slice(colon + 1) : undefined;
+  const validLabel = (label: string) => LABEL.test(label) && !label.startsWith('-') && !label.endsWith('-');
+  return host.split('.').every(validLabel) ? { host, port } : null;
+}
+
+function isValidPort(port: string | undefined): boolean {
+  if (port === undefined) return true;
+  return PORT.test(port) && Number(port) >= 1 && Number(port) <= 65535;
+}
+
+/** `host[:port]`: a DNS name or IPv4 address, or a bracketed IPv6 address. Null when invalid. */
+function splitAuthority(authority: string): Authority | null {
+  const parts = authority.startsWith('[') ? splitBracketed(authority) : splitPlain(authority);
+  return parts && isValidPort(parts.port) ? parts : null;
+}
 
 export function normaliseServerAddress(
   input: string,
@@ -31,12 +68,7 @@ export function normaliseServerAddress(
   // The authority ends at the first path, query or fragment character.
   const authority = rest.split(/[/?#]/, 1)[0] ?? '';
   if (authority.includes('@')) return { ok: false, reason: 'invalid' };
-  const match = HOST.exec(authority);
-  if (!match) return { ok: false, reason: 'invalid' };
-  const port = match[1];
-  if (port !== undefined && (Number(port) < 1 || Number(port) > 65535)) {
-    return { ok: false, reason: 'invalid' };
-  }
+  if (!splitAuthority(authority)) return { ok: false, reason: 'invalid' };
 
   let host = authority.toLowerCase();
   // Drop the scheme's default port.

@@ -46,6 +46,7 @@ import {
   withQuery,
 } from './encoding';
 import type { HostedSignInResult } from '../types';
+import { trimTrailing } from '../../text';
 
 export interface SecureStoreLike {
   getItemAsync(key: string): Promise<string | null>;
@@ -237,42 +238,53 @@ export class OidcMobileSession {
       throw new OidcSignInError('The sign-in server could not be reached', 'unreachable');
     }
     const verifier = base64UrlFromBytes(this.deps.randomBytes(32));
-    const challenge = base64ToBase64Url(await this.deps.sha256Base64(verifier));
     const state = base64UrlFromBytes(this.deps.randomBytes(16));
     const nonce = base64UrlFromBytes(this.deps.randomBytes(16));
+    const url = await this.authorizeUrl(discovery, options, { verifier, state, nonce });
+
+    const result = await this.deps.openAuthSession(url, this.config.redirectUri);
+    if (result.type !== 'success' || !result.url) return 'cancelled';
+    const code = codeFromRedirect(result.url, state);
+    if (code === null) return 'cancelled';
+
+    const response = await this.exchangeCode(code, verifier);
+    const idClaims = decodeJwtPayload(response.id_token);
+    if (idClaims && typeof idClaims.nonce === 'string' && idClaims.nonce !== nonce) {
+      throw new OidcSignInError('The sign-in response did not match the request', 'nonce_mismatch');
+    }
+    await this.acceptSignIn(response, options.orgId);
+    return 'signed-in';
+  }
+
+  private async authorizeUrl(
+    discovery: Discovery,
+    options: { intent?: 'sign-in' | 'sign-up'; orgId?: string },
+    pkce: { verifier: string; state: string; nonce: string },
+  ): Promise<string> {
+    const challenge = base64ToBase64Url(await this.deps.sha256Base64(pkce.verifier));
     const scope =
       options.orgId && this.organizationScope
         ? `${this.baseScope} ${scopeFor(this.organizationScope, { orgId: options.orgId })}`
         : this.baseScope;
-    const url = withQuery(discovery.authorization_endpoint, {
+    return withQuery(discovery.authorization_endpoint, {
       response_type: 'code',
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       scope,
-      state,
-      nonce,
+      state: pkce.state,
+      nonce: pkce.nonce,
       code_challenge: challenge,
       code_challenge_method: 'S256',
       // OIDC "Initiating User Registration": Zitadel and Keycloak open their sign-up form.
       prompt: options.intent === 'sign-up' ? 'create' : undefined,
     });
+  }
 
-    const result = await this.deps.openAuthSession(url, this.config.redirectUri);
-    if (result.type !== 'success' || !result.url) return 'cancelled';
-    const params = queryParams(result.url);
-    if (params.error) {
-      if (params.error === 'access_denied' && !params.error_description) return 'cancelled';
-      throw new OidcSignInError(params.error_description || params.error, params.error);
-    }
-    if (!params.code || params.state !== state) {
-      throw new OidcSignInError('The sign-in response did not match the request', 'state_mismatch');
-    }
-
-    let response: TokenResponse;
+  private async exchangeCode(code: string, verifier: string): Promise<TokenResponse> {
     try {
-      response = await this.tokenRequest({
+      return await this.tokenRequest({
         grant_type: 'authorization_code',
-        code: params.code,
+        code,
         redirect_uri: this.config.redirectUri,
         code_verifier: verifier,
       });
@@ -282,12 +294,6 @@ export class OidcMobileSession {
         error instanceof TokenError ? error.kind : 'server',
       );
     }
-    const idClaims = decodeJwtPayload(response.id_token);
-    if (idClaims && typeof idClaims.nonce === 'string' && idClaims.nonce !== nonce) {
-      throw new OidcSignInError('The sign-in response did not match the request', 'nonce_mismatch');
-    }
-    await this.acceptSignIn(response, options.orgId);
-    return 'signed-in';
   }
 
   /** Activate or switch workspace: its kept token, else a sign-in for it. */
@@ -436,7 +442,7 @@ export class OidcMobileSession {
 
   private discover(): Promise<Discovery> {
     this.discovery ??= (async () => {
-      const url = `${this.config.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`;
+      const url = `${trimTrailing(this.config.issuer, '/')}/.well-known/openid-configuration`;
       const res = await this.deps.fetchImpl(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`discovery: ${res.status}`);
       const body: unknown = await res.json();
@@ -578,6 +584,23 @@ export class OidcMobileSession {
     };
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * The authorization code from the redirect back to the app. Null when the
+ * person declined (no reason given); throws on any other error or a forged
+ * `state`.
+ */
+function codeFromRedirect(url: string, state: string): string | null {
+  const params = queryParams(url);
+  if (params.error) {
+    if (params.error === 'access_denied' && !params.error_description) return null;
+    throw new OidcSignInError(params.error_description || params.error, params.error);
+  }
+  if (!params.code || params.state !== state) {
+    throw new OidcSignInError('The sign-in response did not match the request', 'state_mismatch');
+  }
+  return params.code;
 }
 
 /** `previous` plus any workspace `named` adds (a known name is kept: roles claims only carry domains). */

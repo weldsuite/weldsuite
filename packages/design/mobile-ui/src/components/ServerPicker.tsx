@@ -81,6 +81,23 @@ type CheckState =
   | { status: 'ok'; origin: string; version: string | null }
   | { status: 'error'; message: string };
 
+/** The options the picker shows: EU only when the build knows its address. */
+function serverOptions(labels: ServerCopy, euOrigin: string | null): Array<{ kind: ServerKind; name: string; hint: string }> {
+  const options: Array<{ kind: ServerKind; name: string; hint: string }> = [
+    { kind: 'global', name: labels.globalName, hint: labels.globalHint },
+  ];
+  if (euOrigin) options.push({ kind: 'eu', name: labels.euName, hint: labels.euHint });
+  options.push({ kind: 'self-hosted', name: labels.selfHostedName, hint: labels.selfHostedHint });
+  return options;
+}
+
+/** "Use this server" is enabled for a new choice that's ready (a self-hosted one once checked). */
+function canUseServer(kind: ServerKind, currentKind: ServerKind, check: CheckState, switching: boolean): boolean {
+  if (switching || check.status === 'checking') return false;
+  if (kind === 'self-hosted') return check.status === 'ok';
+  return kind !== currentKind;
+}
+
 function sameServer(a: ServerChoice, b: ServerChoice): boolean {
   return a.kind === b.kind && (a.kind === 'global' || a.kind === 'eu' || a.origin === b.origin);
 }
@@ -111,11 +128,7 @@ export function ServerPicker({
     setSwitching(false);
   }, [visible, current.kind]);
 
-  const options: Array<{ kind: ServerKind; name: string; hint: string }> = [
-    { kind: 'global', name: labels.globalName, hint: labels.globalHint },
-    ...(euOrigin ? [{ kind: 'eu' as const, name: labels.euName, hint: labels.euHint }] : []),
-    { kind: 'self-hosted', name: labels.selfHostedName, hint: labels.selfHostedHint },
-  ];
+  const options = serverOptions(labels, euOrigin);
 
   const showResult = (result: ServerCheck) => {
     if (result.ok) setCheck({ status: 'ok', origin: result.origin, version: result.config.version ?? null });
@@ -170,11 +183,7 @@ export function ServerPicker({
     );
   };
 
-  const canUse =
-    !switching &&
-    check.status !== 'checking' &&
-    (kind !== 'self-hosted' || check.status === 'ok') &&
-    !(kind === current.kind && kind !== 'self-hosted');
+  const canUse = canUseServer(kind, current.kind, check, switching);
 
   return (
     <Sheet visible={visible} onClose={onClose} title={labels.pickerTitle} heightRatio={0.75}>
