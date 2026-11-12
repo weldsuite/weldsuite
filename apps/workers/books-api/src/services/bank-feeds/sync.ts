@@ -405,11 +405,14 @@ async function applyPage(
 
 // ── Entry point ────────────────────────────────────────────────────────────
 
-export async function syncConnection(
-  ctx: FeedContext,
-  connectionId: string,
-  options: { refresh?: boolean } = {},
-): Promise<SyncOutcome> {
+export interface SyncOptions {
+  /** Ask the provider to fetch fresh data from the bank first ("sync now"). */
+  refresh?: boolean;
+  /** The member's IP address, for a refresh: Ponto synchronizes only with the customer present. */
+  customerIp?: string | null;
+}
+
+export async function syncConnection(ctx: FeedContext, connectionId: string, options: SyncOptions = {}): Promise<SyncOutcome> {
   const row = await loadConnection(ctx.db, connectionId);
   if (!row) return { ...emptyOutcome(connectionId, 'disconnected'), skipped: 'not_found' };
   const status = row.status as ConnectionStatus;
@@ -429,9 +432,26 @@ export async function syncConnection(
   try {
     return await runSync(ctx, provider, row, timestamp, outcome, options);
   } catch (err) {
+    await keepRotatedCredentials(ctx, provider, row);
     if (err instanceof FeedProviderError) return recordFailure(ctx, row, err, timestamp, outcome);
     await ctx.db.update(connections).set({ metadata: releasingMetadata({}) }).where(eq(connections.id, row.id)).catch(() => undefined);
     throw err;
+  }
+}
+
+/**
+ * Credentials the provider rotated before the run failed (Ponto's refresh
+ * token works once): stored, or the next sync could not sign in and the
+ * connection would wrongly ask for a reconnect.
+ */
+async function keepRotatedCredentials(ctx: FeedContext, provider: BankFeedProvider, row: ConnectionRow): Promise<void> {
+  const credentials = provider.pendingCredentials?.(row.providerConnectionId);
+  if (!credentials) return;
+  try {
+    const credentialsEncrypted = await sealCredentials(credentials, ctx.keyring);
+    await ctx.db.update(connections).set({ credentialsEncrypted }).where(eq(connections.id, row.id));
+  } catch (err) {
+    console.error(`[bank-feeds] rotated credentials not stored for ${row.id}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -441,7 +461,7 @@ async function runSync(
   row: ConnectionRow,
   timestamp: Date,
   outcome: SyncOutcome,
-  options: { refresh?: boolean },
+  options: SyncOptions,
 ): Promise<SyncOutcome> {
   const { db } = ctx;
   const mapped = (
@@ -459,7 +479,7 @@ async function runSync(
 
   if (options.refresh && provider.capabilities.onDemandRefresh && provider.refresh) {
     try {
-      await provider.refresh(stored);
+      await provider.refresh(stored, { customerIp: options.customerIp ?? null });
     } catch (err) {
       // A refused refresh (rate limit) must not stop the read of what the provider already has.
       console.warn(`[bank-feeds] refresh failed for ${row.id}:`, err instanceof Error ? err.message : err);
@@ -481,6 +501,8 @@ async function runSync(
   const startCursor: unknown = row.syncCursor ?? null;
   let cursor = startCursor;
   const accountStatuses: Record<string, ConnectionStatus> = {};
+  // The consent end the provider reports on this read, when it reports one.
+  let consentExpiresAt: Date | null = null;
   let restarts = 0;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -500,6 +522,8 @@ async function runSync(
 
     await applyPage(db, run, result);
     Object.assign(accountStatuses, result.accountStatuses ?? {});
+    const reportedConsent = result.consentExpiresAt ? new Date(result.consentExpiresAt) : null;
+    if (reportedConsent && !Number.isNaN(reportedConsent.getTime())) consentExpiresAt = reportedConsent;
     if (result.credentials) {
       credentialsUpdate = result.credentials;
       stored = { ...stored, credentials: result.credentials };
@@ -527,8 +551,9 @@ async function runSync(
   });
   const mappedStatuses = feedAccounts.filter((fa) => byFeedId.has(fa.providerAccountId)).map((fa) => fa.status);
   let nextStatus = connectionStatus(mappedStatuses);
-  if (nextStatus === 'active' && row.consentExpiresAt) {
-    const daysLeft = (row.consentExpiresAt.getTime() - timestamp.getTime()) / 86_400_000;
+  const consent = consentExpiresAt ?? row.consentExpiresAt;
+  if (nextStatus === 'active' && consent) {
+    const daysLeft = (consent.getTime() - timestamp.getTime()) / 86_400_000;
     if (daysLeft <= 0) nextStatus = 'reauth_required';
     else if (daysLeft <= 14) nextStatus = 'expiring';
   } else if (nextStatus === 'active' && row.status === 'expiring') {
@@ -567,6 +592,7 @@ async function runSync(
       lastSyncedAt: timestamp,
       lastError: null,
       ...(credentialsEncrypted ? { credentialsEncrypted } : {}),
+      ...(consentExpiresAt ? { consentExpiresAt } : {}),
       metadata: finishedMetadata(
         {
           feedAccounts,

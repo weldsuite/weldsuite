@@ -189,6 +189,23 @@ export interface SyncResult {
   accountStatuses?: Record<string, ConnectionStatus>;
   /** Replacement credentials when the call refreshed a rotating token (Ponto); the caller re-encrypts and stores them. */
   credentials?: Record<string, unknown>;
+  /**
+   * When the bank consent now ends, as the provider reports it on this read
+   * (Ponto: the accounts' earliest `authorizationExpirationExpectedAt`, which
+   * moves on when the customer reauthorizes in Ponto). Unset leaves the stored
+   * end as it is.
+   */
+  consentExpiresAt?: string;
+}
+
+/** What an on-demand refresh knows about the request that asked for it. */
+export interface RefreshOptions {
+  /**
+   * The customer's IP address. Ponto takes a synchronization only while the
+   * customer is present and needs it as evidence; without one Ponto is not
+   * asked, and the sync reads what Ponto's own background syncs fetched.
+   */
+  customerIp?: string | null;
 }
 
 /** Cache for provider verification keys; Workers KV satisfies it. */
@@ -219,7 +236,13 @@ export interface BankFeedProvider {
   completeLink(payload: unknown): Promise<{ connection: FeedConnection; accounts: FeedAccount[] }>;
   syncTransactions(connection: StoredConnection, cursor: unknown): Promise<SyncResult>;
   getBalances(connection: StoredConnection): Promise<FeedBalance[]>;
-  refresh?(connection: StoredConnection): Promise<void>;
+  refresh?(connection: StoredConnection, options?: RefreshOptions): Promise<void>;
+  /**
+   * Credentials this instance rotated that no `SyncResult` carried yet: a sync
+   * that failed after Ponto handed out a new refresh token (each one works
+   * once). The caller stores them before it records the failure.
+   */
+  pendingCredentials?(providerConnectionId: string): Record<string, unknown> | undefined;
   /** Verify the signature and turn the delivery into events. Throws `WebhookVerificationError`. */
   parseWebhook(request: Request, secrets: ProviderSecrets): Promise<FeedEvent[]>;
   /** Always calls the provider's revoke/remove (it also ends billing). */

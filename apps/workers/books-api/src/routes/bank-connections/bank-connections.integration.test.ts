@@ -72,6 +72,7 @@ interface CallOptions {
   entity?: string | null;
   fva?: readonly [number, number] | null;
   env?: Record<string, unknown>;
+  headers?: Record<string, string>;
 }
 
 async function call(path: string, opts: CallOptions = {}) {
@@ -88,7 +89,7 @@ async function call(path: string, opts: CallOptions = {}) {
   const entity = opts.entity === undefined ? ENTITY : opts.entity;
   const res = await request(`/api/bank-connections${path}`, {
     method: opts.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json', ...(entity ? { 'X-Accounting-Entity-Id': entity } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(entity ? { 'X-Accounting-Entity-Id': entity } : {}), ...opts.headers },
     body: opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
   });
   const text = res.status === 204 ? '' : await res.text();
@@ -254,9 +255,22 @@ function ponto(method: string, url: URL, body: string): Response {
       ? json({ access_token: 'ponto-access', refresh_token: 'ponto-refresh', expires_in: 1800, token_type: 'bearer' })
       : json({ error: 'invalid_grant', error_description: 'the code is unknown' }, 400);
   }
-  if (method === 'POST' && (path === '/oauth2/revoke' || path === '/synchronizations')) return json({});
+  if (method === 'POST' && path === '/oauth2/revoke') return json({});
+  if (method === 'GET' && path === '/userinfo') return json({ sub: 'org_ponto_bf', onboardingComplete: true });
+  // "Sync now": started, then done at the first look.
+  if (method === 'POST' && path === '/synchronizations') {
+    const { attributes } = (JSON.parse(body) as { data: { attributes: { subtype: string; resourceId: string } } }).data;
+    return json({ data: { type: 'synchronization', id: `psync_${attributes.subtype}`, attributes: { ...attributes, status: 'pending', errors: [] } } });
+  }
+  if (method === 'GET' && path.startsWith('/synchronizations/psync_')) {
+    return json({ data: { type: 'synchronization', id: path.slice('/synchronizations/'.length), attributes: { status: 'success', errors: [] } } });
+  }
   if (method === 'GET' && path === '/accounts') return json({ data: [PONTO_ACCOUNT], links: {} });
-  if (method === 'GET' && path === '/accounts/pacc_bf') return json({ data: PONTO_ACCOUNT });
+  if (method === 'GET' && path === '/accounts/pacc_bf') {
+    // Reauthorized in Ponto since the link: the consent runs longer.
+    const renewed = { ...PONTO_ACCOUNT.attributes, authorizationExpirationExpectedAt: `${day(170)}T00:00:00.000Z` };
+    return json({ data: { ...PONTO_ACCOUNT, attributes: renewed, meta: { synchronizedAt: '2026-10-30T08:00:00.000Z', availability: 'available' } } });
+  }
   if (method === 'GET' && path === '/accounts/pacc_bf/transactions') {
     return json({
       data: [
@@ -771,6 +785,17 @@ describe('Ponto', () => {
     expect(linked.data.accounts).toEqual([
       expect.objectContaining({ feedAccountId: 'pacc_bf', name: 'Ponto Business', mask: '7034', currency: 'EUR', subtype: 'checking', suggestion: null }),
     ]);
+    // Indexed by the Ponto organization too, which its webhooks name; polled every six hours without PONTO_APPLICATION_ID.
+    const index = await master
+      .select()
+      .from(masterSchema.bankFeedConnectionIndex)
+      .where(eq(masterSchema.bankFeedConnectionIndex.connectionId, pontoId));
+    expect(index).toHaveLength(2);
+    expect(index).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'ponto', providerConnectionId: 'org_ponto_bf', clerkOrgId: 'org_test_default', syncIntervalHours: 6 }),
+      ]),
+    );
   });
 
   it('maps, refreshes and syncs inside the history window, then disconnects', async () => {
@@ -783,9 +808,23 @@ describe('Ponto', () => {
     const [account] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.name, 'Ponto Business'));
     expect(account).toMatchObject({ iban: 'BE68539007547034', accountNumberLast4: '7034', currency: 'EUR', bankName: 'Ponto' });
 
-    const synced = await call(`/${pontoId}/sync`, { method: 'POST', body: { refresh: true }, entity: OTHER });
+    providerFetch.mockClear();
+    const synced = await call(`/${pontoId}/sync`, {
+      method: 'POST',
+      body: { refresh: true },
+      entity: OTHER,
+      // The member's address, as the ingress forwards it: Ponto synchronizes only with the customer present.
+      headers: { 'X-Forwarded-For': '198.51.100.7' },
+    });
     expect(synced.status).toBe(200);
     expect(synced.data.outcome).toMatchObject({ status: 'active', added: 2, pending: 0, possibleDuplicates: 0 });
+    const asked = providerFetch.mock.calls
+      .filter(([input, init]) => String(input).endsWith('/ponto-connect/synchronizations') && init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init?.body)).data.attributes);
+    expect(asked).toContainEqual({ resourceType: 'account', resourceId: 'pacc_bf', subtype: 'accountDetails', customerIpAddress: '198.51.100.7' });
+    expect(asked).toContainEqual({ resourceType: 'account', resourceId: 'pacc_bf', subtype: 'accountTransactions', customerIpAddress: '198.51.100.7' });
+    // The consent end Ponto reports now replaces the one from the link.
+    expect(synced.data.connection.consentExpiresAt).toBe(`${day(170)}T00:00:00.000Z`);
     const lines = await db
       .select()
       .from(schema.bankTransactions)

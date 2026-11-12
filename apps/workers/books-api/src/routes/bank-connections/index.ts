@@ -332,6 +332,17 @@ app.post('/:id/map-accounts', requirePermission('banking:update'), zValidator('j
   }
 });
 
+/**
+ * The member's IP address: Cloudflare's `CF-Connecting-IP`, else the last
+ * `X-Forwarded-For` entry (the one the proxy in front added). Ponto takes it
+ * as evidence that the customer asked for the synchronization.
+ */
+function customerIp(c: AppContext): string | null {
+  const forwarded = c.req.header('x-forwarded-for')?.split(',').map((hop) => hop.trim()).filter(Boolean);
+  const ip = c.req.header('cf-connecting-ip')?.trim() || forwarded?.at(-1);
+  return ip && /^[0-9a-fA-F.:]{2,45}$/.test(ip) ? ip : null;
+}
+
 // POST /:id/sync — on demand; { refresh: true } asks the provider to fetch fresh data first
 app.post('/:id/sync', requirePermission('banking:update'), async (c) => {
   const id = c.req.param('id');
@@ -340,7 +351,7 @@ app.post('/:id/sync', requirePermission('banking:update'), async (c) => {
     const entityId = await resolveEntityId(c, c.get('tenantDb'));
     const ctx = createFeedContext(c);
     await requireConnection(ctx.db, id, entityId);
-    const outcome = await syncConnection(ctx, id, { refresh: body.refresh === true });
+    const outcome = await syncConnection(ctx, id, { refresh: body.refresh === true, customerIp: customerIp(c) });
     const view = await connectionViewById(ctx, id);
     if (!outcome.skipped && !outcome.error) {
       publishEntityEvent({ c, entityType: 'bank_connection', entityId: id, action: 'synced', data: { ...eventData(view), added: outcome.added, updated: outcome.updated, removed: outcome.removed } });

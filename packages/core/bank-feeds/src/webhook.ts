@@ -1,12 +1,14 @@
 /**
  * Webhook verification helpers, one per scheme the providers use:
  *  - HMAC-SHA256 over `t.payload` with a timestamp tolerance (Stripe, also Teller's shape);
- *  - an ES256 JWT with a fetched verification key (Plaid), the key cached in KV.
+ *  - an ES256 JWT with a fetched verification key (Plaid), the key cached in KV;
+ *  - an RS512 JWT with a key from Ibanity's webhooks API (Ponto), cached the same way.
  * All comparisons are constant time. Everything runs on WebCrypto, so it works on Workers.
  */
 
 import { WebhookVerificationError } from './errors';
 import {
+  asArray,
   asNumber,
   asRecord,
   asString,
@@ -242,3 +244,138 @@ export function createPlaidKeyResolver(args: {
 }
 
 const sharedMemoryCache = memoryKeyCache();
+
+// ── Ibanity RS512 JWT (Ponto) ──────────────────────────────────────────────
+
+/** Ibanity allows 30 seconds of clock drift on `exp` and `iat` (its Ruby client's tolerance). */
+export const IBANITY_WEBHOOK_TOLERANCE_SECONDS = 30;
+export const IBANITY_ISSUER = 'https://api.ibanity.com';
+/** Ibanity's webhooks API; called with the application's mTLS certificate, which picks the sandbox's or the live keys. */
+export const IBANITY_WEBHOOK_KEYS_URL = 'https://api.ibanity.com/webhooks/keys';
+/** Ibanity allows caching its keys for an hour, and advertises a new one two hours before it signs with it. */
+export const IBANITY_KEY_CACHE_TTL_SECONDS = 3600;
+
+/** An RSA signing key from `/webhooks/keys` (a JWK). */
+export interface IbanityWebhookKey {
+  e: string;
+  kid: string;
+  kty: string;
+  n: string;
+}
+
+export type IbanityKeyResolver = (kid: string) => Promise<IbanityWebhookKey>;
+
+/** Base64 (standard, padded) of the body's SHA-512, as the `digest` claim carries it. */
+export async function sha512Base64(body: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-512', utf8(body)));
+  let binary = '';
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/**
+ * Verify an Ibanity webhook (Ponto Connect) against the raw request body: the
+ * `Signature` header is an RS512 JWT (always RS512, so no downgrade), its key
+ * looked up by `kid`; `iss` is Ibanity, `aud` the application's id, `exp` not
+ * passed and `iat` not in the future (30 seconds' leeway), and `digest` the
+ * body's SHA-512. Throws `WebhookVerificationError` on any failure.
+ */
+export async function verifyIbanityWebhook(args: {
+  body: string;
+  header: string | null | undefined;
+  /** The application's id in Isabel's developer portal. */
+  applicationId: string;
+  getKey: IbanityKeyResolver;
+  toleranceSeconds?: number;
+  /** ms since the epoch; defaults to the current time. */
+  now?: number;
+}): Promise<void> {
+  if (!args.header) throw new WebhookVerificationError('Missing Signature header');
+  const parts = args.header.split('.');
+  const [encodedHeader, encodedClaims, encodedSignature] = parts;
+  if (parts.length !== 3 || !encodedHeader || !encodedClaims || !encodedSignature) {
+    throw new WebhookVerificationError('Malformed webhook token');
+  }
+
+  const header = decodeJwtPart(encodedHeader);
+  const kid = asString(header.kid);
+  if (header.alg !== 'RS512' || !kid) throw new WebhookVerificationError('Unsupported webhook token');
+
+  let jwk: IbanityWebhookKey;
+  try {
+    jwk = await args.getKey(kid);
+  } catch {
+    throw new WebhookVerificationError('Webhook verification key unavailable');
+  }
+
+  let valid = false;
+  try {
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      // Ibanity pads its base64url; JWK import wants it bare.
+      { kty: 'RSA', n: jwk.n.replace(/=+$/, ''), e: jwk.e.replace(/=+$/, ''), ext: true },
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
+      false,
+      ['verify'],
+    );
+    valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, fromBase64Url(encodedSignature), utf8(`${encodedHeader}.${encodedClaims}`));
+  } catch {
+    valid = false;
+  }
+  if (!valid) throw new WebhookVerificationError('Invalid webhook signature');
+
+  const claims = decodeJwtPart(encodedClaims);
+  if (claims.iss !== IBANITY_ISSUER) throw new WebhookVerificationError('Webhook token from another issuer');
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.some((aud) => aud === args.applicationId)) throw new WebhookVerificationError('Webhook token for another application');
+
+  const nowSeconds = Math.floor((args.now ?? Date.now()) / 1000);
+  const tolerance = args.toleranceSeconds ?? IBANITY_WEBHOOK_TOLERANCE_SECONDS;
+  const exp = asNumber(claims.exp);
+  const iat = asNumber(claims.iat);
+  if (exp === null || exp + tolerance < nowSeconds) throw new WebhookVerificationError('Webhook token expired');
+  if (iat === null || iat > nowSeconds + tolerance) throw new WebhookVerificationError('Webhook token issued in the future');
+
+  const digest = asString(claims.digest);
+  if (!digest || !timingSafeEqual(await sha512Base64(args.body), digest)) {
+    throw new WebhookVerificationError('Webhook body does not match its token');
+  }
+}
+
+/**
+ * Resolve Ibanity's webhook keys by `kid`: cache first (KV when the worker has
+ * it), else `/webhooks/keys` with the application's certificate (`fetchImpl`).
+ */
+export function createIbanityKeyResolver(args: {
+  /** Keeps a sandbox and a live application's keys apart in a shared cache. */
+  applicationId: string;
+  cache?: KeyCache;
+  fetchImpl?: FetchLike;
+  keysUrl?: string;
+}): IbanityKeyResolver {
+  const fetchImpl = args.fetchImpl ?? defaultFetch();
+  const cache = args.cache ?? sharedMemoryCache;
+  return async (kid) => {
+    const cacheKey = `bank-feeds:ibanity-wk:${args.applicationId}:${kid}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached) as IbanityWebhookKey;
+      } catch {
+        // fall through to a fresh fetch
+      }
+    }
+    const response = await requestJson(args.keysUrl ?? IBANITY_WEBHOOK_KEYS_URL, {
+      provider: 'ponto',
+      fetchImpl,
+      headers: { Accept: 'application/vnd.api+json' },
+    });
+    const key = asArray(response.keys)
+      .map(asRecord)
+      .find((k) => asString(k.kid) === kid && (asString(k.use) ?? 'sig') === 'sig');
+    if (!key) throw new WebhookVerificationError('Unknown webhook verification key');
+    const resolved: IbanityWebhookKey = { e: asString(key.e) ?? '', kid, kty: asString(key.kty) ?? 'RSA', n: asString(key.n) ?? '' };
+    await cache.put(cacheKey, JSON.stringify(resolved), { expirationTtl: IBANITY_KEY_CACHE_TTL_SECONDS });
+    return resolved;
+  };
+}
