@@ -221,8 +221,9 @@ overcommitted on purpose).
   WeldSuite Staff org (its primary-domain scope, `ZITADEL_STAFF_ORG_DOMAIN`), roles from the project's role claim:
   `grafana-admin` → Admin, anyone else in the Staff org → Viewer, nobody else
   in. Login form and basic auth off.
-- **Break-glass:** when Zitadel itself is down, `kubectl port-forward` to
-  Grafana and the admin password from the cluster's SOPS secret.
+- **Break-glass:** when Zitadel itself is down, the admin login from the
+  cluster's SOPS secret at `/login?disableAutoLogin=true` (everyone else is
+  sent to Zitadel; the form holds no other accounts).
 - **Dashboards to start:** cluster and nodes, workloads, CloudNativePG,
   Traefik (per host), NATS JetStream, Flux, Loki and Fluent Bit, and
   "WeldSuite API" (requests, errors and latency per route, from phase 2).
@@ -404,8 +405,9 @@ has a runbook entry, and nothing fired that nobody acted on.
 - **One Prometheus on a node-local volume.** If its node dies, Prometheus
   waits for the node (its volume is there) and the heartbeat stops, so the
   operator hears of it. History on that node is lost if the node is.
-- **Grafana depends on Zitadel.** The break-glass path is
-  `kubectl port-forward`, and the API addresses are limited to
+- **Grafana depends on Zitadel.** The break-glass path is the admin
+  login at `/login?disableAutoLogin=true`, or `kubectl port-forward` without
+  the ingress, and the API addresses are limited to
   `admin_cidrs`, which go stale with the operator's dynamic address.
 - **Self-monitoring shares the cluster's fate.** Covered by the heartbeat,
   not by a second monitoring system.
