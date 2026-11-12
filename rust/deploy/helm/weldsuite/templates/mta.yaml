@@ -124,6 +124,7 @@ spec:
               containerPort: 25
               protocol: TCP
             {{- end }}
+            {{- with include "weldsuite.metricsPort" $ }}{{ . | nindent 12 }}{{- end }}
           env:
             # The node's private address (Talos' nodeIP is on the private
             # subnet): submission and the API listen there only.
@@ -141,6 +142,9 @@ spec:
               value: "$(HOST_IP):2587"
             - name: MTA_API_ADDR
               value: "$(HOST_IP):8025"
+            # /metrics on the private address too, never the public one.
+            - name: METRICS_ADDR
+              value: {{ ternary (printf "$(HOST_IP):%v" $.Values.metrics.port) "off" $.Values.metrics.enabled | quote }}
             {{- with $.Values.mta }}
             {{- if .inbound.enabled }}
             - name: MTA_INBOUND_ADDR
@@ -300,6 +304,7 @@ spec:
       port: 8025
       targetPort: 8025
       protocol: TCP
+    {{- with include "weldsuite.metricsServicePort" $ }}{{ . | nindent 4 }}{{- end }}
   selector:
     {{- include "weldsuite.mta.selectorLabels" $ | nindent 4 }}
 {{- if .podDisruptionBudget.enabled }}

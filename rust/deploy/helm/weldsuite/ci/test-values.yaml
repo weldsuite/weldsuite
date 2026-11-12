@@ -52,6 +52,11 @@ ingress:
   enabled: true
 autoscaling:
   enabled: true
+metrics:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
 networkPolicy:
   enabled: true
   ingressFrom:

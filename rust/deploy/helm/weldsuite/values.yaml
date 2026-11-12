@@ -526,6 +526,28 @@ service:
   type: ClusterIP
   port: 80
 
+# Prometheus metrics (rust/bins/weldsuite/src/monitoring.rs): the server,
+# consume and the MTA serve GET /metrics on a port of their own (container
+# port `metrics`, METRICS_ADDR), never on the API's, so the ingress never
+# reaches it. The cron jobs exit and have none. The MTA, on the host network,
+# listens on the node's private address only. Off: METRICS_ADDR=off.
+metrics:
+  enabled: true
+  port: 9464
+  # A ServiceMonitor (Prometheus Operator) for the server, consume and the
+  # MTA, with a headless Service for consume, which has none. Off by
+  # default: the cluster's monitoring layer scrapes the pods with its own
+  # PodMonitor; turn it on for an install that wants the chart to do it.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Extra labels, for a Prometheus that selects ServiceMonitors by label.
+    labels: {}
+  # With networkPolicy.enabled: the namespace Prometheus scrapes from
+  # (matched on its kubernetes.io/metadata.name label).
+  networkPolicy:
+    namespace: monitoring
+
 # The server's ingress. With the SPA on, one host is the platform and its
 # API on the same origin (app.<domain>); add api.<domain> for clients that
 # call the API by that name.
