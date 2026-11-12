@@ -14,7 +14,11 @@ infrastructure/
   configs/      base: the issuer, Postgres clusters, poolers, backups (a cluster patches it in its layers)
   services/     NATS JetStream, Valkey, Restate, Zitadel
   video/        LiveKit (WeldMeet and WeldChat calls), its signalling host and TURN over TLS through Traefik
-  monitoring/   Prometheus for Lens (WeldSuite's test cluster only, so far)
+  monitoring/   kube-prometheus-stack (Prometheus, Alertmanager, Grafana) and the blackbox exporter
+  monitoring-config/
+                what they scrape, probe and alert on, and WeldSuite's dashboards (after monitoring,
+                which brings the CRDs); ALERTS.md: what each alert means and what to do
+  logging/      Loki on the cluster's logs bucket, Fluent Bit on every node and for the events
 apps/eu/        the weldsuite HelmRelease
 apps/marketing/ the marketing site (WeldSuite's test cluster only, so far: its image is built for that
                 cluster's hosts in weldsuite-eu-marketing, which publishes its chart too; both private,
@@ -22,7 +26,8 @@ apps/marketing/ the marketing site (WeldSuite's test cluster only, so far: its i
 secrets/        examples/: every Secret the layers expect; example/: where the example cluster's
                 SOPS-encrypted Secrets go
 scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values;
-                --update adds what the examples gained to an encrypted one
+                --update adds what the examples gained to an encrypted one;
+                ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic
 ```
 
 To run your own cluster, copy `clusters/example` to `clusters/<name>` and
@@ -42,7 +47,8 @@ commit (ADR OPS-020). A self-hosted install follows a release tag
 
 Order: `sources` → `controllers` → `secrets` → `configs` (with a cluster's
 own `configs-extra` next to it) → `services` → `apps`, and `video` after
-`services`, beside `apps`. Each HelmRelease's values are in a `values/` file
+`services`, beside `apps`; `monitoring` after `secrets`, then
+`monitoring-config` and `logging` after it. Each HelmRelease's values are in a `values/` file
 next to it (a generated ConfigMap), which `../validate.sh` renders with the
 chart at the pinned version.
 

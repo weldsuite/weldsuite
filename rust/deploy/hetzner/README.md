@@ -46,6 +46,10 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
+| kube-prometheus-stack | chart 92.3.1 | Prometheus (30 days), Alertmanager, Grafana at `grafana.<domain>` ("Monitoring, alerts and logs" below) |
+| Blackbox exporter | chart 11.20.2 | Probes the public hosts through the load balancer |
+| Loki | chart 7.5.0 | Logs, single binary, chunks in the logs bucket, 30 days |
+| Fluent Bit | chart 0.58.3 | Every node's pod and Talos logs, and the cluster's events, to Loki |
 | Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
 
 Every version is pinned and was released at least two weeks before it was
@@ -190,7 +194,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `admin.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `auth.`, `sign.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
@@ -775,6 +779,68 @@ certificate through Traefik. It needs the mail bucket
 (`FILES_BUCKET_MAIL`, created next to the private one, same keys) and
 `MAIL_INBOUND_SECRET` in `weldsuite-env`. A WeldMail domain's MX is
 `mx.<domain>`.
+
+## Monitoring, alerts and logs
+
+Three layers (`flux/infrastructure/monitoring`, `monitoring-config`,
+`logging`; ADR OPS-021): Prometheus, Alertmanager and Grafana, what they
+scrape, probe and alert on, and Loki with Fluent Bit. What each alert means
+and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
+
+1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_DOMAIN`, the
+   primary domain of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
+   (a host name, no `https://`), `LOGS_S3_REGION` and `LOGS_BUCKET` for
+   Loki. Give the bucket a lifecycle rule that deletes after 31 days (Loki
+   deletes after 30) and a key limited to it.
+2. **Grafana's sign-in.** In Zitadel's console, in the WeldSuite project:
+   a web application "Grafana" (code flow, PKCE, redirect
+   `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
+   ID Token" on, the project's "Assert Roles on Authentication" on, and a
+   role `grafana-admin` granted to whoever administers Grafana. Everyone
+   else in the organisation gets Viewer; nobody outside it gets in.
+3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three
+   URLs by role and a token: `critical-url` (pages at any hour),
+   `warning-url` (muted at night), `heartbeat-url` (pinged every minute by
+   the always-firing Watchdog; a dead-man's switch such as a healthchecks.io
+   check behind it alarms when the pings stop, which covers the cluster or
+   its monitoring going away) and `token` (sent as a bearer token to the
+   first two). For ntfy topics, `flux/scripts/ntfy-receiver-url.mjs`
+   prints a URL with ntfy's message template. Any webhook works.
+4. **Secrets**: `alerting-receivers`, `grafana-oidc` (the app's client id
+   and secret), `grafana-admin` (the break-glass login) and `logging/loki-s3`.
+   `fill-secrets.mjs --update` adds them (`ALERT_*`, `GRAFANA_OIDC_*` and
+   `LOGS_S3_*` in the environment).
+5. **DNS**: `grafana.<domain>` (step 5).
+6. **Layers**: `monitoring`, `monitoring-config` and `logging`, as in
+   `flux/clusters/example/layers.yaml`.
+7. **etcd and Talos's logs.** The Talos config (`hetzner/talos`) opens
+   etcd's metrics on each control-plane node's private address and sends
+   Talos's own logs to the node's Fluent Bit. Applying it to a running
+   cluster restarts etcd on each control-plane node: `tofu apply
+   -parallelism=1`, so they restart one at a time. Then patch the
+   `monitoring` layer with the control-plane addresses:
+
+   ```yaml
+   - target:
+       kind: HelmRelease
+       name: kube-prometheus-stack
+     patch: |
+       apiVersion: helm.toolkit.fluxcd.io/v2
+       kind: HelmRelease
+       metadata:
+         name: kube-prometheus-stack
+       spec:
+         values:
+           kubeEtcd:
+             enabled: true
+             endpoints: [10.10.1.10, 10.10.1.11, 10.10.1.12]
+           defaultRules:
+             rules:
+               etcd: true
+   ```
+
+Then, before relying on it, fire each critical alert once on purpose and
+see it arrive (ALERTS.md, "Testing the alerts").
 
 ## Backups and restores
 

@@ -41,6 +41,7 @@ data "talos_machine_configuration" "node" {
     each.value.role == "controlplane" ? [
       templatefile("${path.module}/talos/controlplane.yaml.tftpl", {
         cert_sans        = compact([hcloud_load_balancer.api.ipv4, local.api_lb_private_ip, var.api_hostname])
+        node_ip          = each.value.ip
         nodes_subnet     = var.nodes_subnet_cidr
         private_gateway  = cidrhost(var.network_cidr, 1)
         allow_scheduling = length(local.workers) == 0

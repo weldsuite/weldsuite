@@ -1,0 +1,51 @@
+# Nodes and disks, in place of kube-prometheus-stack's KubeNodeNotReady and
+# NodeFilesystem* (disabled in monitoring/values): sooner, with WeldSuite's
+# thresholds. Postgres, Prometheus, NATS and Valkey keep their data on the
+# nodes' own disks (OpenEBS hostpath), so a full /var stops them.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-nodes
+  namespace: monitoring
+spec:
+  groups:
+    - name: weldsuite-nodes
+      rules:
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.node }} has been NotReady for 5 minutes"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#nodenotready
+        - alert: DiskFillingUp
+          expr: |
+            (
+              node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"}
+                / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"} < 0.10
+              or
+              (
+                predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"}[6h], 24 * 3600) < 0
+                and node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"}
+                  / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"} < 0.40
+              )
+            )
+            and node_filesystem_readonly == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.instance }} {{ $labels.mountpoint }} is below 10% free or will be full within a day"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#diskfillingup
+        - alert: DiskUsageHigh
+          expr: |
+            node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|nsfs", mountpoint!~"/boot.*"} < 0.20
+            and node_filesystem_readonly == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} {{ $labels.mountpoint }} has {{ $value | humanizePercentage }} free"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#diskusagehigh

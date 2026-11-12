@@ -26,6 +26,15 @@ data:
   # Zitadel's console after its first start (README, step 7).
   ZITADEL_PROJECT_ID: "000000000000000000"
   ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN};
+  # the WeldSuite Staff org on WeldSuite's clusters): its primary domain, from
+  # the organisation's settings in Zitadel's console.
+  ZITADEL_STAFF_ORG_DOMAIN: staff.auth.weldsuite.example.com
+  # Logs (infrastructure/logging): Loki's bucket, with its S3 endpoint as a
+  # host name (no https://) and region. Its key is the Secret logging/loki-s3.
+  LOGS_S3_ENDPOINT: fsn1.your-objectstorage.com
+  LOGS_S3_REGION: fsn1
+  LOGS_BUCKET: example-logs
   # Mapbox's public token (pk.…) for maps and address search in the
   # platform, served in /config.json; empty for none.
   MAPBOX_PUBLIC_TOKEN: ""

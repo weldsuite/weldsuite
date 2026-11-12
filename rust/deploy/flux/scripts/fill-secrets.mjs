@@ -12,6 +12,10 @@
 //   ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET        the admin console's Zitadel app
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
+//   ALERT_CRITICAL_URL, ALERT_WARNING_URL                 where alerts go (alerting-receivers)
+//   ALERT_HEARTBEAT_URL, ALERT_TOKEN                      the heartbeat check, the receivers' token
+//   GRAFANA_OIDC_CLIENT_ID, GRAFANA_OIDC_CLIENT_SECRET    Grafana's Zitadel app
+//   LOGS_S3_ACCESS_KEY_ID, LOGS_S3_SECRET_ACCESS_KEY      the logs bucket (Loki)
 //
 // A new cluster (its secrets folder, next to its cluster folder: in a copy of
 // this repository rust/deploy/flux/secrets/<cluster>, in WeldSuite's deploy
@@ -69,6 +73,14 @@ const PROVIDED = {
   'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
   'weldsuite-env/ADMIN_OIDC_CLIENT_ID': 'ADMIN_OIDC_CLIENT_ID',
   'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET': 'ADMIN_OIDC_CLIENT_SECRET',
+  'alerting-receivers/critical-url': 'ALERT_CRITICAL_URL',
+  'alerting-receivers/warning-url': 'ALERT_WARNING_URL',
+  'alerting-receivers/heartbeat-url': 'ALERT_HEARTBEAT_URL',
+  'alerting-receivers/token': 'ALERT_TOKEN',
+  'grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_ID': 'GRAFANA_OIDC_CLIENT_ID',
+  'grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET': 'GRAFANA_OIDC_CLIENT_SECRET',
+  'loki-s3/access-key-id': 'LOGS_S3_ACCESS_KEY_ID',
+  'loki-s3/secret-access-key': 'LOGS_S3_SECRET_ACCESS_KEY',
 };
 
 function bareValue(secret, key) {
@@ -133,8 +145,9 @@ function writeNew(out) {
     }
     const name = /^ {2}name: (\S+)$/.exec(line);
     if (name) secret = name[1];
-    const bare = /^( {2}([A-Za-z0-9_.]+): )CHANGE_ME$/.exec(line);
-    const filled = bare ? bare[1] + bareValue(secret, bare[2]) : line;
+    const bare = /^( {2}([A-Za-z0-9_.-]+): )CHANGE_ME$/.exec(line);
+    const value = bare ? bareValue(secret, bare[2]) : '';
+    const filled = bare ? bare[1] + (value === 'CHANGE_ME' ? value : JSON.stringify(value)) : line;
     lines.push(filled.replace(PLACEHOLDER, namedValue));
   }
 
@@ -148,7 +161,7 @@ function writeNew(out) {
     if (name) secret = name[1];
     const ns = /^ {2}namespace: (\S+)$/.exec(line);
     if (ns) namespace = ns[1];
-    const entry = /^ {2}([A-Za-z0-9_.]+): .*CHANGE_ME/.exec(line);
+    const entry = /^ {2}([A-Za-z0-9_.-]+): .*CHANGE_ME/.exec(line);
     if (entry) left.push(`${namespace}/${secret}: ${entry[1]}${loginHint(line)}`);
   }
 
