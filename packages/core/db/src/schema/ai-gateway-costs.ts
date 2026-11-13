@@ -65,7 +65,11 @@ export function usdFromNano(nano: number): number {
 export const aiProviderUsage = pgTable('ai_provider_usage', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
-  /** cloudflare | vercel | neon — which gateway actually served the call. */
+  /**
+   * cloudflare | vercel | neon | direct — which gateway actually served the call.
+   * `direct` = a call the Rust backend made straight to a provider (EU and
+   * self-hosted editions, no gateway in between).
+   */
   gateway: varchar('gateway', { length: 20 }).notNull(),
   /** CANONICAL model id (never the gateway-native one) — keeps reports joinable. */
   modelId: varchar('model_id', { length: 200 }).notNull(),
@@ -88,6 +92,11 @@ export const aiProviderUsage = pgTable('ai_provider_usage', {
   providerCostNanoUsd: bigint('provider_cost_nano_usd', { mode: 'number' }).notNull(),
   /** Was ops service credit covering this gateway when the call ran? */
   coveredByServiceCredit: boolean('covered_by_service_credit').notNull().default(false),
+
+  /** `weldsuite` (our account, charged as credits) | `own` (the workspace's own key). */
+  keySource: varchar('key_source', { length: 16 }).notNull().default('weldsuite'),
+  /** Feature that made the call (`mail`, `forms`, `agents`, …), when known. */
+  feature: varchar('feature', { length: 64 }),
 
   /** What the CUSTOMER was charged — reconciles row-by-row against credit_transactions. */
   creditsCharged: integer('credits_charged').notNull().default(0),
