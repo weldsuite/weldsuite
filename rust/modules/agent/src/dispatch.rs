@@ -25,7 +25,7 @@ use crate::agents::get_agent;
 use crate::routines::{
     create_routine_run, find_event_routines, has_routine_run_for_trigger, mark_routine_scheduled,
 };
-use crate::run::{RunParams, TriggerType, run_agent};
+use crate::run::{RunEnv, RunParams, TriggerType, run_agent};
 use crate::runs::{create_agent_run, find_agents_for_event, has_existing_agent_run_for_event};
 
 /// Key stamped into entity-event `data` by agent tools (`AGENT_ORIGIN_KEY`).
@@ -58,6 +58,7 @@ struct AgentTask {
 struct EventContext<'a> {
     db: &'a PgPool,
     ai: Option<&'a Ai>,
+    env: &'a RunEnv,
     message: &'a DispatchMessage,
     event_key: String,
     event_prompt: String,
@@ -113,6 +114,7 @@ async fn dispatch_to_agent(ctx: &EventContext<'_>, agent: &Value, task: Option<A
                 notify: true,
                 actor_permissions: None,
                 events: None,
+                env: ctx.env.clone(),
             },
         )
         .await;
@@ -178,6 +180,7 @@ async fn dispatch_to_routine(ctx: &EventContext<'_>, routine: &Value) {
                 notify: true,
                 actor_permissions: None,
                 events: None,
+                env: ctx.env.clone(),
             },
         )
         .await;
@@ -284,7 +287,12 @@ async fn dispatch_assigned_issue(ctx: &EventContext<'_>) {
 /// `dispatchWeldAgentsForEvent(env, db, message)`: match active agents (and
 /// event routines) for an entity event and run each. Never fails: the hub's
 /// ack does not wait on an agent.
-pub async fn dispatch_agents_for_event(db: &PgPool, ai: Option<&Ai>, message: &DispatchMessage) {
+pub async fn dispatch_agents_for_event(
+    db: &PgPool,
+    ai: Option<&Ai>,
+    env: &RunEnv,
+    message: &DispatchMessage,
+) {
     if message
         .data
         .get(AGENT_ORIGIN_KEY)
@@ -336,6 +344,7 @@ pub async fn dispatch_agents_for_event(db: &PgPool, ai: Option<&Ai>, message: &D
     let ctx = EventContext {
         db,
         ai,
+        env,
         message,
         event_key,
         event_prompt,
@@ -356,6 +365,7 @@ pub async fn dispatch_agents_for_event(db: &PgPool, ai: Option<&Ai>, message: &D
 pub struct WeldAgentSubscriber {
     tenants: Arc<dyn Tenants>,
     ai: Option<Ai>,
+    env: RunEnv,
 }
 
 impl std::fmt::Debug for WeldAgentSubscriber {
@@ -369,8 +379,8 @@ impl std::fmt::Debug for WeldAgentSubscriber {
 impl WeldAgentSubscriber {
     /// The subscriber. Without AI there is nothing to run: build it only when
     /// the install has a provider.
-    pub fn new(tenants: Arc<dyn Tenants>, ai: Option<Ai>) -> Self {
-        Self { tenants, ai }
+    pub fn new(tenants: Arc<dyn Tenants>, ai: Option<Ai>, env: RunEnv) -> Self {
+        Self { tenants, ai, env }
     }
 
     async fn handle_one(&self, delivery: &Delivery) -> Disposition {
@@ -404,7 +414,7 @@ impl WeldAgentSubscriber {
             data: event.data_value(),
             event_id: Some(event.id.clone()),
         };
-        dispatch_agents_for_event(&tenant.db, self.ai.as_ref(), &message).await;
+        dispatch_agents_for_event(&tenant.db, self.ai.as_ref(), &self.env, &message).await;
         Disposition::Ack
     }
 }
@@ -438,7 +448,7 @@ mod tests {
             data: json!({ "triggeredByAgentId": "agt_1" }),
             event_id: Some("evt_1".into()),
         };
-        dispatch_agents_for_event(&db, None, &message).await;
+        dispatch_agents_for_event(&db, None, &RunEnv::default(), &message).await;
     }
 
     #[test]

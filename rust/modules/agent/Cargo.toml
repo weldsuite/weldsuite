@@ -24,11 +24,13 @@ weldsuite-ports = { workspace = true }
 weldsuite-subscribers = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
 http = { workspace = true }
+futures-util = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 regex = { workspace = true, features = ["unicode"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 
 [dev-dependencies]

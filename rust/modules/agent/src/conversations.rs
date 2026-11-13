@@ -470,8 +470,9 @@ pub(crate) async fn complete_turn(
             publisher: state.events.clone(),
             context: caller.events.clone(),
         }),
+        env: state.run_env(),
     };
-    match agent_turn(state.ai.as_ref(), params).await {
+    match agent_turn(caller.ai(&state).as_ref(), params).await {
         Ok(result) => Data(result).into_response(),
         Err(error) => error.into_response_for("Failed to complete turn"),
     }

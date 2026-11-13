@@ -240,6 +240,36 @@ pub fn resolve_agent_tools(
         .collect()
 }
 
+/// `toolsForAgentTurn`: the platform tools the agent may run this turn.
+/// During onboarding only `ask_user`, plus `save_agent_setup` once the user
+/// has answered at least one follow-up, so the interview cannot invent
+/// workspace mutations.
+pub fn tools_for_agent_turn(
+    permissions: &[String],
+    enabled_tools: &[String],
+    system_prompt: &str,
+    user_message_count: usize,
+    actor_permissions: Option<&[String]>,
+    can_edit: bool,
+) -> Vec<&'static ToolSpec> {
+    if system_prompt.trim().is_empty() {
+        let setup: Vec<&ToolSpec> = resolve_agent_tools(&[], &[], can_edit)
+            .into_iter()
+            .filter(|t| t.id == "agent.ask_user" || t.id == "agent.save_setup")
+            .collect();
+        return if user_message_count < 2 {
+            setup.into_iter().filter(|t| t.id == "agent.ask_user").collect()
+        } else {
+            setup
+        };
+    }
+    resolve_agent_tools(
+        &effective_agent_permissions(permissions, actor_permissions),
+        enabled_tools,
+        can_edit,
+    )
+}
+
 /// The tools as the model sees them (`weldsuite_ai::ToolDef`).
 pub fn tool_defs(tools: &[&ToolSpec]) -> Vec<ToolDef> {
     tools
@@ -273,7 +303,7 @@ pub struct ToolRowScope {
 }
 
 /// `ToolContext`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolContext {
     pub db: PgPool,
     /// Agent principal id (audit and ownership attribution).
@@ -298,6 +328,25 @@ pub struct ToolContext {
     pub events: Option<EventSink>,
     /// The sandbox and web grants exist (false on the Kubernetes editions).
     pub sandbox: bool,
+    /// When running inside a WeldChat room reply.
+    pub channel_id: Option<String>,
+    /// When running inside a WeldAgent conversation.
+    pub conversation_id: Option<String>,
+    /// The room hop this reply is at, and the room's limit.
+    pub agent_hop: u32,
+    pub max_agent_hops: u32,
+    /// The master database and the realtime publisher, for tools that post.
+    pub master: Option<PgPool>,
+    pub realtime: Option<std::sync::Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+}
+
+impl std::fmt::Debug for ToolContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolContext")
+            .field("agent_id", &self.agent_id)
+            .field("workspace_id", &self.workspace_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why a tool did not run. The model gets the message as a tool error.
@@ -452,6 +501,12 @@ mod tests {
             row_scope: None,
             events: None,
             sandbox: false,
+            channel_id: None,
+            conversation_id: None,
+            agent_hop: 0,
+            max_agent_hops: 2,
+            master: None,
+            realtime: None,
         };
         let refused = execute_tool(&ctx, "list_people", &json!({})).await;
         assert!(matches!(refused, Err(ToolError::UnknownTool(_))));

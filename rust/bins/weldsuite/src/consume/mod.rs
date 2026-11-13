@@ -492,6 +492,11 @@ fn handlers(
                 Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
                     Arc::clone(tenants),
                     Some(ai),
+                    weldsuite_agent::run::RunEnv {
+                        master: Some(master.clone()),
+                        realtime: services.realtime.clone(),
+                        sandbox: false,
+                    },
                 ))
             }
             "realtime" => {

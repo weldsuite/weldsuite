@@ -23,12 +23,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod access;
+pub mod agent_loop;
 mod agent_routes;
 pub mod agents;
 pub mod approvals;
 mod conversations;
 pub mod dispatch;
 pub mod grants;
+pub mod rooms;
 pub mod routines;
 pub mod run;
 pub mod runs;
@@ -55,7 +57,7 @@ use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 
 /// What the agent handlers share.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AgentState {
     pub events: EntityEventPublisher,
     /// The install's AI. `None` when no provider is configured: the routes
@@ -72,6 +74,28 @@ pub struct AgentState {
     /// The master database, for the routine due index. `None` in conformance
     /// builds.
     pub master: Option<PgPool>,
+    /// The realtime publisher, for room replies.
+    pub realtime: Option<Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+}
+
+impl std::fmt::Debug for AgentState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentState")
+            .field("ai", &self.ai.is_some())
+            .field("sandbox", &self.sandbox)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AgentState {
+    /// What a run needs besides its database.
+    pub fn run_env(&self) -> run::RunEnv {
+        run::RunEnv {
+            master: self.master.clone(),
+            realtime: self.realtime.clone(),
+            sandbox: self.sandbox,
+        }
+    }
 }
 
 /// `/api` routes of the module (`/weldagent`, `/ai-models`, `/chat-agent`),
@@ -224,9 +248,21 @@ pub(crate) struct Caller {
     pub(crate) user_id: String,
     pub(crate) permissions: Permissions,
     pub(crate) events: EventContext,
+    /// The `Ai` on the request (conformance builds put one on every request).
+    pub(crate) request_ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Caller {
+    /// The AI this request calls: the request's first, then the app's; `None`
+    /// without a provider.
+    pub(crate) fn ai(&self, state: &AgentState) -> Option<weldsuite_ai::Ai> {
+        self.request_ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
+    }
+
     /// `agentViewer(c)`: who they are and whether they manage every agent.
     pub(crate) fn viewer(&self) -> access::AgentViewer {
         access::agent_viewer_for(&self.user_id, Some(self.permissions.resolved()))
@@ -253,6 +289,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     user_id: auth.user_id.clone(),
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
+                    request_ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
                 })
             } else {
                 tracing::error!("agent: a route without the session, tenant or permission layer");

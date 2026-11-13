@@ -700,6 +700,17 @@ fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("agent") {
         return router;
     }
+    // The jobs chat-api enqueues (`chat-room`) and the dispatchers start.
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_agent::rooms::WeldAgentJob {
+            tenants: Arc::new(weldsuite_subscribers::WorkspaceTenants::new(Arc::clone(
+                &state.workspaces,
+            ))),
+            ai: agent_ai(state),
+            env: agent_state(state).run_env(),
+        });
     router.merge(weldsuite_agent::router(
         agent_state(state),
         &state.permissions,
@@ -722,6 +733,7 @@ pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
         }
         .to_owned(),
         master: (!conformance).then(|| state.workspaces.master().clone()),
+        realtime: state.infra.realtime.clone(),
     }
 }
 

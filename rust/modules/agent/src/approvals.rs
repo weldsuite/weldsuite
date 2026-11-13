@@ -475,7 +475,7 @@ pub async fn persist_assistant_message(
     content: &str,
     tool_invocations: Option<&Value>,
     metadata: Option<&Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<Value, sqlx::Error> {
     let ran_tools = tool_invocations
         .and_then(Value::as_array)
         .is_some_and(|a| !a.is_empty());
@@ -485,11 +485,12 @@ pub async fn persist_assistant_message(
     } else {
         trimmed
     };
+    let message_id = generate_id("msg");
     sqlx::query(
         "insert into weldagent_messages (id, conversation_id, role, content, tool_invocations, metadata)
          values ($1, $2, 'assistant', $3, $4::jsonb, $5::jsonb)",
     )
-    .bind(generate_id("msg"))
+    .bind(&message_id)
     .bind(conversation_id)
     .bind(content)
     .bind(tool_invocations)
@@ -505,7 +506,12 @@ pub async fn persist_assistant_message(
     .bind(now())
     .execute(db)
     .await?;
-    Ok(())
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
+            .bind(&message_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(row.map_or(Value::Null, js_row))
 }
 
 /// The agent's reply that carried this approval in a room (`metadata.approvals`)
@@ -552,9 +558,30 @@ pub async fn execute_decided_approval(ctx: &ToolContext, approval: &Value) -> Ap
         .await
         .unwrap_or(Origin::None);
 
+    let agent_known = get_agent(db, approval["agentId"].as_str().unwrap_or_default())
+        .await
+        .ok()
+        .flatten();
     let report = |content: String, invocation: Option<Value>| {
         let origin = &origin;
+        let agent_known = &agent_known;
         async move {
+            if let (Origin::Channel(id), Some(agent)) = (origin, agent_known) {
+                if let Err(error) = crate::rooms::post_agent_text(
+                    db,
+                    ctx.realtime.clone(),
+                    &ctx.workspace_id,
+                    id,
+                    agent,
+                    &ctx.actor_user_id,
+                    &content,
+                    0,
+                )
+                .await
+                {
+                    tracing::error!(%error, "[weldsuite/approvals] posting the outcome in the room failed");
+                }
+            }
             if let Origin::Conversation(id) = origin {
                 let invocations = invocation.map(|i| json!([i]));
                 let metadata = json!({ "kind": APPROVAL_OUTCOME_KIND, "approvalId": approval_id });
@@ -587,11 +614,7 @@ pub async fn execute_decided_approval(ctx: &ToolContext, approval: &Value) -> Ap
             error: None,
         };
     }
-    let agent_known = get_agent(db, approval["agentId"].as_str().unwrap_or_default())
-        .await
-        .ok()
-        .flatten();
-    let Some(agent) = agent_known else {
+    let Some(agent) = agent_known.clone() else {
         return ApprovalExecution {
             ran: false,
             ok: false,
@@ -604,6 +627,14 @@ pub async fn execute_decided_approval(ctx: &ToolContext, approval: &Value) -> Ap
         agent_permissions: str_list(&agent, "permissions"),
         enabled_tools: str_list(&agent, "enabledTools"),
         // The approver's grants narrow the agent's; set by the caller.
+        conversation_id: match &origin {
+            Origin::Conversation(id) => Some(id.clone()),
+            _ => None,
+        },
+        channel_id: match &origin {
+            Origin::Channel(id) => Some(id.clone()),
+            _ => None,
+        },
         ..ctx.clone()
     };
     match execute_tool(&tool_ctx, tool_name, &args).await {
@@ -816,6 +847,12 @@ pub(crate) async fn decide(
             context: caller.events.clone(),
         }),
         sandbox: state.sandbox,
+        channel_id: None,
+        conversation_id: None,
+        agent_hop: 0,
+        max_agent_hops: 2,
+        master: state.master.clone(),
+        realtime: state.realtime.clone(),
     };
     let execution = execute_decided_approval(&ctx, &approval).await;
     let mut out = approval;

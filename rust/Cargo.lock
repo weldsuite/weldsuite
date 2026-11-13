@@ -4315,6 +4315,7 @@ name = "weldsuite-agent"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "futures-util",
  "http",
  "regex",
  "serde",

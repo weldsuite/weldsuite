@@ -335,6 +335,7 @@ pub async fn earliest_due(db: &PgPool, now_ms: i64) -> Result<Option<OffsetDateT
 pub async fn run_routine_sweep_for_tenant(
     db: &PgPool,
     ai: Option<&weldsuite_ai::Ai>,
+    env: &crate::run::RunEnv,
     workspace_id: &str,
     actor_user_id: Option<&str>,
     now_ms: i64,
@@ -373,6 +374,7 @@ pub async fn run_routine_sweep_for_tenant(
                 notify: false,
                 actor_permissions: None,
                 events: None,
+                env: env.clone(),
             },
         )
         .await;
@@ -412,6 +414,10 @@ pub async fn run_routine_sweep(
     ai: Option<&weldsuite_ai::Ai>,
     now: OffsetDateTime,
 ) -> weldsuite_db::due_index::SweepResult {
+    let env = &crate::run::RunEnv {
+        master: Some(master.clone()),
+        ..crate::run::RunEnv::default()
+    };
     weldsuite_db::due_index::run_sweep(
         master,
         DUE_KIND,
@@ -424,10 +430,16 @@ pub async fn run_routine_sweep(
                 .await
                 .map_err(|error| error.to_string())?;
             let at_ms = i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
-            let started =
-                run_routine_sweep_for_tenant(&tenant.db, ai, &tenant.workspace_id, None, at_ms)
-                    .await
-                    .map_err(|error| error.to_string())?;
+            let started = run_routine_sweep_for_tenant(
+                &tenant.db,
+                ai,
+                env,
+                &tenant.workspace_id,
+                None,
+                at_ms,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
             tracing::info!(
                 workspace_id,
                 started,
