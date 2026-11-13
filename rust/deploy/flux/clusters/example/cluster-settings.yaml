@@ -31,9 +31,9 @@ data:
   # then can't sign in to this cluster.
   ZITADEL_MOBILE_CLIENT_ID: ""
   # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN};
-  # the WeldSuite Staff org on WeldSuite's clusters): its primary domain, from
-  # the organisation's settings in Zitadel's console.
-  ZITADEL_STAFF_ORG_DOMAIN: staff.auth.weldsuite.example.com
+  # the WeldSuite Staff org on WeldSuite's clusters): its id, from the
+  # organisation's settings in Zitadel's console.
+  ZITADEL_STAFF_ORG_ID: "000000000000000000"
   # Logs (infrastructure/logging): Loki's bucket, with its S3 endpoint as a
   # host name (no https://) and region. Its key is the Secret logging/loki-s3.
   LOGS_S3_ENDPOINT: fsn1.your-objectstorage.com
