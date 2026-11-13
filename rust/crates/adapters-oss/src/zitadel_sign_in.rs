@@ -359,8 +359,11 @@ impl ZitadelSignIn {
             .call(
                 Method::GET,
                 &format!("/v2/users/{user_id}/authentication_methods"),
-                // Passkeys and security keys whatever domain they were made on.
-                &[("domainQuery.includeWithoutDomain", "true")],
+                // No `domainQuery`: without one Zitadel lists every method,
+                // passkeys and security keys whatever domain they were made
+                // on. With one it requires `domain` and refuses the request
+                // (400) without it, which failed every sign-in at this step.
+                &[],
                 None,
             )
             .await
