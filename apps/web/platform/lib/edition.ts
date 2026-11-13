@@ -83,11 +83,16 @@ export const EDITION_FEATURES = [
   /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
   'meet-recordings',
   /**
-   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
-   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
-   * Kubernetes editions yet).
+   * WeldAgent's AI: agent runs, routine tests and teach mode (Claude Managed
+   * Agents on Global, the Kubernetes editions' own agent loop). Unavailable on
+   * Kubernetes without an AI provider (`AI_DEFAULT_PROVIDER`), like every AI
+   * feature (ADR AI-012).
    */
   'agent-ai',
+  /** The assistant chat and drawer (`/api/ai/generate`, `/api/ai/chat`, `/api/ai/chat/stream` without an agent). */
+  'assistant-ai',
+  /** WeldAgent's sandbox, computer use and web browsing toggles (Anthropic-hosted on Global; none on Kubernetes). */
+  'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
   /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */

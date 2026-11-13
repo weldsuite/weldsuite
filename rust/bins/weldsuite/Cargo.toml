@@ -16,6 +16,7 @@ conformance = ["dep:base64", "dep:form_urlencoded", "dep:serde", "reqwest/query"
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
 weldsuite-ads = { workspace = true }
+weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-call = { workspace = true }
 weldsuite-calendar = { workspace = true }

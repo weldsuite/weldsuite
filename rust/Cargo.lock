@@ -4168,6 +4168,7 @@ dependencies = [
  "tracing-subscriber",
  "weldsuite-adapters-oss",
  "weldsuite-ads",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-board",
  "weldsuite-books",
