@@ -212,14 +212,17 @@ impl Sandboxes {
         let lock = self.start_lock(&name);
         let _started = lock.lock().await;
         let pod = match self.inner.pods.get(&name).await? {
-            Some(pod) if pod.ready() => pod,
-            Some(pod) if pod.finished() || pod.deleting => {
-                if !pod.deleting {
-                    self.inner.pods.delete(&name).await?;
+            Some(pod) if pod.ready() => match self.handle(&pod) {
+                // A running sandbox whose agent answers is used as it is.
+                Some(sandbox) if sandbox.agent.health().await.is_ok() => {
+                    self.ensure_isolated(&sandbox).await?;
+                    return Ok(sandbox);
                 }
-                self.wait_gone(&name).await?;
-                self.start(key).await?
-            }
+                // Its agent just exited (idle) while the pod still shows
+                // Running: replace it.
+                _ => self.replace(key, false).await?,
+            },
+            Some(pod) if pod.finished() || pod.deleting => self.replace(key, pod.deleting).await?,
             Some(_) => self.wait_ready(&name).await?,
             None => self.start(key).await?,
         };
@@ -229,6 +232,17 @@ impl Sandboxes {
         self.wait_agent(&sandbox).await?;
         self.ensure_isolated(&sandbox).await?;
         Ok(sandbox)
+    }
+
+    /// Deletes the session's pod (unless it is on its way out already), waits
+    /// until it is gone and starts a new one.
+    async fn replace(&self, key: &SessionKey, deleting: bool) -> Result<PodInfo, SandboxError> {
+        let name = key.pod_name();
+        if !deleting {
+            self.inner.pods.delete(&name).await?;
+        }
+        self.wait_gone(&name).await?;
+        self.start(key).await
     }
 
     /// Every sandbox pod of the install (`weldsuite doctor`: the API and the
@@ -583,6 +597,31 @@ mod tests {
         pods.set_phase(&key.pod_name(), "Succeeded");
         sandboxes.acquire(&key).await.expect("again");
         assert_eq!(pods.created().len(), 2);
+        assert_eq!(pods.deleted(), [key.pod_name()]);
+    }
+
+    #[tokio::test]
+    async fn replaces_a_running_pod_whose_agent_exited() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let exited = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&exited);
+        let pods = FakePods::default();
+        let agent = RecordingHttp::new(move |request| {
+            if flag.load(Ordering::SeqCst) && request.url.starts_with("http://10.244.0.1:") {
+                (503, json!({}))
+            } else if request.url.ends_with("/v1/selftest/egress") {
+                (200, json!({ "reachable": [] }))
+            } else {
+                (200, json!({ "ok": true }))
+            }
+        });
+        let sandboxes = service(&pods, &agent);
+        let key = SessionKey::new("ws_1", "agt_1", "conv_1");
+        let first = sandboxes.acquire(&key).await.expect("start");
+        assert_eq!(first.agent.base(), "http://10.244.0.1:8080");
+        exited.store(true, Ordering::SeqCst);
+        let second = sandboxes.acquire(&key).await.expect("replaced");
+        assert_eq!(second.agent.base(), "http://10.244.0.2:8080");
         assert_eq!(pods.deleted(), [key.pod_name()]);
     }
 
