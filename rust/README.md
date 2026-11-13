@@ -1009,7 +1009,7 @@ labelled "outside the EU".
 - **Roles.** `serve` builds one `weldsuite_ai::Ai` (`bins/weldsuite/src/ai.rs`)
   over a plain HTTP client, with the workspaces' AI settings cached in Valkey,
   and keeps it in `AppState::ai`; `consume` builds its own the same way, and a
-  cron job that needs one calls `crate::ai::build(&config.ai, infra.cache)`.
+  cron job that needs one calls `crate::ai::build(&config.ai, infra.cache.clone())?`.
   Durable jobs run inside `serve`, on its `AppState`.
 - **In a route** take the request's AI first, then the app's:
   `crate::ai::for_request(state.ai.as_ref(), &parts.extensions)` in this crate;
