@@ -1004,16 +1004,7 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
-  // A taken channel slug gets the new channel's id appended
-  // (`resolveChannelSlug`): `sales-ch_<id>`.
-  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
-  // A new WeldDesk article's slug ends in its id's time; an untitled one's
-  // base is the id itself (`deskArticleSlug(title) || id`).
-  const idTime = key === 'slug' ? SLUG_WITH_ID_TIME.exec(value) : null;
-  if (idTime && isRecentIdTimePrefix(idTime[1]!)) {
-    const base = value.slice(0, -idTime[0].length);
-    return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
-  }
+  if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
@@ -1027,6 +1018,19 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
+}
+
+/** A slug that carries a new record's id or its time; undefined when it carries neither. */
+function normalizeGeneratedSlug(value: string): string | undefined {
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A new WeldDesk article's slug ends in its id's time; an untitled one's
+  // base is the id itself (`deskArticleSlug(title) || id`).
+  const idTime = SLUG_WITH_ID_TIME.exec(value);
+  if (!idTime || !isRecentIdTimePrefix(idTime[1]!)) return undefined;
+  const base = value.slice(0, -idTime[0].length);
+  return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
 }
 
 /** Random segments anywhere in a string. */
