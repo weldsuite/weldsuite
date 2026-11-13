@@ -383,6 +383,8 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 outbound: deployment_outbound(state),
                 assignment: Some(desk_assignment_router()),
                 merge: integrations::merge_workflow_actions(state),
+                // The `ai_generate` / `ai_classify` steps.
+                ai: state.ai.clone(),
             },
         });
     // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
@@ -501,6 +503,8 @@ pub(crate) fn cron_connect_state(
         webhooks: connect_webhook_http(),
         trusted_proxies: 1,
         storage: infra.public_files.clone(),
+        // The cron jobs serve no AI route.
+        ai: None,
     }
 }
 
@@ -549,6 +553,8 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         } else {
             state.infra.public_files.clone()
         },
+        // "Generate with AI"; a conformance request carries the test's own.
+        ai: state.ai.clone(),
     }
 }
 

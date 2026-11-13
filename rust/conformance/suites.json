@@ -2458,7 +2458,8 @@
         "src/routes/workflow-schedules/routes.test.ts",
         "src/routes/workflow-triggers/routes.test.ts",
         "src/routes/workflow-builder/routes.test.ts",
-        "src/routes/public-workflow-webhook/routes.test.ts"
+        "src/routes/public-workflow-webhook/routes.test.ts",
+        "src/routes/workflows/generate.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/workflows/",
@@ -2480,13 +2481,9 @@
         "packages/clients/core-api-client/src/schemas/weldconnect-builder.ts",
         "packages/core/workflow-integrations/src/cron.ts",
         "packages/core/db/src/lib/workflow-concurrency.ts",
-        "rust/modules/connect/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/workflows/generate",
-          "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
-        }
+        "packages/core/ai/src/testing/",
+        "rust/modules/connect/",
+        "rust/crates/ai/"
       ]
     },
     {

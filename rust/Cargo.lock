@@ -4819,6 +4819,7 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-ads-domain",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-calendar-domain",
  "weldsuite-catalogs",

@@ -1,7 +1,7 @@
 //! `/api/workflows` (`routes/workflows/index.ts`, `services/workflows.ts`):
 //! workflow CRUD, status, duplicate, stats, metrics, Test runs and manual
-//! runs, behind the WeldConnect activation gate. `POST /generate` (AI) is
-//! not served.
+//! runs, behind the WeldConnect activation gate. `POST /generate` ("Generate
+//! with AI") is `generate.rs`.
 
 use std::sync::Arc;
 
@@ -47,6 +47,10 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/", post(create_route).route_layer(create()))
         .route("/stats", get(stats).route_layer(read()))
         .route("/for-chaining", get(for_chaining).route_layer(read()))
+        .route(
+            "/generate",
+            post(crate::generate::generate).route_layer(create()),
+        )
         .route("/{id}", get(get_one).route_layer(read()))
         .route(
             "/{id}",
