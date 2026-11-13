@@ -4309,6 +4309,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-ai"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-apps-domain"
 version = "0.0.0"
 dependencies = [
