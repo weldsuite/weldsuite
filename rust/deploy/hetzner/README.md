@@ -607,7 +607,11 @@ migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
 Security `privileged`: the host network), with its keys in the
 `weldsuite-mta` Secret there; the server reads the API secret and the
 submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
-events reach `weldsuite consume` over NATS (`mail.sending-events`).
+events reach `weldsuite consume` over NATS (`mail.sending-events`), with
+`NATS_URL` and `NATS_TOKEN` in `weldsuite-mta` too (the MTA can't read
+`weldsuite-env`); without them they stay in its outbox (`pendingEvents` in
+`$M queue`). On a running cluster: `fill-secrets.mjs --update --only
+weldsuite-mail/weldsuite-mta` copies them from `weldsuite-env`.
 
 Nothing below is optional: a new address that sends without its DNS in
 place, or too much on its first days, lands in spam folders for weeks.
