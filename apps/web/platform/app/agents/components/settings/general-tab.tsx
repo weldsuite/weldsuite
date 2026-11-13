@@ -17,7 +17,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
-import { WORKSPACE_AGENT_MODELS } from '@weldsuite/app-api-client/schemas/workspace-agents';
+import { WORKSPACE_AGENT_MODELS, isWorkspaceAgentModel, type WorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
+import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
+import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
+import type { AiProviderId, AiRegion } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
@@ -101,6 +104,17 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
   const t = getTranslations('common').agents.detail.settings.general;
   const models = getTranslations('common').agents.detail.general.models;
   const { values, set } = form;
+  // Kubernetes editions: the agent models this workspace may use (its enabled
+  // providers), each with where it is processed. Global shows all three, unlabelled.
+  const policyModels = useAiModelOptions('agents');
+  const fromPolicy = (policyModels ?? []).flatMap((m) => {
+    const id = m.id.slice(m.id.indexOf('/') + 1);
+    return isWorkspaceAgentModel(id) ? [{ model: id as WorkspaceAgentModel, ai: { provider: m.provider, region: m.region } }] : [];
+  });
+  const pickerModels: Array<{ model: WorkspaceAgentModel; ai: { provider: AiProviderId; region: AiRegion } | null }> =
+    policyModels && fromPolicy.length > 0
+      ? fromPolicy
+      : WORKSPACE_AGENT_MODELS.map((model) => ({ model, ai: null }));
 
   return (
     <div className="space-y-8">
@@ -122,7 +136,7 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
 
       <SettingsSection title={t.model} description={t.modelHint}>
         <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t.model}>
-          {WORKSPACE_AGENT_MODELS.map((model) => {
+          {pickerModels.map(({ model, ai }) => {
             const selected = values.modelId === model;
             return (
               <button
@@ -138,6 +152,7 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
               >
                 <span className="block text-sm font-medium">{models[model].label}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">{models[model].description}</span>
+                {ai && <AiMetaBadge ai={ai} className="mt-2" />}
               </button>
             );
           })}

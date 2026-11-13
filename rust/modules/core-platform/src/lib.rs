@@ -25,11 +25,15 @@
 //!
 //! Billing (Stripe, through billing-worker) is Global-only: the routes that
 //! forward to it answer as the workers do when billing-worker cannot be
-//! reached. The identity provider (Clerk in the Global edition) is the
-//! [`weldsuite_ports::Identity`] port.
+//! reached. Buying credits is the exception on the Kubernetes editions: with
+//! Mollie configured, `/api/credits/checkout` pays through Mollie and
+//! [`top_up_webhooks`] serves Mollie's webhook ([`topup`]). The identity
+//! provider (Clerk in the Global edition) is the [`weldsuite_ports::Identity`]
+//! port.
 
 mod access;
 mod groups;
+pub mod topup;
 
 use std::sync::Arc;
 
@@ -42,6 +46,7 @@ use weldsuite_ports::{DynCache, DynRealtimePublisher, Identity};
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
 pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
 pub use groups::sso::{DnsGateway, DnsTransport};
+pub use topup::{TopUp, TopUpSettings, top_up_configured};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]
@@ -57,6 +62,9 @@ pub struct CorePlatformState {
     pub identity: Option<Arc<dyn Identity>>,
     /// Audit log stream delivery: the URL rules and the test event.
     pub audit_streams: Arc<dyn AuditStreamGateway>,
+    /// Buying credits through Mollie (`MOLLIE_API_KEY`); `None` answers the
+    /// checkout as the workers do without billing-worker.
+    pub top_up: Option<Arc<TopUp>>,
 }
 
 impl std::fmt::Debug for CorePlatformState {
@@ -66,6 +74,7 @@ impl std::fmt::Debug for CorePlatformState {
             .field("realtime", &self.realtime.is_some())
             .field("cache", &self.cache.is_some())
             .field("identity", &self.identity.is_some())
+            .field("top_up", &self.top_up.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -132,3 +141,13 @@ group_router!(
     /// `/api/appstore`: the app store's per-workspace and per-user side.
     appstore
 );
+
+/// `POST /api/webhooks/mollie`, at its full path and ahead of the session:
+/// Mollie's payment webhook for the credit top-up ([`topup`]). Mount it only
+/// with [`CorePlatformState::top_up`] set; without, it answers 404.
+pub fn top_up_webhooks<S>(state: CorePlatformState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    topup::webhook_router().with_state(state)
+}

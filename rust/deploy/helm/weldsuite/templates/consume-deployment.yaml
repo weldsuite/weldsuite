@@ -86,6 +86,14 @@ spec:
               value: {{ .embeddings.url | quote }}
             - name: EMBEDDINGS_MODEL
               value: {{ required "consume.embeddings.model is required with consume.embeddings.url" .embeddings.model | quote }}
+            {{- with .embeddings.apiKeySecretKey }}
+            {{- /* The embeddings key under another name in the Secret (MISTRAL_API_KEY). */}}
+            - name: EMBEDDINGS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ . }}
+            {{- end }}
             {{- end }}
             - name: WEBHOOK_ALLOW_PRIVATE_NETWORKS
               value: {{ .webhooks.allowPrivateNetworks | toString | quote }}

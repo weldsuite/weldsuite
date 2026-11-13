@@ -29,6 +29,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe('the ai block', () => {
+  it('is read when the install runs AI', () => {
+    const ai = { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] };
+    expect(parseRuntimeConfig({ ...rustConfig, ai })?.ai).toEqual(ai);
+  });
+
+  it('counts a block this build cannot read as absent, never as a broken document', () => {
+    const config = parseRuntimeConfig({ ...rustConfig, ai: { defaultProvider: 'some-new-provider' } });
+    expect(config).not.toBeNull();
+    expect(config?.ai).toBeUndefined();
+  });
+});
+
 describe('fetchRuntimeConfig', () => {
   it('reads what the Rust backend serves', async () => {
     const fetchImpl = vi.fn(async () => response(JSON.stringify(rustConfig)));

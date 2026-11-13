@@ -10,6 +10,7 @@
 //   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY  the backup bucket
 //   ZITADEL_SERVICE_TOKEN                                 the weldsuite service user's PAT
 //   ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET        the admin console's Zitadel app
+//   MISTRAL_API_KEY                                       WeldSuite's Mistral key (AI, embeddings)
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
 //   ALERT_CRITICAL_URL, ALERT_WARNING_URL                 where alerts go (alerting-receivers)
@@ -82,6 +83,7 @@ const PROVIDED = {
   'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
   'weldsuite-env/ADMIN_OIDC_CLIENT_ID': 'ADMIN_OIDC_CLIENT_ID',
   'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET': 'ADMIN_OIDC_CLIENT_SECRET',
+  'weldsuite-env/MISTRAL_API_KEY': 'MISTRAL_API_KEY',
   'alerting-receivers/critical-url': 'ALERT_CRITICAL_URL',
   'alerting-receivers/warning-url': 'ALERT_WARNING_URL',
   'alerting-receivers/heartbeat-url': 'ALERT_HEARTBEAT_URL',
