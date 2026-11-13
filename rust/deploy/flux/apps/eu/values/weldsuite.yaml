@@ -119,7 +119,7 @@ config:
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
-# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, and optionally MOLLIE_API_KEY:
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, SANDBOX_TOKEN_SECRET, and optionally MOLLIE_API_KEY:
 # secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
@@ -245,6 +245,29 @@ collabRooms:
     repository: ghcr.io/weldsuite/weldsuite-collab-rooms
     tag: ${WELDSUITE_IMAGE_TAG}
   replicaCount: 2
+
+# WeldAgent's sandbox, computer use and browsing on the EU edition's own
+# cluster (ADR AI-012 phase 5): gVisor pods in weldsuite-sandbox
+# (infrastructure/controllers/namespaces.yaml), released with the server's
+# image. Needs gVisor on the nodes (the gvisor extension in the Talos image,
+# hetzner/scripts/schematic.yaml) and a CNI that enforces NetworkPolicy:
+# until a new sandbox can't reach the metadata service or the Kubernetes API,
+# the server hands out none and says so in its log and `weldsuite doctor`
+# (rust/deploy/hetzner/README.md, "Agent sandbox"). SANDBOX_TOKEN_SECRET is in
+# the Secret.
+sandbox:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # The nodes' public addresses: a pod could reach its own node's host ports
+  # on them. Add them when they are known (tofu output).
+  deniedCidrs: []
+
+# Web search for WeldAgent (web_search): SearXNG in the cluster, asked only by
+# the server; only the query leaves, to Qwant, Startpage, Mojeek and Wikipedia.
+searxng:
+  enabled: true
 
 autoscaling:
   enabled: true

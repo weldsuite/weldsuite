@@ -276,6 +276,7 @@ settings, which weldsuite.env adds.
 - name: FIELD_ENCRYPTION_AAD_WRITES
   value: {{ .Values.config.aadWrites | toString | quote }}
 {{- include "weldsuite.aiEnv" . }}
+{{- include "weldsuite.sandboxEnv" . }}
 {{- include "weldsuite.publicUrlEnv" . }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
@@ -369,6 +370,81 @@ apply otherwise; it checks the combination at start.
   value: {{ . | toString | quote }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{- /*
+sandbox and searxng as the SANDBOX_* settings and SEARXNG_URL
+(weldsuite_sandbox::config, ADR AI-012 phase 5). SANDBOX_TOKEN_SECRET comes
+from the Secret (generated with secret.generate).
+*/}}
+{{- define "weldsuite.sandboxEnv" -}}
+{{- with .Values.sandbox }}
+{{- if .enabled }}
+- name: SANDBOX_ENABLED
+  value: "true"
+- name: SANDBOX_NAMESPACE
+  value: {{ .namespace | quote }}
+- name: SANDBOX_IMAGE
+  value: {{ include "weldsuite.sandbox.image" $ | quote }}
+{{- with .imagePullSecret }}
+- name: SANDBOX_IMAGE_PULL_SECRET
+  value: {{ . | quote }}
+{{- end }}
+- name: SANDBOX_RUNTIME_CLASS
+  value: {{ .runtimeClass.name | default "none" | quote }}
+- name: SANDBOX_CPU
+  value: {{ .resources.cpu | toString | quote }}
+- name: SANDBOX_CPU_REQUEST
+  value: {{ .resources.cpuRequest | toString | quote }}
+- name: SANDBOX_MEMORY
+  value: {{ .resources.memory | toString | quote }}
+- name: SANDBOX_DISK
+  value: {{ .resources.disk | toString | quote }}
+- name: SANDBOX_IDLE_TIMEOUT_SECONDS
+  value: {{ .idleTimeoutSeconds | toString | quote }}
+- name: SANDBOX_MAX_LIFETIME_SECONDS
+  value: {{ .maxLifetimeSeconds | toString | quote }}
+- name: SANDBOX_MAX_PER_WORKSPACE
+  value: {{ .maxPerWorkspace | toString | quote }}
+- name: SANDBOX_MAX_TOTAL
+  value: {{ .maxTotal | toString | quote }}
+- name: SANDBOX_DNS
+  value: {{ join "," .dns | quote }}
+{{- with .egressProbes }}
+- name: SANDBOX_EGRESS_PROBES
+  value: {{ join "," . | quote }}
+{{- end }}
+{{- with .nodeSelector }}
+- name: SANDBOX_NODE_SELECTOR
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- with .tolerations }}
+- name: SANDBOX_TOLERATIONS
+  value: {{ toJson . | quote }}
+{{- end }}
+- name: SANDBOX_REQUIRE_ISOLATION
+  value: {{ .requireIsolation | toString | quote }}
+{{- if $.Values.searxng.enabled }}
+- name: SEARXNG_URL
+  value: {{ printf "http://%s.%s.svc:8080" (include "weldsuite.searxng.fullname" $) $.Release.Namespace | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* The sandbox pods' image; the admission policy admits only it. */}}
+{{- define "weldsuite.sandbox.image" -}}
+{{- printf "%s:%s" .Values.sandbox.image.repository (.Values.sandbox.image.tag | default .Chart.AppVersion) }}
+{{- end }}
+
+{{- define "weldsuite.searxng.fullname" -}}
+{{- printf "%s-searxng" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.searxng.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: searxng
 {{- end }}
 
 {{- /*
@@ -619,7 +695,7 @@ Called with (list $ "valkey").
 {{- end }}
 
 {{- define "weldsuite.generatedSecretKeys" -}}
-{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET") }}
+{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET") }}
 {{- end }}
 
 {{- /*
