@@ -763,6 +763,7 @@ mod tests {
                 "defaultProvider": "mistral",
                 "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
             })),
+            credit_top_up: true,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
@@ -770,6 +771,12 @@ mod tests {
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
         assert_eq!(body["videoProvider"], "livekit");
         assert_eq!(body["videoUrl"], "wss://lk.example.eu");
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|lacks| !lacks.contains(&json!("credit-top-up"))),
+            "credits can be bought with Mollie configured"
+        );
         assert!(
             body["modules"]
                 .as_array()

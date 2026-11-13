@@ -105,12 +105,22 @@ config:
       openai: { weldsuiteKey: false, ownKey: true }
     creditGate: true
     billing: credits
+  # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
+  # weldsuite-env: Mollie reports payments to
+  # https://app.${DOMAIN}/api/webhooks/mollie and checkouts return to the
+  # billing page, both from publicUrl. The packages on sale are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
-# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY: secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, and optionally MOLLIE_API_KEY:
+# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
   existingSecret: weldsuite-env

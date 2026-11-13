@@ -36,7 +36,11 @@ export const EDITION_FEATURES = [
   'sso-connections',
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
-  /** Buying credits (a Stripe checkout). */
+  /**
+   * Buying credits: a Stripe checkout on Global, a Mollie payment on the
+   * Kubernetes editions when the deployment has a Mollie key. Without
+   * `billing`, the billing page shows just the balance and the top-up.
+   */
   'credit-top-up',
   /** Paid WeldApps: subscriptions and developer payouts (Stripe). */
   'paid-apps',

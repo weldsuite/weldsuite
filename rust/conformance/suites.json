@@ -1965,7 +1965,8 @@
         "packages/core/credits/src/index.ts",
         "packages/core/worker-kit/src/billing-worker.ts",
         "packages/clients/app-api-client/src/schemas/credits.ts",
-        "rust/modules/core-platform/src/groups/credits.rs"
+        "rust/modules/core-platform/src/groups/credits.rs",
+        "rust/modules/core-platform/src/topup/"
       ]
     },
     {
