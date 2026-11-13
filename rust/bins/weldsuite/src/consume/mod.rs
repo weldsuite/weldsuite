@@ -223,6 +223,8 @@ fn mail_inbound_handler(
         http,
         fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
         assignment_router: Some(crate::routes::desk_assignment_router()),
+        // The auto-labels (feature `mail`); without AI they label nothing.
+        ai: services.ai.clone(),
     };
     if !ctx.fan_out.books {
         tracing::info!(

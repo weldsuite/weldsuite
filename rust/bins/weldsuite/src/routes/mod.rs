@@ -192,6 +192,8 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    // The outbound review runs wherever customer mail is sent from.
+    mail_outbound_review(state);
     core_files(router, state)
 }
 
@@ -1310,6 +1312,8 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
         doh: Some(weldsuite_mail::send::reqwest_doh()),
         domains: mail_domains::mail_domains(),
         workspace_tenants: Some(mail_workspace_tenants(state)),
+        // `/api/mail-ai` (feature `mail`); conformance requests carry their own.
+        ai: state.ai.clone(),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
 }
@@ -1341,6 +1345,10 @@ fn deployment_outbound(state: &AppState) -> weldsuite_mail_domain::outbound::Out
 /// - an in-process backstop (30 sends a minute per sender) for when the
 ///   ledgers can't be reached.
 ///
+/// - with AI, the templates the ledgers queue for the abuse review go to the
+///   `mail.outbound-review` job ([`mail_outbound_review`]); without it they
+///   stay unclassified, as on Global without the gateway.
+///
 /// Conformance builds take the test's bindings per request instead.
 pub(crate) fn mail_outbound(
     state: &AppState,
@@ -1348,14 +1356,54 @@ pub(crate) fn mail_outbound(
     weldsuite_mail_domain::outbound::OutboundBindings,
     Arc<weldsuite_mail_domain::outbound::StoreLedger>,
 ) {
-    mail_outbound_for(state.workspaces.master(), &state.infra.flags)
+    let reviews = (!cfg!(feature = "conformance") && state.ai.is_some()).then(|| {
+        Arc::new(weldsuite_mail::review::JobsReviewQueue {
+            jobs: Arc::clone(&state.infra.jobs),
+        }) as Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>
+    });
+    mail_outbound_with(state.workspaces.master(), &state.infra.flags, reviews)
+}
+
+/// The outbound abuse review (`mail.outbound-review`, feature `mail-review`
+/// on the install provider): the job [`mail_outbound`]'s ledgers queue
+/// templates to, registered when the install has AI.
+fn mail_outbound_review(state: &AppState) {
+    if cfg!(feature = "conformance") {
+        return;
+    }
+    let Some(ai) = state.ai.clone() else {
+        return;
+    };
+    let ledger = Arc::clone(&mail_outbound(state).1);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_mail::review::OutboundReviewJob {
+            ledger: ledger as Arc<dyn weldsuite_mail_domain::outbound::OutboundLedger>,
+            classifier: Arc::new(weldsuite_mail::review::AiTemplateClassifier {
+                ai: Some(ai),
+                master: Some(state.workspaces.master().clone()),
+            }),
+        });
 }
 
 /// [`mail_outbound`] from its parts, for processes without an [`AppState`]
-/// (the `desk-sla-sweep` cron's escalation notices).
+/// (the `desk-sla-sweep` cron's escalation notices). Queues no reviews.
 pub(crate) fn mail_outbound_for(
     master: &weldsuite_db::PgPool,
     flags: &Arc<dyn weldsuite_ports::DynFlagSource>,
+) -> &'static (
+    weldsuite_mail_domain::outbound::OutboundBindings,
+    Arc<weldsuite_mail_domain::outbound::StoreLedger>,
+) {
+    mail_outbound_with(master, flags, None)
+}
+
+/// [`mail_outbound`], made by the first caller in the process.
+fn mail_outbound_with(
+    master: &weldsuite_db::PgPool,
+    flags: &Arc<dyn weldsuite_ports::DynFlagSource>,
+    reviews: Option<Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>>,
 ) -> &'static (
     weldsuite_mail_domain::outbound::OutboundBindings,
     Arc<weldsuite_mail_domain::outbound::StoreLedger>,
@@ -1391,7 +1439,7 @@ pub(crate) fn mail_outbound_for(
             store,
             master: Some(master.clone()),
             flags: Some(Arc::clone(flags)),
-            reviews: None,
+            reviews,
             daily_quota: read("MAIL_DAILY_QUOTA")
                 .and_then(|v| v.parse().ok())
                 .filter(|q| *q > 0),

@@ -1126,8 +1126,10 @@ On Global, Cloudflare Email Routing hands each message to
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per
 recipient, so its helpdesk and accounting fan-out ran once per recipient);
-no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), no
-Jev auto-labels (Workers AI; mail AI is an unavailable feature). Parity:
+no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), and
+the auto-labels as one structured `classify` call on `weldsuite-ai` in place
+of Global's Jev questions (`crates/mail-inbound/src/auto_label.rs`; none
+without AI). Parity:
 `crates/mail-inbound/tests/parity.rs` against fixtures the worker's own code
 wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 
