@@ -7,7 +7,8 @@
     "stream",
     "embed",
     "stt",
-    "ocr"
+    "ocr",
+    "computer_use"
   ],
   "compatCapabilities": [
     "tools",
@@ -271,7 +272,8 @@
         "json_schema",
         "file_input",
         "vision",
-        "stream"
+        "stream",
+        "computer_use"
       ],
       "context": 200000,
       "id": "anthropic/claude-haiku-5-5",
@@ -285,7 +287,8 @@
         "json_schema",
         "file_input",
         "vision",
-        "stream"
+        "stream",
+        "computer_use"
       ],
       "context": 200000,
       "id": "anthropic/claude-sonnet-5-5",
@@ -299,7 +302,8 @@
         "json_schema",
         "file_input",
         "vision",
-        "stream"
+        "stream",
+        "computer_use"
       ],
       "context": 200000,
       "id": "anthropic/claude-opus-5-5",
@@ -327,7 +331,8 @@
         "json_schema",
         "file_input",
         "vision",
-        "stream"
+        "stream",
+        "computer_use"
       ],
       "context": 400000,
       "id": "openai/gpt-5",

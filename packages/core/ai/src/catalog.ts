@@ -34,6 +34,9 @@ export type AiProviderId = "mistral" | "anthropic" | "openai" | "compat";
 /**
  * What a model can do. Every chat model streams, so the chat tasks need
  * `stream` (see {@link TASK_NEEDS}); `ocr` is a dedicated OCR endpoint.
+ * `computer_use`: it can drive a desktop from screenshots. WeldAgent's
+ * `computer_use` tool (the sandbox of the Kubernetes editions,
+ * `rust/crates/sandbox`) is offered only when the turn's model has it.
  */
 export type AiCapability =
   | "tools"
@@ -43,7 +46,8 @@ export type AiCapability =
   | "stream"
   | "embed"
   | "stt"
-  | "ocr";
+  | "ocr"
+  | "computer_use";
 
 /** The tasks of `recommended` (`models.ts`). */
 export type AiTask = keyof typeof recommended;
@@ -79,6 +83,7 @@ export const AI_CAPABILITIES: readonly AiCapability[] = [
   "embed",
   "stt",
   "ocr",
+  "computer_use",
 ];
 
 /** Every task, in `recommended`'s order. */
@@ -152,6 +157,13 @@ const CHAT: AiCapability[] = [
   "stream",
 ];
 
+/**
+ * A chat model that also drives a desktop from screenshots: the Claude 5.5
+ * models and GPT-5. The opt-in providers only, so computer use on the
+ * Kubernetes editions always runs on a model labelled outside the EU.
+ */
+const CHAT_COMPUTER: AiCapability[] = [...CHAT, "computer_use"];
+
 export const AI_MODELS: readonly AiModelEntry[] = [
   // Mistral. Ids, context and capabilities from the model cards on
   // docs.mistral.ai, last verified 2026-11-13 (prices: billing-rates.ts).
@@ -208,7 +220,7 @@ export const AI_MODELS: readonly AiModelEntry[] = [
     id: thirdParty.anthropic.haiku55,
     provider: "anthropic",
     label: "Claude Haiku 5.5",
-    capabilities: CHAT,
+    capabilities: CHAT_COMPUTER,
     context: 200_000,
     retires: null,
   },
@@ -216,7 +228,7 @@ export const AI_MODELS: readonly AiModelEntry[] = [
     id: thirdParty.anthropic.sonnet55,
     provider: "anthropic",
     label: "Claude Sonnet 5.5",
-    capabilities: CHAT,
+    capabilities: CHAT_COMPUTER,
     context: 200_000,
     retires: null,
   },
@@ -224,7 +236,7 @@ export const AI_MODELS: readonly AiModelEntry[] = [
     id: thirdParty.anthropic.opus55,
     provider: "anthropic",
     label: "Claude Opus 5.5",
-    capabilities: CHAT,
+    capabilities: CHAT_COMPUTER,
     context: 200_000,
     retires: null,
   },
@@ -241,7 +253,7 @@ export const AI_MODELS: readonly AiModelEntry[] = [
     id: thirdParty.openai.gpt5,
     provider: "openai",
     label: "GPT-5",
-    capabilities: CHAT,
+    capabilities: CHAT_COMPUTER,
     context: 400_000,
     retires: null,
   },
