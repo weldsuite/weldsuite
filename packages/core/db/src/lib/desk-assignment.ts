@@ -11,7 +11,7 @@
  */
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type { DeskAssignmentMode, DeskAssignmentSettings } from '../schema/helpdesk-settings';
@@ -19,7 +19,7 @@ import { appendDeskMessage, type AppendDeskMessageResult } from './desk';
 
 export type { DeskAssignmentMode, DeskAssignmentSettings };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 export const DEFAULT_DESK_ASSIGNMENT: DeskAssignmentSettings = {
   mode: 'off',

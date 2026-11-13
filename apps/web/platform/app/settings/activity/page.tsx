@@ -35,6 +35,7 @@ import {
   recordHref,
   recordName,
 } from './activity-format';
+import { LogStreamingSection } from './log-streaming-section';
 
 const ACTION_VALUES = [
   'created', 'updated', 'deleted', 'archived', 'unarchived',
@@ -395,6 +396,8 @@ export default function ActivitySettingsPage() {
           </div>
         </div>
       )}
+      {/* Log streaming: pushes the audit log to a SIEM; renders only with general:update. */}
+      <LogStreamingSection />
     </div>
   );
 }

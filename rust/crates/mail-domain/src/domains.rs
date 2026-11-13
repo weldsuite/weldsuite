@@ -129,6 +129,14 @@ pub trait MailDomains: Send + Sync {
     /// Stop receiving and sending for `domain`. Callers treat a failure as
     /// best effort, as `deleteDomain` is on Global.
     fn deregister<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<(), DomainError>>;
+
+    /// Whether one record of the caller's own (the workspace's ownership TXT
+    /// record, purpose `verification`) resolves, through the same resolver
+    /// [`MailDomains::verify`] asks.
+    fn check_record<'a>(
+        &'a self,
+        record: &'a DnsRecord,
+    ) -> BoxFuture<'a, Result<bool, DomainError>>;
 }
 
 /// What the edition publishes for a domain: its MX, the relay's SPF include
@@ -283,6 +291,13 @@ impl MailDomains for ManualDomains {
     fn deregister<'a>(&'a self, _domain: &'a str) -> BoxFuture<'a, Result<(), DomainError>> {
         Box::pin(async { Ok(()) })
     }
+
+    fn check_record<'a>(
+        &'a self,
+        record: &'a DnsRecord,
+    ) -> BoxFuture<'a, Result<bool, DomainError>> {
+        Box::pin(self.check(record))
+    }
 }
 
 /// Whether a resolved `data` value is the record asked for. MX answers are
@@ -312,6 +327,7 @@ fn record_matches(record: &DnsRecord, data: &str) -> bool {
             key(data).is_some() && key(data) == key(&record.value)
         }
         "dmarc" => data.starts_with("v=DMARC1"),
+        "verification" => data == record.value,
         _ => false,
     }
 }
@@ -455,6 +471,13 @@ impl MailDomains for RelayDomains {
     fn deregister<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<(), DomainError>> {
         Box::pin(async move { self.api()?.delete_domain(domain).await })
     }
+
+    fn check_record<'a>(
+        &'a self,
+        record: &'a DnsRecord,
+    ) -> BoxFuture<'a, Result<bool, DomainError>> {
+        Box::pin(self.dns.check(record))
+    }
 }
 
 #[cfg(test)]
@@ -567,6 +590,31 @@ mod tests {
         assert!(!setup.verified);
         assert!(!setup.records[0].verified);
         assert!(setup.spf_verified());
+    }
+
+    #[tokio::test]
+    async fn an_ownership_record_matches_only_its_exact_value() {
+        let doh = FakeDoh::default().with(
+            "_weldmail-verify.acme.test",
+            "TXT",
+            &["\"weldmail-verify=other\"", "\"weldmail-verify=tok123\""],
+        );
+        let adapter = manual(doh);
+        let record = |value: &str| DnsRecord {
+            kind: "TXT",
+            name: "_weldmail-verify.acme.test".to_owned(),
+            value: value.to_owned(),
+            priority: None,
+            purpose: "verification",
+            verified: false,
+        };
+        let check = |value: &'static str| {
+            let adapter = &adapter;
+            let record = record(value);
+            async move { adapter.check_record(&record).await.expect("lookup") }
+        };
+        assert!(check("weldmail-verify=tok123").await);
+        assert!(!check("weldmail-verify=tok12").await);
     }
 
     #[tokio::test]

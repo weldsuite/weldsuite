@@ -14,9 +14,9 @@
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
 //! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
-//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
+//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
-//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
+//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand, and the audit log stream flushes behind them (about 6 s), may take to finish after SIGTERM (default 25) |
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
@@ -26,6 +26,7 @@
 //! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
+//! | `METRICS_ADDR` | as for `serve`: `GET /metrics` on a listener of its own (default `0.0.0.0:9464`; `off` or empty turns it off) |
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -163,6 +164,8 @@ pub(crate) struct EmbeddingsConfig {
 #[derive(Clone)]
 pub(crate) struct ConsumeConfig {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`, as for `serve`: `GET /metrics` apart from the probes.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     pub(crate) environment: String,
     pub(crate) log_format: LogFormat,
     pub(crate) master_database_url: String,
@@ -205,6 +208,7 @@ impl fmt::Debug for ConsumeConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ConsumeConfig")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("stream", &self.stream)
             .field("subject_prefix", &self.subject_prefix)
@@ -265,7 +269,7 @@ fn flag(
 
 impl ConsumeConfig {
     pub(crate) fn from_env() -> Result<Self, ConsumeConfigError> {
-        Self::from_lookup(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        Self::from_lookup(crate::config::env_value)
     }
 
     /// `lookup` reads a variable; injectable for tests.
@@ -306,6 +310,10 @@ impl ConsumeConfig {
         let stream_max_bytes = number(&mut problems, "NATS_STREAM_MAX_BYTES", 0);
         let dead_letter_max_bytes = number(&mut problems, "NATS_DEAD_LETTER_MAX_BYTES", 0);
         let drain = number(&mut problems, "CONSUME_DRAIN_SECONDS", 25);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let master_database_url = lookup("DATABASE_URL_MASTER").unwrap_or_else(|| {
             problems.push("DATABASE_URL_MASTER is required".to_owned());
@@ -431,6 +439,7 @@ impl ConsumeConfig {
         }
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             log_format,
             master_database_url,
@@ -568,7 +577,27 @@ mod tests {
         assert!(config.embeddings.is_none());
         assert_eq!(config.stream_max_bytes, None);
         assert_eq!(config.dead_letter_max_bytes, None);
+        assert_eq!(
+            config.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
         assert!(!format!("{config:?}").contains("postgres://master"));
+    }
+
+    #[test]
+    fn metrics_can_be_turned_off_or_moved() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let off = config(&[base[0], base[1], ("METRICS_ADDR", "off")]).expect("valid");
+        assert_eq!(off.metrics_addr, None);
+        let moved = config(&[base[0], base[1], ("METRICS_ADDR", "127.0.0.1:9100")]).expect("valid");
+        assert_eq!(
+            moved.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("127.0.0.1:9100")
+        );
+        assert!(config(&[base[0], base[1], ("METRICS_ADDR", "9100")]).is_err());
     }
 
     #[test]

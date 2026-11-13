@@ -41,6 +41,17 @@ export const VOIP_CALL_STATUSES = [
 export type VoipCallStatus = (typeof VOIP_CALL_STATUSES)[number];
 
 /**
+ * How an inbound call that was offered to the team ended (WeldDesk phone).
+ * Null for outbound calls and for calls an AI agent or a forward took.
+ *   - `answered`: an agent picked up.
+ *   - `abandoned`: the caller hung up while waiting.
+ *   - `missed`: nobody answered and the caller left no voicemail.
+ *   - `voicemail`: nobody answered and the caller left a voicemail.
+ */
+export const VOIP_CALL_OUTCOMES = ['answered', 'abandoned', 'missed', 'voicemail'] as const;
+export type VoipCallOutcome = (typeof VOIP_CALL_OUTCOMES)[number];
+
+/**
  * AI sentiment values
  */
 export const AI_SENTIMENT_VALUES = ['positive', 'neutral', 'negative', 'mixed'] as const;
@@ -81,6 +92,18 @@ export const voipCalls = pgTable('voip_calls', {
   answeredAt: timestamp('answered_at'),
   endedAt: timestamp('ended_at'),
   duration: integer('duration'), // Duration in seconds
+
+  // WeldDesk phone queue: an inbound call offered to the team's agents.
+  /** When the caller started waiting for an agent. Null when the call never reached the team. */
+  queueEnteredAt: timestamp('queue_entered_at'),
+  /** When an agent picked up; the wait ends and the handle time starts here. */
+  agentAnsweredAt: timestamp('agent_answered_at'),
+  /** The member who picked up. */
+  answeredByUserId: varchar('answered_by_user_id', { length: 255 }),
+  /** How the call ended for the team, see VOIP_CALL_OUTCOMES. */
+  outcome: varchar('outcome', { length: 20 }).$type<VoipCallOutcome>(),
+  /** The team (helpdesk_departments) whose queue the call waited in; null is the general queue. */
+  departmentId: varchar('department_id', { length: 30 }),
 
   // Recording
   isRecorded: boolean('is_recorded').default(false),
@@ -137,6 +160,7 @@ export const voipCalls = pgTable('voip_calls', {
   index('voip_calls_initiated_at_idx').on(table.initiatedAt),
   index('voip_calls_provider_idx').on(table.provider),
   index('voip_calls_desk_conversation_idx').on(table.deskConversationId),
+  index('voip_calls_queue_entered_at_idx').on(table.queueEnteredAt),
 ]);
 
 export type VoipCall = typeof voipCalls.$inferSelect;

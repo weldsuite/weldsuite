@@ -25,8 +25,12 @@ export const PERSONAL_HUB_TOPIC_PREFIXES = [
 /**
  * Non-catalog hub topics every member/viewer may also subscribe to.
  * `presence` is published by the realtime worker, not the entity-event bus.
+ * `desk_phone_queue` is published by call-api when the set of callers
+ * waiting for an agent changes (it carries a count, no caller data); the
+ * inbox's waiting calls and the wallboard refetch on it. The Rust gateway
+ * keeps the same list (rust/crates/realtime/src/topics.rs).
  */
-export const EXTRA_MEMBER_HUB_TOPICS = ['presence'] as const;
+export const EXTRA_MEMBER_HUB_TOPICS = ['presence', 'desk_phone_queue'] as const;
 
 const PERSONAL = new Set<string>(PERSONAL_HUB_TOPIC_PREFIXES);
 

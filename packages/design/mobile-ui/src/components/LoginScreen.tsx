@@ -19,6 +19,10 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Building2, Eye, EyeOff, Fingerprint } from 'lucide-react-native';
 import { LOGIN_COPY, type LoginLanguage, type LoginScreenCopy } from '../constants/login-copy';
+import { OidcSignInError, useAuthProvider, useHostedSignIn } from '@weldsuite/mobile-platform/auth';
+import { hostOf, peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import { fillCopy, SERVER_COPY, type ServerCopy } from '../constants/server-copy';
+import { ServerRow } from './ServerRow';
 import { authErrorMessage, isValidEmail, passwordErrorMessage } from '../lib/auth-errors';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -444,6 +448,8 @@ export interface LoginScreenProps {
   showSsoLogin?: boolean;
   /** Brand accent for CTA, focus rings, and links (default: '#3B82F6') */
   accentColor?: string;
+  /** Overrides for the server row, picker and hosted sign-in copy (`server-copy.ts`). */
+  serverCopy?: Partial<ServerCopy>;
 }
 
 type AuthMode = 'signin' | 'forgot' | 'reset';
@@ -545,7 +551,17 @@ function validateNewPassword(pwd: string): boolean {
   return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /\d/.test(pwd);
 }
 
-export function LoginScreen({
+/**
+ * The sign-in screen. Clerk (Global) gets WeldSuite's own forms; a server
+ * whose provider hosts its own sign-in page (OIDC: EU, self-hosted) gets a
+ * button that opens it. Both show which server the app talks to when the
+ * build has the server picker on.
+ */
+export function LoginScreen(props: Readonly<LoginScreenProps>) {
+  return useAuthProvider() === 'oidc' ? <HostedLoginScreen {...props} /> : <ClerkLoginScreen {...props} />;
+}
+
+function ClerkLoginScreen({
   logoElement,
   logo,
   logoSize,
@@ -559,6 +575,7 @@ export function LoginScreen({
   showPasskeyLogin = false,
   showSsoLogin = true,
   accentColor = '#3B82F6',
+  serverCopy,
 }: Readonly<LoginScreenProps>) {
   useWarmUpBrowser();
   const { colors } = useTheme();
@@ -1264,6 +1281,7 @@ export function LoginScreen({
               )}
             </View>
             )}
+            <ServerRow variant="login" language={language} copy={serverCopy} accentColor={accentColor} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -1271,7 +1289,102 @@ export function LoginScreen({
   );
 }
 
+/** Sign-in on the server's own page (OIDC): one button to sign in, one to sign up. */
+function HostedLoginScreen({
+  logoElement,
+  logo,
+  logoSize,
+  appName,
+  subtitle,
+  language = 'en',
+  copy,
+  accentColor = '#3B82F6',
+  serverCopy,
+}: Readonly<LoginScreenProps>) {
+  useWarmUpBrowser();
+  const { colors } = useTheme();
+  const hosted = useHostedSignIn();
+  const [busy, setBusy] = useState<'sign-in' | 'sign-up' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const base = LOGIN_COPY[language];
+  const labels: ServerCopy = { ...SERVER_COPY[language], ...serverCopy };
+  const origin = peekMobileRuntime()?.server.origin;
+  const server = origin ? hostOf(origin) : appName;
+
+  const start = async (intent: 'sign-in' | 'sign-up') => {
+    if (!hosted || busy) return;
+    setBusy(intent);
+    setError(null);
+    try {
+      // 'cancelled' (the person closed the sheet) needs no message.
+      await hosted.signIn({ intent });
+    } catch (e) {
+      setError(e instanceof OidcSignInError && e.code === 'unreachable' ? labels.unreachable : labels.hostedFailed);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          <LoginLogo
+            logoElement={logoElement}
+            logo={logo}
+            appName={appName}
+            iconW={logoSize?.width ?? 40}
+            iconH={logoSize?.height ?? 40}
+            accentColor={accentColor}
+            colors={colors}
+          />
+          <View style={styles.welcomeSection}>
+            <Text style={[styles.pageTitle, { color: colors.text }]}>{copy?.signInTitle ?? base.signInTitle}</Text>
+            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+              {copy?.subtitle ?? subtitle ?? base.subtitle}
+            </Text>
+          </View>
+          <View style={styles.formContainer}>
+            <FormErrorBox message={error} colors={colors} />
+            <SubmitButton
+              testID="hosted-sign-in"
+              accentColor={accentColor}
+              loading={busy === 'sign-in'}
+              onPress={() => void start('sign-in')}
+              label={labels.hostedSignIn}
+            />
+            <TouchableOpacity
+              testID="hosted-sign-up"
+              style={[styles.oauthButton, { backgroundColor: colors.secondary }, busy !== null && styles.buttonDisabled]}
+              onPress={() => void start('sign-up')}
+              activeOpacity={0.8}
+              disabled={busy !== null}
+              accessibilityRole="button"
+            >
+              {busy === 'sign-up' ? (
+                <ActivityIndicator color={colors.text} />
+              ) : (
+                <Text style={[styles.oauthButtonText, { color: colors.text }]}>{labels.hostedSignUp}</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={[styles.hostedHint, { color: colors.mutedForeground }]}>
+              {fillCopy(labels.hostedHint, { server })}
+            </Text>
+          </View>
+          <ServerRow variant="login" language={language} copy={serverCopy} accentColor={accentColor} />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
+  hostedHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: Spacing.md,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
   },

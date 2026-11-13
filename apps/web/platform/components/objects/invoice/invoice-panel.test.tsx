@@ -15,6 +15,8 @@ const env = vi.hoisted(() => ({
   generatePdf: vi.fn(),
   listTemplates: vi.fn(),
   push: vi.fn(),
+  /** The company details an invoice needs that the entity lacks. */
+  missingDetails: [] as string[],
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
   certificates: new Map<string, { id: string; certificateNumber: string | null; reason: string; states: string[] }>(),
 }));
@@ -76,6 +78,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useApplyCreditNote: () => ({ mutate: env.applyCredit, isPending: false }),
   useUpdateInvoiceStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSendInvoice: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateAccountingEntity: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1' }) }));
 vi.mock('@/hooks/queries/use-weldbooks-tax-preview', () => ({
@@ -87,6 +90,14 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useJurisdictionLabels: () => ({
     labels: { tax: 'Sales tax', taxId: 'EIN', registrationId: 'State ID', creditNote: 'Credit memo' },
     features: { salesTax: env.salesTax, form1099: env.salesTax },
+  }),
+}));
+vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
+  useEntityInvoiceDetails: () => ({
+    entity: { id: 'ent_1', name: 'Acme LLC', jurisdictionCode: 'US', baseCurrency: 'USD' },
+    missing: env.missingDetails,
+    labels: { vatNumber: 'EIN', registrationNumber: 'State ID', iban: 'IBAN', bic: 'BIC', address: 'Business address' },
+    isLoading: false,
   }),
 }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
@@ -195,6 +206,7 @@ describe('InvoicePanel', () => {
     env.invoice = invoice();
     env.loading = false;
     env.salesTax = true;
+    env.missingDetails = [];
     env.certificates = new Map();
     env.finalize.mockReset();
     env.commit.mockReset();
@@ -264,6 +276,20 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
       renderPanel();
       expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/weldbooks/invoices/inv_1/edit');
+      expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
+    });
+
+    it('a draft says which company details it still needs, a finalized invoice does not', () => {
+      env.missingDetails = ['address'];
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      const { unmount } = renderPanel();
+      expect(screen.getByTestId('entity-invoice-details-notice')).toHaveTextContent('Business address');
+      expect(screen.getByRole('button', { name: 'Add business details' })).toBeInTheDocument();
+      unmount();
+
+      env.invoice = invoice({ status: 'finalized' });
+      renderPanel();
+      expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
     });
 
     it('a sent invoice can be sent again', async () => {

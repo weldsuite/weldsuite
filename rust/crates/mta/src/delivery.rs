@@ -160,7 +160,7 @@ impl Delivery {
             .finish(claimed, &self.owner, sender, &outcome)
             .await
         {
-            Ok(true) => {}
+            Ok(true) => crate::monitoring::count_delivery(&claimed.pool, &outcome),
             Ok(false) => tracing::warn!(
                 recipient = %claimed.id,
                 "the lease ran out before the outcome was recorded; another worker owns it"

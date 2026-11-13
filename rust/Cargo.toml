@@ -45,6 +45,7 @@ weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-onboarding = { path = "modules/core-onboarding" }
+weldsuite-core-signin = { path = "modules/core-signin" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
@@ -60,6 +61,8 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-forms = { path = "modules/forms" }
+weldsuite-forms-engine = { path = "crates/forms-engine" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
@@ -121,6 +124,10 @@ opentelemetry = { version = "0.33.1", default-features = false, features = ["tra
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+# Prometheus metrics (`GET /metrics` on `METRICS_ADDR`): the facade for every
+# crate that records, the exporter for the binary only.
+metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"

@@ -47,7 +47,7 @@ pnpm exec weld app publish           # auto-approves for official publishers
 
 ## CI
 
-`.github/workflows/deploy-hosted-apps.yml` runs on push to `develop` (test) and `main` (production). It deploys every changed `apps/hosted-apps/<code>/` that contains `weldapp.json`, using `HOSTED_APPS_WELD_API_KEY` from the GitHub Environment.
+The private repo `weldsuite/weldsuite-deploy` deploys hosted apps: to test for every merge to `main` that passes CI, to production through its Promote workflow. It deploys every changed `apps/hosted-apps/<code>/` that contains `weldapp.json`, using `HOSTED_APPS_WELD_API_KEY` from its GitHub Environment.
 
 Bump `version` in `weldapp.json` before merging a change you want shipped — duplicate versions are rejected.
 

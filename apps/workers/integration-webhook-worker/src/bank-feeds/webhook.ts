@@ -3,8 +3,10 @@
  *
  * Public route (no Clerk). Each provider signs its deliveries differently
  * (Stripe Financial Connections: HMAC `Stripe-Signature`; Plaid: an ES256 JWT in
- * `Plaid-Verification` whose key is fetched and cached in KV), so verification
- * lives in `@weldsuite/bank-feeds` and a bad signature is a 401. A verified
+ * `Plaid-Verification` whose key is fetched and cached in KV; Ponto: an RS512
+ * JWT in `Signature` whose key comes from Ibanity's webhooks API over the
+ * `PONTO_CERT` certificate, cached the same way), so verification lives in
+ * `@weldsuite/bank-feeds` and a bad signature is a 401. A verified
  * delivery is answered 200 straight away; the work (master index lookup by
  * provider connection id, then books-api over the `BOOKS_INTERNAL` binding)
  * runs in `waitUntil`. Syncs are idempotent and the due sweep is the safety
@@ -98,7 +100,11 @@ export function bankFeedWebhookRoutes(depsFor: (env: Env) => BankFeedWebhookDeps
 
   app.post('/bank-feeds/:provider', async (c) => {
     const providerId = normalizeProviderId(c.req.param('provider'));
-    const config = bankFeedConfigFromEnv(c.env, { keyCache: c.env.WORKSPACE_CACHE });
+    const pontoCert = c.env.PONTO_CERT;
+    const config = bankFeedConfigFromEnv(c.env, {
+      keyCache: c.env.WORKSPACE_CACHE,
+      pontoFetch: pontoCert ? (input, init) => pontoCert.fetch(input, init as RequestInit) : undefined,
+    });
 
     let provider;
     try {

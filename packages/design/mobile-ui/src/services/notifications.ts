@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
@@ -61,7 +62,7 @@ export async function registerForPushNotificationsAsync(projectId: string): Prom
 /**
  * Get a unique device identifier
  */
-async function getDeviceId(): Promise<string> {
+export async function getDeviceId(): Promise<string> {
   if (Platform.OS === 'android') {
     return Application.getAndroidId() || `android_${Date.now()}`;
   } else if (Platform.OS === 'ios') {
@@ -93,8 +94,11 @@ export async function registerDeviceToken(
   accessToken: string,
   organizationId: string | undefined,
   appCode: string = 'weldsuite',
-  apiBaseUrl: string = process.env.EXPO_PUBLIC_APP_API_URL || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8789'
+  apiBaseUrl: string = defaultApiBaseUrl()
 ): Promise<boolean> {
+  // Push reaches the apps on Global only until the content-free relay
+  // exists (docs/plans/mobile-server-choice.md, section 6).
+  if (!isPushEnabled()) return false;
   try {
     const deviceId = await getDeviceId();
 
@@ -139,6 +143,44 @@ export async function registerDeviceToken(
     return Boolean(data?.data?.registered);
   } catch (error) {
     console.error('[PushToken] Error registering device token:', error);
+    return false;
+  }
+}
+
+/** Whether the server the app runs against sends push notifications. */
+export function isPushEnabled(): boolean {
+  return peekMobileRuntime()?.pushEnabled ?? true;
+}
+
+function defaultApiBaseUrl(): string {
+  return (
+    peekMobileRuntime()?.apiOrigin ||
+    process.env.EXPO_PUBLIC_APP_API_URL ||
+    process.env.EXPO_PUBLIC_API_URL ||
+    'http://localhost:8789'
+  );
+}
+
+/**
+ * Remove this device's push token from a server (`DELETE /api/push-tokens`),
+ * so it stops sending here. Called when the app leaves a server.
+ *
+ * @param deviceIdSuffix - for apps that register a second token per device
+ *   (WeldChat's call token, `<deviceId>:call`)
+ */
+export async function unregisterDeviceToken(
+  accessToken: string,
+  apiBaseUrl: string = defaultApiBaseUrl(),
+  deviceIdSuffix = '',
+): Promise<boolean> {
+  try {
+    const deviceId = `${await getDeviceId()}${deviceIdSuffix}`;
+    const response = await fetch(`${apiBaseUrl}/api/push-tokens?deviceId=${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return response.ok;
+  } catch {
     return false;
   }
 }

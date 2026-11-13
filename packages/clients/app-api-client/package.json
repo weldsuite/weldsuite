@@ -4,10 +4,15 @@
   "version": "0.0.1",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./schemas/ai": "./src/schemas/ai.ts",
+    "./schemas/runtime-config": "./src/schemas/runtime-config.ts",
+    "./auth/oidc-claims": "./src/auth/oidc-claims.ts",
     "./schemas/accounting-settings": "./src/schemas/accounting-settings.ts",
     "./schemas/legal-entities": "./src/schemas/legal-entities.ts",
     "./schemas/tasks": "./src/schemas/tasks.ts",
@@ -129,6 +134,7 @@
     "./schemas/docs": "./src/schemas/docs.ts",
     "./schemas/boards": "./src/schemas/boards.ts",
     "./schemas/weldsign": "./src/schemas/weldsign.ts",
+    "./schemas/weldforms": "./src/schemas/weldforms.ts",
     "./schemas/weldpanel": "./src/schemas/weldpanel.ts",
     "./schemas/weldmerge": "./src/schemas/weldmerge.ts",
     "./schemas/weldmerge-sync": "./src/schemas/weldmerge-sync.ts",
@@ -233,6 +239,7 @@
     "./domains/docs": "./src/domains/docs.ts",
     "./domains/boards": "./src/domains/boards.ts",
     "./domains/weldsign": "./src/domains/weldsign.ts",
+    "./domains/weldforms": "./src/domains/weldforms.ts",
     "./domains/weldpanel": "./src/domains/weldpanel.ts",
     "./domains/weldmerge": "./src/domains/weldmerge.ts",
     "./domains/app-access": "./src/domains/app-access.ts",
@@ -244,11 +251,14 @@
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "vitest": "^4.1.12"
   }
 }

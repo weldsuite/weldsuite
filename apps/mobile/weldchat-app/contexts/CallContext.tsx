@@ -25,7 +25,8 @@ import React, {
   useState,
 } from 'react';
 import { AppState, Platform, Vibration } from 'react-native';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
+import { isFeatureAvailable } from '@weldsuite/mobile-platform/edition';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime/types';
 import { apiUrl, appApi } from '@/services/app-api';
@@ -648,7 +649,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
   );
 
   useEffect(() => {
-    if (!userId || !isNativeCallsAvailable) return;
+    if (!userId || !isNativeCallsAvailable || !isFeatureAvailable('chat-calls')) return;
     configureNativeCalls(apiUrl('/public/chat-calls/decline'));
     const unsubscribe = addCallActionListener(handleNativeAction);
     // Answer on a closed app: the tap happened before JS (and auth) was up.

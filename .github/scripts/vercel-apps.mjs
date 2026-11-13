@@ -2,7 +2,7 @@
 /**
  * Picks the Vercel-hosted web apps to deploy.
  *
- * deploy.yml builds these with the Vercel CLI and uploads the prebuilt output;
+ * The deploy (deploy-vercel action) builds these with the Vercel CLI and uploads the prebuilt output;
  * Vercel's own Git integration is switched off for every branch
  * (`git.deploymentEnabled` in each app's vercel.json) so GitHub Actions is the
  * only releaser. An app is selected when:

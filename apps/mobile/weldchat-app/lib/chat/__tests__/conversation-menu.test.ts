@@ -6,9 +6,15 @@ const mockGet = jest.fn();
 jest.mock(
   '@/services/app-api',
   () => ({
-    PLATFORM_URL: 'https://app-test.weldsuite.org',
     appApiClient: { get: (...args: unknown[]) => mockGet(...args) },
   }),
+  { virtual: true },
+);
+
+// The web app's origin comes from the booted server, read when a link is built.
+jest.mock(
+  '@weldsuite/mobile-platform/api',
+  () => ({ platformUrl: () => 'https://app-test.weldsuite.org' }),
   { virtual: true },
 );
 

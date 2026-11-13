@@ -1,4 +1,4 @@
-import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -14,8 +14,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { hideAppSplash } from '@/utils/splash';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -26,6 +26,7 @@ import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { personalApi, setPersonalApiTokenGetter } from '@/services/personal-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { BRAND } from '@/lib/brand';
+import { APP, BUILD } from '@/lib/server';
 import { hydrateCalendarVisibility } from '@/lib/calendar-visibility';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
@@ -35,21 +36,6 @@ Observe.configure({
 });
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-/**
- * Read once and re-bound as a narrowed const: TypeScript drops the
- * module-level narrowing from the throw below by the time the closure in
- * `RootLayout` reads it, so `ClerkProvider` would see `string | undefined`.
- */
-const RAW_CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!RAW_CLERK_PUBLISHABLE_KEY) {
-  throw new Error(
-    'Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — set it in eas.json for this build profile.',
-  );
-}
-
-const CLERK_PUBLISHABLE_KEY: string = RAW_CLERK_PUBLISHABLE_KEY;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,7 +48,7 @@ const queryClient = new QueryClient({
 });
 
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
   const segments = useSegments();
   const { t } = useI18n();
@@ -74,7 +60,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const membershipCount = userMemberships?.data?.length ?? 0;
 
   // Wire token getters during render (not in an effect) so the first fetch
-  // already has a Clerk JWT. Effects run children-first.
+  // already has a session token. Effects run children-first.
   if (user) {
     const getAccessToken = async () => (await getCredentials())?.accessToken ?? null;
     setAppApiTokenGetter(getAccessToken);
@@ -248,13 +234,13 @@ const workspaceApi = {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
   );
 }
 
@@ -288,17 +274,11 @@ function RootLayout() {
         <GestureHandlerRootView style={{ flex: 1 }}>
           <KeyboardProvider>
             <ErrorBoundary>
-              {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-                  client sync races browser SSO on Android and signs users out again. */}
-              <ClerkProvider
-                publishableKey={CLERK_PUBLISHABLE_KEY}
-                tokenCache={tokenCache}
-                __experimental_disableNativeClientSync
-              >
-                <ClerkLoaded>
-                  <AuthenticatedApp />
-                </ClerkLoaded>
-              </ClerkProvider>
+              {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+                  in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+              <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash}>
+                <AuthenticatedApp />
+              </ServerAuthRoot>
             </ErrorBoundary>
           </KeyboardProvider>
         </GestureHandlerRootView>

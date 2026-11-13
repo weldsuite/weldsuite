@@ -11,7 +11,7 @@ import {
   useScoreProjectRequest,
   useSubmitProjectRequest,
 } from '@/hooks/queries/use-flow-portfolio-queries';
-import { formatDay, intlLocaleOf } from '../../capacity/_lib/capacity';
+import { formatDay, intlLocaleOf } from '../../workload/capacity/_lib/capacity';
 import { STATUS_CLASS, formatMoney, paybackMonths } from '../_lib/intake';
 
 interface DetailProps {

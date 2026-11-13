@@ -351,6 +351,7 @@ pub(crate) fn books_state(state: &AppState) -> BooksState {
         },
         env: books_env(),
         rates: rate_cache(),
+        trusted_proxies: state.trusted_proxies,
     }
 }
 

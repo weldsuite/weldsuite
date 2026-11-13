@@ -1,11 +1,13 @@
-# A small Prometheus for Lens's CPU, memory and disk charts. Only the test
-# cluster applies this layer so far (clusters/test/layers.yaml); its values
-# are sized for that one node. The metrics API (metrics-server) is in
-# ../controllers, since the server's autoscaler needs it everywhere.
+# Metrics, alerting and Grafana (docs/plans/eu-observability.md, ADR
+# OPS-021): kube-prometheus-stack and the blackbox exporter. What they
+# scrape, probe and alert on is the next layer, ../monitoring-config, which
+# needs this layer's CRDs. The namespace is in ../controllers, because the
+# secrets layer puts alerting-receivers and Grafana's Secrets in it first.
+# The metrics API (metrics-server) is in ../controllers too, since the
+# server's autoscaler needs it everywhere.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespace.yaml
   - sources.yaml
   - releases.yaml
 generatorOptions:
@@ -14,3 +16,6 @@ configMapGenerator:
   - name: kube-prometheus-stack-values
     namespace: monitoring
     files: [values.yaml=values/kube-prometheus-stack.yaml]
+  - name: blackbox-exporter-values
+    namespace: monitoring
+    files: [values.yaml=values/blackbox-exporter.yaml]

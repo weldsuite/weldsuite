@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.34.5.
 
-Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
+Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager), **WeldForms** (forms and surveys, in the class of Typeform). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
 ### Design docs and ADRs (separate repo)
 
@@ -43,10 +43,11 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 - `sign-portal`, WeldSign signer portal: TanStack Start on a Cloudflare Worker (port 3023, `sign.weldsuite.org` / `sign-test.weldsuite.org`). Runs the signer side itself on `@weldsuite/sign-domain/portal` against the tenant DB, with no API in between (ADR FE-016)
 - `project-portal`, WeldFlow client project portal: TanStack Start on a Cloudflare Worker (port 3024, `projects.weldsuite.org` / `projects-test.weldsuite.org`). Calls only flow-api's `/public/project-portal/*` over the `FLOW_API` service binding; no database, no secrets (ADR FLOW-020)
+- `forms-portal`, WeldForms respondent page: TanStack Start on a Cloudflare Worker (port 3025, `forms.weldsuite.org` / `forms-test.weldsuite.org`) and a Node build for Kubernetes. Calls only forms-api's `/public/forms/*` (service binding `FORMS_API`); serves the embed SDK at `/embed.js`. **`packages/sdk/forms-embed` (`src/protocol.ts`, `src/auto.ts`) and the portal's embed view change in lockstep**, like the helpdesk widget; the Share tab's snippet generator (`apps/web/platform/app/weldforms/share/embed-snippet.ts`) uses the same attribute names
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
 - `app-api`, **The core first-party API** (`app-api.weldsuite.org`): workspaces, members, roles, settings, files/drive, search, billing, credits, notifications, App Store / WeldApps, custom objects, `/api/internal`. It also **forwards** every module's paths to that module's worker (below), so clients that call it for anything keep working. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
-- **Module API workers** (`<module>-api`, host `<module>-api(-test).weldsuite.org`), one per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `chat-api`, `call-api` (telephony), `connect-api`, `agent-api` (AI / WeldAgent), `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`. Which paths each owns: `packages/core/api-modules`. See "Where new endpoints go" below.
+- **Module API workers** (`<module>-api`, host `<module>-api(-test).weldsuite.org`), one per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `chat-api`, `call-api` (telephony), `connect-api`, `agent-api` (AI / WeldAgent), `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`, `forms-api`. Which paths each owns: `packages/core/api-modules`. See "Where new endpoints go" below.
 - `external-api`, Third-party public API (`api.weldsuite.org`, `wsk_` keys)
 - `mcp-server`, WeldSuite MCP server
 - `billing-worker`, Stripe billing + subscriptions
@@ -73,6 +74,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - Per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
 - The combined `weldsuite-app` was retired; the per-module apps replaced it
 - `_template`, Scaffold for new mobile apps (see root script `create:mobile-app`)
+- **One build per app serves Global, EU and self-hosted** (ADR MOB-006, `docs/plans/mobile-server-choice.md`): the server is chosen at sign-in (`EXPO_PUBLIC_SERVER_PICKER`, off in production for now). Hosts, sign-in and edition flags come from `@weldsuite/mobile-platform` (`getMobileRuntime()`, read inside functions, never at module level; the auth facade, Clerk on Global and OIDC elsewhere). Don't import `@clerk/expo` or read server `EXPO_PUBLIC_*` values outside each app's `lib/server.ts` and its eslint-listed Clerk-only files.
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).
 
@@ -164,8 +166,9 @@ pnpm deploy:production    # production workers
 pnpm deploy:test          # test workers (app-api-test.weldsuite.org, etc.)
 ```
 **Two worker environments:** `test` (`[env.test]`, hostnames `*-test.weldsuite.org`) and
-`production` (`[env.production]`). Push `develop` to deploy test; push `main` to
-deploy production. `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
+`production` (`[env.production]`). A merge to `main` deploys test once CI
+passes; production goes out only through Promote in `weldsuite/weldsuite-deploy`
+(see CI/CD). `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
 The top-level (no `--env`) config is for `wrangler dev` only and is named
 `<worker>-dev`, never a deployed name, so a `wrangler deploy` / `secret put` /
 `tail` without `--env` cannot reach production. Always pass `--env test` or
@@ -459,20 +462,46 @@ before building any UI.
 
 ## CI/CD
 
-`develop` deploys **test**. `main` deploys **production**. Secrets live on the
-GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
+One branch: **`main`**, the default. Every PR targets `main`. Required checks:
+`Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`,
+`Unit · app-api`, `Unit · platform`, `Rust`, plus `WeldSuite Review`. Merge,
+squash or rebase.
+
+Every merge to `main` runs CI. When CI passes, `handoff.yml` starts
+`deploy-test` in the private repo `weldsuite/weldsuite-deploy`, which deploys
+that commit to **test** (`*-test.weldsuite.org`, `app-test.weldsuite.org`).
+**Global production** goes out only through the **Promote** workflow in
+`weldsuite-deploy`, run by people with write access there (never a bot). It
+deploys a commit test already deployed. Nothing deploys Global production on a
+push. The GitHub Environments `test` and `production` and their secrets live in
+`weldsuite-deploy` (see `.github/SECRETS.md`). The decision is ADR OPS-018,
+which supersedes OPS-004.
+
+**EU production deploys continuously** (ADR OPS-020): it follows the main
+builds the EU test cluster runs. `eu-production-watch.yml` compares the build
+each serves (`/version`); once test has served a newer one for 10 minutes and
+answers `/health`, it starts `eu-continuous` in `weldsuite-deploy`, which pins
+production to that chart and commit. Self-hosted installs keep tagged releases
+(`rust-release.yml`). So a merge that touches the Rust server, the chart or the
+platform reaches app.weldsuite.eu without a release: keep migrations additive.
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
-| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
+| `ci.yml` | PR + push to `main` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
+| `sonarqube.yml` | PR | not yet (fails on a red quality gate; blocks once "SonarQube" is a required check) — full SonarQube Cloud analysis of **only the files the PR changes** (`scripts/sonar-changed.mjs` narrows `sonar-project.properties`; preview the scope with `pnpm sonar:changed`) |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
-| `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
-| `handoff.yml` | CI passed on a push to `develop` → starts the private `deploy-test` (ADR OPS-018 phase 2); off until the variable `DEPLOYS_PRIVATE` is `true` | n/a |
+| `handoff.yml` | CI passed on a push to `main` → starts the private `deploy-test` | n/a |
+| `eu-production-watch.yml` | every 10 minutes → starts the private `eu-continuous` when test has run a newer main build for 10 minutes | n/a |
 | `release-desktop.yml` | manual | n/a |
 
-`deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
+The deploy logic stays in this repo: composite actions
+(`.github/actions/deploy-*`) and scripts (`.github/scripts/deploy-plan.mjs`,
+`deploy-diff-base.mjs`, `module-workers.mjs`, `vercel-apps.mjs`). There is no
+public `deploy.yml` or `deploy-hosted-apps.yml`; `deploy-test` and Promote run
+these actions from a checkout of this repo at the deployed commit:
+**Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
 (path-gated) → **Pages** (the platform always; WeldMail, WeldCalendar, developer
 portal when changed) + **Vercel** (only changed
@@ -482,26 +511,27 @@ for the TanStack Start apps (`start-workers`: help center, sign portal, project
 portal, admin console; the admin console deploys only to the environments the
 repository variable `ADMIN_WORKER_ENVS` names).
 
-`deploy.yml` is only the job graph: the logic is in composite actions
-(`.github/actions/deploy-*`) and scripts (`.github/scripts/deploy-*.mjs`), and
-every target is named in `.github/scripts/deploy-plan.mjs` (path filters in
+Every target is named in `.github/scripts/deploy-plan.mjs` (path filters in
 `.github/actions/deploy-prepare/filters.yml`). A new core worker, mobile app,
-Pages app or TanStack Start app goes there, never into a workflow: the private
-deploy repo planned in `docs/plans/main-only-private-deploys.md` (ADR OPS-018)
-runs the same actions.
+Pages app or TanStack Start app goes there, never into a workflow, so it still
+changes only this repo.
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git
 integration builds nothing, not even PR previews. A new Vercel
-app needs an entry in `vercel-apps.mjs`, the same `vercel.json` block, and its
-folder in `deploy.yml`'s `on.push.paths`.
+app needs an entry in `vercel-apps.mjs` and the same `vercel.json` block.
+
+Two `develop` labels stay on purpose: the test Pages projects are deployed with
+the branch label `develop`, and Vercel test builds pull the Preview env vars for
+branch `develop` and alias the domains bound to it. Those are settings on the
+Cloudflare and Vercel projects, not git branches. Don't rename them.
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.34.5 + Node 22 and caches the pnpm store + turbo cache.
 
 ### Frontend deploys
 
-- Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (push to `develop`)
-- Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (push to `main`)
+- Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (every merge to `main` that passes CI)
+- Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (Promote in `weldsuite-deploy`)
 
 Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions is the only releaser. PR preview deployments (`*.weldsuite.pages.dev`) can stay on.
 
@@ -509,7 +539,7 @@ Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions i
 `deploy:production` scripts (which shell out to `vercel`) are **dead code**.
 Cloudflare Pages is the real path.
 
-Environments: local wrangler → **test** (`develop`) → **production** (`main`).
+Environments: local wrangler → **test** (every green `main` commit) → **production** (Global: Promote; EU: the build test ran, automatically).
 
 ## Critical Files
 
@@ -524,7 +554,7 @@ Environments: local wrangler → **test** (`develop`) → **production** (`main`
    `packages/core/db/drizzle/`, All Drizzle migrations (master + tenant SQL + meta journal)
    `apps/tools/migrate-databases/src/index.ts`, Tenant migration runner used by CI
 9. `turbo.json`, Build pipeline
-10. `.github/workflows/deploy.yml`, Deployment
+10. `.github/scripts/deploy-plan.mjs` + `.github/actions/deploy-*`, Deployment (run by `weldsuite/weldsuite-deploy`)
 
 ## Important Notes
 

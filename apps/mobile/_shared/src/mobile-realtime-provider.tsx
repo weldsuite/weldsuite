@@ -1,11 +1,11 @@
 import React from 'react';
 import { RealtimeProvider as BaseProvider } from '@weldsuite/realtime/react';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-
-const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 
 /**
- * Simple Clerk-token RealtimeProvider for Expo shells.
+ * Simple session-token RealtimeProvider for Expo shells, on the server the
+ * app runs against (`getMobileRuntime().realtimeUrl`).
  * Mail/Chat keep their richer cursor + foreground reconnect variants.
  */
 export function MobileRealtimeProvider({
@@ -13,11 +13,11 @@ export function MobileRealtimeProvider({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const { getToken } = useClerkAuth();
+  const { getToken } = useAuthSession();
 
   return (
     <BaseProvider
-      url={`${REALTIME_URL}/ws`}
+      url={`${realtimeUrl()}/ws`}
       getToken={async () => (await getToken()) || ''}
     >
       {children}

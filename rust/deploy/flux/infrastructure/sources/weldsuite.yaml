@@ -5,8 +5,8 @@
 # (WELDSUITE_VERSION in the cluster's settings).
 #
 # Its own repository, apart from the develop builds in
-# oci://ghcr.io/weldsuite/charts that the test cluster follows: there a
-# release (0.2.0) would rank above every develop build (0.1.0-develop.N).
+# oci://ghcr.io/weldsuite/charts that WeldSuite's test cluster follows: there
+# a release (0.2.0) would rank above every develop build (0.1.0-develop.N).
 # Public, like the images, so no credentials; while it isn't, give this a
 # secretRef to a docker-registry Secret in flux-system. Production should
 # pull from the EU registry instead (P5 work package 5.4, Harbor or Zot).

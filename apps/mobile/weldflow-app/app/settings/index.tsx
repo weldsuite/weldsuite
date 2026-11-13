@@ -6,24 +6,26 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 import { LogOut, ChevronRight } from 'lucide-react-native';
 
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useI18n } from '@/lib/i18n';
+import { BRAND } from '@/lib/brand';
 
 export default function SettingsScreen() {
   const { colors, preference, setPreference } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { organization } = useOrganization();
   const { isPermissionGranted, requestPermissions, openNotificationSettings, unregisterDevice } =
     useNotifications();
@@ -54,6 +56,9 @@ export default function SettingsScreen() {
             value={user?.fullName || t.common.dash}
           />
           <DetailRow label={t.settings.email} value={user?.email || t.common.dash} />
+          {/* Which server the app talks to; both render nothing when the build has the picker off. */}
+          <ServerRow variant="settings" language={language} accentColor={BRAND} />
+          <ProviderAccountRow language={language} />
         </SectionCard>
 
         <SectionCard title={t.settings.workspace}>

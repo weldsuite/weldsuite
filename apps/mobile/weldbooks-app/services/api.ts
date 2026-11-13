@@ -27,7 +27,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
-import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
+import { apiOrigin, apiOriginForPath } from '@weldsuite/mobile-platform/api';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import type {
   ApiResponse,
@@ -78,21 +78,10 @@ import type { LineItemInput } from '@/lib/line-items';
 import { quickExpenseLines } from '@/lib/quick-expense';
 import type { DepositTarget } from '@/lib/payments';
 import { asText } from '@weldsuite/text';
+import { APP } from '@/lib/server';
 
-/** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
-export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
-
-/**
- * Modules served by their own worker (`<module>-api` host), from
- * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
- * which forwards moved modules. See docs/plans/app-api-module-split.md.
- */
-const apiOrigins = createApiOriginResolver({
-  coreOrigin: APP_API_URL,
-  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
-});
-/** Legacy export name — some screens import { API_URL }. */
-export const API_URL = APP_API_URL;
+// The host is read per request from the server the app runs against (WeldSuite
+// cloud, EU or self-hosted), so nothing here may read the runtime at import time.
 
 type Json = Record<string, unknown>;
 
@@ -291,11 +280,11 @@ async function getToken(): Promise<string | null> {
 }
 
 const client = createClientApi({
-  baseUrl: apiOrigins.originForPath,
+  baseUrl: apiOriginForPath,
   getToken,
   getExtraHeaders: (): Record<string, string> => {
     // X-Weld-App: which app's permissions apply (per-app permission model).
-    const headers: Record<string, string> = { 'X-Weld-App': 'weldbooks' };
+    const headers: Record<string, string> = { 'X-Weld-App': APP.code };
     if (accountingEntityId) headers['X-Accounting-Entity-Id'] = accountingEntityId;
     return headers;
   },
@@ -347,7 +336,7 @@ class WeldBooksApi {
 
   /**
    * Kept for API compatibility. app-api resolves the workspace from the
-   * Clerk JWT's active-organization claim, so no header is sent.
+   * session token's active-organization claim, so no header is sent.
    */
   setOrganizationId(orgId: string | null | undefined) {
     organizationId = orgId || null;
@@ -386,7 +375,7 @@ class WeldBooksApi {
 
   /**
    * app-api has no single "current workspace" endpoint; returning a failure
-   * lets WorkspaceProvider fall back to the active Clerk org (the source of
+   * lets WorkspaceProvider fall back to the active identity-provider org (the source of
    * truth for which workspace is current). Same approach as weldmail-app.
    */
   getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
@@ -397,7 +386,7 @@ class WeldBooksApi {
     try {
       const { data: workspaces } = await workspacesApi.list();
       // WorkspaceProvider expects WorkspaceWithMembership[]. WorkspaceSummary.id
-      // is the Clerk org id (what setActive/switchWorkspace expects).
+      // is the identity provider's org id (what setActive/switchWorkspace expects).
       const mapped = workspaces.map((w) => ({
         id: w.id,
         clerkOrgId: w.id,
@@ -1032,7 +1021,7 @@ class WeldBooksApi {
     const token = await getToken();
     const path = fileKey.split('/').map(encodeURIComponent).join('/');
     return {
-      uri: `${apiOrigins.originForModule('core')}/api/storage/private/${path}`,
+      uri: `${apiOrigin()}/api/storage/private/${path}`,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       mimeType: doc.data?.mimeType ? str(doc.data.mimeType) : null,
     };

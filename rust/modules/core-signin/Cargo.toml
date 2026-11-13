@@ -1,0 +1,29 @@
+[package]
+name = "weldsuite-core-signin"
+description = "Core platform: the backend of WeldSuite's own sign-in screens on an OIDC provider (/api/sign-in, ADR SEC-016), as the provider's login client. Kubernetes editions only: Global signs in on Clerk from the browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+base64 = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+tower = { workspace = true }
+http-body-util = { workspace = true }
+
+[lints]
+workspace = true

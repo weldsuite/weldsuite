@@ -39,6 +39,27 @@ export const updatePhoneNumberSchema = z.object({
   description: z.string().optional(),
 });
 
+/** POST /api/calls: the call record a dialer creates before it dials. */
+export const createCallSchema = z.object({
+  direction: z.enum(['inbound', 'outbound']),
+  fromNumber: z.string().min(1),
+  toNumber: z.string().min(1),
+  fromNumberFormatted: z.string().optional(),
+  toNumberFormatted: z.string().optional(),
+  customerId: z.string().optional(),
+  contactId: z.string().optional(),
+  opportunityId: z.string().optional(),
+  isRecorded: z.boolean().optional(),
+  notes: z.string().optional(),
+  provider: z.string().optional(),
+  /**
+   * Click-to-call from a WeldDesk conversation: the call is linked to it, an
+   * outbound call adds "Outbound call to <number>" to its timeline and the
+   * call's end lands there too. Must be an existing conversation.
+   */
+  deskConversationId: z.string().min(1).optional(),
+});
+
 export const createCallTranscriptionSchema = z.object({
   language: z.string().optional(),
 });
@@ -65,6 +86,7 @@ export const contactCallStatsSchema = z.object({
 });
 
 export type ContactCallStats = z.infer<typeof contactCallStatsSchema>;
+export type CreateCallInput = z.infer<typeof createCallSchema>;
 export type CreatePhoneNumberInput = z.infer<typeof createPhoneNumberSchema>;
 export type UpdatePhoneNumberInput = z.infer<typeof updatePhoneNumberSchema>;
 export type CreateCallTranscriptionInput = z.infer<typeof createCallTranscriptionSchema>;

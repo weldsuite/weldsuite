@@ -1,0 +1,101 @@
+# CloudNativePG: availability, WAL archiving and backups. The clusters set
+# synchronous replication with dataDurability: required (configs/base/
+# postgres.yaml), so commits wait for a replica: losing either instance of a
+# two-instance cluster stops writes until it's back, which is why one
+# instance down is critical. The platform's clusters are in postgres,
+# Zitadel's (zitadel-db) in zitadel. cnpg_cluster comes from ../monitors.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-postgres
+  namespace: monitoring
+spec:
+  groups:
+    - name: weldsuite-postgres
+      rules:
+        # From kube-state-metrics, so it fires even when the instance can't
+        # be scraped. Pooler pods and finished jobs are left out.
+        - alert: PostgresInstanceDown
+          expr: |
+            (
+              (kube_pod_status_ready{namespace=~"postgres|zitadel", condition="true", pod!~".*-pooler-.*"} == 0)
+              unless on (namespace, pod) (kube_pod_status_phase{namespace=~"postgres|zitadel", phase=~"Succeeded|Failed"} == 1)
+            )
+            * on (namespace, pod) group_left (label_cnpg_io_cluster)
+              kube_pod_labels{namespace=~"postgres|zitadel", label_cnpg_io_cluster!=""}
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres {{ $labels.label_cnpg_io_cluster }}: {{ $labels.pod }} has not been ready for 2 minutes"
+            description: >-
+              With a synchronous replica required, a two-instance cluster stops
+              accepting writes while either instance is down.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresinstancedown
+        - alert: PostgresWalArchivingFailing
+          expr: cnpg_pg_stat_archiver_last_failed_time > cnpg_pg_stat_archiver_last_archived_time
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres {{ $labels.cnpg_cluster }}: WAL archiving is failing on {{ $labels.pod }}"
+            description: >-
+              Point-in-time recovery stops at the last archived segment, and
+              unarchived WAL piles up on the instance's disk.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgreswalarchivingfailing
+        - alert: PostgresWalArchivingStale
+          expr: |
+            cnpg_pg_stat_archiver_seconds_since_last_archival > 3600
+            and on (namespace, pod) (cnpg_pg_replication_in_recovery == 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres {{ $labels.cnpg_cluster }}: nothing archived for {{ $value | humanizeDuration }}"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgreswalarchivingstale
+        # The barman-cloud plugin's metric, or CNPG's own on clusters that
+        # back up without the plugin; max picks the one that is set.
+        - alert: PostgresBackupStale
+          expr: |
+            time() - max by (cnpg_cluster) (
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+              or cnpg_collector_last_available_backup_timestamp
+            ) > 26 * 3600
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres {{ $labels.cnpg_cluster }}: the last base backup is {{ $value | humanizeDuration }} old"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresbackupstale
+        # Without either metric PostgresBackupStale can never fire.
+        - alert: PostgresBackupMetricsMissing
+          expr: |
+            (count(cnpg_collector_up) > 0)
+            unless on () (
+              count(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp)
+              or count(cnpg_collector_last_available_backup_timestamp)
+            )
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres reports no backup timestamps, so backup age isn't watched"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresbackupmetricsmissing
+        - alert: PostgresReplicationLag
+          expr: cnpg_pg_replication_lag > 60
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres {{ $labels.cnpg_cluster }}: {{ $labels.pod }} is {{ $value | humanizeDuration }} behind"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresreplicationlag
+        - alert: PostgresConnectionsNearLimit
+          expr: |
+            sum by (cnpg_cluster, pod) (cnpg_backends_total)
+              / max by (cnpg_cluster, pod) (cnpg_pg_settings_setting{name="max_connections"}) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres {{ $labels.cnpg_cluster }}: {{ $labels.pod }} uses {{ $value | humanizePercentage }} of max_connections"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresconnectionsnearlimit

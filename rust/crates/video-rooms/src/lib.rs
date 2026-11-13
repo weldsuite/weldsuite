@@ -19,6 +19,9 @@
 //! | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | the API key pair |
 //! | `LIVEKIT_TOKEN_TTL_SECONDS` | how long a join token can be used to connect (default 600) |
 //! | `CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET` | `RealtimeKit` |
+//!
+//! [`configured`] says whether the chosen provider has what it needs; the
+//! server hides WeldMeet when it hasn't.
 
 mod livekit;
 mod livekit_webhook;
@@ -111,6 +114,27 @@ pub fn client_settings(get: impl Fn(&str) -> Option<String>) -> ClientSettings {
         url: get("LIVEKIT_URL")
             .map(|url| url.trim().trim_end_matches('/').to_owned())
             .filter(|url| !url.is_empty()),
+    }
+}
+
+/// Whether the provider [`from_env`] picks can hold a meeting: `LiveKit` with
+/// its URL and key pair, or `RealtimeKit` with its account and app. Without
+/// one, an install has no video (a self-hosted install that runs no
+/// `LiveKit`), and the platform hides WeldMeet.
+pub fn configured(get: impl Fn(&str) -> Option<String>) -> bool {
+    let value = |name: &str| get(name).filter(|value| !value.trim().is_empty());
+    if selects_livekit(&get) {
+        value("LIVEKIT_URL").is_some()
+            && value("LIVEKIT_API_KEY").is_some()
+            && value("LIVEKIT_API_SECRET").is_some()
+    } else {
+        [
+            "CF_ACCOUNT_ID",
+            "CF_REALTIME_APP_ID",
+            "CF_REALTIME_APP_SECRET",
+        ]
+        .iter()
+        .all(|name| value(name).is_some())
     }
 }
 
@@ -322,5 +346,40 @@ mod tests {
         let no_url = client_settings(env(&[("VIDEO_PROVIDER", "livekit")]));
         assert_eq!(no_url.provider, ClientProvider::LiveKit);
         assert_eq!(no_url.url, None);
+    }
+
+    #[test]
+    fn video_is_configured_only_with_the_chosen_providers_credentials() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        assert!(!configured(env(&[])), "nothing set");
+        assert!(!configured(env(&[("LIVEKIT_URL", "wss://lk.example.com")])));
+        assert!(configured(env(&[
+            ("LIVEKIT_URL", "wss://lk.example.com"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ])));
+        assert!(!configured(env(&[
+            ("CF_ACCOUNT_ID", "acc"),
+            ("CF_REALTIME_APP_ID", "app")
+        ])));
+        assert!(configured(env(&[
+            ("CF_ACCOUNT_ID", "acc"),
+            ("CF_REALTIME_APP_ID", "app"),
+            ("CF_REALTIME_APP_SECRET", "secret"),
+        ])));
+        // RealtimeKit chosen explicitly needs its own credentials, not LiveKit's.
+        assert!(!configured(env(&[
+            ("VIDEO_PROVIDER", "realtimekit"),
+            ("LIVEKIT_URL", "wss://lk.example.com"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ])));
     }
 }

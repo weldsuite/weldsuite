@@ -16,12 +16,11 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useAuth } from '@clerk/expo';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { WorkspaceClient } from '@weldsuite/realtime/client';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { useMail } from '@/contexts/MailContext';
-
-const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
 interface MailNewEventData {
   messageId?: string;
@@ -43,7 +42,7 @@ export function usePersonalMailRealtime() {
     if (!userId || !hasPersonalAccount) return;
 
     const client = new WorkspaceClient({
-      url: `${REALTIME_URL}/ws/personal`,
+      url: `${realtimeUrl()}/ws/personal`,
       getToken: async () => (await getToken()) || '',
     });
 

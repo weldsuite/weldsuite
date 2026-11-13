@@ -2,7 +2,9 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { useUnregisterPushOnServerLeave } from '@weldsuite/mobile-ui/hooks/useUnregisterPushOnServerLeave';
+import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter } from 'expo-router';
 
 const EAS_PROJECT_ID =
@@ -15,7 +17,8 @@ const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreCl
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | null>;
-  registerDeviceToken: (token: string, accessToken: string, orgId: string, appCode: string) => Promise<void>;
+  registerDeviceToken: (token: string, accessToken: string, orgId: string, appCode: string) => Promise<unknown>;
+  unregisterDeviceToken: (accessToken: string, apiBaseUrl?: string) => Promise<boolean>;
   setupNotificationListeners: (onReceive: (n: any) => void, onTap: (r: any) => void) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
   createNotificationChannels: (channels: { id: string; name: string; description: string }[]) => Promise<void>;
@@ -50,15 +53,17 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, getCredentials, organizationId } = useClerkAuth();
+  const { user, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  useUnregisterPushOnServerLeave(getCredentials, notifUtils?.unregisterDeviceToken);
+
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    if (!notifUtils || !EAS_PROJECT_ID) return false;
+    if (!notifUtils || !EAS_PROJECT_ID || !isPushAvailable()) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
@@ -95,7 +100,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
 
     const init = async () => {
-      if (!Notifications || !notifUtils) {
+      if (!Notifications || !notifUtils || !isPushAvailable()) {
         // Expo Go or notifications not available — skip
         setIsConnected(false);
         return;
@@ -132,6 +137,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           },
           (response: any) => {
             const data = response.notification.request.content.data;
+            if (!isNotificationForThisServer(data)) return;
             if (data?.conversationId) {
               router.push(`/conversation/${data.conversationId}` as never);
             }

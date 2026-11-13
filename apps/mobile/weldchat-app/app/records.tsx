@@ -15,7 +15,7 @@ import { FlatList } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { Bell, BellOff, ChevronDown, ChevronLeft, Hash, Plus, UserMinus } from 'lucide-react-native';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import type { RecordChatListItem } from '@weldsuite/app-api-client/domains/chat-entity-channels';

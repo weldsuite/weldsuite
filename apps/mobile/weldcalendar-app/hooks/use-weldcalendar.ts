@@ -1,4 +1,4 @@
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {

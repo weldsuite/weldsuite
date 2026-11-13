@@ -127,6 +127,7 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
       <div className="flex-1 min-w-0 flex flex-col">
         <ConversationHeader
           conversation={conversation}
+          messages={messages}
           liveCall={Boolean(liveCall)}
           visitorOnline={room.visitorOnline}
         />

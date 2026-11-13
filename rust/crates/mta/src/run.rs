@@ -232,8 +232,12 @@ pub async fn run(config: Config, shutdown: CancellationToken) -> Result<(), BoxE
         tasks.spawn(reporter.run(shutdown.clone()));
     }
 
-    // Housekeeping.
+    // Housekeeping, and the queue database's pool for the metrics.
     tasks.spawn(housekeeping(store.clone(), shutdown.clone()));
+    tasks.spawn(crate::monitoring::sample_pool(
+        store.pool().clone(),
+        shutdown.clone(),
+    ));
 
     shutdown.cancelled().await;
     tracing::info!("MTA stopping: finishing deliveries in progress");

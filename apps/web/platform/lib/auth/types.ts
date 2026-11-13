@@ -116,6 +116,13 @@ export interface MembershipList {
 export interface SetActiveParams {
   /** Provider organization id to make active; null leaves every workspace. */
   organization: string | null;
+  /**
+   * Where to continue when the provider switches workspace with a redirect
+   * (OIDC): an in-app path. Default: this page, or the new workspace's home
+   * when this page's URL names another workspace. Clerk switches in place
+   * and ignores it.
+   */
+  returnTo?: string;
 }
 
 export type SetActive = (params: SetActiveParams) => Promise<void>;
@@ -165,4 +172,10 @@ export interface AuthImplementation {
   completeSignIn?: () => Promise<string>;
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */
   accountUrl?: string;
+  /**
+   * WeldSuite shows its own sign-in screens over this provider (OIDC with
+   * `auth.signIn: "platform"`, ADR SEC-016) rather than sending people to
+   * the provider's pages. Clerk has its own screens and leaves this unset.
+   */
+  platformSignIn?: boolean;
 }

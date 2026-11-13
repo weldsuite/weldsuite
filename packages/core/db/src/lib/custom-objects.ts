@@ -20,7 +20,7 @@
  */
 
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import {
@@ -33,7 +33,7 @@ import {
 } from './custom-field-values';
 import { asText } from '@weldsuite/text';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 /**
  * Commits a built list of statements as one unit.
@@ -51,7 +51,8 @@ type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 export type AtomicRunner<D = AnyDb> = (
   db: D,
   build: (handle: D) => unknown[],
-) => Promise<void>;
+  // worker-kit's `atomically` answers the statements' results; nothing here reads them.
+) => Promise<unknown>;
 
 const objects = schema.customObjects;
 const records = schema.customObjectRecords;

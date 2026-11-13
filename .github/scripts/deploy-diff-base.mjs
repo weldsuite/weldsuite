@@ -12,9 +12,9 @@
  * Env:
  *   SOURCES   JSON array of deploy histories to try, in order. Two kinds:
  *               { "repo": "owner/name", "workflow": "deploy.yml",
- *                 "branch"?: "develop", "event"?: "push" }
+ *                 "branch"?: "main", "event"?: "push" }
  *                 the head commit of the newest successful run of a
- *                 workflow in this repo (deploy.yml);
+ *                 workflow (the public deploy.yml history, until 2026-11-08);
  *               { "repo": "owner/name", "environment": "test",
  *                 "task": "deploy:weldsuite" }
  *                 the newest deployment record with that task whose latest

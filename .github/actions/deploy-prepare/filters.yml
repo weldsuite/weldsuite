@@ -10,6 +10,11 @@ migrations:
   - 'packages/core/db/drizzle/**'
   - 'packages/core/db/src/schema/**'
   - 'apps/tools/migrate-databases/**'
+# First-party WeldApps (deploy-hosted-apps action).
+hosted_apps:
+  - 'apps/hosted-apps/**'
+  - 'packages/sdk/app-sdk/**'
+  - 'packages/sdk/cli/**'
 d1_connector_migrations:
   - 'apps/workers/integration-sync-worker/migrations/d1/**'
   - 'apps/workers/integration-sync-worker/wrangler.toml'
@@ -23,6 +28,7 @@ weldmail:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
 weldmail-web:
   - 'apps/web/weldmail/**'
   - 'packages/clients/personal-api-client/**'
@@ -59,6 +65,14 @@ project-portal:
   - 'packages/clients/api-client/**'
   - 'packages/core/i18n/**'
   - 'packages/design/ui/**'
+forms-portal:
+  - 'apps/web/forms-portal/**'
+  - 'packages/design/forms-renderer/**'
+  - 'packages/sdk/forms-embed/**'
+  - 'packages/core/forms-engine/**'
+  - 'packages/clients/app-api-client/**'
+  - 'packages/core/i18n/**'
+  - 'packages/design/ui/**'
 # The admin console and the workspace packages it bundles.
 admin:
   - 'apps/web/admin/**'
@@ -78,19 +92,24 @@ weldchat:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/realtime/**'
 weldbooks:
   - 'apps/mobile/weldbooks-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
 weldflow:
   - 'apps/mobile/weldflow-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldagent:
   - 'apps/mobile/weldagent-app/**'
@@ -98,6 +117,7 @@ weldagent:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldcalendar:
   - 'apps/mobile/weldcalendar-app/**'
@@ -106,13 +126,16 @@ weldcalendar:
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 weldhr:
   - 'apps/mobile/weldhr-app/**'
+  - 'apps/mobile/_shared/**'
   - 'packages/clients/app-api-client/**'
   - 'packages/clients/api-client/**'
   - 'packages/core/api-modules/**'
   - 'packages/design/mobile-ui/**'
+  - 'packages/clients/mobile-platform/**'
   - 'packages/core/notifications/**'
 all_workers:
   - 'pnpm-lock.yaml'

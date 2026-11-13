@@ -1,36 +1,25 @@
-describe('resolvePersonalApiUrl', () => {
-  const ORIGINAL_ENV = process.env;
+// `services/personal-api.ts` builds its PersonalApiClient lazily from the booted
+// server runtime's personal-api origin (`lazyClient` and the Global pairing are
+// tested in @weldsuite/mobile-platform).
 
-  beforeEach(() => {
+describe('services/personal-api', () => {
+  it('wires PersonalApiClient to the runtime origin through lazyClient', () => {
     jest.resetModules();
-    process.env = { ...ORIGINAL_ENV };
-  });
+    const ctor = jest.fn(function PersonalApiClient(this: { baseUrl: string }, baseUrl: string) {
+      this.baseUrl = baseUrl;
+    });
+    const personalApiOrigin = jest.fn(() => 'https://personal-api.example');
+    const lazyClient = jest.fn((origin: () => string, build: (origin: string) => unknown) => ({ origin, build }));
+    jest.doMock('@weldsuite/personal-api-client', () => ({ PersonalApiClient: ctor }));
+    jest.doMock('@weldsuite/mobile-platform/api', () => ({ personalApiOrigin, lazyClient }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() needs a fresh synchronous require
+    const { personalApi } = require('../personal-api') as {
+      personalApi: { origin: () => string; build: (origin: string) => { baseUrl: string } };
+    };
 
-  afterAll(() => {
-    process.env = ORIGINAL_ENV;
-  });
-
-  it('pairs production app-api with production personal-api', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules()
-    const { resolvePersonalApiUrl } = require('../personal-api');
-    expect(
-      resolvePersonalApiUrl('https://ignored.example', 'https://app-api.weldsuite.org'),
-    ).toBe('https://personal-api.weldsuite.org');
-  });
-
-  it('pairs test app-api with test personal-api', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules()
-    const { resolvePersonalApiUrl } = require('../personal-api');
-    expect(
-      resolvePersonalApiUrl(undefined, 'https://app-api-test.weldsuite.org'),
-    ).toBe('https://personal-api-test.weldsuite.org');
-  });
-
-  it('defaults to local wrangler when app-api is unset', () => {
-    delete process.env.EXPO_PUBLIC_APP_API_URL;
-    delete process.env.EXPO_PUBLIC_PERSONAL_API_URL;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules()
-    const { resolvePersonalApiUrl } = require('../personal-api');
-    expect(resolvePersonalApiUrl()).toBe('http://localhost:8787');
+    expect(personalApiOrigin).not.toHaveBeenCalled();
+    expect(personalApi.origin).toBe(personalApiOrigin);
+    expect(personalApi.build('https://personal-api.example').baseUrl).toBe('https://personal-api.example');
+    expect(ctor).toHaveBeenCalledTimes(1);
   });
 });

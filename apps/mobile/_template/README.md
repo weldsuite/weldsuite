@@ -33,7 +33,9 @@ Pass `--eas-init` to have the scaffolder run `eas init --force` in the new app f
 
 ## After scaffolding
 
-1. `.env` is copied from `.env.example`, fill in the Clerk publishable key.
+1. `.env` is copied from `.env.example`, fill in the Clerk publishable key (WeldSuite cloud's sign-in).
+   Set `requiredModules` in `lib/server.ts` to the API modules the app needs, so the server picker
+   refuses a server that doesn't run them.
 2. If you didn't use `--eas-init`, run `eas init` inside the new app to get a real EAS project id, then paste it into `app.json` (`expo.extra.eas.projectId` + `expo.updates.url`) and into `.env` (`EXPO_PUBLIC_EAS_PROJECT_ID`).
 3. Replace `assets/images/*.png` with branded art (icon 1024×1024, splash 200×200, notification 96×96, logo as needed).
 4. Add the new app's path to each other mobile app's `.easignore` so sibling builds skip it.
@@ -54,7 +56,11 @@ All occur as literal text inside files; the scaffolder does a plain string repla
 
 ## What's included
 
-- Clerk auth (`@clerk/expo`) with `LoginScreen` from `@weldsuite/mobile-ui`
+- Server choice: WeldSuite cloud, WeldSuite EU or a self-hosted server (`lib/server.ts`,
+  `ServerRuntimeGate`, `ServerRow`; docs/plans/mobile-server-choice.md). Off in production
+  builds until `EXPO_PUBLIC_SERVER_PICKER=on`.
+- Sign-in through the auth facade (`@weldsuite/mobile-platform/auth`): Clerk on WeldSuite cloud,
+  the server's OIDC provider elsewhere, with `LoginScreen` from `@weldsuite/mobile-ui`
 - AuthGuard + auto-select-first-org
 - `no-workspace` screen for users without a Clerk org
 - Bottom tabs (Home + Settings)

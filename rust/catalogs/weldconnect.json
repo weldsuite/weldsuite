@@ -219,6 +219,13 @@
     },
     {
       "category": "helpdesk",
+      "description": "Turn a Splunk, Datadog or Grafana alert into ticket fields: priority, state and an external id",
+      "icon": "siren",
+      "id": "parse_alert",
+      "name": "Read Alert"
+    },
+    {
+      "category": "helpdesk",
       "description": "Send a message to the customer in chat",
       "icon": "message-square-text",
       "id": "send_message",
@@ -1161,6 +1168,28 @@
         }
       ],
       "label": "Merge Release"
+    },
+    {
+      "category": "Forms",
+      "entityType": "form_response",
+      "events": [
+        {
+          "description": "When a form response is submitted",
+          "id": "submitted",
+          "name": "Form Response Submitted"
+        },
+        {
+          "description": "When a form response is updated",
+          "id": "updated",
+          "name": "Form Response Updated"
+        },
+        {
+          "description": "When a form response is deleted",
+          "id": "deleted",
+          "name": "Form Response Deleted"
+        }
+      ],
+      "label": "Form Response"
     }
   ],
   "integrations": [
@@ -2560,6 +2589,84 @@
             "type": "entity_event"
           }
         ]
+      },
+      {
+        "category": "support",
+        "description": "Open a ticket in the WeldDesk inbox for every alert, set its priority from the alert severity, update the same ticket when the alert fires again, and close it when the alert resolves. Paste the webhook URL of this workflow into Splunk (alert action \"Webhook\"), Datadog (Webhooks integration) or Grafana (contact point \"Webhook\").",
+        "icon": "Siren",
+        "id": "builtin_alert_to_ticket",
+        "key": "alertToTicket",
+        "name": "Alerts to tickets (Splunk, Datadog, Grafana)",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "defaultPriority": "medium",
+              "payload": "{{trigger.body}}",
+              "source": "auto"
+            },
+            "id": "step_parse",
+            "name": "Read the alert",
+            "order": 0,
+            "type": "parse_alert"
+          },
+          {
+            "config": {
+              "externalId": "{{steps.step_parse.externalId}}",
+              "message": "{{steps.step_parse.message}}",
+              "priority": "{{steps.step_parse.priority}}",
+              "state": "{{steps.step_parse.state}}",
+              "tags": "{{steps.step_parse.tags}}",
+              "title": "{{steps.step_parse.title}}"
+            },
+            "id": "step_ticket",
+            "name": "Open or update the ticket",
+            "order": 1,
+            "type": "create_conversation"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "webhook"
+          }
+        ]
+      },
+      {
+        "category": "communication",
+        "description": "When someone submits a form, post a message in a WeldChat channel so the team sees it straight away.",
+        "icon": "ClipboardList",
+        "id": "builtin_form_response_to_chat",
+        "key": "formResponseToChat",
+        "name": "Post new form responses in chat",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_post"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "New response #{{trigger.record.number}} to {{trigger.record.formTitle}} from {{trigger.record.respondentEmail}}."
+            },
+            "id": "step_post",
+            "name": "Post in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "form_response",
+            "eventType": "submitted",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
       }
     ],
     "nl": [
@@ -3045,6 +3152,84 @@
           {
             "entityType": "merge_release",
             "eventType": "shipped",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "support",
+        "description": "Open voor elke alert een ticket in de WeldDesk-inbox, stel de prioriteit in op basis van de ernst van de alert, werk hetzelfde ticket bij als de alert opnieuw afgaat en sluit het zodra de alert is opgelost. Plak de webhook-URL van deze workflow in Splunk (alert-actie \"Webhook\"), Datadog (Webhooks-integratie) of Grafana (contactpunt \"Webhook\").",
+        "icon": "Siren",
+        "id": "builtin_alert_to_ticket",
+        "key": "alertToTicket",
+        "name": "Alerts naar tickets (Splunk, Datadog, Grafana)",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "defaultPriority": "medium",
+              "payload": "{{trigger.body}}",
+              "source": "auto"
+            },
+            "id": "step_parse",
+            "name": "De alert uitlezen",
+            "order": 0,
+            "type": "parse_alert"
+          },
+          {
+            "config": {
+              "externalId": "{{steps.step_parse.externalId}}",
+              "message": "{{steps.step_parse.message}}",
+              "priority": "{{steps.step_parse.priority}}",
+              "state": "{{steps.step_parse.state}}",
+              "tags": "{{steps.step_parse.tags}}",
+              "title": "{{steps.step_parse.title}}"
+            },
+            "id": "step_ticket",
+            "name": "Ticket openen of bijwerken",
+            "order": 1,
+            "type": "create_conversation"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "webhook"
+          }
+        ]
+      },
+      {
+        "category": "communication",
+        "description": "Als iemand een formulier verstuurt, plaats je een bericht in een WeldChat-kanaal zodat het team het meteen ziet.",
+        "icon": "ClipboardList",
+        "id": "builtin_form_response_to_chat",
+        "key": "formResponseToChat",
+        "name": "Nieuwe formulierreacties in de chat melden",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_post"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Nieuwe reactie #{{trigger.record.number}} op {{trigger.record.formTitle}} van {{trigger.record.respondentEmail}}."
+            },
+            "id": "step_post",
+            "name": "Plaatsen in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "form_response",
+            "eventType": "submitted",
             "id": "trigger_main",
             "isEnabled": true,
             "type": "entity_event"
@@ -3566,6 +3751,9 @@
     "helpdesk_analytics_report.created",
     "helpdesk_analytics_report.updated",
     "helpdesk_analytics_report.deleted",
+    "helpdesk_report_schedule.created",
+    "helpdesk_report_schedule.updated",
+    "helpdesk_report_schedule.deleted",
     "helpdesk_email.created",
     "helpdesk_email.deleted",
     "helpcenter_settings.updated",
@@ -3955,6 +4143,9 @@
     "legal_entity_member.created",
     "legal_entity_member.updated",
     "legal_entity_member.deleted",
+    "audit_log_stream.created",
+    "audit_log_stream.updated",
+    "audit_log_stream.deleted",
     "connector_connection.created",
     "connector_connection.updated",
     "connector_connection.deleted",
@@ -4246,6 +4437,26 @@
     "merge_record_link.deleted",
     "merge_chat_subscription.created",
     "merge_chat_subscription.updated",
-    "merge_chat_subscription.deleted"
+    "merge_chat_subscription.deleted",
+    "form.created",
+    "form.updated",
+    "form.deleted",
+    "form.published",
+    "form.closed",
+    "form_response.submitted",
+    "form_response.updated",
+    "form_response.deleted",
+    "form_folder.created",
+    "form_folder.updated",
+    "form_folder.deleted",
+    "form_theme.created",
+    "form_theme.updated",
+    "form_theme.deleted",
+    "form_integration.created",
+    "form_integration.updated",
+    "form_integration.deleted",
+    "form_invitation.sent",
+    "form_invitation.completed",
+    "form_invitation.revoked"
   ]
 }

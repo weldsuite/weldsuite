@@ -85,6 +85,7 @@ mod knowledge;
 mod library;
 mod link;
 mod notify;
+pub mod report_sweep;
 mod routing;
 mod settings;
 mod simple;

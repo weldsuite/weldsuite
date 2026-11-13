@@ -1,0 +1,12 @@
+dependencies:
+- name: valkey
+  repository: https://valkey.io/valkey-helm
+  version: 0.12.0
+- name: nats
+  repository: https://nats-io.github.io/k8s/helm/charts
+  version: 2.15.0
+- name: restate-helm
+  repository: oci://ghcr.io/restatedev
+  version: 1.7.13
+digest: sha256:fc7920afbc9243c6674854d8b819e6da469ecb939dbef83eae28822c0a094b6f
+generated: "2026-11-09T18:57:38.099261+01:00"

@@ -78,6 +78,10 @@ pub struct IntegrationsState {
     pub cache: Option<Arc<dyn DynCache>>,
     /// Third-party HTTP (Plaid's verification keys).
     pub http: Option<OutboundHttp>,
+    /// Ponto's mTLS client (`PONTO_MTLS_CERT`/`_KEY`): Ibanity's webhooks
+    /// API serves the verification keys to the application's certificate.
+    /// None: through [`Self::http`].
+    pub ponto_http: Option<OutboundHttp>,
     /// The workers' settings by their binding name (`PLAID_*`,
     /// `STRIPE_FC_WEBHOOK_SECRET`, …), from the process environment. A
     /// request's `RequestEnv` (conformance) wins.
@@ -236,6 +240,15 @@ impl PublicCtx {
 
     pub(crate) fn http(&self, state: &IntegrationsState) -> Option<OutboundHttp> {
         self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// Ponto's client: the request's (conformance), else the server's mTLS
+    /// one, else plain outbound HTTP.
+    pub(crate) fn ponto_http(&self, state: &IntegrationsState) -> Option<OutboundHttp> {
+        self.http
+            .clone()
+            .or_else(|| state.ponto_http.clone())
+            .or_else(|| state.http.clone())
     }
 
     pub(crate) fn books(&self, state: &IntegrationsState) -> Option<Arc<dyn ServiceBinding>> {

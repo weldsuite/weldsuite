@@ -40,8 +40,8 @@ pub use restrictions::{
 pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;
 pub use workspaces::{
-    Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,
-    master_pool,
+    PoolUsage, Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError,
+    WorkspacePools, Workspaces, master_pool,
 };
 
 /// The master database a request should use, as a request extension.

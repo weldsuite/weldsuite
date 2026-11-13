@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { isPushAvailable } from '@weldsuite/mobile-platform/edition';
 
 const EAS_PROJECT_ID =
   Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
@@ -39,7 +40,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const [badgeCount, setBadgeCount] = useState(0);
 
   const registerForPushNotifications = useCallback(async () => {
-    if (!Device.isDevice) return null;
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!Device.isDevice || !isPushAvailable()) return null;
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;

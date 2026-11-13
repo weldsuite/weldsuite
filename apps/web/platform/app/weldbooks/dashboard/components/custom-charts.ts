@@ -36,6 +36,8 @@ export const CHART_COMPARES: ChartCompare[] = ['dashboard', 'previousPeriod', 'p
 
 /** The dashboard's own chart colour first, then the theme's other chart colours. */
 export const CHART_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+/** A colour of the user's own, picked or typed, next to the theme's. */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** Where a chart's title links to: the report or list behind its figure. */
 export const SOURCE_LINKS = {
@@ -109,7 +111,10 @@ export function parseDashboardCharts(value: unknown): DashboardChart[] {
         type: oneOf(types, r.type, types[0]),
         range: oneOf(CHART_RANGES, r.range, 'dashboard'),
         compare: oneOf(CHART_COMPARES, r.compare, 'dashboard'),
-        color: oneOf(CHART_COLORS, r.color, CHART_COLORS[0]),
+        color:
+          typeof r.color === 'string' && HEX_COLOR.test(r.color)
+            ? r.color.toLowerCase()
+            : oneOf(CHART_COLORS, r.color, CHART_COLORS[0]),
       },
     ];
   });

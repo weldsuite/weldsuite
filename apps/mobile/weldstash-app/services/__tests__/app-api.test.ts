@@ -10,19 +10,16 @@ describe('services/app-api', () => {
     process.env = ORIGINAL_ENV;
   });
 
-  describe('APP_API_URL', () => {
-    it('defaults to the local app-api when the env var is unset', () => {
-      delete process.env.EXPO_PUBLIC_APP_API_URL;
+  describe('createMobileApiClient', () => {
+    it('builds the client for this app, with no host baked in at import time', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { APP_API_URL } = require('../app-api');
-      expect(APP_API_URL).toBe('http://localhost:8789');
-    });
-
-    it('uses EXPO_PUBLIC_APP_API_URL when provided', () => {
-      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org';
+      const { createMobileApiClient } = require('@weldsuite/mobile-platform/api');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { APP_API_URL } = require('../app-api');
-      expect(APP_API_URL).toBe('https://app-api.weldsuite.org');
+      require('../app-api');
+      expect(createMobileApiClient).toHaveBeenCalledTimes(1);
+      expect(createMobileApiClient).toHaveBeenCalledWith(
+        expect.objectContaining({ appCode: 'weldstash', getToken: expect.any(Function) }),
+      );
     });
   });
 
@@ -53,13 +50,13 @@ describe('services/app-api', () => {
   });
 
   describe('setAppApiTokenGetter', () => {
-    it('passes a token getter to createClientApi that reflects the latest setter', async () => {
+    it('passes a token getter to createMobileApiClient that reflects the latest setter', async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { createClientApi } = require('@weldsuite/api-client/client');
+      const { createMobileApiClient } = require('@weldsuite/mobile-platform/api');
       let capturedGetToken: () => Promise<string | null> = async () => 'never-set';
-      createClientApi.mockImplementation((opts: { getToken: () => Promise<string | null> }) => {
+      createMobileApiClient.mockImplementation((opts: { getToken: () => Promise<string | null> }) => {
         capturedGetToken = opts.getToken;
-        return { __stub: 'client' };
+        return { client: { __stub: 'client' }, requestInit: jest.fn() };
       });
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -20,7 +20,7 @@ import { Inbox as InboxIcon, Mail, MessageSquare, Search, X } from 'lucide-react
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import api from '@/services/api';
 import { ACCENTS, BRAND } from '@/lib/brand';
@@ -72,7 +72,7 @@ export default function InboxScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { t } = useI18n();
 
   const [items, setItems] = useState<DeskConversation[]>([]);

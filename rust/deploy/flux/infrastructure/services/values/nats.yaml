@@ -34,6 +34,20 @@ reloader:
       allowPrivilegeEscalation: false
       capabilities:
         drop: [ALL]
+# Prometheus metrics, JetStream's streams and consumers included (the
+# exporter adds -jsz=all with JetStream on), on port 7777 "prom-metrics"
+# for the monitoring layer's PodMonitor (monitoring-config/monitors.yaml).
+# Its own pod monitor stays off: that kind needs the monitoring layer's CRDs,
+# which come after this layer.
+promExporter:
+  enabled: true
+  merge:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+  podMonitor:
+    enabled: false
 # A debugging client; `kubectl run` one when it's needed.
 natsBox:
   enabled: false

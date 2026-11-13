@@ -23,7 +23,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import api from '@/services/api';
 import { BRAND, tint } from '@/lib/brand';
@@ -265,7 +265,7 @@ export default function ConversationScreen() {
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const toast = useToast();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { members, load: loadMembers } = useAssignableMembers();
   const listRef = useRef<FlatList<DeskMessage>>(null);
 

@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { Platform, StyleSheet, Text } from 'react-native';
+import { Linking, Platform, StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import {
@@ -24,7 +24,10 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import { Switch } from '@weldsuite/mobile-ui/components/Switch';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthProvider, useHostedSignIn } from '@weldsuite/mobile-platform/auth';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
@@ -40,6 +43,7 @@ import { usePalette } from '@/hooks/use-palette';
 import { useHrAccess, useOverview, usePayslips } from '@/hooks/use-weldhr-queries';
 import { formatDate } from '@/lib/format';
 import { APP_LANGUAGES, labelFor, useI18n, type AppLanguage } from '@/lib/i18n';
+import { BRAND } from '@/constants/brand';
 
 export default function ProfileScreen() {
   const palette = usePalette();
@@ -142,10 +146,14 @@ function Settings() {
   const palette = usePalette();
   const { preference, setPreference } = useTheme();
   const { t, format, language, setLanguage } = useI18n();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const lock = useAppLock();
   const method = lockMethodLabel(t, lock.method);
   const [deleting, setDeleting] = useState(false);
+  // WeldSuite deletes the account on Clerk; elsewhere the person does it at the identity provider.
+  const onClerk = useAuthProvider() === 'clerk';
+  const accountUrl = useHostedSignIn()?.accountUrl;
+  const showServer = !!peekMobileRuntime()?.serverPickerEnabled || !!accountUrl;
 
   return (
     <>
@@ -190,15 +198,25 @@ function Settings() {
 
       <WorkspaceList />
 
+      {showServer ? (
+        <Group>
+          {/* Which server the app talks to; both render nothing when the build has the picker off. */}
+          <ServerRow variant="settings" language={language} accentColor={BRAND} />
+          <ProviderAccountRow language={language} />
+        </Group>
+      ) : null}
+
       <Group>
         <GroupRow icon={CircleArrowRight} title={t.me.signOut} onPress={() => void signOut()} testID="me-sign-out" />
-        <GroupRow
-          icon={Trash2}
-          title={t.deleteAccount.action}
-          onPress={() => setDeleting(true)}
-          testID="me-delete-account"
-          destructive
-        />
+        {onClerk || accountUrl ? (
+          <GroupRow
+            icon={Trash2}
+            title={t.deleteAccount.action}
+            onPress={() => (onClerk ? setDeleting(true) : void Linking.openURL(accountUrl as string))}
+            testID="me-delete-account"
+            destructive
+          />
+        ) : null}
       </Group>
       <DeleteAccountDialog visible={deleting} onClose={() => setDeleting(false)} />
 

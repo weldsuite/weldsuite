@@ -15,7 +15,19 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
+import type { SheetFormColumn } from '@/app/weldforms/lib/sheet-columns';
 import { draftIsValid, moveColumn, newFilter, refield, type FieldLabel, type FilterDraft, type SourceDraft } from './data-source-draft';
+
+/** What the form picker of a `form_responses` table needs. */
+export interface FormPicker {
+  forms: { id: string; title: string }[];
+  loading: boolean;
+  /** An existing table keeps its form. */
+  locked: boolean;
+  onPick: (formId: string) => void;
+  /** The picked form's question and hidden-field columns, after the object's own fields. */
+  columns: SheetFormColumn[];
+}
 
 /** Sort value for "newest first" (no sort field). */
 const NEWEST = '__newest';
@@ -40,6 +52,7 @@ export function DataSourceForm({
   saving,
   onSave,
   onCancel,
+  formPicker,
 }: {
   draft: SourceDraft;
   onChange: (draft: SourceDraft) => void;
@@ -51,10 +64,13 @@ export function DataSourceForm({
   saving: boolean;
   onSave: () => void;
   onCancel: () => void;
+  /** `form_responses`: the forms to pick from and the columns of the picked one. */
+  formPicker?: FormPicker;
 }) {
   const { t } = useI18n();
   const td = t.weldsheets.dataSources;
-  const label = useFieldLabel();
+  const baseLabel = useFieldLabel();
+  const label: FieldLabel = (objectType, field) => formPicker?.columns.find((c) => c.key === field)?.label ?? baseLabel(objectType, field);
   const fields = SHEET_DATA_OBJECTS[draft.objectType].fields;
   return (
     <form
@@ -79,7 +95,27 @@ export function DataSourceForm({
         </Select>
       </Labelled>
 
-      <ColumnsEditor draft={draft} onChange={onChange} label={label} />
+      {draft.objectType === 'form_responses' && formPicker && (
+        <Labelled text={td.form}>
+          <Select value={draft.formId ?? ''} disabled={formPicker.locked} onValueChange={formPicker.onPick}>
+            <SelectTrigger className="h-8 w-full text-sm" aria-label={td.form}>
+              <SelectValue placeholder={formPicker.loading ? td.formsLoading : td.pickForm} />
+            </SelectTrigger>
+            <SelectContent>
+              {formPicker.forms.map((form) => (
+                <SelectItem key={form.id} value={form.id}>
+                  {form.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!formPicker.loading && formPicker.forms.length === 0 && <p className="text-xs text-muted-foreground">{td.noForms}</p>}
+        </Labelled>
+      )}
+
+      {(draft.objectType !== 'form_responses' || draft.formId) && (
+        <ColumnsEditor draft={draft} onChange={onChange} label={label} extra={formPicker?.columns} />
+      )}
       <FiltersEditor draft={draft} onChange={onChange} label={label} />
 
       <Labelled text={td.sort}>
@@ -165,11 +201,21 @@ function Labelled({ text, className = '', children }: { text: string; className?
 }
 
 /** The fields shown, in order, each under a title the viewer can change. */
-function ColumnsEditor({ draft, onChange, label }: { draft: SourceDraft; onChange: (draft: SourceDraft) => void; label: FieldLabel }) {
+function ColumnsEditor({
+  draft,
+  onChange,
+  label,
+  extra = [],
+}: {
+  draft: SourceDraft;
+  onChange: (draft: SourceDraft) => void;
+  label: FieldLabel;
+  extra?: SheetFormColumn[];
+}) {
   const { t } = useI18n();
   const td = t.weldsheets.dataSources;
   const used = new Set(draft.columns.map((c) => c.field));
-  const rest = SHEET_DATA_OBJECTS[draft.objectType].fields.filter((f) => !used.has(f.key));
+  const rest = [...SHEET_DATA_OBJECTS[draft.objectType].fields.map((f) => ({ key: f.key })), ...extra.map((c) => ({ key: c.key }))].filter((f) => !used.has(f.key));
   const set = (columns: SourceDraft['columns']) => onChange({ ...draft, columns });
   return (
     <Labelled text={td.columns}>

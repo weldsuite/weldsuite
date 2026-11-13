@@ -12,35 +12,50 @@
 //   ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET        the admin console's Zitadel app
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
+//   ALERT_CRITICAL_URL, ALERT_WARNING_URL                 where alerts go (alerting-receivers)
+//   ALERT_HEARTBEAT_URL, ALERT_TOKEN                      the heartbeat check, the receivers' token
+//   GRAFANA_OIDC_CLIENT_ID, GRAFANA_OIDC_CLIENT_SECRET    Grafana's Zitadel app
+//   LOGS_S3_ACCESS_KEY_ID, LOGS_S3_SECRET_ACCESS_KEY      the logs bucket (Loki)
 //
-// A new cluster:
+// A new cluster (its secrets folder, next to its cluster folder: in a copy of
+// this repository rust/deploy/flux/secrets/<cluster>, in WeldSuite's deploy
+// repository eu/secrets/<cluster>):
 //
-//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // The file it writes is plaintext: fill in what it lists as left, then
 // `sops --encrypt --in-place` it before anything else. It never overwrites.
 //
 // A running cluster, once the examples gained Secrets or keys:
 //
-//   SOPS_AGE_KEY_FILE=~/weldsuite-eu-test.agekey \
-//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/test/secrets.sops.yaml
+//   SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+//     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
 //
 // decrypts the file with sops (in memory, never to disk), adds the Secrets and
 // keys the examples have and it lacks, and encrypts it again in place. Values
 // it already holds stay; a placeholder that also appears in one of them (the
 // Valkey password in livekit-env's REDIS_PASSWORD) takes that value. Whatever
 // would stay CHANGE_ME is left out and listed. It prints names, never values.
+// `--only <namespace>/<name>,…` limits it to those Secrets (add Grafana's
+// without touching the server's environment):
+//
+//   GRAFANA_OIDC_CLIENT_ID=… GRAFANA_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=… \
+//     node rust/deploy/flux/scripts/fill-secrets.mjs --update \
+//     --only monitoring/grafana-oidc,monitoring/grafana-admin <encrypted secrets file>
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const update = process.argv[2] === '--update';
-const out = process.argv[update ? 3 : 2];
+const args = process.argv.slice(2);
+const onlyAt = args.indexOf('--only');
+const only = onlyAt >= 0 ? new Set((args.splice(onlyAt, 2)[1] ?? '').split(',').filter(Boolean)) : null;
+const update = args[0] === '--update';
+const out = args[update ? 1 : 0];
 if (!out) {
   console.error('usage: node fill-secrets.mjs <output file>');
-  console.error('       node fill-secrets.mjs --update <encrypted secrets file>');
+  console.error('       node fill-secrets.mjs --update [--only <ns>/<name>,…] <encrypted secrets file>');
   process.exit(2);
 }
 if (update ? !existsSync(out) : existsSync(out)) {
@@ -48,8 +63,9 @@ if (update ? !existsSync(out) : existsSync(out)) {
   process.exit(1);
 }
 
-// rust/deploy/flux: the examples, and .sops.yaml, which sops finds from its
-// working directory.
+// rust/deploy/flux: the examples. sops finds .sops.yaml from its working
+// directory up, so it runs in the secrets file's own folder (the deploy
+// repository keeps its .sops.yaml at its root).
 const flux = join(dirname(fileURLToPath(import.meta.url)), '..');
 const example = join(flux, 'secrets/examples/secrets.example.yaml');
 
@@ -66,6 +82,14 @@ const PROVIDED = {
   'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
   'weldsuite-env/ADMIN_OIDC_CLIENT_ID': 'ADMIN_OIDC_CLIENT_ID',
   'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET': 'ADMIN_OIDC_CLIENT_SECRET',
+  'alerting-receivers/critical-url': 'ALERT_CRITICAL_URL',
+  'alerting-receivers/warning-url': 'ALERT_WARNING_URL',
+  'alerting-receivers/heartbeat-url': 'ALERT_HEARTBEAT_URL',
+  'alerting-receivers/token': 'ALERT_TOKEN',
+  'grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_ID': 'GRAFANA_OIDC_CLIENT_ID',
+  'grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET': 'GRAFANA_OIDC_CLIENT_SECRET',
+  'loki-s3/access-key-id': 'LOGS_S3_ACCESS_KEY_ID',
+  'loki-s3/secret-access-key': 'LOGS_S3_SECRET_ACCESS_KEY',
 };
 
 function bareValue(secret, key) {
@@ -130,8 +154,9 @@ function writeNew(out) {
     }
     const name = /^ {2}name: (\S+)$/.exec(line);
     if (name) secret = name[1];
-    const bare = /^( {2}([A-Za-z0-9_.]+): )CHANGE_ME$/.exec(line);
-    const filled = bare ? bare[1] + bareValue(secret, bare[2]) : line;
+    const bare = /^( {2}([A-Za-z0-9_.-]+): )CHANGE_ME$/.exec(line);
+    const value = bare ? bareValue(secret, bare[2]) : '';
+    const filled = bare ? bare[1] + (value === 'CHANGE_ME' ? value : JSON.stringify(value)) : line;
     lines.push(filled.replace(PLACEHOLDER, namedValue));
   }
 
@@ -145,7 +170,7 @@ function writeNew(out) {
     if (name) secret = name[1];
     const ns = /^ {2}namespace: (\S+)$/.exec(line);
     if (ns) namespace = ns[1];
-    const entry = /^ {2}([A-Za-z0-9_.]+): .*CHANGE_ME/.exec(line);
+    const entry = /^ {2}([A-Za-z0-9_.-]+): .*CHANGE_ME/.exec(line);
     if (entry) left.push(`${namespace}/${secret}: ${entry[1]}${loginHint(line)}`);
   }
 
@@ -162,16 +187,20 @@ function writeNew(out) {
 
 // The Secrets of a YAML stream as the examples and sops write them: one
 // Secret per document, its values one plain or quoted scalar per line under
-// `stringData:` (or base64 under `data:`).
+// `stringData:` (or base64 under `data:`), or a block scalar (`key: |`, a
+// certificate) whose more-indented lines that follow belong to it.
 function parseSecrets(text) {
   const docs = [];
   let doc = null;
   let block = '';
+  // The indent of the key whose block scalar the lines below belong to; -1: none.
+  let scalarIndent = -1;
   const lines = text.split(/\r?\n/);
   const start = (index) => {
     doc = { start: index, end: index, name: '', namespace: '', values: new Map(), dataEnd: -1, indent: '  ' };
     docs.push(doc);
     block = '';
+    scalarIndent = -1;
   };
   start(0);
   lines.forEach((line, index) => {
@@ -181,24 +210,37 @@ function parseSecrets(text) {
       return;
     }
     doc.end = index + 1;
+    if (scalarIndent >= 0) {
+      // Still the block scalar: blank, or indented past its key. New keys go
+      // after it, never inside it.
+      if (line.trim() === '' || /^ */.exec(line)[0].length > scalarIndent) {
+        if (block === 'stringData') doc.dataEnd = index + 1;
+        return;
+      }
+      scalarIndent = -1;
+    }
     const top = /^([A-Za-z]+):/.exec(line);
     if (top) {
       block = top[1];
       return;
     }
+    // New keys go after the block's last line: a multi-line value (a PEM
+    // key under `|`) included, or they would land inside it.
+    if (block === 'stringData' && /^\s+\S/.test(line)) doc.dataEnd = index + 1;
     const entry = /^( +)([A-Za-z0-9_.-]+): ?(.*)$/.exec(line);
     if (!entry) return;
     const [, indent, key, raw] = entry;
+    if (/^[|>]/.test(raw)) scalarIndent = indent.length;
     if (block === 'metadata' && key === 'name') doc.name = scalar(raw);
     if (block === 'metadata' && key === 'namespace') doc.namespace = scalar(raw);
     if (block === 'stringData' || block === 'data') {
+      // Deeper than the keys: a line of a multi-line value, not a key.
+      if (doc.keyIndent !== undefined && indent.length > doc.keyIndent) return;
+      doc.keyIndent = indent.length;
       let value = /^[|>]/.test(raw) ? undefined : scalar(raw);
       if (value !== undefined && block === 'data') value = Buffer.from(value, 'base64').toString();
       doc.values.set(key, value);
-      if (block === 'stringData') {
-        doc.dataEnd = index + 1;
-        doc.indent = indent;
-      }
+      if (block === 'stringData') doc.indent = indent;
     }
   });
   for (const d of docs) d.id = `${d.namespace}/${d.name}`;
@@ -226,7 +268,7 @@ function updateFile(file) {
   const sops = (args, input) => {
     try {
       return execFileSync('sops', args, {
-        cwd: flux,
+        cwd: dirname(path),
         input,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
@@ -266,6 +308,7 @@ function updateFile(file) {
   const inserts = new Map(); // line index -> lines to insert before it
   const appended = [];
   for (const want of wanted.docs) {
+    if (only && !only.has(want.id)) continue;
     const have = current.docs.find((d) => d.id === want.id);
     const fresh = [];
     for (const [key, template] of want.values) {

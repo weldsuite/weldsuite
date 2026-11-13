@@ -23,7 +23,7 @@ import {
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
@@ -295,7 +295,7 @@ export default function MailScreen() {
   const { launchReady } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
-  const { organizationId, user } = useClerkAuth();
+  const { organizationId, user } = useAuthSession();
 
   // The mailbox + label the user is currently viewing, as one stable key.
   // Each key is an isolated list: switching account or opening the unified

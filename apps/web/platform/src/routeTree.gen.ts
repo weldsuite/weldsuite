@@ -24,6 +24,7 @@ import { Route as WeldmailRouteRouteImport } from './routes/weldmail/route'
 import { Route as WeldknowRouteRouteImport } from './routes/weldknow/route'
 import { Route as WeldhrRouteRouteImport } from './routes/weldhr/route'
 import { Route as WeldhostRouteRouteImport } from './routes/weldhost/route'
+import { Route as WeldformsRouteRouteImport } from './routes/weldforms/route'
 import { Route as WeldflowRouteRouteImport } from './routes/weldflow/route'
 import { Route as WelddriveRouteRouteImport } from './routes/welddrive/route'
 import { Route as WelddocsRouteRouteImport } from './routes/welddocs/route'
@@ -56,6 +57,7 @@ import { Route as WeldmailIndexRouteImport } from './routes/weldmail/index'
 import { Route as WeldknowIndexRouteImport } from './routes/weldknow/index'
 import { Route as WeldhrIndexRouteImport } from './routes/weldhr/index'
 import { Route as WeldhostIndexRouteImport } from './routes/weldhost/index'
+import { Route as WeldformsIndexRouteImport } from './routes/weldforms/index'
 import { Route as WeldflowIndexRouteImport } from './routes/weldflow/index'
 import { Route as WelddriveIndexRouteImport } from './routes/welddrive/index'
 import { Route as WelddocsIndexRouteImport } from './routes/welddocs/index'
@@ -86,12 +88,14 @@ import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
 import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
+import { Route as WeldformsFormIdRouteRouteImport } from './routes/weldforms/$formId/route'
 import { Route as WeldflowIntakeRouteRouteImport } from './routes/weldflow/intake/route'
 import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
 import { Route as PreviewWeldsheetsRouteRouteImport } from './routes/preview/weldsheets/route'
 import { Route as PreviewWeldmailRouteRouteImport } from './routes/preview/weldmail/route'
 import { Route as PreviewWeldhostRouteRouteImport } from './routes/preview/weldhost/route'
+import { Route as PreviewWeldformsRouteRouteImport } from './routes/preview/weldforms/route'
 import { Route as PreviewWeldflowRouteRouteImport } from './routes/preview/weldflow/route'
 import { Route as PreviewWelddocsRouteRouteImport } from './routes/preview/welddocs/route'
 import { Route as PreviewWelddeskRouteRouteImport } from './routes/preview/welddesk/route'
@@ -148,9 +152,10 @@ import { Route as WeldhrAttendanceIndexRouteImport } from './routes/weldhr/atten
 import { Route as WeldhrAnnouncementsIndexRouteImport } from './routes/weldhr/announcements/index'
 import { Route as WeldhrAbsenteeismIndexRouteImport } from './routes/weldhr/absenteeism/index'
 import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
+import { Route as WeldformsSettingsIndexRouteImport } from './routes/weldforms/settings/index'
+import { Route as WeldformsFormIdIndexRouteImport } from './routes/weldforms/$formId/index'
 import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
 import { Route as WeldflowWhiteboardIndexRouteImport } from './routes/weldflow/whiteboard/index'
-import { Route as WeldflowTemplatesIndexRouteImport } from './routes/weldflow/templates/index'
 import { Route as WeldflowSettingsIndexRouteImport } from './routes/weldflow/settings/index'
 import { Route as WeldflowReviewsIndexRouteImport } from './routes/weldflow/reviews/index'
 import { Route as WeldflowProjectsIndexRouteImport } from './routes/weldflow/projects/index'
@@ -270,6 +275,7 @@ import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/adv
 import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
 import { Route as PreviewWeldsheetsIndexRouteImport } from './routes/preview/weldsheets/index'
 import { Route as PreviewWeldhostIndexRouteImport } from './routes/preview/weldhost/index'
+import { Route as PreviewWeldformsIndexRouteImport } from './routes/preview/weldforms/index'
 import { Route as PreviewWeldflowIndexRouteImport } from './routes/preview/weldflow/index'
 import { Route as PreviewWelddocsIndexRouteImport } from './routes/preview/welddocs/index'
 import { Route as PreviewWelddataIndexRouteImport } from './routes/preview/welddata/index'
@@ -294,6 +300,17 @@ import { Route as WeldmergeOauthCallbackRouteImport } from './routes/weldmerge/o
 import { Route as WeldmergeIssuesIssueKeyRouteImport } from './routes/weldmerge/issues/$issueKey'
 import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join/$joinCode'
 import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
+import { Route as WeldformsFillPublicIdRouteImport } from './routes/weldforms/fill/$publicId'
+import { Route as WeldformsFormIdShareRouteImport } from './routes/weldforms/$formId/share'
+import { Route as WeldformsFormIdSettingsRouteImport } from './routes/weldforms/$formId/settings'
+import { Route as WeldformsFormIdResultsRouteImport } from './routes/weldforms/$formId/results'
+import { Route as WeldformsFormIdLogicRouteImport } from './routes/weldforms/$formId/logic'
+import { Route as WeldformsFormIdIntegrationsRouteImport } from './routes/weldforms/$formId/integrations'
+import { Route as WeldformsFormIdEditRouteImport } from './routes/weldforms/$formId/edit'
+import { Route as WeldformsFormIdDesignRouteImport } from './routes/weldforms/$formId/design'
+import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/reports/wallboard'
+import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
+import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
@@ -313,6 +330,7 @@ import { Route as WeldmailAccountIdLabelSlugRouteRouteImport } from './routes/we
 import { Route as WeldflowProjectProjectIdRouteRouteImport } from './routes/weldflow/project/$projectId/route'
 import { Route as SettingsAppsWelddeskRouteRouteImport } from './routes/settings/apps/welddesk/route'
 import { Route as PreviewWeldmailAccountIdRouteRouteImport } from './routes/preview/weldmail/$accountId/route'
+import { Route as PreviewWeldformsFormIdRouteRouteImport } from './routes/preview/weldforms/$formId/route'
 import { Route as PreviewWeldcrmPeopleRouteRouteImport } from './routes/preview/weldcrm/people/route'
 import { Route as WeldsignTemplatesTemplateIdIndexRouteImport } from './routes/weldsign/templates/$templateId/index'
 import { Route as WeldreachCampaignsCampaignIdIndexRouteImport } from './routes/weldreach/campaigns/$campaignId/index'
@@ -345,6 +363,7 @@ import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhos
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
 import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldhost/domains/external/index'
 import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
+import { Route as WeldflowWorkloadCapacityIndexRouteImport } from './routes/weldflow/workload/capacity/index'
 import { Route as WeldflowTaskTaskIdIndexRouteImport } from './routes/weldflow/task/$taskId/index'
 import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
 import { Route as WeldflowIntakeRoadmapIndexRouteImport } from './routes/weldflow/intake/roadmap/index'
@@ -449,6 +468,8 @@ import { Route as SettingsAppsWelddeskIndexRouteImport } from './routes/settings
 import { Route as SettingsAppsPhoneNumbersIndexRouteImport } from './routes/settings/apps/phone-numbers/index'
 import { Route as PreviewWeldsheetsSheetIdIndexRouteImport } from './routes/preview/weldsheets/$sheetId/index'
 import { Route as PreviewWeldhostDomainsIndexRouteImport } from './routes/preview/weldhost/domains/index'
+import { Route as PreviewWeldformsSettingsIndexRouteImport } from './routes/preview/weldforms/settings/index'
+import { Route as PreviewWeldformsFormIdIndexRouteImport } from './routes/preview/weldforms/$formId/index'
 import { Route as PreviewWelddocsDocIdIndexRouteImport } from './routes/preview/welddocs/$docId/index'
 import { Route as PreviewWelddeskInboxIndexRouteImport } from './routes/preview/welddesk/inbox/index'
 import { Route as PreviewWeldcrmPeopleIndexRouteImport } from './routes/preview/weldcrm/people/index'
@@ -465,6 +486,13 @@ import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/w
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
 import { Route as SettingsIntegrationsGoogleCalendarCallbackRouteImport } from './routes/settings/integrations/google-calendar/callback'
 import { Route as SettingsIntegrationsAttioCallbackRouteImport } from './routes/settings/integrations/attio/callback'
+import { Route as PreviewWeldformsFormIdShareRouteImport } from './routes/preview/weldforms/$formId/share'
+import { Route as PreviewWeldformsFormIdSettingsRouteImport } from './routes/preview/weldforms/$formId/settings'
+import { Route as PreviewWeldformsFormIdResultsRouteImport } from './routes/preview/weldforms/$formId/results'
+import { Route as PreviewWeldformsFormIdLogicRouteImport } from './routes/preview/weldforms/$formId/logic'
+import { Route as PreviewWeldformsFormIdIntegrationsRouteImport } from './routes/preview/weldforms/$formId/integrations'
+import { Route as PreviewWeldformsFormIdEditRouteImport } from './routes/preview/weldforms/$formId/edit'
+import { Route as PreviewWeldformsFormIdDesignRouteImport } from './routes/preview/weldforms/$formId/design'
 import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/register/tasks/$'
 import { Route as AuthLoginTasksSplatRouteImport } from './routes/auth/login/tasks/$'
 import { Route as WeldflowProjectProjectIdScopeRouteRouteImport } from './routes/weldflow/project/$projectId/scope/route'
@@ -665,6 +693,11 @@ const WeldhostRouteRoute = WeldhostRouteRouteImport.update({
   path: '/weldhost',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldformsRouteRoute = WeldformsRouteRouteImport.update({
+  id: '/weldforms',
+  path: '/weldforms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldflowRouteRoute = WeldflowRouteRouteImport.update({
   id: '/weldflow',
   path: '/weldflow',
@@ -825,6 +858,11 @@ const WeldhostIndexRoute = WeldhostIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WeldhostRouteRoute,
 } as any)
+const WeldformsIndexRoute = WeldformsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldformsRouteRoute,
+} as any)
 const WeldflowIndexRoute = WeldflowIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -975,6 +1013,11 @@ const WeldhrMeRouteRoute = WeldhrMeRouteRouteImport.update({
   path: '/me',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
+const WeldformsFormIdRouteRoute = WeldformsFormIdRouteRouteImport.update({
+  id: '/$formId',
+  path: '/$formId',
+  getParentRoute: () => WeldformsRouteRoute,
+} as any)
 const WeldflowIntakeRouteRoute = WeldflowIntakeRouteRouteImport.update({
   id: '/intake',
   path: '/intake',
@@ -1003,6 +1046,11 @@ const PreviewWeldmailRouteRoute = PreviewWeldmailRouteRouteImport.update({
 const PreviewWeldhostRouteRoute = PreviewWeldhostRouteRouteImport.update({
   id: '/preview/weldhost',
   path: '/preview/weldhost',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreviewWeldformsRouteRoute = PreviewWeldformsRouteRouteImport.update({
+  id: '/preview/weldforms',
+  path: '/preview/weldforms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreviewWeldflowRouteRoute = PreviewWeldflowRouteRouteImport.update({
@@ -1290,6 +1338,16 @@ const WeldhostDomainsIndexRoute = WeldhostDomainsIndexRouteImport.update({
   path: '/domains/',
   getParentRoute: () => WeldhostRouteRoute,
 } as any)
+const WeldformsSettingsIndexRoute = WeldformsSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => WeldformsRouteRoute,
+} as any)
+const WeldformsFormIdIndexRoute = WeldformsFormIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
 const WeldflowWorkloadIndexRoute = WeldflowWorkloadIndexRouteImport.update({
   id: '/workload/',
   path: '/workload/',
@@ -1298,11 +1356,6 @@ const WeldflowWorkloadIndexRoute = WeldflowWorkloadIndexRouteImport.update({
 const WeldflowWhiteboardIndexRoute = WeldflowWhiteboardIndexRouteImport.update({
   id: '/whiteboard/',
   path: '/whiteboard/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowTemplatesIndexRoute = WeldflowTemplatesIndexRouteImport.update({
-  id: '/templates/',
-  path: '/templates/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
 const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
@@ -1927,6 +1980,11 @@ const PreviewWeldhostIndexRoute = PreviewWeldhostIndexRouteImport.update({
   path: '/',
   getParentRoute: () => PreviewWeldhostRouteRoute,
 } as any)
+const PreviewWeldformsIndexRoute = PreviewWeldformsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PreviewWeldformsRouteRoute,
+} as any)
 const PreviewWeldflowIndexRoute = PreviewWeldflowIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -2050,6 +2108,64 @@ const WeldmeetMeetingIdRoomRoute = WeldmeetMeetingIdRoomRouteImport.update({
   path: '/$meetingId/room',
   getParentRoute: () => WeldmeetRouteRoute,
 } as any)
+const WeldformsFillPublicIdRoute = WeldformsFillPublicIdRouteImport.update({
+  id: '/fill/$publicId',
+  path: '/fill/$publicId',
+  getParentRoute: () => WeldformsRouteRoute,
+} as any)
+const WeldformsFormIdShareRoute = WeldformsFormIdShareRouteImport.update({
+  id: '/share',
+  path: '/share',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WeldformsFormIdSettingsRoute = WeldformsFormIdSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WeldformsFormIdResultsRoute = WeldformsFormIdResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WeldformsFormIdLogicRoute = WeldformsFormIdLogicRouteImport.update({
+  id: '/logic',
+  path: '/logic',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WeldformsFormIdIntegrationsRoute =
+  WeldformsFormIdIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => WeldformsFormIdRouteRoute,
+  } as any)
+const WeldformsFormIdEditRoute = WeldformsFormIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WeldformsFormIdDesignRoute = WeldformsFormIdDesignRouteImport.update({
+  id: '/design',
+  path: '/design',
+  getParentRoute: () => WeldformsFormIdRouteRoute,
+} as any)
+const WelddeskReportsWallboardRoute =
+  WelddeskReportsWallboardRouteImport.update({
+    id: '/reports/wallboard',
+    path: '/reports/wallboard',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskReportsSchedulesRoute =
+  WelddeskReportsSchedulesRouteImport.update({
+    id: '/reports/schedules',
+    path: '/reports/schedules',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskReportsPhoneRoute = WelddeskReportsPhoneRouteImport.update({
+  id: '/reports/phone',
+  path: '/reports/phone',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
 const WeldconnectIntegrationsCallbackRoute =
   WeldconnectIntegrationsCallbackRouteImport.update({
     id: '/integrations/callback',
@@ -2153,6 +2269,12 @@ const PreviewWeldmailAccountIdRouteRoute =
     id: '/$accountId',
     path: '/$accountId',
     getParentRoute: () => PreviewWeldmailRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdRouteRoute =
+  PreviewWeldformsFormIdRouteRouteImport.update({
+    id: '/$formId',
+    path: '/$formId',
+    getParentRoute: () => PreviewWeldformsRouteRoute,
   } as any)
 const PreviewWeldcrmPeopleRouteRoute =
   PreviewWeldcrmPeopleRouteRouteImport.update({
@@ -2336,6 +2458,12 @@ const WeldhostDomainsIdIndexRoute = WeldhostDomainsIdIndexRouteImport.update({
   path: '/domains/$id/',
   getParentRoute: () => WeldhostRouteRoute,
 } as any)
+const WeldflowWorkloadCapacityIndexRoute =
+  WeldflowWorkloadCapacityIndexRouteImport.update({
+    id: '/workload/capacity/',
+    path: '/workload/capacity/',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
 const WeldflowTaskTaskIdIndexRoute = WeldflowTaskTaskIdIndexRouteImport.update({
   id: '/task/$taskId/',
   path: '/task/$taskId/',
@@ -2946,6 +3074,18 @@ const PreviewWeldhostDomainsIndexRoute =
     path: '/domains/',
     getParentRoute: () => PreviewWeldhostRouteRoute,
   } as any)
+const PreviewWeldformsSettingsIndexRoute =
+  PreviewWeldformsSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => PreviewWeldformsRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdIndexRoute =
+  PreviewWeldformsFormIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
 const PreviewWelddocsDocIdIndexRoute =
   PreviewWelddocsDocIdIndexRouteImport.update({
     id: '/$docId/',
@@ -3040,6 +3180,48 @@ const SettingsIntegrationsAttioCallbackRoute =
     id: '/integrations/attio/callback',
     path: '/integrations/attio/callback',
     getParentRoute: () => SettingsRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdShareRoute =
+  PreviewWeldformsFormIdShareRouteImport.update({
+    id: '/share',
+    path: '/share',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdSettingsRoute =
+  PreviewWeldformsFormIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdResultsRoute =
+  PreviewWeldformsFormIdResultsRouteImport.update({
+    id: '/results',
+    path: '/results',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdLogicRoute =
+  PreviewWeldformsFormIdLogicRouteImport.update({
+    id: '/logic',
+    path: '/logic',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdIntegrationsRoute =
+  PreviewWeldformsFormIdIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdEditRoute =
+  PreviewWeldformsFormIdEditRouteImport.update({
+    id: '/edit',
+    path: '/edit',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
+  } as any)
+const PreviewWeldformsFormIdDesignRoute =
+  PreviewWeldformsFormIdDesignRouteImport.update({
+    id: '/design',
+    path: '/design',
+    getParentRoute: () => PreviewWeldformsFormIdRouteRoute,
   } as any)
 const AuthRegisterTasksSplatRoute = AuthRegisterTasksSplatRouteImport.update({
   id: '/register/tasks/$',
@@ -3805,6 +3987,7 @@ export interface FileRoutesByFullPath {
   '/welddocs': typeof WelddocsRouteRouteWithChildren
   '/welddrive': typeof WelddriveRouteRouteWithChildren
   '/weldflow': typeof WeldflowRouteRouteWithChildren
+  '/weldforms': typeof WeldformsRouteRouteWithChildren
   '/weldhost': typeof WeldhostRouteRouteWithChildren
   '/weldhr': typeof WeldhrRouteRouteWithChildren
   '/weldknow': typeof WeldknowRouteRouteWithChildren
@@ -3831,12 +4014,14 @@ export interface FileRoutesByFullPath {
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
   '/preview/welddocs': typeof PreviewWelddocsRouteRouteWithChildren
   '/preview/weldflow': typeof PreviewWeldflowRouteRouteWithChildren
+  '/preview/weldforms': typeof PreviewWeldformsRouteRouteWithChildren
   '/preview/weldhost': typeof PreviewWeldhostRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/preview/weldsheets': typeof PreviewWeldsheetsRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
   '/weldflow/intake': typeof WeldflowIntakeRouteRouteWithChildren
+  '/weldforms/$formId': typeof WeldformsFormIdRouteRouteWithChildren
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
@@ -3867,6 +4052,7 @@ export interface FileRoutesByFullPath {
   '/welddocs/': typeof WelddocsIndexRoute
   '/welddrive/': typeof WelddriveIndexRoute
   '/weldflow/': typeof WeldflowIndexRoute
+  '/weldforms/': typeof WeldformsIndexRoute
   '/weldhost/': typeof WeldhostIndexRoute
   '/weldhr/': typeof WeldhrIndexRoute
   '/weldknow/': typeof WeldknowIndexRoute
@@ -3880,6 +4066,7 @@ export interface FileRoutesByFullPath {
   '/weldsign/': typeof WeldsignIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleRouteRouteWithChildren
+  '/preview/weldforms/$formId': typeof PreviewWeldformsFormIdRouteRouteWithChildren
   '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/settings/apps/welddesk': typeof SettingsAppsWelddeskRouteRouteWithChildren
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdRouteRouteWithChildren
@@ -3899,6 +4086,17 @@ export interface FileRoutesByFullPath {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
+  '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
+  '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
+  '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
+  '/weldforms/$formId/logic': typeof WeldformsFormIdLogicRoute
+  '/weldforms/$formId/results': typeof WeldformsFormIdResultsRoute
+  '/weldforms/$formId/settings': typeof WeldformsFormIdSettingsRoute
+  '/weldforms/$formId/share': typeof WeldformsFormIdShareRoute
+  '/weldforms/fill/$publicId': typeof WeldformsFillPublicIdRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
@@ -3923,6 +4121,7 @@ export interface FileRoutesByFullPath {
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
   '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow/': typeof PreviewWeldflowIndexRoute
+  '/preview/weldforms/': typeof PreviewWeldformsIndexRoute
   '/preview/weldhost/': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
@@ -4042,9 +4241,10 @@ export interface FileRoutesByFullPath {
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
   '/weldflow/reviews/': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
-  '/weldflow/templates/': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
+  '/weldforms/$formId/': typeof WeldformsFormIdIndexRoute
+  '/weldforms/settings/': typeof WeldformsSettingsIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/announcements/': typeof WeldhrAnnouncementsIndexRoute
@@ -4099,6 +4299,13 @@ export interface FileRoutesByFullPath {
   '/weldflow/project/$projectId/scope': typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
+  '/preview/weldforms/$formId/design': typeof PreviewWeldformsFormIdDesignRoute
+  '/preview/weldforms/$formId/edit': typeof PreviewWeldformsFormIdEditRoute
+  '/preview/weldforms/$formId/integrations': typeof PreviewWeldformsFormIdIntegrationsRoute
+  '/preview/weldforms/$formId/logic': typeof PreviewWeldformsFormIdLogicRoute
+  '/preview/weldforms/$formId/results': typeof PreviewWeldformsFormIdResultsRoute
+  '/preview/weldforms/$formId/settings': typeof PreviewWeldformsFormIdSettingsRoute
+  '/preview/weldforms/$formId/share': typeof PreviewWeldformsFormIdShareRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
   '/settings/integrations/google-calendar/callback': typeof SettingsIntegrationsGoogleCalendarCallbackRoute
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
@@ -4115,6 +4322,8 @@ export interface FileRoutesByFullPath {
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox/': typeof PreviewWelddeskInboxIndexRoute
   '/preview/welddocs/$docId/': typeof PreviewWelddocsDocIdIndexRoute
+  '/preview/weldforms/$formId/': typeof PreviewWeldformsFormIdIndexRoute
+  '/preview/weldforms/settings/': typeof PreviewWeldformsSettingsIndexRoute
   '/preview/weldhost/domains/': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId/': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers/': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -4219,6 +4428,7 @@ export interface FileRoutesByFullPath {
   '/weldflow/intake/roadmap/': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
+  '/weldflow/workload/capacity/': typeof WeldflowWorkloadCapacityIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
@@ -4405,6 +4615,7 @@ export interface FileRoutesByTo {
   '/welddocs': typeof WelddocsIndexRoute
   '/welddrive': typeof WelddriveIndexRoute
   '/weldflow': typeof WeldflowIndexRoute
+  '/weldforms': typeof WeldformsIndexRoute
   '/weldhost': typeof WeldhostIndexRoute
   '/weldhr': typeof WeldhrIndexRoute
   '/weldknow': typeof WeldknowIndexRoute
@@ -4432,6 +4643,17 @@ export interface FileRoutesByTo {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
+  '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
+  '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
+  '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
+  '/weldforms/$formId/logic': typeof WeldformsFormIdLogicRoute
+  '/weldforms/$formId/results': typeof WeldformsFormIdResultsRoute
+  '/weldforms/$formId/settings': typeof WeldformsFormIdSettingsRoute
+  '/weldforms/$formId/share': typeof WeldformsFormIdShareRoute
+  '/weldforms/fill/$publicId': typeof WeldformsFillPublicIdRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
@@ -4456,6 +4678,7 @@ export interface FileRoutesByTo {
   '/preview/welddata': typeof PreviewWelddataIndexRoute
   '/preview/welddocs': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow': typeof PreviewWeldflowIndexRoute
+  '/preview/weldforms': typeof PreviewWeldformsIndexRoute
   '/preview/weldhost': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity': typeof SettingsActivityIndexRoute
@@ -4575,9 +4798,10 @@ export interface FileRoutesByTo {
   '/weldflow/projects': typeof WeldflowProjectsIndexRoute
   '/weldflow/reviews': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings': typeof WeldflowSettingsIndexRoute
-  '/weldflow/templates': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload': typeof WeldflowWorkloadIndexRoute
+  '/weldforms/$formId': typeof WeldformsFormIdIndexRoute
+  '/weldforms/settings': typeof WeldformsSettingsIndexRoute
   '/weldhost/domains': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/announcements': typeof WeldhrAnnouncementsIndexRoute
@@ -4625,6 +4849,13 @@ export interface FileRoutesByTo {
   '/weldstash/warehouses': typeof WeldstashWarehousesIndexRoute
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
+  '/preview/weldforms/$formId/design': typeof PreviewWeldformsFormIdDesignRoute
+  '/preview/weldforms/$formId/edit': typeof PreviewWeldformsFormIdEditRoute
+  '/preview/weldforms/$formId/integrations': typeof PreviewWeldformsFormIdIntegrationsRoute
+  '/preview/weldforms/$formId/logic': typeof PreviewWeldformsFormIdLogicRoute
+  '/preview/weldforms/$formId/results': typeof PreviewWeldformsFormIdResultsRoute
+  '/preview/weldforms/$formId/settings': typeof PreviewWeldformsFormIdSettingsRoute
+  '/preview/weldforms/$formId/share': typeof PreviewWeldformsFormIdShareRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
   '/settings/integrations/google-calendar/callback': typeof SettingsIntegrationsGoogleCalendarCallbackRoute
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
@@ -4641,6 +4872,8 @@ export interface FileRoutesByTo {
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox': typeof PreviewWelddeskInboxIndexRoute
   '/preview/welddocs/$docId': typeof PreviewWelddocsDocIdIndexRoute
+  '/preview/weldforms/$formId': typeof PreviewWeldformsFormIdIndexRoute
+  '/preview/weldforms/settings': typeof PreviewWeldformsSettingsIndexRoute
   '/preview/weldhost/domains': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -4745,6 +4978,7 @@ export interface FileRoutesByTo {
   '/weldflow/intake/roadmap': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId': typeof WeldflowTaskTaskIdIndexRoute
+  '/weldflow/workload/capacity': typeof WeldflowWorkloadCapacityIndexRoute
   '/weldhost/domains/$id': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
@@ -4914,6 +5148,7 @@ export interface FileRoutesById {
   '/welddocs': typeof WelddocsRouteRouteWithChildren
   '/welddrive': typeof WelddriveRouteRouteWithChildren
   '/weldflow': typeof WeldflowRouteRouteWithChildren
+  '/weldforms': typeof WeldformsRouteRouteWithChildren
   '/weldhost': typeof WeldhostRouteRouteWithChildren
   '/weldhr': typeof WeldhrRouteRouteWithChildren
   '/weldknow': typeof WeldknowRouteRouteWithChildren
@@ -4940,12 +5175,14 @@ export interface FileRoutesById {
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
   '/preview/welddocs': typeof PreviewWelddocsRouteRouteWithChildren
   '/preview/weldflow': typeof PreviewWeldflowRouteRouteWithChildren
+  '/preview/weldforms': typeof PreviewWeldformsRouteRouteWithChildren
   '/preview/weldhost': typeof PreviewWeldhostRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/preview/weldsheets': typeof PreviewWeldsheetsRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
   '/weldflow/intake': typeof WeldflowIntakeRouteRouteWithChildren
+  '/weldforms/$formId': typeof WeldformsFormIdRouteRouteWithChildren
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
@@ -4976,6 +5213,7 @@ export interface FileRoutesById {
   '/welddocs/': typeof WelddocsIndexRoute
   '/welddrive/': typeof WelddriveIndexRoute
   '/weldflow/': typeof WeldflowIndexRoute
+  '/weldforms/': typeof WeldformsIndexRoute
   '/weldhost/': typeof WeldhostIndexRoute
   '/weldhr/': typeof WeldhrIndexRoute
   '/weldknow/': typeof WeldknowIndexRoute
@@ -4989,6 +5227,7 @@ export interface FileRoutesById {
   '/weldsign/': typeof WeldsignIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleRouteRouteWithChildren
+  '/preview/weldforms/$formId': typeof PreviewWeldformsFormIdRouteRouteWithChildren
   '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/settings/apps/welddesk': typeof SettingsAppsWelddeskRouteRouteWithChildren
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdRouteRouteWithChildren
@@ -5008,6 +5247,17 @@ export interface FileRoutesById {
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
+  '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
+  '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
+  '/weldforms/$formId/design': typeof WeldformsFormIdDesignRoute
+  '/weldforms/$formId/edit': typeof WeldformsFormIdEditRoute
+  '/weldforms/$formId/integrations': typeof WeldformsFormIdIntegrationsRoute
+  '/weldforms/$formId/logic': typeof WeldformsFormIdLogicRoute
+  '/weldforms/$formId/results': typeof WeldformsFormIdResultsRoute
+  '/weldforms/$formId/settings': typeof WeldformsFormIdSettingsRoute
+  '/weldforms/$formId/share': typeof WeldformsFormIdShareRoute
+  '/weldforms/fill/$publicId': typeof WeldformsFillPublicIdRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
@@ -5032,6 +5282,7 @@ export interface FileRoutesById {
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
   '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow/': typeof PreviewWeldflowIndexRoute
+  '/preview/weldforms/': typeof PreviewWeldformsIndexRoute
   '/preview/weldhost/': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
@@ -5151,9 +5402,10 @@ export interface FileRoutesById {
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
   '/weldflow/reviews/': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
-  '/weldflow/templates/': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
+  '/weldforms/$formId/': typeof WeldformsFormIdIndexRoute
+  '/weldforms/settings/': typeof WeldformsSettingsIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/announcements/': typeof WeldhrAnnouncementsIndexRoute
@@ -5208,6 +5460,13 @@ export interface FileRoutesById {
   '/weldflow/project/$projectId/scope': typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
+  '/preview/weldforms/$formId/design': typeof PreviewWeldformsFormIdDesignRoute
+  '/preview/weldforms/$formId/edit': typeof PreviewWeldformsFormIdEditRoute
+  '/preview/weldforms/$formId/integrations': typeof PreviewWeldformsFormIdIntegrationsRoute
+  '/preview/weldforms/$formId/logic': typeof PreviewWeldformsFormIdLogicRoute
+  '/preview/weldforms/$formId/results': typeof PreviewWeldformsFormIdResultsRoute
+  '/preview/weldforms/$formId/settings': typeof PreviewWeldformsFormIdSettingsRoute
+  '/preview/weldforms/$formId/share': typeof PreviewWeldformsFormIdShareRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
   '/settings/integrations/google-calendar/callback': typeof SettingsIntegrationsGoogleCalendarCallbackRoute
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
@@ -5224,6 +5483,8 @@ export interface FileRoutesById {
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox/': typeof PreviewWelddeskInboxIndexRoute
   '/preview/welddocs/$docId/': typeof PreviewWelddocsDocIdIndexRoute
+  '/preview/weldforms/$formId/': typeof PreviewWeldformsFormIdIndexRoute
+  '/preview/weldforms/settings/': typeof PreviewWeldformsSettingsIndexRoute
   '/preview/weldhost/domains/': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId/': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers/': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -5328,6 +5589,7 @@ export interface FileRoutesById {
   '/weldflow/intake/roadmap/': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
+  '/weldflow/workload/capacity/': typeof WeldflowWorkloadCapacityIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
@@ -5498,6 +5760,7 @@ export interface FileRouteTypes {
     | '/welddocs'
     | '/welddrive'
     | '/weldflow'
+    | '/weldforms'
     | '/weldhost'
     | '/weldhr'
     | '/weldknow'
@@ -5524,12 +5787,14 @@ export interface FileRouteTypes {
     | '/preview/welddesk'
     | '/preview/welddocs'
     | '/preview/weldflow'
+    | '/preview/weldforms'
     | '/preview/weldhost'
     | '/preview/weldmail'
     | '/preview/weldsheets'
     | '/weldcrm/companies'
     | '/weldcrm/people'
     | '/weldflow/intake'
+    | '/weldforms/$formId'
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
@@ -5560,6 +5825,7 @@ export interface FileRouteTypes {
     | '/welddocs/'
     | '/welddrive/'
     | '/weldflow/'
+    | '/weldforms/'
     | '/weldhost/'
     | '/weldhr/'
     | '/weldknow/'
@@ -5573,6 +5839,7 @@ export interface FileRouteTypes {
     | '/weldsign/'
     | '/weldstash/'
     | '/preview/weldcrm/people'
+    | '/preview/weldforms/$formId'
     | '/preview/weldmail/$accountId'
     | '/settings/apps/welddesk'
     | '/weldflow/project/$projectId'
@@ -5592,6 +5859,17 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
+    | '/weldforms/$formId/design'
+    | '/weldforms/$formId/edit'
+    | '/weldforms/$formId/integrations'
+    | '/weldforms/$formId/logic'
+    | '/weldforms/$formId/results'
+    | '/weldforms/$formId/settings'
+    | '/weldforms/$formId/share'
+    | '/weldforms/fill/$publicId'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
@@ -5616,6 +5894,7 @@ export interface FileRouteTypes {
     | '/preview/welddata/'
     | '/preview/welddocs/'
     | '/preview/weldflow/'
+    | '/preview/weldforms/'
     | '/preview/weldhost/'
     | '/preview/weldsheets/'
     | '/settings/activity/'
@@ -5735,9 +6014,10 @@ export interface FileRouteTypes {
     | '/weldflow/projects/'
     | '/weldflow/reviews/'
     | '/weldflow/settings/'
-    | '/weldflow/templates/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
+    | '/weldforms/$formId/'
+    | '/weldforms/settings/'
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
     | '/weldhr/announcements/'
@@ -5792,6 +6072,13 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/scope'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
+    | '/preview/weldforms/$formId/design'
+    | '/preview/weldforms/$formId/edit'
+    | '/preview/weldforms/$formId/integrations'
+    | '/preview/weldforms/$formId/logic'
+    | '/preview/weldforms/$formId/results'
+    | '/preview/weldforms/$formId/settings'
+    | '/preview/weldforms/$formId/share'
     | '/settings/integrations/attio/callback'
     | '/settings/integrations/google-calendar/callback'
     | '/settings/integrations/hubspot/callback'
@@ -5808,6 +6095,8 @@ export interface FileRouteTypes {
     | '/preview/weldcrm/people/'
     | '/preview/welddesk/inbox/'
     | '/preview/welddocs/$docId/'
+    | '/preview/weldforms/$formId/'
+    | '/preview/weldforms/settings/'
     | '/preview/weldhost/domains/'
     | '/preview/weldsheets/$sheetId/'
     | '/settings/apps/phone-numbers/'
@@ -5912,6 +6201,7 @@ export interface FileRouteTypes {
     | '/weldflow/intake/roadmap/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/task/$taskId/'
+    | '/weldflow/workload/capacity/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
     | '/weldhost/domains/register/'
@@ -6098,6 +6388,7 @@ export interface FileRouteTypes {
     | '/welddocs'
     | '/welddrive'
     | '/weldflow'
+    | '/weldforms'
     | '/weldhost'
     | '/weldhr'
     | '/weldknow'
@@ -6125,6 +6416,17 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
+    | '/weldforms/$formId/design'
+    | '/weldforms/$formId/edit'
+    | '/weldforms/$formId/integrations'
+    | '/weldforms/$formId/logic'
+    | '/weldforms/$formId/results'
+    | '/weldforms/$formId/settings'
+    | '/weldforms/$formId/share'
+    | '/weldforms/fill/$publicId'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
@@ -6149,6 +6451,7 @@ export interface FileRouteTypes {
     | '/preview/welddata'
     | '/preview/welddocs'
     | '/preview/weldflow'
+    | '/preview/weldforms'
     | '/preview/weldhost'
     | '/preview/weldsheets'
     | '/settings/activity'
@@ -6268,9 +6571,10 @@ export interface FileRouteTypes {
     | '/weldflow/projects'
     | '/weldflow/reviews'
     | '/weldflow/settings'
-    | '/weldflow/templates'
     | '/weldflow/whiteboard'
     | '/weldflow/workload'
+    | '/weldforms/$formId'
+    | '/weldforms/settings'
     | '/weldhost/domains'
     | '/weldhr/absenteeism'
     | '/weldhr/announcements'
@@ -6318,6 +6622,13 @@ export interface FileRouteTypes {
     | '/weldstash/warehouses'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
+    | '/preview/weldforms/$formId/design'
+    | '/preview/weldforms/$formId/edit'
+    | '/preview/weldforms/$formId/integrations'
+    | '/preview/weldforms/$formId/logic'
+    | '/preview/weldforms/$formId/results'
+    | '/preview/weldforms/$formId/settings'
+    | '/preview/weldforms/$formId/share'
     | '/settings/integrations/attio/callback'
     | '/settings/integrations/google-calendar/callback'
     | '/settings/integrations/hubspot/callback'
@@ -6334,6 +6645,8 @@ export interface FileRouteTypes {
     | '/preview/weldcrm/people'
     | '/preview/welddesk/inbox'
     | '/preview/welddocs/$docId'
+    | '/preview/weldforms/$formId'
+    | '/preview/weldforms/settings'
     | '/preview/weldhost/domains'
     | '/preview/weldsheets/$sheetId'
     | '/settings/apps/phone-numbers'
@@ -6438,6 +6751,7 @@ export interface FileRouteTypes {
     | '/weldflow/intake/roadmap'
     | '/weldflow/project/$projectId'
     | '/weldflow/task/$taskId'
+    | '/weldflow/workload/capacity'
     | '/weldhost/domains/$id'
     | '/weldhost/domains/external'
     | '/weldhost/domains/register'
@@ -6606,6 +6920,7 @@ export interface FileRouteTypes {
     | '/welddocs'
     | '/welddrive'
     | '/weldflow'
+    | '/weldforms'
     | '/weldhost'
     | '/weldhr'
     | '/weldknow'
@@ -6632,12 +6947,14 @@ export interface FileRouteTypes {
     | '/preview/welddesk'
     | '/preview/welddocs'
     | '/preview/weldflow'
+    | '/preview/weldforms'
     | '/preview/weldhost'
     | '/preview/weldmail'
     | '/preview/weldsheets'
     | '/weldcrm/companies'
     | '/weldcrm/people'
     | '/weldflow/intake'
+    | '/weldforms/$formId'
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
@@ -6668,6 +6985,7 @@ export interface FileRouteTypes {
     | '/welddocs/'
     | '/welddrive/'
     | '/weldflow/'
+    | '/weldforms/'
     | '/weldhost/'
     | '/weldhr/'
     | '/weldknow/'
@@ -6681,6 +6999,7 @@ export interface FileRouteTypes {
     | '/weldsign/'
     | '/weldstash/'
     | '/preview/weldcrm/people'
+    | '/preview/weldforms/$formId'
     | '/preview/weldmail/$accountId'
     | '/settings/apps/welddesk'
     | '/weldflow/project/$projectId'
@@ -6700,6 +7019,17 @@ export interface FileRouteTypes {
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
+    | '/welddesk/reports/phone'
+    | '/welddesk/reports/schedules'
+    | '/welddesk/reports/wallboard'
+    | '/weldforms/$formId/design'
+    | '/weldforms/$formId/edit'
+    | '/weldforms/$formId/integrations'
+    | '/weldforms/$formId/logic'
+    | '/weldforms/$formId/results'
+    | '/weldforms/$formId/settings'
+    | '/weldforms/$formId/share'
+    | '/weldforms/fill/$publicId'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
@@ -6724,6 +7054,7 @@ export interface FileRouteTypes {
     | '/preview/welddata/'
     | '/preview/welddocs/'
     | '/preview/weldflow/'
+    | '/preview/weldforms/'
     | '/preview/weldhost/'
     | '/preview/weldsheets/'
     | '/settings/activity/'
@@ -6843,9 +7174,10 @@ export interface FileRouteTypes {
     | '/weldflow/projects/'
     | '/weldflow/reviews/'
     | '/weldflow/settings/'
-    | '/weldflow/templates/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
+    | '/weldforms/$formId/'
+    | '/weldforms/settings/'
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
     | '/weldhr/announcements/'
@@ -6900,6 +7232,13 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/scope'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
+    | '/preview/weldforms/$formId/design'
+    | '/preview/weldforms/$formId/edit'
+    | '/preview/weldforms/$formId/integrations'
+    | '/preview/weldforms/$formId/logic'
+    | '/preview/weldforms/$formId/results'
+    | '/preview/weldforms/$formId/settings'
+    | '/preview/weldforms/$formId/share'
     | '/settings/integrations/attio/callback'
     | '/settings/integrations/google-calendar/callback'
     | '/settings/integrations/hubspot/callback'
@@ -6916,6 +7255,8 @@ export interface FileRouteTypes {
     | '/preview/weldcrm/people/'
     | '/preview/welddesk/inbox/'
     | '/preview/welddocs/$docId/'
+    | '/preview/weldforms/$formId/'
+    | '/preview/weldforms/settings/'
     | '/preview/weldhost/domains/'
     | '/preview/weldsheets/$sheetId/'
     | '/settings/apps/phone-numbers/'
@@ -7020,6 +7361,7 @@ export interface FileRouteTypes {
     | '/weldflow/intake/roadmap/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/task/$taskId/'
+    | '/weldflow/workload/capacity/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
     | '/weldhost/domains/register/'
@@ -7189,6 +7531,7 @@ export interface RootRouteChildren {
   WelddocsRouteRoute: typeof WelddocsRouteRouteWithChildren
   WelddriveRouteRoute: typeof WelddriveRouteRouteWithChildren
   WeldflowRouteRoute: typeof WeldflowRouteRouteWithChildren
+  WeldformsRouteRoute: typeof WeldformsRouteRouteWithChildren
   WeldhostRouteRoute: typeof WeldhostRouteRouteWithChildren
   WeldhrRouteRoute: typeof WeldhrRouteRouteWithChildren
   WeldknowRouteRoute: typeof WeldknowRouteRouteWithChildren
@@ -7215,6 +7558,7 @@ export interface RootRouteChildren {
   PreviewWelddeskRouteRoute: typeof PreviewWelddeskRouteRouteWithChildren
   PreviewWelddocsRouteRoute: typeof PreviewWelddocsRouteRouteWithChildren
   PreviewWeldflowRouteRoute: typeof PreviewWeldflowRouteRouteWithChildren
+  PreviewWeldformsRouteRoute: typeof PreviewWeldformsRouteRouteWithChildren
   PreviewWeldhostRouteRoute: typeof PreviewWeldhostRouteRouteWithChildren
   PreviewWeldmailRouteRoute: typeof PreviewWeldmailRouteRouteWithChildren
   PreviewWeldsheetsRouteRoute: typeof PreviewWeldsheetsRouteRouteWithChildren
@@ -7335,6 +7679,13 @@ declare module '@tanstack/react-router' {
       path: '/weldhost'
       fullPath: '/weldhost'
       preLoaderRoute: typeof WeldhostRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldforms': {
+      id: '/weldforms'
+      path: '/weldforms'
+      fullPath: '/weldforms'
+      preLoaderRoute: typeof WeldformsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/weldflow': {
@@ -7561,6 +7912,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldhostIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
     }
+    '/weldforms/': {
+      id: '/weldforms/'
+      path: '/'
+      fullPath: '/weldforms/'
+      preLoaderRoute: typeof WeldformsIndexRouteImport
+      parentRoute: typeof WeldformsRouteRoute
+    }
     '/weldflow/': {
       id: '/weldflow/'
       path: '/'
@@ -7771,6 +8129,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldhrMeRouteRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
+    '/weldforms/$formId': {
+      id: '/weldforms/$formId'
+      path: '/$formId'
+      fullPath: '/weldforms/$formId'
+      preLoaderRoute: typeof WeldformsFormIdRouteRouteImport
+      parentRoute: typeof WeldformsRouteRoute
+    }
     '/weldflow/intake': {
       id: '/weldflow/intake'
       path: '/intake'
@@ -7811,6 +8176,13 @@ declare module '@tanstack/react-router' {
       path: '/preview/weldhost'
       fullPath: '/preview/weldhost'
       preLoaderRoute: typeof PreviewWeldhostRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preview/weldforms': {
+      id: '/preview/weldforms'
+      path: '/preview/weldforms'
+      fullPath: '/preview/weldforms'
+      preLoaderRoute: typeof PreviewWeldformsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preview/weldflow': {
@@ -8205,6 +8577,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldhostDomainsIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
     }
+    '/weldforms/settings/': {
+      id: '/weldforms/settings/'
+      path: '/settings'
+      fullPath: '/weldforms/settings/'
+      preLoaderRoute: typeof WeldformsSettingsIndexRouteImport
+      parentRoute: typeof WeldformsRouteRoute
+    }
+    '/weldforms/$formId/': {
+      id: '/weldforms/$formId/'
+      path: '/'
+      fullPath: '/weldforms/$formId/'
+      preLoaderRoute: typeof WeldformsFormIdIndexRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
     '/weldflow/workload/': {
       id: '/weldflow/workload/'
       path: '/workload'
@@ -8217,13 +8603,6 @@ declare module '@tanstack/react-router' {
       path: '/whiteboard'
       fullPath: '/weldflow/whiteboard/'
       preLoaderRoute: typeof WeldflowWhiteboardIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/templates/': {
-      id: '/weldflow/templates/'
-      path: '/templates'
-      fullPath: '/weldflow/templates/'
-      preLoaderRoute: typeof WeldflowTemplatesIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/settings/': {
@@ -9059,6 +9438,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldhostIndexRouteImport
       parentRoute: typeof PreviewWeldhostRouteRoute
     }
+    '/preview/weldforms/': {
+      id: '/preview/weldforms/'
+      path: '/'
+      fullPath: '/preview/weldforms/'
+      preLoaderRoute: typeof PreviewWeldformsIndexRouteImport
+      parentRoute: typeof PreviewWeldformsRouteRoute
+    }
     '/preview/weldflow/': {
       id: '/preview/weldflow/'
       path: '/'
@@ -9227,6 +9613,83 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldmeetMeetingIdRoomRouteImport
       parentRoute: typeof WeldmeetRouteRoute
     }
+    '/weldforms/fill/$publicId': {
+      id: '/weldforms/fill/$publicId'
+      path: '/fill/$publicId'
+      fullPath: '/weldforms/fill/$publicId'
+      preLoaderRoute: typeof WeldformsFillPublicIdRouteImport
+      parentRoute: typeof WeldformsRouteRoute
+    }
+    '/weldforms/$formId/share': {
+      id: '/weldforms/$formId/share'
+      path: '/share'
+      fullPath: '/weldforms/$formId/share'
+      preLoaderRoute: typeof WeldformsFormIdShareRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/settings': {
+      id: '/weldforms/$formId/settings'
+      path: '/settings'
+      fullPath: '/weldforms/$formId/settings'
+      preLoaderRoute: typeof WeldformsFormIdSettingsRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/results': {
+      id: '/weldforms/$formId/results'
+      path: '/results'
+      fullPath: '/weldforms/$formId/results'
+      preLoaderRoute: typeof WeldformsFormIdResultsRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/logic': {
+      id: '/weldforms/$formId/logic'
+      path: '/logic'
+      fullPath: '/weldforms/$formId/logic'
+      preLoaderRoute: typeof WeldformsFormIdLogicRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/integrations': {
+      id: '/weldforms/$formId/integrations'
+      path: '/integrations'
+      fullPath: '/weldforms/$formId/integrations'
+      preLoaderRoute: typeof WeldformsFormIdIntegrationsRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/edit': {
+      id: '/weldforms/$formId/edit'
+      path: '/edit'
+      fullPath: '/weldforms/$formId/edit'
+      preLoaderRoute: typeof WeldformsFormIdEditRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/weldforms/$formId/design': {
+      id: '/weldforms/$formId/design'
+      path: '/design'
+      fullPath: '/weldforms/$formId/design'
+      preLoaderRoute: typeof WeldformsFormIdDesignRouteImport
+      parentRoute: typeof WeldformsFormIdRouteRoute
+    }
+    '/welddesk/reports/wallboard': {
+      id: '/welddesk/reports/wallboard'
+      path: '/reports/wallboard'
+      fullPath: '/welddesk/reports/wallboard'
+      preLoaderRoute: typeof WelddeskReportsWallboardRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/reports/schedules': {
+      id: '/welddesk/reports/schedules'
+      path: '/reports/schedules'
+      fullPath: '/welddesk/reports/schedules'
+      preLoaderRoute: typeof WelddeskReportsSchedulesRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/reports/phone': {
+      id: '/welddesk/reports/phone'
+      path: '/reports/phone'
+      fullPath: '/welddesk/reports/phone'
+      preLoaderRoute: typeof WelddeskReportsPhoneRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
     '/weldconnect/integrations/callback': {
       id: '/weldconnect/integrations/callback'
       path: '/integrations/callback'
@@ -9359,6 +9822,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldmail/$accountId'
       preLoaderRoute: typeof PreviewWeldmailAccountIdRouteRouteImport
       parentRoute: typeof PreviewWeldmailRouteRoute
+    }
+    '/preview/weldforms/$formId': {
+      id: '/preview/weldforms/$formId'
+      path: '/$formId'
+      fullPath: '/preview/weldforms/$formId'
+      preLoaderRoute: typeof PreviewWeldformsFormIdRouteRouteImport
+      parentRoute: typeof PreviewWeldformsRouteRoute
     }
     '/preview/weldcrm/people': {
       id: '/preview/weldcrm/people'
@@ -9583,6 +10053,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldhost/domains/$id/'
       preLoaderRoute: typeof WeldhostDomainsIdIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldflow/workload/capacity/': {
+      id: '/weldflow/workload/capacity/'
+      path: '/workload/capacity'
+      fullPath: '/weldflow/workload/capacity/'
+      preLoaderRoute: typeof WeldflowWorkloadCapacityIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/task/$taskId/': {
       id: '/weldflow/task/$taskId/'
@@ -10312,6 +10789,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldhostDomainsIndexRouteImport
       parentRoute: typeof PreviewWeldhostRouteRoute
     }
+    '/preview/weldforms/settings/': {
+      id: '/preview/weldforms/settings/'
+      path: '/settings'
+      fullPath: '/preview/weldforms/settings/'
+      preLoaderRoute: typeof PreviewWeldformsSettingsIndexRouteImport
+      parentRoute: typeof PreviewWeldformsRouteRoute
+    }
+    '/preview/weldforms/$formId/': {
+      id: '/preview/weldforms/$formId/'
+      path: '/'
+      fullPath: '/preview/weldforms/$formId/'
+      preLoaderRoute: typeof PreviewWeldformsFormIdIndexRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
     '/preview/welddocs/$docId/': {
       id: '/preview/welddocs/$docId/'
       path: '/$docId'
@@ -10423,6 +10914,55 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/integrations/attio/callback'
       preLoaderRoute: typeof SettingsIntegrationsAttioCallbackRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/preview/weldforms/$formId/share': {
+      id: '/preview/weldforms/$formId/share'
+      path: '/share'
+      fullPath: '/preview/weldforms/$formId/share'
+      preLoaderRoute: typeof PreviewWeldformsFormIdShareRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/settings': {
+      id: '/preview/weldforms/$formId/settings'
+      path: '/settings'
+      fullPath: '/preview/weldforms/$formId/settings'
+      preLoaderRoute: typeof PreviewWeldformsFormIdSettingsRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/results': {
+      id: '/preview/weldforms/$formId/results'
+      path: '/results'
+      fullPath: '/preview/weldforms/$formId/results'
+      preLoaderRoute: typeof PreviewWeldformsFormIdResultsRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/logic': {
+      id: '/preview/weldforms/$formId/logic'
+      path: '/logic'
+      fullPath: '/preview/weldforms/$formId/logic'
+      preLoaderRoute: typeof PreviewWeldformsFormIdLogicRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/integrations': {
+      id: '/preview/weldforms/$formId/integrations'
+      path: '/integrations'
+      fullPath: '/preview/weldforms/$formId/integrations'
+      preLoaderRoute: typeof PreviewWeldformsFormIdIntegrationsRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/edit': {
+      id: '/preview/weldforms/$formId/edit'
+      path: '/edit'
+      fullPath: '/preview/weldforms/$formId/edit'
+      preLoaderRoute: typeof PreviewWeldformsFormIdEditRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
+    }
+    '/preview/weldforms/$formId/design': {
+      id: '/preview/weldforms/$formId/design'
+      path: '/design'
+      fullPath: '/preview/weldforms/$formId/design'
+      preLoaderRoute: typeof PreviewWeldformsFormIdDesignRouteImport
+      parentRoute: typeof PreviewWeldformsFormIdRouteRoute
     }
     '/auth/register/tasks/$': {
       id: '/auth/register/tasks/$'
@@ -12069,6 +12609,9 @@ const WelddataRouteRouteWithChildren = WelddataRouteRoute._addFileChildren(
 interface WelddeskRouteRouteChildren {
   WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
+  WelddeskReportsPhoneRoute: typeof WelddeskReportsPhoneRoute
+  WelddeskReportsSchedulesRoute: typeof WelddeskReportsSchedulesRoute
+  WelddeskReportsWallboardRoute: typeof WelddeskReportsWallboardRoute
   WelddeskAiAgentsIndexRoute: typeof WelddeskAiAgentsIndexRoute
   WelddeskChatWidgetIndexRoute: typeof WelddeskChatWidgetIndexRoute
   WelddeskEmailIndexRoute: typeof WelddeskEmailIndexRoute
@@ -12104,6 +12647,9 @@ interface WelddeskRouteRouteChildren {
 const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
+  WelddeskReportsPhoneRoute: WelddeskReportsPhoneRoute,
+  WelddeskReportsSchedulesRoute: WelddeskReportsSchedulesRoute,
+  WelddeskReportsWallboardRoute: WelddeskReportsWallboardRoute,
   WelddeskAiAgentsIndexRoute: WelddeskAiAgentsIndexRoute,
   WelddeskChatWidgetIndexRoute: WelddeskChatWidgetIndexRoute,
   WelddeskEmailIndexRoute: WelddeskEmailIndexRoute,
@@ -12419,12 +12965,12 @@ interface WeldflowRouteRouteChildren {
   WeldflowProjectsIndexRoute: typeof WeldflowProjectsIndexRoute
   WeldflowReviewsIndexRoute: typeof WeldflowReviewsIndexRoute
   WeldflowSettingsIndexRoute: typeof WeldflowSettingsIndexRoute
-  WeldflowTemplatesIndexRoute: typeof WeldflowTemplatesIndexRoute
   WeldflowWhiteboardIndexRoute: typeof WeldflowWhiteboardIndexRoute
   WeldflowWorkloadIndexRoute: typeof WeldflowWorkloadIndexRoute
   WeldflowAnalyticsIdIndexRoute: typeof WeldflowAnalyticsIdIndexRoute
   WeldflowAnalyticsBuilderIndexRoute: typeof WeldflowAnalyticsBuilderIndexRoute
   WeldflowTaskTaskIdIndexRoute: typeof WeldflowTaskTaskIdIndexRoute
+  WeldflowWorkloadCapacityIndexRoute: typeof WeldflowWorkloadCapacityIndexRoute
 }
 
 const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
@@ -12440,16 +12986,59 @@ const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
   WeldflowProjectsIndexRoute: WeldflowProjectsIndexRoute,
   WeldflowReviewsIndexRoute: WeldflowReviewsIndexRoute,
   WeldflowSettingsIndexRoute: WeldflowSettingsIndexRoute,
-  WeldflowTemplatesIndexRoute: WeldflowTemplatesIndexRoute,
   WeldflowWhiteboardIndexRoute: WeldflowWhiteboardIndexRoute,
   WeldflowWorkloadIndexRoute: WeldflowWorkloadIndexRoute,
   WeldflowAnalyticsIdIndexRoute: WeldflowAnalyticsIdIndexRoute,
   WeldflowAnalyticsBuilderIndexRoute: WeldflowAnalyticsBuilderIndexRoute,
   WeldflowTaskTaskIdIndexRoute: WeldflowTaskTaskIdIndexRoute,
+  WeldflowWorkloadCapacityIndexRoute: WeldflowWorkloadCapacityIndexRoute,
 }
 
 const WeldflowRouteRouteWithChildren = WeldflowRouteRoute._addFileChildren(
   WeldflowRouteRouteChildren,
+)
+
+interface WeldformsFormIdRouteRouteChildren {
+  WeldformsFormIdDesignRoute: typeof WeldformsFormIdDesignRoute
+  WeldformsFormIdEditRoute: typeof WeldformsFormIdEditRoute
+  WeldformsFormIdIntegrationsRoute: typeof WeldformsFormIdIntegrationsRoute
+  WeldformsFormIdLogicRoute: typeof WeldformsFormIdLogicRoute
+  WeldformsFormIdResultsRoute: typeof WeldformsFormIdResultsRoute
+  WeldformsFormIdSettingsRoute: typeof WeldformsFormIdSettingsRoute
+  WeldformsFormIdShareRoute: typeof WeldformsFormIdShareRoute
+  WeldformsFormIdIndexRoute: typeof WeldformsFormIdIndexRoute
+}
+
+const WeldformsFormIdRouteRouteChildren: WeldformsFormIdRouteRouteChildren = {
+  WeldformsFormIdDesignRoute: WeldformsFormIdDesignRoute,
+  WeldformsFormIdEditRoute: WeldformsFormIdEditRoute,
+  WeldformsFormIdIntegrationsRoute: WeldformsFormIdIntegrationsRoute,
+  WeldformsFormIdLogicRoute: WeldformsFormIdLogicRoute,
+  WeldformsFormIdResultsRoute: WeldformsFormIdResultsRoute,
+  WeldformsFormIdSettingsRoute: WeldformsFormIdSettingsRoute,
+  WeldformsFormIdShareRoute: WeldformsFormIdShareRoute,
+  WeldformsFormIdIndexRoute: WeldformsFormIdIndexRoute,
+}
+
+const WeldformsFormIdRouteRouteWithChildren =
+  WeldformsFormIdRouteRoute._addFileChildren(WeldformsFormIdRouteRouteChildren)
+
+interface WeldformsRouteRouteChildren {
+  WeldformsFormIdRouteRoute: typeof WeldformsFormIdRouteRouteWithChildren
+  WeldformsIndexRoute: typeof WeldformsIndexRoute
+  WeldformsFillPublicIdRoute: typeof WeldformsFillPublicIdRoute
+  WeldformsSettingsIndexRoute: typeof WeldformsSettingsIndexRoute
+}
+
+const WeldformsRouteRouteChildren: WeldformsRouteRouteChildren = {
+  WeldformsFormIdRouteRoute: WeldformsFormIdRouteRouteWithChildren,
+  WeldformsIndexRoute: WeldformsIndexRoute,
+  WeldformsFillPublicIdRoute: WeldformsFillPublicIdRoute,
+  WeldformsSettingsIndexRoute: WeldformsSettingsIndexRoute,
+}
+
+const WeldformsRouteRouteWithChildren = WeldformsRouteRoute._addFileChildren(
+  WeldformsRouteRouteChildren,
 )
 
 interface WeldhostRouteRouteChildren {
@@ -13042,6 +13631,53 @@ const PreviewWeldflowRouteRouteChildren: PreviewWeldflowRouteRouteChildren = {
 const PreviewWeldflowRouteRouteWithChildren =
   PreviewWeldflowRouteRoute._addFileChildren(PreviewWeldflowRouteRouteChildren)
 
+interface PreviewWeldformsFormIdRouteRouteChildren {
+  PreviewWeldformsFormIdDesignRoute: typeof PreviewWeldformsFormIdDesignRoute
+  PreviewWeldformsFormIdEditRoute: typeof PreviewWeldformsFormIdEditRoute
+  PreviewWeldformsFormIdIntegrationsRoute: typeof PreviewWeldformsFormIdIntegrationsRoute
+  PreviewWeldformsFormIdLogicRoute: typeof PreviewWeldformsFormIdLogicRoute
+  PreviewWeldformsFormIdResultsRoute: typeof PreviewWeldformsFormIdResultsRoute
+  PreviewWeldformsFormIdSettingsRoute: typeof PreviewWeldformsFormIdSettingsRoute
+  PreviewWeldformsFormIdShareRoute: typeof PreviewWeldformsFormIdShareRoute
+  PreviewWeldformsFormIdIndexRoute: typeof PreviewWeldformsFormIdIndexRoute
+}
+
+const PreviewWeldformsFormIdRouteRouteChildren: PreviewWeldformsFormIdRouteRouteChildren =
+  {
+    PreviewWeldformsFormIdDesignRoute: PreviewWeldformsFormIdDesignRoute,
+    PreviewWeldformsFormIdEditRoute: PreviewWeldformsFormIdEditRoute,
+    PreviewWeldformsFormIdIntegrationsRoute:
+      PreviewWeldformsFormIdIntegrationsRoute,
+    PreviewWeldformsFormIdLogicRoute: PreviewWeldformsFormIdLogicRoute,
+    PreviewWeldformsFormIdResultsRoute: PreviewWeldformsFormIdResultsRoute,
+    PreviewWeldformsFormIdSettingsRoute: PreviewWeldformsFormIdSettingsRoute,
+    PreviewWeldformsFormIdShareRoute: PreviewWeldformsFormIdShareRoute,
+    PreviewWeldformsFormIdIndexRoute: PreviewWeldformsFormIdIndexRoute,
+  }
+
+const PreviewWeldformsFormIdRouteRouteWithChildren =
+  PreviewWeldformsFormIdRouteRoute._addFileChildren(
+    PreviewWeldformsFormIdRouteRouteChildren,
+  )
+
+interface PreviewWeldformsRouteRouteChildren {
+  PreviewWeldformsFormIdRouteRoute: typeof PreviewWeldformsFormIdRouteRouteWithChildren
+  PreviewWeldformsIndexRoute: typeof PreviewWeldformsIndexRoute
+  PreviewWeldformsSettingsIndexRoute: typeof PreviewWeldformsSettingsIndexRoute
+}
+
+const PreviewWeldformsRouteRouteChildren: PreviewWeldformsRouteRouteChildren = {
+  PreviewWeldformsFormIdRouteRoute:
+    PreviewWeldformsFormIdRouteRouteWithChildren,
+  PreviewWeldformsIndexRoute: PreviewWeldformsIndexRoute,
+  PreviewWeldformsSettingsIndexRoute: PreviewWeldformsSettingsIndexRoute,
+}
+
+const PreviewWeldformsRouteRouteWithChildren =
+  PreviewWeldformsRouteRoute._addFileChildren(
+    PreviewWeldformsRouteRouteChildren,
+  )
+
 interface PreviewWeldhostRouteRouteChildren {
   PreviewWeldhostIndexRoute: typeof PreviewWeldhostIndexRoute
   PreviewWeldhostDomainsIndexRoute: typeof PreviewWeldhostDomainsIndexRoute
@@ -13145,6 +13781,7 @@ const rootRouteChildren: RootRouteChildren = {
   WelddocsRouteRoute: WelddocsRouteRouteWithChildren,
   WelddriveRouteRoute: WelddriveRouteRouteWithChildren,
   WeldflowRouteRoute: WeldflowRouteRouteWithChildren,
+  WeldformsRouteRoute: WeldformsRouteRouteWithChildren,
   WeldhostRouteRoute: WeldhostRouteRouteWithChildren,
   WeldhrRouteRoute: WeldhrRouteRouteWithChildren,
   WeldknowRouteRoute: WeldknowRouteRouteWithChildren,
@@ -13171,6 +13808,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewWelddeskRouteRoute: PreviewWelddeskRouteRouteWithChildren,
   PreviewWelddocsRouteRoute: PreviewWelddocsRouteRouteWithChildren,
   PreviewWeldflowRouteRoute: PreviewWeldflowRouteRouteWithChildren,
+  PreviewWeldformsRouteRoute: PreviewWeldformsRouteRouteWithChildren,
   PreviewWeldhostRouteRoute: PreviewWeldhostRouteRouteWithChildren,
   PreviewWeldmailRouteRoute: PreviewWeldmailRouteRouteWithChildren,
   PreviewWeldsheetsRouteRoute: PreviewWeldsheetsRouteRouteWithChildren,

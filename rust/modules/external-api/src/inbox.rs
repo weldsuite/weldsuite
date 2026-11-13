@@ -319,14 +319,19 @@ async fn open_conversation(
             name: opt_text(body, "name"),
             email: opt_text(body, "email"),
             contact_id: opt_text(body, "contactId"),
+            attachments: None,
             metadata: Map::new(),
         },
-        fields: open_fields(
-            opt_text(body, "ticketTypeId"),
-            opt_text(body, "priority"),
-            body,
-            opt_text(body, "departmentId"),
-        ),
+        fields: Update {
+            impact: opt_text(body, "impact").map_or(Field::Absent, Field::Set),
+            urgency: opt_text(body, "urgency").map_or(Field::Absent, Field::Set),
+            ..open_fields(
+                opt_text(body, "ticketTypeId"),
+                opt_text(body, "priority"),
+                body,
+                opt_text(body, "departmentId"),
+            )
+        },
         assignee_id: None,
     };
     open(&state, &caller, &input).await
@@ -373,7 +378,8 @@ async fn update_conversation(
             tags: tags(body),
             department_id: nullable(body, "departmentId"),
             custom_fields,
-            ..Update::default()
+            impact: nullable(body, "impact"),
+            urgency: nullable(body, "urgency"),
         },
     };
     let master = crate::master_db_of(&state, &caller);
@@ -556,6 +562,7 @@ async fn open_ticket(State(state): S, caller: Caller, headers: HeaderMap, body: 
             name: opt_text(body, "customerName"),
             email: opt_text(body, "customerEmail"),
             contact_id: opt_text(body, "contactId"),
+            attachments: None,
             metadata,
         },
         fields: open_fields(

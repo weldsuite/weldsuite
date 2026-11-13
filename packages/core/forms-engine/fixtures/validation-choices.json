@@ -1,0 +1,213 @@
+{
+  "name": "Validation of choice, yes/no, legal and scale answers",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_single",
+        "ref": "single",
+        "type": "multiple_choice",
+        "title": "Pick one",
+        "required": true,
+        "properties": {
+          "choices": [
+            { "id": "c_a", "label": "A" },
+            { "id": "c_b", "label": "B" },
+            { "id": "c_c", "label": "C" }
+          ]
+        }
+      },
+      {
+        "id": "b_multi",
+        "ref": "multi",
+        "type": "multiple_choice",
+        "title": "Pick two or three",
+        "properties": {
+          "multiple": true,
+          "minSelections": 2,
+          "maxSelections": 3,
+          "allowOther": true,
+          "choices": [
+            { "id": "c_a", "label": "A" },
+            { "id": "c_b", "label": "B" },
+            { "id": "c_c", "label": "C" },
+            { "id": "c_d", "label": "D" }
+          ]
+        }
+      },
+      {
+        "id": "b_drop",
+        "ref": "drop",
+        "type": "dropdown",
+        "title": "Country",
+        "properties": {
+          "choices": [
+            { "id": "d_1", "label": "Netherlands" },
+            { "id": "d_2", "label": "Belgium" }
+          ]
+        }
+      },
+      {
+        "id": "b_pics",
+        "ref": "pics",
+        "type": "picture_choice",
+        "title": "Pictures",
+        "properties": {
+          "multiple": true,
+          "maxSelections": 2,
+          "choices": [
+            { "id": "p_1", "label": "Cat" },
+            { "id": "p_2", "label": "Dog" },
+            { "id": "p_3", "label": "Bird" }
+          ]
+        }
+      },
+      { "id": "b_yes", "ref": "yes", "type": "yes_no", "title": "Yes or no?", "required": true },
+      { "id": "b_terms", "ref": "terms", "type": "legal", "title": "Accept the terms", "required": true },
+      { "id": "b_optin", "ref": "optin", "type": "legal", "title": "Marketing emails" },
+      { "id": "b_rate", "ref": "rate", "type": "rating", "title": "Rating", "properties": { "steps": 4 } },
+      { "id": "b_scale", "ref": "scale", "type": "opinion_scale", "title": "Scale", "properties": { "start": 0, "end": 5 } },
+      { "id": "b_nps", "ref": "nps", "type": "nps", "title": "NPS" }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "Done" }]
+  },
+  "cases": [
+    {
+      "name": "valid choices; ids de-duplicated, a literal other id dropped, Other text trimmed",
+      "answers": {
+        "b_single": { "choiceIds": ["c_a"] },
+        "b_multi": { "choiceIds": ["c_b", "c_b", "other"], "other": " Something " },
+        "b_drop": { "choiceIds": ["d_2"] },
+        "b_pics": { "choiceIds": ["p_1"] },
+        "b_yes": false,
+        "b_terms": true,
+        "b_optin": false,
+        "b_rate": 4,
+        "b_scale": 0,
+        "b_nps": 10
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_single", "b_multi", "b_drop", "b_pics", "b_yes", "b_terms", "b_optin", "b_rate", "b_scale", "b_nps"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": {
+          "b_single": { "choiceIds": ["c_a"] },
+          "b_multi": { "choiceIds": ["c_b"], "other": "Something" },
+          "b_drop": { "choiceIds": ["d_2"] },
+          "b_pics": { "choiceIds": ["p_1"] },
+          "b_yes": false,
+          "b_terms": true,
+          "b_optin": false,
+          "b_rate": 4,
+          "b_scale": 0,
+          "b_nps": 10
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "selection counts, must-accept and scale errors",
+      "answers": {
+        "b_single": { "choiceIds": ["c_a", "c_b"] },
+        "b_multi": { "choiceIds": ["c_a"] },
+        "b_drop": { "choiceIds": ["d_1"], "other": "Germany" },
+        "b_pics": { "choiceIds": ["p_1", "p_2", "p_3"] },
+        "b_yes": "yes",
+        "b_terms": false,
+        "b_rate": 5,
+        "b_scale": 2.5,
+        "b_nps": -1
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_single", "b_multi", "b_drop", "b_pics", "b_yes", "b_terms", "b_optin", "b_rate", "b_scale", "b_nps"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_single": { "code": "too_many_choices" },
+          "b_multi": { "code": "too_few_choices" },
+          "b_drop": { "code": "invalid_choice" },
+          "b_pics": { "code": "too_many_choices" },
+          "b_yes": { "code": "invalid" },
+          "b_terms": { "code": "must_accept" },
+          "b_rate": { "code": "invalid" },
+          "b_scale": { "code": "invalid" },
+          "b_nps": { "code": "invalid" }
+        },
+        "answers": {},
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "unknown choice ids and Other where it is not allowed",
+      "answers": {
+        "b_single": { "choiceIds": ["c_x"] },
+        "b_multi": { "choiceIds": ["c_a", "c_b", "c_c", "c_d"] },
+        "b_drop": { "choiceIds": ["d_1", "d_2"] },
+        "b_pics": { "choiceIds": [], "other": "Mine" },
+        "b_yes": true,
+        "b_terms": null,
+        "b_rate": 1,
+        "b_scale": 5,
+        "b_nps": 0
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_single", "b_multi", "b_drop", "b_pics", "b_yes", "b_terms", "b_optin", "b_rate", "b_scale", "b_nps"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_single": { "code": "invalid_choice" },
+          "b_multi": { "code": "too_many_choices" },
+          "b_drop": { "code": "too_many_choices" },
+          "b_pics": { "code": "invalid_choice" },
+          "b_terms": { "code": "required" }
+        },
+        "answers": { "b_yes": true, "b_rate": 1, "b_scale": 5, "b_nps": 0 },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "empty choice answers are unanswered; a wrong shape is invalid",
+      "answers": {
+        "b_single": { "choiceIds": [] },
+        "b_multi": { "choiceIds": [""], "other": "  " },
+        "b_pics": "p_1",
+        "b_yes": true,
+        "b_terms": true
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_single", "b_multi", "b_drop", "b_pics", "b_yes", "b_terms", "b_optin", "b_rate", "b_scale", "b_nps"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": { "b_single": { "code": "required" }, "b_pics": { "code": "invalid" } },
+        "answers": { "b_yes": true, "b_terms": true },
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ],
+  "display": [
+    { "name": "choices in definition order, then Other", "fieldId": "b_multi", "value": { "choiceIds": ["c_d", "c_a"], "other": "Zed" }, "expect": "A, D, Zed" },
+    { "name": "dropdown", "fieldId": "b_drop", "value": { "choiceIds": ["d_2"] }, "expect": "Belgium" },
+    { "name": "yes", "fieldId": "b_yes", "value": true, "expect": "Yes" },
+    { "name": "no", "fieldId": "b_yes", "value": false, "expect": "No" },
+    { "name": "accepted", "fieldId": "b_terms", "value": true, "expect": "Accepted" },
+    { "name": "not accepted", "fieldId": "b_optin", "value": false, "expect": "Not accepted" },
+    { "name": "rating", "fieldId": "b_rate", "value": 3, "expect": "3" },
+    { "name": "nps zero", "fieldId": "b_nps", "value": 0, "expect": "0" },
+    { "name": "a value of the wrong shape", "fieldId": "b_pics", "value": "p_1", "expect": "" }
+  ],
+  "searchText": [
+    {
+      "name": "only the Other text of choice fields",
+      "answers": { "b_multi": { "choiceIds": ["c_a"], "other": " Something ELSE " }, "b_drop": { "choiceIds": ["d_1"] }, "b_yes": true },
+      "expect": "something else"
+    }
+  ]
+}

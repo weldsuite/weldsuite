@@ -110,6 +110,10 @@ export interface Env extends BankFeedEnv {
   MERGE_INTERNAL?: MergeInternalBinding;
   /** Stripe Financial Connections webhook signing secret (its own endpoint, not billing's). */
   STRIPE_FC_WEBHOOK_SECRET?: string;
+  /** Ponto's webhooks: PONTO_APPLICATION_ID (BankFeedEnv) names the application its signatures are for,
+   *  and this mTLS binding presents the application's certificate to Ibanity's webhooks API, whose
+   *  verification keys it serves (wrangler.toml `mtls_certificates`, as books-api's). */
+  PONTO_CERT?: Fetcher;
   /** Signing secret of the Stripe platform's Connect webhook (`/webhooks/stripe-connect`, Stripe connector). */
   STRIPE_CONNECT_WEBHOOK_SECRET?: string;
   /** Meta Marketing API — WeldAds webhook verification + signature checks. */

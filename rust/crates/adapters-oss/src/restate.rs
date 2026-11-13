@@ -191,11 +191,13 @@ impl WeldsuiteJobs {
             key: call.key,
             ctx: &ctx,
         };
-        job.run(&context, call.payload).await.map_err(|error| {
-            tracing::error!(job = context.name, key = context.key, %error, "jobs: job failed");
-            // Steps retry by their own policy; the job as a whole does not.
-            TerminalError::new(error.to_string()).into()
-        })
+        weldsuite_ports::run_job(&*job, &context, call.payload)
+            .await
+            .map_err(|error| {
+                tracing::error!(job = context.name, key = context.key, %error, "jobs: job failed");
+                // Steps retry by their own policy; the job as a whole does not.
+                TerminalError::new(error.to_string()).into()
+            })
     }
 }
 

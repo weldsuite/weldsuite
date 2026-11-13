@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstDifference, normalizeForDiff } from './conformance';
+import { alignClockSeconds, firstDifference, normalizeForDiff } from './conformance';
 import { schemaFor } from './conformance-schemas';
 
 describe('conformance comparison', () => {
@@ -42,6 +42,33 @@ describe('conformance comparison', () => {
     expect(normalizeForDiff({ ts: 42, size: 1793274036998 }, true)).toEqual({ size: 1793274036998, ts: 42 });
   });
 
+  it("normalises the id time a new article's slug ends in, on writes only", () => {
+    // `deskArticleSlug(title)-${id.slice(4, 10)}`: the id's Date.now() in base 36, first six characters.
+    const idTime = (ms: number) => ms.toString(36).slice(0, 6);
+    const now = Date.now();
+    const slug = (base: string, ms: number) => ({ events: [{ data: { slug: `${base}-${idTime(ms)}` } }] });
+
+    // PR #1559's CI run 43453966160: the id's time ticked over between the two runs.
+    const ts = slug('getting-started', now);
+    const rust = slug('getting-started', now + 36 ** 2);
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    expect(normalizeForDiff(ts, true)).toEqual({ events: [{ data: { slug: 'getting-started-<id-time>' } }] });
+
+    // The title part still compares, and an untitled article's id base is an id.
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(slug('getting-going', now), true))).toBe(
+      '$.events[0].data.slug: "getting-started-<id-time>" vs "getting-going-<id-time>"',
+    );
+    expect(normalizeForDiff({ slug: `art_mh2k3j4lab12cd34-${idTime(now)}` }, true)).toEqual({ slug: '<id>-<id-time>' });
+
+    // Only a time near now, and only in a slug.
+    expect(normalizeForDiff({ slug: `getting-started-${idTime(now - 30 * 24 * 3600 * 1000)}` }, true)).toEqual({
+      slug: `getting-started-${idTime(now - 30 * 24 * 3600 * 1000)}`,
+    });
+    expect(normalizeForDiff({ slug: 'manage-orders' }, true)).toEqual({ slug: 'manage-orders' });
+    expect(normalizeForDiff({ title: `getting-started-${idTime(now)}` }, true)).toEqual({ title: `getting-started-${idTime(now)}` });
+  });
+
   it('normalises random hex tokens on writes only', () => {
     const ts = { data: { value: 'weldsuite-sso-verification=0f1e2d3c4b5a69788796a5b4c3d2e1f0' } };
     const rust = { data: { value: 'weldsuite-sso-verification=1234567890123abcdef0123456789abc' } };
@@ -50,6 +77,39 @@ describe('conformance comparison', () => {
     // Longer or shorter hex runs are not tokens.
     expect(normalizeForDiff('a'.repeat(33), true)).toBe('a'.repeat(33));
     expect(normalizeForDiff('a'.repeat(31), true)).toBe('a'.repeat(31));
+  });
+
+  it("lets seconds counted to each run's own now differ only by what their instants do", () => {
+    const closed = (resolvedAt: string, resolutionSeconds: number | null) => ({
+      data: { conversation: { id: 'dconv_dup', resolvedAt, resolutionSeconds, firstResponseAt: null, firstResponseSeconds: null } },
+    });
+    const compare = (ts: unknown, rust: unknown) =>
+      firstDifference(normalizeForDiff(ts, true), normalizeForDiff(alignClockSeconds(ts, rust), true));
+
+    // Main CI run 42524631286: the clock ticked over between the two runs.
+    const ts = closed('2026-11-08T21:27:59.990Z', 26904419);
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904420))).toBeNull();
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904419))).toBeNull();
+    // Without the alignment the same pair differs.
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(closed('2026-11-08T21:28:00.015Z', 26904420), true))).toBe(
+      '$.data.conversation.resolutionSeconds: 26904419 vs 26904420',
+    );
+
+    // More than the instants are apart, or the wrong way round, still differs.
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904421))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904421');
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', 26904418))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904418');
+    // The same instant (stored before the request) compares exactly.
+    expect(compare(ts, closed('2026-11-08T21:27:59.990Z', 26904420))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs 26904420');
+    // A count against none.
+    expect(compare(ts, closed('2026-11-08T21:28:00.015Z', null))).toBe('$.data.conversation.resolutionSeconds: 26904419 vs null');
+
+    // The first response, in an entity event's row as in the answer.
+    const replied = (firstResponseAt: string, firstResponseSeconds: number) => ({
+      events: [{ entityType: 'desk_conversation', data: { firstResponseAt, firstResponseSeconds, resolvedAt: null, resolutionSeconds: null } }],
+    });
+    expect(compare(replied('2026-11-08T21:27:59.999Z', 5399), replied('2026-11-08T21:28:00.001Z', 5400))).toBeNull();
+    // A seconds field with no instant next to it is not touched.
+    expect(compare({ data: { resolutionSeconds: 5 } }, { data: { resolutionSeconds: 6 } })).toBe('$.data.resolutionSeconds: 5 vs 6');
   });
 
   it('reports missing fields, extra fields and length differences', () => {

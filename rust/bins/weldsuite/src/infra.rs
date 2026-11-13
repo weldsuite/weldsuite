@@ -148,10 +148,11 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
 }
 
 /// The private and public file stores. Nothing is sent until a route uses
-/// one, so a wrong key shows up in that route's logs, not at start.
+/// one, so a wrong key shows up in that route's logs, not at start; except
+/// with `S3_ENSURE_BUCKETS`, which checks (and creates) each bucket first.
 type FileStores = (Option<Arc<dyn DynFileStore>>, Option<Arc<dyn DynFileStore>>);
 
-fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
+async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     let Some(files) = &config.files else {
         tracing::warn!("S3_ENDPOINT is not set: no file storage, file routes will fail");
         return Ok((None, None));
@@ -160,15 +161,22 @@ fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
-    let private: Arc<dyn DynFileStore> =
-        Arc::new(S3FileStore::new(&files.private, client.clone())?);
-    let public = match files.public() {
-        Some(options) => {
-            Some(Arc::new(S3FileStore::new(&options, client)?) as Arc<dyn DynFileStore>)
+    let private = S3FileStore::new(&files.private, client.clone())?;
+    let public = files
+        .public()
+        .map(|options| S3FileStore::new(&options, client))
+        .transpose()?;
+    if files.ensure_buckets {
+        for store in std::iter::once(&private).chain(public.as_ref()) {
+            if store.ensure_bucket().await? {
+                tracing::info!(bucket = store.bucket_name(), "created the bucket");
+            }
         }
-        None => None,
-    };
-    Ok((Some(private), public))
+    }
+    Ok((
+        Some(Arc::new(private) as Arc<dyn DynFileStore>),
+        public.map(|store| Arc::new(store) as Arc<dyn DynFileStore>),
+    ))
 }
 
 /// The registry every process starts with.
@@ -274,7 +282,7 @@ pub(crate) async fn connect(
         )),
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
-    let (files, public_files) = file_stores(config)?;
+    let (files, public_files) = file_stores(config).await?;
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;

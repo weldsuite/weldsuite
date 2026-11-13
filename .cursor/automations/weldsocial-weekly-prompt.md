@@ -8,7 +8,7 @@ Paste this prompt into a new automation at https://cursor.com/automations/new
 |--------|--------|
 | Name | WeldSocial weekly approval queue |
 | Trigger | Scheduled — Monday `0 8 * * 1` (Europe/Amsterdam) |
-| Repository | `weldsuite/weldsuite` on `develop` (needed for brand scripts + hosting assets) |
+| Repository | `weldsuite/weldsuite` on `main` (needed for brand scripts + hosting assets) |
 | Tools | WeldSuite MCP, **Higgsfield MCP**, Memories, optional Send to Slack |
 | Model | Your strongest available agent model |
 | Scope | Private or Team Owned (Team Owned needs WeldSuite MCP on the team service account) |
@@ -124,7 +124,7 @@ Then host:
 
 1. Save finals under `apps/web/docs/public/images/social/<YYYY-Www>/` (`<YYYY-Www>` = next ISO week).
 2. Commit **only** that `apps/web/docs/public/images/social/` path (never stage `.env` or unrelated dirty files).
-3. Push to `develop` so the docs/Vercel deploy publishes them.
+3. Push to `main`. The assets are live on `help-test.weldsuite.org` once CI passes, and on `help.weldsuite.org` after the next Promote in `weldsuite-deploy`, so schedule posts that link `help.weldsuite.org` after a Promote.
 4. Public URL form: `https://help.weldsuite.org/images/social/<YYYY-Www>/<file>`
 5. Verify each URL returns HTTP 200 before attaching it.
 6. Register the asset in WeldSocial via `create_social_media` (URL + fileName + mediaType + altText). Keep the returned `id` for `mediaIds`.

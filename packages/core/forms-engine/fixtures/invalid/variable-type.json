@@ -1,0 +1,60 @@
+{
+  "name": "Multiplying a text variable (appending is fine)",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "variables": [
+      {
+        "name": "label",
+        "type": "text"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_1",
+        "calculations": [
+          {
+            "id": "x_1",
+            "variable": "label",
+            "op": "multiply",
+            "value": {
+              "type": "constant",
+              "value": 2
+            }
+          },
+          {
+            "id": "x_2",
+            "variable": "label",
+            "op": "add",
+            "value": {
+              "type": "constant",
+              "value": "ok"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expectIssues": [
+    "variable_type"
+  ]
+}

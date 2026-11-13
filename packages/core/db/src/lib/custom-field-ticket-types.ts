@@ -12,13 +12,13 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import { FIELD_TYPES } from '@weldsuite/app-api-client/schemas/custom-fields';
 import * as schema from '../schema';
 import type { TicketTypeField } from '../schema';
 import type { IdGenerator } from './mail-contacts';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 type FieldType = (typeof FIELD_TYPES)[number];
 
 const defs = schema.customFieldDefinitions;

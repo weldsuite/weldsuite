@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@weldsuite/ui/components/input";
 import { Label } from "@weldsuite/ui/components/label";
 import { getTranslations } from "@/lib/i18n";
+import { isFeatureAvailable } from "@/lib/edition";
 import { cn } from "@/lib/utils";
 import type { AppDefinition } from "@/lib/apps/catalog";
 import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from "@/lib/constants/legal";
@@ -21,9 +22,11 @@ const workspaceSetupSchema = z.object({
   country: z
     .string()
     .refine((value) => COUNTRIES.some((country) => country.code === value)),
+  // Left out where the deployment has one location (edition flag `data-regions`).
   region: z
     .string()
-    .refine((value) => NEON_REGIONS.some((region) => region.id === value)),
+    .refine((value) => NEON_REGIONS.some((region) => region.id === value))
+    .optional(),
   // A workspace always starts with at least one app, so the dashboard is never
   // empty on first login. `DEFAULT_APP_PREFERENCE` preselects one for the user.
   selectedApps: z.array(z.string()).min(1),
@@ -106,6 +109,9 @@ export function OnboardingSetup({
       : getDefaultRegionForCountry(country),
   );
   const [hasCustomRegion, setHasCustomRegion] = useState(false);
+  // Global stores each workspace in the region picked here; a Kubernetes
+  // edition (EU, self-hosted) has one location, so only the country is asked.
+  const regionsOffered = isFeatureAvailable("data-regions");
   const visibleApps = availableApps.filter(
     (app) => !isHiddenFromOnboarding(app.code),
   );
@@ -114,6 +120,9 @@ export function OnboardingSetup({
   const [appSelection, setAppSelection] = useState<string[] | null>(null);
   const selectedApps = appSelection ?? pickDefaultApps(visibleApps);
   const selectedRegion = NEON_REGIONS.find((item) => item.id === region);
+  const locationSummary = regionsOffered
+    ? selectedRegion?.label
+    : COUNTRIES.find((item) => item.code === country)?.name;
   const emptyAppsHint = visibleApps.length === 0 ? copy.appsLater : copy.appsRequired;
   const selectedAppsTemplate =
     selectedApps.length === 1
@@ -132,7 +141,7 @@ export function OnboardingSetup({
   ).safeParse({
     organizationName,
     country,
-    region,
+    ...(regionsOffered ? { region } : {}),
     selectedApps,
   });
 
@@ -197,9 +206,11 @@ export function OnboardingSetup({
               <details className="group rounded-xl border p-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
                   <span>
-                    {copy.locationSettings}
+                    {regionsOffered
+                      ? copy.locationSettings
+                      : t.onboarding.workspaceStep.countryLabel}
                     <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                      {selectedRegion?.label}
+                      {locationSummary}
                     </span>
                   </span>
                   <ChevronDown
@@ -209,7 +220,7 @@ export function OnboardingSetup({
                 </summary>
                 <div className="mt-4 space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    {copy.locationHint}
+                    {regionsOffered ? copy.locationHint : copy.countryHint}
                   </p>
                   <div className="space-y-2">
                     <Label htmlFor="country">
@@ -234,26 +245,28 @@ export function OnboardingSetup({
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="region">
-                      {t.onboarding.workspaceStep.regionLabel}
-                    </Label>
-                    <select
-                      id="region"
-                      className={selectClassName}
-                      value={region}
-                      onChange={(event) => {
-                        setRegion(event.target.value);
-                        setHasCustomRegion(true);
-                      }}
-                    >
-                      {NEON_REGIONS.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {regionsOffered && (
+                    <div className="space-y-2">
+                      <Label htmlFor="region">
+                        {t.onboarding.workspaceStep.regionLabel}
+                      </Label>
+                      <select
+                        id="region"
+                        className={selectClassName}
+                        value={region}
+                        onChange={(event) => {
+                          setRegion(event.target.value);
+                          setHasCustomRegion(true);
+                        }}
+                      >
+                        {NEON_REGIONS.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </details>
 

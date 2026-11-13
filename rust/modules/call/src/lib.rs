@@ -1,7 +1,8 @@
 //! WeldCall: call-api's routes (`apps/workers/call-api`): calls
 //! (`/api/calls`), call intelligence (`/api/call-intelligence`: phone
 //! numbers, the WebRTC token, statistics, call transcriptions), the WeldDesk
-//! phone channel (`/api/desk/phone`: voice agents and inbound routes), number
+//! phone channel (`/api/desk/phone`: voice agents, inbound routes, the
+//! member's softphone and the call queue), number
 //! porting (`/api/porting`), telephony (`/api/telephony`: searching, syncing
 //! and pricing numbers, addresses, regulatory requirements), billing-worker's
 //! phone-number fulfilment (`/api/internal/telephony`) and the Telnyx Call
@@ -15,6 +16,12 @@
 //! when billing-worker cannot be reached (and fulfilment as it does without
 //! Stripe), and `/config.json` lists `phone-number-purchase` as unavailable.
 //!
+//! The WeldDesk phone queue (ringing agents in the browser, waiting callers,
+//! voicemail, the keypad menu) is split as the worker splits it: the route's
+//! execution in `desk_phone_inbound`, the caller's side in
+//! `desk_phone_queue`, ringing in `desk_phone_ring`, the agents' legs in
+//! `desk_phone_legs`, a credential per member in `desk_phone_softphone`.
+//!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `call`
 //! conformance suites (`rust/conformance/suites.json`).
@@ -23,6 +30,17 @@ mod calls;
 mod credits;
 mod crm;
 mod desk_phone;
+mod desk_phone_audio;
+mod desk_phone_inbound;
+mod desk_phone_legs;
+mod desk_phone_messages;
+mod desk_phone_options;
+mod desk_phone_queue;
+mod desk_phone_queue_routes;
+mod desk_phone_realtime;
+mod desk_phone_ring;
+mod desk_phone_schema;
+mod desk_phone_softphone;
 mod desk_routing;
 mod intelligence;
 mod internal;
@@ -59,8 +77,10 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{
     BoxFuture, DynFileStore, DynOutboundHttp, DynRealtimePublisher, HttpRequest, HttpResponse,
-    OutboundHttp, PortError, StorageBuckets,
+    OutboundHttp, PortError, PresenceReader, StorageBuckets,
 };
+
+use crate::desk_phone_ring::Phone;
 
 /// A workspace's tenant database, by its Clerk org id
 /// (`getTenantDbForWorkspace`), for the routes that find the workspace
@@ -81,7 +101,10 @@ pub struct CallState {
     /// The `STORAGE` bucket (porting documents). A request's
     /// `StorageBuckets` (conformance) wins.
     pub storage: Option<Arc<dyn DynFileStore>>,
-    /// Realtime fan-out of the phone channel's desk messages (`REALTIME`).
+    /// Realtime (`REALTIME`): the fan-out of the phone channel's desk
+    /// messages, the phone queue's events to members' inboxes, and live
+    /// presence. A request's `PresenceReader` (conformance) answers presence
+    /// first.
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// Workspaces' tenant databases for the webhook. A request's `Tenant`
     /// (conformance) wins.
@@ -121,6 +144,7 @@ where
     let telephony_manage = || gate.require([TELEPHONY_MANAGE]);
     let settings_manage = || gate.require([SETTINGS_MANAGE]);
     let conversations_read = || gate.require([CONVERSATIONS_READ]);
+    let conversations_update = || gate.require([CONVERSATIONS_UPDATE]);
     let calls = Router::new()
         .route("/", get(calls::list).route_layer(activities_read()))
         .route("/", post(calls::create).route_layer(activities_create()))
@@ -202,7 +226,27 @@ where
         )
         .route(
             "/forward-live",
-            post(desk_phone::forward_live).route_layer(gate.require([CONVERSATIONS_UPDATE])),
+            post(desk_phone::forward_live).route_layer(conversations_update()),
+        )
+        .route(
+            "/softphone",
+            get(desk_phone_softphone::state).route_layer(conversations_read()),
+        )
+        .route(
+            "/softphone",
+            put(desk_phone_softphone::set_available).route_layer(conversations_update()),
+        )
+        .route(
+            "/softphone/token",
+            post(desk_phone_softphone::token).route_layer(conversations_update()),
+        )
+        .route(
+            "/queue",
+            get(desk_phone_queue_routes::list).route_layer(conversations_read()),
+        )
+        .route(
+            "/queue/{call_id}/pickup",
+            post(desk_phone_queue_routes::pickup).route_layer(conversations_update()),
         );
     let porting = Router::new()
         .route("/preflight", post(porting::preflight))
@@ -322,6 +366,10 @@ where
             post(webhook::receive).get(webhook::health),
         )
         .route("/public/webhooks/telnyx/tools/{tool}", post(webhook::tool))
+        .route(
+            desk_phone_audio::RINGBACK_PATH,
+            get(desk_phone_audio::ringback),
+        )
         .with_state(state)
 }
 
@@ -351,9 +399,33 @@ pub(crate) struct Caller {
     master: Option<PgPool>,
     http: Option<OutboundHttp>,
     buckets: Option<StorageBuckets>,
+    presence: Option<PresenceReader>,
 }
 
 impl Caller {
+    /// The phone flows' handle on this request:
+    /// `{ env: c.env, db: c.get('tenantDb'), workspaceId: c.get('clerkOrgId') }`.
+    pub(crate) fn phone<'a>(
+        &'a self,
+        state: &'a CallState,
+        telnyx: &'a telnyx::Telnyx,
+        org: &'a str,
+    ) -> Phone<'a> {
+        Phone {
+            state,
+            db: &self.db,
+            workspace: org,
+            telnyx,
+            env: self.env.as_ref(),
+            presence: self.presence.as_ref(),
+        }
+    }
+
+    /// `c.get('clerkOrgId')` as the phone flows key on it.
+    pub(crate) fn org(&self) -> String {
+        self.clerk_org_id.clone().unwrap_or_default()
+    }
+
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
     pub(crate) fn publish(
         &self,
@@ -441,6 +513,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
                 http: extensions.get::<OutboundHttp>().cloned(),
                 buckets: extensions.get::<StorageBuckets>().cloned(),
+                presence: extensions.get::<PresenceReader>().cloned(),
             })
         } else {
             tracing::error!("call: a route without the session or tenant layer");
@@ -457,6 +530,7 @@ pub(crate) struct PublicCtx {
     master: Option<PgPool>,
     tenant: Option<PgPool>,
     http: Option<OutboundHttp>,
+    presence: Option<PresenceReader>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
@@ -472,11 +546,32 @@ impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
             master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
             tenant: extensions.get::<Tenant>().map(|tenant| tenant.db.clone()),
             http: extensions.get::<OutboundHttp>().cloned(),
+            presence: extensions.get::<PresenceReader>().cloned(),
         }))
     }
 }
 
 impl PublicCtx {
+    /// The phone flows' handle on a webhook event:
+    /// `{ env, db, workspaceId }` for the workspace `org` (its Clerk org id)
+    /// and its tenant database.
+    pub(crate) fn phone<'a>(
+        &'a self,
+        state: &'a CallState,
+        telnyx: &'a telnyx::Telnyx,
+        db: &'a PgPool,
+        org: &'a str,
+    ) -> Phone<'a> {
+        Phone {
+            state,
+            db,
+            workspace: org,
+            telnyx,
+            env: self.env.as_ref(),
+            presence: self.presence.as_ref(),
+        }
+    }
+
     fn conformance(&self) -> bool {
         self.env.is_some()
     }

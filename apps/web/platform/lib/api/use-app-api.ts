@@ -26,6 +26,7 @@ import { createCompaniesApi } from '@weldsuite/app-api-client/domains/companies'
 import { createObjectTemplatesApi } from '@weldsuite/app-api-client/domains/object-templates';
 import { createTaskCommentsApi } from '@weldsuite/core-api-client/domains/task-comments';
 import { createSlasApi } from '@weldsuite/core-api-client/domains/slas';
+import { createAuditLogStreamsApi } from '@weldsuite/core-api-client/domains/audit-log-streams';
 import { createProjectLabelsApi } from '@weldsuite/core-api-client/domains/project-labels';
 import { createProjectMembersApi } from '@weldsuite/core-api-client/domains/project-members';
 import { createGithubApi } from '@weldsuite/core-api-client/domains/github';
@@ -79,6 +80,7 @@ import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createBoardsApi } from '@weldsuite/app-api-client/domains/boards';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
 import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel';
+import { createWeldFormsApi } from '@weldsuite/app-api-client/domains/weldforms';
 import { createWeldMergeApi } from '@weldsuite/app-api-client/domains/weldmerge';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
@@ -178,6 +180,7 @@ export function useAppApi() {
       objectTemplates: createObjectTemplatesApi(lazyClient),
       taskComments: createTaskCommentsApi(lazyClient),
       slas: createSlasApi(lazyClient),
+      auditLogStreams: createAuditLogStreamsApi(lazyClient),
       projectLabels: createProjectLabelsApi(lazyClient),
       projectMembers: createProjectMembersApi(lazyClient),
       github: createGithubApi(lazyClient),
@@ -253,6 +256,8 @@ export function useAppApi() {
       weldpanel: createWeldPanelApi(lazyClient),
       // WeldMerge (merge-api): issues, pull requests, git provider connections.
       weldmerge: createWeldMergeApi(lazyClient),
+      // WeldForms (forms-api): forms, folders, themes, responses, invitations, integrations.
+      weldforms: createWeldFormsApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
       // Enterprise single sign-on: domain proof, SAML connection, on/off and
       // the add-on subscription (its billing paths are forwarded to billing-worker).

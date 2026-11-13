@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react';
 import { AreaChart, BarChart3, ChevronDown, LineChart, Rows3, type LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -16,8 +17,16 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSeparator,
+  FieldSet,
+} from '@weldsuite/ui/components/field';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import {
   Select,
   SelectContent,
@@ -35,10 +44,10 @@ import { useDashboardCharts } from '@/hooks/queries/use-weldbooks-dashboard-char
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter, useSearchParams } from '@/lib/router';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
+import { ChartColorField } from '../components/chart-color-field';
 import { CustomChartBody, useChartHeading, useSourceLabels } from '../components/custom-chart-card';
 import {
   BREAKDOWN_SOURCES,
-  CHART_COLORS,
   CHART_COMPARES,
   CHART_RANGES,
   TREND_SOURCES,
@@ -130,8 +139,9 @@ function ChartBuilder({ dashboard, initial }: Readonly<{ dashboard: Dashboard; i
   return (
     <div className="flex h-[calc(100vh-3.5rem)] min-h-[560px] overflow-hidden">
       {/* Preview */}
-      <div className="relative flex min-w-0 flex-1 flex-col bg-muted/30">
-        <div className="flex items-center justify-between p-6">
+      <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+        {/* Laid over the preview, so the chart centres on the whole area, this row included. */}
+        <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between p-6">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" aria-label={tb.typeLabel}>
@@ -154,12 +164,10 @@ function ChartBuilder({ dashboard, initial }: Readonly<{ dashboard: Dashboard; i
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          <span className="rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-            {tb.preview}
-          </span>
+          <Badge variant="secondary">{tb.preview}</Badge>
         </div>
-        <div className="flex flex-1 items-center justify-center overflow-y-auto px-8 pb-8">
-          <div className="w-full max-w-xl rounded-xl border bg-background p-6">
+        <div className="flex flex-1 items-center justify-center overflow-y-auto px-8 py-20">
+          <div className="w-full max-w-[352px]">
             <OverviewCard title={title} info={info}>
               <CustomChartBody chart={chart} dashboard={dashboard} months={months} sample={sample} filter={PREVIEW_FILTER} />
             </OverviewCard>
@@ -181,143 +189,123 @@ function ChartBuilder({ dashboard, initial }: Readonly<{ dashboard: Dashboard; i
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
-          <Section title={tb.basicInformation}>
-            <Field id="chart-title" label={tb.titleLabel}>
-              <Input
-                id="chart-title"
-                value={chart.title}
-                maxLength={80}
-                placeholder={sourceLabels[chart.source]}
-                onChange={(e) => update({ title: e.target.value })}
-              />
-            </Field>
-            <Field id="chart-description" label={tb.descriptionLabel}>
-              <Textarea
-                id="chart-description"
-                value={chart.description}
-                maxLength={200}
-                placeholder={sourceInfo[chart.source]}
-                className="min-h-16 resize-none"
-                onChange={(e) => update({ description: e.target.value })}
-              />
-            </Field>
-          </Section>
+        <div className="flex-1 overflow-y-auto p-5">
+          <FieldGroup>
+            <FieldSet>
+              <FieldLegend>{tb.basicInformation}</FieldLegend>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="chart-title">{tb.titleLabel}</FieldLabel>
+                  <Input
+                    id="chart-title"
+                    value={chart.title}
+                    maxLength={80}
+                    placeholder={sourceLabels[chart.source]}
+                    onChange={(e) => update({ title: e.target.value })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="chart-description">{tb.descriptionLabel}</FieldLabel>
+                  <Textarea
+                    id="chart-description"
+                    value={chart.description}
+                    maxLength={200}
+                    placeholder={sourceInfo[chart.source]}
+                    onChange={(e) => update({ description: e.target.value })}
+                  />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
 
-          <Section title={tb.dataSource}>
-            <Field id="chart-source" label={tb.sourceLabel}>
-              <Select value={chart.source} onValueChange={(v) => setSource(v as ChartSource)}>
-                <SelectTrigger id="chart-source" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>{tb.trendGroup}</SelectLabel>
-                    {TREND_SOURCES.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {sourceLabels[source]}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectGroup>
-                    <SelectLabel>{tb.breakdownGroup}</SelectLabel>
-                    {BREAKDOWN_SOURCES.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {sourceLabels[source]}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          </Section>
+            <FieldSeparator />
 
-          <Section title={tb.period}>
-            {trend ? (
+            <FieldSet>
+              <FieldLegend>{tb.dataSource}</FieldLegend>
+              <Field>
+                <FieldLabel htmlFor="chart-source">{tb.sourceLabel}</FieldLabel>
+                <Select value={chart.source} onValueChange={(v) => setSource(v as ChartSource)}>
+                  <SelectTrigger id="chart-source" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>{tb.trendGroup}</SelectLabel>
+                      {TREND_SOURCES.map((source) => (
+                        <SelectItem key={source} value={source}>
+                          {sourceLabels[source]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>{tb.breakdownGroup}</SelectLabel>
+                      {BREAKDOWN_SOURCES.map((source) => (
+                        <SelectItem key={source} value={source}>
+                          {sourceLabels[source]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </FieldSet>
+
+            <FieldSeparator />
+
+            <FieldSet>
+              <FieldLegend>{tb.period}</FieldLegend>
+              {trend ? (
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="chart-range">{tc.dateRange}</FieldLabel>
+                    <Select value={chart.range} onValueChange={(v) => update({ range: v as ChartRange })}>
+                      <SelectTrigger id="chart-range" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHART_RANGES.map((range) => (
+                          <SelectItem key={range} value={range}>
+                            {rangeLabels[range]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="chart-compare">{tb.compareLabel}</FieldLabel>
+                    <Select value={chart.compare} onValueChange={(v) => update({ compare: v as ChartCompare })}>
+                      <SelectTrigger id="chart-compare" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHART_COMPARES.map((compare) => (
+                          <SelectItem key={compare} value={compare}>
+                            {compareLabels[compare]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </FieldGroup>
+              ) : (
+                <FieldDescription>{tb.asOfToday}</FieldDescription>
+              )}
+            </FieldSet>
+
+            {trend && (
               <>
-                <Field id="chart-range" label={tc.dateRange}>
-                  <Select value={chart.range} onValueChange={(v) => update({ range: v as ChartRange })}>
-                    <SelectTrigger id="chart-range" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CHART_RANGES.map((range) => (
-                        <SelectItem key={range} value={range}>
-                          {rangeLabels[range]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field id="chart-compare" label={tb.compareLabel}>
-                  <Select value={chart.compare} onValueChange={(v) => update({ compare: v as ChartCompare })}>
-                    <SelectTrigger id="chart-compare" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CHART_COMPARES.map((compare) => (
-                        <SelectItem key={compare} value={compare}>
-                          {compareLabels[compare]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                <FieldSeparator />
+                <FieldSet>
+                  <FieldLegend>{tb.appearance}</FieldLegend>
+                  <Field>
+                    <FieldLabel htmlFor="chart-color">{tb.colorLabel}</FieldLabel>
+                    <ChartColorField id="chart-color" value={chart.color} onChange={(color) => update({ color })} />
+                  </Field>
+                </FieldSet>
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">{tb.asOfToday}</p>
             )}
-          </Section>
-
-          {trend && (
-            <Section title={tb.appearance}>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground">{tb.colorLabel}</Label>
-                <div role="radiogroup" aria-label={tb.colorLabel} className="flex gap-2">
-                  {CHART_COLORS.map((color, index) => {
-                    const selected = chart.color === color;
-                    return (
-                      <button
-                        key={color}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        aria-label={tb.colorOption.replace('{n}', String(index + 1))}
-                        onClick={() => update({ color })}
-                        className={`size-7 rounded-md border-2 transition-shadow ${
-                          selected ? 'border-foreground' : 'border-transparent hover:border-border'
-                        }`}
-                      >
-                        <span className="block size-full rounded-[4px]" style={{ backgroundColor: color }} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </Section>
-          )}
+          </FieldGroup>
         </div>
       </aside>
-    </div>
-  );
-}
-
-function Section({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
-  return (
-    <section className="space-y-4 border-b pb-6 last:border-b-0">
-      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Field({ id, label, children }: Readonly<{ id: string; label: string; children: React.ReactNode }>) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
-        {label}
-      </Label>
-      {children}
     </div>
   );
 }

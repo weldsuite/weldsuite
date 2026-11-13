@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { useClerkAuth } from './ClerkAuthContext';
+import { useAuthSession } from './AuthContext';
 import type { InstalledApp } from '../types';
 
 interface InstalledAppsApi {
@@ -26,7 +26,7 @@ export function InstalledAppsProvider({ children, api }: Readonly<InstalledAppsP
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
 
   const fetchInstalledApps = useCallback(async () => {
     if (!user) {

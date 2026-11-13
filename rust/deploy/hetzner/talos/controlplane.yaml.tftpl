@@ -11,6 +11,11 @@ cluster:
   etcd:
     advertisedSubnets:
       - ${nodes_subnet}
+    # Metrics on the private address too, for Prometheus (flux/infrastructure/
+    # monitoring, kubeEtcd), not only on localhost. Changing this restarts
+    # etcd: apply it one node at a time (`tofu apply -parallelism=1`).
+    extraArgs:
+      listen-metrics-urls: http://127.0.0.1:2381,http://${node_ip}:2381
 ---
 apiVersion: v1alpha1
 kind: KubeAPIServerConfig

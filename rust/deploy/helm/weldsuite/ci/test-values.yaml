@@ -7,6 +7,7 @@ secret:
     S3_ACCESS_KEY_ID: not-a-real-key
     S3_SECRET_ACCESS_KEY: not-a-real-secret
     SIGN_PORTAL_SECRET: not-a-real-secret
+    FORMS_PORTAL_SECRET: not-a-real-secret
     ADMIN_SESSION_SECRET: not-a-real-secret-not-a-real-secret
     ADMIN_OIDC_CLIENT_ID: not-a-real-client
     ADMIN_OIDC_CLIENT_SECRET: not-a-real-secret
@@ -20,6 +21,15 @@ secret:
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
 config:
   edition: eu
+  publicUrl: https://app.example.org/
+  auth:
+    provider: oidc
+    oidc:
+      issuer: https://auth.example.org
+      audience: "123456789012345678"
+  extraEnv:
+    # Wins over the value config.publicUrl derives, without a duplicate.
+    - { name: PUBLIC_API_URL, value: "https://api.example.org" }
   publicEnv:
     VITE_MAPBOX_ACCESS_TOKEN: pk.example
   sign:
@@ -37,10 +47,16 @@ config:
   files:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public
+    publicUrl: https://files.example.org
 ingress:
   enabled: true
 autoscaling:
   enabled: true
+metrics:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
 networkPolicy:
   enabled: true
   ingressFrom:
@@ -48,6 +64,10 @@ networkPolicy:
         matchLabels:
           kubernetes.io/metadata.name: traefik
   signPortalFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik
+  formsPortalFrom:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: traefik
@@ -59,6 +79,10 @@ clerkJwks:
   enabled: true
   json: '{"keys":[]}'
 signPortal:
+  enabled: true
+  ingress:
+    enabled: true
+formsPortal:
   enabled: true
   ingress:
     enabled: true

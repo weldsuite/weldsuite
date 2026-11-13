@@ -1,7 +1,8 @@
 /**
- * SSO Callback — handles the OAuth redirect from Clerk.
- * This screen is shown briefly while Clerk processes the auth session,
- * then AuthGuard redirects to the main app.
+ * SSO Callback: the sign-in redirect target (`weldsocial://sso-callback`), for
+ * Clerk's SSO on WeldSuite cloud and the server's own sign-in (OIDC) on EU and
+ * self-hosted servers. Shown briefly while the session is set up, then
+ * AuthGuard redirects to the main app.
  */
 
 import { View, ActivityIndicator } from 'react-native';

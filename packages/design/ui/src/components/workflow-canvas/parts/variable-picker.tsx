@@ -166,7 +166,22 @@ export function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'conversationId', label: 'Conversation ID', type: 'string' },
       { path: 'conversationNumber', label: 'Conversation Number', type: 'number' },
       { path: 'state', label: 'State', type: 'string' },
+      { path: 'priority', label: 'Priority', type: 'string' },
       { path: 'assigneeId', label: 'Assignee ID', type: 'string' },
+    ],
+    // The alert as ticket fields; `success` is false when the payload has neither an id nor a title.
+    parse_alert: [
+      { path: 'success', label: 'Success', type: 'boolean' },
+      { path: 'source', label: 'Source', type: 'string' },
+      { path: 'externalId', label: 'External ID', type: 'string' },
+      { path: 'title', label: 'Title', type: 'string' },
+      { path: 'message', label: 'Message', type: 'string' },
+      { path: 'severity', label: 'Severity', type: 'string' },
+      { path: 'priority', label: 'Priority', type: 'string' },
+      { path: 'state', label: 'State', type: 'string' },
+      { path: 'resolved', label: 'Resolved', type: 'boolean' },
+      { path: 'url', label: 'Link', type: 'string' },
+      { path: 'tags', label: 'Tags', type: 'string' },
     ],
     create_customer: [
       { path: 'created', label: 'Created', type: 'boolean' },

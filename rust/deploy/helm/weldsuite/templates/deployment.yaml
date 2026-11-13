@@ -1,5 +1,5 @@
-{{- if and (not .Values.secret.existingSecret) (not .Values.secret.values) }}
-{{- fail "set secret.existingSecret (or secret.values for a test cluster): the server needs DATABASE_URL_MASTER" }}
+{{- if and (not .Values.secret.existingSecret) (not .Values.secret.values) (not .Values.bundle.postgres) }}
+{{- fail "set secret.existingSecret (or secret.values for a test cluster), or bundle.postgres: the server needs DATABASE_URL_MASTER" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -44,6 +44,30 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if include "weldsuite.migrateInPod" . }}
+      # The migrations before the server starts (weldsuite.migrateInPod): the
+      # bundled Postgres doesn't exist yet when a pre-install hook would run.
+      # Until it answers, this container fails and the pod retries it.
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - migrate
+            {{- range .Values.migrations.args }}
+            - {{ . | quote }}
+            {{- end }}
+            - --concurrency
+            - {{ .Values.migrations.concurrency | quote }}
+          env:
+            {{- include "weldsuite.env" . | nindent 12 }}
+          envFrom:
+            {{- include "weldsuite.envFrom" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+      {{- end }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -53,13 +77,15 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-            {{- if .Values.config.jobs.restate.ingressUrl }}
+            {{- if include "weldsuite.restate.ingressUrl" . }}
             - name: jobs
               containerPort: {{ .Values.config.jobs.port }}
               protocol: TCP
             {{- end }}
+            {{- with include "weldsuite.metricsPort" . }}{{ . | nindent 12 }}{{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- include "weldsuite.metricsEnv" . | nindent 12 }}
             {{- with include "weldsuite.mta.clientEnv" . }}{{ . | nindent 12 }}{{- end }}
             {{- with .Values.config.realtime }}
             {{- if .publicUrl }}
@@ -91,8 +117,7 @@ spec:
             - name: SPA_DIR
               value: {{ ternary .Values.spa.dir "" .Values.spa.enabled | quote }}
           envFrom:
-            - secretRef:
-                name: {{ include "weldsuite.secretName" . }}
+            {{- include "weldsuite.envFrom" . | nindent 12 }}
           startupProbe:
             {{- toYaml .Values.probes.startup | nindent 12 }}
           livenessProbe:

@@ -20,6 +20,11 @@
 //!   every subscriber stays idempotent on the id, as in TypeScript.
 //! - **Shutdown.** [`run_consumer`] stops fetching when `stop` turns true,
 //!   finishes the batch in hand (acks, NAKs, dead letters) and returns.
+//! - **Metrics.** Every delivery ends in one of three ways, counted in
+//!   [`CONSUMER_MESSAGES_METRIC`] by `consumer` (the durable name) and
+//!   `outcome`: `ok` (acknowledged, a skipped duplicate included),
+//!   `redelivered` (a NAK, for a retry or a deferral) or `error` (given up:
+//!   dead-lettered).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -31,6 +36,35 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use tokio::sync::watch;
 use weldsuite_ports::{BatchHandler, Delivery, Disposition, PortError};
+
+/// Deliveries by `consumer` and `outcome` (`ok`, `redelivered`, `error`).
+/// The alert rules and dashboards read this name: don't rename it.
+pub const CONSUMER_MESSAGES_METRIC: &str = "weldsuite_consumer_messages_total";
+
+/// One consumer's three outcome counters, registered when it starts so each
+/// series exists (at zero) before its first message.
+struct Tally {
+    ok: metrics::Counter,
+    redelivered: metrics::Counter,
+    error: metrics::Counter,
+}
+
+impl Tally {
+    fn new(consumer: &str) -> Self {
+        let counter = |outcome: &'static str| {
+            metrics::counter!(
+                CONSUMER_MESSAGES_METRIC,
+                "consumer" => consumer.to_owned(),
+                "outcome" => outcome
+            )
+        };
+        Self {
+            ok: counter("ok"),
+            redelivered: counter("redelivered"),
+            error: counter("error"),
+        }
+    }
+}
 
 /// How one subscriber consumes the hub.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +232,12 @@ struct Memory {
 #[derive(Debug, Default)]
 struct SharedMemory(Mutex<Memory>);
 
+/// What a consumer's workers share.
+struct Shared {
+    memory: SharedMemory,
+    tally: Tally,
+}
+
 impl SharedMemory {
     fn lock(&self) -> MutexGuard<'_, Memory> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
@@ -253,7 +293,10 @@ pub async fn run_consumer(
     handler: Arc<dyn BatchHandler>,
     stop: watch::Receiver<bool>,
 ) {
-    let memory = Arc::new(SharedMemory::default());
+    let shared = Arc::new(Shared {
+        memory: SharedMemory::default(),
+        tally: Tally::new(&spec.durable),
+    });
     let mut workers = Vec::with_capacity(spec.workers.max(1));
     for worker in 0..spec.workers.max(1) {
         workers.push(tokio::spawn(worker_loop(
@@ -261,7 +304,7 @@ pub async fn run_consumer(
             consumer.clone(),
             Arc::clone(&spec),
             Arc::clone(&handler),
-            Arc::clone(&memory),
+            Arc::clone(&shared),
             stop.clone(),
             worker,
         )));
@@ -279,7 +322,7 @@ async fn worker_loop(
     consumer: consumer::PullConsumer,
     spec: Arc<ConsumerSpec>,
     handler: Arc<dyn BatchHandler>,
-    memory: Arc<SharedMemory>,
+    shared: Arc<Shared>,
     mut stop: watch::Receiver<bool>,
     worker: usize,
 ) {
@@ -293,7 +336,17 @@ async fn worker_loop(
         };
         match fetched {
             Ok(messages) if messages.is_empty() => {}
-            Ok(messages) => handle_batch(&context, &spec, &*handler, &memory, messages).await,
+            Ok(messages) => {
+                handle_batch(
+                    &context,
+                    &spec,
+                    &*handler,
+                    &shared.memory,
+                    &shared.tally,
+                    messages,
+                )
+                .await;
+            }
             Err(error) => {
                 tracing::warn!(consumer = spec.durable, worker, %error, "consume: fetch failed; retrying");
                 tokio::select! {
@@ -353,6 +406,7 @@ async fn handle_batch(
     spec: &ConsumerSpec,
     handler: &dyn BatchHandler,
     memory: &SharedMemory,
+    tally: &Tally,
     messages: Vec<jetstream::Message>,
 ) {
     let mut pending = Vec::with_capacity(messages.len());
@@ -365,6 +419,7 @@ async fn handle_batch(
                 "consume: duplicate skipped"
             );
             acknowledge(spec, &message, AckKind::Ack).await;
+            tally.ok.increment(1);
             continue;
         }
         let (attempt, sequence) = message.info().map_or((1, 0), |info| {
@@ -423,6 +478,7 @@ async fn handle_batch(
                     memory.complete(id, spec.dedupe_capacity);
                 }
                 acknowledge(spec, &item.message, AckKind::Ack).await;
+                tally.ok.increment(1);
             }
             Action::Nak(delay) => {
                 if let Disposition::Defer { reason, .. } = &disposition {
@@ -446,10 +502,12 @@ async fn handle_batch(
                     );
                 }
                 acknowledge(spec, &item.message, AckKind::Nak(Some(delay))).await;
+                tally.redelivered.increment(1);
             }
             Action::DeadLetter(reason) => {
                 memory.set_deferred(item.sequence, None);
                 dead_letter(context, spec, &item, &reason).await;
+                tally.error.increment(1);
             }
         }
     }

@@ -1,4 +1,4 @@
-import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { AuthLoaded, AuthProvider, useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -12,8 +12,8 @@ import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerRuntimeGate } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -25,6 +25,7 @@ import { appApi, appApiClient, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { I18nProvider, useI18n } from '@/lib/i18n';
+import { APP, BUILD } from '@/lib/server';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -33,14 +34,8 @@ Observe.configure({
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!CLERK_PUBLISHABLE_KEY) {
-  console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
-}
-
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const { t } = useI18n();
   const router = useRouter();
   const segments = useSegments();
@@ -56,7 +51,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   }, [user, organizationId, isOrgListLoaded, setActive, userMemberships?.data]);
 
   // app-api token wiring — the client re-reads on every request, so the
-  // token stays fresh across Clerk refreshes. The JWT carries the active
+  // token stays fresh across session refreshes. The JWT carries the active
   // org, which app-api uses to resolve the tenant DB.
   useEffect(() => {
     if (user) {
@@ -201,13 +196,24 @@ function AppStack() {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
+  );
+}
+
+// Boots the runtime (which server, who signs people in) in the app's language,
+// before anything below reads it.
+function ServerGate({ children }: Readonly<{ children: React.ReactNode }>) {
+  const { language } = useI18n();
+  return (
+    <ServerRuntimeGate app={APP} build={BUILD} language={language} accentColor="#8B5CF6" onFailed={hideAppSplash}>
+      {children}
+    </ServerRuntimeGate>
   );
 }
 
@@ -222,17 +228,15 @@ function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <ErrorBoundary>
-          {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-              client sync races browser SSO on Android and signs users out again. */}
-          <ClerkProvider
-            publishableKey={CLERK_PUBLISHABLE_KEY || ''}
-            tokenCache={tokenCache}
-            __experimental_disableNativeClientSync
-          >
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
+          {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+              in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+          <ServerGate>
+            <AuthProvider>
+              <AuthLoaded>
+                <AuthenticatedApp />
+              </AuthLoaded>
+            </AuthProvider>
+          </ServerGate>
         </ErrorBoundary>
       </KeyboardProvider>
     </GestureHandlerRootView>

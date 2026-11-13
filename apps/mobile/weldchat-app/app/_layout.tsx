@@ -1,4 +1,5 @@
-import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { onClearServerData } from '@weldsuite/mobile-platform/runtime';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot, useObserve } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -13,8 +14,8 @@ import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -32,6 +33,8 @@ import { IncomingCallModal } from '@/components/call/IncomingCallModal';
 import { CallHost, CallInsetContainer } from '@/components/call/CallHost';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
+import { clearServerData } from '@/lib/offline/cache';
+import { APP, BUILD } from '@/lib/server';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -40,14 +43,8 @@ Observe.configure({
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!CLERK_KEY) {
-  console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
-}
-
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId, signOut } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId, signOut } = useAuthSession();
   const { markInteractive } = useObserve();
   const router = useRouter();
   const segments = useSegments();
@@ -316,13 +313,13 @@ function AppStack() {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
   );
 }
 
@@ -333,6 +330,10 @@ function RootLayout() {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
+
+  // Switching server: what the app cached for the old one (lists, replay
+  // cursors, recent searches) must not show up against the new one.
+  useEffect(() => onClearServerData('weldchat-cache', clearServerData), []);
 
   // The stored language is a quick local read; hold the first paint for it so a
   // Dutch user never sees the English UI flash by.
@@ -350,17 +351,11 @@ function RootLayout() {
         <SafeAreaProvider>
           <KeyboardProvider>
             <ErrorBoundary>
-              {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-                  client sync races browser SSO on Android and signs users out again. */}
-              <ClerkProvider
-                publishableKey={CLERK_KEY || ''}
-                tokenCache={tokenCache}
-                __experimental_disableNativeClientSync
-              >
-                <ClerkLoaded>
-                  <AuthenticatedApp />
-                </ClerkLoaded>
-              </ClerkProvider>
+              {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+                  in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+              <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash}>
+                <AuthenticatedApp />
+              </ServerAuthRoot>
             </ErrorBoundary>
           </KeyboardProvider>
         </SafeAreaProvider>

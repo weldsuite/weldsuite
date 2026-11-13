@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Linking } from 'react-native';
 import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
-import { useOrganizationList, useUser } from '@clerk/expo';
+import { useHostedSignIn, useOrganizationList, useUser } from '@weldsuite/mobile-platform/auth';
 import { Inbox, RefreshCw, LogOut, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { hideAppSplash } from '@/utils/splash';
 
 export default function NoWorkspaceScreen() {
@@ -14,8 +14,11 @@ export default function NoWorkspaceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { user: clerkUser } = useUser();
+  // Clerk deletes the account in the app; on the server's own sign-in (OIDC) it is done on its account page.
+  const accountUrl = useHostedSignIn()?.accountUrl;
+  const canDeleteAccount = !!clerkUser?.delete || !!accountUrl;
   const { userMemberships, isLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -51,6 +54,10 @@ export default function NoWorkspaceScreen() {
   };
 
   const handleDeleteAccount = () => {
+    if (!clerkUser?.delete) {
+      if (accountUrl) void Linking.openURL(accountUrl);
+      return;
+    }
     Alert.alert(
       'Delete Account',
       `This will permanently delete the account for ${user?.email}. This action cannot be undone.`,
@@ -60,7 +67,7 @@ export default function NoWorkspaceScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (!clerkUser) return;
+            if (!clerkUser?.delete) return;
             setDeleting(true);
             try {
               await clerkUser.delete();
@@ -116,18 +123,20 @@ export default function NoWorkspaceScreen() {
           <Text style={[styles.footerText, { color: colors.muted }]}>Sign out</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.footerButton}
-          onPress={handleDeleteAccount}
-          disabled={deleting}
-        >
-          {deleting ? (
-            <ActivityIndicator size="small" color="#EF4444" />
-          ) : (
-            <Trash2 size={16} color="#EF4444" />
-          )}
-          <Text style={[styles.footerText, { color: '#EF4444' }]}>Delete account</Text>
-        </TouchableOpacity>
+        {canDeleteAccount ? (
+          <TouchableOpacity
+            style={styles.footerButton}
+            onPress={handleDeleteAccount}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <ActivityIndicator size="small" color="#EF4444" />
+            ) : (
+              <Trash2 size={16} color="#EF4444" />
+            )}
+            <Text style={[styles.footerText, { color: '#EF4444' }]}>Delete account</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );

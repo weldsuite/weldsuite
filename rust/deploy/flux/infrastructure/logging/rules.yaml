@@ -1,0 +1,31 @@
+# The log pipeline's own health: logs that don't reach Loki are logs nobody
+# can search when they're needed. What to do: ../monitoring-config/ALERTS.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-logging
+  namespace: logging
+spec:
+  groups:
+    - name: weldsuite-logging
+      rules:
+        - alert: LogPipelineDropping
+          expr: |
+            sum by (pod) (rate(fluentbit_output_dropped_records_total[15m])) > 0
+            or sum by (pod) (rate(fluentbit_output_retries_failed_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Fluent Bit on {{ $labels.pod }} is dropping log records"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#logpipelinedropping
+        - alert: LokiRejectingWrites
+          expr: |
+            sum(rate(loki_discarded_samples_total[15m])) > 0
+            or sum(rate(loki_request_duration_seconds_count{route=~"loki_api_v1_push", status_code=~"5.."}[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki is refusing or dropping log lines"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#lokirejectingwrites

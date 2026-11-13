@@ -6,7 +6,7 @@
 import { cloneElement, useState } from 'react';
 import { Clipboard } from 'react-native';
 import { Link, useRouter, type Href } from 'expo-router';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import type { RecordChatListItem } from '@weldsuite/app-api-client/domains/chat-entity-channels';

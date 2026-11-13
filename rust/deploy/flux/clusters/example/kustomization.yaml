@@ -1,0 +1,9 @@
+# What the flux-system Kustomization applies from this folder. Without this
+# file Flux would apply every manifest below it, configs/ included, which the
+# configs-extra layer applies instead (after the CRDs, with the settings
+# substituted). List a new file here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cluster-settings.yaml
+  - layers.yaml

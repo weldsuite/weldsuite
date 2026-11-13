@@ -29,7 +29,7 @@ import { Check } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
@@ -457,7 +457,7 @@ export function EntityEmptyState({ onCreated }: Readonly<{ onCreated: () => void
   const { colors, theme } = useTheme();
   const toast = useToast();
   const { t } = useI18n();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const { hasMultipleWorkspaces } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);

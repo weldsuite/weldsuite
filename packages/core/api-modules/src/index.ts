@@ -46,7 +46,8 @@ export type ApiModuleId =
   | 'docs'
   | 'panel'
   | 'board'
-  | 'merge';
+  | 'merge'
+  | 'forms';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -94,7 +95,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms']);
 
 const mod = (
   id: ApiModuleId,
@@ -118,6 +119,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',
+    '/api/audit-log-streams',
     '/api/audit-logs',
     '/api/auth-desktop',
     '/api/auth-sessions',
@@ -488,6 +490,10 @@ export const API_MODULES: readonly ApiModule[] = [
   // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
   // GitHub App's setup redirect (no Clerk session: the signed state decides).
   mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
+  // WeldForms (forms and surveys, docs/plans/weldforms.md). `/public/forms` is
+  // called only by apps/web/forms-portal, which proves itself with
+  // FORMS_PORTAL_SECRET (ADR FORMS-002); respondents never reach it directly.
+  mod('forms', 8828, ['weldforms'], ['/api/forms', '/public/forms']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

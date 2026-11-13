@@ -18,7 +18,10 @@
 #   PLAID_CLIENT_ID, PLAID_SECRET                  Plaid (PLAID_ENV var: sandbox | production)
 #   STRIPE_FC_SECRET_KEY                           Stripe Financial Connections (secret key of
 #                                                  the account FC is registered on)
-#   PONTO_CLIENT_ID, PONTO_CLIENT_SECRET           Isabel Ponto Connect (needs PONTO_CERT below)
+#   PONTO_CLIENT_ID, PONTO_CLIENT_SECRET           Isabel Ponto Connect (needs PONTO_CERT below);
+#                                                  PONTO_ENV=sandbox (a var) for a sandbox application;
+#                                                  PONTO_APPLICATION_ID (a var) when Ponto's webhooks are on
+#                                                  (integration-webhook-worker has it too): polled once a day
 #   PONTO_SIGNATURE_CERT_ID, PONTO_SIGNATURE_KEY   a live Ponto application's signature certificate
 #                                                  (its id, and its unencrypted PEM key); every Ponto
 #                                                  request is signed with it. Unset in the sandbox.

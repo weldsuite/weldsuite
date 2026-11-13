@@ -231,7 +231,19 @@ and Enable Banking's link sessions carry a random `state` (and a time-based
 consent end), so their outbound calls cannot match; the test starts Plaid
 and Stripe links only. Ponto's mTLS
 client is `BooksState::ponto_http`, made from `PONTO_MTLS_CERT` and
-`PONTO_MTLS_KEY` (`ReqwestOutbound::with_client_certificate`). Bank-connection
+`PONTO_MTLS_KEY` (`ReqwestOutbound::with_client_certificate`). Ponto runs on
+its API version 2 in both: the link asks for `ai offline_access` (no refresh
+token otherwise) on the live or, with `PONTO_ENV=sandbox`, the sandbox's
+authorization page; a sync reads each account first (its consent end, stored
+over the link's, and its latest synchronization's authorization errors, which
+ask for a reconnect); "sync now" sends the member's address
+(`Caller::client_ip`, `X-Forwarded-For` by `TRUSTED_PROXIES`; the worker
+reads `CF-Connecting-IP`) and waits for Ponto's synchronizations; a refresh
+token rotated before a failed sync is stored (`pending_credentials`). The link
+reads the Ponto organization (`/userinfo`) and indexes the connection by it
+too, so the integration workers' receiver can route Ponto's webhooks
+(`PONTO_APPLICATION_ID`; with it Ponto's capability says `webhooks` and the
+connection is polled once a day). Bank-connection
 billing is Global's billing-worker: off on these editions (the `billing`
 feature), so `GET /billing` is `null` and no connection is limited or
 charged, as the worker answers where billing is off. The two internal

@@ -2586,7 +2586,7 @@ function CreateConversationForm({
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.conversationFields;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
-  const textInput = (key: 'title' | 'name' | 'email' | 'externalId') => (
+  const textInput = (key: 'title' | 'name' | 'email' | 'externalId' | 'priority' | 'tags' | 'teamId' | 'ticketTypeId' | 'state') => (
     <VariableInput
       value={(config[key] as string | undefined) || ''}
       onChange={(v) => onChange({ ...config, [key]: v })}
@@ -2626,6 +2626,99 @@ function CreateConversationForm({
         {textInput('externalId')}
         <p className="text-xs text-muted-foreground mt-1">{cf.externalIdDesc}</p>
       </FormField>
+
+      <FormField label={cf.labels.priority} description={cf.priorityDesc}>
+        {textInput('priority')}
+      </FormField>
+
+      <FormField label={cf.labels.tags} description={cf.tagsDesc}>
+        {textInput('tags')}
+      </FormField>
+
+      <FormField label={cf.labels.teamId} description={cf.teamIdDesc}>
+        {textInput('teamId')}
+      </FormField>
+
+      <FormField label={cf.labels.ticketTypeId} description={cf.ticketTypeIdDesc}>
+        {textInput('ticketTypeId')}
+      </FormField>
+
+      <FormField label={cf.labels.state} description={cf.stateDesc}>
+        {textInput('state')}
+      </FormField>
+    </div>
+  );
+}
+
+const ALERT_SOURCES = ['auto', 'splunk', 'datadog', 'grafana'] as const;
+const ALERT_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+
+/**
+ * parse_alert: reads a Splunk, Datadog or Grafana alert (by default the body
+ * of the webhook that started the workflow) into ticket fields for the next
+ * step — see apps/workers/workflow-worker/src/engine/actions/alerts.ts.
+ */
+function ParseAlertForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: VariableStepFormProps) {
+  const { t } = useI18n();
+  const pf = t.weldconnect.actionConfigForm.parseAlertFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  return (
+    <div className="space-y-4">
+      <FormField label={pf.labels.payload} description={pf.payloadDesc}>
+        <VariableInput
+          value={(config.payload as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, payload: v })}
+          placeholder={pf.placeholders.payload}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={pf.labels.source} description={pf.sourceDesc}>
+        <Select
+          value={(config.source as string | undefined) || 'auto'}
+          onValueChange={(v) => onChange({ ...config, source: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ALERT_SOURCES.map((source) => (
+              <SelectItem key={source} value={source}>
+                {pf.sources[source]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <FormField label={pf.labels.defaultPriority} description={pf.defaultPriorityDesc}>
+        <Select
+          value={(config.defaultPriority as string | undefined) || 'medium'}
+          onValueChange={(v) => onChange({ ...config, defaultPriority: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ALERT_PRIORITIES.map((priority) => (
+              <SelectItem key={priority} value={priority}>
+                {pf.priorities[priority]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{pf.outputHint}</p>
     </div>
   );
 }
@@ -4433,6 +4526,7 @@ const VARIABLE_STEP_FORMS = new Map<string, ComponentType<VariableStepFormProps>
   ['post_chat_message', PostChatMessageForm],
   ['slack.post_message', SlackPostMessageForm],
   ['create_conversation', CreateConversationForm],
+  ['parse_alert', ParseAlertForm],
   // WeldMerge
   ['merge.create_issue', MergeCreateIssueForm],
   ['merge.update_issue', MergeUpdateIssueForm],

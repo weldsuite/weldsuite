@@ -30,7 +30,7 @@ output "ingress_ipv6" {
 output "dns_records" {
   description = "The records to create at the EU DNS provider (README.md, step 5)."
   value = {
-    for name in concat(["app", "api", "auth", "sign", "admin", "livekit", "turn"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
+    for name in concat(["app", "api", "auth", "sign", "admin", "grafana", "livekit", "turn"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
       A    = hcloud_load_balancer.ingress.ipv4
       AAAA = hcloud_load_balancer.ingress.ipv6
     }
@@ -52,25 +52,41 @@ output "nodes" {
 # The mail nodes (mail.tf) and what DNS needs of them (README.md, "Mail"):
 # an A record for each name (its PTR is already set), the names as the
 # bounce domain's MX, and the addresses in _spf.<domain>.
+locals {
+  # Every node that sends mail: the dedicated mail nodes (mail_pools) and the
+  # cluster nodes that also send a pool's mail (mail_pool_nodes).
+  mail_senders = merge(
+    {
+      for key, node in local.mail_nodes : key => {
+        name     = node.rdns
+        pool     = node.mail
+        location = node.location
+        ipv4     = hcloud_primary_ip.mail[key].ip_address
+      }
+    },
+    {
+      for pool, key in var.mail_pool_nodes : key => {
+        name     = "mail1-${pool}.${var.domain}"
+        pool     = pool
+        location = local.nodes[key].location
+        ipv4     = hcloud_server.node[key].ipv4_address
+      }
+    },
+  )
+}
+
 output "mail_nodes" {
-  description = "Each mail node: pool, location, public IPv4 and the name its PTR (and the MTA's EHLO) carries."
-  value = {
-    for key, node in local.mail_nodes : key => {
-      name     = node.rdns
-      pool     = node.mail
-      location = node.location
-      ipv4     = hcloud_primary_ip.mail[key].ip_address
-    }
-  }
+  description = "Each node that sends mail (mail_pools and mail_pool_nodes): pool, location, public IPv4 and the name its PTR (and the MTA's EHLO) carries."
+  value       = local.mail_senders
 }
 
 output "mail_dns_records" {
-  description = "The mail records to create at the EU DNS provider (README.md, \"Mail\"). Empty without mail_pools."
-  value = length(local.mail_nodes) == 0 ? {} : merge(
-    { for key, node in local.mail_nodes : node.rdns => { A = hcloud_primary_ip.mail[key].ip_address } },
+  description = "The mail records to create at the EU DNS provider (README.md, \"Mail\"). Empty without mail_pools and mail_pool_nodes."
+  value = length(local.mail_senders) == 0 ? {} : merge(
+    { for key, node in local.mail_senders : node.name => { A = node.ipv4 } },
     {
       "_spf.${var.domain}" = {
-        TXT = "v=spf1 ${join(" ", [for key in sort(keys(local.mail_nodes)) : "ip4:${hcloud_primary_ip.mail[key].ip_address}"])} -all"
+        TXT = "v=spf1 ${join(" ", [for key in sort(keys(local.mail_senders)) : "ip4:${local.mail_senders[key].ipv4}"])} -all"
       }
     },
   )

@@ -8,7 +8,7 @@ import { hideAppSplash } from '@/utils/splash';
 
 export default function AuthScreen() {
   const { markInteractive } = useObserve();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
 
   useEffect(() => {
     hideAppSplash();
@@ -21,6 +21,7 @@ export default function AuthScreen() {
       logoSize={{ width: 40, height: 40 }}
       appName="WeldChat"
       subtitle={t.login.subtitle}
+      language={language}
       showEmailLogin={true}
       accentColor={BRAND}
     />

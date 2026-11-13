@@ -16,6 +16,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 futures-util = { workspace = true, features = ["std"] }
+metrics = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 rustls-platform-verifier = { workspace = true }

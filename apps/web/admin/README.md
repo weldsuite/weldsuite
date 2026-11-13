@@ -32,8 +32,9 @@ pnpm --filter admin build:node && pnpm --filter admin start:node
 
 ## Global: moving the console from Vercel to the Worker
 
-`deploy.yml`'s `start-workers` job deploys the Worker only to the
-environments named in the repository variable `ADMIN_WORKER_ENVS`. Until then
+The deploy's `start-workers` job (run by `weldsuite-deploy`) deploys the Worker
+only to the environments named in `weldsuite-deploy`'s repository variable
+`ADMIN_WORKER_ENVS`. Until then
 that environment's console stays on Vercel. Per environment, test first:
 
 1. Put `ADMIN_CLERK_SECRET_KEY` and `ADMIN_CLERK_PUBLISHABLE_KEY` (the admin
@@ -44,7 +45,8 @@ that environment's console stays on Vercel. Per environment, test first:
 3. Delete the hostname's DNS record in the `weldsuite.org` zone (it points at
    Vercel). The Worker's custom domain can't be created while it exists.
 4. Add the environment to `ADMIN_WORKER_ENVS` (`test`, later
-   `test,production`) and run the Deploy workflow, or push a console change.
+   `test,production`). Test gets it with the next merge to `main` that
+   touches the console, production with the next Promote.
 5. Check: sign in, a viewer is refused a write, one write per area, and a
    cross-site POST is refused.
 

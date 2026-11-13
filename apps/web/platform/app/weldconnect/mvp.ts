@@ -36,6 +36,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'merge.comment_on_issue',
   // WeldDesk inbox: open (or add to) a conversation, deduplicated by external id.
   'create_conversation',
+  'parse_alert',
   'send_notification',
   'post_chat_message',
   'http_request',

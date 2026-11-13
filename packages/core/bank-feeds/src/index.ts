@@ -7,7 +7,7 @@ export { createPlaidProvider, PlaidProvider } from './plaid';
 export type { PlaidCompletePayload, PlaidConfig } from './plaid';
 export { createStripeFcProvider, StripeFcProvider } from './stripe-fc';
 export type { StripeFcCompletePayload, StripeFcConfig } from './stripe-fc';
-export { createPontoProvider, PontoProvider } from './ponto';
+export { createPontoProvider, PontoProvider, pontoEventsFromWebhook } from './ponto';
 export type { PontoCompletePayload, PontoConfig } from './ponto';
 export { createEnableBankingProvider, EnableBankingProvider } from './enable-banking';
 export type { EnableBankingCompletePayload, EnableBankingConfig } from './enable-banking';

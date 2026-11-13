@@ -1,15 +1,14 @@
 import React from 'react';
 import { RealtimeProvider as BaseProvider } from '@weldsuite/realtime/react';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-
-const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 
 export function RealtimeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { getToken } = useClerkAuth();
+  const { getToken } = useAuthSession();
 
   return (
     <BaseProvider
-      url={`${REALTIME_URL}/ws`}
+      url={`${realtimeUrl()}/ws`}
       getToken={async () => (await getToken()) || ''}
     >
       {children}

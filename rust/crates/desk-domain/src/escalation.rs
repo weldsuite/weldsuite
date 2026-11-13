@@ -37,8 +37,49 @@ const MINUTE_MS: f64 = 60_000.0;
 /// Rules one sweep fires on a conversation at most (`MAX_FIRINGS`).
 const MAX_FIRINGS: usize = 5;
 
-/// `DESK_ESCALATION_CUSTOMER_MESSAGE`: what `notifyCustomer` posts.
+/// `DESK_ESCALATION_CUSTOMER_MESSAGE`: what `notifyCustomer` posts in
+/// English, and for a language without a text of its own.
 pub const CUSTOMER_MESSAGE: &str = "Your request has been escalated so the right people can help. We will get back to you as soon as possible.";
+
+/// `DESK_ESCALATION_CUSTOMER_MESSAGES`: the notice by language (a tag's
+/// primary subtag).
+const CUSTOMER_MESSAGES: [(&str, &str); 2] = [
+    ("en", CUSTOMER_MESSAGE),
+    (
+        "nl",
+        "Je verzoek is doorgezet, zodat de juiste mensen je kunnen helpen. We komen zo snel mogelijk bij je terug.",
+    ),
+];
+
+/// `deskEscalationCustomerMessage(language)`: the notice for a language tag
+/// (`nl`, `nl-BE`, `NL_nl`), English when it has no text of its own.
+#[must_use]
+pub fn customer_message(language: Option<&str>) -> &'static str {
+    let tag = weldsuite_kit::validation::js_trim(language.unwrap_or_default()).to_lowercase();
+    let primary = tag.split(['-', '_']).next().unwrap_or_default();
+    CUSTOMER_MESSAGES
+        .iter()
+        .find(|(language, _)| *language == primary)
+        .map_or(CUSTOMER_MESSAGE, |(_, text)| text)
+}
+
+/// `customerLanguage(db, conversation)`: the conversation's language
+/// (detected by inbox translation), else the workspace's.
+async fn customer_language(
+    db: &PgPool,
+    conversation: &Value,
+) -> Result<Option<String>, sqlx::Error> {
+    let own = conversation["language"].as_str().unwrap_or_default();
+    if !weldsuite_kit::validation::js_trim(own).is_empty() {
+        return Ok(Some(own.to_owned()));
+    }
+    let language: Option<Option<String>> = sqlx::query_scalar(
+        "select language from workspace_settings where deleted_at is null limit 1",
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(language.flatten())
+}
 
 /// An `EscalationRule` the engine can run.
 #[derive(Debug, Clone, PartialEq)]
@@ -722,6 +763,7 @@ impl Fire<'_> {
 
         if rule.notify_customer {
             let id = current["id"].as_str().unwrap_or_default().to_owned();
+            let language = customer_language(db, &current).await?;
             self.append(
                 db,
                 Append {
@@ -729,7 +771,7 @@ impl Fire<'_> {
                     kind: "message",
                     author_type: "system",
                     author_id: None,
-                    body: Some(CUSTOMER_MESSAGE.to_owned()),
+                    body: Some(customer_message(language.as_deref()).to_owned()),
                     attachments: None,
                     metadata: Some(event(&[("escalation", json!(true))])),
                     assignee_id: None,
