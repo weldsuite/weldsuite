@@ -87,6 +87,11 @@ pub(crate) struct AppState {
     pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
+    /// The install's AI (`crate::ai`), `None` without `AI_DEFAULT_PROVIDER`.
+    /// A route calls `crate::ai::for_request(state.ai.as_ref(), extensions)`:
+    /// conformance builds put the test's own on each request.
+    #[allow(dead_code, reason = "the AI routes read it as they are ported")]
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -607,6 +612,7 @@ mod tests {
             public_auth: None,
             sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
+            ai: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
@@ -693,10 +699,12 @@ mod tests {
         assert_eq!(body["backend"], "rust");
         assert_eq!(body["modules"][0], "core");
         // Every ported module but WeldMeet, which needs a video service this
-        // state hasn't configured.
+        // state hasn't configured, and WeldAgent, which needs an AI provider.
         let ported = weldsuite_catalogs::api_modules()
             .iter()
-            .filter(|m| m.rust && m.id != crate::edition::VIDEO_MODULE)
+            .filter(|m| {
+                m.rust && m.id != crate::edition::VIDEO_MODULE && m.id != crate::edition::AI_MODULE
+            })
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
         assert!(
@@ -751,6 +759,10 @@ mod tests {
             video_configured: true,
             live_editing: false,
             mail: crate::edition::MailOffer::default(),
+            ai: Some(json!({
+                "defaultProvider": "mistral",
+                "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
+            })),
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
@@ -764,6 +776,12 @@ mod tests {
                 .is_some_and(|modules| modules.contains(&json!("meet"))),
             "WeldMeet is offered with a video service"
         );
+        // AI on Mistral: the providers, and no AI feature listed as missing.
+        assert_eq!(body["ai"]["defaultProvider"], "mistral");
+        assert_eq!(body["ai"]["providers"][0]["region"], "eu");
+        let lacks = body["unavailableFeatures"].as_array().expect("list");
+        assert!(!lacks.contains(&json!("mail-ai")));
+        assert!(lacks.contains(&json!("agent-sandbox")));
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

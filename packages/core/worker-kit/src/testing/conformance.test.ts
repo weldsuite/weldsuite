@@ -14,6 +14,19 @@ describe('conformance comparison', () => {
     );
   });
 
+  it("leaves out an AI answer's provider label, which only Rust adds", () => {
+    const ts = { data: { subject: 'Hello' } };
+    const rust = {
+      data: { subject: 'Hello' },
+      meta: { ai: { provider: 'mistral', model: 'mistral/mistral-small-2506', region: 'eu' } },
+    };
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).toBeNull();
+    // Whatever else is in `meta` stays compared.
+    const withMore = { ...rust, meta: { ...rust.meta, total: 3 } };
+    expect(firstDifference(normalizeForDiff({ ...ts, meta: { total: 3 } }, true), normalizeForDiff(withMore, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(withMore, false))).not.toBeNull();
+  });
+
   it('normalises new ids, timestamps and cursors on writes only', () => {
     const ts = { data: { id: 'comp_mh2k3j4lab12cd34', createdAt: '2026-10-29T07:00:00.000Z' }, pagination: { cursor: 'abc' } };
     const rust = { data: { id: 'comp_mh2k3j9zzz98yx76', createdAt: '2026-10-29T07:00:00.123Z' }, pagination: { cursor: 'xyz' } };

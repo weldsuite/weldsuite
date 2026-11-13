@@ -13,6 +13,7 @@
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
 //! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
+//! | `AI_*`, `MISTRAL_API_KEY`, … (`weldsuite_ai::config`), `VALKEY_CACHE_PREFIX` | the install's AI, as for `serve`, for the subscribers that call a model; its workspace settings cached in Valkey under the cache prefix |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
 //! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
@@ -187,6 +188,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) subscribers: Vec<String>,
     pub(crate) valkey_url: Option<String>,
     pub(crate) valkey_realtime_prefix: String,
+    /// `VALKEY_CACHE_PREFIX`, as for `serve`: the AI settings cache.
+    pub(crate) valkey_cache_prefix: String,
     /// `VALKEY_LEDGER_PREFIX`: the outbound ledgers `serve` keeps.
     pub(crate) valkey_ledger_prefix: String,
     pub(crate) embeddings: Option<EmbeddingsConfig>,
@@ -202,6 +205,8 @@ pub(crate) struct ConsumeConfig {
     /// `FEATURE_FLAGS=master-db`: flags from the master database, refreshed
     /// this often; `None` keeps every flag at its default.
     pub(crate) master_db_flags: Option<Duration>,
+    /// The install's AI settings, as for `serve`.
+    pub(crate) ai: weldsuite_ai::AiConfig,
 }
 
 impl fmt::Debug for ConsumeConfig {
@@ -234,6 +239,7 @@ impl fmt::Debug for ConsumeConfig {
                 &self.mail_inbound.as_ref().map(|m| m.mail.bucket.as_str()),
             )
             .field("drain", &self.drain)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -426,6 +432,7 @@ impl ConsumeConfig {
                 false
             }
         };
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
         let flags_refresh = match lookup("FEATURE_FLAGS_REFRESH_SECONDS") {
             None => 30,
             Some(value) => value.parse::<u64>().unwrap_or_else(|_| {
@@ -470,6 +477,8 @@ impl ConsumeConfig {
             valkey_url: lookup("VALKEY_URL"),
             valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
                 .unwrap_or_else(|| "realtime:".to_owned()),
+            valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
+                .unwrap_or_else(|| "cache:".to_owned()),
             valkey_ledger_prefix: lookup("VALKEY_LEDGER_PREFIX")
                 .unwrap_or_else(|| "weldsuite:outbound:".to_owned()),
             embeddings,
@@ -480,6 +489,7 @@ impl ConsumeConfig {
             mail_inbound,
             mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
+            ai,
         })
     }
 }

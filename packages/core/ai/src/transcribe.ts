@@ -93,6 +93,11 @@ export function resolveTranscribeRequest(
 ): { url: string; headers: Record<string, string> } {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
+  // Tests only: the mock model's `run` (`AI_TEST_BASE_URL`, config.ts).
+  if (config.testBaseUrl) {
+    return { url: `${config.testBaseUrl}/run/${modelId}`, headers };
+  }
+
   if (config.apiKey) {
     headers.Authorization = `Bearer ${config.apiKey}`;
     if (config.gateway) headers['cf-aig-gateway-id'] = config.gateway;

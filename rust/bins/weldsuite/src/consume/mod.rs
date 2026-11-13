@@ -514,6 +514,13 @@ struct Services {
     bus: JetStreamEventBus,
     realtime: Option<Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<Arc<dyn Embeddings>>,
+    /// The install's AI (`crate::ai`), with the settings cache in Valkey;
+    /// `None` without `AI_DEFAULT_PROVIDER`.
+    #[allow(
+        dead_code,
+        reason = "the AI subscribers (search index, WeldReach and inbound mail labels) take it as they are ported"
+    )]
+    ai: Option<weldsuite_ai::Ai>,
     http: WebhookHttp,
     /// Audit log streams go out under the webhooks' private-network rule.
     streams: AuditStreamSender,
@@ -621,13 +628,25 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         }
     }
     ensure_queue_streams(&bus, config).await?;
-    let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
-        Some(url) => Some(Arc::new(ValkeyRealtime::new(
-            connect_valkey(url).await?,
-            config.valkey_realtime_prefix.clone(),
-        ))),
+    let valkey = match &config.valkey_url {
+        Some(url) => Some(connect_valkey(url).await?),
         None => None,
     };
+    let realtime: Option<Arc<dyn DynRealtimePublisher>> = valkey.clone().map(|connection| {
+        Arc::new(ValkeyRealtime::new(
+            connection,
+            config.valkey_realtime_prefix.clone(),
+        )) as Arc<dyn DynRealtimePublisher>
+    });
+    let ai = crate::ai::build(
+        &config.ai,
+        valkey.map(|connection| {
+            Arc::new(weldsuite_adapters_oss::ValkeyCache::new(
+                connection,
+                config.valkey_cache_prefix.clone(),
+            )) as Arc<dyn weldsuite_ports::DynCache>
+        }),
+    )?;
     let embeddings: Option<Arc<dyn Embeddings>> = match &config.embeddings {
         Some(settings) => Some(Arc::new(OpenAiEmbeddings::new(OpenAiEmbeddingsOptions {
             base_url: settings.url.clone(),
@@ -640,6 +659,7 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         bus,
         realtime,
         embeddings,
+        ai,
         http: WebhookHttp::new(config.webhook_allow_private)?,
         streams: AuditStreamSender::new(config.webhook_allow_private)?,
         stream_flushes: PendingStreamFlushes::default(),
