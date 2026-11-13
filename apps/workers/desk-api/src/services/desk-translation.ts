@@ -23,8 +23,8 @@
  * One model, `recommended.translate.free` (Llama 3.3 70B on Workers AI), via
  * `@weldsuite/ai`, metered against the workspace wallet like mail AI: the
  * credit gate before the call, the charge for the model that served after it
- * (ADR AI-005, AI-007). The Kubernetes editions have no AI provider
- * (ADR AI-011): Rust answers 503 and the platform hides the feature.
+ * (ADR AI-005, AI-007). The Kubernetes editions run the same flow in Rust on
+ * `weldsuite-ai` (`rust/modules/desk/src/channels/translation.rs`, ADR AI-012).
  */
 
 import { and, asc, eq, inArray } from 'drizzle-orm';

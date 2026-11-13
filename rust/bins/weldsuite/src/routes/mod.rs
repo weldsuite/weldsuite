@@ -1539,6 +1539,7 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         outbound: deployment_outbound(state),
         master: Some(state.workspaces.master().clone()),
         assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
+        ai: state.ai.clone(),
     }
 }
 

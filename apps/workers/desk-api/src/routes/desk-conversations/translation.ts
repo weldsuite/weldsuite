@@ -8,9 +8,9 @@
  *
  * Both need `conversations:update` (the agent is working the conversation;
  * translating spends the workspace's AI credits). 402 when the wallet is
- * empty, 503 `ai_unavailable` when the AI gateway isn't configured. Global
- * only: Rust answers 503 and the routes are excluded from its conformance
- * suite (no AI provider on the Kubernetes editions, ADR AI-011).
+ * empty, 503 `ai_unavailable` when the AI gateway isn't configured. The
+ * Kubernetes editions serve the same routes on `weldsuite-ai` (feature
+ * `desk-translate`, ADR AI-012); translation.integration.test.ts runs on both.
  *
  * Sending the translated reply goes through `POST /:id/reply` with the
  * agent's own words in `translation` (internal message metadata).

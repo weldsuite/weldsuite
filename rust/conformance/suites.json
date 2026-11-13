@@ -1351,6 +1351,7 @@
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/desk-conversations/reply-translation.integration.test.ts",
+        "src/routes/desk-conversations/translation.integration.test.ts",
         "src/routes/desk-conversations/priority-matrix.integration.test.ts",
         "src/routes/desk-conversations/links.integration.test.ts",
         "src/routes/desk-conversations/routing.integration.test.ts",
@@ -1384,16 +1385,7 @@
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/desk/conversations/:id/translate",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        },
-        {
-          "route": "POST /api/desk/conversations/:id/translate-reply",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "desk: SLA sweep",
