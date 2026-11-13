@@ -36,8 +36,8 @@
 
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{
-    Ai, AiCall, AiError, BillingMode, ChatRequest, ChatResponse, Feature, KeySource, Message, Task,
-    Tier, Usage, billing,
+    Ai, AiCall, AiError, BillingMode, ChatRequest, ChatResponse, Feature, KeySource, LedgerTag,
+    Message, Task, Tier, Usage, billing,
 };
 use weldsuite_db::PgPool;
 
@@ -68,6 +68,9 @@ struct Scope {
     metered: bool,
     user_id: Option<String>,
     execution_id: String,
+    /// The step's id: with the execution and the op, the charge's
+    /// idempotency key.
+    step_id: String,
     /// `workflows.settings.maxCreditsPerRun`.
     cap: Option<i64>,
 }
@@ -104,6 +107,7 @@ impl Scope {
             workspace_id: internal.unwrap_or_else(|| reference.clone()),
             user_id: Some(ctx.info.user_id.clone()).filter(|id| !id.is_empty()),
             execution_id: ctx.info.execution_id.clone(),
+            step_id: ctx.step_id.to_owned(),
             cap: ctx.info.max_credits_per_run,
         }
     }
@@ -115,7 +119,13 @@ impl Scope {
             .master(self.master.clone())
             .stored_model(model)
             .op(op)
-            .reference(&self.execution_id);
+            .reference(&self.execution_id)
+            // `chargeStepUsage`: booked against the step, once per attempt.
+            .ledger(LedgerTag {
+                reference_type: "workflow_step".to_owned(),
+                idempotency_key: Some(format!("wf:{}:{}:{op}", self.execution_id, self.step_id)),
+                label: "Workflow AI".to_owned(),
+            });
         if let Some(tenant) = &self.tenant {
             call = call.tenant(tenant.clone());
         }
@@ -538,8 +548,23 @@ mod tests {
             metered: false,
             user_id: Some("user_owner".to_owned()),
             execution_id: "wex_1".to_owned(),
+            step_id: "step_1".to_owned(),
             cap: Some(1),
         }
+    }
+
+    #[test]
+    fn books_the_charge_against_the_step_once() {
+        let call = scope().call(Task::Draft, OP_GENERATE, None);
+        assert_eq!(
+            call.ledger,
+            Some(LedgerTag {
+                reference_type: "workflow_step".to_owned(),
+                idempotency_key: Some("wf:wex_1:step_1:ai_generate".to_owned()),
+                label: "Workflow AI".to_owned(),
+            })
+        );
+        assert_eq!(call.reference_id.as_deref(), Some("wex_1"));
     }
 
     fn inputs(value: &Value) -> Map<String, Value> {

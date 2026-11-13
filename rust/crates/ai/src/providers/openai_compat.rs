@@ -143,6 +143,48 @@ fn messages(dialect: Dialect, request: &ChatRequest) -> Vec<Value> {
     out
 }
 
+/// Whether a schema can be sent with `strict: true`: `OpenAI`'s strict mode
+/// (which Mistral follows) refuses any object that isn't closed
+/// (`additionalProperties: false`) or has an optional property, so a schema
+/// with open `config` objects or optional fields is sent as a plain schema.
+fn strict_compatible(schema: &Value) -> bool {
+    match schema {
+        Value::Object(fields) => {
+            let is_object = fields.get("type").is_some_and(|kind| {
+                kind == "object"
+                    || kind
+                        .as_array()
+                        .is_some_and(|kinds| kinds.iter().any(|k| k == "object"))
+            }) || fields.contains_key("properties");
+            if is_object {
+                if fields.get("additionalProperties") != Some(&Value::Bool(false)) {
+                    return false;
+                }
+                let properties = fields.get("properties").and_then(Value::as_object);
+                let required: Vec<&str> = fields
+                    .get("required")
+                    .and_then(Value::as_array)
+                    .map(|names| names.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                if let Some(properties) = properties
+                    && properties
+                        .keys()
+                        .any(|name| !required.contains(&name.as_str()))
+                {
+                    return false;
+                }
+            }
+            fields.iter().all(|(key, value)| {
+                // An enum's or a default's values are data, not schemas.
+                matches!(key.as_str(), "enum" | "const" | "default" | "examples")
+                    || strict_compatible(value)
+            })
+        }
+        Value::Array(items) => items.iter().all(strict_compatible),
+        _ => true,
+    }
+}
+
 fn tool_choice(dialect: Dialect, choice: &ToolChoice) -> Value {
     match choice {
         ToolChoice::Auto => json!("auto"),
@@ -202,7 +244,7 @@ pub(crate) fn chat_body(
         );
     }
     if let Some(schema) = &request.response_schema {
-        let strict = schema.schema.get("additionalProperties") == Some(&Value::Bool(false));
+        let strict = strict_compatible(&schema.schema);
         body.insert(
             "response_format".to_owned(),
             json!({
@@ -481,6 +523,45 @@ mod tests {
     use crate::catalog::{KeySource, Region};
     use crate::types::{Message, ToolDef};
 
+    #[test]
+    fn sends_strict_only_for_closed_fully_required_schemas() {
+        let closed = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "scores"],
+            "properties": {
+                "label": { "type": "string", "enum": ["a", "b"] },
+                "scores": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["value"],
+                        "properties": { "value": { "type": "number" } },
+                    },
+                },
+            },
+        });
+        assert!(strict_compatible(&closed));
+
+        // An optional property at the top.
+        let mut optional = closed.clone();
+        optional["required"] = json!(["label"]);
+        assert!(!strict_compatible(&optional));
+
+        // An open object nested in an array (WeldConnect's step `config`).
+        let mut open = closed;
+        open["properties"]["scores"]["items"]["additionalProperties"] = json!(true);
+        assert!(!strict_compatible(&open));
+
+        // Top level open: never strict.
+        assert!(!strict_compatible(&json!({
+            "type": "object",
+            "properties": { "a": { "type": "string" } },
+            "required": ["a"],
+        })));
+    }
+
     fn target(provider: ProviderId, model: &str) -> Target {
         Target {
             provider,
@@ -607,7 +688,12 @@ mod tests {
     fn a_schema_asks_for_json_and_parses_it() {
         let request = ChatRequest::system_user("s", "u").schema(
             "reply labels!",
-            json!({ "type": "object", "properties": { "label": { "type": "string" } }, "additionalProperties": false }),
+            json!({
+                "type": "object",
+                "properties": { "label": { "type": "string" } },
+                "required": ["label"],
+                "additionalProperties": false,
+            }),
         );
         let body = chat_body(
             Dialect::Mistral,

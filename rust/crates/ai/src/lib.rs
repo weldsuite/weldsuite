@@ -95,6 +95,24 @@ pub struct AiCall {
     pub op: Option<String>,
     /// The ledger's `reference_id`.
     pub reference_id: Option<String>,
+    /// How the wallet ledger books the charge, when the caller isn't a plain
+    /// AI route (`reference_type 'ai'`, `AI (<op>) [<model>]`, no key).
+    pub ledger: Option<LedgerTag>,
+}
+
+/// A caller's own booking of the charge, as its TypeScript twin writes it:
+/// WeldConnect's AI steps book `workflow_step`, `Workflow AI (…)` and the key
+/// `wf:<execution>:<step>:<op>`, so a replayed step is never charged twice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerTag {
+    /// `credit_transactions.reference_type`.
+    pub reference_type: String,
+    /// The idempotency key of the charge; the debt adjustment uses
+    /// `<key>:debt` and the ops ledger `<key>:usage`.
+    pub idempotency_key: Option<String>,
+    /// What precedes ` (<op>) [<model>]` in the description (`AI` by
+    /// default).
+    pub label: String,
 }
 
 /// Where an explicit model id came from, which decides what happens when the
@@ -122,6 +140,7 @@ impl AiCall {
             model: None,
             op: None,
             reference_id: None,
+            ledger: None,
         }
     }
 
@@ -170,6 +189,13 @@ impl AiCall {
     #[must_use]
     pub fn reference(mut self, reference_id: impl Into<String>) -> Self {
         self.reference_id = Some(reference_id.into());
+        self
+    }
+
+    /// Book the charge as the caller's TypeScript twin does ([`LedgerTag`]).
+    #[must_use]
+    pub fn ledger(mut self, tag: LedgerTag) -> Self {
+        self.ledger = Some(tag);
         self
     }
 

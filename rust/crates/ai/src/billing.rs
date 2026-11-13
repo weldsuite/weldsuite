@@ -186,14 +186,37 @@ impl Charge<'_> {
         metadata
     }
 
-    fn entry(&self, amount: i64, description: String, metadata: Value) -> LedgerEntry<'_> {
+    /// `credit_transactions.reference_type`: `ai`, or the caller's.
+    fn reference_type(&self) -> &str {
+        self.call
+            .ledger
+            .as_ref()
+            .map_or("ai", |tag| tag.reference_type.as_str())
+    }
+
+    /// The caller's idempotency key with `suffix` (`""`, `:debt`, `:usage`).
+    fn idempotency_key(&self, suffix: &str) -> Option<String> {
+        self.call
+            .ledger
+            .as_ref()
+            .and_then(|tag| tag.idempotency_key.as_deref())
+            .map(|key| format!("{key}{suffix}"))
+    }
+
+    fn entry(
+        &self,
+        amount: i64,
+        description: String,
+        metadata: Value,
+        key_suffix: &str,
+    ) -> LedgerEntry<'_> {
         LedgerEntry {
             workspace_id: self.workspace,
             amount,
             service_type: Some("ai_tokens"),
-            idempotency_key: None,
+            idempotency_key: self.idempotency_key(key_suffix),
             reference_id: self.reference(),
-            reference_type: Some("ai"),
+            reference_type: Some(self.reference_type()),
             description: Some(description),
             metadata: Some(metadata),
         }
@@ -202,9 +225,14 @@ impl Charge<'_> {
     /// `consumeCredits`, or the debt when the wallet can't cover it. The
     /// credits charged.
     async fn settle(&self, master: &PgPool) -> i64 {
-        let description = format!("AI ({}) [{}]", self.call.op_name(), self.served.model);
+        let label = self
+            .call
+            .ledger
+            .as_ref()
+            .map_or("AI", |tag| tag.label.as_str());
+        let description = format!("{label} ({}) [{}]", self.call.op_name(), self.served.model);
         let user = self.call.user_id.as_deref();
-        let entry = self.entry(self.credits, description.clone(), self.metadata());
+        let entry = self.entry(self.credits, description.clone(), self.metadata(), "");
         match consume_credits_by(master, &entry, user).await {
             Ok(Consumed::Ok { .. }) => self.credits,
             Ok(Consumed::Insufficient { .. }) => {
@@ -216,6 +244,7 @@ impl Charge<'_> {
                     -self.credits,
                     format!("{description} — settled into negative balance"),
                     metadata,
+                    ":debt",
                 );
                 match grant_credits(master, &debt, GrantKind::Adjustment, user).await {
                     Ok(_) => self.credits,
@@ -241,9 +270,10 @@ impl Charge<'_> {
             "insert into ai_provider_usage
                  (id, gateway, model_id, workspace_id, op, input_tokens, output_tokens,
                   provider_cost_nano_usd, covered_by_service_credit, credits_charged,
-                  reference_type, reference_id, key_source, feature)
+                  reference_type, reference_id, key_source, feature, idempotency_key)
              values ($1, 'direct', $2, $3, $4, $5::int, $6::int, $7, false, $8::int,
-                     'ai', $9, $10, $11)",
+                     $9, $10, $11, $12, $13)
+             on conflict (idempotency_key) do nothing",
         )
         .bind(generate_id("apu"))
         .bind(&self.served.model)
@@ -253,9 +283,11 @@ impl Charge<'_> {
         .bind(clamp_i32(self.usage.output_tokens))
         .bind(cost)
         .bind(clamp_i32(credits_charged))
+        .bind(self.reference_type())
         .bind(self.reference())
         .bind(self.served.key_source.as_str())
         .bind(self.call.feature.as_str())
+        .bind(self.idempotency_key(":usage"))
         .execute(master)
         .await;
         if let Err(error) = result {
