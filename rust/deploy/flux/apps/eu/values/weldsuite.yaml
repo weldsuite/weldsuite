@@ -76,8 +76,18 @@ config:
   # The platform's origin, for links the server writes into email: the W-9
   # requests of WeldBooks and the WeldReach access decisions of
   # `weldsuite admin access` (ADR SEC-014).
+  # PUBLIC_APP_URL is the same origin for everything else that sends a person
+  # back to the platform: OAuth callbacks (Moneybird, Stripe, Meta, the
+  # GitHub App, WeldDesk channels, WeldConnect integrations) and invitation
+  # links. Unset, they default to Global's app.weldsuite.org.
+  # CONNECTOR_WEBHOOK_BASE_URL is where Moneybird and the stores deliver their
+  # webhooks (POST /webhooks/connectors/:connectionId, served on every host).
+  # Unset, it defaults by ENVIRONMENT to Global's integration-webhooks host,
+  # which knows no EU connection.
   extraEnv:
     - { name: PLATFORM_URL, value: "https://app.${DOMAIN}" }
+    - { name: PUBLIC_APP_URL, value: "https://app.${DOMAIN}" }
+    - { name: CONNECTOR_WEBHOOK_BASE_URL, value: "https://api.${DOMAIN}" }
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
