@@ -11,7 +11,8 @@
     "./models": "./src/models.ts",
     "./model-map": "./src/model-map.ts",
     "./adapters": "./src/adapters/index.ts",
-    "./billing-rates": "./src/billing-rates.ts"
+    "./billing-rates": "./src/billing-rates.ts",
+    "./catalog": "./src/catalog.ts"
   },
   "scripts": {
     "test": "vitest run",
