@@ -437,7 +437,8 @@
       "module": "board",
       "workspace": "apps/workers/board-api",
       "tests": [
-        "src/routes/boards/index.test.ts"
+        "src/routes/boards/index.test.ts",
+        "src/routes/boards/ai-model.test.ts"
       ],
       "paths": [
         "apps/workers/board-api/src/",
@@ -451,12 +452,7 @@
         "rust/crates/adapters-oss/src/collab.rs",
         "rust/bins/weldsuite/src/collab.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/boards/:id/ai",
-          "reason": "The AI actions run on @weldsuite/ai (Workers AI and the Cloudflare AI Gateway), which the Kubernetes editions do not have. Rust answers the refusals before the model as TypeScript does (validation, 403, 404, a missing prompt) and then 503 AI_NOT_CONFIGURED, as the worker does without a gateway; /config.json lists agent-ai as unavailable and the board editor hides its AI menu there (useBoardExtensions). Tested on TypeScript in src/routes/boards/ai.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "core: files, folders and drive",

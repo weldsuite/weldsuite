@@ -407,6 +407,13 @@ const ROUTES: VolatileRoute[] = [
   // gzipped first checkpoint, whose size the drive file's event carries,
   // compresses a byte or two differently per run.
   { method: 'POST', route: '/api/boards/import', fields: [], events: [{ path: 'data.fileSize' }] },
+  // WeldBoard's AI actions: the elements they make get new ids (board-engine's
+  // `newId()`: `e`, the time in base 36, six random and two counter characters).
+  {
+    method: 'POST',
+    route: '/api/boards/:id/ai',
+    fields: Array.from({ length: 80 }, (_, i) => ({ path: `data.elementIds.${i}`, pattern: /^e[0-9a-z]{15,17}$/g, replacement: 'e<volatile>' })),
+  },
   // WeldMerge: the GitHub App's install page carries a signed state (a fresh
   // nonce and the second it was issued), an OAuth consent page a fresh random
   // state id.

@@ -110,6 +110,8 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             } else {
                 board_links()
             },
+            ai: state.ai.clone(),
+            master: Some(state.workspaces.master().clone()),
         };
         router.nest(
             "/boards",
