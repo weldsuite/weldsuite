@@ -221,34 +221,52 @@ pub(crate) fn line_items_for_bill(ocr: &Value) -> Vec<Value> {
     })]
 }
 
-/// `matchVendorToContact(db, schema, ocr)`: a live contact with the
-/// document's IBAN. books-api also asks for `parties.taxNumber` and
-/// `parties.name`, which the table doesn't have: Drizzle can't build that
-/// query, so a result with a VAT number or a vendor name fails (the
-/// route's 500), as it does on Global.
+/// `matchVendorToContact(db, schema, ocr)`: a live contact whose company has
+/// the document's VAT number, whose IBAN is the document's, or whose display
+/// name contains the vendor's name (`ILIKE`, with the name's wildcards
+/// escaped). A party has no tax number of its own: it is its company's
+/// `vat_number`.
 pub(crate) async fn match_vendor_to_contact(
     db: &sqlx::PgPool,
     ocr: &Value,
 ) -> Result<Option<String>, sqlx::Error> {
     let vendor = &ocr["vendor"];
-    let tax_number = truthy_text(&vendor["taxNumber"]);
-    let iban = truthy_text(&vendor["iban"]).or_else(|| truthy_text(&ocr["iban"]));
-    let name = truthy_text(&vendor["name"]);
-    if tax_number.is_some() || name.is_some() {
-        return Err(sqlx::Error::Protocol(
-            "parties has no taxNumber or name column to match on".to_owned(),
-        ));
-    }
-    let Some(iban) = iban else {
-        return Ok(None);
+    let text_of = |value: Option<Value>| {
+        value.map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
     };
-    sqlx::query_scalar("select id from parties where iban = $1 and deleted_at is null limit 1")
-        .bind(
-            iban.as_str()
-                .map_or_else(|| iban.to_string(), str::to_owned),
-        )
-        .fetch_optional(db)
-        .await
+    let tax_number = text_of(truthy_text(&vendor["taxNumber"]));
+    let iban = text_of(truthy_text(&vendor["iban"]).or_else(|| truthy_text(&ocr["iban"])));
+    let name = text_of(truthy_text(&vendor["name"]));
+    if tax_number.is_none() && iban.is_none() && name.is_none() {
+        return Ok(None);
+    }
+    sqlx::query_scalar(
+        "select p.id from parties p
+         where p.deleted_at is null and (
+           ($1::text is not null and p.company_id in (
+              select c.id from companies c where c.vat_number = $1 and c.deleted_at is null))
+           or ($2::text is not null and p.iban = $2)
+           or ($3::text is not null and p.display_name ilike '%' || $3 || '%')
+         )
+         limit 1",
+    )
+    .bind(tax_number)
+    .bind(iban)
+    .bind(name.as_deref().map(escape_like))
+    .fetch_optional(db)
+    .await
+}
+
+/// `value` as a literal inside an `ILIKE` pattern: `\`, `%` and `_` escaped.
+fn escape_like(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 // ── Reading the document (`processDocumentOcr`) ────────────────────────────
@@ -575,6 +593,16 @@ pub(crate) async fn read_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escapes_like_wildcards_in_a_vendor_name() {
+        assert_eq!(
+            escape_like("Office 100% Supplies"),
+            "Office 100\\% Supplies"
+        );
+        assert_eq!(escape_like("a_b\\c"), "a\\_b\\\\c");
+        assert_eq!(escape_like("Paper Supplier"), "Paper Supplier");
+    }
 
     #[test]
     fn reads_a_stored_result() {
