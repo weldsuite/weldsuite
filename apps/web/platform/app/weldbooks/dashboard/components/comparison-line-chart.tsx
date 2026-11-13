@@ -11,8 +11,9 @@
  * A point without a value is a gap, so a running total stops at "now".
  *
  * A user's own overview chart can also draw the period as an `area` (the line
- * over a soft fill) or as `bar`s (the comparison as grey bars beside them), in
- * one of the theme's chart colours.
+ * over a soft fill) or as `bar`s, in one of the theme's chart colours. Bars
+ * keep the dashed comparison line, drawn over them, so each month is one wide
+ * bar rather than half of a pair.
  */
 
 import { useId, useMemo } from 'react';
@@ -105,7 +106,13 @@ export function ComparisonLineChart({
 
   return (
     <ChartContainer config={config} className={className}>
-      <ComposedChart accessibilityLayer data={points} margin={{ top: 8, left: 0, right: 0, bottom: 0 }} barGap={2}>
+      <ComposedChart
+        accessibilityLayer
+        data={points}
+        margin={{ top: 8, left: 0, right: 0, bottom: 0 }}
+        barCategoryGap="15%"
+        maxBarSize={56}
+      >
         <CartesianGrid vertical={false} stroke="var(--border)" horizontalCoordinatesGenerator={gridLines} />
         <YAxis
           hide={!card}
@@ -173,13 +180,10 @@ export function ComparisonLineChart({
             </linearGradient>
           </defs>
         )}
-        {hasComparison && shape === 'bar' && (
-          <Bar dataKey="compareValue" fill="var(--color-compareValue)" fillOpacity={0.35} radius={[3, 3, 0, 0]} isAnimationActive={false} />
-        )}
         {shape === 'bar' && (
           <Bar dataKey="value" fill="var(--color-value)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
         )}
-        {hasComparison && shape !== 'bar' && (
+        {hasComparison && (
           <Line
             dataKey="compareValue"
             type="linear"
