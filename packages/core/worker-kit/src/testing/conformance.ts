@@ -790,6 +790,15 @@ const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A slug ending in its new record's id time: WeldDesk's article slugs are
+ * `<title>-<id.slice(4, 10)>`, the first six base36 characters of the id's
+ * `Date.now()`, whose last one moves every 36² ms. Two runs a moment apart
+ * can straddle that (`getting-started-mwf5de` vs `-mwf5df`, PR #1559's CI).
+ */
+const SLUG_WITH_ID_TIME = /-([0-9a-z]{6})$/;
+/** The milliseconds one step of a `Date.now().toString(36)` six-character prefix stands for. */
+const ID_TIME_PREFIX_MS = 36 ** 2;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
@@ -884,6 +893,17 @@ const FRESH_MESSAGE_ID = /^<[0-9a-f]{32}@([^>]+)>$/;
 function isRecentEpochMs(value: unknown): boolean {
   if (typeof value !== 'number' || !Number.isInteger(value)) return false;
   return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
+
+/**
+ * Whether six base36 characters are the start of a `Date.now()` taken within
+ * two days of now. Checked against the real clock too: a test that fakes
+ * `Date` gives the TypeScript run its time, while Rust's ids carry the real one.
+ */
+function isRecentIdTimePrefix(prefix: string): boolean {
+  const at = Number.parseInt(prefix, 36) * ID_TIME_PREFIX_MS;
+  const real = performance.timeOrigin + performance.now();
+  return [Date.now(), real].some((now) => Math.abs(at - now) <= EXPIRY_WINDOW_SECONDS * 1000);
 }
 
 
@@ -984,9 +1004,7 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
-  // A taken channel slug gets the new channel's id appended
-  // (`resolveChannelSlug`): `sales-ch_<id>`.
-  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
@@ -1000,6 +1018,19 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
+}
+
+/** A slug that carries a new record's id or its time; undefined when it carries neither. */
+function normalizeGeneratedSlug(value: string): string | undefined {
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A new WeldDesk article's slug ends in its id's time; an untitled one's
+  // base is the id itself (`deskArticleSlug(title) || id`).
+  const idTime = SLUG_WITH_ID_TIME.exec(value);
+  if (!idTime || !isRecentIdTimePrefix(idTime[1]!)) return undefined;
+  const base = value.slice(0, -idTime[0].length);
+  return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
 }
 
 /** Random segments anywhere in a string. */
