@@ -6,13 +6,17 @@
 //! `/internal/outbound` (the outbound guard's staff API, a shared secret,
 //! not a session) by [`internal_outbound_router`]. The README lists which
 //! groups are ported; the shared mail logic is `weldsuite-mail-domain`.
+//! Mail AI (`/api/mail-ai`, `services/mail/ai.ts`) and the outbound abuse
+//! review ([`review`]) run on `weldsuite-ai` (ADR AI-012).
 
 #![allow(clippy::result_large_err)] // the handlers return the response a check ends with
 
+mod ai;
 mod caller;
 pub mod consumers;
 pub mod cron;
 mod read_push;
+pub mod review;
 mod routes;
 pub mod scheduled;
 pub mod send;
@@ -67,6 +71,10 @@ pub struct MailState {
     /// Another workspace's tenant database and whether it is suspended,
     /// by reference (`/api/mailboxes`).
     pub workspace_tenants: Option<WorkspaceTenants>,
+    /// The install's AI (`/api/mail-ai`, feature `mail`, ADR AI-012); `None`
+    /// with AI off, and the AI routes answer 503 `ai_unavailable` as mail-api
+    /// does without its gateway. A conformance request carries its own.
+    pub ai: Option<weldsuite_ai::Ai>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,
     /// `ABUSE_NOTIFY_EMAIL`, …), from the process.
     pub env: Arc<HashMap<String, String>>,
@@ -78,6 +86,7 @@ impl std::fmt::Debug for MailState {
             .field("master", &self.master.is_some())
             .field("outbound", &self.outbound)
             .field("domains", &self.domains.as_ref().map(|d| d.provider()))
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -140,6 +149,7 @@ where
         .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
+        .merge(routes::mail_ai::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

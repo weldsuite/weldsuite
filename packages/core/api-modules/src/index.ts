@@ -95,7 +95,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
 
 const mod = (
   id: ApiModuleId,
@@ -116,6 +116,8 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('core', 8789, null, [
     '/api/access-requests',
     '/api/account',
+    // Rust-only (EU and self-hosted editions, ADR AI-012): Global's app-api does not mount it.
+    '/api/ai-settings',
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',

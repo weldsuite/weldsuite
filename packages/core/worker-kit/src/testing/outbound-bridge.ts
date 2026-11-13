@@ -197,6 +197,23 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
  */
 const PROCESS_CACHED_READS = new Set(['GET https://api.realtime.cloudflare.com/.well-known/webhooks.json']);
 
+/**
+ * The mock model's host (`MOCK_AI_HOST` in `@weldsuite/ai/testing`). Its calls
+ * are left out of the compared calls: Global asks a Workers AI or Claude
+ * model through the gateway's shapes, the Kubernetes editions Mistral in its
+ * own, so what each backend sent the model differs by design. A test compares
+ * what the route answers and writes instead.
+ */
+const MOCK_AI_HOST = 'mock-ai.weldsuite.test';
+
+function isMockModelCall(url: string): boolean {
+  try {
+    return new URL(url).hostname === MOCK_AI_HOST;
+  } catch {
+    return false;
+  }
+}
+
 /** `value` with every object's keys sorted. */
 function sortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedKeys);
@@ -224,6 +241,6 @@ function sortKey(call: OutboundCall): string {
  */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
   return calls
-    .filter((call) => !PROCESS_CACHED_READS.has(`${call.method} ${call.url}`))
+    .filter((call) => !PROCESS_CACHED_READS.has(`${call.method} ${call.url}`) && !isMockModelCall(call.url))
     .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }

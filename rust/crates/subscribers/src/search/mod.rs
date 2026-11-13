@@ -13,10 +13,14 @@
 //!   that no longer resolves drops its jobs (acked); an indexing failure
 //!   retries the record's messages.
 //!
-//! Embeddings come through the `Embeddings` port; without one configured the
-//! subscriber does not run (TypeScript retries every batch until the AI
-//! Gateway is configured).
+//! Embeddings come from the install's AI when it has an embedding model
+//! ([`ai`]: `search-index`, charged once per workspace and batch), else from
+//! an OpenAI-compatible endpoint the install configured (`EMBEDDINGS_URL`,
+//! the `Embeddings` port, unmetered). With neither the subscriber does not run
+//! (TypeScript retries every batch until the AI Gateway is configured).
 
+pub mod ai;
+pub mod backfill;
 mod chunks;
 mod documents;
 
@@ -36,7 +40,8 @@ use crate::event::HubEvent;
 use crate::js;
 use crate::tenants::{TenantError, Tenants};
 
-/// The width of `search_index.embedding` (`vector(1024)`, bge-m3).
+/// The width of `search_index.embedding` (`vector(1024)`: bge-m3 on Global,
+/// `mistral-embed` on EU).
 pub const EMBED_DIMENSIONS: usize = 1024;
 
 /// What indexing one record did (`IndexResult`).
@@ -262,26 +267,89 @@ pub fn group_batch(events: &[Option<HubEvent>]) -> Vec<(String, Vec<PendingIndex
     workspaces
 }
 
+/// Where the vectors come from.
+#[derive(Clone)]
+enum Embedder {
+    /// An endpoint the install configured (`EMBEDDINGS_URL`), or a test
+    /// double: unmetered.
+    Port(Arc<dyn Embeddings>),
+    /// The install's AI, charged per workspace and batch on `master`.
+    Ai {
+        ai: weldsuite_ai::Ai,
+        model: String,
+        master: Option<PgPool>,
+    },
+}
+
 /// The search-index subscriber.
 #[derive(Clone)]
 pub struct SearchSubscriber {
     tenants: Arc<dyn Tenants>,
-    embeddings: Arc<dyn Embeddings>,
+    embedder: Embedder,
 }
 
 impl std::fmt::Debug for SearchSubscriber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SearchSubscriber")
-            .field("model", &self.embeddings.model())
+            .field("model", &self.model())
             .finish_non_exhaustive()
     }
 }
 
 impl SearchSubscriber {
+    /// Vectors from `embeddings`, unmetered.
     pub fn new(tenants: Arc<dyn Tenants>, embeddings: Arc<dyn Embeddings>) -> Self {
         Self {
             tenants,
-            embeddings,
+            embedder: Embedder::Port(embeddings),
+        }
+    }
+
+    /// Vectors from the install's AI (`search-index`), each workspace charged
+    /// once per batch in `master`'s wallet (unmetered without it). `None`
+    /// when the AI has no embedding model.
+    pub fn with_ai(
+        tenants: Arc<dyn Tenants>,
+        ai: weldsuite_ai::Ai,
+        master: Option<PgPool>,
+    ) -> Option<Self> {
+        let model = ai::index_model(&ai)?;
+        Some(Self {
+            tenants,
+            embedder: Embedder::Ai { ai, model, master },
+        })
+    }
+
+    /// The model stored with each vector.
+    pub fn model(&self) -> &str {
+        match &self.embedder {
+            Embedder::Port(embeddings) => embeddings.model(),
+            Embedder::Ai { model, .. } => model,
+        }
+    }
+
+    /// One workspace's embeddings for this batch, and its meter.
+    fn workspace_embeddings(
+        &self,
+        workspace: &str,
+    ) -> (Arc<dyn Embeddings>, Option<Arc<ai::WorkspaceEmbeddings>>) {
+        match &self.embedder {
+            Embedder::Port(embeddings) => (Arc::clone(embeddings), None),
+            Embedder::Ai { ai, model, .. } => {
+                let metered = Arc::new(ai::WorkspaceEmbeddings::new(
+                    ai.clone(),
+                    model.clone(),
+                    workspace,
+                ));
+                (Arc::clone(&metered) as Arc<dyn Embeddings>, Some(metered))
+            }
+        }
+    }
+
+    /// Charge what the workspace's records cost in this batch.
+    async fn settle(&self, metered: Option<Arc<ai::WorkspaceEmbeddings>>) {
+        if let (Some(metered), Embedder::Ai { master, .. }) = (metered, &self.embedder) {
+            metered.settle(master.as_ref()).await;
         }
     }
 
@@ -316,8 +384,9 @@ impl SearchSubscriber {
                     continue;
                 }
             };
+            let (embeddings, metered) = self.workspace_embeddings(&workspace);
             for job in jobs {
-                match index_entity(&db, &*self.embeddings, &job.entity_type, &job.entity_id).await {
+                match index_entity(&db, &*embeddings, &job.entity_type, &job.entity_id).await {
                     Ok(result) => {
                         if result.embedded > 0 || result.removed > 0 {
                             tracing::info!(
@@ -339,6 +408,7 @@ impl SearchSubscriber {
                     }
                 }
             }
+            self.settle(metered).await;
             tenants.insert(workspace, Ok(db));
         }
         out

@@ -1,6 +1,6 @@
 /**
- * WeldForms' AI (docs/plans/weldforms.md, "AI"; Global only, the Rust backend
- * answers 503 `ai_unavailable`, ADR AI-011):
+ * WeldForms' AI (docs/plans/weldforms.md, "AI"; the Kubernetes editions run
+ * the same prompts on `weldsuite-ai` in rust/modules/forms/src/ai.rs, ADR AI-012):
  *
  *  - `generateForm`: a description in, a draft definition out;
  *  - `suggestBlocks`: a few more questions for the draft in the builder;

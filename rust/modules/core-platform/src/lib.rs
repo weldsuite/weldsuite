@@ -10,6 +10,7 @@
 //!
 //! | Router | Prefix | TypeScript |
 //! |---|---|---|
+//! | [`ai_settings`] | `/api/ai-settings` | none: Rust only (ADR AI-012) |
 //! | [`notifications`] | `/api/notifications` | `routes/notifications` |
 //! | [`audit_logs`] | `/api/audit-logs` | `routes/audit-logs` |
 //! | [`audit_log_streams`] | `/api/audit-log-streams` | `routes/audit-log-streams` |
@@ -25,11 +26,15 @@
 //!
 //! Billing (Stripe, through billing-worker) is Global-only: the routes that
 //! forward to it answer as the workers do when billing-worker cannot be
-//! reached. The identity provider (Clerk in the Global edition) is the
-//! [`weldsuite_ports::Identity`] port.
+//! reached. Buying credits is the exception on the Kubernetes editions: with
+//! Mollie configured, `/api/credits/checkout` pays through Mollie and
+//! [`top_up_webhooks`] serves Mollie's webhook ([`topup`]). The identity
+//! provider (Clerk in the Global edition) is the [`weldsuite_ports::Identity`]
+//! port.
 
 mod access;
 mod groups;
+pub mod topup;
 
 use std::sync::Arc;
 
@@ -37,11 +42,12 @@ use axum::Router;
 use weldsuite_db::PgPool;
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynRealtimePublisher, Identity};
+use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, Identity};
 
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
 pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
 pub use groups::sso::{DnsGateway, DnsTransport};
+pub use topup::{TopUp, TopUpSettings, top_up_configured};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]
@@ -57,6 +63,15 @@ pub struct CorePlatformState {
     pub identity: Option<Arc<dyn Identity>>,
     /// Audit log stream delivery: the URL rules and the test event.
     pub audit_streams: Arc<dyn AuditStreamGateway>,
+    /// Buying credits through Mollie (`MOLLIE_API_KEY`); `None` answers the
+    /// checkout as the workers do without billing-worker.
+    pub top_up: Option<Arc<TopUp>>,
+    /// The install's AI service (`AppState.ai`); `None` without an AI
+    /// provider, and then `/api/ai-settings` is not mounted.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// System mail (the workspace owners' notice when a provider outside the
+    /// EU is enabled); `None` logs instead of sending.
+    pub mail: Option<Arc<dyn DynSystemMail>>,
 }
 
 impl std::fmt::Debug for CorePlatformState {
@@ -66,6 +81,9 @@ impl std::fmt::Debug for CorePlatformState {
             .field("realtime", &self.realtime.is_some())
             .field("cache", &self.cache.is_some())
             .field("identity", &self.identity.is_some())
+            .field("top_up", &self.top_up.is_some())
+            .field("ai", &self.ai.is_some())
+            .field("mail", &self.mail.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -83,6 +101,11 @@ macro_rules! group_router {
     };
 }
 
+group_router!(
+    /// `/api/ai-settings`: the workspace's AI providers, keys, per-feature
+    /// models and usage (Rust only; mounted when the install has AI).
+    ai_settings
+);
 group_router!(
     /// `/api/notifications`: the caller's own notifications.
     notifications
@@ -132,3 +155,13 @@ group_router!(
     /// `/api/appstore`: the app store's per-workspace and per-user side.
     appstore
 );
+
+/// `POST /api/webhooks/mollie`, at its full path and ahead of the session:
+/// Mollie's payment webhook for the credit top-up ([`topup`]). Mount it only
+/// with [`CorePlatformState::top_up`] set; without, it answers 404.
+pub fn top_up_webhooks<S>(state: CorePlatformState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    topup::webhook_router().with_state(state)
+}

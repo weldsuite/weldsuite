@@ -24,6 +24,7 @@ import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import type { EntityContext } from '@/lib/weldagent/tools/types';
+import { AssistantAiBadge } from '@/components/ai/assistant-ai-badge';
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
@@ -241,6 +242,7 @@ export function WeldAgentPanel({
             <span className="truncate px-1.5 text-sm font-semibold">{t.generalAgent}</span>
           )}
           {betaAppCodes?.has('weldagent') ? <BetaBadge variant="inline" /> : null}
+          <AssistantAiBadge className="ml-1" />
         </div>
         <div className="flex items-center gap-0.5">
           <Button

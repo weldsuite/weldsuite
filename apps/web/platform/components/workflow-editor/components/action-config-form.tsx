@@ -60,6 +60,8 @@ import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/fie
 import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/workflow-canvas/parts/filter-builder';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
+import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import {
   useWorkflowIntegrations,
@@ -4182,6 +4184,42 @@ function CollectCustomerInfoForm({ config, onChange }: Readonly<{
 // Config field names (`prompt`, `systemPrompt`, `model`, `temperature`,
 // `maxTokens`) match exactly what the engine reads first.
 // ============================================================================
+// The model of an AI step. On a Kubernetes install with AI settings the choice is
+// the workspace's allowed models for WeldConnect, each with where it is processed
+// (`GET /api/ai-settings`); elsewhere (Global) it is the free-text model id it has always been.
+const AI_STEP_DEFAULT_MODEL = '__default__';
+
+export function AiStepModelInput({
+  value,
+  onChange,
+  placeholder,
+}: Readonly<{ value: string | undefined; onChange: (model: string | undefined) => void; placeholder: string }>) {
+  const { t } = useI18n();
+  const models = useAiModelOptions('connect');
+  if (!models) {
+    return <Input value={value || ''} onChange={(e) => onChange(e.target.value || undefined)} placeholder={placeholder} />;
+  }
+  const selected = value && models.some((m) => m.id === value) ? value : AI_STEP_DEFAULT_MODEL;
+  return (
+    <Select value={selected} onValueChange={(v) => onChange(v === AI_STEP_DEFAULT_MODEL ? undefined : v)}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={AI_STEP_DEFAULT_MODEL}>{t.settings.ai.picker.workspaceDefault}</SelectItem>
+        {models.map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            <span className="flex items-center gap-2">
+              {m.label}
+              <AiMetaBadge ai={{ provider: m.provider, region: m.region }} hideIcon />
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function AiGenerateForm({
   config,
   onChange,
@@ -4223,9 +4261,9 @@ function AiGenerateForm({
       </FormField>
 
       <FormField label={acf.model} description={acf.modelDesc}>
-        <Input
-          value={(config.model as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, model: e.target.value || undefined })}
+        <AiStepModelInput
+          value={config.model as string | undefined}
+          onChange={(model) => onChange({ ...config, model })}
           placeholder={st('sweep.weldflow.actionConfig.recommendedDefaultPlaceholder')}
         />
       </FormField>
@@ -4336,9 +4374,9 @@ function AiClassifyForm({
       </FormField>
 
       <FormField label={acf.model} description={acf.modelDesc}>
-        <Input
-          value={(config.model as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, model: e.target.value || undefined })}
+        <AiStepModelInput
+          value={config.model as string | undefined}
+          onChange={(model) => onChange({ ...config, model })}
           placeholder={st('sweep.weldflow.actionConfig.recommendedDefaultPlaceholder')}
         />
       </FormField>

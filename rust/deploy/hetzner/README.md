@@ -187,6 +187,10 @@ a time.
   (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
   and the MTA's database password matches in `weldsuite-mta` and
   `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
+  `MISTRAL_API_KEY` is the one AI key the cluster needs ("AI" below); the
+  script takes it from the variable of that name, and generates
+  `AI_KEYS_ENCRYPTION_KEY`, which seals the keys workspaces bring for Claude
+  and ChatGPT (losing it loses those keys, nothing else).
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -588,6 +592,42 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
 - **Not on LiveKit yet:** recording and transcripts. Recording would be
   LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
   belong on these shared nodes.
+
+## AI (Mistral)
+
+Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
+`docs/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
+`config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
+workspaces with their own key, the credit gate on); the search index embeds
+through it with `mistral-embed`, metered as `search-index` (so
+`consume.embeddings`, for installs without AI, stays unset).
+
+- **Keys** (`weldsuite-env`): `MISTRAL_API_KEY`, from the EU edition's
+  account on Mistral's La Plateforme (zero data retention, the rate-limit
+  tier it was granted); `AI_KEYS_ENCRYPTION_KEY`, 64 hex characters. The
+  server, `consume` and the cron jobs don't start without them. A running
+  cluster adds them with
+
+  ```bash
+  MISTRAL_API_KEY=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+    node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+  ```
+
+  (it generates `AI_KEYS_ENCRYPTION_KEY`), before Flux applies a release
+  with `config.ai` set.
+- **WeldSuite's own Claude and ChatGPT accounts**, once opened for the EU
+  edition: add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to `weldsuite-env`,
+  then set `weldsuiteKey: true` for that provider under `config.ai.optIn`.
+  The other order stops the server: an opt-in with WeldSuite's key needs the
+  key.
+- **Check it**: `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor`
+  lists each key the install holds (a model list, free) and asks the default
+  chat models for one token each; `--no-model-calls` skips that.
+  `/config.json` names the providers under `ai`.
+- **Credits**: every call on WeldSuite's key is charged to the workspace's
+  credit wallet and written to the ops ledger (`ai_provider_usage`); with
+  `creditGate: true` a workspace with an empty wallet gets 402 until it tops
+  up.
 
 ## Mail
 
@@ -1022,9 +1062,9 @@ Be clear about this before anyone signs a contract:
   before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
   sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
-  MEET-007; "Video" above), without recording and transcripts. Not here yet:
-  Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off).
+  MEET-007; "Video" above), without recording and transcripts. The
+  semantic search index embeds on Mistral through `config.ai` ("AI (Mistral)"
+  above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a

@@ -349,6 +349,14 @@ export const FORWARDED_ENV = [
   'TURNSTILE_SECRET_KEY',
   'ALTCHA_HMAC_KEY',
   'FORMS_MIN_FILL_MS',
+  // AI (ADR AI-012): the mock model both backends call (`@weldsuite/ai/testing`;
+  // without it Rust's AI is off, as the worker without its gateway), and the
+  // Rust install settings a test may change (`rust/bins/weldsuite/src/ai.rs`).
+  'AI_TEST_BASE_URL',
+  'AI_CREDIT_GATE',
+  'AI_BILLING',
+  'AI_OPTIN_ANTHROPIC',
+  'AI_OPTIN_OPENAI',
 ] as const;
 
 /**
@@ -907,6 +915,23 @@ function isRecentIdTimePrefix(prefix: string): boolean {
 }
 
 
+/**
+ * `record` without the `meta.ai` label an AI answer carries (`{ provider,
+ * model, region }`, ADR AI-012), and without `meta` when nothing else is in
+ * it: the backends serve the same route on different models by design
+ * (Workers AI or Claude on Global, Mistral on the Kubernetes editions), and
+ * only the Rust side labels its answers.
+ */
+function withoutAiMeta(record: Record<string, unknown>): Record<string, unknown> {
+  const meta = record.meta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return record;
+  const ai = (meta as Record<string, unknown>).ai;
+  if (!ai || typeof ai !== 'object' || !('provider' in ai) || !('model' in ai)) return record;
+  const { ai: _label, ...rest } = meta as Record<string, unknown>;
+  const { meta: _meta, ...others } = record;
+  return Object.keys(rest).length > 0 ? { ...others, meta: rest } : others;
+}
+
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
   if (typeof value !== 'number' || !Number.isInteger(value)) return false;
@@ -925,10 +950,11 @@ function isMintedExpiry(value: unknown): boolean {
 export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeForDiff(item, isWrite));
   if (value && typeof value === 'object') {
+    const record = withoutAiMeta(value as Record<string, unknown>);
     return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
+      Object.keys(record)
         .sort()
-        .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
+        .map((k) => [k, normalizeForDiff(record[k], isWrite, k)]),
     );
   }
   // A realtime room payload's `ts: Date.now()`.
