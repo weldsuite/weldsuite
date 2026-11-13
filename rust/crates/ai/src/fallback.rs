@@ -28,5 +28,5 @@ pub fn is_provider_refusal(status: Option<u16>, message: &str) -> bool {
 /// A refusal that means an own key is broken (401, 402, 403): the key is
 /// marked `failing`.
 pub fn is_key_failure(status: Option<u16>) -> bool {
-    matches!(status, Some(401 | 402 | 403))
+    matches!(status, Some(401..=403))
 }
