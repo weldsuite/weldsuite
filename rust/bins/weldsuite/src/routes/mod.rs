@@ -2073,6 +2073,16 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
     }
     let platform = core_platform_state(state);
     let gate = &state.permissions;
+    // `/api/ai-settings` (Rust only): only an install with an AI provider has
+    // anything to configure; without one the path is a 404.
+    let router = if platform.ai.is_some() {
+        router.nest(
+            "/ai-settings",
+            weldsuite_core_platform::ai_settings(platform.clone(), gate),
+        )
+    } else {
+        router
+    };
     router
         .nest(
             "/notifications",
@@ -2133,6 +2143,8 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
         identity: state.infra.identity.clone(),
         audit_streams: audit_stream_gateway(),
         top_up: credit_top_up(state),
+        ai: state.ai.clone(),
+        mail: state.infra.mail.clone(),
     }
 }
 

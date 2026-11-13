@@ -873,6 +873,8 @@ mod tests {
             identity: None,
             audit_streams: Arc::new(NoAudit),
             top_up: Some(Arc::new(TopUp::new(&settings, Some(http), None))),
+            ai: None,
+            mail: None,
         };
         (fake, webhook_router().with_state(state))
     }
