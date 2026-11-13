@@ -183,8 +183,10 @@ modules, each with conformance suites that reach every route:
   markers live in the cache with their TTL) and the depreciation due. hr's
   pay run journal posts in process (`books_domain::payroll`); the
   integration workers' bank feed endpoints are `books_domain::bank_feeds`,
-  for when those workers are ported. Not ported: document OCR (Workers AI)
-  and filing through Digipoort, both in `unavailableFeatures`)
+  for when those workers are ported. Document OCR reads the file through
+  `crates/ai` (Mistral OCR with a document annotation; `books-ocr` is listed
+  unavailable only without an AI provider). Not ported: filing through
+  Digipoort, in `unavailableFeatures`)
 - **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
   snapshot, version history with restore). Live editing runs in the
   collab-rooms service, the workers' own `DocRoom` on Node beside this
