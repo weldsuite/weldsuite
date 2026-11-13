@@ -68,6 +68,23 @@ function toolToken(path: string): VolatileField {
  */
 const MEET_SESSION_DURATION = { fields: [], realtime: [{ path: 'body.data.duration' }] };
 
+/**
+ * WeldForms' AI: the engine's builders give each generated block and choice
+ * a fresh id (`b_` / `c_` and 8 random base62 characters), up to `blocks`
+ * blocks of 20 choices under `prefix`.
+ */
+function formBuilderIds(prefix: string, blocks: number): VolatileField[] {
+  const id = (path: string, letter: string): VolatileField => ({
+    path,
+    pattern: new RegExp(`^${letter}_[0-9A-Za-z]{8}$`, 'g'),
+    replacement: `${letter}_<volatile>`,
+  });
+  return Array.from({ length: blocks }, (_, b) => [
+    id(`${prefix}.${b}.id`, 'b'),
+    ...Array.from({ length: 20 }, (_, c) => id(`${prefix}.${b}.properties.choices.${c}.id`, 'c')),
+  ]).flat();
+}
+
 const ROUTES: VolatileRoute[] = [
   // The public API's client_credentials grant: a fresh `wsat_` token per run.
   { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
@@ -429,6 +446,16 @@ const ROUTES: VolatileRoute[] = [
     route: '/api/forms/forms',
     fields: [{ path: 'data.definition.endings.0.id', pattern: /^e_[0-9A-Za-z]{8}$/g, replacement: 'e_<volatile>' }],
   },
+  // WeldForms' AI: a generated draft's blocks, choices and ending, and suggested blocks.
+  {
+    method: 'POST',
+    route: '/api/forms/ai/generate',
+    fields: [
+      ...formBuilderIds('data.definition.blocks', 40),
+      { path: 'data.definition.endings.0.id', pattern: /^e_[0-9A-Za-z]{8}$/g, replacement: 'e_<volatile>' },
+    ],
+  },
+  { method: 'POST', route: '/api/forms/ai/suggest-blocks', fields: formBuilderIds('data.blocks', 8) },
   // WeldForms: an uploaded image's key carries 16 random characters.
   {
     method: 'POST',

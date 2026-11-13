@@ -660,6 +660,7 @@ pub(crate) fn forms_state(state: &AppState) -> weldsuite_forms::FormsState {
         outbound: deployment_outbound(state),
         env: Arc::new(weldsuite_forms::env_from_process()),
         local_cache: Arc::default(),
+        ai: state.ai.clone(),
     }
 }
 

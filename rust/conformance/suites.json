@@ -3568,7 +3568,8 @@
         "src/invitations.test.ts",
         "src/integrations.test.ts",
         "src/routes/_sweeps.test.ts",
-        "src/workflows/process-response.test.ts"
+        "src/workflows/process-response.test.ts",
+        "src/ai-model.test.ts"
       ],
       "paths": [
         "apps/workers/forms-api/src/",
@@ -3589,24 +3590,7 @@
         "rust/crates/notifications/",
         "rust/bins/weldsuite/src/conformance_forms.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/forms/ai/generate",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "POST /api/forms/ai/suggest-blocks",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "GET /api/forms/forms/:id/ai/summary",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "POST /api/forms/forms/:id/ai/summary",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "panel: collector",
