@@ -12,13 +12,16 @@
  */
 
 import type { ApiModuleId } from '@weldsuite/api-modules';
-import { isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { hasAiSettings, isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
-/** What a page needs: one of these modules, and this feature. */
+/** What a page needs: one of these modules, this feature, and one of `anyFeature`. */
 export interface EditionRequirement {
   modules?: readonly ApiModuleId[];
   feature?: EditionFeature;
+  anyFeature?: readonly EditionFeature[];
+  /** The install runs AI with workspace settings (`ai` in `/config.json`): false on Global. */
+  ai?: boolean;
 }
 
 /**
@@ -28,13 +31,16 @@ export interface EditionRequirement {
 const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: EditionRequirement]> = [
   // WeldAgent is workspace-level: its pages have no app segment.
   ['/agents', { modules: ['agent'] }],
-  ['/new-chat', { modules: ['agent'] }],
+  ['/new-chat', { modules: ['agent'], feature: 'assistant-ai' }],
   // WeldChat's full-screen call room.
   ['/call-room', { modules: ['chat'] }],
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
+  ['/settings/ai', { ai: true }],
   ['/settings/plans', { feature: 'billing' }],
-  ['/settings/billing', { feature: 'billing' }],
+  // Billing, or on the Kubernetes editions just the credit balance and its
+  // top-up (Mollie).
+  ['/settings/billing', { anyFeature: ['billing', 'credit-top-up'] }],
   // Buying and porting a number are Stripe checkouts through billing-worker.
   ['/settings/apps/phone-numbers/new-number', { modules: ['call'], feature: 'phone-number-purchase' }],
   ['/settings/apps/phone-numbers/port', { modules: ['call'], feature: 'phone-number-purchase' }],
@@ -74,6 +80,8 @@ export function routeRequirement(pathname: string): EditionRequirement | null {
 export function isRequirementMet(requirement: EditionRequirement | null): boolean {
   if (!requirement) return true;
   if (requirement.feature && !isFeatureAvailable(requirement.feature)) return false;
+  if (requirement.anyFeature && !requirement.anyFeature.some((feature) => isFeatureAvailable(feature))) return false;
+  if (requirement.ai && !hasAiSettings()) return false;
   return !requirement.modules || requirement.modules.some((module) => isModuleOffered(module));
 }
 

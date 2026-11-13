@@ -4168,6 +4168,8 @@ dependencies = [
  "tracing-subscriber",
  "weldsuite-adapters-oss",
  "weldsuite-ads",
+ "weldsuite-agent",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-board",
  "weldsuite-books",
@@ -4304,6 +4306,54 @@ dependencies = [
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-agent"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-ai",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-connect",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-subscribers",
+]
+
+[[package]]
+name = "weldsuite-ai"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "futures-util",
+ "hex",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-ports",
 ]
@@ -4937,15 +4987,19 @@ dependencies = [
  "axum",
  "http",
  "reqwest",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",

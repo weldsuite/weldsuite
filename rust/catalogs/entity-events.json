@@ -48,6 +48,13 @@
     "updated",
     "deleted"
   ],
+  "ai_provider_key": [
+    "set",
+    "removed"
+  ],
+  "ai_settings": [
+    "updated"
+  ],
   "analytics_chart": [
     "created",
     "updated",

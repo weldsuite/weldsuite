@@ -59,6 +59,23 @@ import {
   SHEET_DATA_OBJECT_KEYS,
   SHEET_DATA_OBJECTS,
 } from '../packages/clients/app-api-client/src/schemas/sheet-data';
+import {
+  AI_CAPABILITIES,
+  AI_FEATURES,
+  AI_MODELS,
+  AI_PROVIDERS,
+  AI_TASKS,
+  COMPAT_CAPABILITIES,
+  PROVIDER_TASKS,
+  TASK_NEEDS,
+} from '../packages/core/ai/src/catalog';
+import {
+  CREDITS_PER_USD,
+  DEFAULT_PRICE,
+  MODEL_PRICES,
+  PROVIDER_MARKUP,
+  WORKERS_AI_FALLBACK_PRICE,
+} from '../packages/core/ai/src/billing-rates';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -165,6 +182,29 @@ function formsTemplatesCatalog(): unknown {
   }));
 }
 
+/**
+ * The AI catalog of the Kubernetes editions (`@weldsuite/ai`'s `catalog.ts`,
+ * ADR AI-012) with the shared rate table (`billing-rates.ts`, AI-006), for
+ * `rust/crates/ai`. `tasks` is `recommended`'s task list, in its order.
+ */
+function aiCatalog(): unknown {
+  return {
+    tasks: AI_TASKS,
+    capabilities: AI_CAPABILITIES,
+    providers: AI_PROVIDERS,
+    models: AI_MODELS,
+    providerTasks: PROVIDER_TASKS,
+    taskNeeds: TASK_NEEDS,
+    compatCapabilities: COMPAT_CAPABILITIES,
+    features: AI_FEATURES,
+    prices: MODEL_PRICES,
+    defaultPrice: DEFAULT_PRICE,
+    workersAiFallbackPrice: WORKERS_AI_FALLBACK_PRICE,
+    providerMarkup: PROVIDER_MARKUP,
+    creditsPerUsd: CREDITS_PER_USD,
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -180,6 +220,7 @@ async function main(): Promise<void> {
     'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/sheet-data.json': sheetDataCatalog(),
     'catalogs/forms-templates.json': formsTemplatesCatalog(),
+    'catalogs/ai.json': aiCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

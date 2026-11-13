@@ -7,6 +7,7 @@ import {
   resolveConfig,
   resolveProvider,
   restApiBaseUrl,
+  TEST_ACCOUNT_ID,
 } from './config.js';
 
 const CF_ENV = { CF_ACCOUNT_ID: 'acct_test', AI_GATEWAY_API_TOKEN: 'cf_token' };
@@ -52,6 +53,20 @@ describe('resolveConfig — cloudflare', () => {
     expect(resolveConfig({ ...CF_ENV, AI_GATEWAY_API_TOKEN: undefined, CF_API_TOKEN: 'cf2' })).toMatchObject({
       apiKey: 'cf2',
     });
+  });
+
+  it('sends every call to AI_TEST_BASE_URL, which needs no account id (tests only)', () => {
+    expect(resolveConfig({ AI_TEST_BASE_URL: 'https://mock-ai.weldsuite.test/v1/' })).toMatchObject({
+      accountId: TEST_ACCOUNT_ID,
+      testBaseUrl: 'https://mock-ai.weldsuite.test/v1',
+    });
+    expect(isGatewayConfigured({ AI_TEST_BASE_URL: 'https://mock-ai.weldsuite.test/v1' })).toBe(true);
+    // A real account id stays; without the variable there is no override.
+    expect(resolveConfig({ ...CF_ENV, AI_TEST_BASE_URL: 'http://127.0.0.1:9/v1' })).toMatchObject({
+      accountId: 'acct_test',
+      testBaseUrl: 'http://127.0.0.1:9/v1',
+    });
+    expect(resolveConfig(CF_ENV)).not.toHaveProperty('testBaseUrl');
   });
 
   // The workflow-worker guard asserts on this exact wording (/gateway is not configured/i).
