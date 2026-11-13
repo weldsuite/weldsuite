@@ -148,6 +148,9 @@ async fn a_column_run_writes_each_leads_cell() {
             findymail_api_key: Some("fm-key".to_owned()),
             prospeo_api_key: None,
         },
+        // AI off: `ai` cells are done and empty, as the worker's stub leaves them.
+        ai: None,
+        master: None,
     };
 
     // Email finder: Ada's address; Bob has no domain; the deleted lead is skipped.

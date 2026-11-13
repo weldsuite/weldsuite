@@ -1053,6 +1053,8 @@ fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                     findymail_api_key: std::env::var("FINDYMAIL_API_KEY").ok(),
                     prospeo_api_key: std::env::var("PROSPEO_API_KEY").ok(),
                 },
+                ai: state.ai.clone(),
+                master: Some(state.workspaces.master().clone()),
             }),
         Err(error) => tracing::error!(%error, "welddata: no HTTP client for the phone finder"),
     }
