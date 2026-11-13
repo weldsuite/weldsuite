@@ -853,6 +853,7 @@ pub(crate) async fn decide(
         max_agent_hops: 2,
         master: state.master.clone(),
         realtime: state.realtime.clone(),
+        ai: caller.ai(&state),
     };
     let execution = execute_decided_approval(&ctx, &approval).await;
     let mut out = approval;

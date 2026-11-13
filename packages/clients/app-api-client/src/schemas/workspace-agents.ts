@@ -6,8 +6,12 @@
 import { z } from 'zod';
 
 /**
- * Claude models a workspace agent can run on. Agents run as Claude Managed
- * Agents, so only Claude model ids are valid here.
+ * Claude models a workspace agent can run on. On Global agents run as Claude
+ * Managed Agents, so only Claude model ids are valid there (the strict
+ * `createWorkspaceAgentSchema`). A Kubernetes install runs agents on its own
+ * loop over the AI crate and takes any model the workspace policy allows for
+ * the `agents` feature (`GET /api/ai-settings`), see
+ * `createWorkspaceAgentSchemaAnyModel`.
  */
 export const WORKSPACE_AGENT_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
 export type WorkspaceAgentModel = (typeof WORKSPACE_AGENT_MODELS)[number];
@@ -17,12 +21,40 @@ export function isWorkspaceAgentModel(value: string | null | undefined): value i
   return (WORKSPACE_AGENT_MODELS as readonly string[]).includes(value ?? '');
 }
 
-export const createWorkspaceAgentSchema = z.object({
+/**
+ * The model id of an agent that has none of its own on a Kubernetes install:
+ * it means "the workspace policy's model for the agents feature", resolved on
+ * every run.
+ */
+export const WORKSPACE_AGENT_POLICY_DEFAULT_MODEL = 'default';
+
+/**
+ * Any model id a Kubernetes install may store on an agent: the policy default,
+ * a catalog id with its provider prefix (`mistral/mistral-large-4-0`,
+ * `anthropic/claude-sonnet-5-5`) or a bare Claude id from before the move.
+ * Whether the workspace's policy allows it is checked per run.
+ */
+export const workspaceAgentAnyModelSchema = z.union([
+  z.enum(WORKSPACE_AGENT_MODELS),
+  z.literal(WORKSPACE_AGENT_POLICY_DEFAULT_MODEL),
+  z
+    .string()
+    .min(3)
+    .max(100)
+    .regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/, 'Expected provider/model'),
+]);
+
+/** Whether `value` can be stored as an agent's model on a Kubernetes install. */
+export function isWorkspaceAgentAnyModel(value: string | null | undefined): boolean {
+  return workspaceAgentAnyModelSchema.safeParse(value).success;
+}
+
+const workspaceAgentFields = <M extends z.ZodTypeAny>(modelId: M) => ({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
   systemPrompt: z.string().max(20000).optional(),
-  modelId: z.enum(WORKSPACE_AGENT_MODELS).optional(),
+  modelId: modelId.optional(),
   temperature: z.string().max(10).optional(),
   maxTokens: z.number().int().min(1).max(8192).optional(),
   permissions: z.array(z.string()).optional(),
@@ -32,6 +64,12 @@ export const createWorkspaceAgentSchema = z.object({
   maxTotalTokens: z.number().int().min(1000).max(200000).optional(),
 });
 
+/** Global: the Claude ids only. */
+export const createWorkspaceAgentSchema = z.object(workspaceAgentFields(z.enum(WORKSPACE_AGENT_MODELS)));
+
+/** Kubernetes editions: any model the workspace policy knows, see {@link workspaceAgentAnyModelSchema}. */
+export const createWorkspaceAgentSchemaAnyModel = z.object(workspaceAgentFields(workspaceAgentAnyModelSchema));
+
 /**
  * Who can see and chat with an agent: only its owner, the owner plus chosen
  * members, or everyone in the workspace.
@@ -40,6 +78,10 @@ export const WORKSPACE_AGENT_VISIBILITIES = ['private', 'members', 'workspace'] 
 export type WorkspaceAgentVisibility = (typeof WORKSPACE_AGENT_VISIBILITIES)[number];
 
 export const updateWorkspaceAgentSchema = createWorkspaceAgentSchema.partial().extend({
+  status: z.enum(['draft', 'active', 'paused']).optional(),
+});
+
+export const updateWorkspaceAgentSchemaAnyModel = createWorkspaceAgentSchemaAnyModel.partial().extend({
   status: z.enum(['draft', 'active', 'paused']).optional(),
 });
 

@@ -1292,6 +1292,10 @@ export const common = {
               label: 'Claude Haiku 5.5',
               description: 'Fastest, lowest cost',
             },
+            default: {
+              label: 'Workspace default',
+              description: 'The model your admin set for agents',
+            },
           },
         },
         settings: {

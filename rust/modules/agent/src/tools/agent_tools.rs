@@ -81,6 +81,26 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             parameters: json!({ "type": "object", "properties": {} }),
         },
         ToolSpec {
+            id: "agent.update_routine",
+            name: "update_routine",
+            description: "Change one of this agent's routines: rename it, rewrite its instructions, move its schedule or timezone, or turn it on/off. \
+                Get the routineId from list_routines.",
+            required_permissions: &[],
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "routineId": { "type": "string", "minLength": 1, "maxLength": 30 },
+                    "name": { "type": "string", "minLength": 2, "maxLength": 255 },
+                    "instructions": { "type": "string", "minLength": 10, "maxLength": 20000 },
+                    "cronExpr": { "type": "string", "maxLength": 100, "description": "Five-field cron, in the routine timezone." },
+                    "timezone": { "type": "string", "maxLength": 64, "description": "IANA timezone, e.g. \"Europe/Amsterdam\"." },
+                    "enabled": { "type": "boolean" },
+                    "requireApproval": { "type": "boolean" },
+                },
+                "required": ["routineId"],
+            }),
+        },
+        ToolSpec {
             id: "agent.save_skill",
             name: "save_skill",
             description: "Save the current process as a reusable skill (steps, rules, safety boundaries). Enable it for this agent.",
@@ -110,6 +130,31 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 "required": ["content"],
             }),
         },
+        ToolSpec {
+            id: "agent.create_routine",
+            name: "create_routine",
+            description: "Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work. \
+                Each run posts its result in a chat thread for the user who created the routine, and notifies them. \
+                Routines only run while the agent is active. Give cronExpr in the user's timezone (it is the default).",
+            required_permissions: &[],
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "minLength": 2, "maxLength": 255 },
+                    "instructions": { "type": "string", "minLength": 10, "maxLength": 20000 },
+                    "scheduleKind": { "type": "string", "enum": ["cron", "event", "connector"], "default": "cron" },
+                    "cronExpr": { "type": "string", "maxLength": 100 },
+                    "timezone": { "type": "string", "maxLength": 64 },
+                    "eventKey": { "type": "string", "maxLength": 100 },
+                    "requireApproval": { "type": "boolean" },
+                    "connectorProvider": { "type": "string", "enum": ["slack", "github"] },
+                    "connectorMatch": { "type": "string", "maxLength": 500 },
+                    "connectorChannel": { "type": "string", "maxLength": 200 },
+                    "connectorRepo": { "type": "string", "maxLength": 200 },
+                },
+                "required": ["name", "instructions"],
+            }),
+        },
     ]
 }
 
@@ -118,7 +163,9 @@ pub(super) async fn execute(ctx: &ToolContext, id: &str, args: &Value) -> Result
         "agent.save_setup" => save_setup(ctx, args).await,
         "agent.ask_user" => Ok(ask_user(args)),
         "agent.list_routines" => list_routines(ctx).await,
+        "agent.update_routine" => update_routine_tool(ctx, args).await,
         "agent.save_skill" => save_skill(ctx, args).await,
+        "agent.create_routine" => create_routine_tool(ctx, args).await,
         "agent.remember" => remember(ctx, args).await,
         other => Err(ToolError::UnknownTool(other.to_owned())),
     }
@@ -302,6 +349,112 @@ async fn list_routines(ctx: &ToolContext) -> Result<Value, ToolError> {
             })
             .collect(),
     ))
+}
+
+fn now_ms() -> i64 {
+    i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
+        .unwrap_or_default()
+}
+
+async fn create_routine_tool(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError> {
+    if ctx.actor_can_edit == Some(false) {
+        return Ok(not_editor());
+    }
+    let kind = text(args, "scheduleKind").unwrap_or("cron");
+    let timezone = text(args, "timezone")
+        .map(str::to_owned)
+        .or_else(|| ctx.user_timezone.clone());
+    if kind == "cron"
+        && let Some(error) = crate::routines::routine_schedule_error(
+            text(args, "cronExpr"),
+            timezone.as_deref(),
+            now_ms(),
+        )
+    {
+        return Ok(json!({ "error": error }));
+    }
+    let connector = text(args, "connectorProvider").map(|provider| {
+        json!({
+            "provider": provider, "match": text(args, "connectorMatch"),
+            "channel": text(args, "connectorChannel"), "repo": text(args, "connectorRepo"),
+        })
+    });
+    let routine = crate::routines::create_routine(
+        &ctx.db,
+        crate::routines::NewRoutine {
+            agent_id: ctx.agent_id.clone(),
+            name: text(args, "name").unwrap_or_default().to_owned(),
+            instructions: text(args, "instructions").unwrap_or_default().to_owned(),
+            schedule_kind: Some(kind.to_owned()),
+            cron_expr: text(args, "cronExpr").map(str::to_owned),
+            timezone,
+            event_key: text(args, "eventKey").map(str::to_owned),
+            connector_config: connector,
+            require_approval: Some(
+                args.get("requireApproval")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            created_by: Some(ctx.actor_user_id.clone()),
+            ..crate::routines::NewRoutine::default()
+        },
+    )
+    .await?;
+    crate::routines::reindex_workspace(ctx.master.as_ref(), &ctx.db, &ctx.workspace_id).await;
+    Ok(json!({
+        "ok": true, "routineId": routine["id"], "name": routine["name"], "cronExpr": routine["cronExpr"],
+        "timezone": routine["timezone"], "nextRunAt": routine["nextRunAt"],
+    }))
+}
+
+async fn update_routine_tool(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError> {
+    if ctx.actor_can_edit == Some(false) {
+        return Ok(not_editor());
+    }
+    let routine_id = text(args, "routineId").unwrap_or_default();
+    let Some(existing) = crate::routines::get_routine(&ctx.db, routine_id).await? else {
+        return Ok(json!({ "error": "Routine not found for this agent" }));
+    };
+    if existing["agentId"].as_str() != Some(ctx.agent_id.as_str()) {
+        return Ok(json!({ "error": "Routine not found for this agent" }));
+    }
+    let mut changes = serde_json::Map::new();
+    for key in [
+        "name",
+        "instructions",
+        "cronExpr",
+        "timezone",
+        "enabled",
+        "requireApproval",
+    ] {
+        if let Some(value) = args.get(key) {
+            changes.insert(key.to_owned(), value.clone());
+        }
+    }
+    if existing["scheduleKind"] == "cron"
+        && (changes.contains_key("cronExpr") || changes.contains_key("timezone"))
+    {
+        let cron = changes
+            .get("cronExpr")
+            .and_then(Value::as_str)
+            .or_else(|| existing["cronExpr"].as_str());
+        let zone = changes
+            .get("timezone")
+            .and_then(Value::as_str)
+            .or_else(|| existing["timezone"].as_str());
+        if let Some(error) = crate::routines::routine_schedule_error(cron, zone, now_ms()) {
+            return Ok(json!({ "error": error }));
+        }
+    }
+    let Some(updated) = crate::routines::update_routine(&ctx.db, routine_id, &changes).await?
+    else {
+        return Ok(json!({ "error": "Failed to update routine" }));
+    };
+    crate::routines::reindex_workspace(ctx.master.as_ref(), &ctx.db, &ctx.workspace_id).await;
+    Ok(json!({
+        "ok": true, "routineId": updated["id"], "name": updated["name"], "cronExpr": updated["cronExpr"],
+        "timezone": updated["timezone"], "enabled": updated["enabled"], "nextRunAt": updated["nextRunAt"],
+    }))
 }
 
 async fn save_skill(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError> {

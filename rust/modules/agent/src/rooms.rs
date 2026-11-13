@@ -61,7 +61,11 @@ pub fn select_agents_to_reply(
     if author_type == "agent" || author_type == "system" {
         return mentioned_in_room;
     }
-    agent_member_ids.iter().filter(|id| id.as_str() != author_id).cloned().collect()
+    agent_member_ids
+        .iter()
+        .filter(|id| id.as_str() != author_id)
+        .cloned()
+        .collect()
 }
 
 /// `roomFailureReply(err)`: the reply a failed turn leaves in the room.
@@ -77,7 +81,9 @@ pub fn room_failure_reply(reason: &str) -> String {
 /// `roomReplyTools(enabledTools)`: the agent's own tools, plus the room tools
 /// when it has an allow-list.
 pub fn room_reply_tools(enabled_tools: &[String], known_tool_ids: &[&str]) -> Vec<String> {
-    let has_allow_list = enabled_tools.iter().any(|t| known_tool_ids.contains(&t.as_str()));
+    let has_allow_list = enabled_tools
+        .iter()
+        .any(|t| known_tool_ids.contains(&t.as_str()));
     let mut out = enabled_tools.to_vec();
     if has_allow_list {
         for id in ["chat.message_agent", "chat.create_agent_group"] {
@@ -146,14 +152,18 @@ pub async fn dispatch_agent_mentions(
             .bind(channel_id)
             .fetch_optional(&ctx.db)
             .await?;
-    let Some(metadata) = metadata else { return Ok(()) };
+    let Some(metadata) = metadata else {
+        return Ok(());
+    };
     let trigger: Option<(String, String, String, Option<String>)> = sqlx::query_as(
         "select author_id, author_type, author_name, parent_id from chat_messages where id = $1",
     )
     .bind(message_id)
     .fetch_optional(&ctx.db)
     .await?;
-    let Some((author_id, author_type, author_name, parent_id)) = trigger else { return Ok(()) };
+    let Some((author_id, author_type, author_name, parent_id)) = trigger else {
+        return Ok(());
+    };
     let policy = parse_agent_room_policy(metadata.as_ref());
     dispatch_agent_room_replies(
         ctx,
@@ -176,10 +186,10 @@ pub async fn dispatch_agent_mentions(
 
 /// `dispatchAgentRoomReplies`: pick the agents and run them at the same time;
 /// one slow or failing agent never holds up (or silences) the others.
-pub fn dispatch_agent_room_replies<'a>(
-    ctx: &'a RoomCtx,
+pub fn dispatch_agent_room_replies(
+    ctx: &RoomCtx,
     input: RoomInput,
-) -> BoxFuture<'a, Result<(), sqlx::Error>> {
+) -> BoxFuture<'_, Result<(), sqlx::Error>> {
     Box::pin(async move {
         if input.reply_policy == "none" || input.hop > input.max_hops {
             return Ok(());
@@ -216,12 +226,19 @@ pub fn dispatch_agent_room_replies<'a>(
                 }
             }
         }
-        let recent = load_room_context(&ctx.db, &input.channel_id, &input.message_id, input.parent_id.as_deref()).await?;
+        let recent = load_room_context(
+            &ctx.db,
+            &input.channel_id,
+            &input.message_id,
+            input.parent_id.as_deref(),
+        )
+        .await?;
         let reply_to = load_reply_reference(&ctx.db, &input.message_id).await?;
         let brief = describe_room(&ctx.db, &input.channel_id).await?;
         let mut actor_ctx = ctx.clone();
         if actor_ctx.actor_permissions.is_none() {
-            actor_ctx.actor_permissions = Some(resolve_actor_permissions(&ctx.db, &ctx.invoker_user_id).await);
+            actor_ctx.actor_permissions =
+                Some(resolve_actor_permissions(&ctx.db, &ctx.invoker_user_id).await);
         }
         let runs = agents.iter().map(|agent| {
             let (actor_ctx, input, recent, reply_to, brief) = (&actor_ctx, &input, &recent, &reply_to, &brief);
@@ -261,16 +278,34 @@ pub async fn describe_room(db: &PgPool, channel_id: &str) -> Result<String, sqlx
 
 /// The quote shown above an agent's reply: the message it answers.
 async fn load_reply_reference(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let target: Option<(String, String, String, Option<String>, String, bool, Option<Value>)> = sqlx::query_as(
+    let target: Option<(
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        bool,
+        Option<Value>,
+    )> = sqlx::query_as(
         "select id, author_id, author_name, author_avatar, content, has_attachments, metadata
          from chat_messages where id = $1 and deleted_at is null",
     )
     .bind(message_id)
     .fetch_optional(db)
     .await?;
-    Ok(target.map(|(id, author_id, name, avatar, content, attachments, metadata)| {
-        build_reply_reference(&id, &author_id, &name, avatar.as_deref(), &content, Some(attachments), &metadata.unwrap_or(Value::Null))
-    }))
+    Ok(target.map(
+        |(id, author_id, name, avatar, content, attachments, metadata)| {
+            build_reply_reference(
+                &id,
+                &author_id,
+                &name,
+                avatar.as_deref(),
+                &content,
+                Some(attachments),
+                &metadata.unwrap_or(Value::Null),
+            )
+        },
+    ))
 }
 
 /// What the agent reads before the message it answers: the thread it was asked
@@ -297,7 +332,11 @@ async fn load_room_context(
         .rev()
         .filter(|(id, ..)| id != exclude_message_id)
         .map(|(_, name, author_type, content)| ChatMsg {
-            role: if author_type == "agent" { weldsuite_ai::Role::Assistant } else { weldsuite_ai::Role::User },
+            role: if author_type == "agent" {
+                weldsuite_ai::Role::Assistant
+            } else {
+                weldsuite_ai::Role::User
+            },
             content: format!("[{name}]: {content}"),
         })
         .collect())
@@ -376,12 +415,13 @@ async fn post_agent_message(
         .execute(db)
         .await?;
     }
-    let members: Vec<(String, Option<String>)> =
-        sqlx::query_as("select user_id, member_type from chat_channel_members where channel_id = $1")
-            .bind(channel_id)
-            .fetch_all(db)
-            .await
-            .unwrap_or_default();
+    let members: Vec<(String, Option<String>)> = sqlx::query_as(
+        "select user_id, member_type from chat_channel_members where channel_id = $1",
+    )
+    .bind(channel_id)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
     let rt = Realtime::new(realtime);
     if rt.is_on() {
         let mut payload = serde_json::Map::new();
@@ -420,7 +460,12 @@ async fn post_agent_message(
         .filter(|(_, t)| t.as_deref() != Some("agent"))
         .map(|(u, _)| u.as_str())
         .collect();
-    for user_id in all.iter().filter(|m| m.as_str() != "everyone" && !m.starts_with("agt_") && !m.starts_with("entity:") && people.contains(&m.as_str())) {
+    for user_id in all.iter().filter(|m| {
+        m.as_str() != "everyone"
+            && !m.starts_with("agt_")
+            && !m.starts_with("entity:")
+            && people.contains(&m.as_str())
+    }) {
         let _ = sqlx::query(
             "update chat_channel_members set unread_mention_count = unread_mention_count + 1
              where channel_id = $1 and user_id = $2",
@@ -445,11 +490,19 @@ async fn post_agent_message(
 
 /// Show "<agent> is working…" in the room while a background turn runs. It
 /// rides the room's typing event (`agt_*` ids tell clients it is an agent).
-async fn typing(realtime: &Option<Arc<dyn DynRealtimePublisher>>, channel_id: &str, agent: &RoomAgent<'_>, on: bool) {
-    let rt = Realtime::new(realtime.clone());
+async fn typing(
+    realtime: Option<&Arc<dyn DynRealtimePublisher>>,
+    channel_id: &str,
+    agent: &RoomAgent<'_>,
+    on: bool,
+) {
+    let rt = Realtime::new(realtime.cloned());
     if rt.is_on() {
-        rt.chat(channel_id, json!({ "type": "typing", "userId": agent.id, "userName": agent.name, "isTyping": on }))
-            .await;
+        rt.chat(
+            channel_id,
+            json!({ "type": "typing", "userId": agent.id, "userName": agent.name, "isTyping": on }),
+        )
+        .await;
     }
 }
 
@@ -458,7 +511,10 @@ async fn typing(realtime: &Option<Arc<dyn DynRealtimePublisher>>, channel_id: &s
 fn pending_approvals_of(invocations: &[Value]) -> Vec<Value> {
     invocations
         .iter()
-        .filter(|inv| inv["result"]["pendingApproval"] == json!(true) && inv["result"]["approvalId"].is_string())
+        .filter(|inv| {
+            inv["result"]["pendingApproval"] == json!(true)
+                && inv["result"]["approvalId"].is_string()
+        })
         .map(|inv| {
             json!({
                 "id": inv["result"]["approvalId"],
@@ -475,8 +531,14 @@ fn pending_approvals_of(invocations: &[Value]) -> Vec<Value> {
 /// `approvalsNotice(approvals)`: what the agent posts when it parked actions
 /// and wrote nothing else.
 fn approvals_notice(approvals: &[Value]) -> String {
-    let labels: Vec<&str> = approvals.iter().filter_map(|a| a["label"].as_str()).collect();
-    format!("This needs your approval before I can do it: {}.", labels.join("; "))
+    let labels: Vec<&str> = approvals
+        .iter()
+        .filter_map(|a| a["label"].as_str())
+        .collect();
+    format!(
+        "This needs your approval before I can do it: {}.",
+        labels.join("; ")
+    )
 }
 
 #[allow(clippy::too_many_lines)] // the steps of one room reply, in TypeScript's order
@@ -512,7 +574,11 @@ async fn reply_as_agent(
          Keep replies concise and useful in a group chat.\nTriggering author: {} ({}).",
         input.author_name, input.author_type
     );
-    let notify: Vec<String> = if input.author_type == "user" { vec![input.author_id.clone()] } else { Vec::new() };
+    let notify: Vec<String> = if input.author_type == "user" {
+        vec![input.author_id.clone()]
+    } else {
+        Vec::new()
+    };
     let post = |content: String, extra: Value| {
         let (who, run_id) = (&who, &run_id);
         async move {
@@ -538,9 +604,22 @@ async fn reply_as_agent(
     };
 
     let Some(ai) = ctx.ai.as_ref().filter(|ai| ai.enabled()) else {
-        typing(&ctx.env.realtime, &input.channel_id, &who, false).await;
-        post(room_failure_reply("AI is currently unavailable"), json!({ "failed": true })).await?;
-        complete_agent_run(db, &run_id, agent_id, RunCompletion { error: Some("AI is currently unavailable".into()), ..RunCompletion::default() }).await?;
+        typing(ctx.env.realtime.as_ref(), &input.channel_id, &who, false).await;
+        post(
+            room_failure_reply("AI is currently unavailable"),
+            json!({ "failed": true }),
+        )
+        .await?;
+        complete_agent_run(
+            db,
+            &run_id,
+            agent_id,
+            RunCompletion {
+                error: Some("AI is currently unavailable".into()),
+                ..RunCompletion::default()
+            },
+        )
+        .await?;
         return Ok(());
     };
 
@@ -548,15 +627,23 @@ async fn reply_as_agent(
     let mut room_agent = agent.clone();
     let enabled: Vec<String> = agent["enabledTools"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default();
-    let ids: Vec<&str> = crate::tools::platform_tools().iter().map(|t| t.id).collect();
+    let ids: Vec<&str> = crate::tools::platform_tools()
+        .iter()
+        .map(|t| t.id)
+        .collect();
     room_agent["enabledTools"] = json!(room_reply_tools(&enabled, &ids));
     room_agent["maxIterations"] = json!(agent["maxIterations"].as_i64().unwrap_or(10).min(8));
     let actor_permissions = ctx.actor_permissions.clone().unwrap_or_default();
     let mut tool_ctx = tool_context(
         &room_agent,
         &ctx.env,
+        Some(ai),
         db,
         &ctx.org_id,
         &ctx.invoker_user_id,
@@ -569,8 +656,11 @@ async fn reply_as_agent(
     let tools = tools_for(&room_agent, &tool_ctx, 2);
     let system = build_system(db, &room_agent, false, Some(&extra_system)).await;
     let mut history: Vec<ChatMsg> = recent.to_vec();
-    history.push(ChatMsg::user(format!("[{}]: {}", input.author_name, input.message_content)));
-    typing(&ctx.env.realtime, &input.channel_id, &who, true).await;
+    history.push(ChatMsg::user(format!(
+        "[{}]: {}",
+        input.author_name, input.message_content
+    )));
+    typing(ctx.env.realtime.as_ref(), &input.channel_id, &who, true).await;
     let turn = run_turn(TurnInput {
         ai,
         agent: &room_agent,
@@ -582,15 +672,26 @@ async fn reply_as_agent(
         reference: input.channel_id.clone(),
     })
     .await;
-    typing(&ctx.env.realtime, &input.channel_id, &who, false).await;
+    typing(ctx.env.realtime.as_ref(), &input.channel_id, &who, false).await;
     let done = match turn {
         Ok(done) => done,
         Err(error) => {
             let message = error.to_string();
-            if let Err(post_error) = post(room_failure_reply(&message), json!({ "failed": true })).await {
+            if let Err(post_error) =
+                post(room_failure_reply(&message), json!({ "failed": true })).await
+            {
                 tracing::error!(%post_error, "[weldagent/room] posting the failure reply failed");
             }
-            complete_agent_run(db, &run_id, agent_id, RunCompletion { error: Some(message), ..RunCompletion::default() }).await?;
+            complete_agent_run(
+                db,
+                &run_id,
+                agent_id,
+                RunCompletion {
+                    error: Some(message),
+                    ..RunCompletion::default()
+                },
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -599,10 +700,22 @@ async fn reply_as_agent(
     let approvals = pending_approvals_of(&done.invocations);
     let text = {
         let t = done.text.trim();
-        if t.is_empty() && !approvals.is_empty() { approvals_notice(&approvals) } else { t.to_owned() }
+        if t.is_empty() && !approvals.is_empty() {
+            approvals_notice(&approvals)
+        } else {
+            t.to_owned()
+        }
     };
-    let extra = if approvals.is_empty() { json!({}) } else { json!({ "approvals": approvals }) };
-    let posted = if text.is_empty() { None } else { Some(post(text.clone(), extra).await?) };
+    let extra = if approvals.is_empty() {
+        json!({})
+    } else {
+        json!({ "approvals": approvals })
+    };
+    let posted = if text.is_empty() {
+        None
+    } else {
+        Some(post(text.clone(), extra).await?)
+    };
     let actions: Vec<Value> = done
         .invocations
         .iter()
@@ -634,7 +747,13 @@ async fn reply_as_agent(
 
 /// Agent to agent chain: agents this reply mentions answer it next, until
 /// `agentMaxHops` (and never the agent itself).
-async fn dispatch_next_hop(ctx: &RoomCtx, input: &RoomInput, agent: &Value, reply_id: &str, text: &str) {
+async fn dispatch_next_hop(
+    ctx: &RoomCtx,
+    input: &RoomInput,
+    agent: &Value,
+    reply_id: &str,
+    text: &str,
+) {
     let agent_id = agent["id"].as_str().unwrap_or_default();
     let next: Vec<String> = extract_chat_mentions(text, &[])
         .into_iter()
@@ -686,7 +805,21 @@ pub async fn post_agent_text(
         name: agent["name"].as_str().unwrap_or("Agent"),
         icon: agent["icon"].as_str(),
     };
-    post_agent_message(db, realtime, org_id, channel_id, &who, invoker_user_id, content, None, hop, None, &[], json!({})).await
+    post_agent_message(
+        db,
+        realtime,
+        org_id,
+        channel_id,
+        &who,
+        invoker_user_id,
+        content,
+        None,
+        hop,
+        None,
+        &[],
+        json!({}),
+    )
+    .await
 }
 
 /// The `weldagent.job` job (`runWeldAgentJob`): what chat-api enqueues when a
@@ -706,10 +839,17 @@ impl Job for WeldAgentJob {
         JOB_NAME
     }
 
-    fn run<'a>(&'a self, _ctx: &'a dyn JobContext, payload: Value) -> BoxFuture<'a, Result<(), JobError>> {
+    fn run<'a>(
+        &'a self,
+        _ctx: &'a dyn JobContext,
+        payload: Value,
+    ) -> BoxFuture<'a, Result<(), JobError>> {
         Box::pin(async move {
             let kind = payload["kind"].as_str().unwrap_or_default().to_owned();
-            let workspace_id = payload["workspaceId"].as_str().unwrap_or_default().to_owned();
+            let workspace_id = payload["workspaceId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
             let tenant = self
                 .tenants
                 .tenant(&workspace_id)
@@ -722,13 +862,20 @@ impl Job for WeldAgentJob {
                         ai: self.ai.clone(),
                         env: self.env.clone(),
                         org_id: workspace_id,
-                        invoker_user_id: payload["invokerUserId"].as_str().unwrap_or_default().to_owned(),
+                        invoker_user_id: payload["invokerUserId"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned(),
                         actor_permissions: None,
                         events: None,
                     };
                     let mentions: Vec<String> = payload["agentMentionIds"]
                         .as_array()
-                        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(str::to_owned))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     dispatch_agent_mentions(
                         &ctx,
@@ -744,11 +891,17 @@ impl Job for WeldAgentJob {
                     let params = crate::run::RunParams {
                         db: tenant.db.clone(),
                         workspace_id,
-                        actor_user_id: payload["actorUserId"].as_str().unwrap_or("system").to_owned(),
+                        actor_user_id: payload["actorUserId"]
+                            .as_str()
+                            .unwrap_or("system")
+                            .to_owned(),
                         agent_id: payload["agentId"].as_str().unwrap_or_default().to_owned(),
                         trigger_type: crate::run::TriggerType::Event,
                         trigger_data: payload.get("triggerData").cloned(),
-                        user_message: payload["userMessage"].as_str().unwrap_or_default().to_owned(),
+                        user_message: payload["userMessage"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned(),
                         extra_system: payload["extraSystem"].as_str().map(str::to_owned),
                         run_id: payload["runId"].as_str().map(str::to_owned),
                         routine_run_id: payload["routineRunId"].as_str().map(str::to_owned),
@@ -782,16 +935,38 @@ mod tests {
     #[test]
     fn mentions_answer_only_when_mentioned_and_never_the_author() {
         let members = s(&["agt_1", "agt_2"]);
-        assert_eq!(select_agents_to_reply("mentions", &members, &s(&["agt_2", "agt_9"]), "user", "u1", 0, 2), ["agt_2"]);
-        assert!(select_agents_to_reply("mentions", &members, &s(&["agt_1"]), "agent", "agt_1", 0, 2).is_empty());
-        assert!(select_agents_to_reply("none", &members, &s(&["agt_1"]), "user", "u1", 0, 2).is_empty());
+        assert_eq!(
+            select_agents_to_reply(
+                "mentions",
+                &members,
+                &s(&["agt_2", "agt_9"]),
+                "user",
+                "u1",
+                0,
+                2
+            ),
+            ["agt_2"]
+        );
+        assert!(
+            select_agents_to_reply("mentions", &members, &s(&["agt_1"]), "agent", "agt_1", 0, 2)
+                .is_empty()
+        );
+        assert!(
+            select_agents_to_reply("none", &members, &s(&["agt_1"]), "user", "u1", 0, 2).is_empty()
+        );
     }
 
     #[test]
     fn always_does_not_fan_out_on_agent_messages_and_stops_at_the_hop_limit() {
         let members = s(&["agt_1", "agt_2"]);
-        assert_eq!(select_agents_to_reply("always", &members, &[], "user", "u1", 0, 2), members);
-        assert_eq!(select_agents_to_reply("always", &members, &[], "user", "agt_1", 0, 2), ["agt_2"]);
+        assert_eq!(
+            select_agents_to_reply("always", &members, &[], "user", "u1", 0, 2),
+            members
+        );
+        assert_eq!(
+            select_agents_to_reply("always", &members, &[], "user", "agt_1", 0, 2),
+            ["agt_2"]
+        );
         assert!(select_agents_to_reply("always", &members, &[], "agent", "agt_1", 0, 2).is_empty());
         assert!(select_agents_to_reply("always", &members, &[], "user", "u1", 3, 2).is_empty());
     }
@@ -799,7 +974,10 @@ mod tests {
     #[test]
     fn room_tools_join_an_allow_list_only() {
         let known = ["people.list"];
-        assert_eq!(room_reply_tools(&s(&["agent.auto_review"]), &known), ["agent.auto_review"]);
+        assert_eq!(
+            room_reply_tools(&s(&["agent.auto_review"]), &known),
+            ["agent.auto_review"]
+        );
         let with = room_reply_tools(&s(&["people.list"]), &known);
         assert!(with.contains(&"chat.message_agent".to_owned()));
     }

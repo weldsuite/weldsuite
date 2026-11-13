@@ -15,6 +15,7 @@
 //! never offers a tool that can't work.
 
 mod agent_tools;
+mod chat_tools;
 mod data_tools;
 pub mod schema;
 
@@ -54,12 +55,14 @@ pub(crate) fn not_editor() -> Value {
 }
 
 /// Tool ids ported to Rust.
-pub const PORTED: [&str; 12] = [
+pub const PORTED: [&str; 16] = [
     "agent.save_setup",
     "agent.ask_user",
     "agent.list_routines",
+    "agent.update_routine",
     "agent.save_skill",
     "agent.remember",
+    "agent.create_routine",
     "people.list",
     "people.get",
     "people.create",
@@ -67,34 +70,24 @@ pub const PORTED: [&str; 12] = [
     "tasks.create",
     "projects.list",
     "projects.get",
+    "chat.message_agent",
+    "chat.create_agent_group",
 ];
 
-/// Tool ids left out of the EU registry, and why.
-pub const LEFT_OUT: [(&str, &str); 7] = [
-    (
-        "agent.create_routine",
-        "needs the routine scheduler (next part)",
-    ),
-    (
-        "agent.update_routine",
-        "needs the routine scheduler (next part)",
-    ),
+/// Tool ids not in the EU registry yet, and why. The sandbox, web and browser
+/// tools are not listed: the in-cluster sandbox crate registers them.
+pub const LEFT_OUT: [(&str, &str); 3] = [
     (
         "tickets.list",
         "needs the WeldDesk inbox filters, not yet exposed by desk-domain",
     ),
     (
         "tickets.create",
-        "needs the WeldDesk inbox open-conversation wiring",
-    ),
-    ("chat.message_agent", "needs the rooms dispatch (next part)"),
-    (
-        "browser.open",
-        "agent-sandbox: not available on the Kubernetes editions",
+        "needs desk-domain's inbox deps (routing, events) built outside a request",
     ),
     (
         "sheets.*, boards.*, merge.*",
-        "the module crates do not expose a library surface yet",
+        "the module crates expose routes, not a library surface",
     ),
 ];
 
@@ -115,6 +108,7 @@ pub fn platform_tools() -> &'static [ToolSpec] {
     static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         let mut tools = agent_tools::specs();
         tools.extend(data_tools::specs());
+        tools.extend(chat_tools::specs());
         tools
     });
     &TOOLS
@@ -258,7 +252,10 @@ pub fn tools_for_agent_turn(
             .filter(|t| t.id == "agent.ask_user" || t.id == "agent.save_setup")
             .collect();
         return if user_message_count < 2 {
-            setup.into_iter().filter(|t| t.id == "agent.ask_user").collect()
+            setup
+                .into_iter()
+                .filter(|t| t.id == "agent.ask_user")
+                .collect()
         } else {
             setup
         };
@@ -338,6 +335,8 @@ pub struct ToolContext {
     /// The master database and the realtime publisher, for tools that post.
     pub master: Option<PgPool>,
     pub realtime: Option<std::sync::Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// The AI, for tools that start other agents (`create_agent_group_chat`).
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -401,6 +400,7 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
     let args = schema::validate(&tool.parameters, args).map_err(ToolError::InvalidArguments)?;
     match tool.id {
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
+        id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
         id => data_tools::execute(ctx, id, &args).await,
     }
 }
@@ -507,6 +507,7 @@ mod tests {
             max_agent_hops: 2,
             master: None,
             realtime: None,
+            ai: None,
         };
         let refused = execute_tool(&ctx, "list_people", &json!({})).await;
         assert!(matches!(refused, Err(ToolError::UnknownTool(_))));

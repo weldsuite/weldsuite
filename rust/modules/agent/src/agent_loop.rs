@@ -25,7 +25,9 @@ use crate::approvals::{
     allows_auto_review, approval_label, approval_recipients, create_approval, find_prior_approval,
     held_for_approval_message, tool_risk_level,
 };
-use crate::tools::{ToolContext, ToolError, ToolSpec, execute_tool, tool_defs, tools_for_agent_turn};
+use crate::tools::{
+    ToolContext, ToolError, ToolSpec, execute_tool, tool_defs, tools_for_agent_turn,
+};
 
 /// `PRESENTATION_RULES`: how every workspace agent talks about records.
 pub const PRESENTATION_RULES: &str = "Never show internal ids (for example prj_…, task_…, per_…, apr_…, agt_…), tool names or raw field keys to the user. \
@@ -79,7 +81,11 @@ pub fn build_system_prompt(name: &str, system_prompt: &str, has_sandbox_tools: b
          {PRESENTATION_RULES} {tools_hint}\
          When you need a decision or a missing detail from the user, ask it with ask_user (one question, concrete options) and end your turn. \
          Be concise and practical.\n\n{}",
-        if own.is_empty() { "Help the user with their workspace tasks." } else { own }
+        if own.is_empty() {
+            "Help the user with their workspace tasks."
+        } else {
+            own
+        }
     )
 }
 
@@ -100,7 +106,12 @@ async fn prompt_blocks(db: &PgPool, agent_id: &str) -> String {
         out.push_str("\n\nEnabled skills (follow when relevant):\n");
         let lines: Vec<String> = skills
             .iter()
-            .map(|(name, instructions)| format!("- {name}: {}", instructions.chars().take(1500).collect::<String>()))
+            .map(|(name, instructions)| {
+                format!(
+                    "- {name}: {}",
+                    instructions.chars().take(1500).collect::<String>()
+                )
+            })
             .collect();
         out.push_str(&lines.join("\n"));
     }
@@ -114,7 +125,10 @@ async fn prompt_blocks(db: &PgPool, agent_id: &str) -> String {
     .unwrap_or_default();
     if !memories.is_empty() {
         out.push_str("\n\nDurable memory for this agent:\n");
-        let lines: Vec<String> = memories.iter().map(|(kind, content)| format!("- [{kind}] {content}")).collect();
+        let lines: Vec<String> = memories
+            .iter()
+            .map(|(kind, content)| format!("- [{kind}] {content}"))
+            .collect();
         out.push_str(&lines.join("\n"));
     }
     out
@@ -129,7 +143,11 @@ pub async fn build_system(
     extra_system: Option<&str>,
 ) -> String {
     let prompt = agent["systemPrompt"].as_str().unwrap_or_default();
-    let mut system = build_system_prompt(agent["name"].as_str().unwrap_or("Agent"), prompt, has_sandbox_tools);
+    let mut system = build_system_prompt(
+        agent["name"].as_str().unwrap_or("Agent"),
+        prompt,
+        has_sandbox_tools,
+    );
     if !agent_needs_setup(prompt) {
         system.push_str(&prompt_blocks(db, agent["id"].as_str().unwrap_or_default()).await);
     }
@@ -154,32 +172,47 @@ pub struct ChatMsg {
 
 impl ChatMsg {
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
     }
 }
 
 /// `summarizeToolInvocations(raw)`: what an assistant turn's tools did, as
 /// text the next turn can read.
 fn summarize_tool_invocations(raw: &Value) -> String {
-    let Some(items) = raw.as_array() else { return String::new() };
+    let Some(items) = raw.as_array() else {
+        return String::new();
+    };
     let mut lines: Vec<String> = Vec::new();
     for inv in items {
         let state = inv["state"].as_str().unwrap_or_default();
         if state != "result" && state != "error" {
             continue;
         }
-        let mut result = serde_json::to_string(&inv["result"]).unwrap_or_else(|_| "[unserializable]".to_owned());
+        let mut result =
+            serde_json::to_string(&inv["result"]).unwrap_or_else(|_| "[unserializable]".to_owned());
         if result.chars().count() > 400 {
             result = format!("{}…", result.chars().take(400).collect::<String>());
         }
-        lines.push(format!("- {} → {result}", inv["toolName"].as_str().unwrap_or_default()));
+        lines.push(format!(
+            "- {} → {result}",
+            inv["toolName"].as_str().unwrap_or_default()
+        ));
     }
     if lines.is_empty() {
         return String::new();
     }
     let summary = format!("[Tools used in this turn]\n{}", lines.join("\n"));
     if summary.chars().count() > TOOL_SUMMARY_MAX_CHARS {
-        format!("{}…", summary.chars().take(TOOL_SUMMARY_MAX_CHARS).collect::<String>())
+        format!(
+            "{}…",
+            summary
+                .chars()
+                .take(TOOL_SUMMARY_MAX_CHARS)
+                .collect::<String>()
+        )
     } else {
         summary
     }
@@ -192,11 +225,21 @@ pub fn to_model_history(rows: &[Value]) -> Vec<ChatMsg> {
         .filter_map(|row| {
             let content = row["content"].as_str().unwrap_or_default();
             match row["role"].as_str() {
-                Some("user") => Some(ChatMsg { role: Role::User, content: content.to_owned() }),
+                Some("user") => Some(ChatMsg {
+                    role: Role::User,
+                    content: content.to_owned(),
+                }),
                 Some("assistant") => {
                     let tools = summarize_tool_invocations(&row["toolInvocations"]);
-                    let content = if tools.is_empty() { content.to_owned() } else { format!("{content}\n\n{tools}") };
-                    Some(ChatMsg { role: Role::Assistant, content })
+                    let content = if tools.is_empty() {
+                        content.to_owned()
+                    } else {
+                        format!("{content}\n\n{tools}")
+                    };
+                    Some(ChatMsg {
+                        role: Role::Assistant,
+                        content,
+                    })
                 }
                 _ => None,
             }
@@ -268,7 +311,10 @@ const MAX_STORED_RESULT_CHARS: usize = 2_000;
 fn result_text(value: &Value) -> String {
     let text = serde_json::to_string(value).unwrap_or_default();
     if text.chars().count() > MAX_TOOL_RESULT_CHARS {
-        format!("{}…[truncated]", text.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>())
+        format!(
+            "{}…[truncated]",
+            text.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>()
+        )
     } else {
         text
     }
@@ -314,14 +360,21 @@ pub struct TurnResult {
 /// The `AiCall` of one model call of an agent: the `agents` feature, the
 /// agent's own model unless it is the policy sentinel.
 fn agent_call(agent: &Value, ctx: &ToolContext, reference: &str) -> AiCall {
-    let model = agent["modelId"].as_str().filter(|m| !m.is_empty() && *m != POLICY_DEFAULT_MODEL);
-    AiCall::new(&ctx.workspace_id, Feature::Agents, Task::Copilot, Tier::Quality)
-        .user(&ctx.actor_user_id)
-        .tenant(ctx.db.clone())
-        .master(ctx.master.clone())
-        .stored_model(model)
-        .op("agent")
-        .reference(reference)
+    let model = agent["modelId"]
+        .as_str()
+        .filter(|m| !m.is_empty() && *m != POLICY_DEFAULT_MODEL);
+    AiCall::new(
+        &ctx.workspace_id,
+        Feature::Agents,
+        Task::Copilot,
+        Tier::Quality,
+    )
+    .user(&ctx.actor_user_id)
+    .tenant(ctx.db.clone())
+    .master(ctx.master.clone())
+    .stored_model(model)
+    .op("agent")
+    .reference(reference)
 }
 
 /// The 402 gate (AI-007) for a turn of this agent.
@@ -329,14 +382,19 @@ fn agent_call(agent: &Value, ctx: &ToolContext, reference: &str) -> AiCall {
 /// # Errors
 ///
 /// [`AiError::InsufficientCredits`] and the policy's refusals.
-pub async fn assert_credits(ai: &Ai, agent: &Value, ctx: &ToolContext, reference: &str) -> Result<(), AiError> {
+pub async fn assert_credits(
+    ai: &Ai,
+    agent: &Value,
+    ctx: &ToolContext,
+    reference: &str,
+) -> Result<(), AiError> {
     ai.assert_credits(&agent_call(agent, ctx, reference)).await
 }
 
 /// `notifyApprovalPeople`: who has to act on a parked approval. The push
 /// notification itself is the notifications crate's; the recipients are
 /// recorded on the approval's `reason` for the page to show.
-async fn note_recipients(ctx: &ToolContext, agent: &Value, approval_id: &str) {
+fn note_recipients(ctx: &ToolContext, agent: &Value, approval_id: &str) {
     let recipients = approval_recipients(
         agent["ownerId"].as_str(),
         Some(ctx.actor_user_id.as_str()),
@@ -360,9 +418,15 @@ async fn run_tool_call(input: &TurnInput<'_>, call: &ToolCall) -> (Value, bool, 
         let auto_review = input.agent["autoReviewEnabled"] == json!(true);
         let auto_ok = auto_review
             && allows_auto_review(&call.name)
-            && find_prior_approval(&ctx.db, agent_id, &call.name).await.unwrap_or(false);
+            && find_prior_approval(&ctx.db, agent_id, &call.name)
+                .await
+                .unwrap_or(false);
         if !auto_ok {
-            let args = if call.arguments.is_object() { call.arguments.clone() } else { json!({ "value": call.arguments }) };
+            let args = if call.arguments.is_object() {
+                call.arguments.clone()
+            } else {
+                json!({ "value": call.arguments })
+            };
             let parked = create_approval(
                 &ctx.db,
                 agent_id,
@@ -376,13 +440,17 @@ async fn run_tool_call(input: &TurnInput<'_>, call: &ToolCall) -> (Value, bool, 
                 Ok(approval) => {
                     let label = approval_label(&call.name, &args);
                     let id = approval["id"].as_str().unwrap_or_default().to_owned();
-                    note_recipients(ctx, input.agent, &id).await;
+                    note_recipients(ctx, input.agent, &id);
                     step["state"] = json!("result");
                     step["result"] = json!({
                         "pendingApproval": true, "approvalId": id, "label": label,
                         "message": format!("Waiting for approval: {label}"),
                     });
-                    (json!({ "pendingApproval": true, "message": held_for_approval_message(&label) }), false, step)
+                    (
+                        json!({ "pendingApproval": true, "message": held_for_approval_message(&label) }),
+                        false,
+                        step,
+                    )
                 }
                 Err(error) => {
                     tracing::error!(%error, "[weldagent] could not park an approval");
@@ -413,9 +481,20 @@ async fn run_tool_call(input: &TurnInput<'_>, call: &ToolCall) -> (Value, bool, 
 
 /// `toolsForAgentTurn` for an agent row: setup mode, grants narrowed to the
 /// actor, the owner-only tools.
-pub fn tools_for(agent: &Value, ctx: &ToolContext, user_message_count: usize) -> Vec<&'static ToolSpec> {
+pub fn tools_for(
+    agent: &Value,
+    ctx: &ToolContext,
+    user_message_count: usize,
+) -> Vec<&'static ToolSpec> {
     let strings = |key: &str| -> Vec<String> {
-        agent[key].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+        agent[key]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     tools_for_agent_turn(
         &strings("permissions"),
@@ -429,9 +508,16 @@ pub fn tools_for(agent: &Value, ctx: &ToolContext, user_message_count: usize) ->
 
 /// `actorMayEdit(agent, input)`: whether the person driving the turn may
 /// change the agent; unattended runs keep maintaining their own agent.
-pub fn actor_may_edit(agent: &Value, actor_user_id: &str, actor_permissions: Option<&[String]>) -> Option<bool> {
+pub fn actor_may_edit(
+    agent: &Value,
+    actor_user_id: &str,
+    actor_permissions: Option<&[String]>,
+) -> Option<bool> {
     let perms = actor_permissions?;
-    let subject = weldsuite_permissions::Grants { permissions: perms.to_vec(), denies: Vec::new() };
+    let subject = weldsuite_permissions::Grants {
+        permissions: perms.to_vec(),
+        denies: Vec::new(),
+    };
     let viewer = agent_viewer_for(actor_user_id, Some(&subject));
     Some(can_edit_agent(agent["ownerId"].as_str(), &viewer))
 }
@@ -445,15 +531,22 @@ pub fn actor_may_edit(agent: &Value, actor_user_id: &str, actor_permissions: Opt
 pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
     let max_iterations = input.agent["maxIterations"].as_i64().unwrap_or(10).max(1);
     let max_tokens_total = input.agent["maxTotalTokens"].as_i64().unwrap_or(20_000);
-    let max_tokens = input.agent["maxTokens"].as_i64().and_then(|n| u32::try_from(n).ok());
-    let temperature = input.agent["temperature"].as_str().and_then(|t| t.parse::<f32>().ok());
+    let max_tokens = input.agent["maxTokens"]
+        .as_i64()
+        .and_then(|n| u32::try_from(n).ok());
+    let temperature = input.agent["temperature"]
+        .as_str()
+        .and_then(|t| t.parse::<f32>().ok());
     let call = agent_call(input.agent, input.ctx, &input.reference);
     input.ai.assert_credits(&call).await?;
 
     let mut messages: Vec<Message> = input
         .history
         .iter()
-        .map(|m| Message { role: m.role, content: vec![Part::Text(m.content.clone())] })
+        .map(|m| Message {
+            role: m.role,
+            content: vec![Part::Text(m.content.clone())],
+        })
         .collect();
     let defs = tool_defs(&input.tools);
     let mut result = TurnResult::default();
@@ -482,7 +575,10 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
         }
         let mut assistant = vec![Part::Text(reply.text.clone())];
         assistant.extend(reply.tool_calls.iter().cloned().map(Part::ToolCall));
-        messages.push(Message { role: Role::Assistant, content: assistant });
+        messages.push(Message {
+            role: Role::Assistant,
+            content: assistant,
+        });
         let mut answers: Vec<Part> = Vec::new();
         let mut asked = false;
         for tool_call in &reply.tool_calls {
@@ -507,7 +603,10 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
                 is_error,
             });
         }
-        messages.push(Message { role: Role::Tool, content: answers });
+        messages.push(Message {
+            role: Role::Tool,
+            content: answers,
+        });
         // `ask_user` ends the turn: the answer arrives as the next message.
         if asked {
             result.text = reply.text;
@@ -540,7 +639,10 @@ mod tests {
         let long = "x".repeat(HISTORY_MAX_CHARS);
         let history = vec![
             ChatMsg::user(long.clone()),
-            ChatMsg { role: Role::Assistant, content: "old answer".into() },
+            ChatMsg {
+                role: Role::Assistant,
+                content: "old answer".into(),
+            },
             ChatMsg::user("new question"),
         ];
         let kept = trim_history(history);

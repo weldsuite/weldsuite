@@ -18,8 +18,8 @@ use weldsuite_ports::DynRealtimePublisher;
 
 use crate::access::{AgentAccess, agent_viewer_for, can_access_agent};
 use crate::agent_loop::{
-    ChatMsg, TurnInput, actor_may_edit, build_system, load_history, run_turn, to_model_history, tools_for,
-    trim_history,
+    ChatMsg, TurnInput, actor_may_edit, build_system, load_history, run_turn, to_model_history,
+    tools_for, trim_history,
 };
 use crate::agents::get_agent;
 use crate::approvals::persist_assistant_message;
@@ -61,7 +61,9 @@ pub struct RunEnv {
 
 impl std::fmt::Debug for RunEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RunEnv").field("sandbox", &self.sandbox).finish_non_exhaustive()
+        f.debug_struct("RunEnv")
+            .field("sandbox", &self.sandbox)
+            .finish_non_exhaustive()
     }
 }
 
@@ -179,7 +181,12 @@ pub fn unavailable() -> Response {
 fn str_list(value: &Value, key: &str) -> Vec<String> {
     value[key]
         .as_array()
-        .map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -187,6 +194,7 @@ fn str_list(value: &Value, key: &str) -> Vec<String> {
 pub fn tool_context(
     agent: &Value,
     env: &RunEnv,
+    ai: Option<&Ai>,
     db: &PgPool,
     workspace_id: &str,
     actor_user_id: &str,
@@ -212,18 +220,30 @@ pub fn tool_context(
         max_agent_hops: 2,
         master: env.master.clone(),
         realtime: env.realtime.clone(),
+        ai: ai.cloned(),
     }
 }
 
 fn has_sandbox_tools(tools: &[&crate::tools::ToolSpec]) -> bool {
-    tools
-        .iter()
-        .any(|t| t.name.starts_with("computer_") || t.name.starts_with("browser_") || t.name.starts_with("web_"))
+    tools.iter().any(|t| {
+        t.name.starts_with("computer_")
+            || t.name.starts_with("browser_")
+            || t.name.starts_with("web_")
+    })
 }
 
 /// A long run's final reply goes to the routine owner's main chat
 /// (`deliverRoutineResult`); returns the chat id.
-async fn deliver_routine_result(db: &PgPool, routine: &Value, user_id: &str, agent: &Value, run_id: &str, ok: bool, text: &str, error: Option<&str>) {
+async fn deliver_routine_result(
+    db: &PgPool,
+    routine: &Value,
+    user_id: &str,
+    agent: &Value,
+    run_id: &str,
+    ok: bool,
+    text: &str,
+    error: Option<&str>,
+) {
     if user_id.is_empty() || user_id == "system" {
         return;
     }
@@ -239,13 +259,23 @@ async fn deliver_routine_result(db: &PgPool, routine: &Value, user_id: &str, age
         let content = if ok {
             text.to_owned()
         } else {
-            format!("The routine \"{name}\" did not finish: {}", error.unwrap_or("unknown error"))
+            format!(
+                "The routine \"{name}\" did not finish: {}",
+                error.unwrap_or("unknown error")
+            )
         };
         let metadata = json!({
             "kind": ROUTINE_RESULT_KIND, "routineId": routine["id"], "routineName": name,
             "runId": run_id, "success": ok,
         });
-        persist_assistant_message(db, conversation["id"].as_str().unwrap_or_default(), &content, None, Some(&metadata)).await
+        persist_assistant_message(
+            db,
+            conversation["id"].as_str().unwrap_or_default(),
+            &content,
+            None,
+            Some(&metadata),
+        )
+        .await
     }
     .await;
     if let Err(error) = result {
@@ -277,18 +307,31 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
             run_id: params.run_id.clone().unwrap_or_default(),
             text: String::new(),
             success: false,
-            error: Some(format!("Agent is {}", agent["status"].as_str().unwrap_or("unavailable"))),
+            error: Some(format!(
+                "Agent is {}",
+                agent["status"].as_str().unwrap_or("unavailable")
+            )),
         });
     }
     let run_id = match &params.run_id {
         Some(id) => id.clone(),
-        None => create_agent_run(db, &params.agent_id, Some("queued"), params.trigger_type.as_str(), params.trigger_data.as_ref()).await?,
+        None => {
+            create_agent_run(
+                db,
+                &params.agent_id,
+                Some("queued"),
+                params.trigger_type.as_str(),
+                params.trigger_data.as_ref(),
+            )
+            .await?
+        }
     };
     mark_run_running(db, &run_id).await?;
 
     let ctx = tool_context(
         &agent,
         &params.env,
+        Some(ai),
         db,
         &params.workspace_id,
         &params.actor_user_id,
@@ -296,7 +339,13 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         params.events.clone(),
     );
     let tools = tools_for(&agent, &ctx, 2);
-    let system = build_system(db, &agent, has_sandbox_tools(&tools), params.extra_system.as_deref()).await;
+    let system = build_system(
+        db,
+        &agent,
+        has_sandbox_tools(&tools),
+        params.extra_system.as_deref(),
+    )
+    .await;
     let turn = run_turn(TurnInput {
         ai,
         agent: &agent,
@@ -309,7 +358,13 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
     })
     .await;
 
-    let routine = match (&params.routine_run_id, params.trigger_data.as_ref().and_then(|d| d["routineId"].as_str())) {
+    let routine = match (
+        &params.routine_run_id,
+        params
+            .trigger_data
+            .as_ref()
+            .and_then(|d| d["routineId"].as_str()),
+    ) {
         (Some(_), Some(routine_id)) => sqlx::query_scalar::<_, Value>(
             "select to_jsonb(r) from weldagent_routines r where r.id = $1",
         )
@@ -351,7 +406,12 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
                 },
             )
             .await?;
-            RunOutcome { run_id: run_id.clone(), text: done.text, success: true, error: None }
+            RunOutcome {
+                run_id: run_id.clone(),
+                text: done.text,
+                success: true,
+                error: None,
+            }
         }
         Err(error) => {
             let message = error.to_string();
@@ -359,15 +419,28 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
                 db,
                 &run_id,
                 &params.agent_id,
-                RunCompletion { success: false, error: Some(message.clone()), ..RunCompletion::default() },
+                RunCompletion {
+                    success: false,
+                    error: Some(message.clone()),
+                    ..RunCompletion::default()
+                },
             )
             .await?;
-            RunOutcome { run_id: run_id.clone(), text: String::new(), success: false, error: Some(message) }
+            RunOutcome {
+                run_id: run_id.clone(),
+                text: String::new(),
+                success: false,
+                error: Some(message),
+            }
         }
     };
 
     if let (Some(routine_run_id), Some(routine)) = (&params.routine_run_id, &routine) {
-        let status = if outcome.success { "completed" } else { "failed" };
+        let status = if outcome.success {
+            "completed"
+        } else {
+            "failed"
+        };
         let summary: String = outcome.text.chars().take(2000).collect();
         complete_routine_run(
             db,
@@ -378,7 +451,17 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
             Some(&run_id),
         )
         .await?;
-        deliver_routine_result(db, routine, &owner, &agent, &run_id, outcome.success, &outcome.text, outcome.error.as_deref()).await;
+        deliver_routine_result(
+            db,
+            routine,
+            &owner,
+            &agent,
+            &run_id,
+            outcome.success,
+            &outcome.text,
+            outcome.error.as_deref(),
+        )
+        .await;
     }
     Ok(outcome)
 }
@@ -409,6 +492,7 @@ async fn finish_turn(ai: &Ai, params: &TurnParams, accepted: &Accepted) -> Value
         let mut ctx = tool_context(
             &accepted.agent,
             &params.env,
+            Some(ai),
             db,
             &params.workspace_id,
             &params.user_id,
@@ -423,7 +507,13 @@ async fn finish_turn(ai: &Ai, params: &TurnParams, accepted: &Accepted) -> Value
     let extra = params.timezone.as_deref().map(|tz| {
         format!("The user's timezone is {tz}. Read and schedule times (routines included) in it unless they say otherwise.")
     });
-    let system = build_system(db, &accepted.agent, has_sandbox_tools(&tools), extra.as_deref()).await;
+    let system = build_system(
+        db,
+        &accepted.agent,
+        has_sandbox_tools(&tools),
+        extra.as_deref(),
+    )
+    .await;
     let turn = run_turn(TurnInput {
         ai,
         agent: &accepted.agent,
@@ -437,12 +527,26 @@ async fn finish_turn(ai: &Ai, params: &TurnParams, accepted: &Accepted) -> Value
     .await;
     let (text, invocations, credits, success, error) = match turn {
         Ok(done) => {
-            let invocations = (!done.invocations.is_empty()).then(|| Value::Array(done.invocations));
+            let invocations =
+                (!done.invocations.is_empty()).then_some(Value::Array(done.invocations));
             (done.text, invocations, done.credits, true, None)
         }
-        Err(error) => (failed_reply(&error.to_string()), None, 0, false, Some(error.to_string())),
+        Err(error) => (
+            failed_reply(&error.to_string()),
+            None,
+            0,
+            false,
+            Some(error.to_string()),
+        ),
     };
-    let saved = persist_assistant_message(db, &accepted.conversation_id, &text, invocations.as_ref(), None).await;
+    let saved = persist_assistant_message(
+        db,
+        &accepted.conversation_id,
+        &text,
+        invocations.as_ref(),
+        None,
+    )
+    .await;
     let assistant = saved.unwrap_or_else(|error| {
         tracing::error!(%error, "[weldagent/complete-turn] could not save the reply");
         Value::Null
@@ -482,16 +586,26 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     .fetch_optional(db)
     .await?
     .map(weldsuite_db::js_row)
-    .ok_or_else(|| RunError::NotFound(format!("Conversation with ID '{}'", params.conversation_id)))?;
-    let bound = params.agent_id.clone().or_else(|| conversation["agentId"].as_str().map(str::to_owned));
+    .ok_or_else(|| {
+        RunError::NotFound(format!("Conversation with ID '{}'", params.conversation_id))
+    })?;
+    let bound = params
+        .agent_id
+        .clone()
+        .or_else(|| conversation["agentId"].as_str().map(str::to_owned));
     let Some(agent_id) = bound else {
         return Err(RunError::Unavailable);
     };
     let Some(agent) = get_agent(db, &agent_id).await? else {
-        return Err(RunError::Forbidden("You no longer have access to this agent".to_owned()));
+        return Err(RunError::Forbidden(
+            "You no longer have access to this agent".to_owned(),
+        ));
     };
     // An agent's chat stays usable only while its owner keeps you on it.
-    let subject = weldsuite_permissions::Grants { permissions: params.actor_permissions.clone(), denies: Vec::new() };
+    let subject = weldsuite_permissions::Grants {
+        permissions: params.actor_permissions.clone(),
+        denies: Vec::new(),
+    };
     let viewer = agent_viewer_for(&params.user_id, Some(&subject));
     let allowed = can_access_agent(
         db,
@@ -504,13 +618,29 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     )
     .await?;
     if !allowed {
-        return Err(RunError::Forbidden("You no longer have access to this agent".to_owned()));
+        return Err(RunError::Forbidden(
+            "You no longer have access to this agent".to_owned(),
+        ));
     }
     // The 402 gate, before anything is saved.
-    let gate_ctx = tool_context(&agent, &params.env, db, &params.workspace_id, &params.user_id, None, None);
-    crate::agent_loop::assert_credits(&ai, &agent, &gate_ctx, conversation["id"].as_str().unwrap_or_default())
-        .await
-        .map_err(RunError::Ai)?;
+    let gate_ctx = tool_context(
+        &agent,
+        &params.env,
+        Some(&ai),
+        db,
+        &params.workspace_id,
+        &params.user_id,
+        None,
+        None,
+    );
+    crate::agent_loop::assert_credits(
+        &ai,
+        &agent,
+        &gate_ctx,
+        conversation["id"].as_str().unwrap_or_default(),
+    )
+    .await
+    .map_err(RunError::Ai)?;
     if params.agent_id.is_some() && conversation["agentId"].is_null() {
         sqlx::query("update weldagent_conversations set agent_id = $2, updated_at = $3::timestamptz where id = $1")
             .bind(&params.conversation_id)
@@ -540,12 +670,19 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     .bind(crate::now())
     .execute(db)
     .await?;
-    let user_message: Value = sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
-        .bind(&message_id)
-        .fetch_one(db)
-        .await
-        .map(weldsuite_db::js_row)?;
-    let accepted = Accepted { conversation_id: params.conversation_id.clone(), agent, user_message, history, user_turns };
+    let user_message: Value =
+        sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
+            .bind(&message_id)
+            .fetch_one(db)
+            .await
+            .map(weldsuite_db::js_row)?;
+    let accepted = Accepted {
+        conversation_id: params.conversation_id.clone(),
+        agent,
+        user_message,
+        history,
+        user_turns,
+    };
     if params.wait {
         return Ok(finish_turn(&ai, &params, &accepted).await);
     }
@@ -554,7 +691,9 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     tokio::spawn(async move {
         let _ = finish_turn(&ai, &params, &accepted).await;
     });
-    Ok(json!({ "status": "accepted", "pending": true, "userMessage": user_message, "assistantMessage": null }))
+    Ok(
+        json!({ "status": "accepted", "pending": true, "userMessage": user_message, "assistantMessage": null }),
+    )
 }
 
 #[cfg(test)]
@@ -581,12 +720,18 @@ mod tests {
             events: None,
             env: RunEnv::default(),
         };
-        assert!(matches!(run_agent(None, params).await, Err(RunError::Unavailable)));
+        assert!(matches!(
+            run_agent(None, params).await,
+            Err(RunError::Unavailable)
+        ));
     }
 
     #[test]
     fn the_unavailable_answer_is_the_workers() {
-        assert_eq!(unavailable().status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            unavailable().status(),
+            http::StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[test]
