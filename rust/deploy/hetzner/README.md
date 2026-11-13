@@ -850,8 +850,8 @@ Three layers (`flux/infrastructure/monitoring`, `monitoring-config`,
 scrape, probe and alert on, and Loki with Fluent Bit. What each alert means
 and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
 
-1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_DOMAIN`, the
-   primary domain of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
+1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_ID`, the
+   id of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
    (a host name, no `https://`), `LOGS_S3_REGION` and `LOGS_BUCKET` for
    Loki. Give the bucket a lifecycle rule that deletes after 31 days (Loki
    deletes after 30) and a key limited to it.

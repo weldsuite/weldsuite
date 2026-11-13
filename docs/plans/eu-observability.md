@@ -218,7 +218,8 @@ overcommitted on purpose).
   the monitoring layer (ConfigMaps the sidecar loads), data sources are
   provisioned.
 - **Sign-in:** Zitadel OIDC against `auth.${DOMAIN}`, limited to the
-  WeldSuite Staff org (its primary-domain scope, `ZITADEL_STAFF_ORG_DOMAIN`), roles from the project's role claim:
+  WeldSuite Staff org (its id scope, `ZITADEL_STAFF_ORG_ID`; not the primary-domain scope, with which
+  Zitadel's new Login UI looks for `name@domain` and finds nobody), on Zitadel's new Login UI, roles from the project's role claim:
   `grafana-admin` → Admin, anyone else in the Staff org → Viewer, nobody else
   in. Login form and basic auth off.
 - **Break-glass:** when Zitadel itself is down, the admin login from the

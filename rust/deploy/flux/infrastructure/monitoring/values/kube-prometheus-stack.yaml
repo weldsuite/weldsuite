@@ -191,9 +191,11 @@ alertmanager:
 # --- Grafana -------------------------------------------------------------
 #
 # grafana.${DOMAIN}, signed in through Zitadel: only the WeldSuite Staff
-# organisation (its primary-domain scope, which Zitadel enforces;
-# ZITADEL_STAFF_ORG_DOMAIN in the cluster's settings), Admin for the project
-# role grafana-admin, Viewer for the rest.
+# organisation (its id scope, which Zitadel enforces; ZITADEL_STAFF_ORG_ID in
+# the cluster's settings), Admin for the project role grafana-admin, Viewer
+# for the rest. By id, not by the org's primary-domain scope: with that one
+# Zitadel's new Login UI appends the domain to the typed name and finds
+# nobody whose login name lacks it (an org on the default domain policy).
 # The OIDC client's id and secret come from the Secret grafana-oidc; the
 # break-glass admin login (/login?disableAutoLogin=true, for when Zitadel is
 # down) from grafana-admin. Everything is provisioned: no database worth
@@ -257,7 +259,7 @@ grafana:
       auth_url: https://auth.${DOMAIN}/oauth/v2/authorize
       token_url: https://auth.${DOMAIN}/oauth/v2/token
       api_url: https://auth.${DOMAIN}/oidc/v1/userinfo
-      scopes: openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:domain:primary:${ZITADEL_STAFF_ORG_DOMAIN}
+      scopes: openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id:${ZITADEL_STAFF_ORG_ID}
       email_attribute_path: email
       login_attribute_path: preferred_username
       name_attribute_path: name
