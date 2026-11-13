@@ -6005,6 +6005,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-sandbox"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-sheets"
 version = "0.0.0"
 dependencies = [
