@@ -4,8 +4,9 @@
 # values and never need the Prometheus Operator's CRDs.
 
 # CloudNativePG's instances: each Postgres pod's exporter (port 9187) with
-# CNPG's default queries (replication, WAL archiving, backends, backups).
-# cnpg_cluster names the Postgres cluster in every series.
+# CNPG's default queries (replication, WAL archiving, backends, backups),
+# the platform's clusters (postgres) and Zitadel's (zitadel). cnpg_cluster
+# names the Postgres cluster in every series.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -13,7 +14,7 @@ metadata:
   namespace: monitoring
 spec:
   namespaceSelector:
-    matchNames: [postgres]
+    matchNames: [postgres, zitadel]
   selector:
     matchExpressions:
       - key: cnpg.io/cluster
@@ -58,7 +59,9 @@ spec:
   podMetricsEndpoints:
     - port: metrics
 ---
-# Certificate expiry and readiness.
+# Certificate expiry and readiness. Their `namespace` label is the
+# certificate's: keep it rather than the exporter pod's (as cert-manager's
+# own ServiceMonitor does).
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -73,9 +76,11 @@ spec:
       app.kubernetes.io/component: controller
   podMetricsEndpoints:
     - port: http-metrics
+      honorLabels: true
 ---
 # Flux's controllers, for their dashboard; failures reach Alertmanager from
-# Flux itself (flux-alerts.yaml).
+# Flux itself (flux-alerts.yaml). Their `namespace` label is the reconciled
+# object's, so it is kept.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -91,6 +96,7 @@ spec:
         values: [helm-controller, kustomize-controller, notification-controller, source-controller]
   podMetricsEndpoints:
     - port: http-prom
+      honorLabels: true
 ---
 # NATS JetStream: the exporter sidecar (services/values/nats.yaml,
 # promExporter), streams and consumers' pending counts included.
@@ -161,3 +167,12 @@ spec:
       relabelings:
         - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
           targetLabel: component
+      # The job metrics' own `job` label (weldsuite_job_runs_total, …)
+      # clashes with the scrape job's, so Prometheus stores it as
+      # exported_job; call it weldsuite_job instead.
+      metricRelabelings:
+        - sourceLabels: [exported_job]
+          regex: (.+)
+          targetLabel: weldsuite_job
+        - regex: exported_job
+          action: labeldrop

@@ -851,10 +851,11 @@ and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
    (a host name, no `https://`), `LOGS_S3_REGION` and `LOGS_BUCKET` for
    Loki. Give the bucket a lifecycle rule that deletes after 31 days (Loki
    deletes after 30) and a key limited to it.
-2. **Grafana's sign-in.** In Zitadel's console, in the WeldSuite project:
-   a web application "Grafana" (code flow, PKCE, redirect
+2. **Grafana's sign-in.** In Zitadel's console, in the project of the
+   organisation whose users sign in (WeldSuite's clusters: `WeldSuite Staff`,
+   next to the admin console's app): a web application "Grafana" (code flow, PKCE, redirect
    `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
-   ID Token" on, the project's "Assert Roles on Authentication" on, and a
+   ID Token" and "User Info inside ID Token" on, the project's "Assert Roles on Authentication" on, and a
    role `grafana-admin` granted to whoever administers Grafana. Everyone
    else in the organisation gets Viewer; nobody outside it gets in.
 3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three

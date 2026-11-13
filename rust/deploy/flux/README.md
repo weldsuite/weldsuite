@@ -17,7 +17,8 @@ infrastructure/
   monitoring/   kube-prometheus-stack (Prometheus, Alertmanager, Grafana) and the blackbox exporter
   monitoring-config/
                 what they scrape, probe and alert on, and WeldSuite's dashboards (after monitoring,
-                which brings the CRDs); ALERTS.md: what each alert means and what to do
+                which brings the CRDs; dashboards/generate.mjs writes them); ALERTS.md: what each
+                alert means and what to do
   logging/      Loki on the cluster's logs bucket, Fluent Bit on every node and for the events
 apps/eu/        the weldsuite HelmRelease
 apps/marketing/ the marketing site (WeldSuite's test cluster only, so far: its image is built for that

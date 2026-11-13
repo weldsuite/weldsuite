@@ -195,8 +195,9 @@ alertmanager:
 # ZITADEL_STAFF_ORG_DOMAIN in the cluster's settings), Admin for the project
 # role grafana-admin, Viewer for the rest.
 # The OIDC client's id and secret come from the Secret grafana-oidc; the
-# break-glass admin login (kubectl port-forward, when Zitadel is down) from
-# grafana-admin. Everything is provisioned: no database worth keeping.
+# break-glass admin login (/login?disableAutoLogin=true, for when Zitadel is
+# down) from grafana-admin. Everything is provisioned: no database worth
+# keeping.
 grafana:
   enabled: true
   replicas: 1
@@ -234,8 +235,11 @@ grafana:
       news_feed_enabled: false
     users:
       allow_sign_up: false
+    # Everyone is sent straight to Zitadel. The form stays, for the
+    # break-glass admin only, at /login?disableAutoLogin=true (it holds no
+    # other accounts: sign-up is off and OAuth users have no password).
     auth:
-      disable_login_form: true
+      disable_login_form: false
       oauth_auto_login: true
       signout_redirect_url: https://auth.${DOMAIN}/oidc/v1/end_session
     auth.basic:
@@ -300,6 +304,11 @@ grafana:
       enabled: true
       label: grafana_dashboard
       searchNamespace: ALL
+      # A ConfigMap's grafana_folder annotation is its folder in Grafana
+      # (WeldSuite's: monitoring-config/kustomization.yaml).
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
     datasources:
       enabled: true
   additionalDataSources:
