@@ -335,6 +335,9 @@ export const platformSyncMap: EntitySyncMap = {
   legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   // Settings → Activity → Log streaming (the SIEM destinations).
   audit_log_stream: inv(['audit-log-streams']),
+  // Settings → AI (EU and self-hosted editions).
+  ai_settings: inv(['ai-settings']),
+  ai_provider_key: inv(['ai-settings']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
   purchase_order: inv(['accounting', 'purchase-orders']),

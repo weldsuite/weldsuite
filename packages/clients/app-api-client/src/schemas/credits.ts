@@ -153,5 +153,19 @@ export const subscriptionCreditsSchema = z.object({
   stripePriceId: z.string().nullable().optional(),
 });
 
-/** `POST /api/credits/checkout`: the hosted Stripe Checkout page. */
+/** `POST /api/credits/checkout`: the hosted checkout page (Stripe on Global, Mollie on the Kubernetes editions). */
 export const creditCheckoutSessionSchema = z.object({ url: z.string() });
+
+/**
+ * `GET /api/credits/checkout/:id` (Kubernetes editions, Mollie): how a
+ * checkout ended, for the page Mollie returns to with `?checkout=<id>`.
+ * `unknown` when the server no longer knows the checkout and it granted
+ * nothing (yet).
+ */
+export const creditCheckoutStatusSchema = z.object({
+  id: z.string(),
+  status: z.enum(['paid', 'pending', 'canceled', 'expired', 'failed', 'unknown']),
+  credits: z.number().nullable(),
+});
+
+export type CreditCheckoutStatus = z.infer<typeof creditCheckoutStatusSchema>;

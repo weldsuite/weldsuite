@@ -24,7 +24,15 @@ describe('route availability', () => {
     expect(routeRequirement('/social/posts')).toEqual({ modules: ['social'] });
     expect(routeRequirement('/settings/apps/weldmail/signatures')).toEqual({ modules: ['mail'] });
     expect(routeRequirement('/agents/abc')).toEqual({ modules: ['agent'] });
-    expect(routeRequirement('/settings/billing')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers the billing page for the credit top-up alone', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing'] });
+    expect(isRouteOffered('/settings/billing')).toBe(true);
+    expect(isRouteOffered('/settings/plans')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'credit-top-up'] });
+    expect(isRouteOffered('/settings/billing')).toBe(false);
   });
 
   it('hides the WeldMail pages of a feature the backend lacks, and only those', () => {
@@ -54,7 +62,16 @@ describe('route availability', () => {
 
   it('ignores a query string and hash', () => {
     expect(routeRequirement('/weldcrm?new=1')).toEqual({ modules: ['crm'] });
-    expect(routeRequirement('/settings/billing#invoices')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing#invoices')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers /settings/ai only where the install runs AI', () => {
+    expect(isRouteOffered('/settings/ai')).toBe(false);
+    setRuntimeConfig({
+      ...EU_CONFIG,
+      ai: { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] },
+    });
+    expect(isRouteOffered('/settings/ai')).toBe(true);
   });
 
   it('matches whole segments only', () => {

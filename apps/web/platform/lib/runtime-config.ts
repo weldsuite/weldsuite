@@ -73,6 +73,13 @@
  *     // ADR SEC-016). Absent or "provider": the provider's pages.
  *     "signIn": "platform"
  *   },
+ *   // The AI this install runs (only when a default provider is configured):
+ *   // the settings page (`/settings/ai`) and every model picker need it, and the
+ *   // AI features are offered only with it (`lib/edition.ts`, `getAiConfig`).
+ *   "ai": {
+ *     "defaultProvider": "mistral",
+ *     "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }]
+ *   },
  *   // Any other public build-time value, by its `VITE_*` name. Wins over the
  *   // baked-in value (`VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_MAPBOX_ACCESS_TOKEN`, …).
  *   "env": { "VITE_MEETING_PORTAL_URL": "https://meet.example.eu" }

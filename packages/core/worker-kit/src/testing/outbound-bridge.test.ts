@@ -133,4 +133,13 @@ describe('outbound bridge', () => {
       sortOutbound(calls).map((call) => (call.body as { cursor?: string }).cursor ?? null);
     expect(cursors(typeScript)).toEqual(cursors(rust));
   });
+
+  it("leaves the mock model's calls out: each backend asks its own model", () => {
+    const calls = [
+      { method: 'POST', url: 'https://mock-ai.weldsuite.test/v1/chat/completions', body: { model: 'workers-ai/@cf/x' } },
+      { method: 'POST', url: 'https://mock-ai.weldsuite.test/v1/v1/messages', body: { model: 'claude' } },
+      { method: 'POST', url: 'https://api.mistral.ai/v1/chat/completions', body: { model: 'mistral-small' } },
+    ];
+    expect(sortOutbound(calls).map((call) => call.url)).toEqual(['https://api.mistral.ai/v1/chat/completions']);
+  });
 });

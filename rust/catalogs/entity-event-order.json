@@ -201,6 +201,8 @@
   "legal_entity_bank_account",
   "legal_entity_member",
   "audit_log_stream",
+  "ai_settings",
+  "ai_provider_key",
   "connector_connection",
   "social_account",
   "social_approval",

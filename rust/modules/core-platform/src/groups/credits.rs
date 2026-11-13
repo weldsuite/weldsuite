@@ -12,12 +12,16 @@
 //! package through billing-worker. Billing is Global-only: here the
 //! permission, the partner-managed refusal, the body and the org are checked
 //! as the workers do, and the call itself answers as the workers do when
-//! billing-worker cannot be reached.
+//! billing-worker cannot be reached. With Mollie configured (the EU
+//! edition's top-up, `crate::topup`) it pays through Mollie instead, and the
+//! return URLs may also be on the install's own origin (`PUBLIC_APP_URL`).
+//! `GET /checkout/:id` (Rust only) tells the return page how a Mollie
+//! checkout ended.
 
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{RawQuery, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -29,6 +33,7 @@ use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::topup::{Buyer, CheckoutInput};
 use crate::{Caller, CorePlatformState, PlatformError, answer, validate, validate_query};
 
 /// `LOW_BALANCE_THRESHOLD` (`@weldsuite/credits`).
@@ -67,6 +72,10 @@ where
         .route(
             "/checkout",
             post(checkout).route_layer(gate.require(["billing:manage"])),
+        )
+        .route(
+            "/checkout/{id}",
+            get(checkout_status).route_layer(gate.require(["billing:manage"])),
         )
 }
 
@@ -762,36 +771,62 @@ async fn subscription(State(state): State<CorePlatformState>, caller: Caller) ->
 
 // ── POST /checkout ──────────────────────────────────────────────────────────
 
-/// `isAllowedPlatformCheckoutUrl`: an absolute URL on a platform origin.
-fn allowed_checkout_url(text: &str) -> bool {
+/// `isAllowedPlatformCheckoutUrl`: an absolute URL on a platform origin, or
+/// on `own_origin`, the install's own platform (Kubernetes editions).
+fn allowed_checkout_url(text: &str, own_origin: Option<&str>) -> bool {
     let Ok(url) = url::Url::parse(text) else {
         return false;
     };
+    let origin = url.origin().ascii_serialization();
+    if own_origin.is_some_and(|own| own == origin && matches!(url.scheme(), "http" | "https")) {
+        return true;
+    }
     match url.scheme() {
         "http" if !matches!(url.host_str(), Some("localhost" | "127.0.0.1")) => return false,
         "http" | "https" => {}
         _ => return false,
     }
-    PLATFORM_CHECKOUT_ORIGINS.contains(&url.origin().ascii_serialization().as_str())
+    PLATFORM_CHECKOUT_ORIGINS.contains(&origin.as_str())
+}
+
+/// The origin of a URL setting (`PUBLIC_APP_URL`), as `URL.origin` writes it.
+fn origin_of(url: &str) -> Option<String> {
+    url::Url::parse(url.trim())
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(|url| url.origin().ascii_serialization())
 }
 
 /// `creditTopupCheckoutSchema`: `packageId`, and the two return URLs, each a
 /// URL (`.url()`) on a platform origin (`.refine`, settled after the rest).
-fn read_checkout(issues: &mut Issues, body: &Map<String, Value>) {
-    issues.text(body, "packageId", Presence::Required, Some(1), None);
+fn read_checkout(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    own_origin: Option<&str>,
+) -> CheckoutInput {
+    let package_id = issues.text(body, "packageId", Presence::Required, Some(1), None);
     let url = Text {
         format: Some(Format::Url),
         ..Text::default()
     };
-    for key in ["successUrl", "cancelUrl"] {
-        issues.text_with(body, key, Presence::Optional, url);
-    }
-    for key in ["successUrl", "cancelUrl"] {
+    let mut urls = ["successUrl", "cancelUrl"].map(|key| {
+        issues
+            .text_with(body, key, Presence::Optional, url)
+            .into_option()
+    });
+    for (key, value) in ["successUrl", "cancelUrl"].into_iter().zip(urls.iter_mut()) {
         if let Some(Value::String(text)) = body.get(key)
-            && !allowed_checkout_url(text)
+            && !allowed_checkout_url(text, own_origin)
         {
             issues.custom(key, CHECKOUT_URL_MESSAGE);
+            *value = None;
         }
+    }
+    let [success_url, cancel_url] = urls;
+    CheckoutInput {
+        package_id: package_id.into_option().unwrap_or_default(),
+        success_url,
+        cancel_url,
     }
 }
 
@@ -840,9 +875,27 @@ async fn checkout(
                 .with_details(json!({ "partner": partner }))
                 .into());
             }
-            validate(&headers, &body, read_checkout)?;
+            let own_origin = caller
+                .env_value("PUBLIC_APP_URL")
+                .or_else(|| caller.env_value("PUBLIC_URL"))
+                .and_then(|url| origin_of(&url));
+            let input = validate(&headers, &body, |issues, body| {
+                read_checkout(issues, body, own_origin.as_deref())
+            })?;
             if org.is_none() {
                 return Err(ApiError::org_required().into());
+            }
+            // The Kubernetes editions' top-up: a Mollie payment.
+            if let Some(top_up) = &state.top_up {
+                let buyer = Buyer {
+                    workspace_id: &caller.workspace_id,
+                    user_id: &caller.user_id,
+                };
+                let url = top_up
+                    .start(&caller.master(&state), caller.outbound(), buyer, &input)
+                    .await?;
+                // `success(c, { url })`, the envelope of `/api/billing/checkout`.
+                return Ok(Json(json!({ "data": { "url": url } })).into_response());
             }
             // billing-worker (Stripe Checkout) is Global-only: answer as the
             // workers do when it cannot be reached.
@@ -852,6 +905,36 @@ async fn checkout(
                     .with_message(BILLING_UNREACHABLE)
                     .into_response(),
             )))
+        }
+        .await,
+    )
+}
+
+// ── GET /checkout/:id ───────────────────────────────────────────────────────
+
+/// How a Mollie checkout of this workspace ended, for the page Mollie sends
+/// the customer back to (`{ data: { id, status, credits } }`). Rust only:
+/// Global's Stripe Checkout returns to a success or a cancel URL instead.
+/// Without Mollie no checkout exists, so every id is a 404.
+async fn checkout_status(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    answer(
+        async {
+            let Some(top_up) = &state.top_up else {
+                return Err(ApiError::not_found("Credit checkout", None).into());
+            };
+            let data = top_up
+                .status(
+                    &caller.master(&state),
+                    caller.outbound(),
+                    &caller.workspace_id,
+                    &id,
+                )
+                .await?;
+            Ok(Json(json!({ "data": data })).into_response())
         }
         .await,
     )
@@ -928,12 +1011,48 @@ mod tests {
     #[test]
     fn checkout_urls_stay_on_platform_origins() {
         assert!(allowed_checkout_url(
-            "https://app.weldsuite.org/settings/billing?credits=success"
+            "https://app.weldsuite.org/settings/billing?credits=success",
+            None
         ));
-        assert!(allowed_checkout_url("http://localhost:5173/x"));
-        assert!(!allowed_checkout_url("https://evil.example/x"));
-        assert!(!allowed_checkout_url("http://app.weldsuite.org/x"));
-        assert!(!allowed_checkout_url("nope"));
+        assert!(allowed_checkout_url("http://localhost:5173/x", None));
+        assert!(!allowed_checkout_url("https://evil.example/x", None));
+        assert!(!allowed_checkout_url("http://app.weldsuite.org/x", None));
+        assert!(!allowed_checkout_url("nope", None));
+        // The install's own platform (EU, self-hosted), and only it.
+        let own = origin_of("https://app.weldsuite.eu/").expect("origin");
+        assert_eq!(own, "https://app.weldsuite.eu");
+        assert!(allowed_checkout_url(
+            "https://app.weldsuite.eu/w/acme/settings/billing?credits=success",
+            Some(&own)
+        ));
+        assert!(!allowed_checkout_url("https://app.weldsuite.eu/x", None));
+        assert!(!allowed_checkout_url("https://evil.example/x", Some(&own)));
+        assert_eq!(origin_of("javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn checkout_bodies_read_the_package_and_return_urls() {
+        let body = json!({
+            "packageId": "pkg_small",
+            "successUrl": "https://app.weldsuite.eu/settings/billing?credits=success",
+            "cancelUrl": "https://app.weldsuite.eu/settings/billing?credits=cancelled",
+        });
+        let mut issues = Issues::default();
+        let input = read_checkout(
+            &mut issues,
+            body.as_object().expect("an object"),
+            Some("https://app.weldsuite.eu"),
+        );
+        assert!(issues.finish().is_ok());
+        assert_eq!(input.package_id, "pkg_small");
+        assert_eq!(
+            input.success_url.as_deref(),
+            Some("https://app.weldsuite.eu/settings/billing?credits=success")
+        );
+        assert_eq!(
+            input.cancel_url.as_deref(),
+            Some("https://app.weldsuite.eu/settings/billing?credits=cancelled")
+        );
     }
 
     #[test]
@@ -941,7 +1060,7 @@ mod tests {
         // Zod 3.25: the refinements' issues come after every field's checks.
         let body = json!({ "packageId": 5, "successUrl": "nope", "cancelUrl": "nope2" });
         let mut issues = Issues::default();
-        read_checkout(&mut issues, body.as_object().expect("an object"));
+        read_checkout(&mut issues, body.as_object().expect("an object"), None);
         let Err(invalid) = issues.finish() else {
             panic!("expected issues");
         };
