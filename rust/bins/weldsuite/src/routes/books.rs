@@ -352,6 +352,9 @@ pub(crate) fn books_state(state: &AppState) -> BooksState {
         env: books_env(),
         rates: rate_cache(),
         trusted_proxies: state.trusted_proxies,
+        // Document OCR (`books-ocr`); `None` with AI off. A conformance
+        // request carries the test's own.
+        ai: state.ai.clone(),
     }
 }
 

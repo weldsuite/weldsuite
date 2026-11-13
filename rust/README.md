@@ -122,11 +122,15 @@ modules, each with conformance suites that reach every route:
   RealtimeKit, which conformance compares, or LiveKit, which
   `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
   served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
-  presence and the end of a room, with no recorder or AI events. Not served:
+  presence and the end of a room, with no recorder or AI events. The
+  `MEETING_AI` Workflow ("transcribe afterwards" over the stored MP3 in
+  frame-aligned chunks, and the summary of a transcript, each charged per
+  meeting minute) is the `meet.meeting-ai` job on `crates/ai` (Voxtral, and
+  the summarize task's model) when an AI provider is configured. Not served:
   WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
-  the transcript, summary, recording-copy and backfill Workflows (the routes
-  answer as the worker without the binding does), and the recordings bucket;
-  see `meet-transcription` and `meet-recordings` below)
+  the recording-copy and backfill Workflows (the routes answer as the worker
+  without the binding does), and the recordings bucket, so there is nothing
+  to transcribe yet; see `meet-transcription` and `meet-recordings` below)
 - **reach** (WeldReach, cold-email outreach: access, settings, domains
   connected to Mailpool through its Cloudflare integration with the DNS
   guards over DNS-over-HTTPS, mailboxes provisioned at Mailpool and entered
@@ -185,8 +189,10 @@ modules, each with conformance suites that reach every route:
   markers live in the cache with their TTL) and the depreciation due. hr's
   pay run journal posts in process (`books_domain::payroll`); the
   integration workers' bank feed endpoints are `books_domain::bank_feeds`,
-  for when those workers are ported. Not ported: document OCR (Workers AI)
-  and filing through Digipoort, both in `unavailableFeatures`)
+  for when those workers are ported. Document OCR reads the file through
+  `crates/ai` (Mistral OCR with a document annotation; `books-ocr` is listed
+  unavailable only without an AI provider). Not ported: filing through
+  Digipoort, in `unavailableFeatures`)
 - **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
   snapshot, version history with restore). Live editing runs in the
   collab-rooms service, the workers' own `DocRoom` on Node beside this
