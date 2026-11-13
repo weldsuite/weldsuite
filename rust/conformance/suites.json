@@ -375,11 +375,14 @@
       "workspace": "apps/workers/agent-api",
       "tests": [
         "src/routes/weldagent/agents.integration.test.ts",
-        "src/routes/weldagent/access.integration.test.ts"
+        "src/routes/weldagent/access.integration.test.ts",
+        "src/routes/ai/chat.integration.test.ts"
       ],
       "paths": [
         "apps/workers/agent-api/src/routes/weldagent/agents.ts",
+        "apps/workers/agent-api/src/routes/ai/index.ts",
         "apps/workers/agent-api/src/services/weldagent/viewer.ts",
+        "apps/workers/agent-api/src/services/weldagent/persona-permissions.ts",
         "packages/domains/agent/src/",
         "packages/domains/core/src/agent-access.ts",
         "packages/clients/app-api-client/src/schemas/workspace-agents.ts",

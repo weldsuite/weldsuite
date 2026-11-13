@@ -140,6 +140,14 @@ const ROUTES: VolatileRoute[] = [
   },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
+  // The assistant chat: each backend names the model it served (`@cf/…` on the
+  // gateway, `mistral/…` on the Kubernetes editions), and the AI SDK's usage
+  // carries detail fields the Rust crate does not.
+  ...['/api/ai/chat', '/api/ai/generate'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.model' }, { path: 'data.usage' }],
+  })),
   // An audit log stream's test event: how long the destination took to
   // answer, and in the request the moment it was sent as Splunk HEC's epoch
   // seconds (the event's own ISO timestamp is masked like any other).
