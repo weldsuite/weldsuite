@@ -199,6 +199,13 @@ pub(super) async fn build(
         }),
         events: None,
         sandbox: false,
+        channel_id: None,
+        conversation_id: None,
+        agent_hop: 0,
+        max_agent_hops: 2,
+        master: None,
+        realtime: None,
+        ai: None,
     };
     Persona {
         system: build_system(

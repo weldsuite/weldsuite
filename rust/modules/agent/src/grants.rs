@@ -37,11 +37,10 @@ pub fn grantable_agent_permissions(sandbox: bool) -> Vec<String> {
 /// (`people:read`) while a person's may be per app (`weldcrm:people:read`), so
 /// a grant in any app counts; their own denies apply.
 pub fn granter_holds<P: PermissionSubject + ?Sized>(subject: &P, perm: &str) -> bool {
-    // The TypeScript twin checks the plain list without the denies; a person's
-    // own denies must apply (its comment says so), so they do here.
-    if has_permission(subject.denies(), perm) {
-        return false;
-    }
+    // Exactly the TypeScript twin: the plain-key branch reads the grants only,
+    // so a person's own deny does NOT stop them granting a key their wildcard
+    // covers (its comment says denies apply; the code does not). Kept for
+    // parity; fix both sides together.
     has_permission(subject.permissions(), perm) || has_app_permission(subject, perm, None)
 }
 
@@ -112,12 +111,13 @@ mod tests {
     }
 
     #[test]
-    fn a_deny_beats_a_grant() {
+    fn a_deny_does_not_stop_a_wildcard_grant_as_in_typescript() {
         let me = Grants {
             permissions: vec!["people:*".to_owned()],
             denies: vec!["people:create".to_owned()],
         };
         assert!(granter_holds(&me, "people:read"));
-        assert!(!granter_holds(&me, "people:create"));
+        // TS parity: the deny is not read in the plain-key branch.
+        assert!(granter_holds(&me, "people:create"));
     }
 }

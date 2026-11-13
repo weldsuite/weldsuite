@@ -627,30 +627,49 @@ The module is `agent` in `packages/core/api-modules` (prefixes `/api/ai`,
 like `meet` needs video. Phase 3e's assistant routes (`/api/ai/chat`,
 `/api/ai/generate`, without `agentId`) live in the same crate.
 
-### Build order and what is ported
+### What is built
 
-The crate is built in two parts so the data side does not wait for the model.
+The module crate `rust/modules/agent` has:
 
-- **Part one** (`rust/modules/agent`): the agents, access, sub-agent, conversation,
-  message and approval routes; the settings, mention and model-list stubs as
-  the worker has them; grants and subscriptions; the tool registry, the
-  argument validator and `execute_tool`; the run persistence; the event
-  dispatch and the `weldagent` subscriber; the routine data, due index and
-  sweep. Everything that would call the model goes through two seams in
-  `run.rs`, `run_agent` and `agent_turn`, which answer 503 `ai_unavailable`
-  until part two.
-- **Part two**: the loop itself behind those seams, the assistant chat
-  (`/api/ai`), rooms (`rooms.rs`), and the rest of the tools.
-- **Tools on EU so far**: `save_agent_setup`, `ask_user`, `list_routines`,
-  `save_skill`, `remember`, `list_people`, `get_person`, `create_person`,
-  `list_tasks`, `create_task`, `list_projects`, `get_project`. Left for part
-  two: `create_routine` and `update_routine` (they need the parity routes of
-  routines), the ticket tools (WeldDesk inbox filters), `message_agent` and
-  `create_agent_group_chat` (rooms), the sheets, board and merge tools (those
-  module crates expose routes, not a library), and the browser tools (hidden).
-- **Not yet ported**: the parity routes for skills, routines, memories,
-  templates, teach sessions and connector events
-  (`routes/weldagent/parity.ts`), except approvals.
+- the data routes (agents, access, sub-agents, conversations, messages,
+  approvals, skills, routines, memories, templates, teach sessions, connector
+  events) and the settings, mention and model-list stubs as the worker has
+  them;
+- the loop (`agent_loop.rs`): the system prompt, skills and memory blocks, the
+  history of a chat turn from `weldagent_messages` (80 messages, 120,000
+  characters, newest kept), the tool-call loop over `ai.chat`, approvals
+  parked and decided, `ask_user` ending the turn;
+- `run_agent` and `agent_turn` (`run.rs`): run rows and counters, routine
+  runs closed and delivered into the owner's chat, a chat turn accepted and
+  answered in the background (or in the request with `wait`);
+- rooms (`rooms.rs`): reply selection, the self-reply and hop guards, the
+  "working" signal, the reply with its approval buttons, the agent-to-agent
+  chain, and the `weldagent.job` job that chat-api enqueues;
+- the `weldagent` subscriber and the routine sweep.
+
+Streaming: Global's `complete-turn` does not stream either, the reply is
+saved and the client polls the messages. The streamed chat belongs to the
+assistant (`/api/ai/chat/stream`).
+
+**Tools on EU**: `save_agent_setup`, `ask_user`, `list_routines`,
+`update_routine`, `save_skill`, `remember`, `create_routine`,
+`list_people`, `get_person`, `create_person`, `list_tasks`,
+`create_task`, `list_projects`, `get_project`, `message_agent`,
+`create_agent_group_chat`. The sandbox, web and browser tools are registered
+by the sandbox crate. Not yet: the ticket tools (the WeldDesk inbox needs its
+routing and event deps outside a request) and the sheets, board and merge
+tools (those module crates expose routes, not a library surface).
+
+Push notifications for an approval waiting, a finished chat turn and a room
+reply are not sent yet; the unread counters and realtime pings are.
+
+**Models.** `createWorkspaceAgentSchema` keeps its strict Claude enum for
+Global. `createWorkspaceAgentSchemaAnyModel` takes a catalog id
+(`provider/model`), a bare Claude id or the `default` sentinel, and the agent
+form lists the models of `GET /api/ai-settings` (feature `agents`) plus "the
+workspace default". Whether the workspace's policy allows the stored model is
+checked on every run: a model it refuses is skipped and the policy's model
+for `agents` is used.
 
 ### Parity: what behaves the same, what doesn't
 

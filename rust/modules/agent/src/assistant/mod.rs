@@ -429,6 +429,7 @@ async fn with_agent(
         max_tokens: input.max_tokens,
         extra_system,
         actor_permissions: caller.permissions.resolved().permissions.clone(),
+        env: state.run_env(),
         events: Some(EventSink {
             publisher: state.events.clone(),
             context: caller.events.clone(),

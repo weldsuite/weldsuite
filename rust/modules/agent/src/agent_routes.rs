@@ -798,6 +798,7 @@ pub(crate) async fn run(
         extra_system: None,
         run_id: None,
         routine_run_id: None,
+        env: state.run_env(),
         skip_approvals: false,
         notify: true,
         actor_permissions: Some(caller.permissions.resolved().permissions.clone()),
@@ -806,7 +807,7 @@ pub(crate) async fn run(
             context: caller.events.clone(),
         }),
     };
-    match run_agent(state.ai.as_ref(), params).await {
+    match run_agent(caller.ai(&state).as_ref(), params).await {
         Ok(outcome) => Data(outcome.to_json()).into_response(),
         Err(error) => error.into_response_for("run failed"),
     }

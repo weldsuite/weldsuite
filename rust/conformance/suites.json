@@ -376,23 +376,30 @@
       "tests": [
         "src/routes/weldagent/agents.integration.test.ts",
         "src/routes/weldagent/access.integration.test.ts",
+        "src/routes/weldagent/conversations.integration.test.ts",
+        "src/routes/weldagent/parity.integration.test.ts",
         "src/routes/ai/chat.integration.test.ts"
       ],
       "paths": [
-        "apps/workers/agent-api/src/routes/weldagent/agents.ts",
+        "apps/workers/agent-api/src/routes/weldagent/",
         "apps/workers/agent-api/src/routes/ai/index.ts",
-        "apps/workers/agent-api/src/services/weldagent/viewer.ts",
-        "apps/workers/agent-api/src/services/weldagent/persona-permissions.ts",
+        "apps/workers/agent-api/src/services/weldagent/",
         "packages/domains/agent/src/",
         "packages/domains/core/src/agent-access.ts",
         "packages/clients/app-api-client/src/schemas/workspace-agents.ts",
+        "packages/clients/app-api-client/src/schemas/weldagent.ts",
+        "packages/clients/app-api-client/src/schemas/weldagent-parity.ts",
         "rust/modules/agent/",
         "rust/crates/chat-domain/src/agents.rs"
       ],
       "excludedRoutes": [
         {
           "route": "POST /api/weldagent/agents/:id/run",
-          "reason": "Runs the model. Rust answers 503 ai_unavailable through the run seam until the loop over weldsuite-ai is wired in (ADR AI-012 phase 5, part two); the TypeScript test mocks the model. The Rust loop is tested on FakeProvider."
+          "reason": "Runs the model. Global runs it on Claude Managed Agents (the Anthropic SDK), which the OpenAI-compatible mock model cannot stand in for; Rust runs its own loop over weldsuite-ai, tested in Rust on FakeProvider."
+        },
+        {
+          "route": "POST /api/weldagent/conversations/:conversationId/complete-turn",
+          "reason": "Generates the reply with the model: Managed Agents on Global (not mockable over HTTP), the Rust loop here (tested on FakeProvider)."
         }
       ]
     },

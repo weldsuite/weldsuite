@@ -78,6 +78,7 @@ fn app(tenant: PgPool, ai: Option<Ai>, permissions: &[&str]) -> Router {
         sandbox: false,
         default_model: String::new(),
         master: None,
+        realtime: None,
     };
     let gate = std::sync::Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

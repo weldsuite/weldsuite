@@ -335,6 +335,7 @@ pub async fn earliest_due(db: &PgPool, now_ms: i64) -> Result<Option<OffsetDateT
 pub async fn run_routine_sweep_for_tenant(
     db: &PgPool,
     ai: Option<&weldsuite_ai::Ai>,
+    env: &crate::run::RunEnv,
     workspace_id: &str,
     actor_user_id: Option<&str>,
     now_ms: i64,
@@ -373,6 +374,7 @@ pub async fn run_routine_sweep_for_tenant(
                 notify: false,
                 actor_permissions: None,
                 events: None,
+                env: env.clone(),
             },
         )
         .await;
@@ -412,6 +414,10 @@ pub async fn run_routine_sweep(
     ai: Option<&weldsuite_ai::Ai>,
     now: OffsetDateTime,
 ) -> weldsuite_db::due_index::SweepResult {
+    let env = &crate::run::RunEnv {
+        master: Some(master.clone()),
+        ..crate::run::RunEnv::default()
+    };
     weldsuite_db::due_index::run_sweep(
         master,
         DUE_KIND,
@@ -424,10 +430,16 @@ pub async fn run_routine_sweep(
                 .await
                 .map_err(|error| error.to_string())?;
             let at_ms = i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
-            let started =
-                run_routine_sweep_for_tenant(&tenant.db, ai, &tenant.workspace_id, None, at_ms)
-                    .await
-                    .map_err(|error| error.to_string())?;
+            let started = run_routine_sweep_for_tenant(
+                &tenant.db,
+                ai,
+                env,
+                &tenant.workspace_id,
+                None,
+                at_ms,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
             tracing::info!(
                 workspace_id,
                 started,
@@ -440,6 +452,279 @@ pub async fn run_routine_sweep(
         },
     )
     .await
+}
+
+/// `getRoutine(db, id)`.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn get_routine(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    let row: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(r) from weldagent_routines r where r.id = $1 and r.deleted_at is null",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.map(serialize))
+}
+
+/// `listRoutines(db, agentId?)`: newest change first.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn list_routines(db: &PgPool, agent_id: Option<&str>) -> Result<Vec<Value>, sqlx::Error> {
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "select to_jsonb(r) from weldagent_routines r
+         where r.deleted_at is null and ($1::text is null or r.agent_id = $1) order by r.updated_at desc",
+    )
+    .bind(agent_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(serialize).collect())
+}
+
+/// What `createRoutine` takes.
+#[derive(Debug, Default)]
+pub struct NewRoutine {
+    pub agent_id: String,
+    pub name: String,
+    pub instructions: String,
+    pub skill_id: Option<String>,
+    pub schedule_kind: Option<String>,
+    pub cron_expr: Option<String>,
+    pub timezone: Option<String>,
+    pub event_key: Option<String>,
+    pub connector_config: Option<Value>,
+    pub enabled: Option<bool>,
+    pub require_approval: Option<bool>,
+    pub created_by: Option<String>,
+}
+
+/// `createRoutine(db, input)`: a cron routine gets its first `next_run_at`.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn create_routine(db: &PgPool, input: NewRoutine) -> Result<Value, sqlx::Error> {
+    let id = generate_id("rtn");
+    let kind = input.schedule_kind.unwrap_or_else(|| "cron".to_owned());
+    let cron = input
+        .cron_expr
+        .or_else(|| (kind == "cron").then(|| "0 * * * *".to_owned()));
+    let timezone = input.timezone.unwrap_or_else(|| "UTC".to_owned());
+    let next = (kind == "cron").then(|| {
+        iso_of_ms(compute_routine_next_run(
+            cron.as_deref(),
+            Some(&timezone),
+            now_ms(),
+        ))
+    });
+    sqlx::query(
+        "insert into weldagent_routines
+             (id, agent_id, name, instructions, skill_id, schedule_kind, cron_expr, timezone, event_key,
+              connector_config, enabled, require_approval, next_run_at, created_by)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::timestamptz, $14)",
+    )
+    .bind(&id)
+    .bind(&input.agent_id)
+    .bind(input.name.trim())
+    .bind(input.instructions.trim())
+    .bind(&input.skill_id)
+    .bind(&kind)
+    .bind(&cron)
+    .bind(&timezone)
+    .bind(&input.event_key)
+    .bind(&input.connector_config)
+    .bind(input.enabled.unwrap_or(true))
+    .bind(input.require_approval.unwrap_or(false))
+    .bind(next)
+    .bind(&input.created_by)
+    .execute(db)
+    .await?;
+    Ok(get_routine(db, &id).await?.unwrap_or(Value::Null))
+}
+
+/// `updateRoutine(db, id, input)`: `input` has the camelCase keys the route
+/// body has, present only when set (a JSON `null` clears a nullable field).
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn update_routine(
+    db: &PgPool,
+    id: &str,
+    input: &serde_json::Map<String, Value>,
+) -> Result<Option<Value>, sqlx::Error> {
+    let Some(existing) = get_routine(db, id).await? else {
+        return Ok(None);
+    };
+    let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
+    let kind = text("scheduleKind").unwrap_or_else(|| {
+        existing["scheduleKind"]
+            .as_str()
+            .unwrap_or("cron")
+            .to_owned()
+    });
+    let schedule_changed = input.get("enabled") == Some(&json!(true))
+        || input.contains_key("scheduleKind")
+        || input.contains_key("cronExpr")
+        || input.contains_key("timezone");
+    // `Some(Some(x))` sets, `Some(None)` clears, `None` leaves.
+    let next: Option<Option<String>> = if kind == "cron" && schedule_changed {
+        let cron = if input.contains_key("cronExpr") {
+            text("cronExpr")
+        } else {
+            existing["cronExpr"].as_str().map(str::to_owned)
+        };
+        let zone = text("timezone").or_else(|| existing["timezone"].as_str().map(str::to_owned));
+        Some(Some(iso_of_ms(compute_routine_next_run(
+            cron.as_deref(),
+            zone.as_deref(),
+            now_ms(),
+        ))))
+    } else if kind != "cron" && input.contains_key("scheduleKind") {
+        Some(None)
+    } else {
+        None
+    };
+    let mut query: sqlx::QueryBuilder<sqlx::Postgres> =
+        sqlx::QueryBuilder::new("update weldagent_routines set updated_at = ");
+    query.push_bind(crate::now()).push("::timestamptz");
+    for (key, column) in [
+        ("name", "name"),
+        ("instructions", "instructions"),
+        ("skillId", "skill_id"),
+        ("scheduleKind", "schedule_kind"),
+        ("cronExpr", "cron_expr"),
+        ("timezone", "timezone"),
+        ("eventKey", "event_key"),
+    ] {
+        if let Some(value) = input.get(key) {
+            let value = value.as_str().map(|v| {
+                if key == "name" || key == "instructions" {
+                    v.trim().to_owned()
+                } else {
+                    v.to_owned()
+                }
+            });
+            query.push(format!(", {column} = ")).push_bind(value);
+        }
+    }
+    if let Some(config) = input.get("connectorConfig") {
+        query
+            .push(", connector_config = ")
+            .push_bind((!config.is_null()).then(|| config.clone()))
+            .push("::jsonb");
+    }
+    for (key, column) in [
+        ("enabled", "enabled"),
+        ("requireApproval", "require_approval"),
+    ] {
+        if let Some(flag) = input.get(key).and_then(Value::as_bool) {
+            query.push(format!(", {column} = ")).push_bind(flag);
+        }
+    }
+    if let Some(next) = next {
+        query
+            .push(", next_run_at = ")
+            .push_bind(next)
+            .push("::timestamptz");
+    }
+    query.push(" where id = ").push_bind(id.to_owned());
+    query.build().execute(db).await?;
+    get_routine(db, id).await
+}
+
+/// `deleteRoutine(db, id)`: soft delete, and off.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn delete_routine(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
+    if get_routine(db, id).await?.is_none() {
+        return Ok(false);
+    }
+    sqlx::query(
+        "update weldagent_routines set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, enabled = false where id = $1",
+    )
+    .bind(id)
+    .bind(crate::now())
+    .execute(db)
+    .await?;
+    Ok(true)
+}
+
+/// `listRoutineRuns(db, routineId, limit)`.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn list_routine_runs(
+    db: &PgPool,
+    routine_id: &str,
+    limit: i64,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "select to_jsonb(r) from weldagent_routine_runs r where r.routine_id = $1 order by r.created_at desc limit $2",
+    )
+    .bind(routine_id)
+    .bind(limit)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(js_row).collect())
+}
+
+/// `findConnectorRoutines(db, input)`: enabled connector routines that match a
+/// Slack or GitHub event.
+///
+/// # Errors
+///
+/// The tenant database fails.
+pub async fn find_connector_routines(
+    db: &PgPool,
+    provider: &str,
+    channel: Option<&str>,
+    repo: Option<&str>,
+    event: Option<&str>,
+    text: Option<&str>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "select to_jsonb(r) from weldagent_routines r
+         where r.enabled = true and r.schedule_kind = 'connector' and r.deleted_at is null",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(serialize)
+        .filter(|r| {
+            let cfg = &r["connectorConfig"];
+            if cfg["provider"].as_str() != Some(provider) {
+                return false;
+            }
+            let differs = |key: &str, given: Option<&str>| {
+                cfg[key]
+                    .as_str()
+                    .filter(|c| !c.is_empty())
+                    .zip(given.filter(|g| !g.is_empty()))
+                    .is_some_and(|(c, g)| c != g)
+            };
+            if differs("channel", channel) || differs("repo", repo) || differs("event", event) {
+                return false;
+            }
+            if let (Some(pattern), Some(text)) = (
+                cfg["match"].as_str().filter(|m| !m.is_empty()),
+                text.filter(|t| !t.is_empty()),
+            ) {
+                if !text.to_lowercase().contains(&pattern.to_lowercase()) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect())
 }
 
 #[cfg(test)]

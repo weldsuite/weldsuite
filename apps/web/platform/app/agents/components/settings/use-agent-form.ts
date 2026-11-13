@@ -10,7 +10,8 @@ export interface AgentFormValues {
   name: string;
   description: string;
   systemPrompt: string;
-  modelId: WorkspaceAgentModel;
+  /** A Claude id on Global; any catalog model id or `default` on a Kubernetes install. */
+  modelId: string;
   permissions: string[];
 }
 
@@ -66,7 +67,8 @@ export function useAgentForm(agent: AgentWithRuns) {
       name: values.name.trim() || agent.name,
       description: values.description.trim() || null,
       systemPrompt: values.systemPrompt,
-      modelId: values.modelId,
+      // The worker checks it against its own list (Global: the Claude ids).
+      modelId: values.modelId as WorkspaceAgentModel,
       permissions: values.permissions,
     });
     const saved = (res as { data?: AgentWithRuns } | undefined)?.data;

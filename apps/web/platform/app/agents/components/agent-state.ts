@@ -1,7 +1,6 @@
 import {
   DEFAULT_WORKSPACE_AGENT_MODEL,
-  isWorkspaceAgentModel,
-  type WorkspaceAgentModel,
+  isWorkspaceAgentAnyModel,
 } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
 /** An agent without lasting instructions still runs its setup interview. */
@@ -9,9 +8,13 @@ export function agentNeedsSetup(agent: { systemPrompt?: string | null }): boolea
   return !agent.systemPrompt?.trim();
 }
 
-/** Agents saved before Managed Agents may hold a non-Claude id; show the default. */
-export function resolveModelId(value: string | null | undefined): WorkspaceAgentModel {
-  return isWorkspaceAgentModel(value) ? value : DEFAULT_WORKSPACE_AGENT_MODEL;
+/**
+ * The model an agent form shows: a Claude id on Global, any catalog model id
+ * (`mistral/…`) or the policy default on a Kubernetes install. Agents saved
+ * before Managed Agents may hold some other id; show the default.
+ */
+export function resolveModelId(value: string | null | undefined): string {
+  return isWorkspaceAgentAnyModel(value) ? (value as string) : DEFAULT_WORKSPACE_AGENT_MODEL;
 }
 
 /** Sandbox (bash, files, code) and web (search, fetch, browser) run at Anthropic. */
