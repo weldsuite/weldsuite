@@ -614,6 +614,15 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn bank_links_ask_for_a_fresh_second_factor_with_clerk_sign_in_only() {
+        let mut state = state();
+        assert!(crate::routes::books::books_state(&state).second_factor_step_up);
+        // OIDC: Zitadel's access tokens carry no `auth_time` or `amr`.
+        state.public_auth = Some(Arc::new(serde_json::json!({ "provider": "oidc" })));
+        assert!(!crate::routes::books::books_state(&state).second_factor_step_up);
+    }
+
     async fn call(
         state: AppState,
         request: Request<Body>,
