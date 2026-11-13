@@ -165,6 +165,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = panel(router, state);
     let router = merge(router, state);
     let router = forms(router, state);
+    let router = agent(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -689,6 +690,45 @@ pub(crate) fn forms_public(state: &AppState) -> Router<AppState> {
         crate::conformance::forms_public,
     ));
     router
+}
+
+/// WeldAgent (`weldsuite-agent`): agent-api's `/api/weldagent`, `/api/ai-models`
+/// and `/api/chat-agent`, once the module is marked ported (always in
+/// conformance builds). Without AI the routes that run the model answer 503
+/// `ai_unavailable`.
+fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("agent") {
+        return router;
+    }
+    router.merge(weldsuite_agent::router(
+        agent_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldAgent's handle on the app: events, the install's AI, and what this
+/// edition has (no sandbox on the Kubernetes editions). Conformance builds
+/// behave like Global: the Claude model ids and the sandbox grants.
+pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_agent::AgentState {
+        events: state.infra.events.clone(),
+        ai: agent_ai(state),
+        sandbox: conformance,
+        default_model: if conformance {
+            weldsuite_agent::agents::GLOBAL_DEFAULT_MODEL
+        } else {
+            weldsuite_agent::agents::POLICY_DEFAULT_MODEL
+        }
+        .to_owned(),
+    }
+}
+
+/// The install's AI for WeldAgent. MERGE: `state.ai.clone()` once `AppState`
+/// carries `ai: Option<weldsuite_ai::Ai>` (the `weldsuite-ai` wiring); until
+/// then there is none and the model routes answer 503.
+fn agent_ai(_state: &AppState) -> Option<weldsuite_ai::Ai> {
+    None
 }
 
 /// WeldMerge (`weldsuite-merge`): merge-api's `/api/merge`.
