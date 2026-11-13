@@ -11,6 +11,7 @@ import {
   moduleForApp,
   offeredModules,
 } from './edition';
+import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { setRuntimeConfig } from './runtime-config';
 
 /** What the EU cluster's `/config.json` answers today. */
@@ -24,10 +25,10 @@ const EU_CONFIG = {
 afterEach(() => setRuntimeConfig(null));
 
 describe('AI edition flags', () => {
-  const ai = {
+  const ai: RuntimeAiConfig = {
     defaultProvider: 'mistral',
     providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }],
-  } as const;
+  };
 
   it('has no AI settings on Global or on an install without a provider', () => {
     expect(hasAiSettings()).toBe(false);
@@ -37,13 +38,13 @@ describe('AI edition flags', () => {
   });
 
   it('reads the ai block of /config.json', () => {
-    setRuntimeConfig({ ...EU_CONFIG, ai: { ...ai, providers: [...ai.providers] } });
+    setRuntimeConfig({ ...EU_CONFIG, ai });
     expect(hasAiSettings()).toBe(true);
     expect(getAiConfig()?.providers[0]?.region).toBe('eu');
   });
 
   it('keeps the assistant on assistant-ai, sandbox and browsing on agent-sandbox', () => {
-    setRuntimeConfig({ ...EU_CONFIG, ai: { ...ai, providers: [...ai.providers] }, unavailableFeatures: ['agent-ai', 'agent-sandbox'] });
+    setRuntimeConfig({ ...EU_CONFIG, ai, unavailableFeatures: ['agent-ai', 'agent-sandbox'] });
     expect(isFeatureAvailable('assistant-ai')).toBe(true);
     expect(isFeatureAvailable('agent-ai')).toBe(false);
     expect(isFeatureAvailable('agent-sandbox')).toBe(false);
