@@ -343,6 +343,11 @@ default) organisation:
    (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
    policy (Default settings → Lockout) applies on top when it is set.
 
+Zitadel sends those emails itself (sign-up codes, password resets,
+invitations, emailed second factors), through an SMTP provider you give it
+once the MTA runs: "Mail", "Zitadel's own mail". Until then sign-up stops at
+the code.
+
 A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
 holds, where Global keeps the Clerk org id, and the server looks a session's
 organisation up there (or in `workspaces.id`).
@@ -785,6 +790,35 @@ before it has sent anything: replace the address and the node together
 update its A record and `_spf.<domain>`. Spamhaus refuses lookups through
 public resolvers (the nodes use Quad9), so check from its website, not with
 `dig` on a node.
+
+### Zitadel's own mail
+
+Zitadel sends sign-up codes, password resets, invitations and emailed second
+factors itself. Without an active SMTP provider it logs
+`Errors.SMTPConfig.NotFound` and sends nothing. Give it the MTA's `system`
+pool once the system domain has its key (step 3): in the console, Default
+settings → SMTP provider → Generic SMTP.
+
+| Field | Value |
+|---|---|
+| Host and port | `weldsuite-mta.weldsuite-mail.svc.cluster.local:587`, the submission Service |
+| TLS | off: submission has no STARTTLS unless `mta.submission.tls` is on, and the connection stays in the cluster |
+| User | `system` |
+| Password | `MTA_SUBMISSION_PASSWORD_SYSTEM` from the Secret `weldsuite-mail/weldsuite-mta` |
+| Sender | the platform's sender (`config.mail.from`, e.g. `notifications@mail.<domain>`): the MTA refuses a sender whose domain has no key for the pool (`550 5.7.1`) |
+
+Then **Test** with an address of your own and **Activate**. The admin API
+does the same with an `IAM_OWNER` token (the `iam-admin-pat` Secret Zitadel's
+first start writes in `zitadel`): `POST /admin/v1/email/smtp` with
+`senderAddress`, `senderName`, `tls`, `host`, `user` and `password`, then
+`POST /admin/v1/email/smtp/<id>/_test` with `{"receiverAddress": …}` and
+`POST /admin/v1/email/<id>/_activate`.
+
+Zitadel keeps the provider and its copy of the password in its own database,
+not in the chart's values: set it again after rotating
+`MTA_SUBMISSION_PASSWORD_SYSTEM`. Its mail counts against the system
+address's warm-up cap (step 4), and a code that waits a day in the queue is
+no use, so don't send a large batch of invitations in the first week.
 
 ### Inbound: Haraka
 
