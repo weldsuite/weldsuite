@@ -4228,6 +4228,7 @@ dependencies = [
  "weldsuite-reach",
  "weldsuite-reach-domain",
  "weldsuite-realtime",
+ "weldsuite-sandbox",
  "weldsuite-sheets",
  "weldsuite-sign",
  "weldsuite-social",

@@ -12,8 +12,9 @@
 //!   MX for customer domains (`MAIL_MX_HOST`); [`MAIL_FREE_ADDRESSES_FEATURE`],
 //!   when it also has no free-address domain of its own (`WELDMAIL_DOMAIN`);
 //!   [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
-//!   (`COLLAB_ROOMS_URLS`); and [`CREDIT_TOP_UP_FEATURE`], without Mollie
-//!   (`MOLLIE_API_KEY`).
+//!   (`COLLAB_ROOMS_URLS`); [`CREDIT_TOP_UP_FEATURE`], without Mollie
+//!   (`MOLLIE_API_KEY`); and [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
+//!   sandbox (`SANDBOX_ENABLED`).
 //! - `ai`: the install's AI providers, with their region and the key sources
 //!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
 //!   one. The platform shows the AI settings page and the region labels from
@@ -115,10 +116,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // files store, which isn't built: access, streaming and deletes answer
     // 503 "Recording storage is not configured".
     "meet-recordings",
-    // WeldAgent's sandbox, computer use and web browsing toggles: on Global
-    // they run at Anthropic (Claude Managed Agents); the Kubernetes editions'
-    // own agent loop has no sandbox (ADR AI-012, phase 5).
-    "agent-sandbox",
     // Choosing where a new workspace's data is stored: Global puts each
     // workspace's database in the Neon region picked at signup. A Kubernetes
     // install keeps every workspace in its own one cluster, so there is no
@@ -181,6 +178,13 @@ pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
 /// workers do without billing-worker.
 pub(crate) const CREDIT_TOP_UP_FEATURE: &str = "credit-top-up";
 
+/// WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
+/// `browser:use` toggles of the builder): Claude Managed Agents run them on
+/// Global; the Kubernetes editions run them on the install's own sandbox pods
+/// and `SearXNG` (`weldsuite_sandbox`, ADR AI-012 phase 5). Unavailable without
+/// one (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`).
+pub(crate) const AGENT_SANDBOX_FEATURE: &str = "agent-sandbox";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -200,6 +204,10 @@ pub(crate) const PUBLIC_ENV_KEYS: &[&str] = &[
 
 /// The edition and the public settings, read at start.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one flag per service the deployment may have, each an edition feature"
+)]
 pub(crate) struct EditionConfig {
     pub(crate) edition: Edition,
     /// Name → value, only names in [`PUBLIC_ENV_KEYS`].
@@ -219,6 +227,9 @@ pub(crate) struct EditionConfig {
     pub(crate) ai: Option<Value>,
     /// Credits can be bought through Mollie: [`CREDIT_TOP_UP_FEATURE`].
     pub(crate) credit_top_up: bool,
+    /// WeldAgent has a sandbox (`SANDBOX_ENABLED`, set by `Config`):
+    /// [`AGENT_SANDBOX_FEATURE`].
+    pub(crate) sandbox: bool,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -265,6 +276,7 @@ impl Default for EditionConfig {
             mail: MailOffer::default(),
             ai: None,
             credit_top_up: false,
+            sandbox: false,
         }
     }
 }
@@ -312,6 +324,8 @@ impl EditionConfig {
             mail,
             // `Config` reads `AI_*` once, with its problems, and sets it.
             ai: None,
+            // `Config` reads `SANDBOX_*` likewise.
+            sandbox: false,
         }
     }
 
@@ -349,6 +363,9 @@ impl EditionConfig {
         }
         if !self.credit_top_up {
             features.push(CREDIT_TOP_UP_FEATURE);
+        }
+        if !self.sandbox {
+            features.push(AGENT_SANDBOX_FEATURE);
         }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
@@ -421,7 +438,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 4
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 5
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -465,6 +482,20 @@ mod tests {
         assert_eq!(body["ai"], block);
     }
 
+    /// WeldAgent's sandbox, computer use and browsing follow the install's
+    /// sandbox (`SANDBOX_ENABLED`), whatever the AI provider.
+    #[test]
+    fn offers_the_agent_sandbox_with_a_sandbox() {
+        let (off, _) = read(&[]);
+        assert!(off.unavailable_features().contains(&AGENT_SANDBOX_FEATURE));
+        let on = EditionConfig {
+            sandbox: true,
+            ..off
+        };
+        assert!(!on.unavailable_features().contains(&AGENT_SANDBOX_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&AGENT_SANDBOX_FEATURE));
+    }
+
     #[test]
     fn offers_live_editing_with_a_collab_rooms_service() {
         let (config, problems) = read(&[(
@@ -481,6 +512,7 @@ mod tests {
             MAIL_DOMAINS_FEATURE,
             MAIL_FREE_ADDRESSES_FEATURE,
             CREDIT_TOP_UP_FEATURE,
+            AGENT_SANDBOX_FEATURE,
         ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.

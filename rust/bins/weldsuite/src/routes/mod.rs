@@ -707,14 +707,16 @@ fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 }
 
 /// WeldAgent's handle on the app: events, the install's AI, and what this
-/// edition has (no sandbox on the Kubernetes editions). Conformance builds
-/// behave like Global: the Claude model ids and the sandbox grants.
+/// edition has (the sandbox and web grants when the install has a sandbox,
+/// `SANDBOX_ENABLED`). Conformance builds behave like Global: the Claude
+/// model ids and the sandbox grants.
 pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
     let conformance = cfg!(feature = "conformance");
     weldsuite_agent::AgentState {
         events: state.infra.events.clone(),
         ai: agent_ai(state),
-        sandbox: conformance,
+        sandbox: conformance || state.sandboxes.is_some(),
+        sandboxes: state.sandboxes.clone(),
         default_model: if conformance {
             weldsuite_agent::agents::GLOBAL_DEFAULT_MODEL
         } else {

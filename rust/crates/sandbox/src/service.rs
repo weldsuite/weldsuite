@@ -231,6 +231,12 @@ impl Sandboxes {
         Ok(sandbox)
     }
 
+    /// Every sandbox pod of the install (`weldsuite doctor`: the API and the
+    /// service account's rights answer).
+    pub async fn pods(&self) -> Result<Vec<PodInfo>, SandboxError> {
+        self.inner.pods.list(&all_selector()).await
+    }
+
     /// The session's sandbox if it runs; never starts one.
     pub async fn existing(&self, key: &SessionKey) -> Result<Option<Sandbox>, SandboxError> {
         Ok(self
