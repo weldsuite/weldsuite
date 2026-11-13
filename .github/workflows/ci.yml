@@ -28,9 +28,16 @@ on:
   push:
     branches: [main]
 
+# A new push to a pull request cancels its running CI. On main a run that has
+# started always finishes, and the newest push waits for it (GitHub keeps one
+# pending run per group and drops older pending ones), so main never runs two
+# at a time. A main run takes about an hour: when every merge cancelled the
+# last, merges less than an hour apart left no commit with a passing CI, and
+# that is what the test deploy (handoff.yml) and EU production's pin
+# (ADR OPS-020, eu-production-watch.yml) wait for.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read

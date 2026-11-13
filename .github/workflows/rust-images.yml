@@ -25,11 +25,14 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'deploy/**']
-    # What the images are built from (rust/Dockerfile, rust/deploy/haraka),
-    # and the chart that installs them. Other deploy config and docs change
-    # neither, so they start no build: a new run cancels the branch's running
-    # one, and a settings push must not do that. A chart change rebuilds the
-    # images (from the layer cache) so chart and images keep one tag.
+    # What the images are built from (every path rust/Dockerfile copies, and
+    # rust/deploy/haraka), and the chart that installs them. Other deploy
+    # config and docs change neither, so they start no build. A chart change
+    # rebuilds the images (from the layer cache) so chart and images keep one
+    # tag. EU production relies on this list being complete: a main build
+    # whose own CI never ran counts as passed when CI passed on a later commit
+    # that changed none of these paths (ADR OPS-020; weldsuite-deploy's
+    # eu-deploy.yml reads them from here).
     paths:
       - 'rust/**'
       - '!rust/deploy/**'
@@ -39,6 +42,11 @@ on:
       - 'apps/web/sign-portal/**'
       - 'apps/web/forms-portal/**'
       - 'apps/web/admin/**'
+      # The collab-rooms image (WeldDocs', WeldSheets' and WeldBoard's rooms).
+      - 'apps/tools/collab-rooms/**'
+      - 'apps/workers/docs-api/**'
+      - 'apps/workers/sheets-api/**'
+      - 'apps/workers/board-api/**'
       - 'packages/**'
       - 'patches/**'
       - 'package.json'
@@ -48,9 +56,14 @@ on:
       - '.github/workflows/rust-images.yml'
       - '!**/*.md'
 
+# On main a build that has started always finishes, and the newest push waits
+# for it (older pending ones are dropped), as in ci.yml: when every merge
+# cancelled the running build, merges less than a build apart left the EU test
+# cluster, and so EU production, on an old build. A deploy/** branch still
+# cancels its running build.
 concurrency:
   group: rust-images-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
