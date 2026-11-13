@@ -227,6 +227,18 @@ config:
   # emails to client contacts (empty: those emails are not sent).
   flow:
     projectPortalUrl: ""
+  # Buying credits (the platform's top-up, edition feature credit-top-up)
+  # through Mollie (ADR OPS-012). MOLLIE_API_KEY in the Secret turns it on;
+  # without it /config.json lists credit-top-up as unavailable. Mollie posts
+  # every payment change to webhookUrl (empty: <publicUrl>/api/webhooks/mollie),
+  # which must be reachable from the internet; redirectUrl is where a
+  # checkout returns when the client named no address (empty:
+  # <publicUrl>/settings/billing?credits=success). Packages are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
@@ -253,6 +265,40 @@ config:
   # Seal new workspaces.database_url values as v3 (bound to the workspace);
   # every Rust reader opens v3, so a new cluster can have it on.
   aadWrites: false
+  # AI (ADR AI-012, docs/plans/eu-ai-mistral.md): the install's provider, what
+  # workspaces may opt in to, fallback and billing. Empty defaultProvider is AI
+  # off: the AI features are hidden and their routes answer as the workers do
+  # without their model. The keys go in the Secret (MISTRAL_API_KEY,
+  # ANTHROPIC_API_KEY, OPENAI_API_KEY, AI_COMPAT_API_KEY, AI_KEYS_ENCRYPTION_KEY;
+  # the chart generates the last one with secret.generate). The server refuses
+  # to start on an inconsistent setting: a provider without its key, a key
+  # source a provider can't serve, a fallback outside the EU.
+  ai:
+    defaultProvider: ""             # AI_DEFAULT_PROVIDER: mistral | compat | empty (AI off; compat when openaiCompatible.baseUrl is set)
+    mistral:
+      baseUrl: https://api.mistral.ai/v1   # AI_MISTRAL_BASE_URL; MISTRAL_API_KEY in the Secret
+    # Providers outside the EU a workspace admin may enable, and whose key pays:
+    # weldsuiteKey (WeldSuite's account, charged as credits; needs the provider's
+    # key in the Secret) and ownKey (the workspace's own key, not charged;
+    # needs AI_KEYS_ENCRYPTION_KEY). Both off: not offered.
+    optIn:
+      anthropic: { weldsuiteKey: false, ownKey: false }   # AI_OPTIN_ANTHROPIC=weldsuite,own
+      openai:    { weldsuiteKey: false, ownKey: false }   # AI_OPTIN_OPENAI=weldsuite,own
+    anthropic:
+      baseUrl: ""                   # AI_ANTHROPIC_BASE_URL (empty: https://api.anthropic.com)
+    openai:
+      baseUrl: ""                   # AI_OPENAI_BASE_URL (empty: https://api.openai.com/v1)
+    # Self-hosted: the customer's own OpenAI-compatible endpoint (vLLM,
+    # Ollama, Azure). AI_COMPAT_API_KEY in the Secret when it takes one.
+    openaiCompatible:
+      baseUrl: ""                   # AI_COMPAT_BASE_URL
+      region: eu                    # AI_COMPAT_REGION (eu | outside-eu): how the platform labels it
+      model: ""                     # AI_COMPAT_MODEL: the chat model it serves (required with baseUrl)
+      embedModel: ""                # AI_COMPAT_EMBED_MODEL (optional)
+    fallbackModel: ""               # AI_FALLBACK_MODEL: mistral/<id>, or the compat model in the EU; never outside it
+    creditGate: false               # AI_CREDIT_GATE: refuse calls on WeldSuite's keys at an empty wallet (402)
+    billing: credits                # AI_BILLING: credits | display (meter, never charge: self-hosted)
+    workspaceConcurrency: 4         # AI_WORKSPACE_CONCURRENCY: calls one workspace may have in flight on WeldSuite's keys
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -320,6 +366,18 @@ config:
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
+#   MISTRAL_API_KEY              WeldSuite's Mistral key (required with config.ai.defaultProvider
+#                                mistral, or a mistral/ fallback); also the search index's
+#                                embeddings key with consume.embeddings.apiKeySecretKey
+#   ANTHROPIC_API_KEY            WeldSuite's EU-edition Anthropic account, for workspaces that opt in
+#                                with WeldSuite's key (required with config.ai.optIn.anthropic.weldsuiteKey)
+#   OPENAI_API_KEY               the same for OpenAI (config.ai.optIn.openai.weldsuiteKey)
+#   AI_COMPAT_API_KEY            the key of config.ai.openaiCompatible's endpoint (optional)
+#   AI_KEYS_ENCRYPTION_KEY       64 hex characters (`openssl rand -hex 32`): seals the API keys
+#                                workspaces bring (required with an ownKey opt-in; generated with
+#                                secret.generate). Losing it loses every stored own key, nothing else
+#   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
+#                                (config.credits.mollie; optional, unset: no top-up)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -329,7 +387,7 @@ secret:
   # The install's own keys, generated once by the chart into the Secret
   # `generatedName` and kept across upgrades and uninstalls (resource policy
   # keep): DATABASE_ENCRYPTION_KEY(_V2), WELDPASS_ROOT_KEY,
-  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET (64 hex characters each),
+  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET, AI_KEYS_ENCRYPTION_KEY (64 hex characters each),
   # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
   # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
   # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET, and the
@@ -790,10 +848,13 @@ consume:
   # An OpenAI-compatible embeddings endpoint for the semantic search index
   # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
   # vectors must have 1024 dimensions. A key goes in the Secret as
-  # EMBEDDINGS_API_KEY. Without a url the search-index subscriber is off.
+  # EMBEDDINGS_API_KEY, or under the name apiKeySecretKey gives (Mistral:
+  # MISTRAL_API_KEY, the key config.ai uses). Without a url the search-index
+  # subscriber is off.
   embeddings:
     url: ""
     model: ""
+    apiKeySecretKey: ""
   webhooks:
     # Deliver to private and loopback addresses too. Off: the pod sits next
     # to the cluster's own services, so a customer's webhook URL must not
@@ -1122,6 +1183,13 @@ cron:
     # merge_digest due index lists (each subscription posts at its own UTC
     # hour). Does nothing while merge is not served.
     merge-digest-sweep:
+      enabled: true
+      schedule: "0 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldAgent: the due cron routines of the workspaces the weldagent_routine
+    # due index lists. Does nothing without AI (config.ai) or while the agent
+    # module is not served.
+    weldagent-routines:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000

@@ -91,6 +91,7 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
+pub use cron::compute_next_run_at;
 pub use entity_workflows::EntityWorkflowsSubscriber;
 pub use integrations::RequestCrmSyncRuns;
 pub use integrations::internal::is_internal_call as is_internal_integrations_call;

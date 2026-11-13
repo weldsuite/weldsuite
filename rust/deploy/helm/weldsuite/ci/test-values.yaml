@@ -19,7 +19,17 @@ secret:
     MTA_SUBMISSION_PASSWORD_CUSTOMER: fedcba9876543210
     ZITADEL_SERVICE_TOKEN: not-a-real-token
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
+    MISTRAL_API_KEY: not-a-real-key
+    ANTHROPIC_API_KEY: not-a-real-key
 config:
+  # AI on Mistral, Claude opted in with both key sources, ChatGPT with own keys.
+  ai:
+    defaultProvider: mistral
+    optIn:
+      anthropic: { weldsuiteKey: true, ownKey: true }
+      openai: { weldsuiteKey: false, ownKey: true }
+    fallbackModel: mistral/mistral-small-2506
+    creditGate: true
   edition: eu
   publicUrl: https://app.example.org/
   auth:
@@ -121,6 +131,7 @@ consume:
   embeddings:
     url: http://embeddings.example.com/v1
     model: bge-m3
+    apiKeySecretKey: MISTRAL_API_KEY
 mta:
   enabled: true
   bounceDomain: bounces.example.org

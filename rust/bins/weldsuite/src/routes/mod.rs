@@ -165,6 +165,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = panel(router, state);
     let router = merge(router, state);
     let router = forms(router, state);
+    let router = agent(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -689,6 +690,45 @@ pub(crate) fn forms_public(state: &AppState) -> Router<AppState> {
         crate::conformance::forms_public,
     ));
     router
+}
+
+/// WeldAgent (`weldsuite-agent`): agent-api's `/api/weldagent`, `/api/ai-models`
+/// and `/api/chat-agent`, once the module is marked ported (always in
+/// conformance builds). Without AI the routes that run the model answer 503
+/// `ai_unavailable`.
+fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("agent") {
+        return router;
+    }
+    router.merge(weldsuite_agent::router(
+        agent_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldAgent's handle on the app: events, the install's AI, and what this
+/// edition has (no sandbox on the Kubernetes editions). Conformance builds
+/// behave like Global: the Claude model ids and the sandbox grants.
+pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_agent::AgentState {
+        events: state.infra.events.clone(),
+        ai: agent_ai(state),
+        sandbox: conformance,
+        default_model: if conformance {
+            weldsuite_agent::agents::GLOBAL_DEFAULT_MODEL
+        } else {
+            weldsuite_agent::agents::POLICY_DEFAULT_MODEL
+        }
+        .to_owned(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+    }
+}
+
+/// The install's AI for WeldAgent (`AppState::ai`); `None` with AI off, and
+/// the model routes answer 503.
+fn agent_ai(state: &AppState) -> Option<weldsuite_ai::Ai> {
+    state.ai.clone()
 }
 
 /// WeldMerge (`weldsuite-merge`): merge-api's `/api/merge`.
@@ -1834,6 +1874,7 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 weldsuite_core_apps::public_user_apps(apps),
             )
             .merge(sign_in_public(state))
+            .merge(credit_top_up_public(state))
     } else {
         Router::new()
     }
@@ -2030,16 +2071,7 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
     if !mounts("core") {
         return router;
     }
-    let platform = weldsuite_core_platform::CorePlatformState {
-        events: state.infra.events.clone(),
-        realtime: state.infra.realtime.clone(),
-        cache: state.infra.cache.clone(),
-        master: state.workspaces.master().clone(),
-        // Zitadel when configured; conformance builds take the test's per
-        // request.
-        identity: state.infra.identity.clone(),
-        audit_streams: audit_stream_gateway(),
-    };
+    let platform = core_platform_state(state);
     let gate = &state.permissions;
     router
         .nest(
@@ -2087,6 +2119,62 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
             "/appstore",
             weldsuite_core_platform::appstore(platform, gate),
         )
+}
+
+/// The core platform routes' handle on the app.
+fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatformState {
+    weldsuite_core_platform::CorePlatformState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        cache: state.infra.cache.clone(),
+        master: state.workspaces.master().clone(),
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
+        audit_streams: audit_stream_gateway(),
+        top_up: credit_top_up(state),
+    }
+}
+
+/// Buying credits through Mollie (`MOLLIE_API_KEY`; the `credit-top-up`
+/// edition feature, ADR OPS-012), made once per process: Mollie over the
+/// shared client, pending checkouts in Valkey (or this process without it).
+/// `None` without the key, and in conformance builds, whose tests are
+/// Global's (Stripe through billing-worker).
+fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>> {
+    static TOP_UP: OnceLock<Option<Arc<weldsuite_core_platform::TopUp>>> = OnceLock::new();
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    TOP_UP
+        .get_or_init(|| {
+            match weldsuite_core_platform::TopUpSettings::from_lookup(&|name| {
+                std::env::var(name).ok()
+            }) {
+                Ok(Some(settings)) => Some(Arc::new(weldsuite_core_platform::TopUp::new(
+                    &settings,
+                    shared_outbound(),
+                    Some(upload_token_cache(state)),
+                ))),
+                Ok(None) => None,
+                // `serve` refuses to start on it (`crate::edition`).
+                Err(problem) => {
+                    tracing::error!(problem, "credits: no top-up");
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+/// Mollie's webhook (`/api/webhooks/mollie`), ahead of the session, when the
+/// top-up is configured.
+fn credit_top_up_public(state: &AppState) -> Router<AppState> {
+    let platform = core_platform_state(state);
+    if platform.top_up.is_none() {
+        return Router::new();
+    }
+    weldsuite_core_platform::top_up_webhooks(platform)
 }
 
 /// Audit log stream delivery for `/api/audit-log-streams`: the URL rules and

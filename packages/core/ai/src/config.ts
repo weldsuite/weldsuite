@@ -54,6 +54,16 @@ interface CommonConfig {
    * changes the ops cost bookkeeping — no Unified Billing fee on these.
    */
   byokProviders?: readonly string[];
+  /**
+   * **Tests only** (`AI_TEST_BASE_URL`): every model call goes to this
+   * OpenAI-compatible base instead of Cloudflare's URLs — chat to
+   * `<base>/chat/completions`, embeddings to `<base>/embeddings`, Anthropic's
+   * Messages API to `<base>/messages`, Workers AI `run` calls (Jev, Whisper)
+   * to `<base>/run`. Conformance tests point both backends at one mock model
+   * with it (`@weldsuite/ai/testing`; the Rust server's Mistral base URL
+   * follows the same variable). Never set it in a deployed environment.
+   */
+  testBaseUrl?: string;
 }
 
 export interface CloudflareGatewayConfig extends CommonConfig {
@@ -132,6 +142,9 @@ function readEnv(env?: object): EnvLike {
  *   (default {@link DEFAULT_MODEL}; `none` disables)
  * - `AI_BYOK_PROVIDERS`  comma list of providers billed via gateway-stored
  *   keys (BYOK), e.g. `anthropic`
+ * - `AI_TEST_BASE_URL`  tests only: every call goes to this OpenAI-compatible
+ *   base (see {@link CommonConfig.testBaseUrl}); `CF_ACCOUNT_ID` is then
+ *   optional
  */
 export function resolveConfig(env?: object): WeldAiConfig {
   return resolveConfigFor(resolveProvider(env), env);
@@ -149,7 +162,9 @@ export function resolveConfigFor(provider: GatewayProvider, env?: object): WeldA
   // `provider` is always 'cloudflare'; the switch keeps the seam explicit.
   switch (provider) {
     case 'cloudflare': {
-      const accountId = str(source.CF_ACCOUNT_ID) ?? str(source.CLOUDFLARE_ACCOUNT_ID);
+      const testBaseUrl = resolveTestBaseUrl(source);
+      const accountId =
+        str(source.CF_ACCOUNT_ID) ?? str(source.CLOUDFLARE_ACCOUNT_ID) ?? (testBaseUrl ? TEST_ACCOUNT_ID : undefined);
       if (!accountId) {
         throw new GatewayConfigError('cloudflare', 'CF_ACCOUNT_ID or CLOUDFLARE_ACCOUNT_ID');
       }
@@ -165,9 +180,18 @@ export function resolveConfigFor(provider: GatewayProvider, env?: object): WeldA
         defaultModel,
         fallbackModel: resolveFallbackModel(source),
         byokProviders: resolveByokProviders(source),
+        ...(testBaseUrl ? { testBaseUrl } : {}),
       };
     }
   }
+}
+
+/** The account id a test config gets when it sets only `AI_TEST_BASE_URL`. */
+export const TEST_ACCOUNT_ID = 'test-account';
+
+/** `AI_TEST_BASE_URL` without its trailing slash, so paths join with one. */
+function resolveTestBaseUrl(source: EnvLike): string | undefined {
+  return str(source.AI_TEST_BASE_URL)?.replace(/\/+$/, '');
 }
 
 function resolveFallbackModel(source: EnvLike): string | null {

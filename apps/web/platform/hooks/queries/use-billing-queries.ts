@@ -358,10 +358,13 @@ export function useRemovePaymentMethod() {
 }
 
 /**
- * Start a prepaid credit topup — redirects the browser to Stripe Checkout.
+ * Start a prepaid credit topup — redirects the browser to the hosted
+ * checkout: Stripe Checkout on Global, Mollie on the Kubernetes editions.
  * On success the caller receives `{ url }` and should navigate to it.
  *
- * Goes through app-api `POST /credits/checkout` (proxied to billing-worker).
+ * Goes through app-api `POST /credits/checkout` (proxied to billing-worker on
+ * Global; the Rust backend creates a Mollie payment, and Mollie returns to
+ * `successUrl` with `&checkout=<id>`, see `app/settings/billing/credit-checkout-return.ts`).
  */
 export function useBuyCredits() {
   const { getClient } = useAppApiClient();

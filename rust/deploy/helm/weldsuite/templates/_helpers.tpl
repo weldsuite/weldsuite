@@ -227,6 +227,16 @@ settings, which weldsuite.env adds.
 - name: PROJECT_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with (.Values.config.credits | default dict).mollie }}
+{{- with .webhookUrl }}
+- name: MOLLIE_WEBHOOK_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .redirectUrl }}
+- name: MOLLIE_REDIRECT_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.sign.portalUrl }}
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
@@ -265,6 +275,7 @@ settings, which weldsuite.env adds.
 {{- end }}
 - name: FIELD_ENCRYPTION_AAD_WRITES
   value: {{ .Values.config.aadWrites | toString | quote }}
+{{- include "weldsuite.aiEnv" . }}
 {{- include "weldsuite.publicUrlEnv" . }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
@@ -281,6 +292,83 @@ exists, and needs only the databases.
 {{- define "weldsuite.env" -}}
 {{- include "weldsuite.envBase" . }}
 {{- include "weldsuite.bundleEnv" . }}
+{{- end }}
+
+{{- /*
+config.ai as the AI_* settings (weldsuite_ai::config, ADR AI-012). The keys
+come from the Secret. Only what is set is written, so the server's defaults
+apply otherwise; it checks the combination at start.
+*/}}
+{{- define "weldsuite.aiEnv" -}}
+{{- with .Values.config.ai }}
+{{- with .defaultProvider }}
+{{- if not (has . (list "mistral" "compat")) }}
+{{- fail "config.ai.defaultProvider must be mistral, compat or empty (anthropic and openai are workspace opt-ins: config.ai.optIn)" }}
+{{- end }}
+- name: AI_DEFAULT_PROVIDER
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.mistral | default dict).baseUrl }}
+- name: AI_MISTRAL_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.anthropic | default dict).baseUrl }}
+- name: AI_ANTHROPIC_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.openai | default dict).baseUrl }}
+- name: AI_OPENAI_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- range $provider, $sources := (.optIn | default dict) }}
+{{- $list := list }}
+{{- if $sources.weldsuiteKey }}{{- $list = append $list "weldsuite" }}{{- end }}
+{{- if $sources.ownKey }}{{- $list = append $list "own" }}{{- end }}
+{{- if not (has $provider (list "anthropic" "openai")) }}
+{{- fail (printf "config.ai.optIn.%s: only anthropic and openai are opt-in providers" $provider) }}
+{{- end }}
+{{- if $list }}
+- name: {{ printf "AI_OPTIN_%s" (upper $provider) }}
+  value: {{ join "," $list | quote }}
+{{- end }}
+{{- end }}
+{{- with .openaiCompatible }}
+{{- if .baseUrl }}
+- name: AI_COMPAT_BASE_URL
+  value: {{ .baseUrl | quote }}
+- name: AI_COMPAT_MODEL
+  value: {{ required "config.ai.openaiCompatible.model is required with config.ai.openaiCompatible.baseUrl" .model | quote }}
+{{- with .region }}
+{{- if not (has . (list "eu" "outside-eu")) }}
+{{- fail "config.ai.openaiCompatible.region must be eu or outside-eu" }}
+{{- end }}
+- name: AI_COMPAT_REGION
+  value: {{ . | quote }}
+{{- end }}
+{{- with .embedModel }}
+- name: AI_COMPAT_EMBED_MODEL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .fallbackModel }}
+- name: AI_FALLBACK_MODEL
+  value: {{ . | quote }}
+{{- end }}
+- name: AI_CREDIT_GATE
+  value: {{ .creditGate | default false | toString | quote }}
+{{- with .billing }}
+{{- if not (has . (list "credits" "display")) }}
+{{- fail "config.ai.billing must be credits or display" }}
+{{- end }}
+- name: AI_BILLING
+  value: {{ . | quote }}
+{{- end }}
+{{- with .workspaceConcurrency }}
+- name: AI_WORKSPACE_CONCURRENCY
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- /*
@@ -527,7 +615,7 @@ Called with (list $ "valkey").
 
 {{- /* The keys the generated Secret makes (secret-generated.yaml), as JSON. */}}
 {{- define "weldsuite.generatedHexKeys" -}}
-{{- toJson (list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "WELDPASS_ROOT_KEY" "WELDREACH_WARMUP_KEY" "ADMIN_SESSION_SECRET") }}
+{{- toJson (list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "WELDPASS_ROOT_KEY" "WELDREACH_WARMUP_KEY" "ADMIN_SESSION_SECRET" "AI_KEYS_ENCRYPTION_KEY") }}
 {{- end }}
 
 {{- define "weldsuite.generatedSecretKeys" -}}

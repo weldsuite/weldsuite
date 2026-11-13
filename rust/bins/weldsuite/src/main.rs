@@ -6,6 +6,7 @@
 //! in `rust/deploy/helm/weldsuite` sets them.
 
 mod admin;
+mod ai;
 mod collab;
 mod config;
 #[cfg(feature = "conformance")]
@@ -31,6 +32,7 @@ mod conformance_workflows;
 mod consume;
 mod cron;
 mod desk_http;
+mod doctor;
 mod edition;
 mod infra;
 mod migrate;
@@ -74,6 +76,8 @@ commands:
              tools (weldsuite mta --help)
   admin      staff work: access to apps on request only (WeldReach) and the
              staff list (weldsuite admin --help)
+  doctor     check the configuration and what it points at: the master
+             database, the AI providers' keys and models (weldsuite doctor --help)
   version   print the version and exit
   help       print this message and exit";
 
@@ -97,6 +101,7 @@ fn main() -> ExitCode {
         Some("migrate") => migrate::run(&args[1..]),
         Some("admin") => admin::run(&args[1..]),
         Some("mta") => mta::run(&args[1..]),
+        Some("doctor") => doctor::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -150,6 +155,10 @@ fn serve() -> ExitCode {
     code
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start-up sequence, one service after the other"
+)]
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (verifier, public_auth) = session_verifier(&config.auth)?;
     tracing::info!(provider = verifier.provider(), "sign-in");
@@ -187,6 +196,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let sign_in = sign_in_screens(&config, infra.cache.clone())?;
+    let ai = ai::for_app(&config.ai, infra.cache.clone())?;
 
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
@@ -225,6 +235,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         public_auth,
         sign_in,
         realtime: realtime::PublicRealtime::from_config(&config),
+        ai,
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]
