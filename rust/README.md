@@ -120,11 +120,15 @@ modules, each with conformance suites that reach every route:
   RealtimeKit, which conformance compares, or LiveKit, which
   `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
   served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
-  presence and the end of a room, with no recorder or AI events. Not served:
+  presence and the end of a room, with no recorder or AI events. The
+  `MEETING_AI` Workflow ("transcribe afterwards" over the stored MP3 in
+  frame-aligned chunks, and the summary of a transcript, each charged per
+  meeting minute) is the `meet.meeting-ai` job on `crates/ai` (Voxtral, and
+  the summarize task's model) when an AI provider is configured. Not served:
   WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
-  the transcript, summary, recording-copy and backfill Workflows (the routes
-  answer as the worker without the binding does), and the recordings bucket;
-  see `meet-transcription` and `meet-recordings` below)
+  the recording-copy and backfill Workflows (the routes answer as the worker
+  without the binding does), and the recordings bucket, so there is nothing
+  to transcribe yet; see `meet-transcription` and `meet-recordings` below)
 - **reach** (WeldReach, cold-email outreach: access, settings, domains
   connected to Mailpool through its Cloudflare integration with the DNS
   guards over DNS-over-HTTPS, mailboxes provisioned at Mailpool and entered

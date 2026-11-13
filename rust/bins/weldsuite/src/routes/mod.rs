@@ -1163,10 +1163,18 @@ fn meet(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("meet") {
         return router;
     }
-    router.merge(weldsuite_meet::router(
-        meet_state(state),
-        &state.permissions,
-    ))
+    let meet = meet_state(state);
+    // `MEETING_AI` (transcribe afterwards, summaries) runs as a job on the
+    // install's AI; conformance builds take the test's Workflow fakes.
+    if meet.workflows.ai.is_some() {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_meet::MeetingAiJob {
+                state: meet.clone(),
+            });
+    }
+    router.merge(weldsuite_meet::router(meet, &state.permissions))
 }
 
 /// The video provider's webhooks (`/api/webhooks/cloudflare-realtime`,
@@ -1192,10 +1200,12 @@ fn meet_public(state: &AppState) -> Router<AppState> {
 /// realtime publisher, the video provider (`VIDEO_PROVIDER`, `LIVEKIT_*`,
 /// `CF_REALTIME_*`: `weldsuite_video_rooms::from_env`), invitation mail,
 /// the public bucket (avatars) and the workspaces' tenant databases. The
-/// Kubernetes editions have no recordings bucket and none of the worker's
-/// Workflows (recordings and transcripts are unavailable features there).
-/// Conformance builds take the test's KV, master database, fetch stub,
-/// buckets and Workflow fakes per request.
+/// Kubernetes editions have no recordings bucket (recordings and transcripts
+/// are unavailable features there); of the worker's Workflows only
+/// `MEETING_AI` runs, as `weldsuite_meet::MeetingAiJob` on the install's AI
+/// (`AppState::ai`), ready for the day recordings exist. Conformance builds
+/// take the test's KV, master database, fetch stub, buckets and Workflow
+/// fakes per request.
 fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
     static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
     let conformance = cfg!(feature = "conformance");
@@ -1234,6 +1244,7 @@ fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
         }),
         _ => None,
     };
+    let ai = state.ai.clone().filter(weldsuite_ai::Ai::enabled);
     weldsuite_meet::MeetState {
         events: state.infra.events.clone(),
         // Without Valkey, recording tokens and webhook mappings live in this
@@ -1250,9 +1261,16 @@ fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
             file_stores(state)
         },
         recordings: None,
-        workflows: weldsuite_meet::MeetWorkflows::default(),
+        workflows: weldsuite_meet::MeetWorkflows {
+            ai: (!conformance && ai.is_some()).then(|| {
+                Arc::new(weldsuite_meet::JobsMeetingAi(Arc::clone(&state.infra.jobs)))
+                    as Arc<dyn weldsuite_meet::MeetWorkflow>
+            }),
+            ..weldsuite_meet::MeetWorkflows::default()
+        },
         tenants: Some(tenants),
         livekit,
+        ai,
     }
 }
 
