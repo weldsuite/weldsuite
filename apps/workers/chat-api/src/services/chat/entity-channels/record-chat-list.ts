@@ -8,10 +8,11 @@
  * deleted company's chat never lingers in a sidebar.
  */
 
-import { and, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type {
   RecordChatCallerState,
   RecordChatFilter,
+  RecordChatSort,
   RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -50,15 +51,35 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/** On the caller's membership row: not muted, with messages after their read marker. */
+const UNREAD_MEMBERSHIP = sql` AND ${m.isMuted} = false AND ${t.lastMessageAt} IS NOT NULL AND (${m.lastReadAt} IS NULL OR ${t.lastMessageAt} > ${m.lastReadAt})`;
+
 /** The caller follows the chat, plus the filter's own condition on their membership row. */
 function followCondition(userId: string, filter: Exclude<RecordChatFilter, 'all'>): SQL {
   let extra = sql``;
   if (filter === 'unread') {
-    extra = sql` AND ${m.isMuted} = false AND ${t.lastMessageAt} IS NOT NULL AND (${m.lastReadAt} IS NULL OR ${t.lastMessageAt} > ${m.lastReadAt})`;
+    extra = UNREAD_MEMBERSHIP;
   } else if (filter === 'mentions') {
     extra = sql` AND ${m.unreadMentionCount} > 0`;
   }
   return sql`EXISTS (SELECT 1 FROM ${m} WHERE ${m.channelId} = ${t.id} AND ${m.userId} = ${userId}${extra})`;
+}
+
+/** 0 for a chat unread to the caller, 1 for the rest: the first key of the `unread` sort. */
+function unreadRank(userId: string): SQL {
+  return sql`(CASE WHEN EXISTS (SELECT 1 FROM ${m} WHERE ${m.channelId} = ${t.id} AND ${m.userId} = ${userId}${UNREAD_MEMBERSHIP}) THEN 0 ELSE 1 END)`;
+}
+
+/**
+ * The rows after the cursor chat in the list's order. The cursor chat's keys
+ * are read in subqueries over `chat_channels`, which shadow the outer table,
+ * so one expression serves both sides.
+ */
+function afterCursor(after: string, rank: SQL | null): SQL {
+  const ofCursor = (key: SQL) => sql`(SELECT ${key} FROM ${t} WHERE ${t.id} = ${after})`;
+  const byActivity = sql`(${activityAt}, ${t.id}) < (${ofCursor(activityAt)}, ${after})`;
+  if (!rank) return byActivity;
+  return sql`(${rank} > ${ofCursor(rank)} OR (${rank} = ${ofCursor(rank)} AND ${byActivity}))`;
 }
 
 /** Keep the rows whose record the caller may see, asking each type's provider once. */
@@ -121,6 +142,8 @@ export interface ListRecordChatsParams {
   /** Types to list; the caller's permission for each is checked here. */
   providers: EntityChannelProvider[];
   filter: RecordChatFilter;
+  /** Defaults to `recent`. */
+  sort?: RecordChatSort;
   search?: string;
   cursor?: string;
   limit: number;
@@ -140,7 +163,8 @@ export interface ListRecordChatsResult {
 
 /**
  * One page of record chats, most recent activity first (`lastMessageAt desc,
- * id desc`). The cursor is the id of the last chat returned. Rows whose record
+ * id desc`); with `sort: 'unread'` the caller's unread chats come first, each
+ * part in that order. The cursor is the id of the last chat returned. Rows whose record
  * the caller cannot see are dropped after the fetch, so a page is filled from
  * up to {@link MAX_SCAN_ROUNDS} fetches; if it is still short, the cursor
  * points past everything scanned and `hasMore` stays true.
@@ -163,6 +187,9 @@ export async function listRecordChats(params: ListRecordChatsParams): Promise<Li
     conditions.push(ilike(sql`coalesce(${t.entityDisplayName}, ${t.name})`, `%${escapeLike(params.search)}%`));
   }
 
+  const rank = params.sort === 'unread' ? unreadRank(userId) : null;
+  const order = rank ? [asc(rank), desc(activityAt), desc(t.id)] : [desc(activityAt), desc(t.id)];
+
   const byType = new Map(providers.map((p) => [p.type, p]));
   const ctx = { db, actingUserId: userId, can };
   const page: ChannelRow[] = [];
@@ -170,17 +197,12 @@ export async function listRecordChats(params: ListRecordChatsParams): Promise<Li
   let exhausted = false;
 
   for (let round = 0; round < MAX_SCAN_ROUNDS && page.length <= limit; round++) {
-    const where = after
-      ? and(
-          ...conditions,
-          sql`(${activityAt}, ${t.id}) < (SELECT coalesce(c2.last_message_at, c2.created_at), c2.id FROM ${t} c2 WHERE c2.id = ${after})`,
-        )
-      : and(...conditions);
+    const where = after ? and(...conditions, afterCursor(after, rank)) : and(...conditions);
     const batch = await db
       .select()
       .from(t)
       .where(where)
-      .orderBy(desc(activityAt), desc(t.id))
+      .orderBy(...order)
       .limit(limit + 1);
     page.push(...(await keepVisible(batch, byType, ctx)));
     if (batch.length <= limit) {

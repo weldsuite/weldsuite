@@ -22,6 +22,7 @@ import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, Cr
 import type {
   RecordChatCallerState,
   RecordChatFilter,
+  RecordChatSort,
   RecordChatType,
   RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
@@ -206,8 +207,8 @@ export const weldchatKeys = {
   clipTranscript: (channelId: string, messageId: string) => [...weldchatKeys.all, 'clip-transcript', channelId, messageId] as const,
   recordChats: () => [...weldchatKeys.all, 'record-chats'] as const,
   recordChatLists: () => [...weldchatKeys.recordChats(), 'list'] as const,
-  recordChatList: (type: RecordChatType | undefined, filter: RecordChatFilter, search: string) =>
-    [...weldchatKeys.recordChatLists(), type ?? 'all', filter, search] as const,
+  recordChatList: (type: RecordChatType | undefined, filter: RecordChatFilter, search: string, sort: RecordChatSort) =>
+    [...weldchatKeys.recordChatLists(), type ?? 'all', filter, search, sort] as const,
   recordChatSummary: () => [...weldchatKeys.recordChats(), 'summary'] as const,
 };
 
@@ -1314,6 +1315,8 @@ const RECORD_CHAT_PAGE = 25;
 
 export interface RecordChatsOptions {
   filter?: RecordChatFilter;
+  /** `unread` puts the caller's unread chats first (the records page). */
+  sort?: RecordChatSort;
   search?: string;
   enabled?: boolean;
   /**
@@ -1326,18 +1329,20 @@ export interface RecordChatsOptions {
 
 /**
  * Record chats of one type (all types when `type` is undefined), latest
- * activity first, paged by cursor. The sidebar groups use `following`.
+ * activity first unless `sort` says otherwise, paged by cursor. The sidebar
+ * groups use `following`.
  */
 export function useRecordChats(
   type: RecordChatType | undefined,
-  { filter = 'following', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
+  { filter = 'following', sort = 'recent', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
 ) {
   const { getClient } = useAppApiClient();
   return useInfiniteQuery({
-    queryKey: weldchatKeys.recordChatList(type, filter, search),
+    queryKey: weldchatKeys.recordChatList(type, filter, search, sort),
     queryFn: async ({ pageParam }) => {
       const client = await getClient();
       const qs = new URLSearchParams({ filter, limit: String(RECORD_CHAT_PAGE) });
+      if (sort !== 'recent') qs.set('sort', sort);
       if (type) qs.set('type', type);
       if (search) qs.set('search', search);
       if (pageParam) qs.set('cursor', pageParam);
