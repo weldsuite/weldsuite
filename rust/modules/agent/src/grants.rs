@@ -16,8 +16,9 @@ const NEVER_GRANTED: [&str; 6] = [
 ];
 
 /// Keys that turn on the sandbox and web tools. They run at Anthropic on
-/// Global and are not available on the Kubernetes editions (`agent-sandbox`,
-/// plan "What is hidden on EU"), so they are never offered or granted here.
+/// Global, and on the install's own sandbox (`weldsuite-sandbox`) on the
+/// Kubernetes editions; without one (`agent-sandbox`) they are never offered
+/// or granted.
 const SANDBOX_GRANTS: [&str; 2] = ["computer:use", "browser:use"];
 
 /// `grantableAgentPermissions()`: catalog keys an agent may hold, in catalog

@@ -290,7 +290,7 @@ export function AccessTab({ form, agent }: Readonly<{ form: AgentForm; agent: Ag
 
   return (
     <div className="space-y-8">
-      {/* The sandbox and web browsing run at Anthropic: not offered on the Kubernetes editions. */}
+      {/* The sandbox and web browsing: at Anthropic on Global, on the install's own sandbox on Kubernetes (hidden without one). */}
       {isFeatureAvailable('agent-sandbox') && (
         <SettingsSection title={t.builtinTitle} description={t.builtinDescription}>
           <div className="space-y-2">
