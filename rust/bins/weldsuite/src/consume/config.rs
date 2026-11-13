@@ -12,8 +12,8 @@
 //! | `NATS_DEAD_LETTER_STREAM` | the dead-letter stream (default `ENTITY_EVENTS_DLQ`, subjects `<subject>-dlq.<subscriber>.…`) |
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
-//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
-//! | `AI_*`, `MISTRAL_API_KEY`, … (`weldsuite_ai::config`), `VALKEY_CACHE_PREFIX` | the install's AI, as for `serve`, for the subscribers that call a model; its workspace settings cached in Valkey under the cache prefix |
+//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint for the search index, for an install without AI (or whose AI has no embedding model); unmetered. With neither, the search-index subscriber does not run |
+//! | `AI_*`, `MISTRAL_API_KEY`, … (`weldsuite_ai::config`), `VALKEY_CACHE_PREFIX` | the install's AI, as for `serve`, for the subscribers that call a model (the search index's embeddings first, charged per workspace and batch); its workspace settings cached in Valkey under the cache prefix |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
 //! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |

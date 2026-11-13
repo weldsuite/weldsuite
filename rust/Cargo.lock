@@ -4934,6 +4934,7 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -4942,6 +4943,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
@@ -5706,6 +5708,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
@@ -5718,7 +5721,6 @@ dependencies = [
  "weldsuite-merge-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
- "weldsuite-social-domain",
 ]
 
 [[package]]
@@ -5941,6 +5943,7 @@ name = "weldsuite-reach"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "futures-util",
  "getrandom 0.4.3",
  "hex",
  "hmac",
@@ -5955,6 +5958,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-crm-domain",
@@ -6163,6 +6167,7 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-adapters-oss",
+ "weldsuite-ai",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",

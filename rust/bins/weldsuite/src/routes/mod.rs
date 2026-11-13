@@ -778,6 +778,8 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
         realtime: state.infra.realtime.clone(),
         // A release's notes by email: WeldMail's relay and ledgers.
         mail: deployment_outbound(state),
+        // A release's notes, written by the install's AI.
+        ai: state.ai.clone(),
     }
 }
 
@@ -1931,6 +1933,11 @@ fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
             jobs: Some(Arc::clone(&state.infra.jobs)),
             serve_public_objects: state.files_public_via_server,
         },
+        // Search query understanding and the reindex (ADR AI-012), metered
+        // on the master database's wallet; conformance builds take the
+        // test's.
+        ai: state.ai.clone(),
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
     }
 }
 

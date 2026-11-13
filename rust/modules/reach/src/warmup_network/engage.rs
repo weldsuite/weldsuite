@@ -23,7 +23,7 @@ use weldsuite_reach_domain::warmup::{WARMUP_REPLY_RATE_MAX, WARMUP_REPLY_RATE_MI
 
 use super::WarmupNetwork;
 use super::clock::{HOUR_MS, MINUTE_MS, Rng, chance, into_business_hours, js_date, random_between};
-use super::corpus::{find_thread, render_corpus_message};
+use super::corpus::{load_corpus_for_lookup, render_corpus_message};
 use super::db::{
     PoolMailbox, WarmupMessage, clip_error, is_eligible, load_mailboxes, load_message, open_login,
     take_claim, ts,
@@ -246,7 +246,8 @@ async fn schedule_reply(
     now: i64,
     rng: Rng<'_>,
 ) -> sqlx::Result<bool> {
-    let Some(thread) = find_thread(&row.corpus_thread_id) else {
+    let threads = load_corpus_for_lookup(&net.master).await;
+    let Some(thread) = threads.iter().find(|t| t.id == row.corpus_thread_id) else {
         return Ok(false);
     };
     let step = i64::from(row.step);

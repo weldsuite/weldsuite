@@ -598,8 +598,9 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
 Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
 `docs/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
 `config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
-workspaces with their own key, the credit gate on) and point the search
-index's embeddings at `mistral-embed` (`consume.embeddings`).
+workspaces with their own key, the credit gate on); the search index embeds
+through it with `mistral-embed`, metered as `search-index` (so
+`consume.embeddings`, for installs without AI, stays unset).
 
 - **Keys** (`weldsuite-env`): `MISTRAL_API_KEY`, from the EU edition's
   account on Mistral's La Plateforme (zero data retention, the rate-limit
@@ -1061,9 +1062,9 @@ Be clear about this before anyone signs a contract:
   before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
   sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
-  MEET-007; "Video" above), without recording and transcripts. Not here yet:
-  Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off).
+  MEET-007; "Video" above), without recording and transcripts. The
+  semantic search index embeds on Mistral through `config.ai` ("AI (Mistral)"
+  above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a

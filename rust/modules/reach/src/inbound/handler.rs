@@ -102,6 +102,9 @@ pub struct ReachInbound {
     pub events: EntityEventPublisher,
     /// `REACH_INBOUND_DOMAIN`.
     pub inbound_domain: String,
+    /// The install's AI, which labels the replies; `None` leaves them
+    /// `unclassified`.
+    pub classifier: Option<super::classify::ReplyClassifier>,
 }
 
 impl std::fmt::Debug for ReachInbound {
@@ -266,6 +269,7 @@ impl ReachInbound {
             storage: self.storage.clone(),
             events: &events,
             now: weldsuite_reach_domain::now(),
+            classifier: self.classifier.as_ref(),
         })
         .await
         .map(Some)

@@ -367,8 +367,8 @@ config:
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
 #   MISTRAL_API_KEY              WeldSuite's Mistral key (required with config.ai.defaultProvider
-#                                mistral, or a mistral/ fallback); also the search index's
-#                                embeddings key with consume.embeddings.apiKeySecretKey
+#                                mistral, or a mistral/ fallback); the search index embeds
+#                                through config.ai with it
 #   ANTHROPIC_API_KEY            WeldSuite's EU-edition Anthropic account, for workspaces that opt in
 #                                with WeldSuite's key (required with config.ai.optIn.anthropic.weldsuiteKey)
 #   OPENAI_API_KEY               the same for OpenAI (config.ai.optIn.openai.weldsuiteKey)
@@ -831,7 +831,7 @@ consume:
   # webhooks, realtime, and reach-send: WeldReach's sends, which the
   # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
   # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
-  # `embeddings` below.
+  # config.ai with an embedding model, or `embeddings` below.
   subscribers: []
   # With config.nats.ensureStreams: create or update the hub and the
   # dead-letter stream at start with this many replicas (3 on a three-node
@@ -845,12 +845,14 @@ consume:
   # Where a message goes after a subscriber's last retry (subjects
   # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
   deadLetterStream: ENTITY_EVENTS_DLQ
-  # An OpenAI-compatible embeddings endpoint for the semantic search index
-  # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
-  # vectors must have 1024 dimensions. A key goes in the Secret as
-  # EMBEDDINGS_API_KEY, or under the name apiKeySecretKey gives (Mistral:
-  # MISTRAL_API_KEY, the key config.ai uses). Without a url the search-index
-  # subscriber is off.
+  # With config.ai the semantic search index embeds through it (search-index:
+  # Mistral's mistral-embed, or config.ai.openaiCompatible's embedModel),
+  # metered per workspace and batch, and this is not used. For an install
+  # without AI (or whose endpoint has no embedding model): an OpenAI-compatible
+  # embeddings endpoint (bge-m3 served in the cluster by TEI, vLLM or Ollama),
+  # unmetered; the vectors must have 1024 dimensions. A key goes in the Secret
+  # as EMBEDDINGS_API_KEY, or under the name apiKeySecretKey gives. Without
+  # either the search-index subscriber is off.
   embeddings:
     url: ""
     model: ""

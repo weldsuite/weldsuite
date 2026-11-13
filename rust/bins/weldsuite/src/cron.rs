@@ -348,6 +348,8 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
         realtime: infra.realtime.clone(),
         // The digest sends no mail.
         mail: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        // Nor writes release notes.
+        ai: None,
     };
     let now = time::OffsetDateTime::now_utc();
     let result = weldsuite_merge::run_digest_sweep(&state, &master, now).await;
@@ -1115,7 +1117,13 @@ async fn reach_warmup_network(config: Config, job: &str) -> Result<(), Box<dyn s
         crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
-    let network = crate::reach::warmup_network(master, Arc::clone(&infra.flags))?;
+    // The daily job refreshes the corpus with the install's AI.
+    let ai = if job == "reach-warmup-daily" {
+        crate::ai::build(&config.ai, infra.cache.clone())?
+    } else {
+        None
+    };
+    let network = crate::reach::warmup_network(master, Arc::clone(&infra.flags), ai)?;
     let now_ms = || {
         weldsuite_reach::weldsuite_reach_domain::epoch_ms(
             weldsuite_reach::weldsuite_reach_domain::now(),
@@ -1142,6 +1150,7 @@ async fn reach_warmup_network(config: Config, job: &str) -> Result<(), Box<dyn s
                 "cleaned": result.cleanup.map(|c| c.cleaned),
                 "mailboxesVisited": result.cleanup.map(|c| c.mailboxes_visited),
                 "rowsDeleted": result.cleanup.map(|c| c.rows_deleted),
+                "corpusRefreshed": result.corpus_refreshed,
             })
         }
         _ => {
