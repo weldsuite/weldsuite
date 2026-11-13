@@ -2,7 +2,8 @@
 # synchronous replication with dataDurability: required (configs/base/
 # postgres.yaml), so commits wait for a replica: losing either instance of a
 # two-instance cluster stops writes until it's back, which is why one
-# instance down is critical. cnpg_cluster comes from ../monitors.yaml.
+# instance down is critical. The platform's clusters are in postgres,
+# Zitadel's (zitadel-db) in zitadel. cnpg_cluster comes from ../monitors.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -17,11 +18,11 @@ spec:
         - alert: PostgresInstanceDown
           expr: |
             (
-              (kube_pod_status_ready{namespace="postgres", condition="true", pod!~".*-pooler-.*"} == 0)
-              unless on (namespace, pod) (kube_pod_status_phase{namespace="postgres", phase=~"Succeeded|Failed"} == 1)
+              (kube_pod_status_ready{namespace=~"postgres|zitadel", condition="true", pod!~".*-pooler-.*"} == 0)
+              unless on (namespace, pod) (kube_pod_status_phase{namespace=~"postgres|zitadel", phase=~"Succeeded|Failed"} == 1)
             )
             * on (namespace, pod) group_left (label_cnpg_io_cluster)
-              kube_pod_labels{namespace="postgres", label_cnpg_io_cluster!=""}
+              kube_pod_labels{namespace=~"postgres|zitadel", label_cnpg_io_cluster!=""}
           for: 2m
           labels:
             severity: critical

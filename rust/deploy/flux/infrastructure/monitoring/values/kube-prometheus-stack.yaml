@@ -300,6 +300,11 @@ grafana:
       enabled: true
       label: grafana_dashboard
       searchNamespace: ALL
+      # A ConfigMap's grafana_folder annotation is its folder in Grafana
+      # (WeldSuite's: monitoring-config/kustomization.yaml).
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
     datasources:
       enabled: true
   additionalDataSources:
