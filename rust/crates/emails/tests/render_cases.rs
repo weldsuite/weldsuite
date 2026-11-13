@@ -16,8 +16,8 @@ use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, desk, flow, forms, hr, meet, portal,
-    reach, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, calendar, desk, flow, forms, hr, meet,
+    portal, reach, sign,
 };
 
 #[derive(Deserialize)]
@@ -278,6 +278,18 @@ fn render(case: &Case) -> RenderedEmail {
                 employer_name: s(p, "employerName"),
                 pay_date: s(p, "payDate"),
                 url: opt("url"),
+            },
+        ),
+        "ai.provider-enabled" => ai::provider_enabled(
+            locale,
+            &brand,
+            &ai::ProviderEnabled {
+                recipient_name: opt("recipientName"),
+                workspace_name: s(p, "workspaceName"),
+                provider_name: s(p, "providerName"),
+                enabled_by: s(p, "enabledBy"),
+                own_key: p["keySource"].as_str() == Some("own"),
+                settings_url: s(p, "settingsUrl"),
             },
         ),
         "hr.bank-changed" => hr::bank_changed(

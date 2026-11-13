@@ -9,12 +9,6 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Progress } from '@weldsuite/ui/components/progress';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@weldsuite/ui/components/dialog';
 import { Download, Plus, Star } from 'lucide-react';
 import {
   Table,
@@ -56,6 +50,10 @@ import {
 } from './billing-details';
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
+import { isFeatureAvailable } from '@/lib/edition';
+import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
+import { useCreditCheckoutReturn } from './credit-checkout-return';
+import { CreditsWalletSettings } from './credits-wallet-settings';
 
 type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
 type Translate = ReturnType<typeof useTranslations>;
@@ -371,15 +369,7 @@ function DirectBillingSettings() {
   const buyCreditsMutation = useBuyCredits();
 
   const creditsWallet = (creditsBalanceData?.data as { currentBalance?: number; isLow?: boolean } | undefined) ?? null;
-  const creditPackages = (creditPackagesData?.data as Array<{
-    id: string;
-    name: string;
-    description?: string | null;
-    credits: number;
-    price: number;
-    currency: string;
-    isPopular?: boolean;
-  }> | undefined) ?? [];
+  const creditPackages = (creditPackagesData?.data as CreditPackageOption[] | undefined) ?? [];
   const [buyCreditsOpen, setBuyCreditsOpen] = useState(false);
 
   // useSubscription() hands back the subscription itself, not an envelope.
@@ -418,23 +408,9 @@ function DirectBillingSettings() {
     });
   }, [canReadBilling, getClient]);
 
-  // Surface the outcome of a returning Stripe credit-topup checkout, then
-  // strip the query param so a refresh doesn't re-toast.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const credits = params.get('credits');
-    if (credits === 'success') {
-      toast.success(ts.creditsWallet.purchaseSuccess);
-    } else if (credits === 'cancelled') {
-      toast.info(ts.creditsWallet.purchaseCancelled);
-    }
-    if (credits) {
-      params.delete('credits');
-      const qs = params.toString();
-      const search = qs ? `?${qs}` : '';
-      window.history.replaceState({}, '', `${window.location.pathname}${search}`);
-    }
-  }, [ts]);
+  // Surface the outcome of a returning credit-topup checkout, then strip its
+  // query params so a refresh doesn't re-toast.
+  useCreditCheckoutReturn(ts.creditsWallet);
 
   const handleManagePlan = () => {
     router.push('/settings/plans');
@@ -787,59 +763,26 @@ function DirectBillingSettings() {
         details={billingDetails}
       />
 
-      {/* Buy Credits Dialog */}
-      <Dialog open={buyCreditsOpen} onOpenChange={setBuyCreditsOpen}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>{ts.creditsWallet.choosePackage}</DialogTitle>
-          </DialogHeader>
-
-          <div className="py-2">
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3 mb-4">
-              <span className="text-sm text-muted-foreground">{ts.creditsWallet.currentBalance}</span>
-              <span className="text-sm font-semibold">
-                {(creditsWallet?.currentBalance ?? 0).toLocaleString()} {ts.creditsWallet.creditsUnit}
-              </span>
-            </div>
-
-            {creditPackages.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">{ts.creditsWallet.noPackages}</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {creditPackages.map((pkg) => (
-                  <button
-                    key={pkg.id}
-                    type="button"
-                    disabled={buyCreditsMutation.isPending}
-                    onClick={() => handleBuyCredits(pkg.id)}
-                    className="relative flex flex-col items-start rounded-xl border p-4 text-left transition-colors hover:border-primary hover:bg-muted/40 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {pkg.isPopular && (
-                      <Badge className="absolute top-3 right-3 rounded-sm text-[10px]">{ts.creditsWallet.popular}</Badge>
-                    )}
-                    <span className="text-lg font-semibold">
-                      {pkg.credits.toLocaleString()}
-                      <span className="text-xs font-normal text-muted-foreground ml-1">{ts.creditsWallet.creditsUnit}</span>
-                    </span>
-                    <span className="text-sm text-muted-foreground mt-1">
-                      {formatCurrency(Math.round(pkg.price * 100), pkg.currency)}
-                    </span>
-                    {pkg.description && (
-                      <span className="text-xs text-muted-foreground mt-2">{pkg.description}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {buyCreditsMutation.isPending && (
-              <p className="text-xs text-muted-foreground text-center mt-4">{ts.creditsWallet.redirecting}</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <BuyCreditsDialog
+        open={buyCreditsOpen}
+        onOpenChange={setBuyCreditsOpen}
+        balance={creditsWallet?.currentBalance ?? 0}
+        packages={creditPackages}
+        pending={buyCreditsMutation.isPending}
+        onBuy={(packageId) => void handleBuyCredits(packageId)}
+      />
     </div>
   );
+}
+
+/**
+ * Without plans and invoices (the Kubernetes editions, where `billing` is
+ * unavailable) the page is the credit balance and its top-up; the route is
+ * offered only with `credit-top-up` then (`lib/edition-routes.ts`).
+ */
+export default function BillingSettingsPage() {
+  if (!isFeatureAvailable('billing')) return <CreditsWalletSettings />;
+  return <BillingSettings />;
 }
 
 /**
@@ -847,7 +790,7 @@ function DirectBillingSettings() {
  * and what its licence includes instead of plans, checkout and invoices. The
  * direct-billing queries only mount for workspaces that are billed directly.
  */
-export default function BillingSettingsPage() {
+function BillingSettings() {
   const { data: managed, isLoading } = useManagedBilling();
 
   if (isLoading) return <PageLoader fullScreen={false} />;

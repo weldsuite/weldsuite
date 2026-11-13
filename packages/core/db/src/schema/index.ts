@@ -409,6 +409,9 @@ export type { RuleAction, RuleCondition } from './return-rules';
 // WeldPass (secret management) — workspace vaults
 export * from './weldpass';
 
+// AI settings (EU / self-hosted editions): allowed providers and own keys
+export * from './ai-settings';
+
 // WeldHR (employee operations + workforce portal)
 export * from './weldhr';
 
