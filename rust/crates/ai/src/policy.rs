@@ -396,15 +396,18 @@ fn fallbacks(
 pub struct EffectivePolicy {
     pub install_provider: ProviderId,
     pub default_provider: ProviderId,
-    /// `{ id, label, region, offered, installDefault, enabled, available,
-    /// keySource, keySources, enabledBy, enabledAt }` for the install provider
-    /// and each opt-in provider the install offers. No key status: the route
+    /// `{ id, label, region, install, offered, enabled, available, keySource,
+    /// keySources, enabledBy, enabledAt }` for the install provider and each
+    /// opt-in provider the install offers (the platform's `aiProviderState`:
+    /// `install` marks the install provider, `offered` is true for every
+    /// provider listed, `available` says it can be routed to now, `keySource`
+    /// is null for an opt-in provider never set up). No key status: the route
     /// adds it for admins.
     pub providers: Vec<Value>,
-    /// `{ id, overridable, tasks, needs, override, provider, model, region,
-    /// models: [{ id, label, provider, region }] }` per feature: `provider`,
-    /// `model` and `region` are where its main task goes now, `models` what
-    /// its model picker may offer.
+    /// `{ id, overridable, tasks, needs, override, effective: { provider,
+    /// model, region }, models: [{ id, label, provider, region }] }` per
+    /// feature (the platform's `aiFeatureState`): `effective` is where its
+    /// main task goes now, `models` what its model picker may offer.
     pub features: Vec<Value>,
 }
 
@@ -461,14 +464,14 @@ pub fn effective(config: &AiConfig, settings: &WorkspaceAiSettings) -> Effective
                 "id": provider.as_str(),
                 "label": catalog::provider(provider).label,
                 "region": config.region(provider).as_str(),
-                "offered": if is_install { "install" } else { "opt-in" },
-                "installDefault": is_install,
+                "install": is_install,
+                "offered": true,
                 "enabled": is_install || setting.is_some_and(|s| s.enabled),
                 "available": provider_key_source(config, settings, provider).is_some(),
                 "keySource": if is_install {
-                    KeySource::Weldsuite.as_str()
+                    Some(KeySource::Weldsuite.as_str())
                 } else {
-                    setting.map_or(KeySource::Weldsuite, |s| s.key_source).as_str()
+                    setting.map(|s| s.key_source.as_str())
                 },
                 "keySources": offered_key_sources(config, provider)
                     .into_iter()
@@ -501,9 +504,17 @@ pub fn effective(config: &AiConfig, settings: &WorkspaceAiSettings) -> Effective
                 "tasks": info.tasks.iter().map(|t| t.as_str()).collect::<Vec<_>>(),
                 "needs": info.needs.iter().map(|c| c.as_str()).collect::<Vec<_>>(),
                 "override": override_entry,
-                "provider": route.as_ref().map(|r| r.primary.provider.as_str()),
-                "model": route.as_ref().map(|r| r.primary.model.clone()),
-                "region": route.as_ref().map(|r| r.primary.region.as_str()),
+                "effective": {
+                    "provider": route
+                        .as_ref()
+                        .map_or(install, |r| r.primary.provider)
+                        .as_str(),
+                    "model": route.as_ref().map_or_else(String::new, |r| r.primary.model.clone()),
+                    "region": route
+                        .as_ref()
+                        .map_or_else(|| config.region(install), |r| r.primary.region)
+                        .as_str(),
+                },
                 "models": feature_models(config, settings, feature),
             })
         })
@@ -1411,11 +1422,14 @@ mod tests {
         assert_eq!(policy.providers[1]["region"], "outside-eu");
         assert_eq!(policy.providers[1]["enabled"], true);
         assert_eq!(policy.providers[1]["keySource"], "own");
+        assert_eq!(policy.providers[0]["install"], true);
+        assert_eq!(policy.providers[1]["install"], false);
         assert_eq!(policy.providers[2]["enabled"], false);
+        assert_eq!(policy.providers[2]["keySource"], serde_json::Value::Null);
         assert_eq!(policy.providers[2]["available"], false);
         let mail = &policy.features[0];
         assert_eq!(mail["id"], "mail");
-        assert_eq!(mail["provider"], "anthropic");
+        assert_eq!(mail["effective"]["provider"], "anthropic");
         let models: Vec<&str> = mail["models"]
             .as_array()
             .expect("models")
@@ -1436,14 +1450,15 @@ mod tests {
             .find(|f| f["id"] == "forms")
             .expect("forms");
         assert_eq!(forms["override"]["model"], "mistral/mistral-small-2603");
-        assert_eq!(forms["model"], "mistral/mistral-small-2603");
+        assert_eq!(forms["effective"]["model"], "mistral/mistral-small-2603");
         let index = policy
             .features
             .iter()
             .find(|f| f["id"] == "search-index")
             .expect("index");
         assert_eq!(index["overridable"], false);
-        assert_eq!(index["provider"], "mistral");
+        assert_eq!(index["effective"]["provider"], "mistral");
+        assert_eq!(index["effective"]["region"], "eu");
         let index_models: Vec<&str> = index["models"]
             .as_array()
             .expect("models")

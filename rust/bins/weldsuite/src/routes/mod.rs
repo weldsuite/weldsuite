@@ -383,6 +383,8 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 outbound: deployment_outbound(state),
                 assignment: Some(desk_assignment_router()),
                 merge: integrations::merge_workflow_actions(state),
+                // The `ai_generate` / `ai_classify` steps.
+                ai: state.ai.clone(),
             },
         });
     // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
@@ -501,6 +503,8 @@ pub(crate) fn cron_connect_state(
         webhooks: connect_webhook_http(),
         trusted_proxies: 1,
         storage: infra.public_files.clone(),
+        // The cron jobs serve no AI route.
+        ai: None,
     }
 }
 
@@ -549,6 +553,8 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         } else {
             state.infra.public_files.clone()
         },
+        // "Generate with AI"; a conformance request carries the test's own.
+        ai: state.ai.clone(),
     }
 }
 
@@ -2085,6 +2091,16 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
     }
     let platform = core_platform_state(state);
     let gate = &state.permissions;
+    // `/api/ai-settings` (Rust only): only an install with an AI provider has
+    // anything to configure; without one the path is a 404.
+    let router = if platform.ai.is_some() {
+        router.nest(
+            "/ai-settings",
+            weldsuite_core_platform::ai_settings(platform.clone(), gate),
+        )
+    } else {
+        router
+    };
     router
         .nest(
             "/notifications",
@@ -2145,6 +2161,8 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
         identity: state.infra.identity.clone(),
         audit_streams: audit_stream_gateway(),
         top_up: credit_top_up(state),
+        ai: state.ai.clone(),
+        mail: state.infra.mail.clone(),
     }
 }
 

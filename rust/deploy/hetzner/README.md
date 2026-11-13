@@ -646,7 +646,11 @@ migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
 Security `privileged`: the host network), with its keys in the
 `weldsuite-mta` Secret there; the server reads the API secret and the
 submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
-events reach `weldsuite consume` over NATS (`mail.sending-events`).
+events reach `weldsuite consume` over NATS (`mail.sending-events`), with
+`NATS_URL` and `NATS_TOKEN` in `weldsuite-mta` too (the MTA can't read
+`weldsuite-env`); without them they stay in its outbox (`pendingEvents` in
+`$M queue`). On a running cluster: `fill-secrets.mjs --update --only
+weldsuite-mail/weldsuite-mta` copies them from `weldsuite-env`.
 
 Nothing below is optional: a new address that sends without its DNS in
 place, or too much on its first days, lands in spam folders for weeks.
@@ -896,7 +900,12 @@ and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
    `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
    ID Token" and "User Info inside ID Token" on, the project's "Assert Roles on Authentication" on, and a
    role `grafana-admin` granted to whoever administers Grafana. Everyone
-   else in the organisation gets Viewer; nobody outside it gets in.
+   else in the organisation gets Viewer; nobody outside it gets in. Tick
+   "Use new Login UI" and leave its base URL empty, like the admin console's
+   app ("Give every other application a login setting", section 7): without it Grafana's sign-in goes to the old
+   Login V1, which refuses a security key or passkey registered on the new
+   pages (`Errors.User.WebAuthN.BeginLoginFailed`, "Found no credentials for
+   user" in Zitadel's log).
 3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three
    URLs by role and a token: `critical-url` (pages at any hour),
    `warning-url` (muted at night), `heartbeat-url` (pinged every minute by

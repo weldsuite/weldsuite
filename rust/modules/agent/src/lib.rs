@@ -35,6 +35,7 @@ pub mod agent_loop;
 mod agent_routes;
 pub mod agents;
 pub mod approvals;
+pub mod assistant;
 mod conversations;
 pub mod dispatch;
 pub mod grants;
@@ -111,8 +112,7 @@ impl AgentState {
 /// to merge under `/api` behind the session, tenant database, licence and
 /// flag layers. Each route carries its `requirePermission` from `gate`.
 ///
-/// `/api/ai` (the assistant chat and generate) is phase 3e and is not here
-/// yet.
+/// `/api/ai` (the assistant chat and generate) is [`assistant`].
 #[allow(clippy::too_many_lines)] // one block of routes, as the workers mount them
 pub fn router<S, Q>(state: AgentState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -248,7 +248,8 @@ where
             "/chat-agent/ask",
             post(conversations::chat_ask).route_layer(gate.require([MESSAGES_CREATE])),
         )
-        .with_state(state)
+        .with_state(state.clone())
+        .merge(assistant::router(state, gate))
 }
 
 /// Skills, routines, memories, templates, teach sessions and connector events

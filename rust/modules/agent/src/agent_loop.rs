@@ -16,8 +16,10 @@
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::{
-    Ai, AiCall, AiError, ChatRequest, Feature, Message, Part, Role, Task, Tier, ToolCall,
+    Ai, AiCall, AiError, ChatRequest, Feature, Message, Part, Role, StreamEvent, Task, Tier,
+    ToolCall,
 };
+use tokio::sync::mpsc;
 
 use crate::access::{agent_viewer_for, can_edit_agent};
 use crate::agents::POLICY_DEFAULT_MODEL;
@@ -352,7 +354,11 @@ pub struct TurnResult {
     pub invocations: Vec<Value>,
     pub steps: i64,
     pub tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
     pub credits: i64,
+    /// Why the last model call stopped (`stop`, `length`, `tool-calls`, ...).
+    pub finish_reason: Option<Value>,
     /// `meta.ai` of the last model call.
     pub meta: Option<Value>,
 }
@@ -528,6 +534,139 @@ pub fn actor_may_edit(
 ///
 /// [`AiError`]: the 402 gate, no provider, or a provider failure the AI crate
 /// could not fall back from.
+/// Run the tool calls of one model answer; the answers go back to the model.
+/// `asked` is set when `ask_user` ended the turn.
+async fn run_tool_calls(
+    input: &TurnInput<'_>,
+    tool_calls: &[ToolCall],
+    invocations: &mut Vec<Value>,
+) -> (Vec<Part>, bool) {
+    let mut answers: Vec<Part> = Vec::new();
+    let mut asked = false;
+    for tool_call in tool_calls {
+        // A tool the turn was not offered (setup mode, narrowed grants)
+        // never runs, whatever the model asks for.
+        let offered = input.tools.iter().any(|t| t.name == tool_call.name);
+        let (answer, is_error, stored) = if offered {
+            run_tool_call(input, tool_call).await
+        } else {
+            let message = format!("Unknown tool: {}", tool_call.name);
+            (
+                json!({ "error": message }),
+                true,
+                json!({ "toolName": tool_call.name, "state": "error", "args": tool_call.arguments, "result": { "error": message } }),
+            )
+        };
+        asked |= tool_call.name == "ask_user" && !is_error;
+        invocations.push(stored);
+        answers.push(Part::ToolResult {
+            call_id: tool_call.id.clone(),
+            content: result_text(&answer),
+            is_error,
+        });
+    }
+    (answers, asked)
+}
+
+/// The same loop as [`run_turn`], streamed: the text of each model request goes
+/// to `out` as it arrives (requests are set apart by a blank line), tools run
+/// in between. A failed turn ends the stream with its message
+/// (`streamAgentChat`). When the client leaves (`out` is closed) the request
+/// being read is read to its end, so it is still metered, and no tool runs.
+pub async fn stream_turn(input: TurnInput<'_>, out: mpsc::Sender<String>) {
+    use futures_util::StreamExt;
+    let max_iterations = input.agent["maxIterations"].as_i64().unwrap_or(10).max(1);
+    let max_tokens_total = input.agent["maxTotalTokens"].as_i64().unwrap_or(20_000);
+    let max_tokens = input.agent["maxTokens"]
+        .as_i64()
+        .and_then(|n| u32::try_from(n).ok());
+    let temperature = input.agent["temperature"]
+        .as_str()
+        .and_then(|t| t.parse::<f32>().ok());
+    let call = agent_call(input.agent, input.ctx, &input.reference);
+    let mut messages: Vec<Message> = input
+        .history
+        .iter()
+        .map(|m| Message {
+            role: m.role,
+            content: vec![Part::Text(m.content.clone())],
+        })
+        .collect();
+    let defs = tool_defs(&input.tools);
+    let mut separate = false;
+    let mut gone = false;
+    let mut tokens = 0;
+    let mut invocations = Vec::new();
+    for _ in 0..max_iterations {
+        let mut request = ChatRequest {
+            system: Some(input.system.clone()),
+            messages: messages.clone(),
+            tools: defs.clone(),
+            ..ChatRequest::default()
+        };
+        request.max_tokens = max_tokens;
+        request.temperature = temperature;
+        let mut events = match input.ai.chat_stream(&call, request).await {
+            Ok(events) => events,
+            Err(error) => {
+                tracing::error!(%error, "[weldagent/stream] turn failed");
+                let _ = out.send(format!("\n\n{error}")).await;
+                return;
+            }
+        };
+        let mut had_text = false;
+        let mut finished = None;
+        while let Some(event) = events.next().await {
+            match event {
+                Ok(StreamEvent::TextDelta(text)) if !text.is_empty() => {
+                    if gone {
+                        continue;
+                    }
+                    if separate {
+                        separate = false;
+                        gone = out.send("\n\n".to_owned()).await.is_err();
+                    }
+                    if !gone {
+                        gone = out.send(text).await.is_err();
+                    }
+                    had_text = true;
+                }
+                Ok(StreamEvent::Finish(answer)) => finished = Some(*answer),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(%error, "[weldagent/stream] turn failed");
+                    if !gone {
+                        let _ = out.send(format!("\n\n{error}")).await;
+                    }
+                    return;
+                }
+            }
+        }
+        if had_text {
+            separate = true;
+        }
+        let Some(answer) = finished else { return };
+        tokens += answer.usage.input_tokens + answer.usage.output_tokens;
+        if gone || answer.tool_calls.is_empty() {
+            return;
+        }
+        let mut assistant = vec![Part::Text(answer.text.clone())];
+        assistant.extend(answer.tool_calls.iter().cloned().map(Part::ToolCall));
+        messages.push(Message {
+            role: Role::Assistant,
+            content: assistant,
+        });
+        let (answers, asked) = run_tool_calls(&input, &answer.tool_calls, &mut invocations).await;
+        messages.push(Message {
+            role: Role::Tool,
+            content: answers,
+        });
+        if asked || tokens >= max_tokens_total {
+            return;
+        }
+    }
+}
+
 pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
     let max_iterations = input.agent["maxIterations"].as_i64().unwrap_or(10).max(1);
     let max_tokens_total = input.agent["maxTotalTokens"].as_i64().unwrap_or(20_000);
@@ -564,7 +703,10 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
         let reply = input.ai.chat(&call, request).await?;
         result.steps = step + 1;
         result.tokens += reply.usage.input_tokens + reply.usage.output_tokens;
+        result.input_tokens += reply.usage.input_tokens;
+        result.output_tokens += reply.usage.output_tokens;
         result.credits += reply.credits;
+        result.finish_reason = serde_json::to_value(reply.finish_reason).ok();
         result.meta = Some(reply.served.meta());
         if !reply.text.is_empty() {
             last_text.clone_from(&reply.text);
@@ -579,30 +721,8 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
             role: Role::Assistant,
             content: assistant,
         });
-        let mut answers: Vec<Part> = Vec::new();
-        let mut asked = false;
-        for tool_call in &reply.tool_calls {
-            // A tool the turn was not offered (setup mode, narrowed grants)
-            // never runs, whatever the model asks for.
-            let offered = input.tools.iter().any(|t| t.name == tool_call.name);
-            let (answer, is_error, stored) = if offered {
-                run_tool_call(&input, tool_call).await
-            } else {
-                let message = format!("Unknown tool: {}", tool_call.name);
-                (
-                    json!({ "error": message }),
-                    true,
-                    json!({ "toolName": tool_call.name, "state": "error", "args": tool_call.arguments, "result": { "error": message } }),
-                )
-            };
-            asked |= tool_call.name == "ask_user" && !is_error;
-            result.invocations.push(stored);
-            answers.push(Part::ToolResult {
-                call_id: tool_call.id.clone(),
-                content: result_text(&answer),
-                is_error,
-            });
-        }
+        let (answers, asked) =
+            run_tool_calls(&input, &reply.tool_calls, &mut result.invocations).await;
         messages.push(Message {
             role: Role::Tool,
             content: answers,

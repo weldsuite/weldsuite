@@ -1002,6 +1002,10 @@ mta:
   # pod-security.kubernetes.io/enforce: privileged, as LiveKit has. The chart
   # creates nothing else there: existingSecret must be in it (and the image
   # pull Secrets, if any), and clientSecret then holds what the server needs.
+  # The MTA can't read the release's Secret from there, so existingSecret also
+  # carries NATS_URL and NATS_TOKEN (or NATS_USER and NATS_PASSWORD), with a
+  # NATS_URL that names the release's namespace: without them its delivery
+  # events stay in its outbox.
   namespace: ""
   # A Secret in the release's namespace with MTA_API_SECRET and the
   # submission passwords (MTA_SUBMISSION_PASSWORD_<POOL>), the same values as

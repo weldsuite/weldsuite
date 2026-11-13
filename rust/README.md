@@ -26,7 +26,9 @@ modules, each with conformance suites that reach every route:
   portal) and `/api/internal` (staff); signup and provisioning on Zitadel and
   CloudNativePG (`/api/onboarding`, `workspace.provision`); buying credits
   through Mollie instead of Stripe (`POST /api/credits/checkout`, Mollie's
-  webhook at `/api/webhooks/mollie`, `modules/core-platform/src/topup`)
+  webhook at `/api/webhooks/mollie`, `modules/core-platform/src/topup`); the
+  workspace AI settings at `/api/ai-settings` (Rust only, mounted when the
+  install has AI: `modules/core-platform/src/groups/ai_settings.rs`, see "AI")
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
   **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
@@ -1021,6 +1023,27 @@ labelled "outside the EU".
   `parts.extensions.get::<weldsuite_ai::Ai>().or(state.ai.as_ref()).filter(|ai| ai.enabled()).cloned()`.
   `None` answers as the worker without its model (503 `ai_unavailable`, or
   the route's own fallback). A release build never puts an `Ai` on a request.
+- **Workspace settings** (`/api/ai-settings`, core platform, Rust only: no
+  TypeScript twin and no conformance suite; mounted only when `AppState::ai`
+  is set). `GET` (any member) answers the effective policy the settings page
+  and every model picker read: providers with region, key sources and who
+  enabled them, the default, and per feature its override, effective target
+  and allowed models; `ai:manage` also gets each provider's key status (hint,
+  `ok`/`failing`, last error) and `canManage`. `PUT` (`ai:manage`) takes
+  `providers`, `defaultProvider` and `featureOverrides`: only Anthropic and
+  OpenAI can be switched, with a key source the install offers; enabling one
+  outside the EU needs `acknowledgedOutsideEu` (400
+  `OUTSIDE_EU_NOT_ACKNOWLEDGED`) and emails the workspace owners
+  (`ai.provider-enabled`, naming who; a mail failure is logged, never
+  raised); the default must be enabled; overrides are checked with
+  `policy::allows` (a fixed feature or a disabled provider is a 400);
+  disabling keeps the own key; `own` keys may be chosen before one is stored
+  (the provider just isn't routed to). `PUT|POST|DELETE /keys/:provider[/test]`
+  check, seal (AAD-bound to workspace and provider), test and remove an own
+  key (422 `AI_KEY_REJECTED` when the provider refuses it, 404 without a
+  key); `GET /usage` is this and last month per provider and feature. Events
+  `ai_settings:updated`, `ai_provider_key:set`, `ai_provider_key:removed`; a
+  key is never in a response, an event, a log line or an error.
 - **`weldsuite doctor`** checks the configuration and the master database,
   then each provider key the install holds (a model list, free) and the
   install provider's default chat models (one token each, unmetered;

@@ -224,7 +224,7 @@ pub fn tool_context(
     }
 }
 
-fn has_sandbox_tools(tools: &[&crate::tools::ToolSpec]) -> bool {
+pub(crate) fn has_sandbox_tools(tools: &[&crate::tools::ToolSpec]) -> bool {
     tools.iter().any(|t| {
         t.name.starts_with("computer_")
             || t.name.starts_with("browser_")

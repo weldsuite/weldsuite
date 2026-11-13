@@ -10,6 +10,7 @@
 //!
 //! | Router | Prefix | TypeScript |
 //! |---|---|---|
+//! | [`ai_settings`] | `/api/ai-settings` | none: Rust only (ADR AI-012) |
 //! | [`notifications`] | `/api/notifications` | `routes/notifications` |
 //! | [`audit_logs`] | `/api/audit-logs` | `routes/audit-logs` |
 //! | [`audit_log_streams`] | `/api/audit-log-streams` | `routes/audit-log-streams` |
@@ -41,7 +42,7 @@ use axum::Router;
 use weldsuite_db::PgPool;
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynRealtimePublisher, Identity};
+use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, Identity};
 
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
 pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
@@ -65,6 +66,12 @@ pub struct CorePlatformState {
     /// Buying credits through Mollie (`MOLLIE_API_KEY`); `None` answers the
     /// checkout as the workers do without billing-worker.
     pub top_up: Option<Arc<TopUp>>,
+    /// The install's AI service (`AppState.ai`); `None` without an AI
+    /// provider, and then `/api/ai-settings` is not mounted.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// System mail (the workspace owners' notice when a provider outside the
+    /// EU is enabled); `None` logs instead of sending.
+    pub mail: Option<Arc<dyn DynSystemMail>>,
 }
 
 impl std::fmt::Debug for CorePlatformState {
@@ -75,6 +82,8 @@ impl std::fmt::Debug for CorePlatformState {
             .field("cache", &self.cache.is_some())
             .field("identity", &self.identity.is_some())
             .field("top_up", &self.top_up.is_some())
+            .field("ai", &self.ai.is_some())
+            .field("mail", &self.mail.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -92,6 +101,11 @@ macro_rules! group_router {
     };
 }
 
+group_router!(
+    /// `/api/ai-settings`: the workspace's AI providers, keys, per-feature
+    /// models and usage (Rust only; mounted when the install has AI).
+    ai_settings
+);
 group_router!(
     /// `/api/notifications`: the caller's own notifications.
     notifications
