@@ -227,6 +227,16 @@ settings, which weldsuite.env adds.
 - name: PROJECT_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with (.Values.config.credits | default dict).mollie }}
+{{- with .webhookUrl }}
+- name: MOLLIE_WEBHOOK_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .redirectUrl }}
+- name: MOLLIE_REDIRECT_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.sign.portalUrl }}
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}

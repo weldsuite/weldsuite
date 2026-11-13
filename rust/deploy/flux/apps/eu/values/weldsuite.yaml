@@ -87,12 +87,21 @@ config:
   # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
   # every URL setting that names this host from it.
   publicUrl: https://app.${DOMAIN}
+  # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
+  # weldsuite-env: Mollie reports payments to
+  # https://app.${DOMAIN}/api/webhooks/mollie and checkouts return to the
+  # billing page, both from publicUrl. The packages on sale are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET:
-# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
+# and optionally MOLLIE_API_KEY: secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
   existingSecret: weldsuite-env

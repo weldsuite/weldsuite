@@ -227,6 +227,18 @@ config:
   # emails to client contacts (empty: those emails are not sent).
   flow:
     projectPortalUrl: ""
+  # Buying credits (the platform's top-up, edition feature credit-top-up)
+  # through Mollie (ADR OPS-012). MOLLIE_API_KEY in the Secret turns it on;
+  # without it /config.json lists credit-top-up as unavailable. Mollie posts
+  # every payment change to webhookUrl (empty: <publicUrl>/api/webhooks/mollie),
+  # which must be reachable from the internet; redirectUrl is where a
+  # checkout returns when the client named no address (empty:
+  # <publicUrl>/settings/billing?credits=success). Packages are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
@@ -320,6 +332,8 @@ config:
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
+#   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
+#                                (config.credits.mollie; optional, unset: no top-up)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).

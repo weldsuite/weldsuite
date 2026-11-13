@@ -6,12 +6,13 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here. Three entries
+//!   both follow the code, and a port removes its entry here. Some entries
 //!   follow the deployment instead: [`MAIL_DOMAINS_FEATURE`], when it has no
 //!   MX for customer domains (`MAIL_MX_HOST`); [`MAIL_FREE_ADDRESSES_FEATURE`],
 //!   when it also has no free-address domain of its own (`WELDMAIL_DOMAIN`);
-//!   and [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
-//!   (`COLLAB_ROOMS_URLS`).
+//!   [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
+//!   (`COLLAB_ROOMS_URLS`); and [`CREDIT_TOP_UP_FEATURE`], without Mollie
+//!   (`MOLLIE_API_KEY`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -56,8 +57,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Stripe stays with Global's billing-worker: plans, subscriptions, seats
     // bought by card, payment methods and invoices (`/api/billing`).
     "billing",
-    // Buying credits is a Stripe checkout (`POST /api/credits/checkout`).
-    "credit-top-up",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
     // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
@@ -158,6 +157,13 @@ pub(crate) const MAIL_DOMAINS_FEATURE: &str = "mail-domains";
 /// `weldmail.com` and `weldmail.org` are Global's and never used here.
 pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
 
+/// Buying credits (`POST /api/credits/checkout`): a Mollie payment on the
+/// Kubernetes editions (`weldsuite_core_platform::topup`, ADR OPS-012), a
+/// Stripe Checkout on Global. Unavailable without `MOLLIE_API_KEY` (and an
+/// address Mollie reports payments to): the checkout then answers as the
+/// workers do without billing-worker.
+pub(crate) const CREDIT_TOP_UP_FEATURE: &str = "credit-top-up";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -190,6 +196,8 @@ pub(crate) struct EditionConfig {
     pub(crate) live_editing: bool,
     /// What the deployment offers of WeldMail's addresses.
     pub(crate) mail: MailOffer,
+    /// Credits can be bought through Mollie: [`CREDIT_TOP_UP_FEATURE`].
+    pub(crate) credit_top_up: bool,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -234,6 +242,7 @@ impl Default for EditionConfig {
             video_configured: false,
             live_editing: false,
             mail: MailOffer::default(),
+            credit_top_up: false,
         }
     }
 }
@@ -263,7 +272,15 @@ impl EditionConfig {
             .map(|raw| public_env(&raw, problems))
             .unwrap_or_default();
         let mail = MailOffer::from_lookup(lookup, problems);
+        let credit_top_up = match weldsuite_core_platform::TopUpSettings::from_lookup(lookup) {
+            Ok(settings) => settings.is_some(),
+            Err(problem) => {
+                problems.push(problem);
+                false
+            }
+        };
         Self {
+            credit_top_up,
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
@@ -299,6 +316,9 @@ impl EditionConfig {
         }
         if !self.mail.free_addresses {
             features.push(MAIL_FREE_ADDRESSES_FEATURE);
+        }
+        if !self.credit_top_up {
+            features.push(CREDIT_TOP_UP_FEATURE);
         }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
@@ -369,7 +389,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + 3
+            UNAVAILABLE_FEATURES.len() + 4
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -390,7 +410,11 @@ mod tests {
         let mut body = json!({});
         config.describe(&mut body);
         let mut lacks = UNAVAILABLE_FEATURES.to_vec();
-        lacks.extend([MAIL_DOMAINS_FEATURE, MAIL_FREE_ADDRESSES_FEATURE]);
+        lacks.extend([
+            MAIL_DOMAINS_FEATURE,
+            MAIL_FREE_ADDRESSES_FEATURE,
+            CREDIT_TOP_UP_FEATURE,
+        ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
@@ -450,6 +474,28 @@ mod tests {
             assert!(problems[0].contains("Global's"), "{problems:?}");
             assert!(!config.mail.free_addresses);
         }
+    }
+
+    #[test]
+    fn offers_the_credit_top_up_with_mollie() {
+        let lacks = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config
+                .unavailable_features()
+                .contains(&CREDIT_TOP_UP_FEATURE)
+        };
+        assert!(lacks(&[]));
+        assert!(lacks(&[("MOLLIE_API_KEY", " ")]), "a blank key is none");
+        assert!(!lacks(&[
+            ("MOLLIE_API_KEY", "live_key"),
+            ("PUBLIC_URL", "https://app.weldsuite.eu"),
+        ]));
+        // A key Mollie could never report payments for stops the start.
+        let (config, problems) = read(&[("MOLLIE_API_KEY", "live_key")]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("MOLLIE_WEBHOOK_URL"), "{problems:?}");
+        assert!(!config.credit_top_up);
     }
 
     #[test]
