@@ -805,38 +805,6 @@
           "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
         },
         {
-          "route": "POST /api/mail-ai/auto-draft",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/draft",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/improve-text",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/inbox-summary",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/label",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/label/batch",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/reply",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/smart-replies",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
           "route": "POST /api/mail-domains",
           "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
         },
@@ -935,6 +903,23 @@
         "packages/domains/mail/src/",
         "rust/modules/mail/",
         "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: ai",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-ai/access.test.ts",
+        "src/routes/mail-ai/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "packages/core/ai/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/",
+        "rust/crates/ai/"
       ]
     },
     {
