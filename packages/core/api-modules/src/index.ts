@@ -116,6 +116,8 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('core', 8789, null, [
     '/api/access-requests',
     '/api/account',
+    // Rust-only (EU and self-hosted editions, ADR AI-012): Global's app-api does not mount it.
+    '/api/ai-settings',
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',
