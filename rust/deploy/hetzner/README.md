@@ -808,8 +808,11 @@ settings → SMTP provider → Generic SMTP.
 | Sender | the platform's sender (`config.mail.from`, e.g. `notifications@mail.<domain>`): the MTA refuses a sender whose domain has no key for the pool (`550 5.7.1`) |
 
 Then **Test** with an address of your own and **Activate**. The admin API
-does the same with an `IAM_OWNER` token (the `iam-admin-pat` Secret Zitadel's
-first start writes in `zitadel`): `POST /admin/v1/email/smtp` with
+does the same with an `IAM_OWNER` token: the chart's machine user
+`iam-admin`, whose PAT Zitadel's first start writes to the Secret
+`zitadel/iam-admin-pat` (the chart's default
+`FirstInstance.Org.Machine`), or the service user's from step 7.5
+(`ZITADEL_SERVICE_TOKEN` in `weldsuite-env`). `POST /admin/v1/email/smtp` with
 `senderAddress`, `senderName`, `tls`, `host`, `user` and `password`, then
 `POST /admin/v1/email/smtp/<id>/_test` with `{"receiverAddress": …}` and
 `POST /admin/v1/email/<id>/_activate`.
