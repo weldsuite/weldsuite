@@ -518,17 +518,17 @@
         "apps/workers/app-api/src/routes/search/",
         "apps/workers/app-api/src/services/search.ts",
         "apps/workers/app-api/src/services/search/query-understanding.ts",
+        "apps/workers/app-api/src/services/search/indexer.ts",
+        "apps/workers/app-api/src/services/search/documents.ts",
+        "apps/workers/app-api/src/services/search/custom-object-documents.ts",
         "apps/workers/app-api/src/services/member-apps.ts",
         "packages/clients/app-api-client/src/schemas/search.ts",
         "packages/domains/core/src/drive-access.ts",
+        "packages/core/ai/src/testing/",
         "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/search/reindex",
-          "reason": "Needs an AI port for embeddings; not served on the Kubernetes editions, and /config.json lists search-reindex as unavailable."
-        }
+        "rust/crates/core-domain/",
+        "rust/crates/subscribers/src/search/",
+        "rust/crates/ai/"
       ]
     },
     {
@@ -3562,7 +3562,9 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-merge.ts",
         "rust/modules/merge/",
         "rust/crates/connect-domain/src/github_app.rs",
-        "rust/crates/chat-domain/src/system_message.rs"
+        "rust/crates/chat-domain/src/system_message.rs",
+        "packages/core/ai/src/testing/",
+        "rust/crates/ai/"
       ]
     },
     {

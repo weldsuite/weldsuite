@@ -1909,6 +1909,11 @@ fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
             jobs: Some(Arc::clone(&state.infra.jobs)),
             serve_public_objects: state.files_public_via_server,
         },
+        // Search query understanding and the reindex (ADR AI-012), metered
+        // on the master database's wallet; conformance builds take the
+        // test's.
+        ai: state.ai.clone(),
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
     }
 }
 

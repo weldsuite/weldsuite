@@ -4928,6 +4928,7 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -4936,6 +4937,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-subscribers",
 ]
 
 [[package]]

@@ -20,6 +20,7 @@
 //! (TypeScript retries every batch until the AI Gateway is configured).
 
 pub mod ai;
+pub mod backfill;
 mod chunks;
 mod documents;
 

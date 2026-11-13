@@ -203,7 +203,7 @@ impl Overrides {
     }
 
     /// `c.env.WORKSPACE_CACHE`.
-    fn cache(&self, state: &CoreFilesState) -> Option<Arc<dyn DynCache>> {
+    pub(crate) fn cache(&self, state: &CoreFilesState) -> Option<Arc<dyn DynCache>> {
         self.cache
             .as_ref()
             .map(|RequestCache(cache)| Arc::clone(cache))
@@ -1223,6 +1223,8 @@ mod tests {
                 serve_public_objects,
                 ..StorageState::default()
             },
+            ai: None,
+            master: None,
         };
         let request = axum::http::Request::get(format!("/api/storage/public/{key}"))
             .header("host", "weldsuite.example.com")
