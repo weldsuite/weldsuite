@@ -1,12 +1,18 @@
 name: EU production watch
 
 # ADR OPS-020: EU production follows the main builds the EU test cluster runs.
-# Every 10 minutes this compares the build test serves with the one production
-# serves (both public, at https://api.<domain>/version). When test has served
-# a newer main build for SOAK_MINUTES, answers /health, and CI has passed on
-# main at or after the build's commit, it hands that build to the private
-# repo's eu-continuous workflow, which checks it again and pins production to
-# it. This log names only the two builds.
+# This compares the build test serves with the one production serves (both
+# public, at https://api.<domain>/version). When test has served a newer main
+# build for SOAK_MINUTES, answers /health, and CI has passed on main at or
+# after the build's commit, it hands that build to the private repo's
+# eu-continuous workflow, which checks it again and pins production to it.
+# This log names only the two builds.
+#
+# It runs when CI finishes on main, the moment a build can first count, and
+# then keeps checking for up to WAIT_MINUTES, since the build may still be
+# rolling out on test or soaking. The 10-minute schedule is the fallback:
+# GitHub runs a schedule late or not at all under load (on 12-13 Nov it ran
+# 4 times in 21 hours).
 #
 # The CI check here is only a pre-check, so the private repo is not started
 # while CI still runs. The private eu-deploy decides: CI passed on the build's
@@ -18,12 +24,16 @@ name: EU production watch
 # handed on. Pausing is the private repo's EU_CONTINUOUS_DEPLOY variable; like
 # the hand-off, this runs only while DEPLOYS_PRIVATE is "true".
 #
-# The schedule runs here, not in the private repo, because a public repo's
-# minutes are free: the private repo runs only when there is a build to roll
-# out. The weldsuite-deploy-bot App (Actions read/write on weldsuite-deploy
-# only) starts it, as in handoff.yml.
+# It runs here, not in the private repo, because a public repo's minutes are
+# free: the private repo runs only when there is a build to roll out. The
+# weldsuite-deploy-bot App (Actions read/write on weldsuite-deploy only)
+# starts it, as in handoff.yml.
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   schedule:
     - cron: '7-59/10 * * * *'
   workflow_dispatch:
@@ -42,9 +52,16 @@ env:
 jobs:
   watch:
     name: Compare test and production
-    if: vars.DEPLOYS_PRIVATE == 'true' && github.repository == 'weldsuite/weldsuite'
+    # CI finishing counts only for a passing push to main in this repo (a
+    # fork's branch can be called main too, as handoff.yml notes).
+    if: >-
+      vars.DEPLOYS_PRIVATE == 'true' && github.repository == 'weldsuite/weldsuite' &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 40
     # Reads this repo's "Rust images" and CI runs.
     permissions:
       actions: read
@@ -56,72 +73,106 @@ jobs:
         id: compare
         env:
           GH_TOKEN: ${{ github.token }}
+          # How long a run started by CI keeps checking; others check once.
+          WAIT_MINUTES: ${{ github.event_name == 'workflow_run' && '30' || '0' }}
         run: |
           set -euo pipefail
+          deadline=$(( $(date -u +%s) + WAIT_MINUTES * 60 ))
           # /version of a server running a main build's chart, or nothing (a
           # release, an older build without /version, or no answer).
           main_build() {
             curl -fsS -m 20 "$1/version" 2>/dev/null |
               jq -ce 'select(type == "object" and ((.release // "") | test("^[0-9]+\\.[0-9]+\\.[0-9]+-main\\.[0-9]+$")))' 2>/dev/null || true
           }
-          test_build=$(main_build "$TEST_URL")
-          production_build=$(main_build "$PRODUCTION_URL")
-          if [ -z "$test_build" ]; then
-            echo "Test serves no main build at /version; nothing to hand on."
-            exit 0
-          fi
-          if [ -z "$production_build" ]; then
-            echo "Production serves no main build at /version (a release, or it does not follow main yet); nothing to hand on."
-            exit 0
-          fi
-          test_release=$(jq -r .release <<<"$test_build")
-          production_release=$(jq -r .release <<<"$production_build")
-          echo "test: $test_release, production: $production_release"
-          # Main builds rise with the "Rust images" run number.
-          if [ "${test_release##*-main.}" -le "${production_release##*-main.}" ]; then
-            echo "Production runs test's build or a newer one."
-            exit 0
-          fi
-          started=$(jq -r .startedAt <<<"$test_build")
-          minutes=$(( ($(date -u +%s) - $(date -u -d "$started" +%s)) / 60 ))
-          if [ "$minutes" -lt "$SOAK_MINUTES" ]; then
-            echo "Test has served $test_release for $minutes minutes; waiting for $SOAK_MINUTES."
-            exit 0
-          fi
-          health=$(curl -fsS -m 20 "$TEST_URL/health" 2>/dev/null | jq -r '.status // ""' 2>/dev/null || true)
-          case "$health" in
-            pass | warn) ;;
-            *)
-              echo "Test's /health answers '${health:-nothing}'; not handing $test_release on."
-              exit 0
-              ;;
-          esac
-          # The build's commit: the successful "Rust images" run N on main
-          # published the chart X.Y.Z-main.N.
-          run="${test_release##*-main.}"
-          build_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rust-images.yml/runs?branch=main&status=success&per_page=100" \
-            --jq ".workflow_runs[] | select(.run_number == $run and .head_branch == \"main\") | .head_sha" | head -1)
-          if [ -z "$build_sha" ]; then
-            echo "No successful Rust images run $run on main among the last 100; not handing $test_release on."
-            exit 0
-          fi
-          # CI on main runs one at a time and in merge order, so the newest
-          # passing run is the one to compare with.
-          green_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
-            --jq '.workflow_runs[0].head_sha // ""')
-          if [ -z "$green_sha" ]; then
-            echo "CI has not passed on main yet; not handing $test_release on."
-            exit 0
-          fi
-          if [ "$green_sha" != "$build_sha" ]; then
-            order=$(gh api "repos/$GITHUB_REPOSITORY/compare/$build_sha...$green_sha" --jq .status)
-            if [ "$order" != ahead ]; then
-              echo "Test has served $test_release for $minutes minutes and is healthy, but CI has not passed on main at or after it yet; waiting."
+          # Sets release and returns 0 when there is a build to hand on.
+          # Returns 1 when that may change within minutes (a build on its way
+          # to test, soaking, or test unhealthy), 2 when nothing changes until
+          # something else happens (the next CI on main starts this again).
+          release=""
+          check() {
+            local test_build production_build test_release production_release
+            local run started minutes health build_sha green_sha order newest n state conclusion
+            test_build=$(main_build "$TEST_URL")
+            production_build=$(main_build "$PRODUCTION_URL")
+            if [ -z "$test_build" ]; then
+              echo "Test serves no main build at /version; nothing to hand on."
+              return 2
+            fi
+            if [ -z "$production_build" ]; then
+              echo "Production serves no main build at /version (a release, or it does not follow main yet); nothing to hand on."
+              return 2
+            fi
+            test_release=$(jq -r .release <<<"$test_build")
+            production_release=$(jq -r .release <<<"$production_build")
+            run="${test_release##*-main.}"
+            echo "test: $test_release, production: $production_release"
+            # Main builds rise with the "Rust images" run number.
+            if [ "$run" -le "${production_release##*-main.}" ]; then
+              # A newer build may be on its way to test.
+              newest=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rust-images.yml/runs?branch=main&per_page=1" \
+                --jq '.workflow_runs[0] | "\(.run_number) \(.status) \(.conclusion // "none")"' || true)
+              read -r n state conclusion <<<"${newest:-0 none none}"
+              if [ "$n" -gt "$run" ] && { [ "$state" != completed ] || [ "$conclusion" = success ]; }; then
+                echo "Production runs test's build; Rust images run $n is on its way to test."
+                return 1
+              fi
+              echo "Production runs test's build or a newer one."
+              return 2
+            fi
+            started=$(jq -r .startedAt <<<"$test_build")
+            minutes=$(( ($(date -u +%s) - $(date -u -d "$started" +%s)) / 60 ))
+            if [ "$minutes" -lt "$SOAK_MINUTES" ]; then
+              echo "Test has served $test_release for $minutes minutes; waiting for $SOAK_MINUTES."
+              return 1
+            fi
+            health=$(curl -fsS -m 20 "$TEST_URL/health" 2>/dev/null | jq -r '.status // ""' 2>/dev/null || true)
+            case "$health" in
+              pass | warn) ;;
+              *)
+                echo "Test's /health answers '${health:-nothing}'; not handing $test_release on."
+                return 1
+                ;;
+            esac
+            # The build's commit: the successful "Rust images" run N on main
+            # published the chart X.Y.Z-main.N.
+            build_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rust-images.yml/runs?branch=main&status=success&per_page=100" \
+              --jq "[.workflow_runs[] | select(.run_number == $run and .head_branch == \"main\") | .head_sha][0] // \"\"" || true)
+            if [ -z "$build_sha" ]; then
+              echo "No successful Rust images run $run on main among the last 100; not handing $test_release on."
+              return 2
+            fi
+            # CI on main runs one at a time and in merge order, so the newest
+            # passing run is the one to compare with.
+            green_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // ""' || true)
+            if [ -z "$green_sha" ]; then
+              echo "CI has not passed on main yet; not handing $test_release on."
+              return 2
+            fi
+            if [ "$green_sha" != "$build_sha" ]; then
+              order=$(gh api "repos/$GITHUB_REPOSITORY/compare/$build_sha...$green_sha" --jq .status || true)
+              if [ "$order" != ahead ]; then
+                echo "Test has served $test_release for $minutes minutes and is healthy, but CI has not passed on main at or after it yet."
+                return 2
+              fi
+            fi
+            echo "Test has served $test_release for $minutes minutes and is healthy, and CI passed on main at or after it."
+            release="$test_release"
+            return 0
+          }
+          while :; do
+            outcome=0
+            check || outcome=$?
+            if [ "$outcome" = 0 ]; then
+              echo "release=$release" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-          fi
-          echo "Test has served $test_release for $minutes minutes and is healthy, and CI passed on main at or after it."
-          echo "release=$test_release" >> "$GITHUB_OUTPUT"
+            if [ "$outcome" = 2 ] || [ $(( $(date -u +%s) + 120 )) -gt "$deadline" ]; then
+              exit 0
+            fi
+            echo "Checking again in 2 minutes."
+            sleep 120
+          done
 
   handoff:
     name: Hand the build to production
