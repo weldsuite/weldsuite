@@ -117,7 +117,7 @@ pub(crate) fn cron_matches_at(expression: &str, timezone: &str, at_ms: i64) -> b
 /// `computeNextRunAt(expression, timezone, from, { startDate, endDate })`:
 /// the first whole minute strictly after `from` (and not before
 /// `startDate`) the expression fires at, within a year and `endDate`.
-pub(crate) fn compute_next_run_at(
+pub fn compute_next_run_at(
     expression: &str,
     timezone: &str,
     from_ms: i64,
