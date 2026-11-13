@@ -42,8 +42,9 @@ runbooks are in a private deployment repository (ADR OPS-018). Their Flux
 reads two sources: this repository (GitRepository `weldsuite`) for the base
 layers above, and the private one (`flux-system`) for the cluster folder and
 the secrets. The test cluster follows `main`; production and the drill follow
-the main build test last ran, pinned to its chart (`X.Y.Z-main.N`) and its
-commit (ADR OPS-020). A self-hosted install follows a release tag
+the main build test last ran, pinned to its chart (`X.Y.Z-main.N`) and the
+commit whose CI passed for it: the build's own, or a later one that changed
+nothing the build is made from (ADR OPS-020). A self-hosted install follows a release tag
 (`weldsuite-vX.Y.Z`).
 
 Order: `sources` → `controllers` → `secrets` → `configs` (with a cluster's

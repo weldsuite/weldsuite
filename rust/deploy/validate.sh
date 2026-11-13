@@ -239,7 +239,9 @@ else
   echo "(no eu cluster: production's release not checked)"
 fi
 # Base layers at a release tag (sources.yaml) follow the cluster's own
-# release; base layers at a commit go with a main build (that build's commit).
+# release; base layers at a commit go with a main build (the build's commit,
+# or the later commit on main whose passing CI vouched for the build: one that
+# changed none of the paths the build is made from; ADR OPS-020).
 for cluster in "$clusters"/*/; do
   cluster="${cluster%/}"
   [ -f "$cluster/sources.yaml" ] || continue

@@ -3,9 +3,15 @@ name: EU production watch
 # ADR OPS-020: EU production follows the main builds the EU test cluster runs.
 # Every 10 minutes this compares the build test serves with the one production
 # serves (both public, at https://api.<domain>/version). When test has served
-# a newer main build for SOAK_MINUTES and answers /health, it hands that build
-# to the private repo's eu-continuous workflow, which checks it again and pins
-# production to it. This log names only the two builds.
+# a newer main build for SOAK_MINUTES, answers /health, and CI has passed on
+# main at or after the build's commit, it hands that build to the private
+# repo's eu-continuous workflow, which checks it again and pins production to
+# it. This log names only the two builds.
+#
+# The CI check here is only a pre-check, so the private repo is not started
+# while CI still runs. The private eu-deploy decides: CI passed on the build's
+# own commit, or on a later commit on main that changed none of the paths
+# "Rust images" builds from (ADR OPS-020).
 #
 # Production starts following once it serves a main build itself (/version
 # answers X.Y.Z-main.N); until then, and while it runs a release, nothing is
@@ -39,11 +45,17 @@ jobs:
     if: vars.DEPLOYS_PRIVATE == 'true' && github.repository == 'weldsuite/weldsuite'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Reads this repo's "Rust images" and CI runs.
+    permissions:
+      actions: read
+      contents: read
     outputs:
       release: ${{ steps.compare.outputs.release }}
     steps:
       - name: Compare the builds
         id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # /version of a server running a main build's chart, or nothing (a
@@ -84,7 +96,31 @@ jobs:
               exit 0
               ;;
           esac
-          echo "Test has served $test_release for $minutes minutes and is healthy."
+          # The build's commit: the successful "Rust images" run N on main
+          # published the chart X.Y.Z-main.N.
+          run="${test_release##*-main.}"
+          build_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rust-images.yml/runs?branch=main&status=success&per_page=100" \
+            --jq ".workflow_runs[] | select(.run_number == $run and .head_branch == \"main\") | .head_sha" | head -1)
+          if [ -z "$build_sha" ]; then
+            echo "No successful Rust images run $run on main among the last 100; not handing $test_release on."
+            exit 0
+          fi
+          # CI on main runs one at a time and in merge order, so the newest
+          # passing run is the one to compare with.
+          green_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""')
+          if [ -z "$green_sha" ]; then
+            echo "CI has not passed on main yet; not handing $test_release on."
+            exit 0
+          fi
+          if [ "$green_sha" != "$build_sha" ]; then
+            order=$(gh api "repos/$GITHUB_REPOSITORY/compare/$build_sha...$green_sha" --jq .status)
+            if [ "$order" != ahead ]; then
+              echo "Test has served $test_release for $minutes minutes and is healthy, but CI has not passed on main at or after it yet; waiting."
+              exit 0
+            fi
+          fi
+          echo "Test has served $test_release for $minutes minutes and is healthy, and CI passed on main at or after it."
           echo "release=$test_release" >> "$GITHUB_OUTPUT"
 
   handoff:
