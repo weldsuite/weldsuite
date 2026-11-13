@@ -22,7 +22,10 @@ pub enum Role {
 pub enum Part {
     Text(String),
     /// An image (`image/png`, `image/jpeg`, …), for vision models.
-    Image { mime: String, data: Vec<u8> },
+    Image {
+        mime: String,
+        data: Vec<u8>,
+    },
     /// A file (PDF), for models with native file input.
     Document {
         mime: String,

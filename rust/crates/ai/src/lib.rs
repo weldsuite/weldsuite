@@ -9,7 +9,7 @@
 //!   one AI is off ([`Ai::enabled`] is false) and every call answers
 //!   [`AiError::Unavailable`].
 //! - **Workspace opt-in.** An admin (`ai:manage`) may enable Anthropic and
-//!   OpenAI, labelled "outside the EU", paid with WeldSuite's key (charged as
+//!   `OpenAI`, labelled "outside the EU", paid with WeldSuite's key (charged as
 //!   credits) or the workspace's own key (not charged). The settings live in
 //!   the tenant tables `ai_settings` and `ai_provider_keys` ([`settings`]).
 //! - **Policy.** Call sites ask for a [`Feature`], a [`Task`] and a [`Tier`],
@@ -53,8 +53,10 @@ pub mod providers;
 pub mod settings;
 pub mod types;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use weldsuite_db::PgPool;
 use weldsuite_ports::{DynCache, OutboundHttp};
 
@@ -62,11 +64,12 @@ pub use catalog::{Capability, Feature, KeySource, ProviderId, Region, Task, Tier
 pub use config::{AiConfig, BillingMode};
 pub use error::AiError;
 pub use fake::FakeProvider;
-pub use policy::{EffectivePolicy, Route};
+pub use policy::{EffectivePolicy, Route, Target};
+pub use settings::{OwnKeyStatus, UsageReport, WorkspaceAiSettings};
 pub use types::{
     Audio, ChatRequest, ChatResponse, ChatStream, Document, EmbedResponse, FinishReason,
-    Message, OcrPage, OcrResponse, Part, Role, Served, StreamEvent, ToolCall, ToolChoice,
-    ToolDef, TranscribeResponse, Usage,
+    JsonSchema, Message, OcrPage, OcrResponse, Part, Role, Served, StreamEvent, ToolCall,
+    ToolChoice, ToolDef, TranscribeResponse, Usage,
 };
 
 /// One AI call's context: who asks, for what, and where its settings and
@@ -188,6 +191,49 @@ struct Inner {
     http: OutboundHttp,
     cache: Option<Arc<dyn DynCache>>,
     fake: Option<FakeProvider>,
+    limits: Arc<WorkspaceLimits>,
+}
+
+/// The per-workspace concurrency cap on WeldSuite's keys
+/// (`AI_WORKSPACE_CONCURRENCY`): one in-process semaphore per workspace, so
+/// one workspace's bulk labelling can't take every slot of the shared
+/// Mistral account on this replica. Calls past the cap wait for a slot. Own
+/// keys aren't capped. 0: no cap.
+struct WorkspaceLimits {
+    max: usize,
+    semaphores: Mutex<HashMap<String, Arc<Semaphore>>>,
+}
+
+impl WorkspaceLimits {
+    fn new(max: u32) -> Self {
+        Self {
+            max: usize::try_from(max)
+                .unwrap_or(usize::MAX)
+                .min(Semaphore::MAX_PERMITS),
+            semaphores: Mutex::default(),
+        }
+    }
+
+    async fn acquire(&self, workspace_id: &str) -> Option<OwnedSemaphorePermit> {
+        if self.max == 0 {
+            return None;
+        }
+        let semaphore = {
+            let mut semaphores = self
+                .semaphores
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Forget the workspaces nobody is calling for, now and then.
+            if semaphores.len() > 4096 {
+                semaphores.retain(|_, s| Arc::strong_count(s) > 1);
+            }
+            semaphores
+                .entry(workspace_id.to_owned())
+                .or_insert_with(|| Arc::new(Semaphore::new(self.max)))
+                .clone()
+        };
+        semaphore.acquire_owned().await.ok()
+    }
 }
 
 impl std::fmt::Debug for Ai {
@@ -199,16 +245,20 @@ impl std::fmt::Debug for Ai {
 }
 
 impl Ai {
-    /// The service over `http` (`ReqwestOutbound` in production). `cache`
-    /// holds each workspace's settings for 60 s (Valkey); `None` reads them on
-    /// every call.
+    /// The service over `http`. In production that is
+    /// `ReqwestOutbound::with_timeouts(10 s, 300 s)` (connect, overall); each
+    /// call is cut at 120 s (300 s for OCR and transcription) here. `cache`
+    /// holds each workspace's settings for 60 s (Valkey); `None` reads them
+    /// on every call.
     pub fn new(config: AiConfig, http: OutboundHttp, cache: Option<Arc<dyn DynCache>>) -> Self {
+        let limits = Arc::new(WorkspaceLimits::new(config.workspace_concurrency));
         Self {
             inner: Arc::new(Inner {
                 config,
                 http,
                 cache,
                 fake: None,
+                limits,
             }),
         }
     }
@@ -216,18 +266,22 @@ impl Ai {
     /// Every provider answered by `fake` (unit tests and conformance).
     pub fn fake(config: AiConfig, fake: FakeProvider) -> Self {
         let http = fake.outbound();
+        let limits = Arc::new(WorkspaceLimits::new(config.workspace_concurrency));
         Self {
             inner: Arc::new(Inner {
                 config,
                 http,
                 cache: None,
                 fake: Some(fake),
+                limits,
             }),
         }
     }
 
     /// The same service over another HTTP client: the request's fetch stub in
-    /// conformance builds.
+    /// conformance builds. Every provider call of the copy (chat, streams,
+    /// OCR, embeddings, transcription, key checks) goes through `http`; the
+    /// settings cache and the concurrency cap are shared.
     #[must_use]
     pub fn with_http(&self, http: OutboundHttp) -> Self {
         Self {
@@ -236,6 +290,7 @@ impl Ai {
                 http,
                 cache: self.inner.cache.clone(),
                 fake: self.inner.fake.clone(),
+                limits: self.inner.limits.clone(),
             }),
         }
     }
@@ -275,7 +330,11 @@ impl Ai {
     /// A streamed chat completion. The last event is [`StreamEvent::Finish`],
     /// after the call is metered. A refusal before the first chunk still falls
     /// back.
-    pub async fn chat_stream(&self, call: &AiCall, request: ChatRequest) -> Result<ChatStream, AiError> {
+    pub async fn chat_stream(
+        &self,
+        call: &AiCall,
+        request: ChatRequest,
+    ) -> Result<ChatStream, AiError> {
         let route = self.route(call).await?;
         providers::chat_stream(self, call, &route, request).await
     }
@@ -294,15 +353,128 @@ impl Ai {
     }
 
     /// Speech to text, always on the install provider (Voxtral on EU).
-    pub async fn transcribe(&self, call: &AiCall, audio: Audio) -> Result<TranscribeResponse, AiError> {
+    pub async fn transcribe(
+        &self,
+        call: &AiCall,
+        audio: Audio,
+    ) -> Result<TranscribeResponse, AiError> {
         let route = self.route(call).await?;
         providers::transcribe(self, call, &route, audio).await
     }
 
     /// The workspace's effective policy, as `GET /api/ai-settings` answers it.
-    pub async fn effective_policy(&self, tenant: &PgPool, workspace_id: &str) -> Result<EffectivePolicy, AiError> {
-        let settings = settings::load(tenant, workspace_id, self.inner.cache.as_deref()).await?;
+    pub async fn effective_policy(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+    ) -> Result<EffectivePolicy, AiError> {
+        if !self.enabled() {
+            return Err(AiError::Unavailable);
+        }
+        let settings = self.settings(tenant, workspace_id).await?;
         Ok(policy::effective(&self.inner.config, &settings))
+    }
+
+    /// The workspace's stored settings (cached 60 s), own keys as hints only.
+    pub async fn settings(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+    ) -> Result<WorkspaceAiSettings, AiError> {
+        settings::load(tenant, workspace_id, self.inner.cache.as_deref()).await
+    }
+
+    /// Writes the workspace's providers, default and overrides
+    /// (`settings::save_settings`) and clears its cache.
+    pub async fn save_settings(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+        settings: &WorkspaceAiSettings,
+        updated_by: Option<&str>,
+    ) -> Result<(), AiError> {
+        settings::save_settings(tenant, settings, updated_by).await?;
+        self.invalidate(workspace_id).await;
+        Ok(())
+    }
+
+    /// Checks `key` with the provider (a cheap list of its models): `Ok` when
+    /// it answers, the provider's refusal otherwise.
+    pub async fn check_key(&self, provider: ProviderId, key: &str) -> Result<(), AiError> {
+        providers::check_key(self, provider, key).await
+    }
+
+    /// Checks and stores an own key, sealed (`settings::put_key`), and clears
+    /// the cache. Needs `AI_KEYS_ENCRYPTION_KEY`; a key the provider refuses
+    /// isn't stored.
+    pub async fn put_key(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+        provider: ProviderId,
+        key: &str,
+        created_by: Option<&str>,
+    ) -> Result<OwnKeyStatus, AiError> {
+        let secret = self
+            .inner
+            .config
+            .keys_encryption_key
+            .ok_or(AiError::Unavailable)?;
+        self.check_key(provider, key).await?;
+        let status =
+            settings::put_key(tenant, &secret, workspace_id, provider, key, created_by).await?;
+        self.invalidate(workspace_id).await;
+        Ok(status)
+    }
+
+    /// Checks the stored own key again and records the result
+    /// (`POST /api/ai-settings/keys/:provider/test`). `None` without a key.
+    pub async fn test_key(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+        provider: ProviderId,
+    ) -> Result<Option<OwnKeyStatus>, AiError> {
+        let secret = self
+            .inner
+            .config
+            .keys_encryption_key
+            .ok_or(AiError::Unavailable)?;
+        let Some(key) = settings::own_key(tenant, &secret, workspace_id, provider).await? else {
+            return Ok(None);
+        };
+        let failure = match self.check_key(provider, &key).await {
+            Ok(()) => None,
+            Err(AiError::Provider {
+                status, message, ..
+            }) => Some(match status {
+                Some(status) => format!("{status}: {message}"),
+                None => message,
+            }),
+            Err(error) => return Err(error),
+        };
+        settings::mark_key(tenant, provider, failure.as_deref()).await?;
+        self.invalidate(workspace_id).await;
+        let settings = settings::read(tenant).await?;
+        Ok(settings.own_keys.get(&provider).cloned())
+    }
+
+    /// Removes an own key and clears the cache. Whether there was one.
+    pub async fn delete_key(
+        &self,
+        tenant: &PgPool,
+        workspace_id: &str,
+        provider: ProviderId,
+    ) -> Result<bool, AiError> {
+        let deleted = settings::delete_key(tenant, provider).await?;
+        self.invalidate(workspace_id).await;
+        Ok(deleted)
+    }
+
+    /// Credits and tokens per provider and feature, this month and last
+    /// (`GET /api/ai-settings/usage`).
+    pub async fn usage(&self, master: &PgPool, workspace_id: &str) -> Result<UsageReport, AiError> {
+        settings::usage(master, workspace_id).await
     }
 
     /// Forget a workspace's cached settings (after a write).
@@ -314,16 +486,35 @@ impl Ai {
         &self.inner.http
     }
 
-    pub(crate) fn fake_provider(&self) -> Option<&FakeProvider> {
+    /// The fake behind [`Ai::fake`], to read the recorded calls.
+    pub fn fake_provider(&self) -> Option<&FakeProvider> {
         self.inner.fake.as_ref()
     }
 
-    async fn workspace_settings(&self, call: &AiCall) -> Result<settings::WorkspaceAiSettings, AiError> {
+    /// A slot of the workspace's concurrency cap, for a call on WeldSuite's
+    /// key; `None` for own keys and without a cap.
+    pub(crate) async fn permit(
+        &self,
+        call: &AiCall,
+        target: &Target,
+    ) -> Option<OwnedSemaphorePermit> {
+        if target.key_source != KeySource::Weldsuite {
+            return None;
+        }
+        self.inner.limits.acquire(&call.workspace_id).await
+    }
+
+    async fn workspace_settings(
+        &self,
+        call: &AiCall,
+    ) -> Result<settings::WorkspaceAiSettings, AiError> {
         if !self.enabled() {
             return Err(AiError::Unavailable);
         }
         match &call.tenant {
-            Some(tenant) => settings::load(tenant, &call.workspace_id, self.inner.cache.as_deref()).await,
+            Some(tenant) => {
+                settings::load(tenant, &call.workspace_id, self.inner.cache.as_deref()).await
+            }
             None => Ok(settings::WorkspaceAiSettings::default()),
         }
     }
