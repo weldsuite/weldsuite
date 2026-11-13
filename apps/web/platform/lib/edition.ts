@@ -25,6 +25,7 @@
 
 import { API_MODULES, type ApiModuleId } from '@weldsuite/api-modules';
 import { normalizeAppCode } from '@weldsuite/permissions';
+import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 
 /**
@@ -83,11 +84,22 @@ export const EDITION_FEATURES = [
   /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
   'meet-recordings',
   /**
-   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
-   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
-   * Kubernetes editions yet).
+   * WeldAgent's runs, routine tests and teach mode (plan eu-ai-mistral phase 5:
+   * the Rust agent loop). On a Kubernetes install it is offered once an AI
+   * provider is configured (`ai` in `/config.json`) and the loop is ported.
    */
   'agent-ai',
+  /**
+   * The assistant chat and its drawer (`/new-chat`, the global shortcut,
+   * board AI). Offered on a Kubernetes install as soon as an AI provider is
+   * configured; split from `agent-ai` so chat does not wait for the agent loop.
+   */
+  'assistant-ai',
+  /**
+   * WeldAgent's sandbox, computer use and web browsing (they run at Anthropic).
+   * Always unavailable on the Kubernetes editions.
+   */
+  'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
   /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
@@ -170,6 +182,19 @@ export function moduleForApp(appCode: string): ApiModuleId {
 /** Whether this deployment offers a first-party app (sidebar, app store, routes). */
 export function isAppOffered(appCode: string): boolean {
   return isModuleOffered(moduleForApp(appCode));
+}
+
+/**
+ * The AI this deployment runs (`ai` in `/config.json`): null on Global, which
+ * has no `/api/ai-settings`, and on a Kubernetes install without a provider.
+ */
+export function getAiConfig(): RuntimeAiConfig | null {
+  return getRuntimeConfig()?.ai ?? null;
+}
+
+/** Whether workspace AI settings exist here: a Kubernetes install with a configured provider. */
+export function hasAiSettings(): boolean {
+  return getAiConfig() !== null;
 }
 
 /** Whether this deployment offers a feature (`unavailableFeatures` doesn't name it). */

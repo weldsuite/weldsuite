@@ -12,13 +12,15 @@
  */
 
 import type { ApiModuleId } from '@weldsuite/api-modules';
-import { isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { hasAiSettings, isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 /** What a page needs: one of these modules, and this feature. */
 export interface EditionRequirement {
   modules?: readonly ApiModuleId[];
   feature?: EditionFeature;
+  /** The install runs AI with workspace settings (`ai` in `/config.json`): false on Global. */
+  ai?: boolean;
 }
 
 /**
@@ -28,11 +30,12 @@ export interface EditionRequirement {
 const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: EditionRequirement]> = [
   // WeldAgent is workspace-level: its pages have no app segment.
   ['/agents', { modules: ['agent'] }],
-  ['/new-chat', { modules: ['agent'] }],
+  ['/new-chat', { modules: ['agent'], feature: 'assistant-ai' }],
   // WeldChat's full-screen call room.
   ['/call-room', { modules: ['chat'] }],
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
+  ['/settings/ai', { ai: true }],
   ['/settings/plans', { feature: 'billing' }],
   ['/settings/billing', { feature: 'billing' }],
   // Buying and porting a number are Stripe checkouts through billing-worker.
@@ -74,6 +77,7 @@ export function routeRequirement(pathname: string): EditionRequirement | null {
 export function isRequirementMet(requirement: EditionRequirement | null): boolean {
   if (!requirement) return true;
   if (requirement.feature && !isFeatureAvailable(requirement.feature)) return false;
+  if (requirement.ai && !hasAiSettings()) return false;
   return !requirement.modules || requirement.modules.some((module) => isModuleOffered(module));
 }
 

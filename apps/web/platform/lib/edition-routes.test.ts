@@ -57,6 +57,15 @@ describe('route availability', () => {
     expect(routeRequirement('/settings/billing#invoices')).toEqual({ feature: 'billing' });
   });
 
+  it('offers /settings/ai only where the install runs AI', () => {
+    expect(isRouteOffered('/settings/ai')).toBe(false);
+    setRuntimeConfig({
+      ...EU_CONFIG,
+      ai: { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] },
+    });
+    expect(isRouteOffered('/settings/ai')).toBe(true);
+  });
+
   it('matches whole segments only', () => {
     expect(routeRequirement('/settings/ssox')).toBeNull();
     expect(routeRequirement('/agentsx')).toBeNull();

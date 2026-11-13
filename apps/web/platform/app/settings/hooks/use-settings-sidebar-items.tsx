@@ -31,6 +31,7 @@ import {
   Timer,
   Grid3x3,
   Route,
+  Sparkles,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
@@ -39,6 +40,7 @@ import type { TranslationsType } from '@/lib/i18n/types';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useI18n } from '@/lib/i18n/provider';
 import { isRouteOffered } from '@/lib/edition-routes';
+import { usePermissions } from '@weldsuite/permissions/react';
 
 function makeAppLogoIcon(appCode: string, name: string) {
   return function AppLogoIcon({ className }: { className?: string }) {
@@ -106,6 +108,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
   const pathname = usePathname();
   const router = useRouter();
   const { data: apps } = useInstalledApps();
+  const { can } = usePermissions();
+  const canManageAi = can('ai:manage');
 
   const installedAppCodes = React.useMemo(
     () => new Set((apps ?? []).filter((app) => app.status === 'active').map((app) => app.appCode)),
@@ -157,6 +161,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.teamMembers, href: '/settings/team', icon: Users },
           { title: ts.roles.title, href: '/settings/roles', icon: ShieldCheck },
           { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
+          // Kubernetes editions with AI configured (hidden elsewhere by the edition check below).
+          ...(canManageAi ? [{ title: ts.menu.ai, href: '/settings/ai', icon: Sparkles }] : []),
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },
@@ -182,7 +188,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
     // Edition flags (4.F3): only pages this deployment serves (no billing,
     // SSO, integrations, … where the backend lacks them).
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => isRouteOffered(item.href)) }));
-  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps]);
+  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps, canManageAi]);
 
   const sidebarProps = React.useMemo(
     () => ({ appName: ts.title, showBackButton: true, onBack: handleBack }),
