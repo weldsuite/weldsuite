@@ -261,15 +261,12 @@ resources:
 
 # The entity-event subscribers on the in-cluster JetStream: audit log,
 # outgoing webhooks, realtime fan-out (VALKEY_URL is in the Secret) and the
-# semantic search index, its vectors from Mistral's embeddings (1024
-# dimensions) with the same MISTRAL_API_KEY as config.ai.
+# semantic search index. The index's vectors come from config.ai: Mistral's
+# mistral-embed (1024 dimensions), metered as search-index per workspace and
+# batch, so consume.embeddings (for installs without AI) stays unset.
 consume:
   enabled: true
   replicaCount: 2
-  embeddings:
-    url: https://api.mistral.ai/v1
-    model: mistral-embed
-    apiKeySecretKey: MISTRAL_API_KEY
   # The hub and dead-letter streams on all three JetStream nodes, capped
   # under the 20Gi JetStream volume (infrastructure/services/values/nats.yaml):
   # 12 GiB of events, 2 GiB of dead letters.

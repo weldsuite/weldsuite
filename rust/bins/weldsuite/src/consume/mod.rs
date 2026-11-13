@@ -484,9 +484,7 @@ fn handlers(
             // (ADR AI-011 kept it out until the install has a provider).
             "weldagent" => {
                 let Some(ai) = services.ai.clone() else {
-                    tracing::warn!(
-                        "AI is not configured: the weldagent subscriber does not run"
-                    );
+                    tracing::warn!("AI is not configured: the weldagent subscriber does not run");
                     continue;
                 };
                 Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
@@ -504,17 +502,30 @@ fn handlers(
                     Arc::clone(realtime),
                 ))
             }
+            // The install's AI (`search-index`, metered), else the plain
+            // endpoint of an install without AI.
             "search-index" => {
-                let Some(embeddings) = embeddings else {
+                let with_ai = services.ai.clone().and_then(|ai| {
+                    SearchSubscriber::with_ai(Arc::clone(tenants), ai, Some(master.clone()))
+                });
+                if let Some(subscriber) = with_ai {
+                    if embeddings.is_some() {
+                        tracing::info!(
+                            "search-index: embeddings from the install's AI; EMBEDDINGS_URL is not used"
+                        );
+                    }
+                    Arc::new(subscriber)
+                } else if let Some(embeddings) = embeddings {
+                    Arc::new(SearchSubscriber::new(
+                        Arc::clone(tenants),
+                        Arc::clone(embeddings),
+                    ))
+                } else {
                     tracing::warn!(
-                        "EMBEDDINGS_URL is not set: the search-index subscriber does not run"
+                        "neither AI with an embedding model nor EMBEDDINGS_URL: the search-index subscriber does not run"
                     );
                     continue;
-                };
-                Arc::new(SearchSubscriber::new(
-                    Arc::clone(tenants),
-                    Arc::clone(embeddings),
-                ))
+                }
             }
             _ => continue,
         };
