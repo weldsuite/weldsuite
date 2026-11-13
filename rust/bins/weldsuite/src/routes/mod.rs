@@ -772,6 +772,8 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
         realtime: state.infra.realtime.clone(),
         // A release's notes by email: WeldMail's relay and ledgers.
         mail: deployment_outbound(state),
+        // A release's notes, written by the install's AI.
+        ai: state.ai.clone(),
     }
 }
 

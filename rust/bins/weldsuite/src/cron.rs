@@ -348,6 +348,8 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
         realtime: infra.realtime.clone(),
         // The digest sends no mail.
         mail: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        // Nor writes release notes.
+        ai: None,
     };
     let now = time::OffsetDateTime::now_utc();
     let result = weldsuite_merge::run_digest_sweep(&state, &master, now).await;
