@@ -403,7 +403,7 @@
           "editorMode": "code",
           "range": false,
           "instant": true,
-          "expr": "count(kube_job_status_failed{namespace=\"weldsuite\"} > 0) or vector(0)"
+          "expr": "count((kube_job_failed{namespace=\"weldsuite\", condition=\"true\"} == 1) * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}) or vector(0)"
         }
       ],
       "description": "Failed runs of the weldsuite CronJobs still kept by Kubernetes (see \"WeldSuite jobs and consumers\").",

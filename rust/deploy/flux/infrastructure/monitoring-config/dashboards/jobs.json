@@ -117,7 +117,7 @@
           "range": false,
           "instant": true,
           "format": "table",
-          "expr": "sum by (cronjob) (label_replace(kube_job_status_failed{namespace=\"weldsuite\"} * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}, \"cronjob\", \"$1\", \"owner_name\", \"(.*)\")) or max by (cronjob) (kube_cronjob_info{namespace=\"weldsuite\"} * 0)"
+          "expr": "sum by (cronjob) (label_replace((kube_job_failed{namespace=\"weldsuite\", condition=\"true\"} == 1) * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}, \"cronjob\", \"$1\", \"owner_name\", \"(.*)\")) or max by (cronjob) (kube_cronjob_info{namespace=\"weldsuite\"} * 0)"
         }
       ],
       "description": "Times are how long ago. Failed runs kept: failed Jobs Kubernetes still holds (failedJobsHistoryLimit); their pods' logs say why.",
@@ -282,7 +282,7 @@
           "refId": "A",
           "editorMode": "code",
           "range": true,
-          "expr": "sum by (owner_name) (kube_job_status_failed{namespace=\"weldsuite\"} * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}) > 0",
+          "expr": "sum by (owner_name) ((kube_job_failed{namespace=\"weldsuite\", condition=\"true\"} == 1) * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}) > 0",
           "legendFormat": "{{owner_name}}"
         }
       ],

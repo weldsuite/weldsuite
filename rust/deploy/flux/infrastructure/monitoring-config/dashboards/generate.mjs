@@ -27,8 +27,11 @@ const BACKUP_TS = '(barman_cloud_cloudnative_pg_io_last_available_backup_timesta
 const NODENAME = '* on (instance) group_left (nodename) node_uname_info';
 const asNode = (expr) => `label_replace(${expr}, "node", "$1", "nodename", "(.*)")`;
 const RUNNING = '* on (namespace, pod) group_left () (kube_pod_status_phase{phase=~"Pending|Running"} == 1)';
+// The weldsuite CronJobs' runs that failed: the Job's Failed condition, not
+// its failed pods (a run whose retry succeeded has a failed pod but didn't
+// fail), and only Jobs a CronJob owns (not the migrate hook).
 const CRON_FAILED =
-  'kube_job_status_failed{namespace="weldsuite"} * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace="weldsuite", owner_kind="CronJob"}';
+  '(kube_job_failed{namespace="weldsuite", condition="true"} == 1) * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace="weldsuite", owner_kind="CronJob"}';
 
 // ---- panel helpers --------------------------------------------------------
 
@@ -207,7 +210,7 @@ dashboards['overview'] = dashboard(
     }),
     stat('Critical alerts', S(3), [{ expr: 'count(ALERTS{alertstate="firing", severity="critical"}) or vector(0)' }], { thresholds: steps([1, 'red']) }),
     stat('Warnings', S(3), [{ expr: 'count(ALERTS{alertstate="firing", severity="warning"}) or vector(0)' }], { thresholds: steps([1, 'orange']) }),
-    stat('Failed cron runs', S(3), [{ expr: 'count(kube_job_status_failed{namespace="weldsuite"} > 0) or vector(0)' }], {
+    stat('Failed cron runs', S(3), [{ expr: `count(${CRON_FAILED}) or vector(0)` }], {
       thresholds: steps([1, 'orange']),
       description: 'Failed runs of the weldsuite CronJobs still kept by Kubernetes (see "WeldSuite jobs and consumers").',
     }),
