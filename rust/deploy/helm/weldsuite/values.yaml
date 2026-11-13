@@ -1182,6 +1182,13 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldAgent: the due cron routines of the workspaces the weldagent_routine
+    # due index lists. Does nothing without AI (config.ai) or while the agent
+    # module is not served.
+    weldagent-routines:
+      enabled: true
+      schedule: "0 * * * *"
+      activeDeadlineSeconds: 3000
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.

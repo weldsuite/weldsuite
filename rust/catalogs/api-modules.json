@@ -503,7 +503,7 @@
       "/api/chat-agent",
       "/api/weldagent"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "agent-api"
   },
   {
