@@ -627,6 +627,31 @@ The module is `agent` in `packages/core/api-modules` (prefixes `/api/ai`,
 like `meet` needs video. Phase 3e's assistant routes (`/api/ai/chat`,
 `/api/ai/generate`, without `agentId`) live in the same crate.
 
+### Build order and what is ported
+
+The crate is built in two parts so the data side does not wait for the model.
+
+- **Part one** (`rust/modules/agent`): the agents, access, sub-agent, conversation,
+  message and approval routes; the settings, mention and model-list stubs as
+  the worker has them; grants and subscriptions; the tool registry, the
+  argument validator and `execute_tool`; the run persistence; the event
+  dispatch and the `weldagent` subscriber; the routine data, due index and
+  sweep. Everything that would call the model goes through two seams in
+  `run.rs`, `run_agent` and `agent_turn`, which answer 503 `ai_unavailable`
+  until part two.
+- **Part two**: the loop itself behind those seams, the assistant chat
+  (`/api/ai`), rooms (`rooms.rs`), and the rest of the tools.
+- **Tools on EU so far**: `save_agent_setup`, `ask_user`, `list_routines`,
+  `save_skill`, `remember`, `list_people`, `get_person`, `create_person`,
+  `list_tasks`, `create_task`, `list_projects`, `get_project`. Left for part
+  two: `create_routine` and `update_routine` (they need the parity routes of
+  routines), the ticket tools (WeldDesk inbox filters), `message_agent` and
+  `create_agent_group_chat` (rooms), the sheets, board and merge tools (those
+  module crates expose routes, not a library), and the browser tools (hidden).
+- **Not yet ported**: the parity routes for skills, routines, memories,
+  templates, teach sessions and connector events
+  (`routes/weldagent/parity.ts`), except approvals.
+
 ### Parity: what behaves the same, what doesn't
 
 Same: every route path, body, status code and message; the access rules

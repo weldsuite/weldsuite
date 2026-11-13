@@ -79,7 +79,7 @@ async fn accessible(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
+pub(crate) enum Mode {
     Access,
     Edit,
 }
@@ -109,6 +109,17 @@ async fn resolve_agent(
             .into_response());
     }
     Ok((agent, viewer))
+}
+
+/// `agentGuard(c, agentId, mode)`: the error response when the caller may not
+/// see ([`Mode::Access`]) or change ([`Mode::Edit`]) the agent. Routines,
+/// memories, skills and teaching belong to an agent, so its owner changes them.
+pub(crate) async fn agent_guard(
+    caller: &Caller,
+    agent_id: &str,
+    mode: Mode,
+) -> Result<(), Response> {
+    resolve_agent(caller, agent_id, mode).await.map(|_| ())
 }
 
 /// Permissions in `requested` that the caller does not hold
@@ -392,6 +403,7 @@ pub(crate) async fn update(
     if !denied.is_empty() {
         return cannot_grant(&denied);
     }
+    let status_changed = data.status.is_some();
     let patch = UpdateAgent {
         name: data.name,
         description: data.description,
@@ -409,7 +421,12 @@ pub(crate) async fn update(
         ..UpdateAgent::default()
     };
     match update_agent(&caller.db, &id, patch).await {
-        Ok(Some(agent)) => Data(with_capabilities(&agent, &viewer)).into_response(),
+        Ok(Some(agent)) => {
+            if status_changed {
+                reindex_routines(&state, &caller).await;
+            }
+            Data(with_capabilities(&agent, &viewer)).into_response()
+        }
         Ok(None) => not_found(),
         Err(error) => failed(&error, CONTEXT, "Failed to update agent"),
     }
@@ -609,14 +626,21 @@ pub(crate) async fn open_chat(caller: Caller, Path(id): Path<String>) -> Respons
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
 /// `DELETE /agents/:id`.
-pub(crate) async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
+pub(crate) async fn remove(
+    State(state): State<AgentState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let (agent, _) = match resolve_agent(&caller, &id, Mode::Edit).await {
         Ok(found) => found,
         Err(response) => return response,
     };
     let agent_id = agent["id"].as_str().unwrap_or_default();
     match delete_agent(&caller.db, agent_id).await {
-        Ok(true) => NoContent.into_response(),
+        Ok(true) => {
+            reindex_routines(&state, &caller).await;
+            NoContent.into_response()
+        }
         Ok(false) => not_found(),
         Err(error) => failed(&error, CONTEXT, "Failed to delete agent"),
     }
@@ -627,7 +651,11 @@ pub(crate) async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
 /// `POST /agents/:id/activate`: set active and settle its event
 /// subscriptions: the explicit triggers saved in setup when there are any,
 /// else a reading of the instructions.
-pub(crate) async fn activate(caller: Caller, Path(id): Path<String>) -> Response {
+pub(crate) async fn activate(
+    State(state): State<AgentState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let (agent, viewer) = match resolve_agent(&caller, &id, Mode::Edit).await {
         Ok(found) => found,
         Err(response) => return response,
@@ -644,7 +672,10 @@ pub(crate) async fn activate(caller: Caller, Path(id): Path<String>) -> Response
         ..UpdateAgent::default()
     };
     match update_agent(&caller.db, agent_id, patch).await {
-        Ok(Some(updated)) => Data(with_capabilities(&updated, &viewer)).into_response(),
+        Ok(Some(updated)) => {
+            reindex_routines(&state, &caller).await;
+            Data(with_capabilities(&updated, &viewer)).into_response()
+        }
         // `success(c, agent ? … : agent)`: a vanished agent answers `{ data: null }`.
         Ok(None) => Data(Value::Null).into_response(),
         Err(error) => failed(&error, CONTEXT, "Failed to activate agent"),
@@ -652,7 +683,11 @@ pub(crate) async fn activate(caller: Caller, Path(id): Path<String>) -> Response
 }
 
 /// `POST /agents/:id/pause`.
-pub(crate) async fn pause(caller: Caller, Path(id): Path<String>) -> Response {
+pub(crate) async fn pause(
+    State(state): State<AgentState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let (agent, viewer) = match resolve_agent(&caller, &id, Mode::Edit).await {
         Ok(found) => found,
         Err(response) => return response,
@@ -663,7 +698,10 @@ pub(crate) async fn pause(caller: Caller, Path(id): Path<String>) -> Response {
         ..UpdateAgent::default()
     };
     match update_agent(&caller.db, agent_id, patch).await {
-        Ok(Some(updated)) => Data(with_capabilities(&updated, &viewer)).into_response(),
+        Ok(Some(updated)) => {
+            reindex_routines(&state, &caller).await;
+            Data(with_capabilities(&updated, &viewer)).into_response()
+        }
         Ok(None) => not_found(),
         Err(error) => failed(&error, CONTEXT, "Failed to pause agent"),
     }
@@ -688,6 +726,13 @@ fn page_limit(text: Option<&str>, default: i64, max: i64) -> i64 {
         digits.parse::<i64>().ok()
     });
     parsed.unwrap_or(default).min(max)
+}
+
+/// `reindexAgentRoutines`: the routine sweep looks at this workspace when its
+/// earliest routine is due.
+async fn reindex_routines(state: &AgentState, caller: &Caller) {
+    crate::routines::reindex_workspace(state.master.as_ref(), &caller.db, &caller.workspace_id)
+        .await;
 }
 
 /// `GET /agents/:id/runs`.
@@ -752,6 +797,7 @@ pub(crate) async fn run(
         }),
         extra_system: None,
         run_id: None,
+        routine_run_id: None,
         skip_approvals: false,
         notify: true,
         actor_permissions: Some(caller.permissions.resolved().permissions.clone()),

@@ -52,6 +52,8 @@ pub struct RunParams {
     pub extra_system: Option<String>,
     /// Reuse an existing queued run id.
     pub run_id: Option<String>,
+    /// The routine run row this run belongs to, when a routine started it.
+    pub routine_run_id: Option<String>,
     /// A routine with "ask for approval" turned off acts without parking
     /// approvals.
     pub skip_approvals: bool,
@@ -184,6 +186,7 @@ mod tests {
             user_message: "go".into(),
             extra_system: None,
             run_id: None,
+            routine_run_id: None,
             skip_approvals: false,
             notify: true,
             actor_permissions: None,

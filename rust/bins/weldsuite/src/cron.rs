@@ -133,9 +133,10 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines";
 
 /// `weldsuite cron <job>`.
+#[allow(clippy::too_many_lines)] // one arm per job
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
     let Some(
         job @ ("sign-lifecycle"
@@ -168,7 +169,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "workflow-schedules"
         | "merge-digest-sweep"
         | "forms-reminders"
-        | "forms-digest"),
+        | "forms-digest"
+        | "weldagent-routines"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -224,6 +226,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
             "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
+            "weldagent-routines" => weldagent_routines(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -367,6 +370,51 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `weldsuite cron weldagent-routines` (hourly, at :00): WeldAgent's due cron
+/// routines (`apps/workers/agent-api/src/cron/weldagent-routines.ts`), in the
+/// workspaces the `weldagent_routine` due index lists. Nothing without AI
+/// (ADR AI-011 kept it out; it runs only when the install has a provider) or
+/// while the agent module is not served.
+async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let skipped = |why: &str| {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "weldagent-routines", "result": { "skipped": why } })
+        );
+    };
+    if !crate::routes::mounts("agent") {
+        skipped("agent is not served");
+        return Ok(());
+    }
+    let Some(ai) = crate::routes::agent_ai_for_jobs() else {
+        skipped("AI is not configured");
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants = weldsuite_subscribers::WorkspaceTenants::new(workspaces);
+    let result = weldsuite_agent::routines::run_routine_sweep(
+        &master,
+        &tenants,
+        Some(&ai),
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "weldagent-routines",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
     Ok(())
 }
 

@@ -15,7 +15,7 @@
 //!   `max_retries + 1` times, with headers naming the subscriber, the hub
 //!   sequence, the deliveries and the last error.
 //!
-//! The subscribers not ported (analytics, WeldAgent) have no
+//! The subscribers not ported (analytics) have no
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
 //!
@@ -478,6 +478,20 @@ fn handlers(
                 Arc::new(weldsuite_connect::EntityWorkflowsSubscriber::new(
                     Arc::clone(tenants),
                     Some(runs),
+                ))
+            }
+            // WeldAgent: runs the agents subscribed to an event. Only with AI
+            // (ADR AI-011 kept it out until the install has a provider).
+            "weldagent" => {
+                let Some(ai) = crate::routes::agent_ai_for_jobs() else {
+                    tracing::warn!(
+                        "AI is not configured: the weldagent subscriber does not run"
+                    );
+                    continue;
+                };
+                Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
+                    Arc::clone(tenants),
+                    Some(ai),
                 ))
             }
             "realtime" => {

@@ -37,11 +37,12 @@ use weldsuite_db::{Keyring, WorkspaceConfig};
 use crate::config::LogFormat;
 
 /// The subscribers `weldsuite consume` can run.
-pub(crate) const PORTED: [&str; 5] = [
+pub(crate) const PORTED: [&str; 6] = [
     "audit",
     "search-index",
     "webhooks",
     "weldconnect",
+    "weldagent",
     "realtime",
 ];
 

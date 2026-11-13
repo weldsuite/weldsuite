@@ -125,6 +125,12 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
     // on Global; the Kubernetes editions have no AI provider yet.
     "agent-ai",
+    // WeldAgent's sandbox (`computer:use`), web search and fetch and browser
+    // tools (`browser:use`): they run at Anthropic and in `agent-runtime` on
+    // Global. The Kubernetes editions run agents on their own loop without
+    // them (docs/plans/eu-ai-mistral.md, phase 5); the builder hides the
+    // toggles and the agent routes don't offer or default the grants.
+    "agent-sandbox",
     // WeldDesk's inbox translation (`POST /api/desk/conversations/:id/translate`
     // and `/translate-reply`) runs on Workers AI through `@weldsuite/ai`; the
     // routes answer 503 `ai_unavailable` here (ADR AI-011).

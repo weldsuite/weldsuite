@@ -88,6 +88,8 @@ export const EDITION_FEATURES = [
    * Kubernetes editions yet).
    */
   'agent-ai',
+  /** WeldAgent's sandbox, web search/fetch and browser tools (`computer:use`, `browser:use`); not on the Kubernetes editions. */
+  'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
   /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */

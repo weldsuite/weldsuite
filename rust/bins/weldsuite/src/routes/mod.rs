@@ -721,6 +721,7 @@ pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
             weldsuite_agent::agents::POLICY_DEFAULT_MODEL
         }
         .to_owned(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
     }
 }
 
@@ -728,6 +729,13 @@ pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
 /// carries `ai: Option<weldsuite_ai::Ai>` (the `weldsuite-ai` wiring); until
 /// then there is none and the model routes answer 503.
 fn agent_ai(_state: &AppState) -> Option<weldsuite_ai::Ai> {
+    None
+}
+
+/// The install's AI for the jobs that run agents (the routine cron, the
+/// `weldagent` subscriber). MERGE: build it from the install's `AiConfig`;
+/// `None` until `weldsuite-ai` is wired in, and the jobs then do nothing.
+pub(crate) fn agent_ai_for_jobs() -> Option<weldsuite_ai::Ai> {
     None
 }
 

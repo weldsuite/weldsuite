@@ -25,9 +25,13 @@
 pub mod access;
 mod agent_routes;
 pub mod agents;
+pub mod approvals;
 mod conversations;
+pub mod dispatch;
 pub mod grants;
+pub mod routines;
 pub mod run;
+pub mod runs;
 pub mod subscriptions;
 pub mod tools;
 
@@ -65,6 +69,9 @@ pub struct AgentState {
     /// Claude id there, [`agents::POLICY_DEFAULT_MODEL`] on the Kubernetes
     /// editions.
     pub default_model: String,
+    /// The master database, for the routine due index. `None` in conformance
+    /// builds.
+    pub master: Option<PgPool>,
 }
 
 /// `/api` routes of the module (`/weldagent`, `/ai-models`, `/chat-agent`),
@@ -73,6 +80,7 @@ pub struct AgentState {
 ///
 /// `/api/ai` (the assistant chat and generate) is phase 3e and is not here
 /// yet.
+#[allow(clippy::too_many_lines)] // one block of routes, as the workers mount them
 pub fn router<S, Q>(state: AgentState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -185,6 +193,18 @@ where
         .route(
             "/weldagent/agents/{id}/run",
             post(agent_routes::run).route_layer(must_use()),
+        )
+        .route(
+            "/weldagent/approvals",
+            get(approvals::list).route_layer(read()),
+        )
+        .route(
+            "/weldagent/approvals/{id}/decide",
+            post(approvals::decide).route_layer(gate.require([
+                WELDAGENT_USE,
+                WELDAGENT_UPDATE,
+                WELDAGENT_MANAGE,
+            ])),
         )
         .route(
             "/ai-models/models",

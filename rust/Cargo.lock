@@ -4327,12 +4327,15 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
+ "weldsuite-connect",
  "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
