@@ -1,4 +1,22 @@
 {
+  "aiProvider": {
+    "body": "{who} heeft {provider} ingeschakeld als AI-aanbieder voor {workspace}. Functies die hem gebruiken sturen hun inhoud naar {provider}, dat die buiten de EU verwerkt.",
+    "enabledBy": "Ingeschakeld door",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "{provider} is ingeschakeld voor AI",
+    "keyOwn": "De eigen sleutel van de werkruimte",
+    "keySource": "Betaald met",
+    "keyWeldsuite": "Het account van WeldSuite, in rekening gebracht als AI-tegoed",
+    "kicker": "AI-instellingen",
+    "note": "Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.",
+    "open": "AI-instellingen openen",
+    "outsideEu": "Buiten de EU",
+    "preview": "{provider} verwerkt gegevens buiten de EU.",
+    "provider": "Aanbieder",
+    "region": "Regio",
+    "subject": "{provider} is ingeschakeld voor AI in \"{workspace}\""
+  },
   "appAccess": {
     "company": "Bedrijf",
     "consent": "Toestemmingsregels",
