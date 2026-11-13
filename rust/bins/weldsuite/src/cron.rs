@@ -286,6 +286,8 @@ async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error
             .clone(),
         env: Arc::new(weldsuite_forms::env_from_process()),
         local_cache: Arc::default(),
+        // The sweeps call no model.
+        ai: None,
     };
     let now = time::OffsetDateTime::now_utc();
     let request = http::Extensions::new();

@@ -110,6 +110,8 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             } else {
                 board_links()
             },
+            ai: state.ai.clone(),
+            master: Some(state.workspaces.master().clone()),
         };
         router.nest(
             "/boards",
@@ -666,6 +668,7 @@ pub(crate) fn forms_state(state: &AppState) -> weldsuite_forms::FormsState {
         outbound: deployment_outbound(state),
         env: Arc::new(weldsuite_forms::env_from_process()),
         local_cache: Arc::default(),
+        ai: state.ai.clone(),
     }
 }
 
@@ -1058,6 +1061,8 @@ fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                     findymail_api_key: std::env::var("FINDYMAIL_API_KEY").ok(),
                     prospeo_api_key: std::env::var("PROSPEO_API_KEY").ok(),
                 },
+                ai: state.ai.clone(),
+                master: Some(state.workspaces.master().clone()),
             }),
         Err(error) => tracing::error!(%error, "welddata: no HTTP client for the phone finder"),
     }
@@ -1565,6 +1570,7 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         outbound: deployment_outbound(state),
         master: Some(state.workspaces.master().clone()),
         assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
+        ai: state.ai.clone(),
     }
 }
 

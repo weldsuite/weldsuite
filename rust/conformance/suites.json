@@ -440,7 +440,8 @@
       "module": "board",
       "workspace": "apps/workers/board-api",
       "tests": [
-        "src/routes/boards/index.test.ts"
+        "src/routes/boards/index.test.ts",
+        "src/routes/boards/ai-model.test.ts"
       ],
       "paths": [
         "apps/workers/board-api/src/",
@@ -454,12 +455,7 @@
         "rust/crates/adapters-oss/src/collab.rs",
         "rust/bins/weldsuite/src/collab.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/boards/:id/ai",
-          "reason": "The AI actions run on @weldsuite/ai (Workers AI and the Cloudflare AI Gateway), which the Kubernetes editions do not have. Rust answers the refusals before the model as TypeScript does (validation, 403, 404, a missing prompt) and then 503 AI_NOT_CONFIGURED, as the worker does without a gateway; /config.json lists agent-ai as unavailable and the board editor hides its AI menu there (useBoardExtensions). Tested on TypeScript in src/routes/boards/ai.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "core: files, folders and drive",
@@ -1354,6 +1350,7 @@
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/desk-conversations/reply-translation.integration.test.ts",
+        "src/routes/desk-conversations/translation.integration.test.ts",
         "src/routes/desk-conversations/priority-matrix.integration.test.ts",
         "src/routes/desk-conversations/links.integration.test.ts",
         "src/routes/desk-conversations/routing.integration.test.ts",
@@ -1387,16 +1384,7 @@
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/desk/conversations/:id/translate",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        },
-        {
-          "route": "POST /api/desk/conversations/:id/translate-reply",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "desk: SLA sweep",
@@ -3576,7 +3564,8 @@
         "src/invitations.test.ts",
         "src/integrations.test.ts",
         "src/routes/_sweeps.test.ts",
-        "src/workflows/process-response.test.ts"
+        "src/workflows/process-response.test.ts",
+        "src/ai-model.test.ts"
       ],
       "paths": [
         "apps/workers/forms-api/src/",
@@ -3597,24 +3586,7 @@
         "rust/crates/notifications/",
         "rust/bins/weldsuite/src/conformance_forms.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/forms/ai/generate",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "POST /api/forms/ai/suggest-blocks",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "GET /api/forms/forms/:id/ai/summary",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        },
-        {
-          "route": "POST /api/forms/forms/:id/ai/summary",
-          "reason": "The AI routes run on @weldsuite/ai (the Cloudflare AI Gateway) and charge AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same permission. Tested on TypeScript in src/ai.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "panel: collector",

@@ -960,12 +960,73 @@ pub(crate) async fn tasks(
 
 // ── POST /:id/ai ────────────────────────────────────────────────────────────
 
-/// The AI actions run on `@weldsuite/ai`, which the Kubernetes editions do
-/// not have. The refusals before the model are the worker's; then it
-/// answers as the worker does without an AI gateway (`AI_NOT_CONFIGURED`),
-/// and `/config.json` lists `agent-ai` as unavailable, which the board
-/// editor reads to hide the actions (they run where `WeldAgent`'s AI does).
+/// `boardAiSchema`, read: the action and the input the engine works from
+/// (`{ action, prompt?, elementIds?, at?, locale? }`, as Zod parses it).
+fn ai_input(issues: &mut Issues, body: &Map<String, Value>) -> (String, Value) {
+    let action = issues
+        .choice(body, "action", Presence::Required, &AI_ACTIONS)
+        .into_option()
+        .unwrap_or_default();
+    let mut input = Map::new();
+    input.insert("action".into(), json!(action));
+    if let Some(prompt) = issues
+        .text_with(
+            body,
+            "prompt",
+            Presence::Optional,
+            Text::trimmed(None, Some(4000)),
+        )
+        .into_option()
+    {
+        input.insert("prompt".into(), json!(prompt));
+    }
+    if let Some(ids) = issues
+        .list(
+            body,
+            "elementIds",
+            Presence::Optional,
+            None,
+            Some(500),
+            |issues, item| issues.item_text(item, Text::length(Some(1), Some(64))),
+        )
+        .into_option()
+    {
+        input.insert("elementIds".into(), json!(ids));
+    }
+    let at = issues
+        .nested(body, "at", Presence::Optional, |issues, fields| {
+            let x = issues
+                .number(fields, "x", Presence::Required, Number::default())
+                .into_option();
+            let y = issues
+                .number(fields, "y", Presence::Required, Number::default())
+                .into_option();
+            json!({ "x": x, "y": y })
+        })
+        .into_option();
+    if let Some(at) = at {
+        input.insert("at".into(), at);
+    }
+    if let Some(locale) = issues
+        .choice(
+            body,
+            "locale",
+            Presence::Optional,
+            &["en", "nl", "es", "fr"],
+        )
+        .into_option()
+    {
+        input.insert("locale".into(), json!(locale));
+    }
+    (action, Value::Object(input))
+}
+
+/// `POST /:id/ai` (`runBoardAi`): the engine's refusals and what to ask
+/// (`aiPrepare`), 503 `AI_NOT_CONFIGURED` without AI, the credit gate, the
+/// refusals after it, the model, then the engine's plan (`aiPlan`) committed
+/// through the board's room. A summary writes nothing.
 pub(crate) async fn ai(
+    State(state): State<BoardState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -973,75 +1034,98 @@ pub(crate) async fn ai(
 ) -> Response {
     answer(
         async {
-            let (action, prompt) = validate(&headers, &body, |issues, body| {
-                let action = issues
-                    .choice(body, "action", Presence::Required, &AI_ACTIONS)
-                    .into_option();
-                let prompt = issues
-                    .text_with(
-                        body,
-                        "prompt",
-                        Presence::Optional,
-                        Text::trimmed(None, Some(4000)),
-                    )
-                    .into_option();
-                let _ = issues.list(
-                    body,
-                    "elementIds",
-                    Presence::Optional,
-                    None,
-                    Some(500),
-                    |issues, item| issues.item_text(item, Text::length(Some(1), Some(64))),
-                );
-                let _ = issues.nested(body, "at", Presence::Optional, |issues, fields| {
-                    for key in ["x", "y"] {
-                        let _ = issues.number(fields, key, Presence::Required, Number::default());
-                    }
-                });
-                let _ = issues.choice(
-                    body,
-                    "locale",
-                    Presence::Optional,
-                    &["en", "nl", "es", "fr"],
-                );
-                (action.unwrap_or_default(), prompt.unwrap_or_default())
-            })?;
-            caller.user()?;
-            caller.org()?;
+            let (action, input) = validate(&headers, &body, ai_input)?;
+            let user_id = caller.user()?.to_owned();
+            let org = caller.org()?.to_owned();
             let writes = action != "summarize";
             if writes && !caller.can(BOARDS_UPDATE) {
                 return Err(Refusal::forbidden(VIEW_ONLY));
             }
-            if writes {
-                editable_board(&caller, &id).await?;
+            let board = if writes {
+                editable_board(&caller, &id).await?
             } else {
-                find_live_board(&caller, &id).await?;
+                find_live_board(&caller, &id).await?.0
+            };
+            let meta = board.room_meta(&org);
+            let name = room_name(&org, &board.id);
+            let live = live_json(&live_snapshot(&state, &caller, &org, &board).await?);
+            let prepared = caller
+                .engine(&state, "aiPrepare", json!([live, input]))
+                .await?;
+            if let Some(refused) = prepared.get("refused") {
+                return Ok(crate::ai::refusal(refused));
             }
-            let generates = matches!(action.as_str(), "mindmap" | "diagram" | "stickies");
-            if generates && prompt.is_empty() {
-                return Ok(ai_error(
-                    StatusCode::BAD_REQUEST,
-                    "PROMPT_REQUIRED",
-                    "Say what to make",
-                ));
+            let Some(ai) = caller.ai(&state) else {
+                return Ok(crate::ai::not_configured());
+            };
+            let ask = &prepared["ask"];
+            let call = crate::ai::call_for(
+                &caller.workspace_id,
+                &user_id,
+                caller.db.clone(),
+                caller.master(&state),
+                &action,
+                crate::ai::task_of(ask["task"].as_str().unwrap_or_default()),
+            );
+            if let Err(error) = ai.assert_credits(&call).await {
+                return Ok(error.into_api_error().into_response());
             }
-            Ok(ai_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "AI_NOT_CONFIGURED",
-                "AI is not available in this edition of WeldSuite.",
-            ))
+            if let Some(refused) = prepared.get("refusedAfterAi") {
+                return Ok(crate::ai::refusal(refused));
+            }
+            let (answer, served) = match crate::ai::ask_model(&ai, &call, ask).await {
+                Ok(answered) => answered,
+                Err(error) => return Ok(crate::ai::request_failed(&error)),
+            };
+            let now_ms = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+            let plan = caller
+                .engine(
+                    &state,
+                    "aiPlan",
+                    json!([
+                        live,
+                        input,
+                        answer,
+                        user_id,
+                        i64::try_from(now_ms).unwrap_or(0)
+                    ]),
+                )
+                .await?;
+            if let Some(refused) = plan.get("refused") {
+                return Ok(crate::ai::refusal(refused));
+            }
+            if !plan["op"].is_null() {
+                let result = caller
+                    .room(
+                        &state,
+                        &name,
+                        "applyOps",
+                        json!([meta, plan["op"], user_id]),
+                    )
+                    .await?;
+                if result["committed"] != Value::Bool(true) {
+                    return Err(ApiError::conflict(
+                        "The board changed while the AI was working. Try again.",
+                    )
+                    .into());
+                }
+            }
+            let mut data = Map::new();
+            data.insert("elementIds".into(), plan["elementIds"].clone());
+            if let Some(text) = plan.get("text") {
+                data.insert("text".into(), text.clone());
+                data.insert(
+                    "title".into(),
+                    plan.get("title").cloned().unwrap_or(Value::Null),
+                );
+            }
+            Ok(
+                axum::Json(json!({ "data": data, "meta": { "ai": served.meta() } }))
+                    .into_response(),
+            )
         }
         .await,
     )
-}
-
-/// `c.json({ error: { code, message } }, status)` (`BoardAiError`).
-fn ai_error(status: StatusCode, code: &str, message: &str) -> Response {
-    (
-        status,
-        axum::Json(json!({ "error": { "code": code, "message": message } })),
-    )
-        .into_response()
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
