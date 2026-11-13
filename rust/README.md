@@ -977,6 +977,76 @@ off, the waiting room with admit, host mute and remove, end for all, and the
 webhook keeping the session. v1.9 servers are too old for the pinned client
 (its `/rtc/v1` signalling and negotiation time out).
 
+## AI
+
+Global runs every model call through `@weldsuite/ai` and the Cloudflare AI
+Gateway. The Kubernetes editions run them through `crates/ai`
+(`weldsuite-ai`, ADR AI-012, `docs/plans/eu-ai-mistral.md`): Mistral as the
+EU edition's install provider (chat, structured output, OCR, embeddings,
+transcription), a self-hosted install's own OpenAI-compatible endpoint
+(`compat`), and Anthropic and OpenAI only for workspaces whose admin opts in,
+labelled "outside the EU".
+
+- **Configuration** (`crates/ai/src/config.rs`, chart `config.ai`):
+  `AI_DEFAULT_PROVIDER` (`mistral`, `compat`, or empty: AI off),
+  `AI_MISTRAL_BASE_URL`, `AI_OPTIN_ANTHROPIC` / `AI_OPTIN_OPENAI` (key sources
+  workspaces may use: `weldsuite`, `own`), `AI_ANTHROPIC_BASE_URL`,
+  `AI_OPENAI_BASE_URL`, `AI_COMPAT_BASE_URL` / `_REGION` / `_MODEL` /
+  `_EMBED_MODEL`, `AI_FALLBACK_MODEL`, `AI_CREDIT_GATE`, `AI_BILLING`,
+  `AI_WORKSPACE_CONCURRENCY`; the keys `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `AI_COMPAT_API_KEY` and `AI_KEYS_ENCRYPTION_KEY` (64 hex,
+  seals workspaces' own keys). `serve`, `consume` and every cron job read it
+  with their other settings, and an inconsistent combination stops the start
+  with every problem named: an install provider without its key or endpoint,
+  a key source a provider can't serve, a fallback model outside the EU.
+- **`/config.json`** carries `ai: { defaultProvider, providers: [{ id,
+  region, keySources }] }` when a provider is configured. Without one the AI
+  features (`edition.rs`, `AI_FEATURES`: `mail-ai`, `weldconnect-ai`,
+  `books-ocr`, `desk-ai`, `forms-ai`, `search-reindex`, `assistant-ai`,
+  `agent-ai`) are listed as unavailable and WeldAgent's module isn't offered.
+  `meet-transcription` stays listed while there are no recordings, and
+  `agent-sandbox` always is.
+- **Roles.** `serve` builds one `weldsuite_ai::Ai` (`bins/weldsuite/src/ai.rs`)
+  over a plain HTTP client, with the workspaces' AI settings cached in Valkey,
+  and keeps it in `AppState::ai`; `consume` builds its own the same way, and a
+  cron job that needs one calls `crate::ai::build(&config.ai, infra.cache)`.
+  Durable jobs run inside `serve`, on its `AppState`.
+- **In a route** take the request's AI first, then the app's:
+  `crate::ai::for_request(state.ai.as_ref(), &parts.extensions)` in this crate;
+  in a module crate whose state holds `ai: Option<weldsuite_ai::Ai>`,
+  `parts.extensions.get::<weldsuite_ai::Ai>().or(state.ai.as_ref()).filter(|ai| ai.enabled()).cloned()`.
+  `None` answers as the worker without its model (503 `ai_unavailable`, or
+  the route's own fallback). A release build never puts an `Ai` on a request.
+- **`weldsuite doctor`** checks the configuration and the master database,
+  then each provider key the install holds (a model list, free) and the
+  install provider's default chat models (one token each, unmetered;
+  `--no-model-calls` skips them).
+
+**Conformance.** Both backends call one mock model, answered by the test's
+`fetch` stub:
+
+- `@weldsuite/ai/testing` (`packages/core/ai/src/testing/mock-model.ts`):
+  `createMockModel({ chat, ocr, transcription, jev })` answers
+  OpenAI-compatible `/chat/completions` (text, JSON for a `json_schema`, tool
+  calls, SSE), Anthropic's `/messages`, `/embeddings`, Mistral's `/ocr` and
+  `/audio/transcriptions`, and Workers AI's `/run` at `MOCK_AI_BASE_URL`.
+- The test gives the worker `mock.env` (`AI_TEST_BASE_URL`, which sends every
+  `@weldsuite/ai` call to the mock instead of the gateway; never set in a
+  deployed environment) and `vi.stubGlobal('fetch', mock.fetch)`.
+- A conformance build puts an `Ai` on every request (`conformance.rs`,
+  `crate::ai::conformance`): with `AI_TEST_BASE_URL` in the test's env, Mistral
+  as the install provider at that URL (Anthropic and OpenAI too, opted in with
+  both key sources), fake keys, the credit gate on, and its HTTP through the
+  test's outbound bridge; without it, AI off. A test may set `AI_CREDIT_GATE`,
+  `AI_BILLING` and `AI_OPTIN_*` for the Rust side.
+- The harness leaves the calls to the mock out of the compared outbound calls
+  (the backends ask different models in their own shapes) and drops the
+  `meta.ai` label from the compared JSON; the routes' answers, writes and side
+  effects are compared as usual. Answer by request (`chat: (request) => …`),
+  never by call order: the stub serves both runs. A route whose test only
+  works with `vi.mock('@weldsuite/ai')` stays in `excludedRoutes` and is
+  covered by Rust tests on `weldsuite_ai::FakeProvider`.
+
 ## Inbound mail
 
 On Global, Cloudflare Email Routing hands each message to
