@@ -27,7 +27,7 @@ use weldsuite_kit::{ApiError, Data, generate_id};
 use crate::access::can_edit_agent;
 use crate::agents::get_agent;
 use crate::grants::granter_holds;
-use crate::tools::{ToolContext, ToolError, execute_tool};
+use crate::tools::{ToolContext, ToolError};
 use crate::{Caller, failed, now, validate};
 
 const CONTEXT: &str = "weldagent/approvals";
@@ -55,15 +55,38 @@ const MUTATING_BROWSER_ACTIONS: [&str; 4] = ["goto", "click", "type", "press"];
 
 /// Tools a past approval must never auto-approve: each call is arbitrary code
 /// or browser input, so approving one command says nothing about the next.
-const NEVER_AUTO_REVIEW: [&str; 4] = [
+/// `computer_use` (the EU sandbox's desktop) is the same kind of input.
+const NEVER_AUTO_REVIEW: [&str; 5] = [
     "computer_exec",
     "computer_write_file",
     "computer_run_code",
     "browser_act",
+    "computer_use",
 ];
 
-/// `toolRiskLevel(toolName, args)`.
+/// `computer_use` actions that act on the desktop (a click or keys can submit
+/// a form, as `browser_act`'s can); looking and moving the pointer are low risk.
+const MUTATING_DESKTOP_ACTIONS: [&str; 8] = [
+    "left_click",
+    "right_click",
+    "middle_click",
+    "double_click",
+    "triple_click",
+    "left_click_drag",
+    "type",
+    "key",
+];
+
+/// `toolRiskLevel(toolName, args)`, and the EU sandbox's `computer_use`.
 pub fn tool_risk_level(tool_name: &str, args: Option<&Value>) -> &'static str {
+    if tool_name == "computer_use" {
+        let action = args.and_then(|a| a.get("action")).and_then(Value::as_str);
+        return if action.is_some_and(|a| MUTATING_DESKTOP_ACTIONS.contains(&a)) {
+            "high"
+        } else {
+            "low"
+        };
+    }
     if tool_name == "browser_act" {
         let action = args.and_then(|a| a.get("action")).and_then(Value::as_str);
         return if action.is_some_and(|a| MUTATING_BROWSER_ACTIONS.contains(&a)) {
@@ -141,6 +164,7 @@ fn action_of(tool_name: &str) -> ToolAction {
         ),
         "computer_run_code" => ("Run code in the sandbox", "run the code", "ran the code"),
         "browser_act" => ("Use the browser", "use the browser", "used the browser"),
+        "computer_use" => ("Use the computer", "use the computer", "used the computer"),
         _ => ("Run an action", "run that action", "ran that action"),
     };
     ToolAction {
@@ -541,8 +565,20 @@ async fn mark_channel_approval_decided(
 ///
 /// The conversation case is complete. For a room the message buttons are
 /// updated; the outcome reply is posted by the rooms dispatch (part two).
-#[allow(clippy::too_many_lines)] // the outcomes of one decision, as TypeScript lists them
 pub async fn execute_decided_approval(ctx: &ToolContext, approval: &Value) -> ApprovalExecution {
+    execute_decided_approval_with(ctx, None, approval).await
+}
+
+/// [`execute_decided_approval`] with the install's sandbox: an approved
+/// sandbox call (`computer_exec`, `computer_use`, `browser_act`, …) runs in
+/// the sandbox of the conversation it came from (the approval's id when it
+/// has none).
+#[allow(clippy::too_many_lines)] // the outcomes of one decision, as TypeScript lists them
+pub async fn execute_decided_approval_with(
+    ctx: &ToolContext,
+    sandboxes: Option<&weldsuite_sandbox::Sandboxes>,
+    approval: &Value,
+) -> ApprovalExecution {
     let db = &ctx.db;
     let tool_name = approval["toolName"].as_str().unwrap_or_default();
     let args = approval["args"].clone();
@@ -606,7 +642,20 @@ pub async fn execute_decided_approval(ctx: &ToolContext, approval: &Value) -> Ap
         // The approver's grants narrow the agent's; set by the caller.
         ..ctx.clone()
     };
-    match execute_tool(&tool_ctx, tool_name, &args).await {
+    let sandbox = sandboxes.map(|sandboxes| crate::tools::SandboxAccess {
+        sandboxes: sandboxes.clone(),
+        session: weldsuite_sandbox::SessionKey::new(
+            tool_ctx.workspace_id.clone(),
+            tool_ctx.agent_id.clone(),
+            approval["conversationId"].as_str().unwrap_or(approval_id),
+        ),
+        // The call was made by a model that had the desktop.
+        computer_use: true,
+    });
+    let executed = crate::tools::execute_tool_with(&tool_ctx, sandbox.as_ref(), tool_name, &args)
+        .await
+        .map(|output| output.value);
+    match executed {
         Err(ToolError::UnknownTool(_)) => {
             let error = "This action is no longer available to this agent, or you lack the permission it needs.";
             report(failed_outcome(tool_name, &args, error), None).await;
@@ -817,7 +866,7 @@ pub(crate) async fn decide(
         }),
         sandbox: state.sandbox,
     };
-    let execution = execute_decided_approval(&ctx, &approval).await;
+    let execution = execute_decided_approval_with(&ctx, state.sandboxes.as_ref(), &approval).await;
     let mut out = approval;
     if let Some(map) = out.as_object_mut() {
         map.insert("execution".into(), execution.to_json());
@@ -843,6 +892,30 @@ mod tests {
         );
         assert!(!allows_auto_review("computer_exec"));
         assert!(allows_auto_review("create_task"));
+    }
+
+    /// The EU sandbox's desktop asks first for what acts on the screen.
+    #[test]
+    fn the_desktop_asks_before_it_acts() {
+        for action in ["left_click", "type", "key", "left_click_drag"] {
+            assert_eq!(
+                tool_risk_level("computer_use", Some(&json!({ "action": action }))),
+                "high",
+                "{action}"
+            );
+        }
+        for action in ["screenshot", "mouse_move", "scroll", "wait"] {
+            assert_eq!(
+                tool_risk_level("computer_use", Some(&json!({ "action": action }))),
+                "low",
+                "{action}"
+            );
+        }
+        assert!(!allows_auto_review("computer_use"));
+        assert_eq!(
+            approval_label("computer_use", &json!({ "action": "left_click" })),
+            "Use the computer"
+        );
     }
 
     #[test]

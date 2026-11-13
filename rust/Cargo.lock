@@ -4335,6 +4335,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-sandbox",
  "weldsuite-subscribers",
 ]
 

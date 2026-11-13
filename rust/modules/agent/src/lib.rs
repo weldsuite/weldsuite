@@ -62,9 +62,14 @@ pub struct AgentState {
     /// that run the model answer `503 ai_unavailable`.
     pub ai: Option<weldsuite_ai::Ai>,
     /// Whether the sandbox and web grants (`computer:use`, `browser:use`)
-    /// exist: true on Global and in conformance builds, false on the
-    /// Kubernetes editions (`agent-sandbox`).
+    /// exist: true on Global and in conformance builds, and on the
+    /// Kubernetes editions when the install has a sandbox (`agent-sandbox`,
+    /// `SANDBOX_ENABLED`).
     pub sandbox: bool,
+    /// The install's sandbox (`weldsuite-sandbox`), where the sandbox and web
+    /// tools run: give a turn [`tools::SandboxAccess::for_turn`] and run its
+    /// tools with [`tools::execute_tool_with`]. `None` without one.
+    pub sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     /// The `modelId` of an agent created without one: Global's default
     /// Claude id there, [`agents::POLICY_DEFAULT_MODEL`] on the Kubernetes
     /// editions.
