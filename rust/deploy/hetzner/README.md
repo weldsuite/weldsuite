@@ -861,7 +861,12 @@ and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
    `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
    ID Token" and "User Info inside ID Token" on, the project's "Assert Roles on Authentication" on, and a
    role `grafana-admin` granted to whoever administers Grafana. Everyone
-   else in the organisation gets Viewer; nobody outside it gets in.
+   else in the organisation gets Viewer; nobody outside it gets in. Tick
+   "Use new Login UI" and leave its base URL empty, like the admin console's
+   app ("Give every other application a login setting", section 7): without it Grafana's sign-in goes to the old
+   Login V1, which refuses a security key or passkey registered on the new
+   pages (`Errors.User.WebAuthN.BeginLoginFailed`, "Found no credentials for
+   user" in Zitadel's log).
 3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three
    URLs by role and a token: `critical-url` (pages at any hour),
    `warning-url` (muted at night), `heartbeat-url` (pinged every minute by
