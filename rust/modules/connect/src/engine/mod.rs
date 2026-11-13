@@ -111,6 +111,10 @@ pub struct EngineDeps {
     /// `merge.*` steps. None while WeldMerge is not served: those steps then
     /// fail, as the worker without the binding.
     pub merge: Option<Arc<dyn MergeWorkflowActions>>,
+    /// The install's AI (`weldsuite-ai`), for the `ai_generate` /
+    /// `ai_classify` steps; without it they fail as the worker without its
+    /// gateway.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for EngineDeps {
@@ -119,6 +123,7 @@ impl std::fmt::Debug for EngineDeps {
             .field("realtime", &self.realtime.is_some())
             .field("http", &self.http.is_some())
             .field("runs", &self.runs.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
