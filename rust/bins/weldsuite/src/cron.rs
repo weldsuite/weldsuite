@@ -454,11 +454,21 @@ async fn mail_outbound_ledgers(config: Config) -> Result<(), Box<dyn std::error:
         crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
+    // A grey-zone review the alarm queues runs in `serve` (the
+    // `mail.outbound-review` job), reached through Restate; without Restate
+    // or AI the template stays unclassified.
+    let reviews = (config.ai.default_provider.is_some()
+        && config.infra.jobs.restate_ingress_url.is_some())
+    .then(|| {
+        Arc::new(weldsuite_mail::review::JobsReviewQueue {
+            jobs: Arc::clone(&infra.jobs),
+        }) as Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>
+    });
     let ledger = StoreLedger::new(LedgerDeps {
         store: Arc::new(store),
         master: Some(master),
         flags: Some(Arc::clone(&infra.flags)),
-        reviews: None,
+        reviews,
         daily_quota: read("MAIL_DAILY_QUOTA")
             .and_then(|v| v.parse().ok())
             .filter(|q| *q > 0),

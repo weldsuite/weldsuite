@@ -10,6 +10,7 @@ use weldsuite_mail_domain::contacts::{ContactAddress, upsert_mail_contacts};
 use weldsuite_notifications::{NewNotification, Notifier, channel_preferences, create_and_deliver};
 use weldsuite_ports::RealtimeMessage;
 
+use crate::auto_label::{AiLabelCandidate, AutoLabel, run_auto_label};
 use crate::context::InboundContext;
 use crate::parsed::{ParsedAttachment, ParsedEmail};
 use crate::push::send_new_email_push;
@@ -67,11 +68,10 @@ pub async fn process_inbound_email(
     Ok(out)
 }
 
-/// `classifyAndRunRules`: Jev labels (none on the Kubernetes editions:
-/// there is no Workers AI, and mail AI is an unavailable feature, so it
-/// does what the worker does without the binding), then the account's
-/// rules, folded into one `inbound.finalize`. True when a rule marked the
-/// message as spam.
+/// `classifyAndRunRules`: the AI auto-labels ([`crate::auto_label`]: one
+/// structured `classify` call where Global asks Jev; none without AI, as the
+/// worker does without the binding), then the account's rules, folded into
+/// one `inbound.finalize`. True when a rule marked the message as spam.
 async fn classify_and_run_rules(
     ctx: &InboundContext,
     account: &RecipientAccount,
@@ -80,10 +80,28 @@ async fn classify_and_run_rules(
     initial: &RuleState,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let db = ctx.tenants.tenant_db(&account.workspace_id).await?;
-    run_rules(&db, &account.account_id, message_id, email, initial).await
+    let labeller = ctx
+        .ai
+        .as_ref()
+        .filter(|ai| ai.enabled())
+        .map(|ai| AutoLabel {
+            ai,
+            master: Some(&ctx.master),
+            workspace_id: &account.workspace_id,
+        });
+    run_rules_with(
+        &db,
+        &account.account_id,
+        message_id,
+        email,
+        initial,
+        labeller,
+    )
+    .await
 }
 
-/// [`classify_and_run_rules`] on the mailbox's database.
+/// [`classify_and_run_rules`] on the mailbox's database, without AI (the
+/// auto-labels are skipped).
 pub async fn run_rules(
     db: &PgPool,
     account_id: &str,
@@ -91,27 +109,63 @@ pub async fn run_rules(
     email: &ParsedEmail,
     initial: &RuleState,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    run_rules_with(db, account_id, message_id, email, initial, None).await
+}
+
+/// [`classify_and_run_rules`] on the mailbox's database, with the AI
+/// auto-labels when `labeller` is given.
+pub async fn run_rules_with(
+    db: &PgPool,
+    account_id: &str,
+    message_id: &str,
+    email: &ParsedEmail,
+    initial: &RuleState,
+    labeller: Option<AutoLabel<'_>>,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let db = db.clone();
-    let ai_labels: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select name, ai_description from mail_labels
+    let ai_labels: Vec<(String, String, Option<String>, Option<i32>)> = sqlx::query_as(
+        "select id, name, ai_description, ai_confidence from mail_labels
          where account_id = $1 and ai_enabled = true and deleted_at is null",
     )
     .bind(account_id)
     .fetch_all(&db)
     .await?;
-    let candidates = ai_labels
-        .iter()
-        .filter(|(name, description)| {
-            description.as_deref().is_some_and(|d| !d.is_empty()) && !initial.labels.contains(name)
+    let candidates: Vec<AiLabelCandidate> = ai_labels
+        .into_iter()
+        .filter_map(|(id, name, description, confidence)| {
+            let description = description.filter(|d| !d.is_empty())?;
+            (!initial.labels.contains(&name)).then_some(AiLabelCandidate {
+                id,
+                name,
+                ai_description: description,
+                ai_confidence: confidence,
+            })
         })
-        .count();
-    if candidates > 0 {
-        tracing::warn!(
-            message_id,
-            "[Store] Workers AI not configured — skipping Jev auto-label"
-        );
-    }
+        .collect();
     let mut state = initial.clone();
+    if !candidates.is_empty() {
+        let matched = if let Some(labeller) = labeller {
+            run_auto_label(labeller, &db, message_id, email, &candidates).await
+        } else {
+            tracing::warn!(
+                message_id,
+                "[Store] AI not configured — skipping the auto-label"
+            );
+            Vec::new()
+        };
+        if !matched.is_empty() {
+            for name in &matched {
+                if !state.labels.contains(name) {
+                    state.labels.push(name.clone());
+                }
+            }
+            tracing::info!(
+                message_id,
+                labels = %matched.join(", "),
+                "[Store] Applied AI labels"
+            );
+        }
+    }
     let mut marked_spam = false;
     let rules = async {
         let rows: Vec<Value> = sqlx::query_scalar(
