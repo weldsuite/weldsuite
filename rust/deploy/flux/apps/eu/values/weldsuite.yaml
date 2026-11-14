@@ -60,6 +60,10 @@ config:
   # Signing links point at the portal below.
   sign:
     portalUrl: https://sign.${DOMAIN}
+  # Form and invitation links point at the forms portal below. The bot check
+  # is ALTCHA's self-hosted proof of work (ADR FORMS-005, the chart's default).
+  forms:
+    portalUrl: https://forms.${DOMAIN}
   # Signup and team changes go to the in-cluster Zitadel's management API
   # as the weldsuite service user (ZITADEL_SERVICE_TOKEN in the Secret);
   # Zitadel picks its instance by the external domain.
@@ -117,7 +121,8 @@ config:
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
-# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
+# SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
+# WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
 # MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, SANDBOX_TOKEN_SECRET, and optionally MOLLIE_API_KEY:
 # secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
@@ -203,6 +208,32 @@ signPortal:
       - secretName: weldsuite-sign-tls
         hosts:
           - sign.${DOMAIN}
+
+# The WeldForms respondent page at forms.${DOMAIN} (ADR FORMS-002): form links,
+# invitation links and /embed.js. Its image is the `forms-portal` target of
+# rust/Dockerfile, released with the server's. It calls the server's
+# /public/forms/* with FORMS_PORTAL_SECRET from weldsuite-env.
+formsPortal:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-forms-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # As the sign portal: only Traefik appends to X-Forwarded-For.
+  trustedProxies: 1
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: forms.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-forms-tls
+        hosts:
+          - forms.${DOMAIN}
 
 # The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
 # workspaces, the app catalog, warmup and outbound mail. Its image is the

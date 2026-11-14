@@ -44,6 +44,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
+| weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
 | kube-prometheus-stack | chart 92.3.1 | Prometheus (30 days), Alertmanager, Grafana at `grafana.<domain>` ("Monitoring, alerts and logs" below) |
@@ -202,7 +203,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit

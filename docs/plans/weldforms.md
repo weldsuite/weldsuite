@@ -627,8 +627,10 @@ Changes against the plan above:
   sheet's own refresh schedule (no `sheets` nudge step).
 - The platform has no site editor, so the website-builder block has no form
   picker yet.
-- The EU Flux values keep `formsPortal` off until `FORMS_PORTAL_SECRET`,
-  `FORMS_SESSION_SECRET` and `ALTCHA_HMAC_KEY` are in the SOPS secrets.
+- The EU Flux values run `formsPortal` at `forms.<domain>` with ALTCHA, and
+  `config.forms.portalUrl` points the emailed links there; the three secrets
+  (`FORMS_PORTAL_SECRET`, `FORMS_SESSION_SECRET`, `ALTCHA_HMAC_KEY`) are in
+  each cluster's SOPS Secret. `forms.` is in `tofu output dns_records`.
 - In Rust, the instant response email is sent when the notification is
   recorded; Global defers it two minutes through its deferred-email Workflow.
 
