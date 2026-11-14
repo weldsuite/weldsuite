@@ -496,15 +496,24 @@ fn handlers(
                     tracing::warn!("AI is not configured: the weldagent subscriber does not run");
                     continue;
                 };
+                // With Restate a matched run is a `weldagent.job` that `serve`
+                // runs, with the spreadsheet, board and WeldMerge tools.
+                // Without it the run is inline here, lacking those three.
+                let launcher = match jobs {
+                    Some(jobs) => weldsuite_agent::launch::RunLauncher::jobs(Arc::clone(jobs)),
+                    None => weldsuite_agent::launch::RunLauncher::inline(
+                        Some(ai),
+                        weldsuite_agent::run::RunEnv {
+                            master: Some(master.clone()),
+                            realtime: services.realtime.clone(),
+                            sandbox: services.sandboxes.is_some(),
+                            sandboxes: services.sandboxes.clone(),
+                        },
+                    ),
+                };
                 Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
                     Arc::clone(tenants),
-                    Some(ai),
-                    weldsuite_agent::run::RunEnv {
-                        master: Some(master.clone()),
-                        realtime: services.realtime.clone(),
-                        sandbox: services.sandboxes.is_some(),
-                        sandboxes: services.sandboxes.clone(),
-                    },
+                    launcher,
                 ))
             }
             "realtime" => {

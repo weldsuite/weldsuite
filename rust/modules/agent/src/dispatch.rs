@@ -16,16 +16,16 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use weldsuite_ai::Ai;
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
 use weldsuite_subscribers::{HubEvent, Tenants};
 
 use crate::access::{AgentAccess, agent_viewer_for, can_access_agent};
 use crate::agents::get_agent;
+use crate::launch::RunLauncher;
 use crate::routines::{
     create_routine_run, find_event_routines, has_routine_run_for_trigger, mark_routine_scheduled,
 };
-use crate::run::{RunEnv, RunParams, TriggerType, run_agent};
+use crate::run::{RunEnv, RunParams, TriggerType};
 use crate::runs::{create_agent_run, find_agents_for_event, has_existing_agent_run_for_event};
 
 /// Key stamped into entity-event `data` by agent tools (`AGENT_ORIGIN_KEY`).
@@ -57,8 +57,7 @@ struct AgentTask {
 /// What every run scheduled for one entity event has in common.
 struct EventContext<'a> {
     db: &'a PgPool,
-    ai: Option<&'a Ai>,
-    env: &'a RunEnv,
+    launcher: &'a RunLauncher,
     message: &'a DispatchMessage,
     event_key: String,
     event_prompt: String,
@@ -97,27 +96,24 @@ async fn dispatch_to_agent(ctx: &EventContext<'_>, agent: &Value, task: Option<A
                 format!("Triggered by entity event {}.", ctx.event_key),
             ),
         };
-        let outcome = run_agent(
-            ctx.ai,
-            RunParams {
-                db: ctx.db.clone(),
-                workspace_id: ctx.message.workspace_id.clone(),
-                actor_user_id: actor,
-                agent_id: agent_id.to_owned(),
-                trigger_type: TriggerType::Event,
-                trigger_data: Some(ctx.base_trigger.clone()),
-                user_message,
-                extra_system: Some(extra_system),
-                run_id: Some(run_id),
-                routine_run_id: None,
-                skip_approvals: false,
-                notify: true,
-                actor_permissions: None,
-                events: None,
-                env: ctx.env.clone(),
-            },
-        )
-        .await;
+        let params = RunParams {
+            db: ctx.db.clone(),
+            workspace_id: ctx.message.workspace_id.clone(),
+            actor_user_id: actor,
+            agent_id: agent_id.to_owned(),
+            trigger_type: TriggerType::Event,
+            trigger_data: Some(ctx.base_trigger.clone()),
+            user_message,
+            extra_system: Some(extra_system),
+            run_id: Some(run_id),
+            routine_run_id: None,
+            skip_approvals: false,
+            notify: true,
+            actor_permissions: None,
+            events: None,
+            env: RunEnv::default(),
+        };
+        let outcome = ctx.launcher.start(params, None).await;
         if let Err(error) = outcome {
             tracing::warn!(
                 ?error,
@@ -158,32 +154,29 @@ async fn dispatch_to_routine(ctx: &EventContext<'_>, routine: &Value) {
         if let Some(map) = trigger_data.as_object_mut() {
             map.insert("routineId".into(), json!(routine_id));
         }
-        let outcome = run_agent(
-            ctx.ai,
-            RunParams {
-                db: ctx.db.clone(),
-                workspace_id: ctx.message.workspace_id.clone(),
-                actor_user_id: actor,
-                agent_id: agent_id.to_owned(),
-                trigger_type: TriggerType::Event,
-                trigger_data: Some(trigger_data),
-                user_message: format!(
-                    "{}Follow routine \"{}\":\n{}",
-                    ctx.event_prompt,
-                    routine["name"].as_str().unwrap_or_default(),
-                    routine["instructions"].as_str().unwrap_or_default()
-                ),
-                extra_system: None,
-                run_id: None,
-                routine_run_id: Some(routine_run_id),
-                skip_approvals: routine["requireApproval"] != json!(true),
-                notify: true,
-                actor_permissions: None,
-                events: None,
-                env: ctx.env.clone(),
-            },
-        )
-        .await;
+        let params = RunParams {
+            db: ctx.db.clone(),
+            workspace_id: ctx.message.workspace_id.clone(),
+            actor_user_id: actor,
+            agent_id: agent_id.to_owned(),
+            trigger_type: TriggerType::Event,
+            trigger_data: Some(trigger_data),
+            user_message: format!(
+                "{}Follow routine \"{}\":\n{}",
+                ctx.event_prompt,
+                routine["name"].as_str().unwrap_or_default(),
+                routine["instructions"].as_str().unwrap_or_default()
+            ),
+            extra_system: None,
+            run_id: None,
+            routine_run_id: Some(routine_run_id),
+            skip_approvals: routine["requireApproval"] != json!(true),
+            notify: true,
+            actor_permissions: None,
+            events: None,
+            env: RunEnv::default(),
+        };
+        let outcome = ctx.launcher.start(params, None).await;
         if let Err(error) = outcome {
             tracing::warn!(
                 ?error,
@@ -289,8 +282,7 @@ async fn dispatch_assigned_issue(ctx: &EventContext<'_>) {
 /// ack does not wait on an agent.
 pub async fn dispatch_agents_for_event(
     db: &PgPool,
-    ai: Option<&Ai>,
-    env: &RunEnv,
+    launcher: &RunLauncher,
     message: &DispatchMessage,
 ) {
     if message
@@ -343,8 +335,7 @@ pub async fn dispatch_agents_for_event(
     }
     let ctx = EventContext {
         db,
-        ai,
-        env,
+        launcher,
         message,
         event_key,
         event_prompt,
@@ -364,23 +355,24 @@ pub async fn dispatch_agents_for_event(
 /// The `weldagent` hub subscriber (`handleEntityAgentBatch`).
 pub struct WeldAgentSubscriber {
     tenants: Arc<dyn Tenants>,
-    ai: Option<Ai>,
-    env: RunEnv,
+    launcher: RunLauncher,
 }
 
 impl std::fmt::Debug for WeldAgentSubscriber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WeldAgentSubscriber")
-            .field("ai", &self.ai.is_some())
+            .field("launcher", &self.launcher)
             .finish_non_exhaustive()
     }
 }
 
 impl WeldAgentSubscriber {
     /// The subscriber. Without AI there is nothing to run: build it only when
-    /// the install has a provider.
-    pub fn new(tenants: Arc<dyn Tenants>, ai: Option<Ai>, env: RunEnv) -> Self {
-        Self { tenants, ai, env }
+    /// the install has a provider. `launcher` says where a matched run
+    /// starts: on the jobs backend, so `serve` runs it with every tool
+    /// ([`RunLauncher::Jobs`]), or inline ([`RunLauncher::Inline`]).
+    pub fn new(tenants: Arc<dyn Tenants>, launcher: RunLauncher) -> Self {
+        Self { tenants, launcher }
     }
 
     async fn handle_one(&self, delivery: &Delivery) -> Disposition {
@@ -414,7 +406,7 @@ impl WeldAgentSubscriber {
             data: event.data_value(),
             event_id: Some(event.id.clone()),
         };
-        dispatch_agents_for_event(&tenant.db, self.ai.as_ref(), &self.env, &message).await;
+        dispatch_agents_for_event(&tenant.db, &self.launcher, &message).await;
         Disposition::Ack
     }
 }
@@ -448,7 +440,8 @@ mod tests {
             data: json!({ "triggeredByAgentId": "agt_1" }),
             event_id: Some("evt_1".into()),
         };
-        dispatch_agents_for_event(&db, None, &RunEnv::default(), &message).await;
+        dispatch_agents_for_event(&db, &RunLauncher::inline(None, RunEnv::default()), &message)
+            .await;
     }
 
     #[test]

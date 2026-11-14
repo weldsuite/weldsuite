@@ -39,6 +39,7 @@ pub mod assistant;
 mod conversations;
 pub mod dispatch;
 pub mod grants;
+pub mod launch;
 #[cfg(test)]
 mod loop_tests;
 mod parity;

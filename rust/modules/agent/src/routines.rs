@@ -334,8 +334,7 @@ pub async fn earliest_due(db: &PgPool, now_ms: i64) -> Result<Option<OffsetDateT
 /// The tenant database fails.
 pub async fn run_routine_sweep_for_tenant(
     db: &PgPool,
-    ai: Option<&weldsuite_ai::Ai>,
-    env: &crate::run::RunEnv,
+    launcher: &crate::launch::RunLauncher,
     workspace_id: &str,
     actor_user_id: Option<&str>,
     now_ms: i64,
@@ -353,35 +352,34 @@ pub async fn run_routine_sweep_for_tenant(
             .map(str::to_owned)
             .or_else(|| routine["createdBy"].as_str().map(str::to_owned))
             .unwrap_or_else(|| "system".to_owned());
-        let outcome = crate::run::run_agent(
-            ai,
-            crate::run::RunParams {
-                db: db.clone(),
-                workspace_id: workspace_id.to_owned(),
-                actor_user_id: actor,
-                agent_id: agent_id.clone(),
-                trigger_type: crate::run::TriggerType::Event,
-                trigger_data: Some(json!({ "routineId": routine_id, "schedule": true })),
-                user_message: format!(
-                    "Scheduled routine \"{}\" is due.\n\n{}",
-                    routine["name"].as_str().unwrap_or_default(),
-                    routine["instructions"].as_str().unwrap_or_default()
-                ),
-                extra_system: Some(ROUTINE_RESULT_SYSTEM.to_owned()),
-                run_id: None,
-                routine_run_id: Some(run_id.clone()),
-                skip_approvals: routine["requireApproval"] != json!(true),
-                notify: false,
-                actor_permissions: None,
-                events: None,
-                env: env.clone(),
-            },
-        )
-        .await;
-        match outcome {
-            Ok(_) => started += 1,
-            Err(error) => {
-                let message = format!("{error:?}");
+        let params = crate::run::RunParams {
+            db: db.clone(),
+            workspace_id: workspace_id.to_owned(),
+            actor_user_id: actor,
+            agent_id: agent_id.clone(),
+            trigger_type: crate::run::TriggerType::Event,
+            trigger_data: Some(json!({ "routineId": routine_id, "schedule": true })),
+            user_message: format!(
+                "Scheduled routine \"{}\" is due.\n\n{}",
+                routine["name"].as_str().unwrap_or_default(),
+                routine["instructions"].as_str().unwrap_or_default()
+            ),
+            extra_system: Some(ROUTINE_RESULT_SYSTEM.to_owned()),
+            run_id: None,
+            routine_run_id: Some(run_id.clone()),
+            skip_approvals: routine["requireApproval"] != json!(true),
+            notify: false,
+            actor_permissions: None,
+            events: None,
+            env: crate::run::RunEnv::default(),
+        };
+        let release = crate::launch::Release {
+            routine_id: &routine_id,
+            due_at_ms: now_ms,
+        };
+        match launcher.start(params, Some(release)).await {
+            Ok(()) => started += 1,
+            Err(message) => {
                 complete_routine_run(db, &run_id, "failed", None, Some(&message), None).await?;
                 release_routine_claim(db, &routine_id, now_ms).await?;
             }
@@ -411,16 +409,9 @@ fn now_ms() -> i64 {
 pub async fn run_routine_sweep(
     master: &PgPool,
     tenants: &dyn weldsuite_subscribers::Tenants,
-    ai: Option<&weldsuite_ai::Ai>,
-    sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+    launcher: &crate::launch::RunLauncher,
     now: OffsetDateTime,
 ) -> weldsuite_db::due_index::SweepResult {
-    let env = &crate::run::RunEnv {
-        master: Some(master.clone()),
-        sandbox: sandboxes.is_some(),
-        sandboxes,
-        ..crate::run::RunEnv::default()
-    };
     weldsuite_db::due_index::run_sweep(
         master,
         DUE_KIND,
@@ -435,8 +426,7 @@ pub async fn run_routine_sweep(
             let at_ms = i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
             let started = run_routine_sweep_for_tenant(
                 &tenant.db,
-                ai,
-                env,
+                launcher,
                 &tenant.workspace_id,
                 None,
                 at_ms,

@@ -9,8 +9,12 @@
 //! the agent works for; the module checks their permissions and access as they
 //! are now.
 //!
-//! Only `serve` installs it: the consume and cron roles run agents without
-//! these tools (they answer that the module is not available to agents here).
+//! Only `serve` installs it. The consume and cron roles do not run agents
+//! themselves when they can avoid it: with `RESTATE_INGRESS_URL` the routine
+//! sweep and the `weldagent` subscriber enqueue each run as a `weldagent.job`
+//! (`weldsuite_agent::launch`), which `serve` runs with these tools. Without
+//! a jobs backend that reaches `serve` they run inline and these three tools
+//! answer that the module is not available to agents here.
 
 use std::sync::Arc;
 

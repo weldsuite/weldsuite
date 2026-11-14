@@ -901,33 +901,14 @@ impl Job for WeldAgentJob {
                     .map_err(|e| JobError::Failed(e.to_string()))
                 }
                 "agent-run" => {
-                    let params = crate::run::RunParams {
-                        db: tenant.db.clone(),
-                        workspace_id,
-                        actor_user_id: payload["actorUserId"]
-                            .as_str()
-                            .unwrap_or("system")
-                            .to_owned(),
-                        agent_id: payload["agentId"].as_str().unwrap_or_default().to_owned(),
-                        trigger_type: crate::run::TriggerType::Event,
-                        trigger_data: payload.get("triggerData").cloned(),
-                        user_message: payload["userMessage"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .to_owned(),
-                        extra_system: payload["extraSystem"].as_str().map(str::to_owned),
-                        run_id: payload["runId"].as_str().map(str::to_owned),
-                        routine_run_id: payload["routineRunId"].as_str().map(str::to_owned),
-                        skip_approvals: payload["skipApprovals"] == json!(true),
-                        notify: true,
-                        actor_permissions: None,
-                        events: None,
-                        env: self.env.clone(),
-                    };
-                    crate::run::run_agent(self.ai.as_ref(), params)
-                        .await
-                        .map(|_| ())
-                        .map_err(|e| JobError::Failed(format!("{e:?}")))
+                    crate::launch::run_payload(
+                        self.ai.as_ref(),
+                        tenant.db.clone(),
+                        self.env.clone(),
+                        &payload,
+                    )
+                    .await;
+                    Ok(())
                 }
                 // `chat-turn` jobs are run in the request that accepts the turn
                 // (`agent_turn` spawns the reply), so there is nothing to resume.
