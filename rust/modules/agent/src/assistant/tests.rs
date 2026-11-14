@@ -74,6 +74,14 @@ fn lazy_pool() -> PgPool {
 /// The router as the server serves it for a caller with `permissions`; `ai`
 /// is the install's AI (`None`: off).
 fn app(tenant: PgPool, ai: Option<Ai>, permissions: &[&str]) -> Router {
+    app_as(tenant, ai, permissions, "user_me")
+}
+
+/// [`app`] for a caller of its own: tests that read the process-wide module
+/// stand-in's calls (`module_tools_tests::calls_of`) need a user no test
+/// running in parallel uses.
+fn app_as(tenant: PgPool, ai: Option<Ai>, permissions: &[&str], user: &str) -> Router {
+    let user = user.to_owned();
     let state = AgentState {
         events: EntityEventPublisher::new(None, TaskTracker::new()),
         ai,
@@ -92,7 +100,7 @@ fn app(tenant: PgPool, ai: Option<Ai>, permissions: &[&str]) -> Router {
     super::router(state, &gate).layer(axum::middleware::from_fn(
         move |mut request: axum::extract::Request, next: axum::middleware::Next| {
             request.extensions_mut().insert(AuthContext {
-                user_id: "user_me".to_owned(),
+                user_id: user.clone(),
                 org_id: Some("org_test".to_owned()),
                 session_id: "sess_1".to_owned(),
                 factor_verification_age: None,
@@ -108,7 +116,7 @@ fn app(tenant: PgPool, ai: Option<Ai>, permissions: &[&str]) -> Router {
                 resolved.clone(),
                 None,
                 false,
-                "user_me".to_owned(),
+                user.clone(),
             ));
             next.run(request)
         },

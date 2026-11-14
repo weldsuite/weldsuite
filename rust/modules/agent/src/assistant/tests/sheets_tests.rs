@@ -32,10 +32,13 @@ async fn the_persona_reads_the_open_and_tagged_sheets_and_no_others() {
             &json!({ "spreadsheetId": "sht_other" }),
         )
         .reply_text("Done");
-    let router = app(
+    // Its own caller: the module stand-in is shared by tests running in
+    // parallel, and the next test reads sheets as `user_me` ten times.
+    let router = app_as(
         tenant,
         Some(Ai::fake(config(), fake.clone())),
         &["agents:read", "weldagent:use", "sheets:read"],
+        "user_sheet_reader",
     );
     let (status, text, _) = post(&router, "/ai/chat", &sheet_chat()).await;
     assert_eq!(status, StatusCode::OK, "{text}");
@@ -55,7 +58,7 @@ async fn the_persona_reads_the_open_and_tagged_sheets_and_no_others() {
     );
     assert!(system.contains("You cannot change them"), "{system}");
     // The open sheet's read reached the sheets module as the person; the other did not.
-    let reached = crate::tools::module_tools_tests::calls_of("user_me");
+    let reached = crate::tools::module_tools_tests::calls_of("user_sheet_reader");
     assert_eq!(reached.len(), 1, "{reached:?}");
     assert_eq!(reached[0].2.as_deref(), Some("sht_open"));
     let last = calls[2].body["messages"].to_string();
