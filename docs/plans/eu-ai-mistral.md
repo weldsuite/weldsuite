@@ -713,14 +713,36 @@ Streaming: Global's `complete-turn` does not stream either, the reply is
 saved and the client polls the messages. The streamed chat belongs to the
 assistant (`/api/ai/chat/stream`).
 
-**Tools on EU**: `save_agent_setup`, `ask_user`, `list_routines`,
-`update_routine`, `save_skill`, `remember`, `create_routine`,
-`list_people`, `get_person`, `create_person`, `list_tasks`,
-`create_task`, `list_projects`, `get_project`, `message_agent`,
-`create_agent_group_chat`. The sandbox, web and browser tools are registered
-by the sandbox crate. Not yet: the ticket tools (the WeldDesk inbox needs its
-routing and event deps outside a request) and the sheets, board and merge
-tools (those module crates expose routes, not a library surface).
+**Tools on EU**: every tool of the Global registry. WeldAgent's own
+(`save_agent_setup`, `ask_user`, `list_routines`, `update_routine`,
+`save_skill`, `remember`, `create_routine`), people, tasks and projects
+(`list_people`, `get_person`, `create_person`, `list_tasks`, `create_task`,
+`list_projects`, `get_project`), chat (`message_agent`,
+`create_agent_group_chat`), tickets (`list_tickets`, `create_ticket`, through
+desk-domain's inbox like the public API), spreadsheets (`find_spreadsheets`,
+`create_spreadsheet`, `list_spreadsheet_tabs`, `read_spreadsheet_range`,
+`write_spreadsheet_range`), boards (`find_boards`, `create_board`,
+`read_board`, `add_to_board`, `update_board`) and WeldMerge (the eight
+`merge_*` tools). The sandbox, web and browser tools come from the sandbox
+crate; the loop offers them only when the install has a sandbox, and
+`computer_use` only for a model that can drive a desktop. A run releases its
+sandbox session when it ends; a chat keeps one per conversation, which the
+idle sweep ends.
+
+The spreadsheet, board and merge tools reach their modules in process. The
+module crates expose the operations the Global tools call over service
+bindings as library functions (`weldsuite_sheets::agent_call`,
+`weldsuite_board::agent_call`, `weldsuite_merge::agent_tool`, twins of
+`SheetsInternal`, `BoardsInternal` and `MergeInternal.agentTool`); the binary
+implements the agent crate's `ModuleTools` over them and installs it when it
+mounts the agent module. Each call acts for the person the agent works for:
+their permissions and their WeldDrive or project access are checked as they
+are now, on top of the agent's grants. Only `serve` installs it: the consume
+and cron roles run agents without the spreadsheet, board and merge tools (they
+answer that the module is not available to agents here). The default
+WeldAgent also gets the spreadsheet tools for the sheet the person has open
+and the sheets they tag (AGENT-015), limited to those sheets, with up to ten
+model requests instead of six.
 
 Push notifications for an approval waiting, a finished chat turn and a room
 reply are not sent yet; the unread counters and realtime pings are.
