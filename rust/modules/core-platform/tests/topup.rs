@@ -106,6 +106,12 @@ fn paid(id: &str, workspace: &str, checkout: &str, status: PaymentStatus) -> Pay
         amount_charged_back: None,
         metadata,
         checkout_url: None,
+        sequence_type: None,
+        customer_id: None,
+        mandate_id: None,
+        details: weldsuite_core_platform::topup::mollie::MethodDetails::default(),
+        paid_at: None,
+        failure_reason: None,
     }
 }
 

@@ -27,7 +27,7 @@
 //! top-up (Global's comes from Stripe).
 
 pub mod ledger;
-pub mod mollie;
+pub use weldsuite_mollie as mollie;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -412,7 +412,7 @@ impl TopUp {
         let payment = NewPayment {
             amount: &price,
             description: &description,
-            redirect_url: &redirect_url,
+            redirect_url: Some(&redirect_url),
             cancel_url: input.cancel_url.as_deref(),
             webhook_url: &self.webhook_url,
             metadata: json!({
@@ -423,6 +423,9 @@ impl TopUp {
                 "credits": package.credits,
                 "userId": buyer.user_id,
             }),
+            sequence: mollie::Sequence::OneOff,
+            methods: Vec::new(),
+            locale: None,
         };
         let created = self
             .mollie
@@ -734,6 +737,12 @@ mod tests {
             amount_charged_back: None,
             metadata: metadata.as_object().cloned().unwrap_or_default(),
             checkout_url: None,
+            sequence_type: None,
+            customer_id: None,
+            mandate_id: None,
+            details: mollie::MethodDetails::default(),
+            paid_at: None,
+            failure_reason: None,
         }
     }
 

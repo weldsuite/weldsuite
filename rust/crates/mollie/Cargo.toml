@@ -1,0 +1,20 @@
+[package]
+name = "weldsuite-mollie"
+description = "Mollie's API v2 over the outbound HTTP port: payments, customers, mandates and refunds (the Kubernetes editions' payment provider, ADRs BILL-013 and BILL-014)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ports = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

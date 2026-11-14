@@ -87,6 +87,7 @@ weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
+weldsuite-mollie = { path = "crates/mollie" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-social = { path = "modules/social" }
 weldsuite-staff-domain = { path = "crates/staff-domain" }

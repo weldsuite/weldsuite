@@ -5016,6 +5016,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mollie",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -5760,6 +5761,16 @@ dependencies = [
  "sqlx",
  "tokio",
  "weldsuite-db",
+]
+
+[[package]]
+name = "weldsuite-mollie"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "url",
+ "weldsuite-ports",
 ]
 
 [[package]]
