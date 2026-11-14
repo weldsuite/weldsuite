@@ -61,7 +61,7 @@ src/
       sms.ts                   # send_sms (Telnyx)
       helpdesk.ts               # helpdesk conversation actions (assign, tag, reply, ...)
       interactive.ts           # send_choices / collect_input (waiting-for-input steps)
-      ai.ts                     # AI-backed actions (owned separately, see CLAUDE.md)
+      ai.ts                     # AI-backed actions (owned separately, see AGENTS.md → AI)
       providers/                # per-integration adapters (Slack, Notion, GitHub, Airtable, ...)
 ```
 
@@ -97,5 +97,5 @@ per-provider adapters (Notion, GitHub, Airtable, Asana, Google Sheets/Calendar,
 Gmail, Teams, Twilio).
 
 `src/engine/actions/ai.ts` (AI-backed actions) is owned by a separate
-workstream, see the repo's `CLAUDE.md`, and is out of scope for changes made
+workstream, see the AI section of the repo's `AGENTS.md`, and is out of scope for changes made
 under this README's remit.

@@ -19,7 +19,7 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 - **TanStack Query** for server state (via `QueryProvider`)
 - **Jotai** for lightweight client state
 - **React Hook Form + Zod v3 (NOT v4)**, validation schemas go through `zodResolver`
-- **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read CLAUDE.md → UI for the rules and the "need → component" table.
+- **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read `apps/web/platform/AGENTS.md` → UI for the rules and the "need → component" table.
 - **Tailwind v4** utilities only, no legacy v3 syntax
 - **Path alias `@`** resolves to platform root: `@/lib/...`, `@/components/...`, `@/app/...`
 - **Env vars use `VITE_` prefix** (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_WORKER_URL`)
