@@ -123,6 +123,13 @@ export const EDITION_FEATURES = [
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.
    */
   'collab-rooms',
+  /**
+   * WeldPanel's analytics pages: web analytics, insights, funnels, retention, flows,
+   * reports, dashboards, cohorts, lexicon, users, recordings, heatmaps and frustration
+   * (queries run on Basin, which only Global has). Projects and the install
+   * instructions stay available; the other pages are hidden and redirect to them.
+   */
+  'panel-analytics',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

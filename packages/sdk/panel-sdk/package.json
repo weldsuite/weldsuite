@@ -1,25 +1,34 @@
 {
   "name": "@weldsuite/panel-sdk",
-  "version": "0.1.0",
-  "description": "WeldPanel analytics SDK: pageviews, clicks and custom events for websites and web apps",
+  "version": "0.2.0",
+  "description": "WeldPanel analytics SDK: pageviews, clicks, custom events, identity, frustration signals and session recordings for websites and web apps",
   "license": "MIT",
   "private": true,
   "type": "module",
   "sideEffects": [
     "./src/global.ts",
-    "./dist/panel.global.js"
+    "./src/recorder-global.ts",
+    "./dist/panel.global.js",
+    "./dist/panel-recorder.global.js"
   ],
   "exports": {
     ".": "./src/index.ts",
     "./wire": "./src/wire.ts",
     "./install": "./src/install.ts",
-    "./dist/panel.global.js": "./dist/panel.global.js"
+    "./recorder": "./src/recorder.ts",
+    "./server": "./src/server.ts",
+    "./dist/panel.global.js": "./dist/panel.global.js",
+    "./dist/panel-recorder.global.js": "./dist/panel-recorder.global.js"
   },
   "scripts": {
     "build": "node build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rrweb/record": "2.1.7",
+    "rrweb": "2.1.7"
   },
   "devDependencies": {
     "@types/node": "^20",

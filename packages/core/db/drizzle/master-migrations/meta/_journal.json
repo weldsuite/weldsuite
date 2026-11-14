@@ -470,6 +470,13 @@
       "when": 1794596500370,
       "tag": "0066_tiresome_aqueduct",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794674684350,
+      "tag": "0067_dapper_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

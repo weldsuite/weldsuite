@@ -10,6 +10,10 @@
 
 import { z } from 'zod';
 
+// Query specs and results, and the saved objects, people, recordings and the rest of phases 2-7.
+export * from './weldpanel-query';
+export * from './weldpanel-objects';
+
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------

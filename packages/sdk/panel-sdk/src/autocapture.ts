@@ -107,6 +107,18 @@ export function elementText(el: Element, masking: ClientConfig['maskingLevel']):
   return text || undefined;
 }
 
+/**
+ * Where a click landed: `x`, `y` in the document and `rel_x`, `rel_y` inside
+ * the element's box (heatmaps). Nothing for a keyboard "click", which has no
+ * position worth plotting.
+ */
+export function clickPosition(el: Element, m: MouseEvent): { x?: number; y?: number; rel_x?: number; rel_y?: number } {
+  if (!m.clientX && !m.clientY) return {};
+  const r = el.getBoundingClientRect();
+  const pos = { x: m.clientX + window.scrollX, y: m.clientY + window.scrollY };
+  return r.width > 0 && r.height > 0 ? { ...pos, rel_x: (m.clientX - r.left) / r.width, rel_y: (m.clientY - r.top) / r.height } : pos;
+}
+
 export function describeElement(
   el: Element,
   action: WireElement['action'],

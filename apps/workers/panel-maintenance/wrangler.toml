@@ -1,0 +1,185 @@
+# WeldSuite panel-maintenance worker: WeldPanel's erasure and retention job.
+#
+# Basin SQL only reads, so removing rows from the Iceberg tables (a GDPR
+# erasure, rows past a project's retention) runs as a PyIceberg job in a
+# Cloudflare Container (container/). This worker drives it (weldsuite-documentation/plans/weldpanel.md
+# "Privacy and GDPR"):
+#   queue    panel-maintenance(-test): panel-api queues the ids of an erased person
+#   cron     weekly (Sunday 03:00 UTC): PanelMaintenanceWorkflow runs the rewrite
+# No routes and no public host.
+#
+# Secrets (scripts/secrets/manifest.ts -> "panel-maintenance"):
+#   DATABASE_URL_MASTER, CF_ACCOUNT_ID, PANEL_CATALOG_TOKEN
+# PANEL_CATALOG_TOKEN is an R2 token with access to the panel bucket's Data
+# Catalog (the same Doppler key setup-resources.mjs uses). The catalog address
+# is derived from CF_ACCOUNT_ID and PANEL_BASIN_BUCKET; PANEL_CATALOG_URI and
+# PANEL_CATALOG_WAREHOUSE override it.
+#
+# Local: Docker must be running for the container.
+#
+# Durable Object bindings, migrations, containers and workflows are NOT
+# inherited by [env.*]. Names of Workflows are unique per account.
+
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-panel-maintenance-dev"
+main = "src/index.ts"
+compatibility_date = "2025-09-07"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+# Basin bucket holding the panel.* Iceberg tables (dev uses the test bucket).
+PANEL_BASIN_BUCKET = "weldsuite-panel-test"
+
+[triggers]
+crons = ["0 3 * * 0"]
+
+[[queues.consumers]]
+queue = "panel-maintenance-dev"
+max_batch_size = 50
+max_batch_timeout = 5
+max_retries = 10
+
+[[containers]]
+class_name = "MaintenanceJob"
+image = "./container/Dockerfile"
+instance_type = "basic"
+max_instances = 1
+
+[[durable_objects.bindings]]
+name = "MAINTENANCE_LEDGER"
+class_name = "MaintenanceLedger"
+
+[[durable_objects.bindings]]
+name = "MAINTENANCE_JOB"
+class_name = "MaintenanceJob"
+
+# The PanelProject object lives in the collector worker: clearErased(ids) after a rewrite.
+[[durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest-dev"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MaintenanceLedger", "MaintenanceJob"]
+
+[[workflows]]
+name = "panel-maintenance-dev"
+binding = "MAINTENANCE_WORKFLOW"
+class_name = "PanelMaintenanceWorkflow"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-panel-maintenance-test"
+workers_dev = false
+
+[env.test.vars]
+ENVIRONMENT = "test"
+PANEL_BASIN_BUCKET = "weldsuite-panel-test"
+
+[env.test.triggers]
+crons = ["0 3 * * 0"]
+
+[[env.test.queues.consumers]]
+queue = "panel-maintenance-test"
+max_batch_size = 50
+max_batch_timeout = 5
+max_retries = 10
+
+[[env.test.containers]]
+class_name = "MaintenanceJob"
+image = "./container/Dockerfile"
+instance_type = "basic"
+max_instances = 1
+
+[[env.test.durable_objects.bindings]]
+name = "MAINTENANCE_LEDGER"
+class_name = "MaintenanceLedger"
+
+[[env.test.durable_objects.bindings]]
+name = "MAINTENANCE_JOB"
+class_name = "MaintenanceJob"
+
+[[env.test.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest-test"
+
+[[env.test.migrations]]
+tag = "v1"
+new_sqlite_classes = ["MaintenanceLedger", "MaintenanceJob"]
+
+[[env.test.workflows]]
+name = "panel-maintenance-test"
+binding = "MAINTENANCE_WORKFLOW"
+class_name = "PanelMaintenanceWorkflow"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-panel-maintenance"
+workers_dev = false
+
+[env.production.vars]
+ENVIRONMENT = "production"
+PANEL_BASIN_BUCKET = "weldsuite-panel"
+
+[env.production.triggers]
+crons = ["0 3 * * 0"]
+
+[[env.production.queues.consumers]]
+queue = "panel-maintenance"
+max_batch_size = 50
+max_batch_timeout = 5
+max_retries = 10
+
+[[env.production.containers]]
+class_name = "MaintenanceJob"
+image = "./container/Dockerfile"
+instance_type = "basic"
+max_instances = 1
+
+[[env.production.durable_objects.bindings]]
+name = "MAINTENANCE_LEDGER"
+class_name = "MaintenanceLedger"
+
+[[env.production.durable_objects.bindings]]
+name = "MAINTENANCE_JOB"
+class_name = "MaintenanceJob"
+
+[[env.production.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["MaintenanceLedger", "MaintenanceJob"]
+
+[[env.production.workflows]]
+name = "panel-maintenance"
+binding = "MAINTENANCE_WORKFLOW"
+class_name = "PanelMaintenanceWorkflow"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

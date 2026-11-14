@@ -78,6 +78,14 @@ export const panelUsageMonthly = pgTable(
     /** Overage blocks already charged to the wallet (10,000 events / 100 recordings each). */
     eventBlocksCharged: integer('event_blocks_charged').notNull().default(0),
     recordingBlocksCharged: integer('recording_blocks_charged').notNull().default(0),
+    /** Credits those blocks cost, as charged (the rate can change between months). */
+    eventCreditsCharged: integer('event_credits_charged').notNull().default(0),
+    recordingCreditsCharged: integer('recording_credits_charged').notNull().default(0),
+    /**
+     * Usage emails already sent this month, so each goes once: `80` and `100` (percent of an
+     * allowance), `replay_blocked` and `events_blocked` (data is being dropped).
+     */
+    notified: jsonb('notified').$type<string[]>().notNull().default([]),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

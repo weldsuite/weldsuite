@@ -6,6 +6,8 @@
 import type { PanelProjectRecord } from '@weldsuite/panel-domain/registry';
 import type { EventBatch } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
+import { trackLive } from './live';
+import { applyBatchPeople } from './profiles';
 import { buildEventRows, consentedAnonId } from './rows';
 import { touchSeen } from './seen';
 import { utcDate } from './time';
@@ -60,15 +62,22 @@ export async function collectEvents(env: Env, accepted: AcceptedBatch): Promise<
 
   // Counting and the install check never fail the write that already happened.
   const bookkeeping = await Promise.allSettled([
-    env.PANEL_USAGE.get(env.PANEL_USAGE.idFromName(project.workspaceId)).add(utcDate(receivedAt), rows.length),
+    env.PANEL_USAGE.get(env.PANEL_USAGE.idFromName(project.workspaceId)).add(utcDate(receivedAt), rows.length, project.workspaceId),
     touchSeen(env.WORKSPACE_CACHE, project.projectId, receivedAt),
+    trackLive(env, project.projectId, rows, receivedAt),
   ]);
   for (const result of bookkeeping) {
-    if (result.status === 'rejected') logFailure('Usage count or seen marker', project, result.reason);
+    if (result.status === 'rejected') logFailure('Usage count, seen marker or live view', project, result.reason);
   }
 }
 
 /** For the route's `waitUntil`: a failed write is logged, not thrown into the runtime. */
-export function collectInBackground(env: Env, accepted: AcceptedBatch): Promise<void> {
-  return collectEvents(env, accepted).catch((error) => logFailure('Event write', accepted.project, error));
+export async function collectInBackground(env: Env, accepted: AcceptedBatch): Promise<void> {
+  // Independent: a stream that refuses the rows must not lose an identify, and the other way round.
+  await Promise.all([
+    collectEvents(env, accepted).catch((error) => logFailure('Event write', accepted.project, error)),
+    applyBatchPeople(env, accepted.project, accepted.batch, accepted.receivedAt).catch((error) =>
+      logFailure('People update', accepted.project, error),
+    ),
+  ]);
 }

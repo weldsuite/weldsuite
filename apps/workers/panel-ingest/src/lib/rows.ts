@@ -65,6 +65,8 @@ export function buildEventRows(source: RowSource): PanelEventRow[] {
     const anonId = consented ?? cookielessId;
     if (!anonId) continue;
 
+    // A user id is personal data like the anonymous id: only with consent (and so only next to a consented id).
+    const userId = consented ? orNull(event.user_id) : null;
     const referrer = parseReferrer(event.referrer);
     rows.push({
       event_id: event.event_id,
@@ -73,9 +75,9 @@ export function buildEventRows(source: RowSource): PanelEventRow[] {
       name: event.name,
       ts: new Date(correctTimestamp(event.ts, batch.sent_at, receivedAt)).toISOString(),
       received_at: receivedIso,
-      distinct_id: anonId,
+      distinct_id: userId ?? anonId,
       anon_id: anonId,
-      user_id: null,
+      user_id: userId,
       session_id: consented ? orNull(event.session_id) : null,
       cookieless: !consented,
       url: page.url,
@@ -101,10 +103,10 @@ export function buildEventRows(source: RowSource): PanelEventRow[] {
       el_text: orNull(event.el?.text),
       x: event.x ?? null,
       y: event.y ?? null,
-      rel_x: null,
-      rel_y: null,
+      rel_x: event.rel_x ?? null,
+      rel_y: event.rel_y ?? null,
       scroll_depth: event.scroll_depth ?? null,
-      error_message: null,
+      error_message: orNull(event.error_message),
       // events_v1 has no column for click vs submit, so autocapture keeps it in
       // the reserved `$action` property (client keys can't start with `$`).
       properties: JSON.stringify(event.el ? { ...event.props, $action: event.el.action } : (event.props ?? {})),

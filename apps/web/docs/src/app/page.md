@@ -49,6 +49,7 @@ Browse guides written for everyday setup — no technical background needed. {% 
 | [WeldDrive](/welddrive) | Files and shared documents |
 | [WeldKnow](/weldknow) | Internal wiki and knowledge base |
 | [WeldForms](/weldforms) | Forms, surveys and quizzes |
+| [WeldPanel](/weldpanel) | Website analytics and session recordings |
 | [WeldMeet](/weldmeet) | Video meetings |
 | [Settings](/settings) | Team, billing, integrations |
 

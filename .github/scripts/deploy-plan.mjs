@@ -50,6 +50,7 @@ const CORE_WORKERS = [
   'helpdesk-workflow-worker',
   'reach-warmup-worker',
   'panel-ingest',
+  'panel-maintenance',
 ];
 
 /**

@@ -2781,6 +2781,9 @@ importers:
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
+      '@weldsuite/panel-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/panel
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
@@ -4129,6 +4132,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      rrweb:
+        specifier: 2.1.7
+        version: 2.1.7
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -6961,15 +6967,27 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.4.0
         version: 0.4.3(hono@4.13.16)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
       '@weldsuite/api-modules':
         specifier: workspace:*
         version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
+      '@weldsuite/credits':
+        specifier: workspace:*
+        version: link:../../../packages/core/credits
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
@@ -7035,6 +7053,40 @@ importers:
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
+      typescript:
+        specifier: ^5.7
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      wrangler:
+        specifier: ^4.95.0
+        version: 4.152.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.43)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+
+  apps/workers/panel-maintenance:
+    dependencies:
+      '@weldsuite/db':
+        specifier: workspace:*
+        version: link:../../../packages/core/db
+      '@weldsuite/panel-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/panel
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(patch_hash=4f73794ab369a960e6bd8d18d2feea3b33bd42cf95129995f90b1dabf4234a8c)(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -9972,6 +10024,9 @@ importers:
 
   packages/domains/panel:
     dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../clients/app-api-client
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
@@ -10220,6 +10275,13 @@ importers:
         version: 3.5.44(typescript@5.9.2)
 
   packages/sdk/panel-sdk:
+    dependencies:
+      '@rrweb/record':
+        specifier: 2.1.7
+        version: 2.1.7
+      rrweb:
+        specifier: 2.1.7
+        version: 2.1.7
     devDependencies:
       '@types/node':
         specifier: ^20
@@ -15600,6 +15662,15 @@ packages:
     resolution: {integrity: sha512-j5rXD4R/4DM5+V991AA9xOnG2Rwu2g3p5TPgu1Eu7apju0NUrLl+Bn/KpWc6wYJtlXqzwz1r+LNV1JeBU4VGvw==}
     cpu: [x64]
     os: [win32]
+
+  '@rrweb/record@2.1.7':
+    resolution: {integrity: sha512-lIAbWdH8JwRuujURxTBtgrlsPvyBUGXUa9aB5hK8s5DdHgagyLFkIaAWhtthuOwT3o4o4+w38yUVPLc3W2oOrw==}
+
+  '@rrweb/types@2.2.2':
+    resolution: {integrity: sha512-b9BNYEBcQF9dGQ5JJOoqBEFM7HlLmOdKgCfS2qkQj3gevF1wyuJIGPDGpaAYpl0H24fFOHGw6IdbYH6qrZNk1w==}
+
+  '@rrweb/utils@2.2.2':
+    resolution: {integrity: sha512-C078kPGG4iJ6uuSPELy/RkXZ6Ge3rUsSrX0KYzbtSjoCwMErrqF0RMbWjxpUROI0Hx7ewKeiDTp+Og9AYzYzjg==}
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
@@ -24913,11 +24984,20 @@ packages:
   rpc-websockets@9.3.9:
     resolution: {integrity: sha512-2iQDaTB4g5fDB2ihrTFSJSibCEuxaRi1q7qTW7ZO9/M5/TC+ToHA4D9/ffNLEbAoHNNrcdeP05oATNk44SKZXA==}
 
+  rrdom@2.2.2:
+    resolution: {integrity: sha512-hVe7bm9dw8Rluj1MIKh6fPDkc7RC5ri7PQi5eggXd3SN8WDt+uoNtceSIZC6ouMXzjqoMkQYJmIKmQEFc0mHCw==}
+
   rrweb-cssom@0.7.1:
     resolution: {integrity: sha512-TrEMa7JGdVm0UThDJSx7ddw5nVm3UJS9o9CCIZ72B1vSyEZoziDqBYP3XIoi/12lKrJR8rE3jeFHMok2F/Mnsg==}
 
   rrweb-cssom@0.8.0:
     resolution: {integrity: sha512-guoltQEx+9aMf2gDZ0s62EcV8lsXR+0w8915TC3ITdn2YueuNjdAYh/levpU9nFaoChh9RUS5ZdQMrKfVEN9tw==}
+
+  rrweb-snapshot@2.2.2:
+    resolution: {integrity: sha512-/0w4Xzd/Tw5a80dmEmv8/YkFitJYoMOnbtmt0jCAEdZ1w0nDSw5hvf59E/oDLy+z+x+vCcT0ibI+IYWeuCHegQ==}
+
+  rrweb@2.1.7:
+    resolution: {integrity: sha512-UZzK43vVmbtBt5WyEVO/CO8q9hKi38LRZDQS5C+X+FYgpVLK4vhWyUzzi1K0iXzHFb3MOVaTak5TAsdK5K6V6Q==}
 
   run-applescript@7.1.0:
     resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==}
@@ -34848,6 +34928,16 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.64.12':
     optional: true
+
+  '@rrweb/record@2.1.7':
+    dependencies:
+      '@rrweb/types': 2.2.2
+      '@rrweb/utils': 2.2.2
+      rrweb: 2.1.7
+
+  '@rrweb/types@2.2.2': {}
+
+  '@rrweb/utils@2.2.2': {}
 
   '@rtsao/scc@1.1.0': {}
 
@@ -50539,9 +50629,28 @@ snapshots:
       bufferutil: 4.1.0
       utf-8-validate: 6.0.6
 
+  rrdom@2.2.2:
+    dependencies:
+      rrweb-snapshot: 2.2.2
+
   rrweb-cssom@0.7.1: {}
 
   rrweb-cssom@0.8.0: {}
+
+  rrweb-snapshot@2.2.2:
+    dependencies:
+      postcss: 8.5.31
+
+  rrweb@2.1.7:
+    dependencies:
+      '@rrweb/types': 2.2.2
+      '@rrweb/utils': 2.2.2
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+      rrdom: 2.2.2
+      rrweb-snapshot: 2.2.2
 
   run-applescript@7.1.0: {}
 

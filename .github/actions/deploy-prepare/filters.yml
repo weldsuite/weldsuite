@@ -270,3 +270,8 @@ panel-ingest:
   - 'apps/workers/panel-ingest/**'
   - 'packages/domains/panel/**'
   - 'packages/sdk/panel-sdk/**'
+panel-maintenance:
+  - 'apps/workers/panel-maintenance/**'
+  - 'packages/domains/panel/**'
+  - 'packages/core/worker-kit/**'
+  - 'packages/core/db/**'
