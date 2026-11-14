@@ -5,7 +5,7 @@
  *   pnpm rust:conformance                 build, run every suite, report
  *   pnpm rust:conformance --no-build      reuse rust/target/debug/weldsuite (or CONFORMANCE_BIN)
  *   pnpm rust:conformance --list          print the suites the other flags select, and stop
- *                                         (with --changed BASE --head REF: what a branch would run)
+ *                                         (with --changed BASE: what this branch would run)
  *   pnpm rust:conformance --changed BASE  only suites whose paths, tests or Rust module changed since
  *                                         BASE (any other Rust change: every suite; see rustReach)
  *   pnpm rust:conformance --shard 2/4     the second of four even shares of the selected suites (CI)
@@ -95,8 +95,6 @@ const noBuild = args.includes('--no-build');
 const listOnly = args.includes('--list');
 const changedIndex = args.indexOf('--changed');
 const changedBase = changedIndex >= 0 ? args[changedIndex + 1] : undefined;
-/** `--head REF`: compare BASE with REF instead of HEAD (with --list, to see what a branch would run). */
-const changedHead = args.includes('--head') ? args[args.indexOf('--head') + 1] ?? 'HEAD' : 'HEAD';
 const coverageIndex = args.indexOf('--coverage');
 const coverageChangedIndex = args.indexOf('--coverage-changed');
 const shardIndex = args.indexOf('--shard');
@@ -131,7 +129,7 @@ const portedModules = new Set(
 );
 
 function changedFiles(base: string): string[] {
-  const result = spawnSync('git', ['diff', '--name-only', `${base}...${changedHead}`], { cwd: repo, encoding: 'utf8' });
+  const result = spawnSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd: repo, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git diff against ${base} failed: ${result.stderr}`);
   return result.stdout.split('\n').filter(Boolean);
 }
@@ -183,25 +181,34 @@ function suiteModuleOf(crate: string, modules: Set<string>): string | undefined 
   return [...modules].filter((m) => crate.startsWith(`${m}-`)).sort((a, b) => b.length - a.length)[0];
 }
 
-/** Module crate → the module crates whose [dependencies] name it. */
+/**
+ * The workspace crates (`weldsuite-<name>`, as <name>) a Cargo.toml names in
+ * its [dependencies], [build-dependencies] or target-specific dependencies.
+ * Not [dev-dependencies]: they reach the crate's tests, not the server.
+ */
+function workspaceDependencies(cargoToml: string): string[] {
+  const names: string[] = [];
+  let section = '';
+  for (const line of cargoToml.split('\n')) {
+    const header = /^\s*\[([^\]]+)\]/.exec(line);
+    if (header) section = header[1]!;
+    else if (/(^|\.)(build-)?dependencies$/.test(section)) {
+      const name = /^\s*weldsuite-([a-z0-9-]+)\s*=/.exec(line)?.[1];
+      if (name) names.push(name);
+    }
+  }
+  return names;
+}
+
+/** Module crate → the module crates that depend on it. */
 function moduleCrateDependents(): Map<string, Set<string>> {
   const modulesDir = path.join(rustDir, 'modules');
   const crates = readdirSync(modulesDir).filter((dir) => existsSync(path.join(modulesDir, dir, 'Cargo.toml')));
   const dependents = new Map<string, Set<string>>();
   for (const crate of crates) {
-    let section = '';
-    for (const line of readFileSync(path.join(modulesDir, crate, 'Cargo.toml'), 'utf8').split('\n')) {
-      const header = /^\s*\[([^\]]+)\]/.exec(line);
-      if (header) {
-        section = header[1]!;
-        continue;
-      }
-      if (!/(^|\.)(build-)?dependencies$/.test(section)) continue;
-      const dep = /^\s*weldsuite-([a-z0-9-]+)\s*=/.exec(line)?.[1];
-      if (dep && dep !== crate && crates.includes(dep)) {
-        if (!dependents.has(dep)) dependents.set(dep, new Set());
-        dependents.get(dep)!.add(crate);
-      }
+    const deps = workspaceDependencies(readFileSync(path.join(modulesDir, crate, 'Cargo.toml'), 'utf8'));
+    for (const dep of deps.filter((name) => name !== crate && crates.includes(name))) {
+      dependents.set(dep, (dependents.get(dep) ?? new Set()).add(crate));
     }
   }
   return dependents;
@@ -237,9 +244,8 @@ function rustReach(changed: string[]): Set<string> | 'all' {
   }
   const modules = new Set(suites.map((suite) => suite.module));
   const reached = new Set([...crates].flatMap((crate) => suiteModuleOf(crate, modules) ?? []));
-  console.log(
-    `Rust module crates reached: ${[...crates].sort().join(', ')}; their suites' modules: ${[...reached].sort().join(', ') || 'none'}`,
-  );
+  const sorted = (names: Iterable<string>) => [...names].sort((a, b) => a.localeCompare(b)).join(', ');
+  console.log(`Rust module crates reached: ${sorted(crates)}; their suites' modules: ${sorted(reached) || 'none'}`);
   return reached;
 }
 

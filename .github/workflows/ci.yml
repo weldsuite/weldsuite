@@ -219,17 +219,20 @@ jobs:
   # A push to main builds the `release` profile, the one that ships (thin LTO,
   # one codegen unit: 20 to 40 minutes when the Rust layer misses the cache,
   # which it does whenever main's Rust code moved). A PR builds `ci-image`
-  # (rust/Cargo.toml: no LTO, 16 codegen units, opt-level 1): its image only
-  # has to deploy and pass the smoke test, and a break that only the release
-  # settings show turns main red, not the PR.
+  # (rust/Cargo.toml: no LTO, 16 codegen units, opt-level 1) when its backend
+  # would miss the cache anyway: its image only has to deploy and pass the
+  # smoke test, and a break that only the release settings show turns main
+  # red, not the PR. See "Pick the Cargo profile".
   rust-image:
     name: Rust · image and chart
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.image != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      CARGO_PROFILE: ${{ github.event_name == 'pull_request' && 'ci-image' || 'release' }}
+    permissions:
+      contents: read
+      # Main's newest green CI run, for "Pick the Cargo profile".
+      actions: read
     steps:
       # A build that misses the layer cache (a changed Cargo.lock or
       # pnpm-lock.yaml) compiles every crate and installs the SPA's
@@ -242,6 +245,33 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h /
       - uses: actions/checkout@v4
+      # The backend layer's cache key includes CARGO_PROFILE, and only pushes
+      # to main save layers, built `release`. A PR whose backend inputs match
+      # main's newest green CI run builds `release` too and takes that layer
+      # from the cache in minutes (a chart-only change, say). Any other PR
+      # would compile the backend anyway, and builds the cheaper `ci-image`.
+      - name: Pick the Cargo profile
+        id: profile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          profile=release
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            profile=ci-image
+            # What rust/Dockerfile's `build` stage copies, and the file itself.
+            inputs=(rust/Dockerfile rust/Dockerfile.dockerignore rust/rust-toolchain.toml rust/Cargo.toml
+              rust/Cargo.lock rust/clippy.toml rust/.cargo rust/catalogs rust/crates rust/modules rust/bins
+              packages/core/db/drizzle)
+            sha="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' || true)"
+            if [ -n "$sha" ] && git fetch --quiet --depth=1 origin "$sha" && git diff --quiet "$sha" HEAD -- "${inputs[@]}"; then
+              profile=release
+              echo "The backend's inputs match main's ${sha::12}, whose release layer is cached."
+            fi
+          fi
+          echo "Cargo profile: $profile"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
       # Its post step, which removes the builder and its gigabytes of layers,
       # took two to three minutes; the runner is thrown away anyway.
       - uses: docker/setup-buildx-action@v3
@@ -254,7 +284,7 @@ jobs:
           file: rust/Dockerfile
           load: true
           tags: weldsuite:dev
-          build-args: CARGO_PROFILE=${{ env.CARGO_PROFILE }}
+          build-args: CARGO_PROFILE=${{ steps.profile.outputs.profile }}
           cache-from: type=gha,scope=rust-image
           cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-image' || '' }}
       - name: Build the sign portal's image
