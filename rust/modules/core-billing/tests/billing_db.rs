@@ -460,6 +460,20 @@ async fn a_subscription_from_checkout_to_free() {
         InboxCharge::Covered
     );
     assert_eq!(mollie.created.lock().expect("lock").len(), sent);
+    // A second inbox whose payment fails at once isn't added, and its charge
+    // pays for no slot: the next one is charged, not covered.
+    *mollie.recurring_status.lock().expect("lock") = "failed".to_owned();
+    assert!(matches!(
+        charge_inbox_added(&state, WS, None, "rmbx_x", 2, t1).await,
+        Err(BillingError::Api(_))
+    ));
+    *mollie.recurring_status.lock().expect("lock") = "paid".to_owned();
+    assert!(matches!(
+        charge_inbox_added(&state, WS, None, "rmbx_y", 2, t1).await,
+        Ok(InboxCharge::Charged { .. })
+    ));
+    assert_eq!(mollie.last_created()["amount"]["value"], "6.45");
+    inboxes.count.store(2, Ordering::SeqCst);
 
     // 4. One seat fewer waits for the period end.
     let answer = engine::set_seats(&state, &master, None, &actor, 4, t1)
@@ -484,8 +498,11 @@ async fn a_subscription_from_checkout_to_free() {
     assert_eq!(report.failed, 0, "{report:?}");
     let renewal = mollie.last_created();
     assert_eq!(renewal["sequenceType"], "recurring");
-    // 4 × €25 and the inbox, €8.00, + 21%.
-    assert_eq!(renewal["amount"]["value"], "130.68", "(4 × €25 + €8) + 21%");
+    // 4 × €25 and the two inboxes, €8.00 each, + 21%.
+    assert_eq!(
+        renewal["amount"]["value"], "140.36",
+        "(4 × €25 + 2 × €8) + 21%"
+    );
     let ws = workspace(&master).await;
     assert_eq!(ws["seats"], 4);
     assert_eq!(ws["end"], "2027-01-14T10:00:00");

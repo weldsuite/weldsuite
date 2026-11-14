@@ -134,7 +134,10 @@ pub async fn inbox_billing(
 }
 
 /// Inboxes already paid for the month ending at `end`: the renewal's line and
-/// the charges for inboxes added since, paid or under way.
+/// the charges for inboxes added since, paid or under way. An inbox charge
+/// counts only once Mollie has it: one written but never sent (refused, Mollie
+/// down, the process stopped) paid for nothing. A renewal written but not sent
+/// yet still counts, since the renewal job sends it.
 async fn paid_inboxes(
     state: &BillingState,
     workspace_id: &str,
@@ -144,6 +147,7 @@ async fn paid_inboxes(
         "select metadata from billing_payments
          where workspace_id = $1 and provider = 'mollie'
            and status in ('succeeded', 'processing') and metadata is not null
+           and (coalesce(kind, '') <> 'addon' or provider_payment_id is not null)
            and created_at > $2::timestamp - interval '45 days'",
     )
     .bind(workspace_id)
@@ -285,9 +289,13 @@ async fn collect(
         Ok(payment) => payment,
         Err(error) if error.is_refusal() => {
             tracing::warn!(%error, workspace = %row.workspace_id, "billing: mandate refused an inbox charge");
+            mark_unsent(state, &row.id, "failed", "The mandate refused the charge").await;
             return Err(payment_refused());
         }
-        Err(error) => return Err(unreachable(error)),
+        Err(error) => {
+            mark_unsent(state, &row.id, "canceled", "Mollie couldn't be reached").await;
+            return Err(unreachable(error));
+        }
     };
     if !payment.status.is_accepted() {
         // Failed at once: recorded, and the inbox isn't added.
@@ -314,6 +322,24 @@ async fn collect(
         crate::settle::settle_payment(state, &payment, now).await?;
     }
     Ok(())
+}
+
+/// An inbox charge Mollie never took (the inbox isn't added): kept for the
+/// record, never a paid slot. Should Mollie have created the payment after
+/// all (a timeout), its webhook still settles the row.
+async fn mark_unsent(state: &BillingState, row_id: &str, status: &str, reason: &str) {
+    if let Err(error) = sqlx::query(
+        "update billing_payments set status = $2, failure_message = $3, updated_at = now()
+         where id = $1 and provider_payment_id is null",
+    )
+    .bind(row_id)
+    .bind(status)
+    .bind(reason)
+    .execute(&state.master)
+    .await
+    {
+        tracing::error!(%error, row = row_id, "billing: unsent inbox charge not marked");
+    }
 }
 
 fn payment_refused() -> BillingError {
