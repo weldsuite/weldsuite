@@ -144,12 +144,14 @@ spec:
               - {{ . }}
               {{- end }}
               {{- end }}
+        # No ::ffff:0:0/96 (IPv4-mapped): the API server refuses an
+        # IPv4-mapped CIDR in an ipBlock, and a connection to one leaves the
+        # pod as IPv4, where the list above applies.
         - ipBlock:
             cidr: ::/0
             except:
               - ::/128
               - ::1/128
-              - ::ffff:0:0/96
               - 64:ff9b::/96
               - 100::/64
               - 2001:db8::/32

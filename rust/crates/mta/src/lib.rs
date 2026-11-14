@@ -3,7 +3,7 @@
 //! mail nodes, one pool per node set (`system` for WeldSuite's own mail,
 //! `customer` for everything users write), each node sending from its own
 //! public IPv4 with matching reverse DNS. Contract:
-//! `docs/plans/eu-mail-service.md`.
+//! `weldsuite-documentation/plans/eu-mail-service.md`.
 //!
 //! Written from the ground up, on purpose: no mail or DNS libraries.
 //!

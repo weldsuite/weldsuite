@@ -28,7 +28,7 @@ export interface Env extends KitEnv {
   /** CF Workflow for CRM sequence step execution. Hosted in this worker
    *  (class re-exported from src/index.ts) under the `execute-sequence-v3*`
    *  workflow names — app-api's old `execute-sequence-v2*` names keep
-   *  draining (docs/plans/app-api-module-split.md). */
+   *  draining (weldsuite-documentation/plans/app-api-module-split.md). */
   EXECUTE_SEQUENCE?: Workflow<{
     /** Clerk org id (the workflow's realtime and tenant lookups key on it). */
     workspaceId: string;
@@ -57,7 +57,7 @@ export interface Env extends KitEnv {
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7) -
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7) -
   /**
    * mail-api's mailbox Durable Object, bound by `script_name` (design §8).
    * Reached only through `@weldsuite/mail-domain/store`'s `getWorkspaceMail`

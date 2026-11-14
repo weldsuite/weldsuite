@@ -1,6 +1,6 @@
 /**
  * Members-only forms — /api/forms/fill/:publicId, answered inside the platform
- * (docs/plans/weldforms.md, "Respondent modes").
+ * (weldsuite-documentation/plans/weldforms.md, "Respondent modes").
  *
  *   GET  /:publicId   → the form (same payload as the public one, no bot check) and whether
  *                       the member already responded

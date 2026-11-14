@@ -8,7 +8,7 @@
  *
  * SYSTEM_EMAIL_FROM pins the sender to the pre-existing noreply@weldsuite.org
  * address until mail.weldsuite.org is onboarded in Cloudflare Email Service
- * (docs/plans/system-email-cloudflare.md, Phase 0); see the `[vars]` comment
+ * (weldsuite-documentation/plans/system-email-cloudflare.md, Phase 0); see the `[vars]` comment
  * in wrangler.toml.
  */
 

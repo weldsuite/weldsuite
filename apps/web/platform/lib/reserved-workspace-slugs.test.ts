@@ -49,13 +49,13 @@ describe('reserved workspace slugs', () => {
   });
 
   it('accepts other slugs, including ones that start with weld', () => {
-    for (const slug of ['acme', 'weldon', 'weld-masters', 'settings-team']) {
+    for (const slug of ['acme', 'weldon', 'weld-masters', 'settings-team', 'testing']) {
       expect(workspaceSlugSchema.safeParse(slug).success).toBe(true);
     }
   });
 
   it('rejects reserved names and bad formats', () => {
-    for (const slug of ['settings', 'weldcrm', 'call-room', 'assets', 'www', 'Acme', 'ab', 'acme-']) {
+    for (const slug of ['settings', 'weldcrm', 'call-room', 'assets', 'www', 'test', 'Acme', 'ab', 'acme-']) {
       expect(workspaceSlugSchema.safeParse(slug).success).toBe(false);
     }
   });

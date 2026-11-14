@@ -6,10 +6,10 @@
  * `GET /:id/items` reads the existing `order_items` table (indexed on
  * `order_id`). Read-only for now: writing line items belongs with the order
  * state machine and stock reservation in Phase 3 of
- * `.claude/weldcommerce-plan.md`, since adding an item to a placed order has
+ * `weldsuite-documentation/plans/weldcommerce-plan.md`, since adding an item to a placed order has
  * to move inventory too.
  *
- * Sales tax (docs/plans/weldbooks-us.md, phase 6): `POST /calculate-tax`
+ * Sales tax (weldsuite-documentation/plans/weldbooks-us.md, phase 6): `POST /calculate-tax`
  * prices a cart or draft, `POST /:id/calculate-tax` recalculates a stored
  * order (and with `apply` writes it), and `POST` / `PATCH` take
  * `calculateTax: true` to do the same as they write. The engine is WeldBooks'

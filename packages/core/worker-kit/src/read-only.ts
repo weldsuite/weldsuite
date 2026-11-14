@@ -1,5 +1,5 @@
 /**
- * Read-only workspaces (docs/plans/reseller-licensing.md).
+ * Read-only workspaces (weldsuite-documentation/plans/reseller-licensing.md).
  *
  * A partner-managed workspace turns read-only when its partner is suspended
  * (unpaid statement) or its licence is not active (suspended or ended). Members

@@ -1,6 +1,6 @@
 /**
  * Which usage email, if any, a settlement owes the workspace's owners
- * (docs/plans/weldpanel.md: 80% and 100% of the allowance, and when data is
+ * (weldsuite-documentation/plans/weldpanel.md: 80% and 100% of the allowance, and when data is
  * being dropped), once per threshold per month.
  *
  * What was sent lives on the month's `panel_usage_monthly.notified`. The marker

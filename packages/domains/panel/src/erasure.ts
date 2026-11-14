@@ -1,5 +1,5 @@
 /**
- * What panel-api puts on the `panel-maintenance` queue (docs/plans/weldpanel.md
+ * What panel-api puts on the `panel-maintenance` queue (weldsuite-documentation/plans/weldpanel.md
  * "Privacy and GDPR", ADR PANEL-002) and apps/workers/panel-maintenance
  * consumes: the ids of a person erased from one project, queued once the
  * PanelProject object has dropped the profile and excluded the ids from every

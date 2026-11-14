@@ -86,7 +86,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('roles',         'Roles & Permissions',  ['read', 'create', 'update', 'delete']),
   objectPermissions('apikeys',       'API Keys',             ['read', 'create', 'delete']),
   objectPermissions('billing',       'Billing',              ['read', 'manage']),
-  // Legal entities are core (docs/plans/legal-entities.md): registered in no
+  // Legal entities are core (weldsuite-documentation/plans/legal-entities.md): registered in no
   // app, like `team` and `roles`. WeldBooks' `entities` object stays for the
   // WeldBooks settings of an entity.
   {
@@ -767,7 +767,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // Mailboxes cost money (a monthly Stripe line per inbox) and domains carry
   // the sender reputation, so `reach_mailboxes` writes are ADMIN by default.
   // The module itself is on request only: none of this works until WeldSuite
-  // staff approve the workspace (docs/plans/weldreach.md).
+  // staff approve the workspace (weldsuite-documentation/plans/weldreach.md).
   objectPermissions('reach_campaigns', 'Outreach campaigns'),
   objectPermissions('reach_prospects', 'Outreach prospects'),
   {

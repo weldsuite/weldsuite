@@ -10,7 +10,7 @@
  *
  * `panel_usage_monthly` is where the PanelUsage Durable Object flushes a
  * workspace's counts and records the overage blocks it charged to the credit
- * wallet. See docs/plans/weldpanel.md.
+ * wallet. See weldsuite-documentation/plans/weldpanel.md.
  */
 
 import { pgTable, varchar, timestamp, integer, bigint, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';

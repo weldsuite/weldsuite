@@ -29,6 +29,7 @@
 //! | `POST /sign-up` | creates the account, emails the code |
 //! | `GET /password-policy` | the provider's rules for a new password |
 //! | `POST /password-reset`, `/confirm` | emails a reset code; sets the new password |
+//! | `POST /invitation/accept` | checks an invitation's code, sets the first password, opens the session |
 //! | `POST /sign-out` | ends the provider session |
 //!
 //! No route takes a session token, so each counts its attempts
@@ -203,6 +204,7 @@ where
             "/password-reset/confirm",
             post(routes::password_reset_confirm),
         )
+        .route("/invitation/accept", post(routes::accept_invitation))
         .route("/sign-out", post(routes::sign_out))
         .with_state(state)
 }

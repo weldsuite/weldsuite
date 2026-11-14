@@ -349,6 +349,9 @@ pub(crate) struct IdentityConfig {
     pub(crate) project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`.
     pub(crate) invite_url_template: Option<String>,
+    /// `OIDC_SIGN_IN=platform`: invitees accept on the platform's `/invite`
+    /// (unless `invite_url_template` says otherwise), not on Zitadel's page.
+    pub(crate) accept_on_platform: bool,
     /// `ZITADEL_HOST`: the `Host` header when `api_url` is in-cluster.
     pub(crate) host: Option<String>,
 }
@@ -381,6 +384,8 @@ impl IdentityConfig {
                 login_token: set("ZITADEL_LOGIN_TOKEN"),
                 project_id,
                 invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
+                // Set once the sign-in configuration is read.
+                accept_on_platform: false,
                 host: set("ZITADEL_HOST"),
             }),
             (None, None, None) => None,
@@ -662,7 +667,7 @@ impl Config {
         if trusted_proxies == 0 {
             problems.push("TRUSTED_PROXIES must be at least 1".to_owned());
         }
-        let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
+        let mut infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
         let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
         let metrics_addr = crate::monitoring::listen_addr(
             lookup(crate::monitoring::METRICS_ADDR).as_deref(),
@@ -693,6 +698,16 @@ impl Config {
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
         auth.check_sign_in_screens(&infra, &mut problems);
+        if let Some(identity) = &mut infra.identity {
+            // The platform's own sign-in screens take invitations too.
+            identity.accept_on_platform = matches!(
+                auth,
+                AuthConfig::Oidc {
+                    platform_sign_in: true,
+                    ..
+                }
+            );
+        }
         let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
         let mut edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
         edition.ai = ai.describe();
@@ -1102,6 +1117,10 @@ abc",
         ));
         let identity = config_with.infra.identity.expect("identity");
         assert_eq!(identity.login_token.as_deref(), Some("login"));
+        assert!(
+            identity.accept_on_platform,
+            "invitations accepted there too"
+        );
         assert_eq!(
             config_with.platform_url.as_deref(),
             Some("https://app.eu.example")

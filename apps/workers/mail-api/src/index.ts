@@ -4,9 +4,9 @@
  * subscriptions, sync, templates, campaigns, WeldMail addresses, mail AI and
  * the mailbox directory) module's API worker, plus the SendScheduledEmail
  * workflow, the snooze wake-up cron, and the outbound guard's Durable Objects
- * and queue consumers (docs/plans/weldmail-outbound-abuse.md).
+ * and queue consumers (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
@@ -47,11 +47,11 @@ import type { Env, Variables } from './types';
 const app = createModuleApi<Env, Variables>({ service: 'mail-api' });
 
 // Outbound guard staff API (admin console, shared secret; not Clerk). Kept off
-// the /api/* auth chain on purpose. docs/plans/weldmail-outbound-abuse.md.
+// the /api/* auth chain on purpose. weldsuite-documentation/plans/weldmail-outbound-abuse.md.
 app.route('/internal/outbound', internalOutboundRoutes);
 
 // Mailbox store staff API: backfill/catch-up, full parity, reverse sync and
-// rebuild (docs/plans/weldmail-mailbox-store-design.md §4, §9 task C4). Same
+// rebuild (weldsuite-documentation/plans/weldmail-mailbox-store-design.md §4, §9 task C4). Same
 // shared-secret pattern as /internal/outbound, also kept off /api/*.
 app.route('/internal/mail-store', internalMailStoreRoutes);
 
@@ -91,12 +91,12 @@ app.route('/api/mail-weldmail', mailWeldMailRoutes);
 // keeps `send-scheduled-email-v2*` only while its in-flight instances drain.
 export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/send-scheduled-email';
 
-// Outbound guard Durable Objects (docs/plans/weldmail-outbound-abuse.md): one
+// Outbound guard Durable Objects (weldsuite-documentation/plans/weldmail-outbound-abuse.md): one
 // ledger per workspace, and the platform budget. Every worker that sends mail
 // binds them from here by script_name.
 export { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
 
-// Mailbox store (docs/plans/weldmail-mailbox-store-design.md): one
+// Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md): one
 // MailboxStoreObject per mailbox and one MailIndex per workspace, both
 // EU-jurisdiction SQLite Durable Objects. Cloudflare requires DO classes to
 // be exported from the worker entry point even though nothing in this file

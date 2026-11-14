@@ -3,7 +3,7 @@
  * profile snapshots and the recording chunk index (ADR PANEL-002).
  *
  * Each table has its own stream, sink and pipeline (one per table: a pipeline
- * is billed for everything it reads, docs/plans/weldpanel.md "Basin tables").
+ * is billed for everything it reads, weldsuite-documentation/plans/weldpanel.md "Basin tables").
  * The stream schema files next to this one are what the streams were created
  * with; `tables.test.ts` keeps them and the row types in step. A pipeline
  * cannot be changed after creation and drops rows that do not match its

@@ -1,6 +1,6 @@
 /**
  * WeldSuite panel-api — WeldPanel's API worker (product analytics and session
- * recordings, docs/plans/weldpanel.md).
+ * recordings, weldsuite-documentation/plans/weldpanel.md).
  *
  * Members work on projects, reports, recordings and people under /api/panel
  * (Clerk, `apiAuth()`). Tracked sites never call this worker: the SDK sends to

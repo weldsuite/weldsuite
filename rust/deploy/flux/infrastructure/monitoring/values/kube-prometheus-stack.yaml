@@ -1,4 +1,4 @@
-# Metrics, alerting and Grafana for the cluster (docs/plans/eu-observability.md,
+# Metrics, alerting and Grafana for the cluster (weldsuite-documentation/plans/eu-observability.md,
 # ADR OPS-021). Sized for production: Prometheus keeps 30 days; the test
 # cluster patches retention and volumes down in its layers. Lens keeps
 # working against monitoring/kube-prometheus-stack-prometheus:9090.

@@ -8,7 +8,7 @@
  * over a binding, so trusted by topology). Fallback, when the binding is absent
  * or the entrypoint is not deployed yet: the public `AGENT_RUNTIME_URL` with the
  * `INTERNAL_API_SECRET` bearer. It goes once every env has the binding
- * (docs/plans/app-api-module-split.md, rollout item 7).
+ * (weldsuite-documentation/plans/app-api-module-split.md, rollout item 7).
  */
 
 import type { WeldAgentEnv as Env } from './env';

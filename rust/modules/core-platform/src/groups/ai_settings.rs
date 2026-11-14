@@ -1,4 +1,4 @@
-//! `/api/ai-settings` (Rust only; ADR AI-012, `docs/plans/eu-ai-mistral.md`):
+//! `/api/ai-settings` (Rust only; ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`):
 //! which AI providers the workspace allows, on whose key, where each feature
 //! runs, and what has been spent.
 //!

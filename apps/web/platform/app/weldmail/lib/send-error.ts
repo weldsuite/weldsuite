@@ -6,7 +6,7 @@
  * `OutboundDenialDetails` (which window is full, when a retry can work, and
  * whether to point at WeldReach). Pure and i18n-free: the caller passes the
  * translated labels, so it is easy to test. See
- * docs/plans/weldmail-outbound-abuse.md, "Customer experience".
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md, "Customer experience".
  */
 
 import type { OutboundDenialCode } from '@weldsuite/app-api-client/schemas/outbound-mail';

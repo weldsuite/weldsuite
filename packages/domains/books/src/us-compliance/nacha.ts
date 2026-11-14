@@ -2,7 +2,7 @@
  * NACHA ACH file builder for vendor payment runs (credits to vendors' bank
  * accounts), plus a verifier that re-reads a file and checks its layout.
  *
- * Layout (docs/plans/weldbooks-us-research/federal.md section 9, Nacha ACH
+ * Layout (weldsuite-documentation/plans/weldbooks-us-research/federal.md section 9, Nacha ACH
  * file details): 94-character records, blocking factor 10 (the file is padded
  * with all-9 records to a multiple of 10 lines).
  *

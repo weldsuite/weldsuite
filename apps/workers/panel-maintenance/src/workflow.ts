@@ -13,7 +13,7 @@
  * queries, and the next run covers them again. Every step is safe to repeat.
  *
  * It runs as a Workflow because the rewrite outlasts a queue consumer or a
- * cron handler (docs/plans/weldpanel.md: the PyIceberg job on Containers).
+ * cron handler (weldsuite-documentation/plans/weldpanel.md: the PyIceberg job on Containers).
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';

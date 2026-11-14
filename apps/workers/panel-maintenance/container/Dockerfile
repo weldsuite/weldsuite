@@ -1,5 +1,5 @@
 # The PyIceberg job panel-maintenance runs in a Cloudflare Container: erasures
-# and retention for the WeldPanel Iceberg tables (docs/plans/weldpanel.md,
+# and retention for the WeldPanel Iceberg tables (weldsuite-documentation/plans/weldpanel.md,
 # "Privacy and GDPR"). It listens on 8080; the Worker drives it over HTTP.
 FROM python:3.12-slim
 

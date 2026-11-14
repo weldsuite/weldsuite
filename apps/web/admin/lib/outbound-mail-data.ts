@@ -29,7 +29,7 @@ import {
 const { outboundMailPolicies: policies, outboundMailCases: cases, outboundMailEvents: events, workspaces, plans } = masterSchema;
 
 /**
- * Read side of the Outbound mail screens (docs/plans/weldmail-outbound-abuse.md,
+ * Read side of the Outbound mail screens (weldsuite-documentation/plans/weldmail-outbound-abuse.md,
  * "Staff tooling"). Policies, cases and their trail live in the master DB; the
  * mail-api ledger writes them automatically, staff through
  * `actions/outbound-mail.ts`.

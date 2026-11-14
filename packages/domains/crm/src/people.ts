@@ -1420,7 +1420,7 @@ export async function resolveByEmails(
  *
  * `opts.emails`, when present (even empty), scopes the result to those
  * addresses instead of the tenant-wide fallback — crm-domain no longer
- * queries `mail_messages` itself (docs/plans/weldmail-mailbox-store-design.md,
+ * queries `mail_messages` itself (weldsuite-documentation/plans/weldmail-mailbox-store-design.md,
  * task D7): the mailbox store is the source of a mail account's recent
  * correspondence in every mode, so the crm-api route resolves the address
  * list through `@weldsuite/mail-domain/store`'s `recentAddresses` before

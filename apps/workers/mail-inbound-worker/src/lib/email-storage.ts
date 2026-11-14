@@ -195,7 +195,7 @@ export interface ParsedEmail {
   // Raw RFC 5322 message for audit trail. Stays string-typed and, for every
   // Cloudflare-routed message, stays undefined: the DB column it feeds
   // (`mail_messages.raw_message` / `personal_mail_messages.raw_message`) is
-  // not where raw MIME lives going forward (docs/plans/weldmail-mailbox-store-design.md
+  // not where raw MIME lives going forward (weldsuite-documentation/plans/weldmail-mailbox-store-design.md
   // decision 4) — see `rawMessageBytes` below for the bytes workspace mail
   // actually stores (in R2).
   rawMessage?: string;
@@ -654,7 +654,7 @@ async function storePersonalEmail(
 /**
  * Write a workspace message's raw RFC 5322 bytes to R2
  * (`mail/<workspaceId>/<accountId>/<messageId>/raw.eml`), never to the
- * Postgres `raw_message` column (docs/plans/weldmail-mailbox-store-design.md
+ * Postgres `raw_message` column (weldsuite-documentation/plans/weldmail-mailbox-store-design.md
  * decisions 4 and 7), in the EU mail bucket (`MAIL_STORAGE`). No-ops when
  * there are no bytes (nothing came through the adapter) or no `MAIL_STORAGE`
  * binding. Best-effort: the message row is already committed by the time this
@@ -854,7 +854,7 @@ export async function storeEmail(
     console.log(`[Store] Saved email ${finalMessageId} (thread ${finalThreadId}) for account ${account.accountId}`);
 
     // Raw MIME to R2, every mode (ham or spam) — never the Postgres
-    // raw_message column (docs/plans/weldmail-mailbox-store-design.md
+    // raw_message column (weldsuite-documentation/plans/weldmail-mailbox-store-design.md
     // decision 4). The store never writes this; it stays this file's job.
     await storeRawMimeToR2(
       env,

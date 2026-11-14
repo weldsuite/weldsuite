@@ -3,7 +3,7 @@
 The WeldForms definition and its rules, in pure TypeScript (Zod only), shared by
 the builder, the renderer (`@weldsuite/forms-renderer`), forms-api and, through
 the fixtures, the Rust backend (`rust/modules/forms`). See
-`docs/plans/weldforms.md` and ADR FORMS-003.
+`weldsuite-documentation/plans/weldforms.md` and ADR FORMS-003.
 
 ## Contract
 

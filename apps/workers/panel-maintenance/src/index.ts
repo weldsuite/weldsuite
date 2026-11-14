@@ -1,6 +1,6 @@
 /**
  * WeldSuite panel-maintenance: WeldPanel's erasure and retention job
- * (docs/plans/weldpanel.md "Privacy and GDPR", ADR PANEL-002).
+ * (weldsuite-documentation/plans/weldpanel.md "Privacy and GDPR", ADR PANEL-002).
  *
  * Basin SQL only reads, so removing rows from the Iceberg tables takes another
  * engine: a PyIceberg job in a Cloudflare Container (container/). This worker

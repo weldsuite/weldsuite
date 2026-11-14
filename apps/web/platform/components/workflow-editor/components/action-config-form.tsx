@@ -1404,7 +1404,7 @@ function PostChatMessageForm({
 
 /**
  * slack.post_message — the first third-party provider step (reference for
- * Google/GitHub; see "Provider pattern" in docs/plans/weldconnect.md).
+ * Google/GitHub; see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md).
  * Connection picker only shown when more than one Slack workspace is
  * connected; the channel picker loads from the chosen connection
  * (conversations.list via connect-api) and is disabled until one is chosen.
@@ -1765,7 +1765,7 @@ function GithubCreateCommentForm({
 // Google provider forms — google_sheets.append_row / update_row,
 // gmail.send_email, google_calendar.create_event. Same shape as Slack's
 // (SlackPostMessageForm above); see "Provider pattern" in
-// docs/plans/weldconnect.md. All three Google products share one OAuth app
+// weldsuite-documentation/plans/weldconnect.md. All three Google products share one OAuth app
 // but connect as separate workflow_integrations rows, so each form queries
 // `useWorkflowIntegrations({ type: '<product>', status: 'connected' })`
 // independently.

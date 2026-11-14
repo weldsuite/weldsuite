@@ -23,7 +23,8 @@ commands:
   domains remove <domain>           stop signing for a domain
   queue                             recipients by pool and status
 
-Settings are environment variables (docs/plans/eu-mail-service.md).";
+Settings are MTA_* environment variables (crates/mta/src/config.rs; the Helm chart's
+values.yaml lists them).";
 
 fn log_format() -> LogFormat {
     match std::env::var("LOG_FORMAT").as_deref() {

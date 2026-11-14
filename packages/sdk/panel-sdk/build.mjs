@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
-/** The plan's budget for the core script (docs/plans/weldpanel.md, "SDK"). */
+/** The plan's budget for the core script (weldsuite-documentation/plans/weldpanel.md, "SDK"). */
 const CORE_MAX_GZIP_BYTES = 10 * 1024;
 /** The recorder is rrweb's record() plus chunking: about 25 KB; fail well before it gets heavy. */
 const RECORDER_MAX_GZIP_BYTES = 80 * 1024;

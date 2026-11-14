@@ -3,7 +3,7 @@
  * the prospect and the sending mailbox, the mailbox signature, and the
  * opt-out + sender-identity footer.
  *
- * Nothing here references a WeldSuite domain (docs/plans/weldreach.md,
+ * Nothing here references a WeldSuite domain (weldsuite-documentation/plans/weldreach.md,
  * "Deliverability rules").
  */
 

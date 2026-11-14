@@ -258,7 +258,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
   // need Basin, which only Global has: the Kubernetes editions list just the
   // projects (and their install page). Users, Recordings, Heatmaps and
   // Frustration are separate pages gated on their own permissions
-  // (docs/plans/weldpanel.md, "Permissions").
+  // (weldsuite-documentation/plans/weldpanel.md, "Permissions").
   weldpanel: {
     appName: 'WeldPanel',
     appIcon: ChartSpline,

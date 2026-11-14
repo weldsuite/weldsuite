@@ -1,5 +1,5 @@
 /**
- * GDPR erasure of one tracked person (docs/plans/weldpanel.md "Privacy and GDPR").
+ * GDPR erasure of one tracked person (weldsuite-documentation/plans/weldpanel.md "Privacy and GDPR").
  *
  * In order:
  *   1. the PanelProject object forgets the profile and identity links and adds

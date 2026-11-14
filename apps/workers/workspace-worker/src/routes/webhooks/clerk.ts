@@ -388,7 +388,7 @@ async function handleOrganizationDeleted(
   // failure here is NOT swallowed: it must propagate so this handler throws,
   // the webhook answers non-2xx, and Svix redelivers — the Neon database
   // teardown below must never run ahead of this (design §7,
-  // docs/plans/weldmail-mailbox-store-design.md).
+  // weldsuite-documentation/plans/weldmail-mailbox-store-design.md).
   await destroyWorkspaceMail(env, masterDb, workspace.id);
 
   if (env.NEON_API_KEY && workspace.neonProjectId) {

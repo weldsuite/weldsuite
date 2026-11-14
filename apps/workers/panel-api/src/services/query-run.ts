@@ -59,7 +59,7 @@ export async function runCachedQuery(deps: QueryRunDeps, spec: ParsedPanelQueryS
   const execute = basinExecutor(env);
   const ctx = await buildQueryContext({ env, tenantDb, masterDb, workspaceId, projectId: spec.projectId, spec });
   const { result, stats } = await runPanelQuery(spec, ctx, execute);
-  // What the query scanned, to watch the cost of project mixing (docs/plans/weldpanel.md "Risks").
+  // What the query scanned, to watch the cost of project mixing (weldsuite-documentation/plans/weldpanel.md "Risks").
   if (stats.bytesScanned !== null) {
     // The kind comes from the request (already validated); keep only letters so a log line can't be forged.
     const kind = String(spec.kind).replaceAll(/[^a-z]/gi, '');

@@ -105,7 +105,7 @@ export async function getTenantDbForWorkspace(env: TenantDbEnv, ref: string): Pr
 /**
  * The canonical `workspaces.id` for a ref that may be either identifier of the
  * workspace (today, `ActionContext.tenant.workspaceId` is the Clerk org id —
- * see `docs/plans/workspace-id-standardization.md`). Reuses the exact same
+ * see `weldsuite-documentation/plans/workspace-id-standardization.md`). Reuses the exact same
  * KV-cached lookup `getTenantDbForWorkspace` already runs to open the tenant
  * DB, so a call right after resolving the tenant DB for the same ref costs one
  * KV read, not a master-DB round trip. Used by the mail-store-mode guard

@@ -1,6 +1,6 @@
 //! The employer as the payroll engines see it, built from a legal entity and
 //! the registration and bank account payroll runs under
-//! (`services/weldhr/payroll/employer-context.ts`; docs/plans/legal-entities.md,
+//! (`services/weldhr/payroll/employer-context.ts`; weldsuite-documentation/plans/legal-entities.md,
 //! WeldHR).
 //!
 //! [`load_employer_for_payroll`] merges the entity (name, legal name,

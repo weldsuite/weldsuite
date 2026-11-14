@@ -2,7 +2,7 @@
 #
 # Basin SQL only reads, so removing rows from the Iceberg tables (a GDPR
 # erasure, rows past a project's retention) runs as a PyIceberg job in a
-# Cloudflare Container (container/). This worker drives it (docs/plans/weldpanel.md
+# Cloudflare Container (container/). This worker drives it (weldsuite-documentation/plans/weldpanel.md
 # "Privacy and GDPR"):
 #   queue    panel-maintenance(-test): panel-api queues the ids of an erased person
 #   cron     weekly (Sunday 03:00 UTC): PanelMaintenanceWorkflow runs the rewrite

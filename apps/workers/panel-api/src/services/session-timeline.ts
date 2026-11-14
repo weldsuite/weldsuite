@@ -1,6 +1,6 @@
 /**
  * A recording turned into the compact text an AI summary reads (ADR PANEL-005,
- * docs/plans/weldpanel.md "AI").
+ * weldsuite-documentation/plans/weldpanel.md "AI").
  *
  * Only what the collector already stores masked: pages and the time on each,
  * the visible text of what was clicked or submitted (masked per the project's

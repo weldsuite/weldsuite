@@ -37,7 +37,7 @@ export interface Env extends KitEnv {
   /** CF Workflow that sends one user's daily task digest email. Hosted in
    *  this worker (class re-exported from src/index.ts, @weldsuite/flow-domain)
    *  under the `send-digest-v3*` names — app-api's old `send-digest-v2*`
-   *  names keep draining (docs/plans/app-api-module-split.md). Dispatched by
+   *  names keep draining (weldsuite-documentation/plans/app-api-module-split.md). Dispatched by
    *  the hourly digest sweep cron (src/cron/digest-sweep.ts). */
   SEND_DIGEST?: Workflow<{
     workspaceId: string;
@@ -80,7 +80,7 @@ export interface Env extends KitEnv {
   /** Migration switch: `resend` sends system email through Resend instead of
    *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
    *  together with Resend at the end of the migration
-   *  (docs/plans/system-email-cloudflare.md). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md). */
   EMAIL_TRANSPORT?: string;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */

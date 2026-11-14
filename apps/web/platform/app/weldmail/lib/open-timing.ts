@@ -1,6 +1,6 @@
 /**
  * How long opening WeldMail takes, measured in the browser (phase 0 of
- * docs/plans/weldmail-mailbox-storage.md).
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md).
  *
  * An open starts when the router enters `/weldmail`, or at page load when the
  * page itself was loaded on a mail URL. It ends when the thread list shows data

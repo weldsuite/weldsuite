@@ -9,7 +9,7 @@
  *   - what a policy change writes: the new row and the trail events
  *
  * Reads live in `lib/outbound-mail-data.ts`, writes in `actions/outbound-mail.ts`,
- * the live view in `lib/mail-api.ts`. See docs/plans/weldmail-outbound-abuse.md
+ * the live view in `lib/mail-api.ts`. See weldsuite-documentation/plans/weldmail-outbound-abuse.md
  * ("Staff tooling").
  */
 

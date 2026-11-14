@@ -1,7 +1,7 @@
 /**
  * Quota notices: workspace admins get `forms.quota` when the month's completed
  * responses reach 80 % and 100 % of the plan's limit, once per threshold per
- * month (docs/plans/weldforms.md, "Plan quota"). The "already sent" marker lives
+ * month (weldsuite-documentation/plans/weldforms.md, "Plan quota"). The "already sent" marker lives
  * in KV, keyed by workspace, month and threshold.
  */
 

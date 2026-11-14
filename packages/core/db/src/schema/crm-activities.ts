@@ -88,7 +88,7 @@ export const crmActivities = pgTable('crm_activities', {
   tags: jsonb('tags').$type<string[]>(), // string[]
   customFields: jsonb('custom_fields').$type<Record<string, unknown>>(), // Record<string, unknown>
 
-  // Extracted from custom_fields blob (see docs/custom-fields-blob-extraction.md)
+  // Extracted from custom_fields blob (see weldsuite-documentation/plans/custom-fields-blob-extraction.md)
   labels: jsonb('labels').$type<string[]>(), // string[]
   assigneeIds: jsonb('assignee_ids').$type<string[]>(), // string[]
   repeat: jsonb('repeat').$type<Record<string, unknown>>(), // recurrence config

@@ -13,7 +13,7 @@
  *   account quota; tripped at 70% or by a Cloudflare daily-limit error. Ledgers
  *   push their daily deltas from their alarms, never per send.
  *
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { DurableObject } from 'cloudflare:workers';

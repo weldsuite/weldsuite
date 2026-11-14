@@ -1,5 +1,5 @@
 /**
- * Workspace AI settings (`/api/ai-settings`, plan docs/plans/eu-ai-mistral.md,
+ * Workspace AI settings (`/api/ai-settings`, plan weldsuite-documentation/plans/eu-ai-mistral.md,
  * ADR AI-012): which AI providers a workspace allows, where each feature runs
  * and what has been spent. Served by the Rust backend on the Kubernetes
  * editions only; Global does not offer the route. Zod v3, shared by the

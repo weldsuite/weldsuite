@@ -67,7 +67,7 @@ const createBody = z.object({
   syncFrequency: z.number().int().default(5),
   signature: z.string().optional(),
   // A mailbox can lower its own daily limit, never raise it past the outbound
-  // guard's ceiling (docs/plans/weldmail-outbound-abuse.md).
+  // guard's ceiling (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
   dailySendLimit: z.number().int().min(1).max(MAILBOX_DAILY_SEND_LIMIT_MAX).default(500),
   isDefault: z.boolean().default(false),
   isShared: z.boolean().default(true),

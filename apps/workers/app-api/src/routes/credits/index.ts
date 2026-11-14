@@ -20,7 +20,7 @@
  *
  * `POST /checkout` is refused (403 PARTNER_MANAGED) for a partner-managed
  * workspace: its allowance is the licence's, extra credits come from its
- * partner (docs/plans/reseller-licensing.md).
+ * partner (weldsuite-documentation/plans/reseller-licensing.md).
  *
  * `POST /checkout` proxies to billing-worker (Stripe Checkout session +
  * webhook grant). App-api never mutates the prepaid balance on checkout —

@@ -3,7 +3,7 @@
  * in merge-api, two-way issue sync, and per-member inbox state. Zod v3.
  *
  * Shared by merge-api, rust/modules/merge and the platform. Design:
- * docs/plans/weldmerge-phases-2-5.md.
+ * weldsuite-documentation/plans/weldmerge-phases-2-5.md.
  */
 
 import { z } from 'zod';

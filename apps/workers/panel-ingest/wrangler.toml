@@ -1,6 +1,6 @@
 # WeldSuite panel-ingest worker — WeldPanel's public collector.
 #
-# Tracked sites send events and recording chunks here (docs/plans/weldpanel.md):
+# Tracked sites send events and recording chunks here (weldsuite-documentation/plans/weldpanel.md):
 #   pnl.weldsuite.org        production
 #   pnl-test.weldsuite.org   test
 # The host name is still an open item in the plan; it avoids words ad-block

@@ -27,7 +27,7 @@ const QUEUE_STORAGE_KEY = '@weldbooks/offline-queue';
 
 // Items queued on one server must never be replayed against another: a server
 // switch (WeldSuite cloud, EU, self-hosted) drops the queue with the rest of
-// that server's local data (docs/plans/mobile-server-choice.md, section 7).
+// that server's local data (weldsuite-documentation/plans/mobile-server-choice.md, section 7).
 onClearServerData('weldbooks-offline-queue', () => AsyncStorage.removeItem(QUEUE_STORAGE_KEY));
 
 export interface QueueItem {

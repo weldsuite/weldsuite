@@ -1,6 +1,6 @@
 /**
  * Two-way issue sync between WeldMerge issues and provider issues (GitHub now,
- * GitLab through the same engine). Spec: docs/plans/weldmerge-phases-2-5.md,
+ * GitLab through the same engine). Spec: weldsuite-documentation/plans/weldmerge-phases-2-5.md,
  * phase 2.
  *
  * THE ADAPTER BOUNDARY (what a provider implements, and nothing else)

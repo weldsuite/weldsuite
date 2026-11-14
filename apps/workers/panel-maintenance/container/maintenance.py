@@ -1,7 +1,7 @@
 """Rewrites the WeldPanel Iceberg tables: erasures (GDPR) and retention.
 
 Basin SQL is read only, so this is the one place rows are removed
-(docs/plans/weldpanel.md, "Privacy and GDPR"). The spec comes from the
+(weldsuite-documentation/plans/weldpanel.md, "Privacy and GDPR"). The spec comes from the
 panel-maintenance worker (src/spec.ts) and says which people to erase from
 which project and how long each project's events are kept.
 

@@ -15,7 +15,7 @@ use crate::envelope::EventSource;
 pub struct EventContext {
     /// The workspace id on the wire. Events keep the Clerk org id until their
     /// consumers move to `workspaces.id` (phase 2b of
-    /// `docs/plans/workspace-id-standardization.md`); every consumer resolves
+    /// `weldsuite-documentation/plans/workspace-id-standardization.md`); every consumer resolves
     /// either.
     pub workspace_id: String,
     /// The Clerk user id, or `system`.

@@ -1,6 +1,6 @@
 /**
  * Heatmap page groups (`panel_heatmap_pages`) and the snapshot a heat layer is
- * drawn on (docs/plans/weldpanel.md "Heatmaps").
+ * drawn on (weldsuite-documentation/plans/weldpanel.md "Heatmaps").
  *
  * The snapshot is one masked rrweb full snapshot (gzip of the FullSnapshot
  * event) per page group and device class, in the private replays bucket. In

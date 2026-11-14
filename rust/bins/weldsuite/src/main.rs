@@ -308,7 +308,7 @@ fn session_verifier(
                 "provider": "oidc",
                 "issuer": settings.issuer,
                 "clientId": web_client_id,
-                // The mobile apps' native client (docs/plans/mobile-server-choice.md).
+                // The mobile apps' native client (weldsuite-documentation/plans/mobile-server-choice.md).
                 "mobileClientId": mobile_client_id,
                 "audience": settings.audiences.first(),
                 "orgClaim": settings.org_claim,

@@ -1,6 +1,6 @@
 /**
  * Gmail outbound action (`gmail.send_email`) — see "Provider pattern" in
- * docs/plans/weldconnect.md. Uses the shared Google token (./token.ts,
+ * weldsuite-documentation/plans/weldconnect.md. Uses the shared Google token (./token.ts,
  * refreshed automatically) and the engine's existing recipient validation
  * (actions/communication.ts) and plain-text escaping (resolve-inputs.ts) so
  * Gmail sends behave exactly like the WeldSuite `send_email` action: every

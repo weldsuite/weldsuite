@@ -3,7 +3,7 @@
  *
  * Each invitation goes out from WeldSuite's own address with the organizer's
  * title and description, so a batch of them goes through the guard first
- * (docs/plans/weldmail-outbound-abuse.md). What must hold:
+ * (weldsuite-documentation/plans/weldmail-outbound-abuse.md). What must hold:
  *   - the guard is asked once per batch, with the Clerk org id and only the
  *     people who are newly invited (an existing attendee is not mailed again);
  *   - when it refuses, the attendees are still saved, nobody is mailed and

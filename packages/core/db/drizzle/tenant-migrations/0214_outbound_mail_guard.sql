@@ -28,7 +28,7 @@ ALTER TABLE "mail_messages" ADD COLUMN "delivery_updated_at" timestamp;--> state
 ALTER TABLE "mail_messages" ADD COLUMN "delivery_detail" varchar(500);--> statement-breakpoint
 CREATE INDEX "mail_correspondents_first_outbound_idx" ON "mail_correspondents" USING btree ("first_outbound_at");--> statement-breakpoint
 CREATE INDEX "mail_suppressions_reason_idx" ON "mail_suppressions" USING btree ("reason");--> statement-breakpoint
--- Hand-added (docs/plans/weldmail-outbound-abuse.md): keep the inbound side of
+-- Hand-added (weldsuite-documentation/plans/weldmail-outbound-abuse.md): keep the inbound side of
 -- mail_correspondents current for every stored received message, whichever
 -- path stored it (mail-inbound-worker, IMAP sync, …). SENT copies and
 -- scheduled sends (source = 'sent') are recorded by the outbound guard instead.

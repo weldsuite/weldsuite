@@ -100,7 +100,7 @@ describe('weldagent parity routes', () => {
 
   it('keys the routine index on the Clerk org id, not workspaces.id', async () => {
     // The D1 index is read back by the hourly sweep with the org id
-    // (docs/plans/workspace-id-standardization.md), so a write under `ws_…` would orphan it.
+    // (weldsuite-documentation/plans/workspace-id-standardization.md), so a write under `ws_…` would orphan it.
     const statements: Array<{ sql: string; args: unknown[] }> = [];
     const scheduleIndex = {
       prepare: (sql: string) => ({ bind: (...args: unknown[]) => ({ sql, args }) }),

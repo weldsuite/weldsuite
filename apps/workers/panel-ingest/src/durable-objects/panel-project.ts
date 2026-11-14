@@ -1,6 +1,6 @@
 /**
  * PanelProject: one per project, SQLite storage, in the EU jurisdiction
- * (ADR PANEL-004, docs/plans/weldpanel.md "Durable Objects"). It holds what
+ * (ADR PANEL-004, weldsuite-documentation/plans/weldpanel.md "Durable Objects"). It holds what
  * is mutable, searchable and erasable about the project's visitors:
  *
  *   people      the profiles (`$email`, `$name`, custom properties)

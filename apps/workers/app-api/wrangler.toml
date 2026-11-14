@@ -194,7 +194,7 @@ binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
 # EU-jurisdiction bucket for mail bodies + raw MIME
-# (docs/plans/weldmail-mailbox-store-design.md decision 7), owned by mail-api.
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 7), owned by mail-api.
 # Only the dashboard sidebar badge and drive aggregation read the mailbox
 # store here, and neither touches a body — bound anyway because
 # `@weldsuite/mail-domain/store`'s `MailStoreEnv` requires it for the
@@ -398,7 +398,7 @@ service = "weldsuite-reach-api-dev"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md).
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 # POST /api/internal/send-email (the WeldConnect send_email action) calls it.
 # Every send is checked against the workspace's OutboundLedger, a Durable
 # Object hosted by mail-api and bound here by name.
@@ -415,7 +415,7 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, design §8):
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8):
 # MailboxStoreObject (one per mailbox) and MailIndex (one per workspace), both
 # hosted by mail-api and bound here by name, like the outbound guard's
 # Durable Objects above. Reached only through `@weldsuite/mail-domain/store`'s
@@ -499,7 +499,7 @@ USER_APP_BUNDLE_ORIGIN = ""
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.flagship]]
@@ -688,7 +688,7 @@ service = "weldsuite-reach-api-test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -700,7 +700,7 @@ class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
 # Mailbox store (test): mail-api's Durable Objects
-# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8).
 [[env.test.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"
@@ -781,7 +781,7 @@ USER_APP_BUNDLE_ORIGIN = ""
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
@@ -977,7 +977,7 @@ service = "weldsuite-reach-api"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -989,7 +989,7 @@ class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
 
 # Mailbox store (production): mail-api's Durable Objects
-# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8).
 [[env.production.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"

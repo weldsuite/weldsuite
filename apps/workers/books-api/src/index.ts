@@ -5,7 +5,7 @@
  * transactions, reconciliation rules, tax rates, VAT returns, ICP
  * declarations, fiscal periods, FX rates) module's API worker.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
@@ -73,7 +73,7 @@ app.route('/public/fiscal-webhooks', publicFiscalWebhooksRoutes);
 app.use('/api/*', ...apiAuth());
 
 // Which legal entity the request is about, and per-entity access
-// (docs/plans/legal-entities.md): an entity the member does not see resolves
+// (weldsuite-documentation/plans/legal-entities.md): an entity the member does not see resolves
 // to none, and inside an entity the member acts with their entity role. The
 // switcher's list and create run on workspace permissions, so a restrictive
 // role in the current entity never hides the switcher.
@@ -121,7 +121,7 @@ app.route('/api/recurring-invoices', recurringInvoicesRoutes);
 app.route('/api/tax-rates', taxRatesRoutes);
 app.route('/api/vat-returns', vatReturnsRoutes);
 
-// US accounting (docs/plans/weldbooks-us.md).
+// US accounting (weldsuite-documentation/plans/weldbooks-us.md).
 app.route('/api/accounting-dimensions', accountingDimensionsRoutes);
 app.route('/api/bank-connections', bankConnectionsRoutes);
 app.route('/api/bank-deposits', bankDepositsRoutes);
@@ -139,7 +139,7 @@ app.route('/api/sales-tax-zones', salesTaxZonesRoutes);
 app.route('/api/tax-calendar', taxCalendarRoutes);
 app.route('/api/tax-returns', taxReturnsRoutes);
 app.route('/api/w9-requests', w9RequestsRoutes);
-// Brazil (docs/plans/weldbooks-br.md)
+// Brazil (weldsuite-documentation/plans/weldbooks-br.md)
 app.route('/api/br-tax', brTaxRoutes);
 app.route('/api/fiscal-documents', fiscalDocumentsRoutes);
 app.route('/api/received-fiscal-documents', receivedFiscalDocumentsRoutes);

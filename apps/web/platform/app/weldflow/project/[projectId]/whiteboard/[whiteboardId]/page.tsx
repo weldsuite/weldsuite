@@ -6,7 +6,7 @@ import { useBoardExtensions } from '@/app/weldboard/board/extensions';
 
 /**
  * A WeldFlow project's whiteboard: a WeldBoard board that belongs to the
- * project (docs/plans/weldboard.md, ADR BOARD-001). Who may open and edit it
+ * project (weldsuite-documentation/plans/weldboard.md, ADR BOARD-001). Who may open and edit it
  * follows the project's members; an old WeldFlow whiteboard becomes a board
  * the first time it is opened, keeping its id and so this link.
  */

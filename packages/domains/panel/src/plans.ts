@@ -1,6 +1,6 @@
 /**
  * What each plan includes of WeldPanel: the monthly allowance of events and
- * recordings and how long they are kept (ADR PANEL-007, docs/plans/weldpanel.md
+ * recordings and how long they are kept (ADR PANEL-007, weldsuite-documentation/plans/weldpanel.md
  * "Plan allowance and overage"). Keyed by the plan's slug in the master
  * `plans` table; an unknown slug (or no plan) gets the Free numbers.
  *

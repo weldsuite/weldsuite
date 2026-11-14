@@ -1,4 +1,4 @@
-//! Reseller territory (docs/plans/reseller-licensing.md): the request's
+//! Reseller territory (weldsuite-documentation/plans/reseller-licensing.md): the request's
 //! network country, the partner that serves it, the 409 that refuses a
 //! direct workspace there, and the request a signup files with that partner
 //! instead (`@weldsuite/core-domain/partners`, `services/partner/*`).

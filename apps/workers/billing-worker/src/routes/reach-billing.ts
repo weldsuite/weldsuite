@@ -1,6 +1,6 @@
 /**
  * WeldReach billing routes: one Stripe subscription per workspace, $8 per
- * inbox per month, quantity = inboxes (docs/plans/weldreach.md "Billing").
+ * inbox per month, quantity = inboxes (weldsuite-documentation/plans/weldreach.md "Billing").
  *
  *   GET  /status   billing summary for the settings screen and the wizard
  *   POST /setup    Stripe Checkout (setup mode) to collect a payment method

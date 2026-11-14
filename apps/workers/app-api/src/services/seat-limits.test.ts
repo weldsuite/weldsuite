@@ -1,6 +1,6 @@
 /**
  * Seat limit of a partner-managed workspace: the licence's maxSeats, not the
- * plan's (docs/plans/reseller-licensing.md). Direct workspaces keep the plan rule.
+ * plan's (weldsuite-documentation/plans/reseller-licensing.md). Direct workspaces keep the plan rule.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';

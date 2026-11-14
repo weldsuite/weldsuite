@@ -3,7 +3,7 @@
  *
  * A workspace has our id, `workspaces.id` (`ws_…`), and Clerk's,
  * `workspaces.clerk_org_id` (`org_…`). The platform is moving to `workspaces.id`
- * everywhere (docs/plans/workspace-id-standardization.md), but until every
+ * everywhere (weldsuite-documentation/plans/workspace-id-standardization.md), but until every
  * stored row, queued message and sleeping Workflow carries it, a reader must
  * accept either: a value written yesterday holds the org id, one written after
  * the switch holds the workspace id.

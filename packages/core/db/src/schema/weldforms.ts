@@ -14,7 +14,7 @@
  * bucket under `workspaces/<id>/weldforms/<formId>/<responseId>/`; rows hold
  * only keys.
  *
- * Member columns hold Clerk user ids. See docs/plans/weldforms.md.
+ * Member columns hold Clerk user ids. See weldsuite-documentation/plans/weldforms.md.
  */
 
 import {
@@ -44,7 +44,7 @@ export type FormAccessLevel = (typeof FORM_ACCESS_LEVELS)[number];
 const FORM_ACCESS_ROLES = ['editor', 'results'] as const;
 export type FormAccessRole = (typeof FORM_ACCESS_ROLES)[number];
 
-/** How a respondent is identified (docs/plans/weldforms.md, "Respondent modes"). */
+/** How a respondent is identified (weldsuite-documentation/plans/weldforms.md, "Respondent modes"). */
 const FORM_RESPONDENT_MODES = ['anyone', 'verified_email', 'members'] as const;
 export type FormRespondentMode = (typeof FORM_RESPONDENT_MODES)[number];
 

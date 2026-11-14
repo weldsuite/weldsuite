@@ -11,7 +11,7 @@ const links = masterSchema.formLinkRegistry;
 const reports = masterSchema.formAbuseReports;
 
 /**
- * Staff moderation of public WeldForms forms (docs/plans/weldforms.md, "Bot
+ * Staff moderation of public WeldForms forms (weldsuite-documentation/plans/weldforms.md, "Bot
  * checks and abuse"). Every action: `guardWrite()` (no read-only viewers), a
  * guarded write to the master `form_link_registry` / `form_abuse_reports` rows
  * and an admin audit row against the form's workspace.

@@ -4,7 +4,7 @@
  * on `NormalizedIssue` / `NormalizedIssueComment`, so the GitLab adapter's
  * events go through the same functions.
  *
- * Rules (docs/plans/weldmerge-phases-2-5.md, phase 2):
+ * Rules (weldsuite-documentation/plans/weldmerge-phases-2-5.md, phase 2):
  *  - an inbound issue whose checksum equals the stored one is an echo of our own
  *    push and is ignored; one older than the stored `provider_updated_at` is stale;
  *  - closed maps to `done` (`canceled` for `not_planned`), a reopen to `todo`;

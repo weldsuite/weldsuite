@@ -2,7 +2,7 @@
  * Warmup progress sweep: due-index kind `reach_warmup`, run by the hourly cron.
  *
  * WeldSuite's warmup network warms the mailboxes (master pool, see
- * docs/plans/weldreach-warmup.md); this reads how far they are and moves them
+ * weldsuite-documentation/plans/weldreach-warmup.md); this reads how far they are and moves them
  * along (`provisioning` -> `warming` -> `active` through the health gate), grows
  * the daily cap of active mailboxes, takes a mailbox out of use when the
  * network cannot log in to it or its inbox placement drops, and pauses

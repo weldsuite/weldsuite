@@ -1,5 +1,5 @@
 /**
- * AI summaries of recordings (phase 6, docs/plans/weldpanel.md "AI").
+ * AI summaries of recordings (phase 6, weldsuite-documentation/plans/weldpanel.md "AI").
  *
  * One session: its events become a text timeline (./session-timeline: masked
  * content only, never an input value), the model says what the visitor tried to

@@ -451,7 +451,7 @@ function projectScopeClause(
  * The workspace to read: one id, or every id its rows may carry. The table's
  * `workspace_id` is whatever the entity event carried, which is the Clerk org
  * id for most rows and `workspaces.id` for some, and for all once events move
- * to it (docs/plans/workspace-id-standardization.md). Pass both to read both.
+ * to it (weldsuite-documentation/plans/workspace-id-standardization.md). Pass both to read both.
  */
 export type WorkspaceRefs = string | readonly (string | null | undefined)[];
 

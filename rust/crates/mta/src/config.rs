@@ -1,5 +1,5 @@
 //! Settings from the environment (the contract's table in
-//! `docs/plans/eu-mail-service.md`). Parsing takes a lookup function so it
+//! `weldsuite-documentation/plans/eu-mail-service.md`). Parsing takes a lookup function so it
 //! is testable without touching the process environment.
 
 use std::collections::BTreeMap;

@@ -10,7 +10,7 @@
 //! | organization (a workspace) | organization; its id is what `workspaces.clerk_org_id` holds on Kubernetes |
 //! | slug, membership cap | organization metadata `weldsuite.slug`, `weldsuite.max_memberships` |
 //! | membership with a role | an authorization (user grant) on the WeldSuite project in that organization, role key without `org:` (`org:admin` → `admin`) |
-//! | invitation | a user grant on a human user who hasn't verified their email yet; the user is created in the organization with an invite code (`invite_code`), which Zitadel emails, or, with an [`InvitationMailer`], hands back for WeldSuite's own email |
+//! | invitation | a user grant on a human user who hasn't verified their email yet; the user is created in the organization with an invite code (`invite_code`), which Zitadel emails, or, with an [`InvitationMailer`], hands back for WeldSuite's own email; its link opens the platform's `/invite` where the platform shows its own sign-in screens, else Zitadel's page |
 //! | invitation id | `{userId}:{grantId}` |
 //!
 //! So `memberships` lists the grants of signed-up users and `invitations`
@@ -82,8 +82,15 @@ pub struct ZitadelOptions {
     pub project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`: where the invite email links to, with
     /// Zitadel's `{{.UserID}}`, `{{.Code}}` and `{{.OrgID}}` placeholders.
-    /// Unset: Zitadel's own login.
+    /// Unset: the platform's page ([`ZitadelOptions::accept_on_platform`]),
+    /// else Zitadel's own login.
     pub invite_url_template: Option<String>,
+    /// The platform shows its own sign-in screens (`OIDC_SIGN_IN=platform`,
+    /// ADR SEC-016), so the invitee accepts there: the link is the
+    /// invitation's `redirect_url` (the platform's `/invite?org_id=…`) with
+    /// the account, the code and the address added, and the platform checks
+    /// the code through `/api/sign-in/invitation/accept`.
+    pub accept_on_platform: bool,
     /// The sender name in Zitadel's invite email.
     pub application_name: String,
     /// Sends the invitation in WeldSuite's template; Zitadel then hands the
@@ -414,9 +421,10 @@ impl ZitadelIdentity {
         invitation: &NewInvitation,
     ) -> IdentityResult<()> {
         let path = format!("/v2/users/{user_id}/invite_code");
+        let template = self.accept_template(invitation, email);
         let Some(mailer) = &self.options.invitation_mailer else {
             let mut send = json!({ "applicationName": self.options.application_name });
-            if let Some(template) = &self.options.invite_url_template {
+            if let Some(template) = &template {
                 send["urlTemplate"] = json!(template);
             }
             self.call(Method::POST, &path, None, Some(json!({ "sendCode": send })))
@@ -457,7 +465,7 @@ impl ZitadelIdentity {
             inviter_email,
             workspace_name,
             role: invitation.role.clone(),
-            accept_url: self.invite_link(org, user_id, &login_name, code),
+            accept_url: self.invite_link(template.as_deref(), org, user_id, &login_name, code),
         };
         if let Err(error) = mailer.send(&message).await {
             tracing::error!(%error, "zitadel: invitation email not sent");
@@ -465,12 +473,40 @@ impl ZitadelIdentity {
         Ok(())
     }
 
-    /// Where the invitee accepts, as Zitadel would have linked it: the
-    /// configured template (`{{.UserID}}`, `{{.Code}}`, `{{.OrgID}}`, as
-    /// Zitadel's `RenderConfirmURLTemplate`), else its login's invite page
-    /// (`login.InviteUserLink`).
-    fn invite_link(&self, org: &str, user_id: &str, login_name: &str, code: &str) -> String {
+    /// Where the invitee accepts, with Zitadel's placeholders: the
+    /// configured template; else, where the platform shows its own sign-in
+    /// screens, the invitation's `redirect_url` (the platform's `/invite`)
+    /// with the account, the code and the address added. `None`: Zitadel's
+    /// own page. The same template goes to Zitadel when it sends the email,
+    /// so it holds only the placeholders Zitadel fills in.
+    fn accept_template(&self, invitation: &NewInvitation, email: &str) -> Option<String> {
         if let Some(template) = &self.options.invite_url_template {
+            return Some(template.clone());
+        }
+        if !self.options.accept_on_platform {
+            return None;
+        }
+        let page = invitation
+            .redirect_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"))?;
+        Some(platform_accept_template(page, email))
+    }
+
+    /// The link in WeldSuite's invitation email: `template` filled in
+    /// (`{{.UserID}}`, `{{.Code}}`, `{{.OrgID}}`, as Zitadel's
+    /// `RenderConfirmURLTemplate`), else Zitadel's own invite page
+    /// (`login.InviteUserLink`).
+    fn invite_link(
+        &self,
+        template: Option<&str>,
+        org: &str,
+        user_id: &str,
+        login_name: &str,
+        code: &str,
+    ) -> String {
+        if let Some(template) = template {
             return template
                 .replace("{{.UserID}}", user_id)
                 .replace("{{.Code}}", code)
@@ -1153,6 +1189,17 @@ fn short_suffix() -> String {
     weldsuite_kit::random_string(6, "abcdefghijklmnopqrstuvwxyz0123456789")
 }
 
+/// The platform's accept page (`page`, its `/invite?org_id=…`) as a link
+/// template: the account and the code as Zitadel's placeholders, the address
+/// written in (Zitadel has no placeholder for it) so the screen can show it.
+fn platform_accept_template(page: &str, email: &str) -> String {
+    const USER: &str = "{{.UserID}}";
+    const CODE: &str = "{{.Code}}";
+    let email: String = url::form_urlencoded::byte_serialize(email.as_bytes()).collect();
+    let separator = if page.contains('?') { '&' } else { '?' };
+    format!("{page}{separator}userId={USER}&code={CODE}&email={email}")
+}
+
 /// A user's name from Zitadel's given and family name. An invited user gets
 /// the address's local part as both (Zitadel needs both); that is one name.
 fn person_name(first: Option<&str>, last: Option<&str>) -> Option<String> {
@@ -1546,6 +1593,18 @@ mod tests {
         assert!(!safe_path("/v2/users//9"));
         assert!(!safe_path("v2/users"));
         assert_eq!(millis("1970-01-01T00:00:01.5Z"), Some(1500));
+    }
+
+    #[test]
+    fn the_platform_accept_page_carries_zitadels_placeholders_and_the_address() {
+        assert_eq!(
+            platform_accept_template("https://app.eu.test/invite?org_id=123", "jo+x@acme.test"),
+            "https://app.eu.test/invite?org_id=123&userId={{.UserID}}&code={{.Code}}&email=jo%2Bx%40acme.test"
+        );
+        assert_eq!(
+            platform_accept_template("https://app.eu.test/invite", "a@b.test"),
+            "https://app.eu.test/invite?userId={{.UserID}}&code={{.Code}}&email=a%40b.test"
+        );
     }
 
     #[allow(clippy::needless_pass_by_value)] // reads like the JSON it builds

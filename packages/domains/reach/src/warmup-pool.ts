@@ -6,7 +6,7 @@
  *
  * Logins are sealed with WELDREACH_WARMUP_KEY, a key separate from the tenant
  * DATABASE_ENCRYPTION_KEY, so the warmup worker never needs tenant secrets.
- * See docs/plans/weldreach-warmup.md.
+ * See weldsuite-documentation/plans/weldreach-warmup.md.
  */
 
 import { and, countDistinct, eq, inArray, ne, or } from 'drizzle-orm';

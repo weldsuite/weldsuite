@@ -1,6 +1,6 @@
 /**
  * `PostgresMailboxStore`: the Postgres implementation of `MailboxStore`
- * (design task B4, docs/plans/weldmail-mailbox-store-design.md §2.1).
+ * (design task B4, weldsuite-documentation/plans/weldmail-mailbox-store-design.md §2.1).
  *
  * Wraps today's functions (`../../threads`, `../../messages`, `../../labels`,
  * `../../snooze`, `../../thread-ops`, `../../attachments`, `../../drafts`) and

@@ -1,6 +1,6 @@
 /**
  * Why an enrollment is not getting emails right now, when the cause is the
- * workspace's sending limit (outbound mail guard, docs/plans/weldmail-outbound-abuse.md).
+ * workspace's sending limit (outbound mail guard, weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
  * The sequence's `send_email` step paces itself against the limit; a workspace
  * on `hold` pauses its enrollments with reason `sending_limited`. The reason

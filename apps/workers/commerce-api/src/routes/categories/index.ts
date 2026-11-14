@@ -5,7 +5,7 @@
  * (curated rows in `category_products`) or `automated` (a rule set evaluated
  * live against `products`). This is WeldCommerce's equivalent of Shopify's
  * custom and smart collections, folded into one nestable object — see
- * .claude/weldcommerce-plan.md.
+ * weldsuite-documentation/plans/weldcommerce-plan.md.
  *
  * Permissions: categories:read | categories:create | categories:update | categories:delete.
  */

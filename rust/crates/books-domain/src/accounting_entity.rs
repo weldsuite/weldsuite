@@ -1,5 +1,5 @@
 //! The accounting view of a legal entity
-//! (`@weldsuite/books-domain/accounting-entity`, docs/plans/legal-entities.md).
+//! (`@weldsuite/books-domain/accounting-entity`, weldsuite-documentation/plans/legal-entities.md).
 //!
 //! Release 1 keeps the WeldBooks columns on `entities` AND on the extension
 //! (`accounting_entity_settings`), and every writer mirrors to both. Readers

@@ -139,7 +139,7 @@ interface ChangeEntry { field: string; from?: string; to?: string; }
 
 function extractChanges(activity: ActivityItem): ChangeEntry[] {
   // The field-change diff moved out of the custom_fields blob into the dedicated
-  // `change_log` column (docs/custom-fields-blob-extraction.md). Prefer it, and
+  // `change_log` column (weldsuite-documentation/plans/custom-fields-blob-extraction.md). Prefer it, and
   // fall back to the legacy blob until Phase 4 drops that column. Both hold the
   // same shape — whatever subset of changes/__changeLog/previousValues/... the
   // (now-deleted) writer produced.

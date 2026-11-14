@@ -1,5 +1,5 @@
 /**
- * The sales tax engine (docs/plans/weldbooks-us.md §3). `createSalesTaxEngine`
+ * The sales tax engine (weldsuite-documentation/plans/weldbooks-us.md §3). `createSalesTaxEngine`
  * returns the engine an entity is configured for; `load.ts` builds that
  * config from the tenant DB, `to-tax-lines.ts` turns a result into what a
  * posted document stores.

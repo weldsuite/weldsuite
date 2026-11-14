@@ -8,7 +8,7 @@
  * the status on every request (`appAccessGate` in `@weldsuite/worker-kit`).
  *
  * One row per (workspace, app). `workspace_id` is the master `workspaces.id`,
- * as in `workspace_licences`. See docs/plans/weldreach.md.
+ * as in `workspace_licences`. See weldsuite-documentation/plans/weldreach.md.
  */
 
 import { pgTable, varchar, text, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';

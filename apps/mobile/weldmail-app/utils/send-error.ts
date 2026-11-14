@@ -3,7 +3,7 @@
  *
  * The send endpoints answer with `{ error: { code, message, details } }`; the
  * outbound guard's codes carry which limit was hit, when a retry can work and
- * whether to point at WeldReach (docs/plans/weldmail-outbound-abuse.md). Pure,
+ * whether to point at WeldReach (weldsuite-documentation/plans/weldmail-outbound-abuse.md). Pure,
  * so the composer's alert can be tested without rendering the screen. The app
  * has no i18n layer yet, so the copy is English like the rest of the composer;
  * the web platform's twin is `app/weldmail/lib/send-error.ts`.

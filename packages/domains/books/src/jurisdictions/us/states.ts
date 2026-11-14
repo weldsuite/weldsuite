@@ -2,7 +2,7 @@
  * US states (plus DC) as sales tax jurisdictions, and the territories for
  * addresses.
  *
- * Sources: docs/plans/weldbooks-us-research/sales-tax.md (§4.2 sourcing,
+ * Sources: weldsuite-documentation/plans/weldbooks-us-research/sales-tax.md (§4.2 sourcing,
  * §7 rounding and reporting basis, §8 due dates). Due days and vendor
  * discounts are data the Sales Tax Center reads; check them against the
  * state's revenue department before relying on them for a filing (the

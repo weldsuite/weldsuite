@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Creates WeldPanel's Cloudflare resources for one environment
- * (docs/plans/weldpanel.md, "Basin tables" and "Recordings"):
+ * (weldsuite-documentation/plans/weldpanel.md, "Basin tables" and "Recordings"):
  *
  *   streams    one Basin stream per table (events_v1, identities_v1,
  *              people_v1, replay_chunks_v1), with the schema files in

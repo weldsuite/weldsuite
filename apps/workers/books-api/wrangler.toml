@@ -1,6 +1,6 @@
 # WeldSuite books-api worker — the books module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   books-api.weldsuite.org        production
 #   books-api-test.weldsuite.org   test
@@ -13,7 +13,7 @@
 #   @weldsuite/core-domain/ai-billing; CLOUDFLARE_API_TOKEN is the AI token
 #   fallback @weldsuite/ai uses, as on app-api)
 #
-# Bank feeds (@weldsuite/bank-feeds; docs/plans/weldbooks-us.md section 9), all in the
+# Bank feeds (@weldsuite/bank-feeds; weldsuite-documentation/plans/weldbooks-us.md section 9), all in the
 # manifest and all optional: a provider is offered only when its credentials are set.
 #   PLAID_CLIENT_ID, PLAID_SECRET                  Plaid (PLAID_ENV var: sandbox | production)
 #   STRIPE_FC_SECRET_KEY                           Stripe Financial Connections (secret key of

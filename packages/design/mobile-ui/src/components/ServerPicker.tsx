@@ -3,7 +3,7 @@
  * (when the build knows its address) or a self-hosted server by address.
  * A server is checked before it is saved (`/config.json`, mobile sign-in,
  * the app's module); saving signs out and restarts the app on it
- * (`switchServer`, docs/plans/mobile-server-choice.md).
+ * (`switchServer`, weldsuite-documentation/plans/mobile-server-choice.md).
  */
 
 import { useEffect, useState } from 'react';

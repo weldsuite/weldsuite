@@ -21,7 +21,7 @@
  * module-level browser singleton used in router `beforeLoad`, outside React)
  * and the hover prefetch (`useAppApiClient()`) each reach app-api differently.
  *
- * docs/plans/weldmail-mailbox-storage.md, phase 1 item 7.
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 1 item 7.
  */
 
 import { infiniteQueryOptions } from '@tanstack/react-query';

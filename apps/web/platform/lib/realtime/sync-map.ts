@@ -343,7 +343,7 @@ export const platformSyncMap: EntitySyncMap = {
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
-  // US accounting (docs/plans/weldbooks-us.md).
+  // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
   sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
   sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
   sales_tax_zone: inv(['accounting', 'sales-tax-setup']),

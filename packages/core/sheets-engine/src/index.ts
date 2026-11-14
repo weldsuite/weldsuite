@@ -3,7 +3,7 @@
  *
  * Pure TypeScript with no dependencies, so the same code runs in the browser,
  * in a Web Worker, in the SheetRoom Durable Object and in any worker that
- * reads or writes sheets. See docs/plans/weldsheets.md.
+ * reads or writes sheets. See weldsuite-documentation/plans/weldsheets.md.
  */
 
 import './formula/functions';

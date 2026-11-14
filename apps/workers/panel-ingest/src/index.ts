@@ -1,5 +1,5 @@
 /**
- * WeldSuite panel-ingest — WeldPanel's public collector (docs/plans/weldpanel.md).
+ * WeldSuite panel-ingest — WeldPanel's public collector (weldsuite-documentation/plans/weldpanel.md).
  *
  * Tracked websites and apps send here, not to panel-api: there is no Clerk
  * session, the project token in the request names the project. Like

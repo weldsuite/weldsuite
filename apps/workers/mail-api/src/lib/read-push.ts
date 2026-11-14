@@ -4,7 +4,7 @@
  * or deleted. Runs in `waitUntil`, so the response never waits on Expo.
  *
  * Resolves `workspaceMailFromContext` so the push's per-user `inboxUnread`
- * badge count goes through the mailbox store (design docs/plans/weldmail-
+ * badge count goes through the mailbox store (design weldsuite-documentation/plans/weldmail-
  * mailbox-store-design.md, task D2: "`stats(...).inboxUnread`") instead of a
  * direct `mail_messages` query — byte-identical in `postgres` mode (the
  * store's own `stats()` wraps the same query), the mailbox-store mode's own

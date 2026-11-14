@@ -49,7 +49,7 @@
  * billing-worker rather than reimplemented: `/phone-numbers` (tenant DB) has
  * no price column, and Stripe remains the source of truth for `totalMonthly`.
  *
- * Reseller licensing (docs/plans/reseller-licensing.md):
+ * Reseller licensing (weldsuite-documentation/plans/reseller-licensing.md):
  *  - GET /managed — the "managed by {partner}" billing view of a partner
  *    workspace (null for a direct one).
  *  - Billing mutations (checkout, seats, cancel, reactivate, payment methods)

@@ -2,7 +2,7 @@
  * Internal: the outbound mail guard opened a case (a cold-outreach template, a
  * phishing verdict, a bounce or complaint spike, a high risk score) or tripped
  * the platform budget. Sent to WeldSuite staff, who review it in the admin
- * console. See docs/plans/weldmail-outbound-abuse.md.
+ * console. See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { Actions, Button, Details, EmailLayout, Heading, Kicker, LinkFallback, MultilineText, Paragraph } from '../../components';

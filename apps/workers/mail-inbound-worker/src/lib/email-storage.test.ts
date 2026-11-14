@@ -1,6 +1,6 @@
 /**
  * `storeRawMimeToR2`: the raw-MIME-to-R2 write `storeEmail` makes for every
- * stored workspace message (docs/plans/weldmail-mailbox-store-design.md
+ * stored workspace message (weldsuite-documentation/plans/weldmail-mailbox-store-design.md
  * decision 4). Unit-tested in isolation from the rest of `storeEmail` (full
  * tenant-DB inserts, thread resolution, spam scoring, …), which this change
  * does not touch.

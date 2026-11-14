@@ -50,7 +50,7 @@ import {
  * The bindings the send helpers read: the Cloudflare send binding
  * (@weldsuite/worker-email), the MX-lookup cache, the R2 bucket for
  * attachments and contact avatars, and the outbound guard's Durable Objects
- * (docs/plans/weldmail-outbound-abuse.md). Any worker Env with them fits.
+ * (weldsuite-documentation/plans/weldmail-outbound-abuse.md). Any worker Env with them fits.
  */
 export interface MailSendEnv
   extends cfEmail.WorkerEmailEnv,
@@ -192,7 +192,7 @@ export interface SendOptions {
   outbound?: { source?: OutboundSource; kind?: OutboundKind; workspaceId?: string | null };
   /**
    * The sending account's mailbox store
-   * (docs/plans/weldmail-mailbox-store-design.md, task D1). When supplied,
+   * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D1). When supplied,
    * the SENT copy (and its attachments) is persisted through `store.apply`
    * (an `ingest` op, source `sent`) instead of a direct Postgres insert, and
    * the idempotency lookup, the daily-limit count and thread stitching also
@@ -540,7 +540,7 @@ function toAttachmentInput(
  *
  * Through `store.apply` (an `ingest` op, source `sent`) when a store is
  * supplied — the message row and its attachments land in one op, same as an
- * inbound ingest (design docs/plans/weldmail-mailbox-store-design.md, task
+ * inbound ingest (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task
  * D1). Without one (external-api until task D5 lands), the direct-Postgres
  * path below is unchanged: the message row, then
  * {@link persistAttachmentPointers}'s best-effort attachment inserts.
@@ -875,7 +875,7 @@ export async function sendAndPersist(
   await assertValidRecipients(env, data, opts?.dryRun);
 
   // ---- Outbound guard: sender, limits, cold-email screening ------------
-  // (docs/plans/weldmail-outbound-abuse.md). Dry-run sends never reach
+  // (weldsuite-documentation/plans/weldmail-outbound-abuse.md). Dry-run sends never reach
   // Cloudflare, so they are not counted.
   const reservation = opts?.dryRun ? null : await reserveOutbound(env, db, orgId, account, data, body, opts);
 
@@ -1274,7 +1274,7 @@ async function loadOriginalAttachments(
 
 /**
  * The original as an `.eml` file: R2's raw copy first
- * (docs/plans/weldmail-mailbox-store-design.md decision 4), then the
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4), then the
  * Postgres `rawMessage` column (older messages, or a message a different
  * transport stored it on), then rebuilt from the stored headers, bodies and
  * files. `ref` is null when the caller has no workspace id to look R2 up
