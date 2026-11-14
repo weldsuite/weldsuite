@@ -124,6 +124,60 @@ function VatReturnTitle({ vr, t }: Readonly<{ vr?: VatReturn; t: Translations }>
 
 // ─── Actions ───────────────────────────────────────────────────────────────
 
+/** A date-only value renders as a date, a full timestamp as date and time. */
+function formatFiledAt(
+  filedAt: string | null | undefined,
+  formatDate: (value: string) => string,
+  formatDateTime: (value: string) => string,
+): string | null {
+  if (!filedAt) return null;
+  return filedAt.length <= 10 ? formatDate(filedAt) : formatDateTime(filedAt);
+}
+
+async function downloadVatReturnXml(id: string) {
+  const xml = await accountingApi.getVatReturnXml(id);
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `btw-aangifte-${id}.xml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** The primary action of a return that can be filed: file it to the tax office, or mark it as filed. */
+function VatFileButton({
+  digipoort,
+  filing,
+  onFile,
+  onMarkFiled,
+  t,
+}: Readonly<{ digipoort: boolean; filing: boolean; onFile: () => void; onMarkFiled: () => void; t: Translations }>) {
+  const st = useTranslations();
+  const tv = t.accounting.vat;
+  if (!digipoort) {
+    return (
+      <Button size="sm" className="mr-1 h-7" onClick={onMarkFiled}>
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {st('sweep.weldbooks.records.markFiled')}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      size="sm"
+      className="mr-1 h-7"
+      title={tv.fileToTax}
+      aria-label={tv.fileToTax}
+      onClick={onFile}
+      disabled={filing}
+    >
+      <Send className="h-3.5 w-3.5" />
+      {filing ? tv.filing : tv.file}
+    </Button>
+  );
+}
+
 function VatReturnActions({
   vr,
   filing,
@@ -155,41 +209,20 @@ function VatReturnActions({
 
   const handleXmlDownload = async () => {
     try {
-      const xml = await accountingApi.getVatReturnXml(vr.id);
-      const blob = new Blob([xml], { type: 'application/xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `btw-aangifte-${vr.id}.xml`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadVatReturnXml(vr.id);
     } catch (err) {
-      toast.error(err instanceof Error && err.message ? err.message : st('sweep.weldbooks.common.unknownError'));
+      toast.error((err instanceof Error ? err.message : '') || st('sweep.weldbooks.common.unknownError'));
     }
   };
 
   const filed = isFiledVatReturn(vr.status);
+  const digipoort = isFeatureAvailable('vat-digipoort');
+  const canFile = canFileVatReturn(vr.status) && can('reports:update');
 
   return (
     <div className="flex items-center gap-0.5">
-      {canFileVatReturn(vr.status) && can('reports:update') && isFeatureAvailable('vat-digipoort') ? (
-        <Button
-          size="sm"
-          className="mr-1 h-7"
-          title={tv.fileToTax}
-          aria-label={tv.fileToTax}
-          onClick={onFile}
-          disabled={filing}
-        >
-          <Send className="h-3.5 w-3.5" />
-          {filing ? tv.filing : tv.file}
-        </Button>
-      ) : null}
-      {canFileVatReturn(vr.status) && can('reports:update') && !isFeatureAvailable('vat-digipoort') ? (
-        <Button size="sm" className="mr-1 h-7" onClick={onMarkFiled}>
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {st('sweep.weldbooks.records.markFiled')}
-        </Button>
+      {canFile ? (
+        <VatFileButton digipoort={digipoort} filing={filing} onFile={onFile} onMarkFiled={onMarkFiled} t={t} />
       ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -203,7 +236,7 @@ function VatReturnActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {filed && isFeatureAvailable('vat-digipoort') ? (
+          {filed && digipoort ? (
             <DropdownMenuItem onClick={onCheckStatus} disabled={checkingStatus}>
               <ShieldCheck />
               {checkingStatus ? tv.checkingStatus : tv.checkStatus}
@@ -318,7 +351,7 @@ function VatReturnDetailsTab({
             <PanelRow
               icon={CalendarDays}
               label={tv.filedAt}
-              value={vr.filedAt ? (vr.filedAt.length <= 10 ? formatDate(vr.filedAt) : formatDateTime(vr.filedAt)) : null}
+              value={formatFiledAt(vr.filedAt, formatDate, formatDateTime)}
               tabular
             />
             <PanelRow icon={User} label={tv.filedBy} value={vr.filedBy} />

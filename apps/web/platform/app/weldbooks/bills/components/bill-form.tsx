@@ -194,6 +194,83 @@ const emptyItem = {
 /** Select value of the default tax code / 1099 box; never stored. */
 const DEFAULT = '__default__';
 
+/** The lines of an invoice read by the scanner, as form lines; null when it found none. */
+function prefilledItemsOf(items: BillPrefill['items']) {
+  if (!items || items.length === 0) return null;
+  return items.map((item) => ({
+    ...emptyItem,
+    description: item.description ?? '',
+    quantity: Number(item.quantity ?? 1),
+    unitPrice: Number(item.unitPrice ?? 0),
+  }));
+}
+
+/** The form's lines as the tax preview takes them; Brazil adds the fiscal details of each line. */
+function billTaxLines<
+  T extends Parameters<typeof toTaxFormLine>[0] & {
+    description: string;
+    quantity?: number;
+    unitPrice?: number;
+    discountPercent?: number;
+    vendorTaxRate?: string;
+    taxCode?: string;
+    accrueUseTax?: boolean;
+  },
+>(items: readonly T[] | undefined, br: boolean) {
+  return (items ?? []).map((item) => {
+    const fiscal = br ? toTaxFormLine(item) : null;
+    return {
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discountPercent: item.discountPercent,
+      taxRateId: item.taxRateId,
+      vendorTaxRate: item.vendorTaxRate,
+      taxCode: item.taxCode,
+      accrueUseTax: item.accrueUseTax,
+      ...(fiscal ? { ncm: fiscal.ncm, cfop: fiscal.cfop, fiscalData: fiscal.fiscalData } : {}),
+    };
+  });
+}
+
+/** The account picker's placeholder: names the account a line without one is booked to, if there is one. */
+function defaultAccountPlaceholder(
+  account: { code: string; name: string } | null,
+  template: string,
+  none: string,
+): string {
+  return account ? template.replace('{account}', `${account.code} — ${account.name}`) : none;
+}
+
+/** A list that has finished loading and came back empty. */
+function isEmptyLoadedList(loading: boolean, data: unknown, items: readonly unknown[]): boolean {
+  return !loading && !!data && items.length === 0;
+}
+
+type StoredBillItem = NonNullable<BillWithTax['items']>[number];
+
+/** A stored bill line as form values. */
+function storedItemValues(item: StoredBillItem) {
+  return {
+    description: item.description,
+    quantity: Number(item.quantity ?? 1),
+    unitPrice: Number(item.unitPrice ?? 0),
+    unit: item.unit ?? '',
+    discountPercent: Number(item.discountPercent ?? 0),
+    taxRateId: item.taxRateId ?? '',
+    // A US bill keeps the vendor's tax as a plain rate on the line.
+    vendorTaxRate: !item.taxRateId && Number(item.taxRate ?? 0) > 0 ? String(Number(item.taxRate)) : '',
+    accountId: item.accountId ?? '',
+    taxCode: item.taxCode ?? '',
+    accrueUseTax: Boolean(item.accrueUseTax),
+    form1099Box: item.form1099Box ?? '',
+    classId: item.classId ?? '',
+    locationId: item.locationId ?? '',
+    projectId: item.projectId ?? '',
+    ...brLineValuesFromStored(item),
+  };
+}
+
 export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -219,7 +296,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
 
   const contacts = contactsData?.data ?? [];
   // Suppliers have loaded and there are none: the picker offers to add the first one instead.
-  const noSuppliers = !contactsLoading && !!contactsData && contacts.length === 0;
+  const noSuppliers = isEmptyLoadedList(contactsLoading, contactsData, contacts);
   const [addSupplierOpen, setAddSupplierOpen] = useState(false);
   // A bill takes purchase (and both) rates only.
   const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'purchase'), [taxRatesData]);
@@ -234,15 +311,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const today = localToday();
   const defaultDue = addDaysToIsoDate(today, 30);
 
-  const prefilledItems =
-    prefill?.items && prefill.items.length > 0
-      ? prefill.items.map((item) => ({
-          ...emptyItem,
-          description: item.description ?? '',
-          quantity: Number(item.quantity ?? 1),
-          unitPrice: Number(item.unitPrice ?? 0),
-        }))
-      : null;
+  const prefilledItems = prefilledItemsOf(prefill?.items);
 
   const deliveryStored = normalizeAccountingAddress(stored?.deliveryAddress);
 
@@ -263,24 +332,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       deliveryAddress: toPostalAddressFormValue(deliveryStored),
       ...brDocumentValuesFromStored(stored?.fiscalData),
       items: stored?.items?.length
-        ? stored.items.map((item) => ({
-            description: item.description,
-            quantity: Number(item.quantity ?? 1),
-            unitPrice: Number(item.unitPrice ?? 0),
-            unit: item.unit ?? '',
-            discountPercent: Number(item.discountPercent ?? 0),
-            taxRateId: item.taxRateId ?? '',
-            // A US bill keeps the vendor's tax as a plain rate on the line.
-            vendorTaxRate: !item.taxRateId && Number(item.taxRate ?? 0) > 0 ? String(Number(item.taxRate)) : '',
-            accountId: item.accountId ?? '',
-            taxCode: item.taxCode ?? '',
-            accrueUseTax: Boolean(item.accrueUseTax),
-            form1099Box: item.form1099Box ?? '',
-            classId: item.classId ?? '',
-            locationId: item.locationId ?? '',
-            projectId: item.projectId ?? '',
-            ...brLineValuesFromStored(item),
-          }))
+        ? stored.items.map(storedItemValues)
         : prefilledItems ?? [{ ...emptyItem }],
     },
   });
@@ -316,25 +368,13 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     currency: displayCurrency ?? undefined,
     billingAddress: watched.vendorAddress,
     deliveryAddress: watched.deliveryDifferent ? watched.deliveryAddress : null,
-    lines: (watchedItems ?? []).map((item) => ({
-      description: item.description,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      discountPercent: item.discountPercent,
-      taxRateId: item.taxRateId,
-      vendorTaxRate: item.vendorTaxRate,
-      taxCode: item.taxCode,
-      accrueUseTax: item.accrueUseTax,
-      ...(br ? { ncm: toTaxFormLine(item).ncm, cfop: toTaxFormLine(item).cfop, fiscalData: toTaxFormLine(item).fiscalData } : {}),
-    })),
+    lines: billTaxLines(watchedItems, br),
     fiscalData: br ? brDocumentPayload(watched, { bill: true }) : undefined,
   });
   // The account a line without one of its own is booked to: the bill's own (when it exists), else the supplier's.
   const { data: fetchedDefaultAccount } = useBillDefaultExpenseAccount(watched.contactId, { enabled: mode === 'add' });
   const defaultAccount = stored?.defaultExpenseAccount ?? fetchedDefaultAccount ?? null;
-  const accountPlaceholder = defaultAccount
-    ? tb.defaultAccount.replace('{account}', `${defaultAccount.code} — ${defaultAccount.name}`)
-    : tb.none;
+  const accountPlaceholder = defaultAccountPlaceholder(defaultAccount, tb.defaultAccount, tb.none);
   // Every line can carry a WeldFlow project (FLOW-019), so the options row is always there.
   const showLineOptions = true;
 

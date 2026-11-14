@@ -164,6 +164,58 @@ function UnmappedCallout({
   );
 }
 
+type WorksheetSummary = NonNullable<ReturnType<typeof useTaxWorksheetReport>['data']>['summary'];
+
+/** The worksheet's totals and whether they reconcile with the books. */
+function WorksheetSummaryCard({ summary }: Readonly<{ summary: WorksheetSummary }>) {
+  const { t } = useI18n();
+  const tw = t.weldbooksUs.reports.worksheet;
+  const { formatMoney } = useWeldbooksFormat();
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0">
+        <CardTitle className="text-base">{tw.summaryTitle}</CardTitle>
+        <Badge
+          variant={summary.reconciles ? 'secondary' : 'outline'}
+          className={cn(
+            'gap-1',
+            !summary.reconciles && 'border-amber-500/60 text-amber-700 dark:text-amber-400',
+          )}
+        >
+          {summary.reconciles ? (
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+          )}
+          {summary.reconciles ? tw.reconciles : tw.doesNotReconcile}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
+          {[
+            [tw.totalIncome, summary.totalIncome],
+            [tw.totalOtherIncome, summary.totalOtherIncome],
+            [tw.totalCogs, summary.totalCostOfGoodsSold],
+            [tw.totalDeductions, summary.totalDeductions],
+            [tw.netIncomeFromLines, summary.netIncomeFromLines],
+            [tw.notDeductibleTotal, summary.notDeductibleTotal],
+            [tw.unmappedNetIncome, summary.unmappedNetIncome],
+            [tw.netIncomePerBooks, summary.netIncomePerBooks],
+          ].map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-3 border-b py-1.5 last:border-b-0">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="font-medium tabular-nums">{formatMoney(value)}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {summary.reconciles ? tw.reconcilesHelp : tw.doesNotReconcileHelp}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
  * Tax return worksheet (US): the fiscal year's trial balance grouped by the
  * lines of the entity's income-tax return, with the accounts behind each line,
@@ -275,47 +327,7 @@ function TaxWorksheetPageContent() {
             <UnmappedCallout unmapped={worksheet.unmapped} formLabel={worksheet.formLabel} formatMoney={formatMoney} />
           ) : null}
 
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between space-y-0">
-              <CardTitle className="text-base">{tw.summaryTitle}</CardTitle>
-              <Badge
-                variant={summary.reconciles ? 'secondary' : 'outline'}
-                className={cn(
-                  'gap-1',
-                  !summary.reconciles && 'border-amber-500/60 text-amber-700 dark:text-amber-400',
-                )}
-              >
-                {summary.reconciles ? (
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                )}
-                {summary.reconciles ? tw.reconciles : tw.doesNotReconcile}
-              </Badge>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
-                {[
-                  [tw.totalIncome, summary.totalIncome],
-                  [tw.totalOtherIncome, summary.totalOtherIncome],
-                  [tw.totalCogs, summary.totalCostOfGoodsSold],
-                  [tw.totalDeductions, summary.totalDeductions],
-                  [tw.netIncomeFromLines, summary.netIncomeFromLines],
-                  [tw.notDeductibleTotal, summary.notDeductibleTotal],
-                  [tw.unmappedNetIncome, summary.unmappedNetIncome],
-                  [tw.netIncomePerBooks, summary.netIncomePerBooks],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between gap-3 border-b py-1.5 last:border-b-0">
-                    <dt className="text-muted-foreground">{label}</dt>
-                    <dd className="font-medium tabular-nums">{formatMoney(value)}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-3 text-xs text-muted-foreground">
-                {summary.reconciles ? tw.reconcilesHelp : tw.doesNotReconcileHelp}
-              </p>
-            </CardContent>
-          </Card>
+          <WorksheetSummaryCard summary={summary} />
 
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">{tw.linesTitle}</h2>

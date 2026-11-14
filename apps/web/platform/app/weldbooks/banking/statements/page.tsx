@@ -71,153 +71,135 @@ export default function StatementReconciliationsPage() {
   );
 }
 
-function StatementReconciliationsContent() {
+type StartMutation = ReturnType<typeof useStartBankReconciliation>;
+type LatestReconciliation = ReconciliationHistoryRow;
+
+/** Where a refused start points: the reconciliation that is already open for the account (409). */
+function conflictReconciliationId(start: StartMutation): string {
+  if (!start.isError || !isWeldbooksRequestError(start.error) || start.error.status !== 409) return '';
+  return String(errorDetails(start.error)?.reconciliationId ?? '');
+}
+
+/** The form that starts a statement reconciliation for the chosen account. */
+function StartReconciliationForm({
+  liability,
+  latest,
+  currency,
+  statementDate,
+  onStatementDateChange,
+  endingBalance,
+  onEndingBalanceChange,
+  beginningBalance,
+  onBeginningBalanceChange,
+  problemText,
+  showProblem,
+  start,
+  canStart,
+  onSubmit,
+}: Readonly<{
+  liability: boolean;
+  latest: LatestReconciliation | undefined;
+  currency: string | null | undefined;
+  statementDate: string;
+  onStatementDateChange: (value: string) => void;
+  endingBalance: string;
+  onEndingBalanceChange: (value: string) => void;
+  beginningBalance: string;
+  onBeginningBalanceChange: (value: string) => void;
+  problemText: string;
+  showProblem: boolean;
+  start: StartMutation;
+  canStart: boolean;
+  onSubmit: () => void;
+}>) {
+  const { t } = useI18n();
+  const ts = t.weldbooksUs.banking.statements;
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const conflictId = conflictReconciliationId(start);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{ts.startTitle}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="statement-date">{liability ? ts.statementDateCard : ts.statementDate}</Label>
+            <Input id="statement-date" type="date" value={statementDate} onChange={(e) => onStatementDateChange(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="statement-ending">{liability ? ts.endingBalanceOwed : ts.endingBalance}</Label>
+            <Input
+              id="statement-ending"
+              inputMode="decimal"
+              value={endingBalance}
+              placeholder="0"
+              onChange={(e) => onEndingBalanceChange(e.target.value)}
+              data-testid="statement-ending-balance"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="statement-beginning">{liability ? ts.beginningBalanceOwed : ts.beginningBalance}</Label>
+            {latest ? (
+              <p id="statement-beginning" className="flex h-9 items-center text-sm font-medium tabular-nums" data-testid="statement-beginning-fixed">
+                {formatMoney(latest.statementEndingBalance, currency)}
+              </p>
+            ) : (
+              <Input
+                id="statement-beginning"
+                inputMode="decimal"
+                value={beginningBalance}
+                onChange={(e) => onBeginningBalanceChange(e.target.value)}
+                data-testid="statement-beginning-balance"
+              />
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {latest ? ts.nextHint.replace('{date}', formatDate(latest.statementDate)) : ts.firstHint}
+        </p>
+        {showProblem ? (
+          <p className="text-sm text-destructive" role="alert">{problemText}</p>
+        ) : null}
+        {start.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {(start.error as Error).message}{' '}
+            {conflictId ? (
+              <Link to="/weldbooks/banking/statements/$id" params={{ id: conflictId }} className="underline">
+                {ts.resume}
+              </Link>
+            ) : null}
+          </p>
+        ) : null}
+        <Button onClick={onSubmit} disabled={start.isPending || !canStart} data-testid="start-reconciliation">
+          {start.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+          {ts.start}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The reconciliation history of the account, with the actions its rows offer. */
+function ReconciliationHistory({
+  rows,
+  historyLoading,
+  latestId,
+  currency,
+  canManage,
+  onUndo,
+}: Readonly<{
+  rows: ReconciliationHistoryRow[];
+  historyLoading: boolean;
+  latestId: string | undefined;
+  currency: string | null | undefined;
+  canManage: boolean;
+  onUndo: (id: string) => void;
+}>) {
   const { t } = useI18n();
   const ts = t.weldbooksUs.banking.statements;
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { accountId?: string };
-  const { can } = usePermissions();
-  const { formatMoney, formatDate, formatDateTime, today, entityCurrency } = useWeldbooksFormat();
-
-  const { data: accountsRes, isLoading: accountsLoading } = useBankAccounts();
-  const accounts = useMemo(() => (accountsRes?.data ?? []).filter((a) => a.isActive !== false), [accountsRes]);
-
-  const [accountId, setAccountId] = useState(search.accountId ?? '');
-  const [statementDate, setStatementDate] = useState(() => today());
-  const [endingBalance, setEndingBalance] = useState('');
-  const [beginningBalance, setBeginningBalance] = useState('0.00');
-  const [showProblems, setShowProblems] = useState(false);
-  const [undoId, setUndoId] = useState<string | null>(null);
-  const [discardId, setDiscardId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!accountId && accounts.length > 0) setAccountId(accounts[0].id);
-  }, [accountId, accounts]);
-
-  const account = accounts.find((a) => a.id === accountId);
-  const liability = isLiabilityAccountType(account?.accountType);
-  const currency = account?.currency ?? entityCurrency;
-
-  const history = useBankReconciliations(accountId ? { bankAccountId: accountId, pageSize: 100 } : undefined);
-  const rows = useMemo(() => history.data?.data ?? [], [history.data]);
-  const open = inProgressOf(rows, accountId);
-  const latest = latestCompleted(rows, accountId);
-
-  const start = useStartBankReconciliation();
-  const undo = useUndoBankReconciliation();
-  const discard = useDiscardBankReconciliation();
-
-  const ending = parseStatementBalance(endingBalance);
-  const beginning = parseStatementBalance(beginningBalance);
-  const dateAfterLast = !latest || statementDate > latest.statementDate;
-  const startProblem = ending === null || !statementDate || !dateAfterLast || (!latest && beginning === null);
-
-  const conflictId =
-    start.isError && isWeldbooksRequestError(start.error) && start.error.status === 409
-      ? String(errorDetails(start.error)?.reconciliationId ?? '')
-      : '';
-
-  const submit = () => {
-    if (startProblem || ending === null) {
-      setShowProblems(true);
-      return;
-    }
-    start.mutate(
-      {
-        bankAccountId: accountId,
-        statementDate,
-        statementEndingBalance: ending,
-        ...(!latest && beginning !== null ? { beginningBalance: beginning } : {}),
-      },
-      { onSuccess: (view) => navigate({ to: '/weldbooks/banking/statements/$id', params: { id: view.id } }) },
-    );
-  };
-
-  const accountLabel = (a: (typeof accounts)[number]) =>
-    a.accountNumberLast4 ? `${a.name} · ${maskedAccountNumber(a.accountNumberLast4)}` : a.name;
-
-  const problemText = dateAfterLast ? ts.problemBalances : ts.problemDate.replace('{date}', formatDate(latest?.statementDate));
-
-  let startSection: ReactNode = null;
-  if (accountId && open) {
-    startSection = (
-      <Card data-testid="in-progress">
-        <CardContent className="flex flex-wrap items-center gap-3 py-4">
-          <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
-          <p className="min-w-[16rem] flex-1 text-sm">{ts.inProgress.replace('{date}', formatDate(open.statementDate))}</p>
-          <Button asChild>
-            <Link to="/weldbooks/banking/statements/$id" params={{ id: open.id }}>{ts.resume}</Link>
-          </Button>
-          {can('banking:update') ? (
-            <Button variant="outline" onClick={() => setDiscardId(open.id)}>{ts.discard}</Button>
-          ) : null}
-        </CardContent>
-      </Card>
-    );
-  } else if (accountId) {
-    startSection = (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{ts.startTitle}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label htmlFor="statement-date">{liability ? ts.statementDateCard : ts.statementDate}</Label>
-              <Input id="statement-date" type="date" value={statementDate} onChange={(e) => setStatementDate(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="statement-ending">{liability ? ts.endingBalanceOwed : ts.endingBalance}</Label>
-              <Input
-                id="statement-ending"
-                inputMode="decimal"
-                value={endingBalance}
-                placeholder="0"
-                onChange={(e) => setEndingBalance(e.target.value)}
-                data-testid="statement-ending-balance"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="statement-beginning">{liability ? ts.beginningBalanceOwed : ts.beginningBalance}</Label>
-              {latest ? (
-                <p id="statement-beginning" className="flex h-9 items-center text-sm font-medium tabular-nums" data-testid="statement-beginning-fixed">
-                  {formatMoney(latest.statementEndingBalance, currency)}
-                </p>
-              ) : (
-                <Input
-                  id="statement-beginning"
-                  inputMode="decimal"
-                  value={beginningBalance}
-                  onChange={(e) => setBeginningBalance(e.target.value)}
-                  data-testid="statement-beginning-balance"
-                />
-              )}
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {latest ? ts.nextHint.replace('{date}', formatDate(latest.statementDate)) : ts.firstHint}
-          </p>
-          {showProblems && startProblem ? (
-            <p className="text-sm text-destructive" role="alert">{problemText}</p>
-          ) : null}
-          {start.isError ? (
-            <p className="text-sm text-destructive" role="alert">
-              {(start.error as Error).message}{' '}
-              {conflictId ? (
-                <Link to="/weldbooks/banking/statements/$id" params={{ id: conflictId }} className="underline">
-                  {ts.resume}
-                </Link>
-              ) : null}
-            </p>
-          ) : null}
-          <Button onClick={submit} disabled={start.isPending || !can('banking:create') || !account} data-testid="start-reconciliation">
-            {start.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-            {ts.start}
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
+  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
 
   const statusFilters: FilterConfig[] = [
     { field: 'status', label: ts.columns.status, options: STATUSES.map((value) => ({ value, label: ts.statuses[value] })) },
@@ -271,7 +253,7 @@ function StatementReconciliationsContent() {
   ];
 
   const renderRowMenu = (row: ReconciliationHistoryRow) => {
-    const canUndo = latest?.id === row.id && can('banking:manage');
+    const canUndo = latestId === row.id && canManage;
     const hasReport = row.status !== 'in_progress' && row.hasReport;
     if (row.status !== 'in_progress' && !hasReport && !canUndo) return null;
     return (
@@ -303,7 +285,7 @@ function StatementReconciliationsContent() {
             <DropdownMenuItem
               data-testid="undo-reconciliation"
               className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-              onClick={() => setUndoId(row.id)}
+              onClick={() => onUndo(row.id)}
             >
               <Undo2 className="mr-0.5 h-3.5 w-3.5 text-red-600" />
               {ts.undo}
@@ -315,17 +297,15 @@ function StatementReconciliationsContent() {
   };
 
   // Nothing reconciled yet: a line of text under the form reads better than a list's tall empty state.
-  const historyLoading = history.isLoading && !!accountId;
-  let historySection: ReactNode;
   if (rows.length === 0 && !historyLoading) {
-    historySection = (
+    return (
       <div className="space-y-1 px-6 pb-6">
         <h2 className="text-sm font-medium">{ts.historyTitle}</h2>
         <p className="text-sm text-muted-foreground">{ts.historyEmpty}</p>
       </div>
     );
-  } else {
-    historySection = (
+  }
+  return (
       <WeldbooksEntityList<ReconciliationHistoryRow>
         items={rows}
         isLoading={historyLoading}
@@ -340,7 +320,108 @@ function StatementReconciliationsContent() {
         noResultsState={{ title: t.common.empty.noResults, description: '' }}
       />
     );
+}
+
+function StatementReconciliationsContent() {
+  const { t } = useI18n();
+  const ts = t.weldbooksUs.banking.statements;
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { accountId?: string };
+  const { can } = usePermissions();
+  const { formatDate, today, entityCurrency } = useWeldbooksFormat();
+
+  const { data: accountsRes, isLoading: accountsLoading } = useBankAccounts();
+  const accounts = useMemo(() => (accountsRes?.data ?? []).filter((a) => a.isActive !== false), [accountsRes]);
+
+  const [accountId, setAccountId] = useState(search.accountId ?? '');
+  const [statementDate, setStatementDate] = useState(() => today());
+  const [endingBalance, setEndingBalance] = useState('');
+  const [beginningBalance, setBeginningBalance] = useState('0.00');
+  const [showProblems, setShowProblems] = useState(false);
+  const [undoId, setUndoId] = useState<string | null>(null);
+  const [discardId, setDiscardId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountId && accounts.length > 0) setAccountId(accounts[0].id);
+  }, [accountId, accounts]);
+
+  const account = accounts.find((a) => a.id === accountId);
+  const liability = isLiabilityAccountType(account?.accountType);
+  const currency = account?.currency ?? entityCurrency;
+
+  const history = useBankReconciliations(accountId ? { bankAccountId: accountId, pageSize: 100 } : undefined);
+  const rows = useMemo(() => history.data?.data ?? [], [history.data]);
+  const open = inProgressOf(rows, accountId);
+  const latest = latestCompleted(rows, accountId);
+
+  const start = useStartBankReconciliation();
+  const undo = useUndoBankReconciliation();
+  const discard = useDiscardBankReconciliation();
+
+  const ending = parseStatementBalance(endingBalance);
+  const beginning = parseStatementBalance(beginningBalance);
+  const dateAfterLast = !latest || statementDate > latest.statementDate;
+  const startProblem = ending === null || !statementDate || !dateAfterLast || (!latest && beginning === null);
+
+  const submit = () => {
+    if (startProblem || ending === null) {
+      setShowProblems(true);
+      return;
+    }
+    start.mutate(
+      {
+        bankAccountId: accountId,
+        statementDate,
+        statementEndingBalance: ending,
+        ...(!latest && beginning !== null ? { beginningBalance: beginning } : {}),
+      },
+      { onSuccess: (view) => navigate({ to: '/weldbooks/banking/statements/$id', params: { id: view.id } }) },
+    );
+  };
+
+  const accountLabel = (a: (typeof accounts)[number]) =>
+    a.accountNumberLast4 ? `${a.name} · ${maskedAccountNumber(a.accountNumberLast4)}` : a.name;
+
+  const problemText = dateAfterLast ? ts.problemBalances : ts.problemDate.replace('{date}', formatDate(latest?.statementDate));
+
+  let startSection: ReactNode = null;
+  if (accountId && open) {
+    startSection = (
+      <Card data-testid="in-progress">
+        <CardContent className="flex flex-wrap items-center gap-3 py-4">
+          <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
+          <p className="min-w-[16rem] flex-1 text-sm">{ts.inProgress.replace('{date}', formatDate(open.statementDate))}</p>
+          <Button asChild>
+            <Link to="/weldbooks/banking/statements/$id" params={{ id: open.id }}>{ts.resume}</Link>
+          </Button>
+          {can('banking:update') ? (
+            <Button variant="outline" onClick={() => setDiscardId(open.id)}>{ts.discard}</Button>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  } else if (accountId) {
+    startSection = (
+      <StartReconciliationForm
+        liability={liability}
+        latest={latest}
+        currency={currency}
+        statementDate={statementDate}
+        onStatementDateChange={setStatementDate}
+        endingBalance={endingBalance}
+        onEndingBalanceChange={setEndingBalance}
+        beginningBalance={beginningBalance}
+        onBeginningBalanceChange={setBeginningBalance}
+        problemText={problemText}
+        showProblem={showProblems && startProblem}
+        start={start}
+        canStart={can('banking:create') && !!account}
+        onSubmit={submit}
+      />
+    );
   }
+
+  const historyLoading = history.isLoading && !!accountId;
 
   return (
     <div>
@@ -386,7 +467,14 @@ function StatementReconciliationsContent() {
         {undo.isError ? <p className="text-sm text-destructive" role="alert">{(undo.error as Error).message}</p> : null}
       </div>
 
-      {historySection}
+      <ReconciliationHistory
+        rows={rows}
+        historyLoading={historyLoading}
+        latestId={latest?.id}
+        currency={currency}
+        canManage={can('banking:manage')}
+        onUndo={setUndoId}
+      />
 
       <ConfirmDialog
         open={undoId !== null}

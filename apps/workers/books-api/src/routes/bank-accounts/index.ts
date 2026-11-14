@@ -262,6 +262,41 @@ app.get('/:id', requirePermission('banking:read'), async (c) => {
   }
 });
 
+type NewLedgerRow = Extract<Awaited<ReturnType<typeof planBankLedgerAccount>>, { kind: 'new' }>['row'];
+
+/**
+ * The ledger account a new bank account sits on: the one named (checked), else the planned one
+ * (an existing account, or a new row to insert with the bank account) unless the caller opted out.
+ */
+async function newBankLedger(
+  db: Database,
+  entityId: string,
+  data: z.infer<typeof createBankAccountSchema>,
+): Promise<{
+  ledgerAccountId: string | null;
+  newLedger: NewLedgerRow | null;
+  ledgerInfo?: { id: string; code: string; name: string; created: boolean };
+}> {
+  if (data.ledgerAccountId) {
+    await loadLedgerAccount(db, entityId, data.ledgerAccountId, data.accountType);
+    return { ledgerAccountId: data.ledgerAccountId, newLedger: null };
+  }
+  if (data.createLedgerAccount === false) return { ledgerAccountId: null, newLedger: null };
+  // The ledger account holds base-currency amounts. No type (the NL form sends none) reads as checking.
+  const plan = await planDefaultBankLedgerAccount(db, {
+    entityId,
+    name: data.name,
+    accountType: data.accountType,
+    currency: await resolveEntityBaseCurrency(db, entityId),
+  });
+  if (plan.kind === 'existing') {
+    const { id, code, name } = plan.account;
+    return { ledgerAccountId: id, newLedger: null, ledgerInfo: { id, code, name, created: false } };
+  }
+  const { id, code, name } = plan.row;
+  return { ledgerAccountId: id, newLedger: plan.row, ledgerInfo: { id, code, name, created: true } };
+}
+
 // POST /
 app.post('/', requirePermission('banking:create'), zValidator('json', createBankAccountSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -275,28 +310,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
 
     const currency = data.currency ?? (await resolveEntityBaseCurrency(db, accountingEntityId));
 
-    let ledgerAccountId = data.ledgerAccountId ?? null;
-    let newLedger: Extract<Awaited<ReturnType<typeof planBankLedgerAccount>>, { kind: 'new' }>['row'] | null = null;
-    let ledgerInfo: { id: string; code: string; name: string; created: boolean } | undefined;
-    if (ledgerAccountId) {
-      await loadLedgerAccount(db, accountingEntityId, ledgerAccountId, data.accountType);
-    } else if (data.createLedgerAccount !== false) {
-      // The ledger account holds base-currency amounts. No type (the NL form sends none) reads as checking.
-      const plan = await planDefaultBankLedgerAccount(db, {
-        entityId: accountingEntityId,
-        name: data.name,
-        accountType: data.accountType,
-        currency: await resolveEntityBaseCurrency(db, accountingEntityId),
-      });
-      if (plan.kind === 'existing') {
-        ledgerAccountId = plan.account.id;
-        ledgerInfo = { id: plan.account.id, code: plan.account.code, name: plan.account.name, created: false };
-      } else {
-        newLedger = plan.row;
-        ledgerAccountId = plan.row.id;
-        ledgerInfo = { id: plan.row.id, code: plan.row.code, name: plan.row.name, created: true };
-      }
-    }
+    const { ledgerAccountId, newLedger, ledgerInfo } = await newBankLedger(db, accountingEntityId, data);
 
     const normalized = data.accountNumber ? normalizeAccountNumber(data.accountNumber) : null;
     const sealed = normalized ? await sealAccountNumber(c.env, normalized) : null;

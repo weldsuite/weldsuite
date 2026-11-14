@@ -46,7 +46,7 @@ import {
   type ParsedPeriod,
   type ReturnPeriodType,
 } from '../../services/accounting-return-periods';
-import { submitFiling, checkFilingStatus, createConfig } from '../../services/accounting-digipoort';
+import { submitFiling, checkFilingStatus, createConfig, type DigipoortSubmitResult } from '../../services/accounting-digipoort';
 import { GstReturnError, loadGstWorksheet } from '../../services/accounting-gst-return';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -335,6 +335,13 @@ function filedStatements(
   ];
 }
 
+/** What the filing response says happened: failed, simulated (nothing sent) or submitted. */
+function filingMessage(result: DigipoortSubmitResult): string {
+  if (!result.success) return `Filing failed: ${result.error}`;
+  if (result.simulated) return 'BTW-aangifte recorded as filed; the Digipoort submission was simulated and nothing was sent';
+  return 'BTW-aangifte submitted to Digipoort';
+}
+
 const markFiledSchema = z.object({
   /** The reference the tax authority gave (a Digipoort kenmerk, a portal confirmation). */
   filingReference: z.string().trim().max(255).optional(),
@@ -479,11 +486,7 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       digipoortSuccess: submitResult.success,
       // A simulated submission (no Digipoort link in this environment) is recorded as filed but nothing was sent.
       simulated: submitResult.simulated ?? false,
-      message: !submitResult.success
-        ? `Filing failed: ${submitResult.error}`
-        : submitResult.simulated
-          ? 'BTW-aangifte recorded as filed; the Digipoort submission was simulated and nothing was sent'
-          : 'BTW-aangifte submitted to Digipoort',
+      message: filingMessage(submitResult),
     });
   } catch (err) {
     console.error('[app-api/vat-returns] file failed:', err);

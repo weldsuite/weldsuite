@@ -51,6 +51,7 @@ function QuickAddContactForm({
 >) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
+  const submitLabel = role === 'supplier' ? tc.createSupplier : tc.createCustomer;
   const navigate = useNavigate();
   const { submit, conflict, clearConflict, isPending } = useCreateContact({
     onCreated,
@@ -205,7 +206,7 @@ function QuickAddContactForm({
               {tc.cancel}
             </Button>
             <Button type="submit" disabled={isPending}>
-              {isPending ? tc.creating : role === 'supplier' ? tc.createSupplier : tc.createCustomer}
+              {isPending ? tc.creating : submitLabel}
             </Button>
           </div>
         </DialogFooter>

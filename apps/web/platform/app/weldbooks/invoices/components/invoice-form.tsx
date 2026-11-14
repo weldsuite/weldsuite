@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from '@/lib/router';
 import { toast } from 'sonner';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, type UseFormRegisterReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@weldsuite/ui/components/input';
@@ -316,6 +316,294 @@ interface InvoiceFormProps {
   invoice?: InvoiceDetail;
 }
 
+/** A line with a product picked: the product names it and prices it when the line has no price yet. */
+function productLinePatch(current: { description?: string; unitPrice?: number }, product: ProductOption) {
+  return {
+    productId: product.id,
+    // The product's tax class gives the line its tax code; the user can still change it.
+    taxCode: productTaxCode(product) ?? '',
+    description: current.description || product.name,
+    unitPrice: Number(current.unitPrice) > 0 || !product.price ? current.unitPrice : product.price,
+  };
+}
+
+/** The tax rate choice of a line; "no tax" is its own option and stored as null. */
+function LineTaxRateSelect({
+  id,
+  label,
+  noTaxLabel,
+  value,
+  onChange,
+  taxRates,
+}: Readonly<{
+  id: string;
+  label: string;
+  noTaxLabel: string;
+  value: string | null | undefined;
+  onChange: (next: string | null) => void;
+  taxRates: ReturnType<typeof taxRatesFor>;
+}>) {
+  return (
+    <div className="space-y-2 md:col-span-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value ?? NO_TAX_RATE} onValueChange={(val) => onChange(val === NO_TAX_RATE ? null : val)}>
+        <SelectTrigger id={id} className="shadow-none">
+          <SelectValue placeholder={noTaxLabel} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_TAX_RATE}>{noTaxLabel}</SelectItem>
+          {taxRates.map((tr) => (
+            <SelectItem key={tr.id} value={tr.id}>
+              {taxRateLabel(tr)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/** The HSN / SAC code of a line (India GST), with its format help or the problem with what was typed. */
+function LineHsnSacField({
+  id,
+  label,
+  placeholder,
+  help,
+  error,
+  registration,
+}: Readonly<{
+  id: string;
+  label: string;
+  placeholder: string;
+  help: string;
+  error: string | undefined;
+  registration: UseFormRegisterReturn;
+}>) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        inputMode="numeric"
+        maxLength={8}
+        placeholder={placeholder}
+        className="shadow-none"
+        aria-describedby={`${id}-help`}
+        {...registration}
+      />
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : (
+        <p id={`${id}-help`} className="text-xs text-muted-foreground">{help}</p>
+      )}
+    </div>
+  );
+}
+
+/** Sends a freshly created draft (that finalizes it on the server first); a refusal leaves the draft saved. */
+async function sendCreatedInvoice(
+  send: (id: string) => Promise<unknown>,
+  id: string,
+  texts: { sent: string; notSent: string },
+  describeError: (error: unknown) => string | undefined,
+) {
+  try {
+    await send(id);
+    toast.success(texts.sent);
+  } catch (sendError) {
+    toast.error(texts.notSent, { description: describeError(sendError) });
+  }
+}
+
+/** The currency an invoice is saved in: its own when it is being edited, else the entity's. */
+function invoiceSaveCurrency(mode: 'add' | 'edit', invoice: InvoiceDetail | undefined, entityCurrency: string | null | undefined) {
+  return mode === 'edit' && invoice?.currency ? invoice.currency : entityCurrency;
+}
+
+/** The confirmation after an update: a credit memo or an invoice. */
+function updatedInvoiceText(isCreditMemo: boolean, creditMemoText: string, invoiceText: string): string {
+  return isCreditMemo ? creditMemoText : invoiceText;
+}
+
+/** Where an updated invoice opens: a credit note on its own page, an invoice on the list. */
+function updatedInvoiceHref(isCreditMemo: boolean, invoiceId: string): string {
+  return isCreditMemo ? creditNoteHref(invoiceId) : '/weldbooks/invoices';
+}
+
+/** A new invoice (not a credit memo) is saved as a draft, or saved and sent in one go. */
+function canCreateAndSendInvoice(mode: 'add' | 'edit', isCreditMemo: boolean): boolean {
+  return mode === 'add' && !isCreditMemo;
+}
+
+/** The value when the condition holds, else undefined; the value is only built then. */
+function onlyWhen<T>(condition: boolean, build: () => T): T | undefined {
+  return condition ? build() : undefined;
+}
+
+/** The first text when the condition holds, else the second. */
+function textWhen(condition: boolean, whenTrue: string, otherwise: string): string {
+  return condition ? whenTrue : otherwise;
+}
+
+/** The problem with a field, under it; nothing when there is none. */
+function FormFieldError({ message }: Readonly<{ message: string | undefined }>) {
+  if (!message) return null;
+  return <p className="text-sm text-destructive">{message}</p>;
+}
+
+/** A date input with its label and problem. */
+function FormDateField({
+  id,
+  label,
+  registration,
+  error,
+}: Readonly<{ id: string; label: string; registration: UseFormRegisterReturn; error: string | undefined }>) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type="date" className="shadow-none" {...registration} />
+      <FormFieldError message={error} />
+    </div>
+  );
+}
+
+/** The warning above the address section while the sales tax cannot be worked out for lack of an address. */
+function addressNeededNotice(salesTax: boolean, addressIncomplete: boolean | undefined) {
+  return salesTax && addressIncomplete ? <AddressNeededNotice /> : null;
+}
+
+/** The customer picker, or the offer to add the first customer when there are none. */
+function CustomerSelectField({
+  contacts,
+  noCustomers,
+  value,
+  onChange,
+  onAddCustomer,
+  error,
+}: Readonly<{
+  contacts: ReadonlyArray<{ id: string; name?: string | null; email?: string | null }>;
+  noCustomers: boolean;
+  value: string;
+  onChange: (contactId: string) => void;
+  onAddCustomer: () => void;
+  error: string | undefined;
+}>) {
+  const { t } = useI18n();
+  const tf = t.accounting.invoiceForm;
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="contactId">{tf.customer}</Label>
+      {noCustomers ? (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-1.5">
+          <span className="text-sm text-muted-foreground">{t.accounting.contacts.noCustomersYet}</span>
+          <Button type="button" variant="outline" size="sm" className="shadow-none" onClick={onAddCustomer}>
+            {t.accounting.contacts.addCustomerTitle}
+          </Button>
+        </div>
+      ) : (
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger id="contactId" className="shadow-none">
+            <SelectValue placeholder={tf.selectCustomer} />
+          </SelectTrigger>
+          <SelectContent>
+            {contacts.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name || c.email || c.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      <FormFieldError message={error} />
+    </div>
+  );
+}
+
+type StoredInvoiceItem = NonNullable<InvoiceWithTax['items']>[number];
+
+/** A stored invoice line as form values. */
+function storedLineValues(item: StoredInvoiceItem) {
+  return {
+    description: item.description ?? '',
+    quantity: Number.parseFloat(item.quantity ?? '1') || 1,
+    unitPrice: Number.parseFloat(item.unitPrice) || 0,
+    taxRateId: item.taxRateId ?? null,
+    accountId: item.accountId ?? null,
+    unit: item.unit ?? '',
+    hsnSac: item.hsnSac ?? '',
+    discountPercent: Number.parseFloat(item.discountPercent ?? '0') || 0,
+    productId: item.productId ?? '',
+    taxCode: item.taxCode ?? '',
+    taxUse: (item.taxUse ?? '') as '' | TaxUse,
+    taxIncluded: Boolean(item.taxIncluded),
+    taxOverrideEnabled: item.taxOverrideAmount !== null && item.taxOverrideAmount !== undefined,
+    taxOverrideAmount: item.taxOverrideAmount ?? '',
+    taxOverrideReason: item.taxOverrideReason ?? '',
+    classId: item.classId ?? '',
+    locationId: item.locationId ?? '',
+    originalLineId: item.originalLineId ?? '',
+    ...brLineValuesFromStored(item),
+  };
+}
+
+/** The form's starting values: the stored invoice when editing, else an empty one dated today. */
+function buildInvoiceDefaultValues(
+  mode: 'add' | 'edit',
+  stored: InvoiceWithTax | undefined,
+  templateId: string | null | undefined,
+  issueDate: string,
+) {
+  if (mode === 'edit' && stored) {
+    const billing = normalizeAccountingAddress(stored.billingAddress);
+    const shipping = normalizeAccountingAddress(stored.shippingAddress);
+    const shipFrom = normalizeAccountingAddress(stored.shipFromAddress);
+    return {
+      contactId: stored.contactId ?? '',
+      issueDate: toCalendarDate(stored.issueDate) ?? issueDate,
+      dueDate: toCalendarDate(stored.dueDate) ?? addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
+      reference: stored.reference ?? '',
+      templateId: templateId ?? null,
+      notes: stored.notes ?? '',
+      internalNotes: stored.internalNotes ?? '',
+      placeOfSupply: stored.placeOfSupply ?? '',
+      ...brDocumentValuesFromStored(stored.fiscalData),
+      currency: stored.currency ?? '',
+      exchangeRate: '',
+      billingAddress: toPostalAddressFormValue(billing),
+      shipToDifferent: !!shipping,
+      shippingAddress: toPostalAddressFormValue(shipping),
+      shipFromDifferent: !!shipFrom,
+      shipFromAddress: toPostalAddressFormValue(shipFrom),
+      marketplaceFacilitated: Boolean(stored.marketplaceFacilitated),
+      items:
+        stored.items && stored.items.length > 0
+          ? stored.items.map(storedLineValues)
+          : [{ ...emptyLine }],
+    };
+  }
+  return {
+    contactId: '',
+    issueDate,
+    dueDate: addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
+    reference: '',
+    templateId: null,
+    notes: '',
+    internalNotes: '',
+    placeOfSupply: '',
+    ...EMPTY_BR_DOCUMENT,
+    // The customer's currency, else the entity's: set once the customer or the entity is known.
+    currency: '',
+    exchangeRate: '',
+    billingAddress: toPostalAddressFormValue(null),
+    shipToDifferent: false,
+    shippingAddress: toPostalAddressFormValue(null),
+    shipFromDifferent: false,
+    shipFromAddress: toPostalAddressFormValue(null),
+    marketplaceFacilitated: false,
+    items: [{ ...emptyLine }],
+  };
+}
+
 export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -377,78 +665,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const isCreditMemo = kind === 'credit_memo';
 
   // Build default values
-  const defaultValues = useMemo(() => {
-    const issueDate = today();
-    if (mode === 'edit' && stored) {
-      const billing = normalizeAccountingAddress(stored.billingAddress);
-      const shipping = normalizeAccountingAddress(stored.shippingAddress);
-      const shipFrom = normalizeAccountingAddress(stored.shipFromAddress);
-      return {
-        contactId: stored.contactId ?? '',
-        issueDate: toCalendarDate(stored.issueDate) ?? issueDate,
-        dueDate: toCalendarDate(stored.dueDate) ?? addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
-        reference: stored.reference ?? '',
-        templateId: invoice?.templateId ?? null,
-        notes: stored.notes ?? '',
-        internalNotes: stored.internalNotes ?? '',
-        placeOfSupply: stored.placeOfSupply ?? '',
-        ...brDocumentValuesFromStored(stored.fiscalData),
-        currency: stored.currency ?? '',
-        exchangeRate: '',
-        billingAddress: toPostalAddressFormValue(billing),
-        shipToDifferent: !!shipping,
-        shippingAddress: toPostalAddressFormValue(shipping),
-        shipFromDifferent: !!shipFrom,
-        shipFromAddress: toPostalAddressFormValue(shipFrom),
-        marketplaceFacilitated: Boolean(stored.marketplaceFacilitated),
-        items:
-          stored.items && stored.items.length > 0
-            ? stored.items.map((item) => ({
-                description: item.description ?? '',
-                quantity: Number.parseFloat(item.quantity ?? '1') || 1,
-                unitPrice: Number.parseFloat(item.unitPrice) || 0,
-                taxRateId: item.taxRateId ?? null,
-                accountId: item.accountId ?? null,
-                unit: item.unit ?? '',
-                hsnSac: item.hsnSac ?? '',
-                discountPercent: Number.parseFloat(item.discountPercent ?? '0') || 0,
-                productId: item.productId ?? '',
-                taxCode: item.taxCode ?? '',
-                taxUse: (item.taxUse ?? '') as '' | TaxUse,
-                taxIncluded: Boolean(item.taxIncluded),
-                taxOverrideEnabled: item.taxOverrideAmount !== null && item.taxOverrideAmount !== undefined,
-                taxOverrideAmount: item.taxOverrideAmount ?? '',
-                taxOverrideReason: item.taxOverrideReason ?? '',
-                classId: item.classId ?? '',
-                locationId: item.locationId ?? '',
-                originalLineId: item.originalLineId ?? '',
-                ...brLineValuesFromStored(item),
-              }))
-            : [{ ...emptyLine }],
-      };
-    }
-    return {
-      contactId: '',
-      issueDate,
-      dueDate: addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
-      reference: '',
-      templateId: null,
-      notes: '',
-      internalNotes: '',
-      placeOfSupply: '',
-      ...EMPTY_BR_DOCUMENT,
-      // The customer's currency, else the entity's: set once the customer or the entity is known.
-      currency: '',
-      exchangeRate: '',
-      billingAddress: toPostalAddressFormValue(null),
-      shipToDifferent: false,
-      shippingAddress: toPostalAddressFormValue(null),
-      shipFromDifferent: false,
-      shipFromAddress: toPostalAddressFormValue(null),
-      marketplaceFacilitated: false,
-      items: [{ ...emptyLine }],
-    };
-  }, [mode, stored, invoice?.templateId, today]);
+  const defaultValues = useMemo(
+    () => buildInvoiceDefaultValues(mode, stored, invoice?.templateId, today()),
+    [mode, stored, invoice?.templateId, today],
+  );
 
   const form = useForm({
     resolver: zodResolver(invoiceFormSchema),
@@ -545,18 +765,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       return;
     }
     const current = form.getValues(`items.${index}`);
-    form.setValue(
-      `items.${index}`,
-      {
-        ...current,
-        productId: product.id,
-        // The product's tax class gives the line its tax code; the user can still change it.
-        taxCode: productTaxCode(product) ?? '',
-        description: current.description || product.name,
-        unitPrice: Number(current.unitPrice) > 0 || !product.price ? current.unitPrice : product.price,
-      },
-      { shouldDirty: true },
-    );
+    form.setValue(`items.${index}`, { ...current, ...productLinePatch(current, product) }, { shouldDirty: true });
   };
 
   // ---------------------------------------------------------------------------
@@ -568,13 +777,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     const created = await createMutation.mutateAsync(payload);
     const createdId = created?.data?.id;
     if (intent === 'send' && createdId) {
-      // Sending a draft finalizes it on the server first. A refusal leaves the draft saved.
-      try {
-        await sendMutation.mutateAsync(createdId);
-        toast.success(t.accounting.sendInvoice.sent);
-      } catch (sendError) {
-        toast.error(tf.createdNotSent, { description: describeError(sendError) });
-      }
+      await sendCreatedInvoice(
+        sendMutation.mutateAsync,
+        createdId,
+        { sent: t.accounting.sendInvoice.sent, notSent: tf.createdNotSent },
+        describeError,
+      );
     } else {
       toast.success(tf.invoiceCreated);
     }
@@ -592,7 +800,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           salesTax,
           gst,
           br,
-          currency: mode === 'edit' && invoice?.currency ? invoice.currency : entityCurrency,
+          currency: invoiceSaveCurrency(mode, invoice, entityCurrency),
           // An emptied rate field on an invoice that held one: back to the rate of the issue date.
           resetExchangeRate: mode === 'edit' && rateEdited.current,
         });
@@ -604,10 +812,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           return;
         }
         await updateMutation.mutateAsync({ id: invoice.id, data: payload });
-        toast.success(isCreditMemo ? td.form.creditMemoUpdated : tf.invoiceUpdated);
+        toast.success(updatedInvoiceText(isCreditMemo, td.form.creditMemoUpdated, tf.invoiceUpdated));
 
         setTimeout(() => {
-          router.push(isCreditMemo && invoice ? creditNoteHref(invoice.id) : '/weldbooks/invoices');
+          router.push(updatedInvoiceHref(isCreditMemo, invoice.id));
         }, 500);
       } catch (error) {
         toast.error(tf.failedToSave, { description: describeError(error) });
@@ -642,66 +850,32 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
             context={detailsGate.noticeContext}
           />
           {isCreditMemo && <InfoBanner variant="info">{td.form.creditMemoNote}</InfoBanner>}
-          <div className="space-y-2">
-            <Label htmlFor="contactId">{tf.customer}</Label>
-            {noCustomers ? (
-              <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-1.5">
-                <span className="text-sm text-muted-foreground">{t.accounting.contacts.noCustomersYet}</span>
-                <Button type="button" variant="outline" size="sm" className="shadow-none" onClick={() => setAddCustomerOpen(true)}>
-                  {t.accounting.contacts.addCustomerTitle}
-                </Button>
-              </div>
-            ) : (
-              <Select
-                value={form.watch('contactId')}
-                onValueChange={(val) => {
-                  form.setValue('contactId', val, { shouldValidate: true });
-                  // Another customer: the place of supply follows their GSTIN or address again.
-                  if (gst) form.setValue('placeOfSupply', '', { shouldDirty: true });
-                }}
-              >
-                <SelectTrigger id="contactId" className="shadow-none">
-                  <SelectValue placeholder={tf.selectCustomer} />
-                </SelectTrigger>
-                <SelectContent>
-                  {contacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name || c.email || c.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {form.formState.errors.contactId && (
-              <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>
-            )}
-          </div>
+          <CustomerSelectField
+            contacts={contacts}
+            noCustomers={noCustomers}
+            value={form.watch('contactId')}
+            onChange={(val) => {
+              form.setValue('contactId', val, { shouldValidate: true });
+              // Another customer: the place of supply follows their GSTIN or address again.
+              if (gst) form.setValue('placeOfSupply', '', { shouldDirty: true });
+            }}
+            onAddCustomer={() => setAddCustomerOpen(true)}
+            error={form.formState.errors.contactId?.message}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="issueDate">{tf.issueDate}</Label>
-              <Input
-                id="issueDate"
-                type="date"
-                className="shadow-none"
-                {...form.register('issueDate')}
-              />
-              {form.formState.errors.issueDate && (
-                <p className="text-sm text-destructive">{form.formState.errors.issueDate.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dueDate">{tf.dueDate}</Label>
-              <Input
-                id="dueDate"
-                type="date"
-                className="shadow-none"
-                {...form.register('dueDate')}
-              />
-              {form.formState.errors.dueDate && (
-                <p className="text-sm text-destructive">{form.formState.errors.dueDate.message}</p>
-              )}
-            </div>
+            <FormDateField
+              id="issueDate"
+              label={tf.issueDate}
+              registration={form.register('issueDate')}
+              error={form.formState.errors.issueDate?.message}
+            />
+            <FormDateField
+              id="dueDate"
+              label={tf.dueDate}
+              registration={form.register('dueDate')}
+              error={form.formState.errors.dueDate?.message}
+            />
           </div>
 
           <DocumentCurrencyFields
@@ -760,7 +934,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           onBillingAddressChange={setBillingAddress}
           onShippingAddressChange={setShippingAddress}
           onShipToDifferentChange={setShipToDifferent}
-          notice={salesTax && preview.result?.addressIncomplete ? <AddressNeededNotice /> : null}
+          notice={addressNeededNotice(salesTax, preview.result?.addressIncomplete)}
         />
       ),
     },
@@ -863,29 +1037,14 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                     />
                   </div>
                   {!salesTax && (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor={id('taxRate')}>{labels.taxRate}</Label>
-                      <Select
-                        value={form.watch(`items.${index}.taxRateId`) ?? NO_TAX_RATE}
-                        onValueChange={(val) =>
-                          form.setValue(`items.${index}.taxRateId`, val === NO_TAX_RATE ? null : val, {
-                            shouldValidate: true,
-                          })
-                        }
-                      >
-                        <SelectTrigger id={id('taxRate')} className="shadow-none">
-                          <SelectValue placeholder={labels.noTax} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NO_TAX_RATE}>{labels.noTax}</SelectItem>
-                          {taxRates.map((tr) => (
-                            <SelectItem key={tr.id} value={tr.id}>
-                              {taxRateLabel(tr)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <LineTaxRateSelect
+                      id={id('taxRate')}
+                      label={labels.taxRate}
+                      noTaxLabel={labels.noTax}
+                      value={form.watch(`items.${index}.taxRateId`)}
+                      onChange={(next) => form.setValue(`items.${index}.taxRateId`, next, { shouldValidate: true })}
+                      taxRates={taxRates}
+                    />
                   )}
                   <div className="space-y-2">
                     <Label htmlFor={id('discountPercent')}>{tf.discountPercent}</Label>
@@ -900,23 +1059,14 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                     />
                   </div>
                   {gst && (
-                    <div className="space-y-2">
-                      <Label htmlFor={id('hsnSac')}>{t.weldbooksIn.gst.hsnSac}</Label>
-                      <Input
-                        id={id('hsnSac')}
-                        inputMode="numeric"
-                        maxLength={8}
-                        placeholder={t.weldbooksIn.gst.hsnSacPlaceholder}
-                        className="shadow-none"
-                        aria-describedby={id('hsnSac-help')}
-                        {...form.register(`items.${index}.hsnSac`)}
-                      />
-                      {errors?.hsnSac ? (
-                        <p className="text-sm text-destructive">{errors.hsnSac.message}</p>
-                      ) : (
-                        <p id={id('hsnSac-help')} className="text-xs text-muted-foreground">{t.weldbooksIn.gst.hsnSacHelp}</p>
-                      )}
-                    </div>
+                    <LineHsnSacField
+                      id={id('hsnSac')}
+                      label={t.weldbooksIn.gst.hsnSac}
+                      placeholder={t.weldbooksIn.gst.hsnSacPlaceholder}
+                      help={t.weldbooksIn.gst.hsnSacHelp}
+                      error={errors?.hsnSac?.message}
+                      registration={form.register(`items.${index}.hsnSac`)}
+                    />
                   )}
                 </div>
 
@@ -971,9 +1121,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
             </Button>
           )}
 
-          {form.formState.errors.items?.root && (
-            <p className="text-sm text-destructive">{form.formState.errors.items.root.message}</p>
-          )}
+          <FormFieldError message={form.formState.errors.items?.root?.message} />
         </>
       ),
     },
@@ -1053,17 +1201,17 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   );
 
   // A new invoice is saved as a draft, or saved and sent in one go.
-  const canCreateAndSend = mode === 'add' && !isCreditMemo;
-  const sendAction = canCreateAndSend
-    ? createAndSendAction(previewCustomer, {
-        label: tf.createAndSend,
-        pendingText: t.accounting.sendInvoice.sending,
-        noEmail: tf.customerHasNoEmail,
-        detailsMissing: detailsBlocked,
-        pending: isPending && sending,
-        onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
-      })
-    : undefined;
+  const canCreateAndSend = canCreateAndSendInvoice(mode, isCreditMemo);
+  const sendAction = onlyWhen(canCreateAndSend, () =>
+    createAndSendAction(previewCustomer, {
+      label: tf.createAndSend,
+      pendingText: t.accounting.sendInvoice.sending,
+      noEmail: tf.customerHasNoEmail,
+      detailsMissing: detailsBlocked,
+      pending: isPending && sending,
+      onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
+    }),
+  );
 
   return (
     <>
@@ -1104,7 +1252,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       }
       onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
-      submitText={canCreateAndSend ? tf.createDraft : submitText}
+      submitText={textWhen(canCreateAndSend, tf.createDraft, submitText)}
       submitDisabled={detailsBlocked !== undefined}
       submitTitle={detailsBlocked}
       primaryAction={sendAction}

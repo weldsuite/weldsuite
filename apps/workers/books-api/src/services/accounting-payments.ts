@@ -539,6 +539,23 @@ async function postPaymentEntry(
   }
 }
 
+/**
+ * The bank account the money moved through: the one given, else the entity's default one that
+ * the money account resolved to (see resolveMoneyAccount). None when the money waits in
+ * Undeposited Funds or went to a cash account.
+ */
+async function paymentBankAccountId(
+  db: Database,
+  input: RecordPaymentInput,
+  entityAccounts: EntityAccounts,
+  how: { toUndeposited: boolean; paymentMethod: PaymentMethod | null },
+): Promise<string | null> {
+  if (input.bankAccountId) return input.bankAccountId;
+  if (how.toUndeposited || (how.paymentMethod === 'cash' && entityAccounts.bySubtype('cash'))) return null;
+  const defaultBank = await findDefaultBankAccount(db, input.entityId);
+  return defaultBank && entityAccounts.byId(defaultBank.ledgerAccountId) ? defaultBank.id : null;
+}
+
 export async function recordPayment(db: Database, input: RecordPaymentInput): Promise<RecordPaymentResult> {
   const already = await existingPayment(db, input);
   if (already) return already;
@@ -569,12 +586,7 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   const entityAccounts = await loadEntityAccounts(db, input.entityId);
   const undepositedFunds = accountForRole(entityAccounts, 'undeposited_funds');
   const toUndeposited = resolveDepositTarget(input, paymentMethod, Boolean(undepositedFunds)) === 'undeposited_funds';
-  // With no bank account given, the money went through the entity's default one (see resolveMoneyAccount): keep it on the payment.
-  let bankAccountId = input.bankAccountId ?? null;
-  if (!bankAccountId && !toUndeposited && !(paymentMethod === 'cash' && entityAccounts.bySubtype('cash'))) {
-    const defaultBank = await findDefaultBankAccount(db, input.entityId);
-    if (defaultBank && entityAccounts.byId(defaultBank.ledgerAccountId)) bankAccountId = defaultBank.id;
-  }
+  const bankAccountId = await paymentBankAccountId(db, input, entityAccounts, { toUndeposited, paymentMethod });
   const lines = await buildPaymentPosting(
     db,
     {

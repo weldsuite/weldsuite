@@ -7,7 +7,7 @@ type BillState = Pick<BillWithTax, 'status' | 'approvalStatus' | 'balanceDue'>;
 
 /** Whether a payment can be recorded against the bill now: it is approved (posted) and has a balance due. */
 export function canRecordBillPayment(bill: BillState): boolean {
-  if (!(Number(bill.balanceDue ?? 0) > 0)) return false;
+  if (Number(bill.balanceDue ?? 0) <= 0) return false;
   if (bill.approvalStatus === 'pending' || bill.approvalStatus === 'rejected') return false;
   return PAYABLE_STATUSES.has(bill.status);
 }
