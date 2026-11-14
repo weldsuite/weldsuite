@@ -6,6 +6,7 @@
 //! in `rust/deploy/helm/weldsuite` sets them.
 
 mod admin;
+mod admin_billing;
 mod ai;
 mod billing;
 mod collab;

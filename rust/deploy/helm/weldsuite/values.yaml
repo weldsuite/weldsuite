@@ -239,6 +239,26 @@ config:
     mollie:
       webhookUrl: ""
       redirectUrl: ""
+  # Plan billing (ADR BILL-014): plans and seats bought through Mollie, with
+  # VAT invoices from WeldBooks in WeldSuite's own workspace. provider:
+  # mollie turns it on (/config.json then offers billing, billingProvider:
+  # mollie) and needs MOLLIE_API_KEY in the Secret, the issuer workspace (its
+  # workspaces.id) and BILLING_PAY_LINK_KEY (generated with secret.generate).
+  # Mollie's webhook and the publicUrl are the credit top-up's (above).
+  # Enable cron.jobs.billing-renewals with it. Empty provider: no billing; a
+  # self-hosted install's seats come from its licence.
+  billing:
+    provider: ""
+    # workspaces.id of the workspace whose WeldBooks issues the invoices.
+    issuerWorkspaceId: ""
+    # Its accounting entity (empty: the workspace's first).
+    issuerEntityId: ""
+    # The issuer's country, for VAT: domestic rate, reverse charge, OSS.
+    sellerCountry: "NL"
+    # Days a past-due plan keeps working before it ends on Free (1 to 90).
+    graceDays: 14
+    # Where checkouts return (empty: <publicUrl>/settings/billing).
+    returnUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
@@ -377,7 +397,8 @@ config:
 #                                workspaces bring (required with an ownKey opt-in; generated with
 #                                secret.generate). Losing it loses every stored own key, nothing else
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
-#                                (config.credits.mollie; optional, unset: no top-up)
+#                                (config.credits.mollie; optional, unset: no top-up) and
+#                                plan billing (config.billing, required with it)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -1289,6 +1310,15 @@ cron:
     workspace-teardown:
       enabled: false
       schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
+    # Plan billing's scheduler (ADR BILL-014, config.billing): charges the
+    # anchors that came on the customers' Mollie mandates, applies changes
+    # scheduled for the period end, reminds and ends past-due plans, ends
+    # comps, and issues invoices the issuer couldn't take yet. Hourly; enable
+    # it with config.billing.provider: mollie.
+    billing-renewals:
+      enabled: false
+      schedule: "5 * * * *"
       activeDeadlineSeconds: 3000
     # WeldHost's daily domain auto-renew sweep. Renewals are charged through
     # Stripe, which stays with Global (feature domain-purchase), so for now it

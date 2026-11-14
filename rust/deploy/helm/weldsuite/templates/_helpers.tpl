@@ -237,6 +237,32 @@ settings, which weldsuite.env adds.
   value: {{ . | quote }}
 {{- end }}
 {{- end }}
+{{- with (.Values.config.billing | default dict) }}
+{{- if eq (.provider | default "") "mollie" }}
+- name: BILLING_PROVIDER
+  value: "mollie"
+{{- with .issuerWorkspaceId }}
+- name: BILLING_ISSUER_WORKSPACE_ID
+  value: {{ . | quote }}
+{{- end }}
+{{- with .issuerEntityId }}
+- name: BILLING_ISSUER_ENTITY_ID
+  value: {{ . | quote }}
+{{- end }}
+{{- with .sellerCountry }}
+- name: BILLING_SELLER_COUNTRY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .graceDays }}
+- name: BILLING_GRACE_DAYS
+  value: {{ . | quote }}
+{{- end }}
+{{- with .returnUrl }}
+- name: BILLING_RETURN_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.sign.portalUrl }}
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
@@ -695,7 +721,7 @@ Called with (list $ "valkey").
 {{- end }}
 
 {{- define "weldsuite.generatedSecretKeys" -}}
-{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET") }}
+{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET" "BILLING_PAY_LINK_KEY") }}
 {{- end }}
 
 {{- /*
