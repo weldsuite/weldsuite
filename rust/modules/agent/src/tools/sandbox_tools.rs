@@ -197,6 +197,13 @@ mod tests {
             row_scope: None,
             events: None,
             sandbox: true,
+            channel_id: None,
+            conversation_id: Some("cnv_1".into()),
+            agent_hop: 0,
+            max_agent_hops: 2,
+            master: None,
+            realtime: None,
+            ai: None,
         }
     }
 
