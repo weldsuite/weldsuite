@@ -737,12 +737,43 @@ bindings as library functions (`weldsuite_sheets::agent_call`,
 implements the agent crate's `ModuleTools` over them and installs it when it
 mounts the agent module. Each call acts for the person the agent works for:
 their permissions and their WeldDrive or project access are checked as they
-are now, on top of the agent's grants. Only `serve` installs it: the consume
-and cron roles run agents without the spreadsheet, board and merge tools (they
-answer that the module is not available to agents here). The default
+are now, on top of the agent's grants. Only `serve` installs it, so a run that
+is not started by `serve` is handed to it (below). The default
 WeldAgent also gets the spreadsheet tools for the sheet the person has open
 and the sheets they tag (AGENT-015), limited to those sheets, with up to ten
 model requests instead of six.
+
+**Runs started by cron and consume.** The routine cron and the `weldagent`
+subscriber run in their own processes, where `ModuleTools` is not installed. On
+Global both live in agent-api, which reaches sheets, board and merge over
+service bindings, so their runs have every tool. EU does the same with the
+jobs backend: `weldsuite_agent::launch::RunLauncher::Jobs` makes the cron and
+the subscriber only decide what is due or matched (claim the routine, write the
+queued run row, check the event id for a duplicate) and enqueue the run as a
+`weldagent.job` of kind `agent-run`, the job rooms already use, keyed on the run
+row (`agent-run-<id>`). `serve` registers the job, so the run happens where the
+module tools are. A run that cannot start fails its routine run row and gives
+the claimed occurrence back, as the inline sweep did. Without
+`RESTATE_INGRESS_URL` there is no jobs backend that reaches `serve` (the
+in-process adapter would run the job in the cron or consume process), so the
+launcher falls back to `Inline`: the run works as before, with every tool
+except the spreadsheet, board and WeldMerge ones, which answer that the module
+is not available to agents here. Helm installs set Restate, so they take the
+job path.
+
+**Read-only workspaces.** On the HTTP path the licence gate refuses writes in a
+workspace that is read-only (partner suspended, licence inactive, 403
+`WORKSPACE_READ_ONLY`) or being moved (503 `WORKSPACE_MOVING`). The Global
+tools that call a module (sheets `create` and `write`, board `create`,
+`update`, `add` and `edit`) get the same refusal from the module's internal
+routes, ahead of the handler and with the gate's message; the in-process
+platform tools (`people.create`, `tasks.create`, `tickets.create`, routines,
+merge) check nothing there, and a manual run or chat turn is refused up front
+because its POST is a write. EU matches: the binary resolves the workspace
+through the same cached master lookup the tenant middleware uses and hands the
+reason to `weldsuite_sheets::AgentScope` and `weldsuite_board::AgentScope`
+(`read_only`), whose write operations refuse with `read_only_message`
+(`weldsuite_db`, the words of the gate).
 
 Push notifications for an approval waiting, a finished chat turn and a room
 reply are not sent yet; the unread counters and realtime pings are.
