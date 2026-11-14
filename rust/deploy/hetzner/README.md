@@ -453,7 +453,8 @@ lets nobody in until these are done, once per cluster:
    code flow, authentication method Basic (a client secret), redirect URI
    `https://admin.<domain>/auth/callback`, post-logout URI
    `https://admin.<domain>/sign-in?signed_out=1`. Keep its client id and
-   secret.
+   secret, and the organization's id (its **Organization** page), which is
+   `ZITADEL_STAFF_ORG_ID` (step 4).
 2. **Secrets.** `ADMIN_OIDC_CLIENT_ID` and `ADMIN_OIDC_CLIENT_SECRET` from that
    app, plus a generated `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`, in
    `weldsuite-env`:
@@ -467,13 +468,28 @@ lets nobody in until these are done, once per cluster:
    the staff's addresses as an unquoted YAML list (`[203.0.113.7/32]`). The
    default, `[127.0.0.1/32]`, refuses everyone; Traefik checks it with the
    client's own address, which the load balancer passes on (PROXY protocol).
-4. **DNS.** `admin.` is in `tofu output dns_records`.
+4. **Whose accounts.** `ZITADEL_STAFF_ORG_ID` in the same file (Grafana's
+   too): the `WeldSuite Staff` organization's id from step 1, quoted. The
+   console asks Zitadel to sign in only that organization's accounts, and
+   lets in only accounts its `urn:zitadel:iam:user:resourceowner:id` claim
+   says are in it; empty, its sign-in answers 503.
+5. **DNS.** `admin.` is in `tofu output dns_records`.
 
-A person on the staff list then signs in with their Zitadel account. Their row
-matches the account (`user_id`, which `staff add` fills when they also use the
-platform) or, the first time, their verified email, and is then bound to that
-account. `staff remove`, or `staff add` again with another `--role`, takes
-effect on their next click.
+A person on the staff list then signs in with their `WeldSuite Staff` account,
+not their platform account, even where both have the same email (ADR SEC-018).
+The console matches the account against the row's `console_subject`, or, the
+first time, on its verified email, and then binds the row to that account, so
+from then on only that account gets in. `staff add` never fills
+`console_subject`: it fills `user_id` with the person's platform account (one
+with that email that is in a workspace), which the WeldApps review gate
+matches, and running it again picks up an account they made since. `staff
+list` shows both. `staff remove`, or `staff add` again with another `--role`,
+takes effect on their next click.
+
+A row the console bound before SEC-018 has the staff account in `user_id`.
+After the upgrade the first console sign-in binds `console_subject`; then run
+`staff add` for the person once more (same `--role`) to put their platform
+account in `user_id`.
 
 ## 8. The master database schema
 

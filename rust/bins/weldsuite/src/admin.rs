@@ -918,6 +918,7 @@ fn member_json(member: &StaffMember) -> Value {
         "role": member.role.as_str(),
         "isActive": member.is_active,
         "userId": member.user_id,
+        "consoleSubject": member.console_subject,
         "invitedBy": member.invited_by,
         "invitedAt": member.invited_at,
     })
@@ -938,10 +939,21 @@ fn staff_table(rows: &[StaffMember]) -> String {
                 m.role.as_str().to_owned(),
                 if m.is_active { "active" } else { "removed" }.to_owned(),
                 or_dash(m.user_id.as_deref()),
+                or_dash(m.console_subject.as_deref()),
             ]
         })
         .collect();
-    table(&["EMAIL", "NAME", "ROLE", "STATE", "USER ID"], &cells)
+    table(
+        &[
+            "EMAIL",
+            "NAME",
+            "ROLE",
+            "STATE",
+            "PLATFORM ACCOUNT",
+            "CONSOLE ACCOUNT",
+        ],
+        &cells,
+    )
 }
 
 fn roster_output(verb: &str, change: &RosterChange, json: bool) -> String {
@@ -964,8 +976,14 @@ fn roster_output(verb: &str, change: &RosterChange, json: bool) -> String {
     );
     if change.after.is_active && change.after.user_id.is_none() {
         out.push_str(
-            "note: they have not signed in on this install yet, so the WeldApps review gate \
-             doesn't know them until `staff add` runs again after their first sign-in.\n",
+            "note: no platform account with this email is in a workspace yet, so the WeldApps \
+             review gate doesn't know them until `staff add` runs again after they join one.\n",
+        );
+    }
+    if change.after.is_active && change.after.console_subject.is_none() {
+        out.push_str(
+            "note: their first sign-in to the admin console, with a verified email in the staff \
+             organization, binds the row to that account.\n",
         );
     }
     out

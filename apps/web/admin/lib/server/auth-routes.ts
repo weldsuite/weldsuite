@@ -71,8 +71,11 @@ export async function handleCallback(request: Request): Promise<Response> {
     // Binds a first sign-in to its roster row and notes the time. The session
     // is made even for someone not on the roster: they get the "no access"
     // page with a sign-out button, instead of a loop through the provider.
-    const identity = await staffIdentity(session, { signingIn: true });
-    if (!identity) console.warn('[admin/auth] signed in but not on the staff roster:', session.sub);
+    const identity = await staffIdentity(session, { staffOrgId: settings.staffOrgId, signingIn: true });
+    if (!identity) {
+      const why = session.org === settings.staffOrgId ? 'not on the staff roster' : 'an account outside the staff organization';
+      console.warn(`[admin/auth] signed in with ${why}:`, session.sub);
+    }
     return redirect(returnTo, [await sessionCookie(settings, session), clearFlow]);
   } catch (error) {
     console.error('[admin/auth] sign-in failed:', error);
