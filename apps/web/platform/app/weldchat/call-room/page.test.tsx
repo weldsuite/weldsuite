@@ -201,7 +201,8 @@ describe('CallRoomPage · provider', () => {
 
     render(<CallRoomPage />);
 
-    await screen.findByTestId('call-room-error');
+    expect(await screen.findByTestId('call-room-error')).toBeTruthy();
+    expect(video.init).toHaveBeenCalled();
   });
 
   it('keeps joining with RealtimeKit on Global', async () => {
