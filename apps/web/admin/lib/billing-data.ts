@@ -12,6 +12,7 @@ import type {
   PlanOption,
   WorkspaceBilling,
 } from './billing-types';
+import { toMollieBillingAccount } from './mollie-billing-account';
 
 const {
   workspaces,
@@ -95,46 +96,7 @@ export async function getMollieBillingAccount(workspaceId: string): Promise<Moll
     )
     .where(and(eq(billingAccounts.workspaceId, workspaceId), eq(billingAccounts.provider, 'mollie')))
     .limit(1);
-  if (!row) return null;
-  const a = row.account;
-
-  const hasSchedule = a.scheduledPlanId !== null || a.scheduledSeats !== null || a.scheduledCycle !== null;
-  const chargeId = row.chargeId ?? a.pastDuePaymentId;
-
-  return {
-    customerId: a.customerId,
-    mandateId: a.mandateId,
-    mandateMethod: a.mandateMethod,
-    mandateLabel: a.mandateLabel,
-    unitAmount: a.unitAmount,
-    currency: a.currency,
-    anchorDay: a.anchorDay,
-    nextChargeAt: iso(a.nextChargeAt),
-    scheduled: hasSchedule
-      ? {
-          planId: a.scheduledPlanId,
-          planName: row.scheduledPlanName,
-          seats: a.scheduledSeats,
-          cycle: a.scheduledCycle,
-        }
-      : null,
-    pastDue: a.pastDueSince
-      ? {
-          since: a.pastDueSince.toISOString(),
-          remindedAt: iso(a.dunningRemindedAt),
-          charge: chargeId
-            ? {
-                id: chargeId,
-                providerPaymentId: row.chargeProviderPaymentId,
-                amount: row.chargeAmount,
-                currency: row.chargeCurrency,
-                status: row.chargeStatus,
-                failureMessage: row.chargeFailureMessage,
-              }
-            : null,
-        }
-      : null,
-  };
+  return row ? toMollieBillingAccount(row) : null;
 }
 
 function toPlanOption(p: typeof plans.$inferSelect): PlanOption {
