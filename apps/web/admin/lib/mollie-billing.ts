@@ -40,32 +40,40 @@ export function mollieAccountSummary(
           amount: formatCents(account.unitAmount, account.currency),
           interval: cycle === 'yearly' ? copy.intervalYear : copy.intervalMonth,
         });
-  const scheduled: Array<[string, string]> = [];
-  const s = account.scheduled;
-  if (s?.planId) scheduled.push([copy.scheduled.plan, s.planName ?? s.planId]);
-  if (s?.seats != null) scheduled.push([copy.scheduled.seats, String(s.seats)]);
-  if (s?.cycle) scheduled.push([copy.scheduled.cycle, cycleLabel(copy, s.cycle)]);
-  const pastDue = account.pastDue;
-  const charge = pastDue?.charge ?? null;
   return {
     seatPrice,
     nextCharge: formatDay(account.nextChargeAt),
     billingDay: account.anchorDay == null ? null : fill(copy.billingDay, { day: account.anchorDay }),
-    scheduled,
-    pastDue: pastDue
-      ? {
-          since: fill(copy.pastDue.since, { date: formatDay(pastDue.since) }),
-          charge: charge
-            ? fill(copy.pastDue.charge, {
-                id: charge.providerPaymentId ? `${charge.providerPaymentId} (${charge.id})` : charge.id,
-                amount: formatCents(charge.amount, charge.currency ?? account.currency),
-                status: charge.status ?? '—',
-              })
-            : copy.pastDue.noCharge,
-          failure: charge?.failureMessage ? fill(copy.pastDue.failure, { message: charge.failureMessage }) : null,
-          reminded: pastDue.remindedAt ? fill(copy.pastDue.reminded, { date: formatDay(pastDue.remindedAt) }) : null,
-        }
-      : null,
+    scheduled: scheduledRows(copy, account.scheduled),
+    pastDue: pastDueLines(copy, account),
+  };
+}
+
+/** What changes at the period end, as label and value. */
+function scheduledRows(copy: MollieBillingCopy, s: MollieBillingAccount['scheduled']): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  if (s?.planId) rows.push([copy.scheduled.plan, s.planName ?? s.planId]);
+  if (s?.seats != null) rows.push([copy.scheduled.seats, String(s.seats)]);
+  if (s?.cycle) rows.push([copy.scheduled.cycle, cycleLabel(copy, s.cycle)]);
+  return rows;
+}
+
+/** The past-due notice's lines, or null when the account is paid up. */
+function pastDueLines(copy: MollieBillingCopy, account: MollieBillingAccount): MollieAccountSummary['pastDue'] {
+  const pastDue = account.pastDue;
+  if (!pastDue) return null;
+  const charge = pastDue.charge;
+  return {
+    since: fill(copy.pastDue.since, { date: formatDay(pastDue.since) }),
+    charge: charge
+      ? fill(copy.pastDue.charge, {
+          id: charge.providerPaymentId ? `${charge.providerPaymentId} (${charge.id})` : charge.id,
+          amount: formatCents(charge.amount, charge.currency ?? account.currency),
+          status: charge.status ?? '—',
+        })
+      : copy.pastDue.noCharge,
+    failure: charge?.failureMessage ? fill(copy.pastDue.failure, { message: charge.failureMessage }) : null,
+    reminded: pastDue.remindedAt ? fill(copy.pastDue.reminded, { date: formatDay(pastDue.remindedAt) }) : null,
   };
 }
 
