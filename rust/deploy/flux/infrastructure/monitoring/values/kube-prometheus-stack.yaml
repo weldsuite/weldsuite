@@ -211,12 +211,15 @@ grafana:
     - name: grafana-oidc
   persistence:
     enabled: false
+  # Idle, Grafana 12 with the app plugins it installs at start (Logs, Traces
+  # and Profiles Drilldown, Advisor) uses about 300Mi; the first sign-in on
+  # production (14 Nov) took it past the old 384Mi limit, and it was killed.
   resources:
     requests:
       cpu: 50m
-      memory: 160Mi
+      memory: 320Mi
     limits:
-      memory: 384Mi
+      memory: 768Mi
   ingress:
     enabled: true
     ingressClassName: traefik
