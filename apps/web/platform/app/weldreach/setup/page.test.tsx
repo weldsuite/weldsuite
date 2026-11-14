@@ -216,6 +216,32 @@ describe('Setup wizard', () => {
     });
   });
 
+  describe('step 2: payment, inboxes on the plan (Mollie, EU)', () => {
+    beforeEach(() => setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: [] }));
+    afterEach(() => setRuntimeConfig(null));
+
+    it('asks a workspace without a paid plan to pick one instead of adding a card', async () => {
+      api.reach.billing.mockResolvedValue({ data: { ...noBilling, currency: 'eur' } });
+      const user = userEvent.setup();
+      renderWizard('payment');
+
+      expect(await screen.findByText('Mailboxes are billed with your plan. Subscribe to a paid plan first.')).toBeInTheDocument();
+      expect(screen.getByText(/excl\. VAT, added to your plan's monthly charge/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add payment method' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'See plans' }));
+      expect(router.navigate).toHaveBeenCalledWith({ to: '/settings/plans' });
+    });
+
+    it('is done for a paid plan with its payment method', async () => {
+      api.reach.billing.mockResolvedValue({ data: { ...noBilling, status: 'active', hasPaymentMethod: true, currency: 'eur' } });
+      renderWizard('payment');
+
+      expect(await screen.findByText('A payment method is on file.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'See plans' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    });
+  });
+
   describe('step 2: payment', () => {
     it('states the price and keeps Continue off until a payment method is on file', async () => {
       renderWizard('payment');

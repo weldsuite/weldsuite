@@ -35,6 +35,9 @@ pub(crate) enum Purpose {
     /// A credit package (BILL-013's top-up), its VAT on top: the payment is
     /// the top-up's, this row prices and invoices it ([`crate::top_up`]).
     Credits,
+    /// An add-on added between anchors (a WeldReach inbox), for the rest of
+    /// the month, on the mandate ([`crate::addons`]).
+    Addon,
 }
 
 impl Purpose {
@@ -46,6 +49,7 @@ impl Purpose {
             Self::PayLink => "pay_link",
             Self::Mandate => "mandate",
             Self::Credits => "credits",
+            Self::Addon => "addon",
         }
     }
 }

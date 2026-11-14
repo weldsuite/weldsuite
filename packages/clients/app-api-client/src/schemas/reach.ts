@@ -139,6 +139,16 @@ export function resolveWeldReachLimits(stored: Record<string, unknown> | null | 
 export const WELDREACH_INBOX_PRICE_CENTS = 800;
 export const WELDREACH_INBOX_CURRENCY = 'usd';
 
+/**
+ * €8.00 per inbox per month before VAT where plans are billed through Mollie
+ * (the EU edition, owner decision 2026-11-14): inboxes ride on the plan's
+ * monthly charge. The amount charged is the Rust server's
+ * (`rust/modules/core-billing/src/addons.rs`, `WELDREACH_INBOX_CENTS`); keep
+ * the two equal.
+ */
+export const WELDREACH_INBOX_EU_PRICE_CENTS = 800;
+export const WELDREACH_INBOX_EU_CURRENCY = 'eur';
+
 export const WELDREACH_SENDING_DEFAULTS = {
   /** Days of warmup (WeldSuite warmup network) before a mailbox may join campaigns. */
   warmupDays: 14,

@@ -3,7 +3,8 @@
  * whether a payment method is on file, and "Update payment method", which goes
  * through Stripe Checkout in setup mode. Nothing where billing is off (the
  * settings page leaves it out without the `billing` feature, and a backend
- * that reports no subscription answers null).
+ * that reports no subscription answers null). Where inboxes ride on the
+ * plan's Mollie charge (EU) the description says so; the amounts are before VAT.
  */
 
 import { CreditCard, Loader2 } from 'lucide-react';
@@ -15,6 +16,7 @@ import type { ReachBillingSummary } from '@weldsuite/app-api-client/schemas/reac
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { useReachBilling } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
+import { inboxPrice } from '@/lib/reach/inbox-price';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { REACH_SETTINGS_PATH, usePaymentMethodSetup } from '../components/use-payment-method-setup';
@@ -35,9 +37,10 @@ export function BillingSection() {
   const paymentSetup = usePaymentMethodSetup(REACH_SETTINGS_PATH);
 
   if (billing.data === null) return null;
+  const description = inboxPrice().withPlan ? 'reach.settings.billing.descriptionWithPlan' : 'reach.settings.billing.description';
 
   return (
-    <SectionCard title={t('reach.settings.billing.title')} description={t('reach.settings.billing.description')}>
+    <SectionCard title={t('reach.settings.billing.title')} description={t(description)}>
       {billing.isPending && (
         <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

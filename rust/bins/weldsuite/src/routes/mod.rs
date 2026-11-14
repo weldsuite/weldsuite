@@ -1063,6 +1063,11 @@ fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
             ))
         }),
         tenants: Some(tenant_databases(state)),
+        // With plans billed through Mollie, inboxes ride on the plan's charge
+        // (ADR BILL-014); otherwise they are provisioned unbilled.
+        inbox_billing: crate::billing::billing_state(state).map(|billing| {
+            crate::billing::reach_inbox_billing(billing, Arc::clone(&state.workspaces))
+        }),
     }
 }
 

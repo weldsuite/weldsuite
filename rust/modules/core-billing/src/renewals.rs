@@ -204,7 +204,7 @@ enum Outcome {
 
 /// The billing details of `workspace`: its current ones, else those of its
 /// last charge.
-async fn details_for(
+pub(crate) async fn details_for(
     state: &BillingState,
     workspace: &Workspace,
 ) -> BillingResult<Option<BillingDetails>> {

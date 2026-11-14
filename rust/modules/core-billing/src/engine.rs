@@ -67,7 +67,7 @@ pub(crate) fn http_of(
     })
 }
 
-fn unreachable(error: impl std::fmt::Display) -> BillingError {
+pub(crate) fn unreachable(error: impl std::fmt::Display) -> BillingError {
     tracing::error!(%error, "billing: Mollie call failed");
     BillingError::Api(ApiError::new(
         StatusCode::BAD_GATEWAY,

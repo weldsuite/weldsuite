@@ -40,6 +40,8 @@ pub enum Settled {
     MandateSaved,
     /// A credit top-up was paid (its credits are the top-up's to grant).
     CreditsBought,
+    /// An add-on added between anchors (a WeldReach inbox) was paid.
+    AddonPaid,
     /// A second checkout was paid while a subscription already ran (two
     /// tabs, a double submit): not applied, refunded in full.
     DuplicateCheckout,
@@ -179,7 +181,9 @@ pub async fn settle_payment(
                 go_past_due(&mut tx, &row.workspace_id, &row.id, now).await?;
                 Settled::PastDue
             }
-            Purpose::Change if applied_on_acceptance => {
+            // Granted at acceptance (the plan change, the inbox): the charge
+            // that fails afterwards is owed.
+            Purpose::Change | Purpose::Addon if applied_on_acceptance => {
                 go_past_due(&mut tx, &row.workspace_id, &row.id, now).await?;
                 Settled::PastDue
             }
@@ -209,6 +213,7 @@ pub async fn settle_payment(
         | Settled::Renewed
         | Settled::PastDuePaid
         | Settled::CreditsBought
+        | Settled::AddonPaid
             if meta.charge.gross > 0 =>
         {
             if let Some(row) = ChargeRow::load(master, &row.id).await? {
@@ -265,7 +270,7 @@ async fn refund_duplicate(state: &BillingState, row_id: &str, payment: &Payment)
 fn reopens(purpose: Purpose) -> bool {
     matches!(
         purpose,
-        Purpose::Renewal | Purpose::Change | Purpose::PayLink | Purpose::Checkout
+        Purpose::Renewal | Purpose::Change | Purpose::PayLink | Purpose::Checkout | Purpose::Addon
     )
 }
 
@@ -413,6 +418,11 @@ async fn paid(
         }
         // A one-off payment: no mandate, no plan, no past due to clear.
         Purpose::Credits => Ok(Settled::CreditsBought),
+        // The inbox was granted when the charge was accepted.
+        Purpose::Addon => {
+            clear_past_due_on(tx, workspace_id, &row.id).await?;
+            Ok(Settled::AddonPaid)
+        }
     }
 }
 
@@ -693,7 +703,7 @@ async fn try_issue_invoice(state: &BillingState, row: &ChargeRow) -> BillingResu
     let reason = match meta.purpose {
         Purpose::Checkout => "subscription_create",
         Purpose::Renewal => "subscription_cycle",
-        Purpose::Change => "subscription_update",
+        Purpose::Change | Purpose::Addon => "subscription_update",
         Purpose::PayLink | Purpose::Credits => "manual",
         Purpose::Mandate => "setup",
     };

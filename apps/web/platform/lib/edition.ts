@@ -38,9 +38,10 @@ export const EDITION_FEATURES = [
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
   /**
-   * WeldReach inbox billing (per-mailbox Stripe subscriptions). The Rust
-   * backend lists it as unavailable whenever it is not on Mollie, so plan
-   * billing being on never turns this UI on by itself.
+   * WeldReach inbox billing: a per-mailbox Stripe subscription on Global; on
+   * the Rust backend the inboxes ride on the plan's Mollie charge, so it is
+   * offered exactly where plans are billed through Mollie (`billingProvider`
+   * is `mollie`), and unbilled elsewhere.
    */
   'reach-billing',
   /**

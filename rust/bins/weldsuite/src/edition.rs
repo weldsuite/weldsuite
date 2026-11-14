@@ -60,10 +60,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `/api/sso` claims and verifies a domain, but the SAML connection lives
     // at the identity provider (Clerk's): every connection change answers 502.
     "sso-connections",
-    // WeldReach's inbox subscription is billing-worker's (Stripe) on Global;
-    // here mailboxes are provisioned unbilled (ADR REACH-010), even where
-    // plans are billed through Mollie (`BILLING_FEATURE`).
-    "reach-billing",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
     // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
@@ -184,6 +180,12 @@ pub(crate) const CREDIT_TOP_UP_FEATURE: &str = "credit-top-up";
 /// ADR BILL-014), Stripe on Global. Unavailable otherwise: a self-hosted
 /// install's seats and modules come from its licence.
 pub(crate) const BILLING_FEATURE: &str = "billing";
+
+/// WeldReach's inbox subscription: billing-worker's (Stripe) on Global. Here
+/// inboxes ride on the plan's Mollie charge where plans are billed through
+/// Mollie (`weldsuite_core_billing::addons`, ADR BILL-014); otherwise they are
+/// provisioned unbilled (ADR REACH-010).
+pub(crate) const REACH_BILLING_FEATURE: &str = "reach-billing";
 
 /// WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
 /// `browser:use` toggles of the builder): Claude Managed Agents run them on
@@ -390,6 +392,7 @@ impl EditionConfig {
         }
         if !self.plan_billing {
             features.push(BILLING_FEATURE);
+            features.push(REACH_BILLING_FEATURE);
         }
         if !self.sandbox {
             features.push(AGENT_SANDBOX_FEATURE);
@@ -465,7 +468,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 6
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 7
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -540,6 +543,7 @@ mod tests {
             MAIL_FREE_ADDRESSES_FEATURE,
             CREDIT_TOP_UP_FEATURE,
             BILLING_FEATURE,
+            REACH_BILLING_FEATURE,
             AGENT_SANDBOX_FEATURE,
         ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
@@ -637,6 +641,7 @@ mod tests {
         let (off, problems) = read(&[]);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(off.unavailable_features().contains(&BILLING_FEATURE));
+        assert!(off.unavailable_features().contains(&REACH_BILLING_FEATURE));
         let mut body = json!({});
         off.describe(&mut body);
         assert!(
@@ -648,7 +653,8 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         assert!(on.plan_billing);
         assert!(!on.unavailable_features().contains(&BILLING_FEATURE));
-        assert!(on.unavailable_features().contains(&"reach-billing"));
+        // WeldReach inboxes ride on the plan's charge.
+        assert!(!on.unavailable_features().contains(&REACH_BILLING_FEATURE));
         let mut body = json!({});
         on.describe(&mut body);
         assert_eq!(body["billingProvider"], "mollie");
@@ -746,6 +752,7 @@ mod tests {
             &MAIL_DOMAINS_FEATURE,
             &MAIL_FREE_ADDRESSES_FEATURE,
             &COLLAB_ROOMS_FEATURE,
+            &REACH_BILLING_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

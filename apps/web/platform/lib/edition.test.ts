@@ -59,10 +59,16 @@ describe('billing provider', () => {
     expect(billingProvider()).toBe('stripe');
   });
 
-  it('is Mollie when /config.json says so, and plan billing on does not turn WeldReach billing on', () => {
-    setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: ['reach-billing'] });
+  it('is Mollie when /config.json says so, with WeldReach inboxes on the plan', () => {
+    setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: [] });
     expect(billingProvider()).toBe('mollie');
     expect(isFeatureAvailable('billing')).toBe(true);
+    expect(isFeatureAvailable('reach-billing')).toBe(true);
+  });
+
+  it('follows the server: no plan billing, no WeldReach billing', () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['billing', 'reach-billing'] });
+    expect(billingProvider()).toBe('stripe');
     expect(isFeatureAvailable('reach-billing')).toBe(false);
   });
 });

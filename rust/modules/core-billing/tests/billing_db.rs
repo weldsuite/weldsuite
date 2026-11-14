@@ -3,9 +3,11 @@
 //! without them), against a recorded Mollie and an issuer that only counts:
 //! a checkout, its first payment, renewals on the anchor, a prorated seat
 //! upgrade, a scheduled decrease, a failed renewal, past due, the end of
-//! the grace period on Free, and a credit top-up priced with VAT on top.
+//! the grace period on Free, a credit top-up priced with VAT on top, and
+//! WeldReach inboxes on the plan (pro rata between anchors, on each anchor).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -16,8 +18,9 @@ use weldsuite_core_billing::engine::{self, Actor, CheckoutAnswer, CheckoutInput}
 use weldsuite_core_billing::period::Cycle;
 use weldsuite_core_billing::renewals::run_renewals;
 use weldsuite_core_billing::{
-    BillingError, BillingSettings, BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice,
-    LineKind, Settled, TopUpRequest, quote_top_up, settle_payment,
+    AddonSource, BillingError, BillingSettings, BillingState, InboxCharge, InvoiceIssuer,
+    IssueRequest, IssuedInvoice, Language, Line, LineKind, Settled, TopUpRequest,
+    charge_inbox_added, inbox_line, quote_top_up, settle_payment,
 };
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -128,6 +131,29 @@ impl DynOutboundHttp for FakeMollie {
     }
 }
 
+/// The workspace's live WeldReach inboxes, as the test sets them.
+#[derive(Default)]
+struct FakeInboxes {
+    count: AtomicI64,
+}
+
+impl AddonSource for FakeInboxes {
+    fn lines<'a>(
+        &'a self,
+        _workspace_id: &'a str,
+        period: (OffsetDateTime, OffsetDateTime),
+        language: Language,
+    ) -> BoxFuture<'a, Result<Vec<Line>, String>> {
+        let count = self.count.load(Ordering::SeqCst);
+        let lines = if count > 0 {
+            vec![inbox_line(count, period, language)]
+        } else {
+            Vec::new()
+        };
+        Box::pin(std::future::ready(Ok(lines)))
+    }
+}
+
 /// Counts the invoices it is asked for.
 #[derive(Default)]
 struct CountingIssuer {
@@ -191,12 +217,16 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
         &[PLAN],
     )
     .await;
-    // The Free plan the end of a subscription moves to (`slug = 'free'`).
+    // The Free plan the end of a subscription moves to (`slug = 'free'`). The
+    // master database is shared with the other crates' tests, so it is the
+    // same Free plan core-onboarding's test expects (one user, 100 credits),
+    // whichever test makes it first.
     exec(
         master,
-        "insert into plans (id, name, slug, price_monthly, price_yearly, currency, max_users, sort_order)
-         values ($1, 'Free', 'free', 0, 0, 'EUR', 1, 0)
-         on conflict (slug) do nothing",
+        "insert into plans (id, name, slug, price_monthly, price_yearly, currency, max_users,
+             monthly_credits, sort_order)
+         values ($1, 'Free', 'free', 0, 0, 'EUR', 1, 100, 0)
+         on conflict do nothing",
         &[FREE],
     )
     .await;
@@ -222,6 +252,7 @@ fn state(
     tenant: &PgPool,
     mollie: &Arc<FakeMollie>,
     issuer: &Arc<CountingIssuer>,
+    inboxes: &Arc<FakeInboxes>,
 ) -> BillingState {
     let settings = BillingSettings::from_lookup(&|name: &str| {
         match name {
@@ -252,6 +283,7 @@ fn state(
         Arc::clone(issuer) as Arc<dyn InvoiceIssuer>,
         None,
     )
+    .with_addons(Arc::clone(inboxes) as Arc<dyn AddonSource>)
 }
 
 async fn workspace(master: &PgPool) -> Value {
@@ -304,7 +336,8 @@ async fn a_subscription_from_checkout_to_free() {
     let mollie = Arc::new(FakeMollie::default());
     *mollie.recurring_status.lock().expect("lock") = "paid".to_owned();
     let issuer = Arc::new(CountingIssuer::default());
-    let state = state(&master, &tenant, &mollie, &issuer);
+    let inboxes = Arc::new(FakeInboxes::default());
+    let state = state(&master, &tenant, &mollie, &issuer, &inboxes);
     let actor = Actor {
         workspace_id: WS.to_owned(),
         user_id: Some("user_billingdb".to_owned()),
@@ -403,6 +436,31 @@ async fn a_subscription_from_checkout_to_free() {
     assert_eq!(proration["amount"]["value"], "40.33");
     assert_eq!(workspace(&master).await["seats"], 5);
 
+    // 3b. A WeldReach inbox the same day: the rest of the month on the
+    // mandate, €8.00 × 20/30 = €5.33, + 21% = €6.45.
+    let added = charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_1", 1, t1)
+        .await
+        .expect("inbox charged");
+    assert!(matches!(added, InboxCharge::Charged { .. }), "{added:?}");
+    let inbox = mollie.last_created();
+    assert_eq!(inbox["sequenceType"], "recurring");
+    assert_eq!(inbox["amount"]["value"], "6.45");
+    inboxes.count.store(1, Ordering::SeqCst);
+    // The same create again reuses its charge; nothing new goes to Mollie.
+    let sent = mollie.created.lock().expect("lock").len();
+    assert!(matches!(
+        charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_1", 1, t1).await,
+        Ok(InboxCharge::Charged { .. })
+    ));
+    // Deleted and another added: this month's slot is already paid.
+    assert_eq!(
+        charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_2", 1, t1)
+            .await
+            .expect("covered"),
+        InboxCharge::Covered
+    );
+    assert_eq!(mollie.created.lock().expect("lock").len(), sent);
+
     // 4. One seat fewer waits for the period end.
     let answer = engine::set_seats(&state, &master, None, &actor, 4, t1)
         .await
@@ -426,13 +484,21 @@ async fn a_subscription_from_checkout_to_free() {
     assert_eq!(report.failed, 0, "{report:?}");
     let renewal = mollie.last_created();
     assert_eq!(renewal["sequenceType"], "recurring");
-    assert_eq!(renewal["amount"]["value"], "121.00", "4 × €25 + 21%");
+    // 4 × €25 and the inbox, €8.00, + 21%.
+    assert_eq!(renewal["amount"]["value"], "130.68", "(4 × €25 + €8) + 21%");
     let ws = workspace(&master).await;
     assert_eq!(ws["seats"], 4);
     assert_eq!(ws["end"], "2027-01-14T10:00:00");
     // Running again in the same hour charges nothing twice.
     let again = run_renewals(&state, t2).await;
     assert_eq!(again.charged, 0, "{again:?}");
+    // The anchor paid the inbox for the new month: adding it back is covered.
+    assert_eq!(
+        charge_inbox_added(&state, WS, None, "rmbx_3", 1, t2)
+            .await
+            .expect("covered"),
+        InboxCharge::Covered
+    );
 
     // 6. The next renewal fails: past due, the plan keeps working.
     *mollie.recurring_status.lock().expect("lock") = "failed".to_owned();
@@ -441,6 +507,11 @@ async fn a_subscription_from_checkout_to_free() {
     assert_eq!(report.past_due, 1, "{report:?}");
     assert_eq!(workspace(&master).await["status"], "past_due");
     assert!(account(&master).await["past_due_payment_id"].is_string());
+    // No new inbox while a charge is open.
+    assert!(matches!(
+        charge_inbox_added(&state, WS, None, "rmbx_4", 2, t3).await,
+        Err(BillingError::Api(_))
+    ));
 
     // 7. Fourteen days later, still unpaid: Free.
     let t4 = datetime!(2027-01-29 11:00:00 UTC);
@@ -456,6 +527,11 @@ async fn a_subscription_from_checkout_to_free() {
         .expect("free");
     assert_eq!(ws["plan"], free);
     assert!(account(&master).await["next_charge_at"].is_null());
+    // On Free, inboxes need a paid plan again.
+    assert!(matches!(
+        charge_inbox_added(&state, WS, None, "rmbx_5", 2, t4).await,
+        Err(BillingError::Api(_))
+    ));
 
     // 8. A credit top-up: its €10 price is before VAT, so €12.10 is charged,
     // and once paid it is invoiced like a plan charge (no plan needed).

@@ -785,7 +785,8 @@ mod tests {
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
         // Plans billed through Mollie (ADR BILL-014): billing is offered and
-        // the platform takes Mollie's flows; WeldReach inboxes stay unbilled.
+        // the platform takes Mollie's flows; WeldReach inboxes are billed with
+        // the plan.
         assert_eq!(body["billingProvider"], "mollie");
         let lacks_billing = body["unavailableFeatures"]
             .as_array()
@@ -794,7 +795,7 @@ mod tests {
         assert!(
             body["unavailableFeatures"]
                 .as_array()
-                .is_some_and(|lacks| lacks.contains(&json!("reach-billing")))
+                .is_some_and(|lacks| !lacks.contains(&json!("reach-billing")))
         );
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
         assert_eq!(body["videoProvider"], "livekit");

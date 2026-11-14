@@ -6,6 +6,8 @@
  *  - `APP_ACCESS_REQUIRED` (403): the workspace has no approved access (still
  *    pending, rejected, suspended or revoked); `details.status` says which;
  *  - `PAYMENT_METHOD_REQUIRED` (402): creating a mailbox needs a card on file;
+ *  - `PAID_PLAN_REQUIRED`, `PAYMENT_OUTSTANDING`, `PAYMENT_FAILED` (402): where
+ *    inboxes ride on the plan's Mollie charge (EU), what stops a new one;
  *  - `DOMAIN_HAS_MAILBOXES` (409): a domain cannot be disconnected yet.
  */
 
@@ -30,8 +32,22 @@ export function appAccessRequiredStatus(err: unknown): AppAccessStatus | 'none' 
   return typeof status === 'string' && ACCESS_STATUSES.includes(status) ? (status as AppAccessStatus) : 'none';
 }
 
+/**
+ * 402s where inboxes ride on the plan's Mollie charge (EU edition): no paid
+ * plan, a charge outstanding, or the payment method refused the inbox. Each
+ * has its own message; a card setup wouldn't help.
+ */
+const PLAN_BILLING_REFUSALS: readonly string[] = ['PAID_PLAN_REQUIRED', 'PAYMENT_OUTSTANDING', 'PAYMENT_FAILED'];
+
 export function isPaymentMethodRequiredError(err: unknown): boolean {
-  return apiErrorCode(err) === 'PAYMENT_METHOD_REQUIRED' || (isApiError(err) && err.status === 402);
+  const code = apiErrorCode(err);
+  if (code === 'PAYMENT_METHOD_REQUIRED') return true;
+  return isApiError(err) && err.status === 402 && !PLAN_BILLING_REFUSALS.includes(code ?? '');
+}
+
+/** Inboxes are billed with the plan (EU edition): the workspace has no paid plan yet. */
+export function isPaidPlanRequiredError(err: unknown): boolean {
+  return apiErrorCode(err) === 'PAID_PLAN_REQUIRED';
 }
 
 export function isDomainHasMailboxesError(err: unknown): boolean {
@@ -41,6 +57,9 @@ export function isDomainHasMailboxesError(err: unknown): boolean {
 /** A message for a toast or inline banner. Unknown codes fall back to the server's own message. */
 export function reachErrorMessage(err: unknown, t: Translate): string {
   if (isPaymentMethodRequiredError(err)) return t('reach.errors.paymentMethodRequired');
+  if (isPaidPlanRequiredError(err)) return t('reach.errors.paidPlanRequired');
+  if (apiErrorCode(err) === 'PAYMENT_OUTSTANDING') return t('reach.errors.paymentOutstanding');
+  if (apiErrorCode(err) === 'PAYMENT_FAILED') return t('reach.errors.paymentFailed');
   if (isDomainHasMailboxesError(err)) return t('reach.errors.domainHasMailboxes');
   if (isApiError(err)) {
     if (err.status === 403 && !isAppAccessRequiredError(err)) return t('reach.errors.forbidden');

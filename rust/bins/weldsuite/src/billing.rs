@@ -18,9 +18,9 @@ use http::StatusCode;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_core_billing::{
-    BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings, BillingState,
-    InvoiceIssuer, IssueRequest, IssuedInvoice, Language, LineKind, TopUpRequest, Treatment,
-    WEBHOOK_PATH,
+    AddonSource, BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings,
+    BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice, Language, Line, LineKind,
+    TopUpRequest, Treatment, WEBHOOK_PATH,
 };
 use weldsuite_core_platform::{TopUpBilling, TopUpPrice, TopUpQuote};
 use weldsuite_db::{Keyring, PgPool, Workspaces};
@@ -28,6 +28,7 @@ use weldsuite_emails::billing::{Dunning, DunningKind, dunning};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_ports::{BoxFuture, DynSystemMail, OutboundHttp};
+use weldsuite_reach::weldsuite_reach_domain::ReachError;
 
 use crate::server::AppState;
 
@@ -77,6 +78,9 @@ pub(crate) fn build(
         keyring: keyring(),
         http: http.clone(),
     });
+    let inboxes = Arc::new(ReachInboxes {
+        workspaces: Arc::clone(&workspaces),
+    });
     let tenants: weldsuite_core_billing::TenantDatabases = Arc::new(move |reference: String| {
         let workspaces = Arc::clone(&workspaces);
         Box::pin(async move {
@@ -98,6 +102,7 @@ pub(crate) fn build(
         issuer,
         mailer,
     )
+    .with_addons(inboxes)
 }
 
 fn keyring() -> Keyring {
@@ -257,6 +262,158 @@ fn api_error(error: BillingError) -> ApiError {
             ApiError::internal()
         }
         BillingError::Response(_) => ApiError::internal(),
+    }
+}
+
+// ── WeldReach inboxes ───────────────────────────────────────────────────────
+
+/// The renewal job's monthly add-on: every live WeldReach inbox of the
+/// workspace (its tenant database), billed for the coming month.
+struct ReachInboxes {
+    workspaces: Arc<Workspaces>,
+}
+
+impl AddonSource for ReachInboxes {
+    fn lines<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        period: (OffsetDateTime, OffsetDateTime),
+        language: Language,
+    ) -> BoxFuture<'a, Result<Vec<Line>, String>> {
+        Box::pin(async move {
+            let tenant = self
+                .workspaces
+                .tenant(workspace_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            let count = weldsuite_reach::live_inbox_count(&tenant.db)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(if count > 0 {
+                vec![weldsuite_core_billing::inbox_line(count, period, language)]
+            } else {
+                Vec::new()
+            })
+        })
+    }
+}
+
+/// WeldReach's inbox billing on the plan's Mollie charge: the reach module's
+/// status, payment-method setup and inbox charges, over core-billing.
+pub(crate) fn reach_inbox_billing(
+    billing: BillingState,
+    workspaces: Arc<Workspaces>,
+) -> Arc<dyn weldsuite_reach::InboxBilling> {
+    Arc::new(ReachInboxBilling {
+        billing,
+        workspaces,
+    })
+}
+
+struct ReachInboxBilling {
+    billing: BillingState,
+    workspaces: Arc<Workspaces>,
+}
+
+impl weldsuite_reach::InboxBilling for ReachInboxBilling {
+    fn status<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        inboxes: i64,
+    ) -> BoxFuture<'a, Result<Value, ReachError>> {
+        Box::pin(async move {
+            let summary = weldsuite_core_billing::inbox_billing(
+                &self.billing,
+                workspace_id,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(reach_error)?;
+            // `ReachBillingSummary`, as billing-worker answers it on Global.
+            Ok(json!({
+                "status": summary.status,
+                "hasPaymentMethod": summary.has_payment_method,
+                "inboxCount": inboxes,
+                "unitAmountCents": weldsuite_core_billing::addons::WELDREACH_INBOX_CENTS,
+                "currency": "eur",
+                "currentPeriodEnd": summary.period_end,
+            }))
+        })
+    }
+
+    fn setup<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, Result<Value, ReachError>> {
+        Box::pin(async move {
+            let tenant = self
+                .workspaces
+                .tenant(workspace_id)
+                .await
+                .ok()
+                .map(|t| t.db);
+            let actor = weldsuite_core_billing::engine::Actor {
+                workspace_id: workspace_id.to_owned(),
+                user_id: Some(user_id.to_owned()),
+                tenant,
+            };
+            let url = weldsuite_core_billing::engine::mandate_checkout(
+                &self.billing,
+                &self.billing.master,
+                None,
+                &actor,
+            )
+            .await
+            .map_err(reach_error)?;
+            Ok(json!({ "url": url }))
+        })
+    }
+
+    fn add<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_id: &'a str,
+        mailbox_id: &'a str,
+        inboxes_after: i64,
+    ) -> BoxFuture<'a, Result<(), ReachError>> {
+        Box::pin(async move {
+            weldsuite_core_billing::charge_inbox_added(
+                &self.billing,
+                workspace_id,
+                Some(user_id),
+                mailbox_id,
+                inboxes_after,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map(|_| ())
+            .map_err(reach_error)
+        })
+    }
+}
+
+/// A billing refusal as the reach routes answer it.
+fn reach_error(error: BillingError) -> ReachError {
+    match error {
+        BillingError::Api(error) => {
+            let reach = ReachError::new(error.status().as_u16(), error.code(), error.message());
+            match error.details() {
+                Some(details) => reach.with_details(details.clone()),
+                None => reach,
+            }
+        }
+        BillingError::Internal(message, cause) => {
+            tracing::error!(cause, "billing: {message}");
+            ReachError::new(500, "INTERNAL_ERROR", message)
+        }
+        BillingError::Database(error) => {
+            tracing::error!(%error, "billing: database error billing an inbox");
+            ReachError::new(500, "INTERNAL_ERROR", "Internal server error")
+        }
+        BillingError::Response(_) => {
+            ReachError::new(500, "INTERNAL_ERROR", "Internal server error")
+        }
     }
 }
 

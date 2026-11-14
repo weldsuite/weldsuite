@@ -25,11 +25,15 @@
 //! - **Past due:** a charge that fails sets `past_due`, emails the billing
 //!   owners a pay link ([`paylink`]) and keeps the plan working for the grace
 //!   period (`BILLING_GRACE_DAYS`, 14), after which it ends on Free.
+//! - **Add-ons ride on the plan** ([`addons`]): WeldReach inboxes, €8.00
+//!   each per month, billed on every anchor; one added between anchors is
+//!   charged at once for the rest of the month.
 //! - **One webhook** (`/api/webhooks/mollie`, shared with BILL-013's top-up):
 //!   [`settle::settle_payment`] reads the payment back and applies it once.
 
 mod access;
 mod account;
+pub mod addons;
 mod buyer;
 mod credits;
 pub mod engine;
@@ -58,6 +62,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{BoxFuture, DynFileStore, Identity, OutboundHttp};
 
 pub use access::{BillingError, BillingResult, Caller};
+pub use addons::{InboxBilling, InboxCharge, charge_inbox_added, inbox_billing, inbox_line};
 pub use buyer::BillingDetails;
 pub use lines::{Charge, Line, LineKind};
 pub use notify::{BillingMail, BillingMailKind, BillingMailer};

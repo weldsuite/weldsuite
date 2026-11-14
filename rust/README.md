@@ -451,8 +451,8 @@ worker's endpoint tests against both.
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing (without
-`BILLING_PROVIDER=mollie`), WeldReach inbox billing, credit top-up (without
-Mollie), paid apps,
+`BILLING_PROVIDER=mollie`), WeldReach inbox billing (likewise), credit
+top-up (without Mollie), paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
@@ -1215,9 +1215,13 @@ Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
 billing: a package's price is before VAT, so `POST /api/credits/checkout`
 needs the billing details, charges the price plus VAT against a `credits`
 charge (`modules/core-billing/src/top_up.rs`, handed to the top-up as its
-`TopUpBilling`), and a paid top-up is invoiced like a plan charge. Not yet
-on Mollie: WeldReach inboxes (still provisioned unbilled, `reach-billing`),
-domains, phone numbers, paid apps and the SSO add-on.
+`TopUpBilling`), and a paid top-up is invoiced like a plan charge.
+WeldReach inboxes ride on the plan's charge (`modules/core-billing/src/addons.rs`,
+handed to the reach module as its `InboxBilling`, and to the renewal job as
+its `AddonSource`): €8.00 each per month before VAT, every live inbox on each
+anchor, one added between anchors at once for the rest of the month, none
+refunded, and only with a paid plan (402 `PAID_PLAN_REQUIRED`). Not yet on
+Mollie: domains, phone numbers, paid apps and the SSO add-on.
 
 ## Inbound mail
 

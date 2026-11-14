@@ -66,6 +66,7 @@ const en = {
       pay_link: 'Payment link',
       mandate: 'Mandate check',
       credits: 'Credit top-up',
+      addon: 'WeldReach inbox',
     },
   },
 };
@@ -128,6 +129,7 @@ const nl: MollieBillingCopy = {
       pay_link: 'Betaallink',
       mandate: 'Mandaatcontrole',
       credits: 'Credits bijkopen',
+      addon: 'WeldReach-inbox',
     },
   },
 };
