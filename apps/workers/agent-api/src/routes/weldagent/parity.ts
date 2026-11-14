@@ -52,6 +52,7 @@ import {
   getTemplate,
   getTemplateByShareToken,
   installTemplate,
+  TemplateGrantsRefused,
   startTeachSession,
   getTeachSessionAgentId,
   appendTeachStep,
@@ -328,7 +329,19 @@ app.post('/templates/install', requirePermission('weldagent:create', 'weldagent:
   if (!data.templateId && !data.shareToken) {
     return error.badRequest(c, 'templateId or shareToken required');
   }
-  const agent = await installTemplate(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
+  // The template's grants are the installer's to give, like `POST /agents`.
+  const held = (await ensurePermissionsResolved(c)) ?? { permissions: [] };
+  let agent: Awaited<ReturnType<typeof installTemplate>>;
+  try {
+    agent = await installTemplate(c.get('tenantDb'), {
+      ...data,
+      createdBy: c.get('userId'),
+      canGrant: (permission) => granterHolds(held, permission),
+    });
+  } catch (err) {
+    if (err instanceof TemplateGrantsRefused) return error.forbidden(c, err.message);
+    throw err;
+  }
   if (!agent) return error.notFound(c, 'Template not found');
   await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), c.get('tenantDb'), agent.id);
   return success(c, agent, 201);

@@ -813,6 +813,12 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A WeldAgent template's share token: `share_` and 32 random alphanumerics
+ * (any case), new per run. Masked like a generated id, whichever case the
+ * random draw gives each backend.
+ */
+const SHARE_TOKEN = /^share_[A-Za-z0-9]{32}$/;
 /** A generated id inside an MCP tool result's text. */
 const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
 /** The same, for `test` (a global pattern's `test` keeps state). */
@@ -1028,7 +1034,7 @@ const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
-  if (GENERATED_ID.test(value)) return '<id>';
+  if (GENERATED_ID.test(value) || SHARE_TOKEN.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
   if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created

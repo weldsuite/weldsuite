@@ -78,6 +78,7 @@ fn app(tenant: PgPool, ai: Option<Ai>, permissions: &[&str]) -> Router {
         events: EntityEventPublisher::new(None, TaskTracker::new()),
         ai,
         sandbox: false,
+        global: false,
         default_model: String::new(),
         master: None,
         realtime: None,

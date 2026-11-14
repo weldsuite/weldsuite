@@ -195,6 +195,30 @@ async fn merge_tools_pass_their_name_and_an_empty_answer_is_ok() {
 }
 
 #[test]
+fn the_catalog_is_the_global_one_without_the_in_sandbox_tools() {
+    let catalog = super::list_tool_catalog();
+    let ids: Vec<&str> = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 39, "{ids:?}");
+    assert!(ids.contains(&"browser.open"));
+    assert!(!ids.contains(&"sandbox.exec"));
+    assert!(!ids.contains(&"web.search"));
+    let permissions = super::list_tool_permissions();
+    assert_eq!(permissions.len(), 20, "{permissions:?}");
+    assert!(!permissions.iter().any(|p| p == "computer:use"));
+    // The model is still offered the sandbox tools.
+    assert!(
+        super::platform_tools()
+            .iter()
+            .any(|t| t.id == "sandbox.exec")
+    );
+}
+
+#[test]
 fn every_global_tool_is_in_the_registry() {
     let ids: Vec<&str> = super::platform_tools().iter().map(|t| t.id).collect();
     for id in super::PORTED {

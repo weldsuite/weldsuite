@@ -83,6 +83,12 @@ fn history(messages: &[(String, String)]) -> Vec<ChatMsg> {
         .collect()
 }
 
+/// The sandbox session id of one assistant chat call: fresh each time, so two
+/// callers (or two chats) of an agent never land in the same pod.
+fn turn_session_id() -> String {
+    weldsuite_kit::generate_id("chat")
+}
+
 /// The turn's inputs: the agent as this call runs it, its tool context,
 /// system prompt, tools and history.
 struct Prepared {
@@ -109,7 +115,9 @@ async fn prepare(ai: &Ai, chat: &AgentChat) -> Prepared {
     );
     let history = history(&chat.messages);
     let user_turns = history.iter().filter(|m| m.role == Role::User).count();
-    let session = agent["id"].as_str().unwrap_or_default().to_owned();
+    // A session of its own per call: the pod is never shared between callers
+    // or chats of one agent (ADR AGENT-003), and the turn releases it.
+    let session = turn_session_id();
     let sandbox = crate::run::turn_sandbox(&chat.env, ai, &agent, &ctx, &session).await;
     let tools = crate::agent_loop::with_sandbox_tools(
         &agent,
@@ -157,10 +165,13 @@ pub async fn chat_once(ai: Option<&Ai>, chat: AgentChat) -> Result<Value, RunErr
         tools: p.tools,
         skip_approvals: false,
         reference: p.reference,
-        sandbox: p.sandbox,
+        sandbox: p.sandbox.clone(),
     })
-    .await
-    .map_err(RunError::Ai)?;
+    .await;
+    if let Some(access) = &p.sandbox {
+        access.release().await;
+    }
+    let done = done.map_err(RunError::Ai)?;
     let model = done
         .meta
         .as_ref()
@@ -193,9 +204,12 @@ pub async fn chat_stream(
     };
     let p = prepare(&ai, &chat).await;
     // The 402 gate before the stream opens: a refusal is an answer, not a stream.
-    assert_credits(&ai, &p.agent, &p.ctx, &p.reference)
-        .await
-        .map_err(RunError::Ai)?;
+    if let Err(error) = assert_credits(&ai, &p.agent, &p.ctx, &p.reference).await {
+        if let Some(access) = &p.sandbox {
+            access.release().await;
+        }
+        return Err(RunError::Ai(error));
+    }
     let (out, rx) = mpsc::channel::<String>(32);
     tokio::spawn(async move {
         stream_turn(
@@ -213,6 +227,9 @@ pub async fn chat_stream(
             out,
         )
         .await;
+        if let Some(access) = &p.sandbox {
+            access.release().await;
+        }
     });
     Ok(Box::pin(futures_util::stream::unfold(
         rx,
@@ -257,6 +274,47 @@ mod tests {
         // Not an agent model here: the agent keeps its own.
         let agent = agent_for_turn(&chat(RunEnv::default()));
         assert_eq!(agent["modelId"], "claude-opus-5-5");
+    }
+
+    #[test]
+    fn every_call_gets_its_own_sandbox_session() {
+        assert_ne!(turn_session_id(), turn_session_id());
+    }
+
+    #[tokio::test]
+    async fn two_callers_get_different_pods_and_the_turn_releases_its_own() {
+        use std::sync::Arc;
+        use std::time::Duration;
+        use weldsuite_sandbox::fake::{FakePods, RecordingHttp};
+        use weldsuite_sandbox::{SandboxConfig, Sandboxes};
+
+        let pods = FakePods::default();
+        let agent = RecordingHttp::new(|request| {
+            if request.url.ends_with("/v1/selftest/egress") {
+                (200, json!({ "reachable": [] }))
+            } else {
+                (200, json!({ "ok": true }))
+            }
+        });
+        let service = Sandboxes::new(
+            SandboxConfig::for_tests(),
+            Arc::new(pods.clone()),
+            agent.outbound(),
+            agent.outbound(),
+        )
+        .with_poll_interval(Duration::from_millis(1));
+        let access = |session: String| crate::tools::SandboxAccess {
+            sandboxes: service.clone(),
+            session: weldsuite_sandbox::SessionKey::new("ws_1", "agt_1", session),
+            computer_use: false,
+        };
+        let a = access(turn_session_id());
+        let b = access(turn_session_id());
+        assert_ne!(a.session.pod_name(), b.session.pod_name());
+        a.sandboxes.acquire(&a.session).await.unwrap();
+        b.sandboxes.acquire(&b.session).await.unwrap();
+        a.release().await;
+        assert_eq!(pods.deleted(), vec![a.session.pod_name()]);
     }
 
     #[tokio::test]

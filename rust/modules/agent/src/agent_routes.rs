@@ -126,7 +126,11 @@ pub(crate) async fn agent_guard(
 /// (`ungrantablePermissions`). Granting an agent more than you have would
 /// let you act beyond your role through the agent. Grants the agent already
 /// has are left alone so a teammate can still edit it.
-fn ungrantable(caller: &Caller, requested: Option<&[String]>, existing: &[String]) -> Vec<String> {
+pub(crate) fn ungrantable(
+    caller: &Caller,
+    requested: Option<&[String]>,
+    existing: &[String],
+) -> Vec<String> {
     let Some(requested) = requested else {
         return Vec::new();
     };
@@ -139,7 +143,7 @@ fn ungrantable(caller: &Caller, requested: Option<&[String]>, existing: &[String
         .collect()
 }
 
-fn cannot_grant(denied: &[String]) -> Response {
+pub(crate) fn cannot_grant(denied: &[String]) -> Response {
     ApiError::forbidden()
         .with_message(format!(
             "You can't grant permissions you don't have: {}",
@@ -247,7 +251,7 @@ fn agent_input(
         // Global: the Claude ids (`z.enum(WORKSPACE_AGENT_MODELS)`). The
         // Kubernetes editions take any model id the policy knows, which the
         // loop checks per call, plus the `default` sentinel.
-        let model_id = if state.sandbox {
+        let model_id = if state.global {
             issues
                 .choice(fields, "modelId", Presence::Optional, &GLOBAL_MODELS)
                 .into_option()
@@ -810,5 +814,59 @@ pub(crate) async fn run(
     match run_agent(caller.ai(&state).as_ref(), params).await {
         Ok(outcome) => Data(outcome.to_json()).into_response(),
         Err(error) => error.into_response_for("run failed"),
+    }
+}
+
+#[cfg(test)]
+mod edition_tests {
+    use super::*;
+
+    fn state(global: bool, sandbox: bool) -> AgentState {
+        AgentState {
+            events: weldsuite_events::EntityEventPublisher::new(
+                None,
+                weldsuite_events::TaskTracker::new(),
+            ),
+            ai: None,
+            sandbox,
+            global,
+            sandboxes: None,
+            default_model: String::new(),
+            master: None,
+            realtime: None,
+        }
+    }
+
+    fn model_of(state: &AgentState, model: &str) -> Result<Option<String>, ()> {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        let body = Bytes::from(json!({ "name": "A", "modelId": model }).to_string());
+        agent_input(&headers, &body, state, false)
+            .map(|input| input.model_id)
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn global_takes_only_claude_ids() {
+        let global = state(true, true);
+        assert_eq!(
+            model_of(&global, "claude-opus-5-5"),
+            Ok(Some("claude-opus-5-5".to_owned()))
+        );
+        assert!(model_of(&global, "mistral/mistral-large").is_err());
+        assert!(model_of(&global, "default").is_err());
+    }
+
+    #[test]
+    fn an_eu_install_with_a_sandbox_still_takes_any_model_id() {
+        // The sandbox is on, but this is not Global.
+        let eu = state(false, true);
+        assert_eq!(
+            model_of(&eu, "mistral/mistral-large"),
+            Ok(Some("mistral/mistral-large".to_owned()))
+        );
+        assert_eq!(model_of(&eu, "default"), Ok(Some("default".to_owned())));
+        let plain = state(false, false);
+        assert_eq!(model_of(&plain, "default"), Ok(Some("default".to_owned())));
     }
 }

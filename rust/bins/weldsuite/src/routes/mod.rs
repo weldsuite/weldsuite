@@ -741,6 +741,7 @@ pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
         events: state.infra.events.clone(),
         ai: agent_ai(state),
         sandbox: conformance || state.sandboxes.is_some(),
+        global: conformance,
         sandboxes: state.sandboxes.clone(),
         default_model: if conformance {
             weldsuite_agent::agents::GLOBAL_DEFAULT_MODEL
