@@ -378,6 +378,7 @@
         "src/routes/weldagent/access.integration.test.ts",
         "src/routes/weldagent/conversations.integration.test.ts",
         "src/routes/weldagent/parity.integration.test.ts",
+        "src/routes/weldagent/coverage.integration.test.ts",
         "src/routes/ai/chat.integration.test.ts"
       ],
       "paths": [
