@@ -351,7 +351,8 @@ impl SandboxConfig {
         })
     }
 
-    /// A configuration for tests: every default, the fake cluster's API.
+    /// A configuration for tests: every default, the fake cluster's API, and
+    /// a token secret of its own, random, so no secret is written in the code.
     pub fn for_tests() -> Self {
         Self {
             namespace: DEFAULT_NAMESPACE.to_owned(),
@@ -364,7 +365,7 @@ impl SandboxConfig {
             start_timeout: Duration::from_secs(30),
             max_per_workspace: 2,
             max_total: 40,
-            token_secret: "0123456789abcdef0123456789abcdef".to_owned(),
+            token_secret: crate::token::random_secret(),
             node_selector: BTreeMap::new(),
             tolerations: Value::Array(Vec::new()),
             dns: DEFAULT_DNS.iter().map(|s| (*s).to_owned()).collect(),

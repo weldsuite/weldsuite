@@ -1,14 +1,19 @@
 // `web_fetch`: a page or document as text, fetched from the sandbox, never
-// from the server's pod. The network policy keeps the pod to the public
-// internet; this checks each address and redirect too.
+// from the server's pod. The network policy keeps the pod off the cluster's
+// private ranges but not off its own loopback, so this checks the address of
+// every connection, redirects included, and connects to the address it
+// checked. Node's `http`, not `fetch`: only its sockets take a `lookup`.
 
-import { lookup } from 'node:dns/promises';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { isIP } from 'node:net';
+import { pipeline } from 'node:stream';
+import zlib from 'node:zlib';
 
 import { run } from './exec.mjs';
-import { BadRequest, cap, isPublicIp } from './util.mjs';
+import { BadRequest, cap, checkedLookup, isPublicIp } from './util.mjs';
 
 const MAX_BYTES = 5_000_000;
 const TEXT_CHARS = 100_000;
@@ -50,8 +55,17 @@ function tidy(text) {
     .trim();
 }
 
-/** Refuses a URL that isn't http(s) or whose host isn't public. */
-export async function checkUrl(raw) {
+/** The host of `url` as a socket takes it: an IPv6 literal without brackets. */
+export function hostOf(url) {
+  return url.hostname.replace(/^\[|\]$/g, '');
+}
+
+/**
+ * `raw` as an http(s) URL without credentials, or a refusal. A host that is
+ * an IP address must pass `allowed` here, since sockets don't look those up;
+ * a name is checked as the connection resolves it (`checkedLookup`).
+ */
+export function parseUrl(raw, allowed = isPublicIp) {
   let url;
   try {
     url = new URL(raw);
@@ -60,30 +74,92 @@ export async function checkUrl(raw) {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new BadRequest('Only http and https URLs can be fetched.');
   if (url.username || url.password) throw new BadRequest('URLs with a user name or password can’t be fetched.');
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
-  if (addresses.length === 0) throw new BadRequest(`${host} could not be resolved.`);
-  if (!addresses.every(isPublicIp)) throw new BadRequest(`${host} is not on the public internet.`);
+  const host = hostOf(url);
+  if (isIP(host) && !allowed(host)) throw new BadRequest(`${host} is not on the public internet.`);
   return url;
 }
 
+/**
+ * `parseUrl`, with the host's name resolved now to refuse a private one with
+ * a clear message before the URL is handed on (the browser). Only a first
+ * answer: whatever connects checks the address again as it connects.
+ */
+export async function checkUrl(raw, allowed = isPublicIp) {
+  const url = parseUrl(raw, allowed);
+  const host = hostOf(url);
+  if (isIP(host)) return url;
+  await new Promise((resolve, reject) => {
+    checkedLookup(allowed)(host, { all: true }, (error) => {
+      if (!error) resolve();
+      else reject(error instanceof BadRequest ? error : new BadRequest(`${host} could not be resolved.`));
+    });
+  });
+  return url;
+}
+
+/** A failed request as the caller should hear it. */
+function failure(error, host, signal) {
+  if (error instanceof BadRequest) return error;
+  if (signal.aborted) return new BadRequest(`${host} did not answer in time.`);
+  if (['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'].includes(error?.code)) return new BadRequest(`${host} could not be resolved.`);
+  return error;
+}
+
+/** One GET of `url` on a socket whose address `lookup` checked. */
+function get(url, lookup, signal) {
+  const client = url.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const request = client.request(
+      url,
+      {
+        method: 'GET',
+        agent: false,
+        lookup,
+        signal,
+        headers: {
+          'user-agent': USER_AGENT,
+          accept: 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5',
+          'accept-language': 'en,nl;q=0.8,*;q=0.5',
+          'accept-encoding': 'gzip, br',
+        },
+      },
+      resolve,
+    );
+    request.once('error', reject);
+    request.end();
+  });
+}
+
+// Lenient on a body cut short, as `fetch` is.
+const ZLIB_FLUSH = { flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH };
+const BROTLI_FLUSH = { flush: zlib.constants.BROTLI_OPERATION_FLUSH, finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH };
+const DECODERS = {
+  gzip: () => zlib.createGunzip(ZLIB_FLUSH),
+  'x-gzip': () => zlib.createGunzip(ZLIB_FLUSH),
+  deflate: () => zlib.createInflate(ZLIB_FLUSH),
+  br: () => zlib.createBrotliDecompress(BROTLI_FLUSH),
+};
+
+/** The body of `response`, decoded, cut at `max` bytes. */
 async function readCapped(response, max) {
-  const reader = response.body?.getReader();
-  if (!reader) return { bytes: Buffer.alloc(0), truncated: false };
+  const encoding = String(response.headers['content-encoding'] ?? '').trim().toLowerCase();
+  let stream = response;
+  if (encoding && encoding !== 'identity') {
+    const decoder = DECODERS[encoding];
+    if (!decoder) throw new BadRequest(`The page is sent ${encoding}-encoded, which can't be read.`);
+    stream = pipeline(response, decoder(), () => undefined);
+  }
   const chunks = [];
   let size = 0;
   let truncated = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (size + value.length > max) {
-      chunks.push(Buffer.from(value.subarray(0, max - size)));
+  for await (const chunk of stream) {
+    if (size + chunk.length > max) {
+      chunks.push(chunk.subarray(0, max - size));
       truncated = true;
-      await reader.cancel().catch(() => undefined);
       break;
     }
-    chunks.push(Buffer.from(value));
-    size += value.length;
+    chunks.push(chunk);
+    size += chunk.length;
   }
   return { bytes: Buffer.concat(chunks), truncated };
 }
@@ -100,32 +176,42 @@ async function pdfText(bytes) {
   }
 }
 
-/** `POST /v1/fetch`. */
-export async function fetchPage(body) {
+/**
+ * `POST /v1/fetch`. `allowed` is for the tests, which serve pages on
+ * loopback; the route always takes the public internet.
+ */
+export async function fetchPage(body, { allowed = isPublicIp } = {}) {
   const maxBytes = Math.min(Math.max(Number(body.maxBytes) || 2_000_000, 1_000), MAX_BYTES);
-  let url = await checkUrl(String(body.url ?? ''));
+  const lookup = checkedLookup(allowed);
+  let url = parseUrl(String(body.url ?? ''), allowed);
   let response;
+  let signal;
   for (let hop = 0; ; hop += 1) {
-    response = await fetch(url, {
-      redirect: 'manual',
-      signal: AbortSignal.timeout(20_000),
-      headers: {
-        'user-agent': USER_AGENT,
-        accept: 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5',
-        'accept-language': 'en,nl;q=0.8,*;q=0.5',
-      },
+    signal = AbortSignal.timeout(20_000);
+    const target = url;
+    response = await get(target, lookup, signal).catch((error) => {
+      throw failure(error, hostOf(target), signal);
     });
-    const location = response.headers.get('location');
-    if (response.status >= 300 && response.status < 400 && location) {
+    const { location } = response.headers;
+    if (response.statusCode >= 300 && response.statusCode < 400 && location) {
+      response.destroy();
       if (hop >= MAX_REDIRECTS) throw new BadRequest('Too many redirects.');
-      await response.body?.cancel().catch(() => undefined);
-      url = await checkUrl(new URL(location, url).toString());
+      url = parseUrl(new URL(location, url).toString(), allowed);
       continue;
     }
     break;
   }
-  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-  const { bytes, truncated } = await readCapped(response, maxBytes);
+  const status = response.statusCode ?? 0;
+  const contentType = String(response.headers['content-type'] ?? '').toLowerCase();
+  let read;
+  try {
+    read = await readCapped(response, maxBytes);
+  } catch (error) {
+    throw failure(error, hostOf(url), signal);
+  } finally {
+    response.destroy();
+  }
+  const { bytes, truncated } = read;
   let title = '';
   let text;
   if (contentType.includes('html') || (!contentType && /^\s*</.test(bytes.subarray(0, 200).toString('utf8')))) {
@@ -140,8 +226,8 @@ export async function fetchPage(body) {
   }
   const capped = cap(text, TEXT_CHARS);
   return {
-    ok: response.ok,
-    status: response.status,
+    ok: status >= 200 && status < 300,
+    status,
     url: url.toString(),
     contentType: contentType.split(';')[0],
     title,

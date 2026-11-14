@@ -7,13 +7,18 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
 import { run } from './exec.mjs';
-import { BadRequest } from './util.mjs';
+import { BadRequest, bounded } from './util.mjs';
 
 export const DISPLAY = ':99';
 export const WIDTH = 1280;
 export const HEIGHT = 800;
 const SETTLE_MS = 400;
 const MAX_TYPE_CHARS = 5000;
+
+/** The `wait` action's pause in ms, from seconds: 1 s unless asked, at most 10 s. */
+export function pauseMs(seconds) {
+  return bounded(Number(seconds) * 1000, 1000, 0, 10_000);
+}
 
 let started = null;
 const children = [];
@@ -152,8 +157,7 @@ export async function desktop(body) {
   const steps = plan(body);
   await ensureDesktop();
   if (steps === null) {
-    const seconds = Math.min(Math.max(Number(body.durationSeconds) || 1, 0), 10);
-    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    await new Promise((resolve) => setTimeout(resolve, pauseMs(body.durationSeconds)));
   } else {
     for (const args of steps) {
       const result = await xdotool(args);

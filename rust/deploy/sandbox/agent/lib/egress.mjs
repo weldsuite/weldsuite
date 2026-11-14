@@ -5,7 +5,7 @@
 
 import net from 'node:net';
 
-import { BadRequest, parseTarget } from './util.mjs';
+import { BadRequest, bounded, parseTarget } from './util.mjs';
 
 function reaches({ host, port }, timeoutMs) {
   return new Promise((resolve) => {
@@ -26,7 +26,7 @@ export async function egress(body) {
   const parsed = targets.map((target) => ({ target: String(target), parsed: parseTarget(target) }));
   const bad = parsed.find((t) => !t.parsed);
   if (bad) throw new BadRequest(`${bad.target} is not host:port`);
-  const timeoutMs = Math.min(Math.max(Number(body.timeoutMs) || 2000, 200), 5000);
+  const timeoutMs = bounded(body.timeoutMs, 2000, 200, 5000);
   const results = await Promise.all(parsed.map(async (t) => ((await reaches(t.parsed, timeoutMs)) ? t.target : null)));
   return { checked: parsed.length, reachable: results.filter(Boolean) };
 }

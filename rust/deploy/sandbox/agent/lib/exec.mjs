@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { BadRequest, Capped, cap, childEnv, resolveWorkspacePath, workspaceRoot } from './util.mjs';
+import { BadRequest, Capped, bounded, cap, childEnv, resolveWorkspacePath, workspaceRoot } from './util.mjs';
 
 const STDOUT_BYTES = 200_000;
 const STDERR_BYTES = 80_000;
@@ -13,12 +13,17 @@ const READ_BYTES = 400_000;
 const WRITE_CHARS = 500_000;
 const MAX_TIMEOUT_MS = 120_000;
 
+/** A command's time limit: 60 s unless asked, between 1 s and 2 minutes. */
+export function commandTimeoutMs(value) {
+  return bounded(value, 60_000, 1_000, MAX_TIMEOUT_MS);
+}
+
 /**
  * Runs `file args` in `cwd` with the children's environment, killed (its
  * whole process group) after `timeoutMs`. Output is capped while it is read.
  */
 export function run(file, args, { cwd, timeoutMs = 60_000, env = {}, stdin } = {}) {
-  const timeout = Math.min(Math.max(Number(timeoutMs) || 60_000, 1_000), MAX_TIMEOUT_MS);
+  const timeout = commandTimeoutMs(timeoutMs);
   return new Promise((resolve) => {
     const stdout = new Capped(STDOUT_BYTES);
     const stderr = new Capped(STDERR_BYTES);

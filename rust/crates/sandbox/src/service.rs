@@ -498,7 +498,7 @@ mod tests {
         let digest = manifest["spec"]["containers"][0]["env"][0]["value"]
             .as_str()
             .expect("digest");
-        let token = pod_token(&SandboxConfig::for_tests().token_secret, &first.name);
+        let token = pod_token(&sandboxes.inner.config.token_secret, &first.name);
         assert_eq!(digest, token_digest(&token));
         // The isolation check ran once, on the first sandbox.
         let checks = agent
