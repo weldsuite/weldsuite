@@ -181,7 +181,10 @@ describe('addresses', () => {
     const one = await lookupOnce(checkedLookup(() => true), 'localhost', { family: 4 });
     assert.deepEqual([one.error, one.address, one.family], [null, '127.0.0.1', 4]);
     const all = await lookupOnce(checkedLookup(() => true), 'localhost', { all: true, family: 4 });
-    assert.deepEqual(all.address, [{ address: '127.0.0.1', family: 4 }]);
+    // The system's own list: a hosts file can name localhost on more than one line.
+    assert.ok(all.address.length > 0);
+    const answered = new Set(all.address.map(({ address, family }) => `${address}/${family}`));
+    assert.deepEqual(answered, new Set(['127.0.0.1/4']));
   });
 
   it('parses targets', () => {
