@@ -937,15 +937,10 @@ pub(crate) async fn password_reset(
                 .send_password_reset(&user.id, state.delivery(state.links.password_reset()))
                 .await
             {
-                Ok(code) => {
-                    let code = code.as_deref().map(|code| CodeMail::PasswordReset {
-                        user_id: &user.id,
-                        code,
-                    });
-                    state
-                        .email_code(code, &user.id, user.email.as_deref(), locale(&headers))
-                        .await;
+                Ok(Some(code)) => {
+                    state.email_password_reset(code, user.id, user.email, locale(&headers));
                 }
+                Ok(None) => {}
                 Err(error) => tracing::warn!(%error, "sign-in: password reset email not sent"),
             }
         }

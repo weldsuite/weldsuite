@@ -95,6 +95,19 @@ impl Harness {
             .unwrap_or_default()
     }
 
+    /// The emails sent, once there are `count`: the reset email goes out
+    /// after the answer.
+    async fn mailed_after(&self, count: usize) -> Vec<(String, String, String)> {
+        for _ in 0..100 {
+            let mailed = self.mailed();
+            if mailed.len() >= count {
+                return mailed;
+            }
+            tokio::task::yield_now().await;
+        }
+        self.mailed()
+    }
+
     async fn send(
         &self,
         method: Method,
@@ -883,7 +896,7 @@ async fn with_system_mail_the_second_factor_and_the_reset_come_from_weldsuite() 
         )
         .await;
     assert_eq!(reset.status, StatusCode::NO_CONTENT);
-    let mailed = h.mailed();
+    let mailed = h.mailed_after(2).await;
     assert_eq!(mailed.len(), 2);
     assert_eq!(mailed[1].1, "Reset your WeldSuite password");
     assert!(mailed[1].2.contains(&format!(

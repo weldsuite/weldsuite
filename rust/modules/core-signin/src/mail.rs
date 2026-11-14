@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use http::HeaderMap;
 use http::header::ACCEPT_LANGUAGE;
+use tracing::Instrument;
 use weldsuite_emails::{EmailLocale, SystemEmail, auth, send_system_email};
 use weldsuite_ports::{CodeDelivery, CodeKind};
 
@@ -75,6 +76,33 @@ impl SignInState {
         } else {
             CodeDelivery::Provider(link)
         }
+    }
+
+    /// Email a password reset code off the request path. `POST
+    /// /password-reset` answers alike whether or not an account has the
+    /// address; waiting for the template and the SMTP round trip, which only
+    /// an existing account takes, would tell the two apart by how long the
+    /// answer takes.
+    pub(crate) fn email_password_reset(
+        &self,
+        code: String,
+        user_id: String,
+        to: Option<String>,
+        locale: EmailLocale,
+    ) {
+        let state = self.clone();
+        tokio::spawn(
+            async move {
+                let mail = CodeMail::PasswordReset {
+                    user_id: &user_id,
+                    code: &code,
+                };
+                state
+                    .email_code(Some(mail), &user_id, to.as_deref(), locale)
+                    .await;
+            }
+            .in_current_span(),
+        );
     }
 
     /// Email a code the provider handed back (`None`: it sent its own) to
