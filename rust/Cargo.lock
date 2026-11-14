@@ -4907,6 +4907,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-core-billing"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-books-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mollie",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-core-domain"
 version = "0.0.0"
 dependencies = [

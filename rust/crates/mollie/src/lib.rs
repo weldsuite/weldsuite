@@ -221,7 +221,7 @@ impl MethodDetails {
 }
 
 fn last_four(text: &str) -> String {
-    let chars: Vec<char> = text.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let chars: Vec<char> = text.chars().filter(char::is_ascii_alphanumeric).collect();
     chars[chars.len().saturating_sub(4)..].iter().collect()
 }
 
