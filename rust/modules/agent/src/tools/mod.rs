@@ -22,7 +22,7 @@ mod chat_tools;
 mod data_tools;
 mod merge_tools;
 #[cfg(test)]
-mod module_tools_tests;
+pub(crate) mod module_tools_tests;
 pub mod modules;
 mod sandbox_tools;
 pub mod schema;

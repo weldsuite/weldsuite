@@ -52,6 +52,25 @@ fn record_of(body: &str) -> Option<(&'static str, &str, Option<&str>)> {
     Some((noun, id, (!label.is_empty()).then_some(label)))
 }
 
+/// `taggedSheetsIn(messages)`: the spreadsheets the user tagged in their
+/// messages (`<@sheet:id|Label>`), oldest first, each once.
+pub(super) fn tagged_sheets(messages: &[(String, String)]) -> Vec<(String, Option<String>)> {
+    let mut sheets: Vec<(String, Option<String>)> = Vec::new();
+    for (role, content) in messages {
+        if role != "user" {
+            continue;
+        }
+        for caps in TOKEN.captures_iter(content) {
+            if let Some(("spreadsheet", id, label)) = record_of(&caps[1]) {
+                if !sheets.iter().any(|(known, _)| known == id) {
+                    sheets.push((id.to_owned(), label.map(str::to_owned)));
+                }
+            }
+        }
+    }
+    sheets
+}
+
 /// `describeRecordTokens(text)`: every record tag spelled out for a model;
 /// other tokens stay as they are.
 pub(super) fn describe_record_tokens(text: &str) -> String {

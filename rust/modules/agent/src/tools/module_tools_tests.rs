@@ -47,6 +47,11 @@ impl ModuleTools for Fake {
     }
 }
 
+/// Installs the shared stand-in for the process (tests in parallel share it).
+pub(crate) fn install_fake() {
+    install_module_tools(fake());
+}
+
 fn fake() -> Arc<Fake> {
     static FAKE: OnceLock<Arc<Fake>> = OnceLock::new();
     FAKE.get_or_init(|| {
@@ -83,7 +88,7 @@ fn ctx(grants: &[&str], user: &str) -> ToolContext {
 }
 
 /// What `user`'s tools called (users are unique per test, the stand-in is shared).
-fn calls_of(user: &str) -> Vec<(String, String, Option<String>, Value)> {
+pub(crate) fn calls_of(user: &str) -> Vec<(String, String, Option<String>, Value)> {
     fake()
         .calls
         .lock()

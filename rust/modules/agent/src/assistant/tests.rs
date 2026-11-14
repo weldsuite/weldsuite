@@ -24,6 +24,8 @@ use weldsuite_permissions::{
 
 use crate::AgentState;
 
+mod sheets_tests;
+
 struct NoQueries;
 
 impl PermissionQueries for NoQueries {

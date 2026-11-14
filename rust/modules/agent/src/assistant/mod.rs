@@ -33,7 +33,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use weldsuite_ai::{Ai, AiCall, ChatRequest, Feature, Message, Task, Tier};
 use weldsuite_kit::ApiError;
-use weldsuite_kit::validation::{Field, Number, Presence};
+use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::access::{AgentAccess, can_access_agent};
@@ -159,10 +159,22 @@ struct ChatInput {
     temperature: Option<f64>,
     max_tokens: Option<i64>,
     agent_id: Option<String>,
+    /// `context.sheet`: the spreadsheet open next to the chat.
+    sheet: Option<persona::OpenSheet>,
 }
 
-/// `chatSchema`. `context` (the open sheet) is validated and left unused:
-/// the spreadsheet tools are not in the EU tool registry.
+impl ChatInput {
+    /// The spreadsheets the person points at: the open one and the ones
+    /// tagged in their messages (`splitChatMessages`' `sheets`).
+    fn sheets(&self) -> persona::PersonaSheets {
+        persona::PersonaSheets {
+            open: self.sheet.clone(),
+            tagged: tags::tagged_sheets(&self.messages),
+        }
+    }
+}
+
+/// `chatSchema`. `context.sheet` is the spreadsheet open next to the chat.
 fn read_chat(
     issues: &mut weldsuite_kit::validation::Issues,
     fields: &serde_json::Map<String, Value>,
@@ -207,16 +219,35 @@ fn read_chat(
         agent_id: issues
             .text(fields, "agentId", Presence::Optional, Some(1), Some(30))
             .into_option(),
+        sheet: None,
     };
-    let _: Field<()> = issues.nested(fields, "context", Presence::Optional, |issues, context| {
-        let _: Field<()> = issues.nested(context, "sheet", Presence::Optional, |issues, sheet| {
-            let _ = issues.text(sheet, "id", Presence::Required, Some(1), Some(64));
-            for (key, max) in [("name", 255), ("tab", 200), ("selection", 200)] {
-                let _ = issues.text(sheet, key, Presence::Optional, None, Some(max));
-            }
-        });
-    });
-    input
+    let sheet = issues
+        .nested(fields, "context", Presence::Optional, |issues, context| {
+            issues
+                .nested(context, "sheet", Presence::Optional, |issues, sheet| {
+                    let mut text = |key: &str, max: usize| {
+                        issues
+                            .text(sheet, key, Presence::Optional, None, Some(max))
+                            .into_option()
+                    };
+                    let name = text("name", 255);
+                    let tab = text("tab", 200);
+                    let selection = text("selection", 200);
+                    persona::OpenSheet {
+                        id: issues
+                            .text(sheet, "id", Presence::Required, Some(1), Some(64))
+                            .into_option()
+                            .unwrap_or_default(),
+                        name,
+                        tab,
+                        selection,
+                    }
+                })
+                .into_option()
+        })
+        .into_option()
+        .flatten();
+    ChatInput { sheet, ..input }
 }
 
 /// `splitChatMessages`: the `system` turns (plus the `system` field) become
@@ -401,6 +432,22 @@ async fn with_agent(
         Ok(agent) => agent,
         Err(response) => return response,
     };
+    // The agent works on the open sheet with its own spreadsheet tools, if it has them.
+    let extra_system = match &input.sheet {
+        Some(sheet) => {
+            let open = persona::open_sheet_instructions(
+                &sheet.id,
+                sheet.name.as_deref(),
+                sheet.tab.as_deref(),
+                sheet.selection.as_deref(),
+            );
+            Some(match extra_system.filter(|extra| !extra.is_empty()) {
+                Some(extra) => format!("{extra}\n\n{open}"),
+                None => open,
+            })
+        }
+        None => extra_system,
+    };
     if streaming {
         // The gate before the stream opens (a refusal is a 402, not a stream).
         let Some(ai) = ai else { return unavailable() };
@@ -498,7 +545,7 @@ async fn chat(
     if let Err(response) = gate(&ai, &call).await {
         return response;
     }
-    let persona = persona::build(&caller, None, extra_system.as_deref()).await;
+    let persona = persona::build(&caller, None, extra_system.as_deref(), &input.sheets()).await;
     match persona::run(
         &ai,
         &call,
@@ -562,7 +609,7 @@ async fn chat_stream_route(
     if let Err(response) = gate(&ai, &call).await {
         return response;
     }
-    let persona = persona::build(&caller, None, extra_system.as_deref()).await;
+    let persona = persona::build(&caller, None, extra_system.as_deref(), &input.sheets()).await;
     let (out, chunks) = mpsc::channel::<String>(32);
     tokio::spawn(persona::stream(
         ai,
