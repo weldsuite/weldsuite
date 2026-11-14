@@ -1109,6 +1109,13 @@ networkPolicy:
 # `weldsuite cron <name>` with the server's environment. A run that is still
 # going when the next is due is left alone (concurrencyPolicy: Forbid).
 cron:
+  # Remove a finished run (its Job and pods) this long after it ended. A
+  # CronJob keeps its last three failed runs, and only a newer failure
+  # replaces them: without a TTL, a job that failed once and works since keeps
+  # its failed runs, and kube-prometheus-stack's KubeJobFailed, for ever. A
+  # day leaves the alert up and the pods' logs readable for a day (Loki keeps
+  # them longer). null: keep them until newer runs replace them.
+  ttlSecondsAfterFinished: 86400
   jobs:
     # WeldSign: automatic reminders and expiry of open requests.
     sign-lifecycle:
