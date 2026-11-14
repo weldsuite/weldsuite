@@ -37,12 +37,12 @@ export function appAccessRequiredStatus(err: unknown): AppAccessStatus | 'none' 
  * plan, a charge outstanding, or the payment method refused the inbox. Each
  * has its own message; a card setup wouldn't help.
  */
-const PLAN_BILLING_REFUSALS: readonly string[] = ['PAID_PLAN_REQUIRED', 'PAYMENT_OUTSTANDING', 'PAYMENT_FAILED'];
+const PLAN_BILLING_REFUSALS: ReadonlySet<string> = new Set(['PAID_PLAN_REQUIRED', 'PAYMENT_OUTSTANDING', 'PAYMENT_FAILED']);
 
 export function isPaymentMethodRequiredError(err: unknown): boolean {
   const code = apiErrorCode(err);
   if (code === 'PAYMENT_METHOD_REQUIRED') return true;
-  return isApiError(err) && err.status === 402 && !PLAN_BILLING_REFUSALS.includes(code ?? '');
+  return isApiError(err) && err.status === 402 && !PLAN_BILLING_REFUSALS.has(code ?? '');
 }
 
 /** Inboxes are billed with the plan (EU edition): the workspace has no paid plan yet. */

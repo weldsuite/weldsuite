@@ -121,7 +121,7 @@ export function mandateSummary(
 /** What a Mollie charge was for; unknown kinds fall through with spaces. */
 export function paymentKindLabel(copy: MollieBillingCopy, kind: string | null): string | null {
   if (!kind) return null;
-  return (copy.history.kinds as Record<string, string>)[kind] ?? kind.replace(/_/g, ' ');
+  return (copy.history.kinds as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
 }
 
 /**
