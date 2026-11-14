@@ -339,10 +339,17 @@ function markdown(reports: SuiteReport[]): string {
 
 // ── coverage of the workers' own tests (record-only, no Rust) ──────────────
 
+/**
+ * Workers whose own files changed since `base`. A change to a worker's
+ * package.json alone (a dependency bump) does not count: it cannot change
+ * which routes the tests reach, and a bump across the monorepo would otherwise
+ * run every worker's whole suite and outlast the CI job.
+ */
 function changedWorkers(base: string): string[] {
   const workers = new Set<string>();
   for (const file of changedFiles(base)) {
-    const match = /^apps\/workers\/([^/]+)\//.exec(file);
+    const match = /^apps\/workers\/([^/]+)\/(.+)$/.exec(file);
+    if (match?.[2] === 'package.json') continue;
     if (match && existsSync(path.join(repo, 'apps', 'workers', match[1]!, 'vitest.config.ts'))) {
       workers.add(`apps/workers/${match[1]}`);
     }
