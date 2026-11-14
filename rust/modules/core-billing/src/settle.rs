@@ -94,7 +94,11 @@ pub async fn settle_payment(
             .execute(&mut *tx)
             .await?;
     }
-    let paid_at = payment.paid_at.as_deref().and_then(parse_iso).unwrap_or(now);
+    let paid_at = payment
+        .paid_at
+        .as_deref()
+        .and_then(parse_iso)
+        .unwrap_or(now);
     let reversed = payment.reversed_cents();
 
     let settled = if payment.status == PaymentStatus::Paid && !row.is_paid() {
@@ -110,8 +114,16 @@ pub async fn settle_payment(
         .await?;
         paid(state, &mut tx, &row, &meta, payment, paid_at, now).await?
     } else if payment.status == PaymentStatus::Paid {
-        ChargeRow::record(&mut tx, &row.id, "succeeded", &payment.details, None, None, reversed)
-            .await?;
+        ChargeRow::record(
+            &mut tx,
+            &row.id,
+            "succeeded",
+            &payment.details,
+            None,
+            None,
+            reversed,
+        )
+        .await?;
         if payment.charged_back() && meta.charged_back != Some(true) && reopens(meta.purpose) {
             sqlx::query(
                 "update billing_payments set metadata = jsonb_set(metadata, '{chargedBack}', 'true') where id = $1",
@@ -181,10 +193,14 @@ pub async fn settle_payment(
 
 /// Charges whose failure (or chargeback) after the fact reopens them.
 fn reopens(purpose: Purpose) -> bool {
-    matches!(purpose, Purpose::Renewal | Purpose::Change | Purpose::PayLink | Purpose::Checkout)
+    matches!(
+        purpose,
+        Purpose::Renewal | Purpose::Change | Purpose::PayLink | Purpose::Checkout
+    )
 }
 
 /// The effects of a paid charge, inside the row's transaction.
+#[allow(clippy::too_many_lines)] // one arm per purpose
 async fn paid(
     state: &BillingState,
     tx: &mut sqlx::PgConnection,
@@ -210,8 +226,17 @@ async fn paid(
             };
             let period = first_period(paid_at, cycle);
             let anchor = anchor_day(paid_at);
-            workspace::set_subscription(tx, workspace_id, &plan_id, seats, "active", cycle, period, now)
-                .await?;
+            workspace::set_subscription(
+                tx,
+                workspace_id,
+                &plan_id,
+                seats,
+                "active",
+                cycle,
+                period,
+                now,
+            )
+            .await?;
             account::start(
                 tx,
                 workspace_id,
@@ -222,7 +247,10 @@ async fn paid(
             .await?;
             save_mandate(tx, workspace_id, payment).await?;
             let plan = Plan::load(&state.master, &plan_id).await?;
-            let plan_credits = plan.as_ref().and_then(|p| p.monthly_credits).map_or(0, i64::from);
+            let plan_credits = plan
+                .as_ref()
+                .and_then(|p| p.monthly_credits)
+                .map_or(0, i64::from);
             credits::grant_monthly(
                 tx,
                 workspace_id,
@@ -308,7 +336,14 @@ async fn save_mandate(
         Some("ideal" | "bancontact" | "sofort" | "eps" | "belfius" | "kbc") => Some("directdebit"),
         other => other,
     };
-    account::set_mandate(tx, workspace_id, mandate, method, payment.details.label.as_deref()).await
+    account::set_mandate(
+        tx,
+        workspace_id,
+        mandate,
+        method,
+        payment.details.label.as_deref(),
+    )
+    .await
 }
 
 fn tokio_spawn_cap(
@@ -378,8 +413,20 @@ pub(crate) async fn notify_failed(
     row_id: &str,
     now: OffsetDateTime,
 ) {
-    if let Err(error) = mail(state, workspace_id, row_id, BillingMailKind::PaymentFailed, now).await {
-        tracing::error!(?error, workspace = workspace_id, "billing: payment-failed email not built");
+    if let Err(error) = mail(
+        state,
+        workspace_id,
+        row_id,
+        BillingMailKind::PaymentFailed,
+        now,
+    )
+    .await
+    {
+        tracing::error!(
+            ?error,
+            workspace = workspace_id,
+            "billing: payment-failed email not built"
+        );
     }
 }
 
@@ -439,7 +486,12 @@ pub(crate) async fn mail(
 
 /// A new mandate was saved: revoke the one it replaces, and charge a
 /// past-due charge on it right away.
-async fn after_mandate(state: &BillingState, workspace_id: &str, payment: &Payment, now: OffsetDateTime) {
+async fn after_mandate(
+    state: &BillingState,
+    workspace_id: &str,
+    payment: &Payment,
+    now: OffsetDateTime,
+) {
     let master = &state.master;
     let Ok(Some(account)) = Account::load(master, workspace_id).await else {
         return;
@@ -459,7 +511,11 @@ async fn after_mandate(state: &BillingState, workspace_id: &str, payment: &Payme
     if let Some(open) = &account.past_due_payment_id
         && let Err(error) = crate::renewals::retry_open_charge(state, workspace_id, open, now).await
     {
-        tracing::warn!(?error, workspace = workspace_id, "billing: past-due charge not retried on the new mandate");
+        tracing::warn!(
+            ?error,
+            workspace = workspace_id,
+            "billing: past-due charge not retried on the new mandate"
+        );
     }
 }
 
@@ -511,9 +567,19 @@ async fn try_issue_invoice(state: &BillingState, row: &ChargeRow) -> BillingResu
         let safe: String = issued
             .number
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
-        let extension = if *content_type == "application/pdf" { "pdf" } else { "html" };
+        let extension = if *content_type == "application/pdf" {
+            "pdf"
+        } else {
+            "html"
+        };
         let key = format!("billing/invoices/{}/{safe}.{extension}", row.workspace_id);
         let options = weldsuite_ports::PutOptions {
             content_type: Some((*content_type).to_owned()),
@@ -578,4 +644,3 @@ pub(crate) async fn refresh(
     settle_payment(state, &payment, now).await?;
     Ok(Some(payment))
 }
-

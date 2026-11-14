@@ -52,7 +52,9 @@ import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 import { isFeatureAvailable } from '@/lib/edition';
 import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
-import { useCreditCheckoutReturn } from './credit-checkout-return';
+import { useCreditCheckoutReturn, type BillingCheckoutReturnStrings } from './credit-checkout-return';
+import { MollieBillingNotices } from '@/components/billing/mollie-billing-notices';
+import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
 import { CreditsWalletSettings } from './credits-wallet-settings';
 
 type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
@@ -367,6 +369,7 @@ function DirectBillingSettings() {
   const cancelMutation = useCancelSubscription();
   const reactivateMutation = useReactivateSubscription();
   const buyCreditsMutation = useBuyCredits();
+  const onInvoiceLinkClick = useInvoiceLinkClick();
 
   const creditsWallet = (creditsBalanceData?.data as { currentBalance?: number; isLow?: boolean } | undefined) ?? null;
   const creditPackages = (creditPackagesData?.data as CreditPackageOption[] | undefined) ?? [];
@@ -410,7 +413,21 @@ function DirectBillingSettings() {
 
   // Surface the outcome of a returning credit-topup checkout, then strip its
   // query params so a refresh doesn't re-toast.
-  useCreditCheckoutReturn(ts.creditsWallet);
+  // A Mollie plan checkout (`?checkout=bpy_…`) is looked up too and the billing queries refreshed.
+  const mollieStrings = ts.mollie;
+  const billingReturnStrings = useMemo<BillingCheckoutReturnStrings>(
+    () => ({
+      planPaid: mollieStrings.checkoutPlanPaid,
+      changePaid: mollieStrings.checkoutChangePaid,
+      mandatePaid: mollieStrings.checkoutMandatePaid,
+      payLinkPaid: mollieStrings.checkoutPayLinkPaid,
+      pending: mollieStrings.checkoutPending,
+      cancelled: mollieStrings.checkoutCancelled,
+      notCompleted: mollieStrings.checkoutNotCompleted,
+    }),
+    [mollieStrings],
+  );
+  useCreditCheckoutReturn(ts.creditsWallet, billingReturnStrings);
 
   const handleManagePlan = () => {
     router.push('/settings/plans');
@@ -487,6 +504,12 @@ function DirectBillingSettings() {
         <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
+
+      <MollieBillingNotices
+        outstanding={subscription?.outstanding}
+        scheduledChange={subscription?.scheduledChange}
+        canPay={canManageBilling}
+      />
 
       {/* Current Plan */}
       <div>
@@ -720,6 +743,7 @@ function DirectBillingSettings() {
                             href={invoice.pdfUrl}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
                             className="text-muted-foreground hover:text-foreground transition-colors"
                           >
                             <Download className="h-4 w-4" />

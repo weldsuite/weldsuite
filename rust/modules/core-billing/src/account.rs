@@ -44,8 +44,15 @@ pub(crate) struct Scheduled {
 }
 
 impl Account {
-    pub(crate) async fn load(master: &PgPool, workspace_id: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from billing_accounts where workspace_id = $1"))
+    pub(crate) async fn load(
+        master: &PgPool,
+        workspace_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_accounts where workspace_id = $1"
+        ))
         .bind(workspace_id)
         .fetch_optional(master)
         .await
@@ -56,7 +63,11 @@ impl Account {
         tx: &mut sqlx::PgConnection,
         workspace_id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from billing_accounts where workspace_id = $1 for update"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_accounts where workspace_id = $1 for update"
+        ))
         .bind(workspace_id)
         .fetch_optional(&mut *tx)
         .await
@@ -72,7 +83,11 @@ impl Account {
         .bind(workspace_id)
         .execute(master)
         .await?;
-        sqlx::query_as(concat!("select ", columns!(), " from billing_accounts where workspace_id = $1"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_accounts where workspace_id = $1"
+        ))
         .bind(workspace_id)
         .fetch_one(master)
         .await
@@ -201,7 +216,11 @@ pub(crate) async fn schedule(
     )
     .bind(workspace_id)
     .bind(scheduled.and_then(|s| s.plan_id.clone()))
-    .bind(scheduled.and_then(|s| s.seats).map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
+    .bind(
+        scheduled
+            .and_then(|s| s.seats)
+            .map(|n| i32::try_from(n).unwrap_or(i32::MAX)),
+    )
     .bind(scheduled.and_then(|s| s.cycle).map(Cycle::as_str))
     .execute(&mut *tx)
     .await?;
@@ -263,7 +282,10 @@ pub(crate) async fn clear_past_due(
 
 /// The subscription ended: no more charges, nothing scheduled or past due.
 /// The customer and mandate stay for a later checkout.
-pub(crate) async fn end(tx: &mut sqlx::PgConnection, workspace_id: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn end(
+    tx: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update billing_accounts set next_charge_at = null, unit_amount = null,
              scheduled_plan_id = null, scheduled_seats = null, scheduled_cycle = null,

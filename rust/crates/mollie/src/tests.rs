@@ -176,7 +176,10 @@ fn first_and_recurring_payments_name_the_customer_and_mandate() {
     let body = recurring.body();
     assert_eq!(body["sequenceType"], "recurring");
     assert_eq!(body["mandateId"], "mdt_1");
-    assert!(body.get("redirectUrl").is_none(), "no checkout to return from");
+    assert!(
+        body.get("redirectUrl").is_none(),
+        "no checkout to return from"
+    );
     assert!(body.get("method").is_none());
 }
 
@@ -263,7 +266,10 @@ fn partial_reversals_and_other_currencies_are_not_full() {
 #[tokio::test]
 async fn creates_customers_and_lists_mandates_newest_first() {
     let (recorded, http) = http(vec![
-        Ok(answer(201, &json!({ "resource": "customer", "id": "cst_8wmqcHMN4U" }))),
+        Ok(answer(
+            201,
+            &json!({ "resource": "customer", "id": "cst_8wmqcHMN4U" }),
+        )),
         Ok(answer(
             200,
             &json!({
@@ -295,7 +301,10 @@ async fn creates_customers_and_lists_mandates_newest_first() {
     assert_eq!(mandates[0].details.label.as_deref(), Some("NL•• •••• 0000"));
     assert_eq!(mandates[0].details.last4.as_deref(), Some("0000"));
     assert!(!mandates[1].is_usable());
-    assert_eq!(mandates[1].details.label.as_deref(), Some("Mastercard •••• 1111"));
+    assert_eq!(
+        mandates[1].details.label.as_deref(),
+        Some("Mastercard •••• 1111")
+    );
 
     let requests = recorded.requests.lock().expect("lock");
     assert_eq!(requests[0].url, "https://api.mollie.com/v2/customers");
@@ -357,7 +366,12 @@ fn masks_ibans_and_maps_locales() {
     assert_eq!(checkout_locale(Some("en-GB")), Some("en_US".to_owned()));
     assert_eq!(checkout_locale(None), None);
     assert_eq!(
-        with_query("https://app.weldsuite.eu/settings/billing?x=1", "checkout", "bpy_1").as_deref(),
+        with_query(
+            "https://app.weldsuite.eu/settings/billing?x=1",
+            "checkout",
+            "bpy_1"
+        )
+        .as_deref(),
         Some("https://app.weldsuite.eu/settings/billing?x=1&checkout=bpy_1")
     );
 }

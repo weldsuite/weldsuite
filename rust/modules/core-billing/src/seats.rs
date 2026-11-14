@@ -37,7 +37,10 @@ pub(crate) async fn write_cap(identity: Option<&Arc<dyn Identity>>, organization
 
 /// Invitations still open, which hold a seat (0 when the provider can't
 /// be asked).
-pub(crate) async fn pending_invitations(identity: Option<&Arc<dyn Identity>>, organization: &str) -> i64 {
+pub(crate) async fn pending_invitations(
+    identity: Option<&Arc<dyn Identity>>,
+    organization: &str,
+) -> i64 {
     let Some(identity) = identity else {
         return 0;
     };

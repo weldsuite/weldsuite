@@ -59,7 +59,11 @@ fn cents(text: &str) -> i64 {
 
 impl Plan {
     pub(crate) async fn load(master: &PgPool, id: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from plans where id = $1 limit 1"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from plans where id = $1 limit 1"
+        ))
         .bind(id)
         .fetch_optional(master)
         .await
@@ -67,14 +71,22 @@ impl Plan {
 
     /// The Free plan new workspaces start on (`slug = 'free'`).
     pub(crate) async fn free(master: &PgPool) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from plans where slug = 'free' and deleted_at is null limit 1"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from plans where slug = 'free' and deleted_at is null limit 1"
+        ))
         .fetch_optional(master)
         .await
     }
 
     /// Active plans in ladder order (Free included).
     pub(crate) async fn active(master: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from plans where is_active and deleted_at is null order by sort_order"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from plans where is_active and deleted_at is null order by sort_order"
+        ))
         .fetch_all(master)
         .await
     }
@@ -232,11 +244,17 @@ mod tests {
         let business = plan("business", "25.00", "0", "EUR");
         assert_eq!(business.unit_amount(Cycle::Yearly), Some(30_000));
         // Free, on request and other currencies are never checked out.
-        assert_eq!(plan("free", "0", "0", "EUR").unit_amount(Cycle::Monthly), None);
+        assert_eq!(
+            plan("free", "0", "0", "EUR").unit_amount(Cycle::Monthly),
+            None
+        );
         let enterprise = plan("enterprise", "0", "0", "EUR");
         assert!(enterprise.on_request());
         assert_eq!(enterprise.unit_amount(Cycle::Monthly), None);
-        assert_eq!(plan("pro", "25.00", "0", "USD").unit_amount(Cycle::Monthly), None);
+        assert_eq!(
+            plan("pro", "25.00", "0", "USD").unit_amount(Cycle::Monthly),
+            None
+        );
         assert_eq!(starter.page_json()["monthlyPrice"], 1200);
         assert_eq!(enterprise.page_json()["requiresContact"], true);
         assert_eq!(starter.list_json()["priceYearly"], "120.00");

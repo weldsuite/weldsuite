@@ -57,6 +57,11 @@
 //!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
 //!   for the `reach-send` subscriber of `weldsuite consume`; otherwise it
 //!   runs each workspace's send tick itself.
+//! - `billing-renewals` (hourly, at :05): plan billing on Mollie (ADR BILL-014):
+//!   the anchors that came, scheduled changes, past-due reminders and ends,
+//!   comps that ran out, and invoices the issuer couldn't take yet
+//!   (`weldsuite_core_billing::renewals`). Nothing without
+//!   `BILLING_PROVIDER=mollie`.
 //! - `reach-warmup-sweep` (hourly, at :15): WeldReach's warmup progress
 //!   over the due index (kind `reach_warmup`, `cron/warmup-sweep.ts`).
 //! - `reach-slot-reconciliation` (daily, 03:15 UTC): gives back Mailpool
@@ -137,7 +142,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -175,7 +180,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "forms-reminders"
         | "forms-digest"
         | "weldagent-routines"
-        | "sandbox-cleanup"),
+        | "sandbox-cleanup"
+        | "billing-renewals"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -233,6 +239,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
             "weldagent-routines" => weldagent_routines(config).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
+            "billing-renewals" => Box::pin(billing_renewals(config)).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -310,6 +317,58 @@ async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error
         .is_err()
     {
         tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `billing-renewals`: one run of plan billing's scheduler (ADR BILL-014),
+/// on the same ports as `serve`: Mollie over the shared client, WeldBooks in
+/// the issuer workspace, the identity provider for seat caps, the files
+/// bucket for invoice documents and system mail for the billing owners.
+async fn billing_renewals(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let settings =
+        weldsuite_core_billing::BillingSettings::from_lookup(&|name| std::env::var(name).ok())?;
+    let Some(settings) = settings else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "billing-renewals", "result": { "skipped": "BILLING_PROVIDER is not mollie" } })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let state = crate::billing::build(
+        master,
+        workspaces,
+        settings,
+        infra.identity.clone(),
+        infra.files.clone(),
+        infra.mail.clone(),
+    );
+    let report =
+        weldsuite_core_billing::renewals::run_renewals(&state, time::OffsetDateTime::now_utc())
+            .await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "billing-renewals", "result": report.to_json() })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with work still in flight");
     }
     Ok(())
 }

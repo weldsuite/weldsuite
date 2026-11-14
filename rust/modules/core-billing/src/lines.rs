@@ -57,10 +57,15 @@ pub struct Charge {
 }
 
 impl Charge {
-    /// Totals the lines and adds the VAT (on the total, rounded once).
+    /// Totals the lines and adds the VAT.
     pub fn new(currency: &str, lines: Vec<Line>, vat: VatDecision) -> Self {
         let net: i64 = lines.iter().map(|line| line.amount).sum();
-        let tax = vat_of(net, vat.rate_bps);
+        // Per line, rounded, then summed: how WeldBooks totals the invoice,
+        // so the amount charged is the invoice total to the cent.
+        let tax = lines
+            .iter()
+            .map(|line| vat_of(line.amount, vat.rate_bps))
+            .sum();
         Self {
             currency: currency.to_owned(),
             lines,
@@ -120,8 +125,12 @@ mod tests {
     }
 
     #[test]
-    fn totals_add_vat_once_on_the_whole() {
-        let charge = Charge::new("EUR", vec![line(7500), line(3333)], decide("NL", "NL", VatCheck::None));
+    fn totals_add_vat_per_line() {
+        let charge = Charge::new(
+            "EUR",
+            vec![line(7500), line(3333)],
+            decide("NL", "NL", VatCheck::None),
+        );
         assert_eq!(charge.net, 10_833);
         assert_eq!(charge.tax, 2275);
         assert_eq!(charge.gross, 13_108);
@@ -144,6 +153,9 @@ mod tests {
         assert_eq!(json["lines"][0]["planId"], "plan_business");
         let back: Charge = serde_json::from_value(json).expect("back");
         assert_eq!(back, charge);
-        assert_eq!(plan_description("Business", 1, "yearly", true), "Business, 1 gebruiker, jaarlijks");
+        assert_eq!(
+            plan_description("Business", 1, "yearly", true),
+            "Business, 1 gebruiker, jaarlijks"
+        );
     }
 }

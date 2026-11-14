@@ -7,7 +7,9 @@ use serde_json::json;
 use time::OffsetDateTime;
 use weldsuite_db::PgPool;
 use weldsuite_kit::{ApiError, generate_id};
-use weldsuite_mollie::{Money, NewCustomer, NewPayment, Payment, Sequence, checkout_locale, with_query};
+use weldsuite_mollie::{
+    Money, NewCustomer, NewPayment, Payment, Sequence, checkout_locale, with_query,
+};
 use weldsuite_ports::OutboundHttp;
 
 use crate::account::{self, Account, Scheduled};
@@ -56,7 +58,10 @@ pub struct CheckoutInput {
     pub cancel_url: Option<String>,
 }
 
-pub(crate) fn http_of(state: &BillingState, request: Option<OutboundHttp>) -> BillingResult<OutboundHttp> {
+pub(crate) fn http_of(
+    state: &BillingState,
+    request: Option<OutboundHttp>,
+) -> BillingResult<OutboundHttp> {
     request.or_else(|| state.http.clone()).ok_or_else(|| {
         BillingError::internal("Payment provider unavailable", "no outbound HTTP client")
     })
@@ -228,9 +233,14 @@ pub(crate) fn plan_line(
 }
 
 /// Members plus open invitations: what seats may not drop below.
-async fn seats_in_use(state: &BillingState, master: &PgPool, workspace: &Workspace) -> BillingResult<i64> {
+async fn seats_in_use(
+    state: &BillingState,
+    master: &PgPool,
+    workspace: &Workspace,
+) -> BillingResult<i64> {
     let members = workspace::active_members(master, &workspace.id).await?;
-    let pending = seats::pending_invitations(state.identity.as_ref(), workspace.organization()).await;
+    let pending =
+        seats::pending_invitations(state.identity.as_ref(), workspace.organization()).await;
     Ok(members + pending)
 }
 
@@ -296,7 +306,10 @@ pub async fn checkout(
         .into());
     }
     let Some(tenant) = &actor.tenant else {
-        return Err(BillingError::internal("Failed to start checkout", "no tenant database"));
+        return Err(BillingError::internal(
+            "Failed to start checkout",
+            "no tenant database",
+        ));
     };
     let details = match buyer::load(tenant, &workspace.name).await? {
         Ok(details) => details,
@@ -327,7 +340,14 @@ pub async fn checkout(
     let language = details.language();
     let charge = Charge::new(
         CURRENCY,
-        vec![plan_line(&plan, input.seats, input.cycle, unit, None, language)],
+        vec![plan_line(
+            &plan,
+            input.seats,
+            input.cycle,
+            unit,
+            None,
+            language,
+        )],
         vat,
     );
     let (_, customer) = ensure_customer(state, master, &http, &workspace, Some(&details)).await?;
@@ -403,7 +423,10 @@ pub(crate) async fn change(
     refuse_past_due(account)?;
     let current_seats = i64::from(workspace.purchased_seats);
     let Some((start, end)) = workspace.period() else {
-        return Err(BillingError::internal("Failed to change the plan", "no period"));
+        return Err(BillingError::internal(
+            "Failed to change the plan",
+            "no period",
+        ));
     };
     let current_plan = match &workspace.plan_id {
         Some(id) => Plan::load(master, id).await?,
@@ -413,7 +436,11 @@ pub(crate) async fn change(
     let current_unit = account
         .unit_amount
         .map(i64::from)
-        .or_else(|| current_plan.as_ref().and_then(|p| p.unit_amount(current_cycle)))
+        .or_else(|| {
+            current_plan
+                .as_ref()
+                .and_then(|p| p.unit_amount(current_cycle))
+        })
         .unwrap_or(0);
     let same_plan = workspace.plan_id.as_deref() == Some(plan.id.as_str());
     let scheduled_answer = |effective: OffsetDateTime| CheckoutAnswer::Changed {
@@ -486,7 +513,12 @@ pub(crate) async fn change(
         apply_change(&mut tx, &workspace.id, &plan.id, seats, unit).await?;
         clear_cancel(&mut tx, &workspace.id).await?;
         tx.commit().await?;
-        seats::write_cap(state.identity.as_ref(), workspace.organization(), seats::seat_cap(plan, seats)).await;
+        seats::write_cap(
+            state.identity.as_ref(),
+            workspace.organization(),
+            seats::seat_cap(plan, seats),
+        )
+        .await;
         return Ok(CheckoutAnswer::Changed {
             scheduled: false,
             effective_at: None,
@@ -497,13 +529,25 @@ pub(crate) async fn change(
     let vat = buyer::vat_for(Some(http), &state.settings.seller_country, details).await;
     let description = if same_plan {
         match language {
-            Language::Nl => format!("{}: van {current_seats} naar {seats} gebruikers, rest van de periode", plan.name),
-            Language::En => format!("{}: {current_seats} to {seats} seats, rest of the period", plan.name),
+            Language::Nl => format!(
+                "{}: van {current_seats} naar {seats} gebruikers, rest van de periode",
+                plan.name
+            ),
+            Language::En => format!(
+                "{}: {current_seats} to {seats} seats, rest of the period",
+                plan.name
+            ),
         }
     } else {
         match language {
-            Language::Nl => format!("Overstap naar {} ({seats} gebruikers), rest van de periode", plan.name),
-            Language::En => format!("Upgrade to {} ({seats} seats), rest of the period", plan.name),
+            Language::Nl => format!(
+                "Overstap naar {} ({seats} gebruikers), rest van de periode",
+                plan.name
+            ),
+            Language::En => format!(
+                "Upgrade to {} ({seats} seats), rest of the period",
+                plan.name
+            ),
         }
     };
     let line = Line {
@@ -555,7 +599,12 @@ pub(crate) async fn change(
         )
         .await?;
         tx.commit().await?;
-        seats::write_cap(state.identity.as_ref(), workspace.organization(), seats::seat_cap(plan, seats)).await;
+        seats::write_cap(
+            state.identity.as_ref(),
+            workspace.organization(),
+            seats::seat_cap(plan, seats),
+        )
+        .await;
         tracing::info!(workspace = %workspace.id, row = %row.id, prorated, "billing: change charged and applied");
         return Ok(CheckoutAnswer::Changed {
             scheduled: false,
@@ -573,9 +622,10 @@ pub(crate) async fn change(
         &meta(charge.clone(), Purpose::Change),
     )
     .await?;
-    let customer = account.customer_id.clone().ok_or_else(|| {
-        BillingError::internal("Failed to change the plan", "no Mollie customer")
-    })?;
+    let customer = account
+        .customer_id
+        .clone()
+        .ok_or_else(|| BillingError::internal("Failed to change the plan", "no Mollie customer"))?;
     let url = first_payment(
         state,
         master,
@@ -625,7 +675,10 @@ pub async fn set_seats(
     let Some(plan) = Plan::load(master, &plan_id).await? else {
         return Err(ApiError::not_found("Plan", None).into());
     };
-    if let Some(max) = plan.max_users.filter(|max| *max > 0 && seat_count > i64::from(*max)) {
+    if let Some(max) = plan
+        .max_users
+        .filter(|max| *max > 0 && seat_count > i64::from(*max))
+    {
         return Err(ApiError::bad_request(format!(
             "The {} plan allows a maximum of {max} seats. Please upgrade your plan for more seats.",
             plan.name
@@ -640,7 +693,10 @@ pub async fn set_seats(
         });
     }
     let Some(tenant) = &actor.tenant else {
-        return Err(BillingError::internal("Failed to update seats", "no tenant database"));
+        return Err(BillingError::internal(
+            "Failed to update seats",
+            "no tenant database",
+        ));
     };
     let details = match buyer::load(tenant, &workspace.name).await? {
         Ok(details) => details,
@@ -694,7 +750,10 @@ async fn clear_cancel(tx: &mut sqlx::PgConnection, workspace_id: &str) -> Result
     Ok(())
 }
 
-pub(crate) async fn mark_applied(tx: &mut sqlx::PgConnection, row_id: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn mark_applied(
+    tx: &mut sqlx::PgConnection,
+    row_id: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update billing_payments set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{applied}', 'true'),
              updated_at = now()
@@ -725,7 +784,11 @@ pub async fn cancel(master: &PgPool, workspace_id: &str, now: OffsetDateTime) ->
 }
 
 /// `POST /reactivate`: keeps a subscription that was set to end.
-pub async fn reactivate(master: &PgPool, workspace_id: &str, now: OffsetDateTime) -> BillingResult<()> {
+pub async fn reactivate(
+    master: &PgPool,
+    workspace_id: &str,
+    now: OffsetDateTime,
+) -> BillingResult<()> {
     let Some(workspace) = Workspace::load(master, workspace_id).await? else {
         return Err(ApiError::not_found("Workspace", None).into());
     };
@@ -773,7 +836,9 @@ pub async fn mandate_checkout(
     };
     let http = http_of(state, http)?;
     let (_, customer) = ensure_customer(state, master, &http, &workspace, details.as_ref()).await?;
-    let language = details.as_ref().map_or(Language::En, BillingDetails::language);
+    let language = details
+        .as_ref()
+        .map_or(Language::En, BillingDetails::language);
     let charge = empty_charge(details.as_ref().map_or("", |d| d.country.as_str()));
     let meta = ChargeMeta {
         purpose: Purpose::Mandate,
@@ -836,10 +901,16 @@ pub async fn outstanding_checkout(
         return Ok(None);
     };
     let Some(open_meta) = open.meta() else {
-        return Err(BillingError::internal("Failed to start checkout", "the open charge has no metadata"));
+        return Err(BillingError::internal(
+            "Failed to start checkout",
+            "the open charge has no metadata",
+        ));
     };
     let Some(customer) = account.customer_id.clone() else {
-        return Err(BillingError::internal("Failed to start checkout", "no Mollie customer"));
+        return Err(BillingError::internal(
+            "Failed to start checkout",
+            "no Mollie customer",
+        ));
     };
     let http = http_of(state, http)?;
     let meta = ChargeMeta {
@@ -946,13 +1017,23 @@ pub async fn end_subscription(
     credits::reset_allocation(
         &mut tx,
         workspace_id,
-        free.as_ref().and_then(|p| p.monthly_credits).map_or(0, i64::from),
+        free.as_ref()
+            .and_then(|p| p.monthly_credits)
+            .map_or(0, i64::from),
     )
     .await?;
     tx.commit().await?;
     if let Some(free) = &free {
-        seats::write_cap(state.identity.as_ref(), workspace.organization(), seats::seat_cap(free, 0)).await;
+        seats::write_cap(
+            state.identity.as_ref(),
+            workspace.organization(),
+            seats::seat_cap(free, 0),
+        )
+        .await;
     }
-    tracing::info!(workspace = workspace_id, "billing: subscription ended, now on Free");
+    tracing::info!(
+        workspace = workspace_id,
+        "billing: subscription ended, now on Free"
+    );
     Ok(Ended::DowngradedToFree)
 }

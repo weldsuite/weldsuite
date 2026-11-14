@@ -87,11 +87,17 @@ impl BillingSettings {
         let public_url = first(lookup, &["PUBLIC_APP_URL", "PUBLIC_URL", "PLATFORM_URL"])
             .map(|url| url.trim_end_matches('/').to_owned());
         let webhook_url = first(lookup, &["MOLLIE_WEBHOOK_URL"]).or_else(|| {
-            first(lookup, &["PUBLIC_API_URL", "APP_API_PUBLIC_URL", "PUBLIC_URL"])
-                .map(|origin| format!("{}{WEBHOOK_PATH}", origin.trim_end_matches('/')))
+            first(
+                lookup,
+                &["PUBLIC_API_URL", "APP_API_PUBLIC_URL", "PUBLIC_URL"],
+            )
+            .map(|origin| format!("{}{WEBHOOK_PATH}", origin.trim_end_matches('/')))
         });
-        let return_url = first(lookup, &["BILLING_RETURN_URL"])
-            .or_else(|| public_url.as_ref().map(|origin| format!("{origin}/settings/billing")));
+        let return_url = first(lookup, &["BILLING_RETURN_URL"]).or_else(|| {
+            public_url
+                .as_ref()
+                .map(|origin| format!("{origin}/settings/billing"))
+        });
         let issuer = first(lookup, &["BILLING_ISSUER_WORKSPACE_ID"]);
         let pay_links = first(lookup, &["BILLING_PAY_LINK_KEY"])
             .as_deref()
@@ -131,20 +137,24 @@ impl BillingSettings {
             ));
         }
         match (webhook_url, return_url, public_url, issuer, pay_links) {
-            (Some(webhook_url), Some(return_url), Some(public_url), Some(issuer), Some(pay_links)) => {
-                Ok(Some(Self {
-                    api_key,
-                    api_url,
-                    webhook_url,
-                    return_url,
-                    public_url,
-                    issuer_workspace_id: issuer,
-                    issuer_entity_id: first(lookup, &["BILLING_ISSUER_ENTITY_ID"]),
-                    pay_links,
-                    grace_days,
-                    seller_country,
-                }))
-            }
+            (
+                Some(webhook_url),
+                Some(return_url),
+                Some(public_url),
+                Some(issuer),
+                Some(pay_links),
+            ) => Ok(Some(Self {
+                api_key,
+                api_url,
+                webhook_url,
+                return_url,
+                public_url,
+                issuer_workspace_id: issuer,
+                issuer_entity_id: first(lookup, &["BILLING_ISSUER_ENTITY_ID"]),
+                pay_links,
+                grace_days,
+                seller_country,
+            })),
             _ => Err("BILLING_PROVIDER=mollie is not fully configured".to_owned()),
         }
     }
@@ -182,15 +192,28 @@ mod tests {
 
     #[test]
     fn off_without_the_provider_and_complete_with_it() {
-        assert!(BillingSettings::from_lookup(&lookup(&[])).expect("ok").is_none());
+        assert!(
+            BillingSettings::from_lookup(&lookup(&[]))
+                .expect("ok")
+                .is_none()
+        );
         let settings = BillingSettings::from_lookup(&lookup(FULL))
             .expect("valid")
             .expect("on");
-        assert_eq!(settings.webhook_url, "https://app.weldsuite.eu/api/webhooks/mollie");
-        assert_eq!(settings.return_url, "https://app.weldsuite.eu/settings/billing");
+        assert_eq!(
+            settings.webhook_url,
+            "https://app.weldsuite.eu/api/webhooks/mollie"
+        );
+        assert_eq!(
+            settings.return_url,
+            "https://app.weldsuite.eu/settings/billing"
+        );
         assert_eq!(settings.public_url, "https://app.weldsuite.eu");
         assert_eq!(settings.grace_days, DEFAULT_GRACE_DAYS);
-        assert!(!format!("{settings:?}").contains("test_abc"), "no key in logs");
+        assert!(
+            !format!("{settings:?}").contains("test_abc"),
+            "no key in logs"
+        );
         assert!(BillingSettings::configured(&lookup(FULL)));
     }
 

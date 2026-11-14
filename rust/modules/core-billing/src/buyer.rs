@@ -58,9 +58,7 @@ struct Row {
 }
 
 fn filled(value: Option<String>) -> Option<String> {
-    value
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
+    value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
 /// The details, or the fields still missing (`legalName`, `addressLine1`,
@@ -77,7 +75,13 @@ pub(crate) async fn load(
     .fetch_optional(tenant)
     .await?;
     let Some(row) = row else {
-        return Ok(Err(vec!["legalName", "addressLine1", "postalCode", "city", "country"]));
+        return Ok(Err(vec![
+            "legalName",
+            "addressLine1",
+            "postalCode",
+            "city",
+            "country",
+        ]));
     };
     let mut missing = Vec::new();
     let name = filled(row.legal_name)

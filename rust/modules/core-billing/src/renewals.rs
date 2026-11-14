@@ -156,7 +156,8 @@ async fn sweep_past_due(
         engine::end_subscription(state, &state.master, &workspace_id, now).await?;
         report.ended += 1;
         if let Some(open) = open {
-            let _ = settle::mail(state, &workspace_id, &open, BillingMailKind::PlanEnded, now).await;
+            let _ =
+                settle::mail(state, &workspace_id, &open, BillingMailKind::PlanEnded, now).await;
         }
     }
     let due: Vec<(String, String)> = sqlx::query_as(
@@ -170,7 +171,14 @@ async fn sweep_past_due(
     .fetch_all(&state.master)
     .await?;
     for (workspace_id, open) in due {
-        let _ = settle::mail(state, &workspace_id, &open, BillingMailKind::PaymentReminder, now).await;
+        let _ = settle::mail(
+            state,
+            &workspace_id,
+            &open,
+            BillingMailKind::PaymentReminder,
+            now,
+        )
+        .await;
         report.reminded += 1;
     }
     Ok(())
@@ -188,7 +196,10 @@ enum Outcome {
 
 /// The billing details of `workspace`: its current ones, else those of its
 /// last charge.
-async fn details_for(state: &BillingState, workspace: &Workspace) -> BillingResult<Option<BillingDetails>> {
+async fn details_for(
+    state: &BillingState,
+    workspace: &Workspace,
+) -> BillingResult<Option<BillingDetails>> {
     if let Some(tenants) = &state.tenants {
         match tenants(workspace.id.clone()).await {
             Ok(tenant) => {
@@ -196,7 +207,9 @@ async fn details_for(state: &BillingState, workspace: &Workspace) -> BillingResu
                     return Ok(Some(details));
                 }
             }
-            Err(error) => tracing::warn!(%error, workspace = %workspace.id, "billing-renewals: tenant unreachable, using the last details"),
+            Err(error) => {
+                tracing::warn!(%error, workspace = %workspace.id, "billing-renewals: tenant unreachable, using the last details");
+            }
         }
     }
     let last: Option<Value> = sqlx::query_scalar(
@@ -255,8 +268,14 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
 
     // A comp pays the plan: no charge, credits still come.
     if workspace.comp_active(now) {
-        credits::grant_monthly(&mut tx, &workspace_id, plan_credits(current_plan.as_ref()), anchor_at, next_anchor)
-            .await?;
+        credits::grant_monthly(
+            &mut tx,
+            &workspace_id,
+            plan_credits(current_plan.as_ref()),
+            anchor_at,
+            next_anchor,
+        )
+        .await?;
         account::set_next_charge(&mut tx, &workspace_id, Some(next_anchor)).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::CreditedOnly));
@@ -264,8 +283,12 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     // Past due: nothing new is charged until the open charge is paid or the
     // grace period ends the plan.
     if account.past_due_payment_id.is_some() {
-        account::set_next_charge(&mut tx, &workspace_id, Some(anchor_at + time::Duration::days(1)))
-            .await?;
+        account::set_next_charge(
+            &mut tx,
+            &workspace_id,
+            Some(anchor_at + time::Duration::days(1)),
+        )
+        .await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     }
@@ -309,19 +332,33 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         return Ok(Some(Outcome::Skipped));
     };
     let unit = unit.or_else(|| plan.unit_amount(cycle)).unwrap_or(0);
-    let new_period = (period_end, add_months_on_anchor(period_end, cycle.months(), anchor));
+    let new_period = (
+        period_end,
+        add_months_on_anchor(period_end, cycle.months(), anchor),
+    );
 
     let Some(details) = details_for(state, &workspace).await? else {
         tracing::error!(workspace = %workspace_id, "billing-renewals: no billing details to invoice, retried tomorrow");
-        account::set_next_charge(&mut tx, &workspace_id, Some(anchor_at + time::Duration::days(1)))
-            .await?;
+        account::set_next_charge(
+            &mut tx,
+            &workspace_id,
+            Some(anchor_at + time::Duration::days(1)),
+        )
+        .await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     };
     let language = details.language();
     let mut lines = Vec::new();
     if plan_due && unit > 0 && seats_count > 0 {
-        lines.push(plan_line(&plan, seats_count, cycle, unit, Some(new_period), language));
+        lines.push(plan_line(
+            &plan,
+            seats_count,
+            cycle,
+            unit,
+            Some(new_period),
+            language,
+        ));
     }
     if let Some(addons) = &state.addons {
         match addons
@@ -329,7 +366,9 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
             .await
         {
             Ok(mut extra) => lines.append(&mut extra),
-            Err(error) => tracing::warn!(%error, workspace = %workspace_id, "billing-renewals: add-ons unreadable"),
+            Err(error) => {
+                tracing::warn!(%error, workspace = %workspace_id, "billing-renewals: add-ons unreadable");
+            }
         }
     }
 
@@ -349,8 +388,14 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         account::set_unit_amount(&mut tx, &workspace_id, unit).await?;
         account::schedule(&mut tx, &workspace_id, None).await?;
     }
-    credits::grant_monthly(&mut tx, &workspace_id, plan_credits(Some(&plan)), anchor_at, next_anchor)
-        .await?;
+    credits::grant_monthly(
+        &mut tx,
+        &workspace_id,
+        plan_credits(Some(&plan)),
+        anchor_at,
+        next_anchor,
+    )
+    .await?;
     account::set_next_charge(&mut tx, &workspace_id, Some(next_anchor)).await?;
 
     if lines.is_empty() {
@@ -377,7 +422,11 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         charged_back: None,
     };
     tx.commit().await?;
-    if plan_due && scheduled.as_ref().is_some_and(|s| s.seats.is_some() || s.plan_id.is_some()) {
+    if plan_due
+        && scheduled
+            .as_ref()
+            .is_some_and(|s| s.seats.is_some() || s.plan_id.is_some())
+    {
         seats::write_cap(
             state.identity.as_ref(),
             workspace.organization(),
@@ -433,12 +482,17 @@ async fn charge_row(
             }
             return Ok(Some(Outcome::Charged));
         }
-        Some(Ok(payment)) => payment.failure_reason.unwrap_or_else(|| payment.status.as_str().to_owned()),
+        Some(Ok(payment)) => payment
+            .failure_reason
+            .unwrap_or_else(|| payment.status.as_str().to_owned()),
         Some(Err(error)) if error.is_refusal() => error.to_string(),
         Some(Err(error)) => {
             // Mollie unreachable: the row stays, the next run sends it again
             // under the same idempotency key.
-            return Err(BillingError::internal("Failed to charge the renewal", error));
+            return Err(BillingError::internal(
+                "Failed to charge the renewal",
+                error,
+            ));
         }
         None => "no mandate to charge".to_owned(),
     };

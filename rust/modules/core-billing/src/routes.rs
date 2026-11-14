@@ -56,10 +56,16 @@ where
         .route("/limits", get(limits))
         .route("/phone-numbers", get(empty_list))
         .route("/domains", get(empty_list))
-        .route("/phone-subscription", get(phone_subscription).route_layer(read()))
+        .route(
+            "/phone-subscription",
+            get(phone_subscription).route_layer(read()),
+        )
         .route("/seat-price", get(seat_price).route_layer(read()))
         .route("/invoices", get(invoices).route_layer(read()))
-        .route("/invoices/{id}/document", get(invoice_document).route_layer(read()))
+        .route(
+            "/invoices/{id}/document",
+            get(invoice_document).route_layer(read()),
+        )
         .route("/payments", get(payments).route_layer(read()))
         .route("/payment-methods", get(payment_methods).route_layer(read()))
         .route("/validate-downgrade", post(validate_downgrade))
@@ -353,7 +359,11 @@ fn page_params(query: Option<&str>, default_limit: i64) -> (i64, i64) {
     (limit, (page.max(1) - 1) * limit)
 }
 
-async fn invoices(State(state): State<BillingState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn invoices(
+    State(state): State<BillingState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     answer(
         async {
             let (limit, offset) = page_params(query.as_deref(), 10);
@@ -432,7 +442,11 @@ async fn invoice_document(
     )
 }
 
-async fn payments(State(state): State<BillingState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn payments(
+    State(state): State<BillingState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     answer(
         async {
             let (limit, offset) = page_params(query.as_deref(), 20);
@@ -475,7 +489,9 @@ async fn payment_methods(State(state): State<BillingState>, caller: Caller) -> R
                 .mollie
                 .mandates(&http, &customer)
                 .await
-                .map_err(|error| crate::BillingError::internal("Failed to load payment methods", error))?;
+                .map_err(|error| {
+                    crate::BillingError::internal("Failed to load payment methods", error)
+                })?;
             let methods: Vec<Value> = mandates
                 .iter()
                 .filter(|mandate| mandate.is_usable())
@@ -575,7 +591,10 @@ fn checkout_body(answer: CheckoutAnswer) -> Value {
             "effectiveAt": effective_at,
             "purchasedSeats": purchased_seats,
         }),
-        CheckoutAnswer::PaymentRequired { url, purchased_seats } => json!({
+        CheckoutAnswer::PaymentRequired {
+            url,
+            purchased_seats,
+        } => json!({
             "paymentRequired": true,
             "paymentUrl": url,
             "purchasedSeats": purchased_seats,
@@ -594,7 +613,8 @@ async fn checkout(
             let input = validate(&headers, &body, |issues, body| {
                 let plan_id = issues.text(body, "planId", Presence::Required, Some(1), None);
                 let seats = issues.integer(body, "seats", Presence::Required, Some(1));
-                let cycle = issues.choice(body, "cycle", Presence::Required, &["monthly", "yearly"]);
+                let cycle =
+                    issues.choice(body, "cycle", Presence::Required, &["monthly", "yearly"]);
                 let success_url = issues.text(body, "successUrl", Presence::Optional, None, None);
                 let cancel_url = issues.text(body, "cancelUrl", Presence::Optional, None, None);
                 Some(CheckoutInput {
@@ -611,7 +631,15 @@ async fn checkout(
             input.success_url = own_url(&state, input.success_url.take());
             input.cancel_url = own_url(&state, input.cancel_url.take());
             let master = caller.master(&state);
-            let result = engine::checkout(&state, &master, caller.http(&state), &actor(&caller), &input, now()).await?;
+            let result = engine::checkout(
+                &state,
+                &master,
+                caller.http(&state),
+                &actor(&caller),
+                &input,
+                now(),
+            )
+            .await?;
             Ok(data(checkout_body(result)))
         }
         .await,
@@ -668,14 +696,23 @@ async fn update_seats(
     answer(
         async {
             let seat_count = validate(&headers, &body, |issues, body| {
-                issues.integer(body, "seatCount", Presence::Required, Some(1)).into_option()
+                issues
+                    .integer(body, "seatCount", Presence::Required, Some(1))
+                    .into_option()
             })?;
             let Some(seat_count) = seat_count else {
                 return Err(ApiError::bad_request("Seat count must be at least 1").into());
             };
             let master = caller.master(&state);
-            let result =
-                engine::set_seats(&state, &master, caller.http(&state), &actor(&caller), seat_count, now()).await?;
+            let result = engine::set_seats(
+                &state,
+                &master,
+                caller.http(&state),
+                &actor(&caller),
+                seat_count,
+                now(),
+            )
+            .await?;
             let body = match result {
                 CheckoutAnswer::Changed {
                     scheduled,
@@ -690,7 +727,10 @@ async fn update_seats(
                     }
                     Value::Object(body)
                 }
-                CheckoutAnswer::PaymentRequired { url, purchased_seats } => json!({
+                CheckoutAnswer::PaymentRequired {
+                    url,
+                    purchased_seats,
+                } => json!({
                     "purchasedSeats": purchased_seats,
                     "paymentRequired": true,
                     "paymentUrl": url,
@@ -765,11 +805,17 @@ async fn set_default_method(
                     if error.is_not_found() {
                         crate::BillingError::Api(ApiError::not_found("Payment method", None))
                     } else {
-                        crate::BillingError::internal("Failed to set the default payment method", error)
+                        crate::BillingError::internal(
+                            "Failed to set the default payment method",
+                            error,
+                        )
                     }
                 })?;
             if !mandate.is_usable() {
-                return Err(ApiError::bad_request("This payment method can't be charged any more.").into());
+                return Err(ApiError::bad_request(
+                    "This payment method can't be charged any more.",
+                )
+                .into());
             }
             let mut tx = master.begin().await?;
             crate::account::set_mandate(
@@ -781,7 +827,9 @@ async fn set_default_method(
             )
             .await?;
             tx.commit().await?;
-            Ok(data(json!({ "success": true, "id": mandate.id, "partial": false })))
+            Ok(data(
+                json!({ "success": true, "id": mandate.id, "partial": false }),
+            ))
         }
         .await,
     )
@@ -861,7 +909,11 @@ async fn pay_link(State(state): State<BillingState>, Path(token): Path<String>) 
             .unwrap_or_else(|| state.settings.return_url.clone());
         Redirect::to(&url).into_response()
     };
-    let Some(row_id) = state.settings.pay_links.verify(&token, now().unix_timestamp()) else {
+    let Some(row_id) = state
+        .settings
+        .pay_links
+        .verify(&token, now().unix_timestamp())
+    else {
         return back("expired");
     };
     let row = match ChargeRow::load(&state.master, &row_id).await {
@@ -872,7 +924,15 @@ async fn pay_link(State(state): State<BillingState>, Path(token): Path<String>) 
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
-    match engine::outstanding_checkout(&state, &state.master, None, &row.workspace_id, Some(&row.id)).await {
+    match engine::outstanding_checkout(
+        &state,
+        &state.master,
+        None,
+        &row.workspace_id,
+        Some(&row.id),
+    )
+    .await
+    {
         Ok(Some(url)) => Redirect::to(&url).into_response(),
         Ok(None) => back("done"),
         Err(error) => {
@@ -884,4 +944,3 @@ async fn pay_link(State(state): State<BillingState>, Path(token): Path<String>) 
         }
     }
 }
-

@@ -53,8 +53,7 @@ impl PayLinks {
             p: payment_row_id.to_owned(),
             e: expires_at,
         };
-        let payload =
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap_or_default());
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap_or_default());
         let signature = hmac::sign(&self.key, payload.as_bytes());
         format!("{payload}.{}", URL_SAFE_NO_PAD.encode(signature.as_ref()))
     }
@@ -102,7 +101,10 @@ mod tests {
         let token = links.sign("bpy_1", 2_000);
         let (payload, signature) = token.split_once('.').expect("two parts");
         let forged_payload = URL_SAFE_NO_PAD.encode(br#"{"p":"bpy_2","e":2000}"#);
-        assert_eq!(links.verify(&format!("{forged_payload}.{signature}"), 1), None);
+        assert_eq!(
+            links.verify(&format!("{forged_payload}.{signature}"), 1),
+            None
+        );
         assert_eq!(links.verify(&format!("{payload}.AAAA"), 1), None);
         assert_eq!(links.verify("garbage", 1), None);
         let other = PayLinks::new("another key that is long enough!!").expect("key");

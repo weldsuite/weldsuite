@@ -6,6 +6,7 @@ import {
   type CreditCheckoutStatus,
 } from '@weldsuite/app-api-client/schemas/credits';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type { BillingCheckoutStatusResponse } from '@/lib/api/domains/billing';
 
 /**
  * Coming back from a credit checkout. Stripe (Global) returns to the success
@@ -13,6 +14,10 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
  * editions) has one address for every outcome but an explicit cancel, so the
  * server adds the checkout's id (`&checkout=ctp_…`) and the page asks it how
  * the payment ended (`GET /credits/checkout/:id`).
+ *
+ * Plan billing on Mollie returns to the same page the same way, with ids that
+ * start with `bpy_` (plan checkout, plan change, new payment method, pay link):
+ * those are looked up at `GET /billing/checkout/:id` instead.
  */
 export interface CheckoutReturn {
   /** `?credits=`: what the return URL itself claims. */
@@ -42,8 +47,17 @@ export function withoutCheckoutParams(search: string): string {
 
 export type CheckoutToast = 'success' | 'pending' | 'cancelled' | 'failed';
 
+/** Billing checkout ids (Mollie plan billing) start with this; credit top-ups use `ctp_`. */
+export const BILLING_CHECKOUT_PREFIX = 'bpy_';
+
+export function isBillingCheckoutId(id: string): boolean {
+  return id.startsWith(BILLING_CHECKOUT_PREFIX);
+}
+
 /** Which message a checkout's state gets. */
-export function checkoutToast(status: CreditCheckoutStatus['status'] | null): CheckoutToast {
+export function checkoutToast(
+  status: CreditCheckoutStatus['status'] | BillingCheckoutStatusResponse['status'] | null,
+): CheckoutToast {
   switch (status) {
     case 'paid':
       return 'success';
@@ -66,6 +80,36 @@ export interface CheckoutReturnStrings {
   purchaseNotCompleted: string;
 }
 
+/** What a paid billing checkout says, by what it was for. */
+export interface BillingCheckoutReturnStrings {
+  planPaid: string;
+  changePaid: string;
+  mandatePaid: string;
+  payLinkPaid: string;
+  pending: string;
+  cancelled: string;
+  notCompleted: string;
+}
+
+function showBilling(
+  status: BillingCheckoutStatusResponse['status'] | null,
+  purpose: BillingCheckoutStatusResponse['purpose'] | null,
+  strings: BillingCheckoutReturnStrings,
+): void {
+  const kind = checkoutToast(status);
+  if (kind === 'success') {
+    const paid: Record<BillingCheckoutStatusResponse['purpose'], string> = {
+      checkout: strings.planPaid,
+      change: strings.changePaid,
+      mandate: strings.mandatePaid,
+      pay_link: strings.payLinkPaid,
+    };
+    toast.success(paid[purpose ?? 'checkout']);
+  } else if (kind === 'cancelled') toast.info(strings.cancelled);
+  else if (kind === 'failed') toast.error(strings.notCompleted);
+  else toast.info(strings.pending);
+}
+
 function show(kind: CheckoutToast, strings: CheckoutReturnStrings): void {
   if (kind === 'success') toast.success(strings.purchaseSuccess);
   else if (kind === 'cancelled') toast.info(strings.purchaseCancelled);
@@ -76,9 +120,14 @@ function show(kind: CheckoutToast, strings: CheckoutReturnStrings): void {
 /**
  * Shows how the credit checkout this page was returned to ended, then strips
  * its parameters from the URL. A Mollie checkout is looked up; the balance is
- * refetched once it is known.
+ * refetched once it is known. With `billingStrings` (the billing page), a
+ * `bpy_` plan-billing checkout is looked up too and the billing queries are
+ * refreshed.
  */
-export function useCreditCheckoutReturn(strings: CheckoutReturnStrings): void {
+export function useCreditCheckoutReturn(
+  strings: CheckoutReturnStrings,
+  billingStrings?: BillingCheckoutReturnStrings,
+): void {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
 
@@ -91,6 +140,25 @@ export function useCreditCheckoutReturn(strings: CheckoutReturnStrings): void {
     if (!checkoutId) {
       if (outcome === 'success') show('success', strings);
       else if (outcome === 'cancelled') show('cancelled', strings);
+      return;
+    }
+    if (billingStrings && isBillingCheckoutId(checkoutId)) {
+      void (async () => {
+        let status: BillingCheckoutStatusResponse['status'] | null = null;
+        let purpose: BillingCheckoutStatusResponse['purpose'] | null = null;
+        try {
+          const client = await getClient();
+          const res = await client.get<{ data?: BillingCheckoutStatusResponse }>(
+            `/billing/checkout/${encodeURIComponent(checkoutId)}`,
+          );
+          status = res.data?.status ?? null;
+          purpose = res.data?.purpose ?? null;
+        } catch {
+          // Unreadable: say it is being processed; the refreshed page shows the rest.
+        }
+        showBilling(status, purpose, billingStrings);
+        void queryClient.invalidateQueries({ queryKey: ['billing'] });
+      })();
       return;
     }
     void (async () => {
@@ -107,5 +175,5 @@ export function useCreditCheckoutReturn(strings: CheckoutReturnStrings): void {
       void queryClient.invalidateQueries({ queryKey: ['credits'] });
     })();
     // A later run finds the parameters gone and does nothing.
-  }, [getClient, queryClient, strings]);
+  }, [getClient, queryClient, strings, billingStrings]);
 }

@@ -357,7 +357,7 @@ function SettingsForm({ settings }: Readonly<{ settings: ReachSettings }>) {
       </Form>
 
       <SuppressionsSection />
-      {isFeatureAvailable('billing') && <BillingSection />}
+      {isFeatureAvailable('reach-billing') && <BillingSection />}
     </div>
   );
 }

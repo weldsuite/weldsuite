@@ -198,13 +198,19 @@ impl MethodDetails {
             .as_deref()
             .map(last_four)
             .or_else(|| account.as_deref().map(last_four));
-        let label = match (card_label.as_deref(), card_number.as_deref(), account.as_deref()) {
+        let label = match (
+            card_label.as_deref(),
+            card_number.as_deref(),
+            account.as_deref(),
+        ) {
             (brand, Some(number), _) => Some(format!(
                 "{} •••• {}",
                 brand.unwrap_or("Card"),
                 last_four(number)
             )),
-            (_, None, Some(account)) if method.as_deref() == Some("paypal") || account.contains('@') => {
+            (_, None, Some(account))
+                if method.as_deref() == Some("paypal") || account.contains('@') =>
+            {
                 Some("PayPal".to_owned())
             }
             (_, None, Some(account)) => Some(mask_iban(account)),
@@ -570,8 +576,11 @@ impl Mollie {
     }
 
     fn post(&self, path: &str, body: &Value, idempotency_key: Option<&str>) -> HttpRequest {
-        let request =
-            self.authorized(HttpRequest::json("POST", format!("{}{path}", self.api_url), body));
+        let request = self.authorized(HttpRequest::json(
+            "POST",
+            format!("{}{path}", self.api_url),
+            body,
+        ));
         match idempotency_key {
             Some(key) => request.header("idempotency-key", key),
             None => request,
@@ -701,7 +710,10 @@ impl Mollie {
         }
         let request = self.authorized(HttpRequest::empty(
             "DELETE",
-            format!("{}/customers/{customer_id}/mandates/{mandate_id}", self.api_url),
+            format!(
+                "{}/customers/{customer_id}/mandates/{mandate_id}",
+                self.api_url
+            ),
         ));
         match Self::json_of(http.send(request).await) {
             Ok(_) => Ok(()),

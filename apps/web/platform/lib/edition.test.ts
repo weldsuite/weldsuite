@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { API_MODULES } from '@weldsuite/api-modules';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '@weldsuite/permissions';
 import {
+  billingProvider,
   EDITION_FEATURES,
   getAiConfig,
   hasAiSettings,
@@ -19,7 +20,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox'],
+  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox'],
 };
 
 afterEach(() => setRuntimeConfig(null));
@@ -48,6 +49,21 @@ describe('AI edition flags', () => {
     expect(isFeatureAvailable('assistant-ai')).toBe(true);
     expect(isFeatureAvailable('agent-ai')).toBe(false);
     expect(isFeatureAvailable('agent-sandbox')).toBe(false);
+  });
+});
+
+describe('billing provider', () => {
+  it('is Stripe on Global and when the config names none', () => {
+    expect(billingProvider()).toBe('stripe');
+    setRuntimeConfig(EU_CONFIG);
+    expect(billingProvider()).toBe('stripe');
+  });
+
+  it('is Mollie when /config.json says so, and plan billing on does not turn WeldReach billing on', () => {
+    setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: ['reach-billing'] });
+    expect(billingProvider()).toBe('mollie');
+    expect(isFeatureAvailable('billing')).toBe(true);
+    expect(isFeatureAvailable('reach-billing')).toBe(false);
   });
 });
 

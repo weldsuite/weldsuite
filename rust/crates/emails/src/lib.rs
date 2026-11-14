@@ -38,6 +38,7 @@
 
 pub mod ai;
 pub mod auth;
+pub mod billing;
 pub mod calendar;
 mod catalog;
 mod date;

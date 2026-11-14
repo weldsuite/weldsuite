@@ -17,8 +17,8 @@ use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::workspace::WorkspaceInvitation;
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, calendar, desk, flow, forms, hr,
-    meet, portal, reach, sign, workspace,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, billing, calendar, desk, flow,
+    forms, hr, meet, portal, reach, sign, workspace,
 };
 
 #[derive(Deserialize)]
@@ -291,6 +291,22 @@ fn render(case: &Case) -> RenderedEmail {
                 enabled_by: s(p, "enabledBy"),
                 own_key: p["keySource"].as_str() == Some("own"),
                 settings_url: s(p, "settingsUrl"),
+            },
+        ),
+        "billing.dunning" => billing::dunning(
+            locale,
+            &brand,
+            &billing::Dunning {
+                kind: match p["kind"].as_str() {
+                    Some("reminder") => billing::DunningKind::Reminder,
+                    Some("ended") => billing::DunningKind::Ended,
+                    _ => billing::DunningKind::Failed,
+                },
+                workspace_name: s(p, "workspaceName"),
+                plan_name: s(p, "planName"),
+                amount: s(p, "amount"),
+                ends_on: s(p, "endsOn"),
+                url: s(p, "url"),
             },
         ),
         "hr.bank-changed" => hr::bank_changed(

@@ -160,7 +160,7 @@ describe('Setup wizard', () => {
     afterEach(() => setRuntimeConfig(null));
 
     it('leaves out the payment step where the edition has no billing, never asking for it', async () => {
-      setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['billing'] });
+      setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['reach-billing'] });
       api.reach.getSettings.mockResolvedValue({
         data: { ...emptySettings, senderCompanyName: 'Acme', senderAddress: 'Street 1', optOutText: 'stop' },
       });

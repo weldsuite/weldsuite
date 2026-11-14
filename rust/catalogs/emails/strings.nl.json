@@ -76,6 +76,37 @@
       "useCode": "Of vul deze code in op het inlogscherm:"
     }
   },
+  "billingDunning": {
+    "amount": "Openstaand bedrag",
+    "ended": {
+      "body": "Een betaling van {amount} voor het {plan}-abonnement van {workspace} bleef open, dus de werkruimte is overgezet op het gratis abonnement. Je gegevens blijven bewaard. Kies opnieuw een abonnement om je gebruikers en functies terug te krijgen.",
+      "button": "Kies een abonnement",
+      "heading": "Je abonnement is gestopt",
+      "note": "Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Het {plan}-abonnement is gestopt omdat een betaling open bleef.",
+      "subject": "\"{workspace}\" staat nu op het gratis abonnement"
+    },
+    "endsOn": "Abonnement stopt op",
+    "failed": {
+      "body": "We konden {amount} voor het {plan}-abonnement van {workspace} niet innen. Je abonnement blijft werken tot {date}. Betaal voor die datum om het te houden.",
+      "button": "Nu betalen",
+      "heading": "Je betaling is niet gelukt",
+      "note": "Met de betaling sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
+      "subject": "Betaling mislukt voor \"{workspace}\""
+    },
+    "kicker": "Facturatie",
+    "plan": "Abonnement",
+    "reminder": {
+      "body": "Voor het {plan}-abonnement van {workspace} staat nog {amount} open. Is dat op {date} niet betaald, dan gaat de werkruimte over op het gratis abonnement.",
+      "button": "Nu betalen",
+      "heading": "Je betaling staat nog open",
+      "note": "Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
+      "subject": "Herinnering: er staat een betaling open voor \"{workspace}\""
+    },
+    "workspace": "Werkruimte"
+  },
   "booking": {
     "date": "Datum",
     "host": "Organisator",

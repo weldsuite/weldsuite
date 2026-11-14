@@ -50,8 +50,15 @@ pub(crate) const RUNNING_STATUSES: &[&str] = &["active", "trialing", "past_due"]
 
 impl Workspace {
     /// By `workspaces.id` or Clerk org id.
-    pub(crate) async fn load(master: &PgPool, reference: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from workspaces where id = $1 or clerk_org_id = $1 limit 1"))
+    pub(crate) async fn load(
+        master: &PgPool,
+        reference: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from workspaces where id = $1 or clerk_org_id = $1 limit 1"
+        ))
         .bind(reference)
         .fetch_optional(master)
         .await
@@ -62,7 +69,11 @@ impl Workspace {
         tx: &mut sqlx::PgConnection,
         id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from workspaces where id = $1 for update"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from workspaces where id = $1 for update"
+        ))
         .bind(id)
         .fetch_optional(&mut *tx)
         .await
@@ -139,7 +150,10 @@ impl Workspace {
 }
 
 /// Active members of the workspace in master (`user_workspaces`).
-pub(crate) async fn active_members(master: &PgPool, workspace_id: &str) -> Result<i64, sqlx::Error> {
+pub(crate) async fn active_members(
+    master: &PgPool,
+    workspace_id: &str,
+) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         "select count(*) from user_workspaces where workspace_id = $1 and status = 'ACTIVE'",
     )

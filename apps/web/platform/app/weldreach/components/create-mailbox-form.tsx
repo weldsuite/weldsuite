@@ -273,7 +273,7 @@ export function CreateMailboxForm({
           )}
         />
 
-        {isFeatureAvailable('billing') && <p className="text-sm text-muted-foreground">{t('reach.mailboxes.create.price', { price })}</p>}
+        {isFeatureAvailable('reach-billing') && <p className="text-sm text-muted-foreground">{t('reach.mailboxes.create.price', { price })}</p>}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {onCancel && (

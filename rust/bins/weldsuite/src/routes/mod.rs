@@ -76,6 +76,15 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = core_team(router, state);
     let router = core_platform(router, state);
+    // Plan billing on Mollie (ADR BILL-014): app-api's `/api/billing`, only
+    // where `BILLING_PROVIDER=mollie` turns it on.
+    let router = match crate::billing::billing_state(state) {
+        Some(billing) if mounts("core") => router.nest(
+            "/billing",
+            weldsuite_core_billing::router(billing, &state.permissions),
+        ),
+        _ => router,
+    };
     let router = core_apps(router, state);
     let router = if mounts("docs") {
         let docs = weldsuite_docs::DocsState {
@@ -1972,10 +1981,27 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 weldsuite_core_apps::public_user_apps(apps),
             )
             .merge(sign_in_public(state))
-            .merge(credit_top_up_public(state))
+            .merge(mollie_public(state))
     } else {
         Router::new()
     }
+}
+
+/// Mollie's webhook (`/api/webhooks/mollie`) and the pay links
+/// (`/public/billing/pay/:token`), ahead of the session. With plan billing
+/// on (ADR BILL-014) one webhook settles plan payments and credit top-ups
+/// alike; with only the top-up, the top-up's own.
+fn mollie_public(state: &AppState) -> Router<AppState> {
+    match crate::billing::billing_state(state) {
+        Some(billing) => crate::billing::webhook(state, billing.clone())
+            .merge(weldsuite_core_billing::public_router(billing)),
+        None => credit_top_up_public(state),
+    }
+}
+
+/// Whether the credit top-up is configured (`MOLLIE_API_KEY`).
+pub(crate) fn credit_top_up_configured(state: &AppState) -> bool {
+    credit_top_up(state).is_some()
 }
 
 /// `/api/sign-in`: the backend of the platform's own sign-in screens on an

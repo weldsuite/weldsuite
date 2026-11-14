@@ -84,7 +84,11 @@ pub(crate) async fn recipients(
 
 /// `€ 1.234,56` (Dutch) or `€1,234.56` (English).
 pub(crate) fn money_text(cents: i64, currency: &str, language: Language) -> String {
-    let symbol = if currency.eq_ignore_ascii_case("EUR") { "€" } else { currency };
+    let symbol = if currency.eq_ignore_ascii_case("EUR") {
+        "€"
+    } else {
+        currency
+    };
     let whole = (cents / 100).to_string();
     let mut grouped = String::new();
     let (group, decimal) = match language {
@@ -107,12 +111,32 @@ pub(crate) fn money_text(cents: i64, currency: &str, language: Language) -> Stri
 /// `14 november 2026` / `14 November 2026`.
 pub(crate) fn date_text(at: time::OffsetDateTime, language: Language) -> String {
     const EN: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     const NL: [&str; 12] = [
-        "januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september",
-        "oktober", "november", "december",
+        "januari",
+        "februari",
+        "maart",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "augustus",
+        "september",
+        "oktober",
+        "november",
+        "december",
     ];
     let month = usize::from(u8::from(at.month())) - 1;
     let name = match language {

@@ -101,7 +101,10 @@ pub fn add_months_on_anchor(from: OffsetDateTime, months: i32, anchor_day: u8) -
 /// anchor `cycle` later.
 pub fn first_period(paid_at: OffsetDateTime, cycle: Cycle) -> (OffsetDateTime, OffsetDateTime) {
     let anchor = anchor_day(paid_at);
-    (paid_at, add_months_on_anchor(paid_at, cycle.months(), anchor))
+    (
+        paid_at,
+        add_months_on_anchor(paid_at, cycle.months(), anchor),
+    )
 }
 
 /// Whole UTC days from `start`'s date to `end`'s.
@@ -112,7 +115,12 @@ fn days_between(start: OffsetDateTime, end: OffsetDateTime) -> i64 {
 /// The part of `amount` (cents, for the whole period `start..end`) left
 /// from `now` to the period end, today included, rounded half up. Nothing
 /// once the period is over; the whole amount before it starts.
-pub fn prorate(amount: i64, start: OffsetDateTime, end: OffsetDateTime, now: OffsetDateTime) -> i64 {
+pub fn prorate(
+    amount: i64,
+    start: OffsetDateTime,
+    end: OffsetDateTime,
+    now: OffsetDateTime,
+) -> i64 {
     let total = days_between(start, end);
     if total <= 0 || amount <= 0 {
         return 0;
@@ -155,7 +163,10 @@ mod tests {
         assert_eq!(prorate(2 * 4900, start, end, now), 6533);
         // On the first day: everything; after the end: nothing.
         assert_eq!(prorate(4900, start, end, start), 4900);
-        assert_eq!(prorate(4900, start, end, datetime!(2026-12-02 00:00:00 UTC)), 0);
+        assert_eq!(
+            prorate(4900, start, end, datetime!(2026-12-02 00:00:00 UTC)),
+            0
+        );
         assert_eq!(prorate(0, start, end, now), 0);
     }
 

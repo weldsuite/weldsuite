@@ -7,6 +7,7 @@
 
 mod admin;
 mod ai;
+mod billing;
 mod collab;
 mod config;
 #[cfg(feature = "conformance")]
@@ -71,7 +72,7 @@ commands:
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
              moneybird-push, merge-digest-sweep, forms-reminders, forms-digest,
-             sandbox-cleanup
+             sandbox-cleanup, billing-renewals
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue

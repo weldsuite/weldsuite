@@ -132,7 +132,11 @@ impl ChargeRow {
     }
 
     pub(crate) async fn load(master: &PgPool, id: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from billing_payments where id = $1 and provider = 'mollie'"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_payments where id = $1 and provider = 'mollie'"
+        ))
         .bind(id)
         .fetch_optional(master)
         .await
@@ -142,7 +146,11 @@ impl ChargeRow {
         tx: &mut sqlx::PgConnection,
         id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from billing_payments where id = $1 and provider = 'mollie' for update"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_payments where id = $1 and provider = 'mollie' for update"
+        ))
         .bind(id)
         .fetch_optional(&mut *tx)
         .await
@@ -172,14 +180,22 @@ impl ChargeRow {
         .bind(&meta.charge.currency)
         .execute(master)
         .await?;
-        sqlx::query_as(concat!("select ", columns!(), " from billing_payments where idempotency_key = $1"))
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_payments where idempotency_key = $1"
+        ))
         .bind(key)
         .fetch_one(master)
         .await
     }
 
     /// The Mollie payment the row was sent as.
-    pub(crate) async fn set_payment(master: &PgPool, id: &str, payment_id: &str) -> Result<(), sqlx::Error> {
+    pub(crate) async fn set_payment(
+        master: &PgPool,
+        id: &str,
+        payment_id: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "update billing_payments set provider_payment_id = $2, updated_at = now() where id = $1",
         )
@@ -228,11 +244,18 @@ impl ChargeRow {
     }
 
     /// Paid charges still without their invoice (the issuer was down).
-    pub(crate) async fn paid_without_invoice(master: &PgPool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as(concat!("select ", columns!(), " from billing_payments
+    pub(crate) async fn paid_without_invoice(
+        master: &PgPool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_payments
              where provider = 'mollie' and status = 'succeeded' and invoice_id is null
                and amount > 0
-             order by paid_at limit $1"))
+             order by paid_at limit $1"
+        ))
         .bind(limit)
         .fetch_all(master)
         .await
