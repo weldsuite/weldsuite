@@ -266,7 +266,10 @@ pushes with 5xx. Its logs say which; limits are in
 ## From kube-prometheus-stack
 
 The chart's own rules also apply, trimmed (`../monitoring/values/kube-prometheus-stack.yaml`):
-among them `KubeJobFailed` (a cron run failed), `KubePodCrashLooping`,
+among them `KubeJobFailed` (a cron run failed; it clears a day later, when
+the chart's `cron.ttlSecondsAfterFinished` removes the failed Job, or at once
+with `kubectl -n weldsuite delete job <name>` once its logs are read),
+`KubePodCrashLooping`,
 `KubePersistentVolumeFillingUp`, `NodeMemoryHighUtilization`,
 `TargetDown`, `PrometheusRuleFailures` and `AlertmanagerFailedToSendAlerts`,
 and once etcd is scraped, `etcdNoLeader` and `etcdMembersDown` (critical).

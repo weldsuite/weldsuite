@@ -319,7 +319,7 @@ dashboards['jobs'] = dashboard(
           { title: 'Failed runs kept', decimals: 0, thresholds: steps([1, 'red']) },
         ],
         sortBy: { displayName: 'Failed runs kept', desc: true },
-        description: 'Times are how long ago. Failed runs kept: failed Jobs Kubernetes still holds (failedJobsHistoryLimit); their pods\' logs say why.',
+        description: 'Times are how long ago. Failed runs kept: failed Jobs Kubernetes still holds (the last three, each for a day: the chart\'s cron.ttlSecondsAfterFinished); their pods\' logs say why.',
       },
     ),
     ts('Failed runs per CronJob', place(12, 7), [{ expr: `sum by (owner_name) (${CRON_FAILED}) > 0`, legendFormat: '{{owner_name}}' }], { decimals: 0 }),
