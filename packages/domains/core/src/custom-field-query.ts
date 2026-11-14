@@ -1,7 +1,7 @@
 /**
  * SQL fragments for sorting and filtering a list query by a CUSTOM FIELD.
  *
- * Phase 3 of the custom-fields refactor (docs/custom-fields-values-table.md).
+ * Phase 3 of the custom-fields refactor (weldsuite-documentation/plans/custom-fields-values-table.md).
  * Values live one-per-cell in `custom_field_values`, so unlike the old JSONB
  * blob they can drive real indexed SQL.
  *

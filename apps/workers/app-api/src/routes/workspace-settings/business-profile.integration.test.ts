@@ -1,6 +1,6 @@
 /**
  * The workspace business profile is the default legal entity
- * (docs/plans/legal-entities.md): `PUT /api/workspace-settings` writes the
+ * (weldsuite-documentation/plans/legal-entities.md): `PUT /api/workspace-settings` writes the
  * legal fields through to it and `GET` reads them back from it.
  */
 

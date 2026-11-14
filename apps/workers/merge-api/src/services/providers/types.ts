@@ -1,5 +1,5 @@
 /**
- * The provider seam (docs/plans/weldmerge-phases-2-5.md, phase 3). One folder
+ * The provider seam (weldsuite-documentation/plans/weldmerge-phases-2-5.md, phase 3). One folder
  * per provider next to this file (`github/`, `gitlab/`, `bitbucket/`,
  * `azure-devops/`) implements these interfaces; `registry.ts` picks the
  * implementation for a provider. Everything above this seam (pr-sync, issue

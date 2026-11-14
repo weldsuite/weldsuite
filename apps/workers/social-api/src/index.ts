@@ -2,7 +2,7 @@
  * WeldSuite social-api — the WeldSocial (accounts, posts, campaigns, media,
  * approvals, analytics) module's API worker.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */

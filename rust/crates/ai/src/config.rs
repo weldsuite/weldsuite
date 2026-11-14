@@ -1,4 +1,4 @@
-//! The install's AI configuration (Helm `config.ai`, `docs/plans/eu-ai-mistral.md`
+//! The install's AI configuration (Helm `config.ai`, `weldsuite-documentation/plans/eu-ai-mistral.md`
 //! "Install configuration"), read from the environment at start. The
 //! TypeScript workers have no twin: Global configures `@weldsuite/ai` with the
 //! Cloudflare gateway's settings (`packages/core/ai/src/config.ts`).

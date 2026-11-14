@@ -1,5 +1,5 @@
 /**
- * Order sales tax: the WeldBooks sales tax engine (docs/plans/weldbooks-us.md
+ * Order sales tax: the WeldBooks sales tax engine (weldsuite-documentation/plans/weldbooks-us.md
  * §3, phase 6) applied to WeldCommerce orders and carts.
  *
  * An order has no accounting entity, so the workspace's default entity decides:

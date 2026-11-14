@@ -83,7 +83,7 @@ runs:
         VITE_CORE_API_URL: ${{ inputs.environment == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
         VITE_REALTIME_URL: ${{ inputs.environment == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
         # Modules the SPA calls directly on <module>-api(-test).weldsuite.org
-        # (docs/plans/app-api-module-split.md); everything else goes through
+        # (weldsuite-documentation/plans/app-api-module-split.md); everything else goes through
         # app-api's forwarder. `all` = every module worker; `all,-crm` sends one
         # module back through app-api.
         VITE_API_MODULES: all

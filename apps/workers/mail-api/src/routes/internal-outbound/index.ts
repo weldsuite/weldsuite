@@ -12,7 +12,7 @@
  *   GET  /internal/outbound/platform                  the platform budget
  *   POST /internal/outbound/sending-events/subscribe { domains }   backfill event subscriptions
  *
- * `workspaceId` is the master workspaces.id. See docs/plans/weldmail-outbound-abuse.md.
+ * `workspaceId` is the master workspaces.id. See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { Hono } from 'hono';

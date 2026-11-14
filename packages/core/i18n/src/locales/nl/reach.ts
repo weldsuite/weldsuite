@@ -1,5 +1,5 @@
 /**
- * WeldReach — koude e-mailoutreach (alleen op aanvraag). Zie docs/plans/weldreach.md.
+ * WeldReach — koude e-mailoutreach (alleen op aanvraag). Zie weldsuite-documentation/plans/weldreach.md.
  *
  * Zelfde indeling als `en/reach.ts`: houd de sleutels in beide bestanden gelijk.
  */

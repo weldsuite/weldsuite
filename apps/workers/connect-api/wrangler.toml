@@ -1,6 +1,6 @@
 # WeldSuite connect-api worker — the connect module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   connect-api.weldsuite.org        production
 #   connect-api-test.weldsuite.org   test

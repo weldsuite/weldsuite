@@ -97,7 +97,7 @@ export const hrPayrollEmployerBankSchema = z.object({
 
 /**
  * A payroll employer is a payroll registration of a legal entity
- * (docs/plans/legal-entities.md). Name, legal name, country, currency and
+ * (weldsuite-documentation/plans/legal-entities.md). Name, legal name, country, currency and
  * address come from the entity; send them only for a workspace without legal
  * entities (the pre-entity shape, still accepted in release 1).
  */

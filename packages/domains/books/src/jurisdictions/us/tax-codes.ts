@@ -1,6 +1,6 @@
 /**
  * WeldBooks product tax codes and their mapping to each tax provider's codes
- * (docs/plans/weldbooks-us.md §6).
+ * (weldsuite-documentation/plans/weldbooks-us.md §6).
  *
  * Products store a WeldBooks code in `products.tax_class` and invoice and bill
  * lines in `tax_code`. The manual engine keys its taxability rules on the

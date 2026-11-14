@@ -3,7 +3,7 @@
 //
 // Sign-in state comes from the auth facade, which is Clerk on WeldSuite cloud
 // and the server's OIDC provider on EU and self-hosted servers (ADR MOB-006,
-// docs/plans/mobile-server-choice.md). Clerk-only files (passkeys, …) are
+// weldsuite-documentation/plans/mobile-server-choice.md). Clerk-only files (passkeys, …) are
 // passed as `ignores` and render inside <ClerkOnly>.
 
 /** @param {string[]} [ignores] Clerk-only files of the app, relative to it. */

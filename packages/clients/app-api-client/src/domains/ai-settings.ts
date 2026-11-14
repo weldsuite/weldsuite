@@ -1,6 +1,6 @@
 /**
  * App-API AI settings domain client: `/api/ai-settings/*` (Rust backend, the
- * Kubernetes editions; plan docs/plans/eu-ai-mistral.md).
+ * Kubernetes editions; plan weldsuite-documentation/plans/eu-ai-mistral.md).
  */
 
 import type { ClientApi, DataResponse } from '../types';

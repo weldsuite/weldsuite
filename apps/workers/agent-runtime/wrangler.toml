@@ -3,7 +3,7 @@
 # sandbox per workspace. Primary path: the `AgentRuntimeInternal` entrypoint
 # (src/index.ts), bound as AGENT_RUNTIME in those workers: reachable only over a
 # service binding, so no secret. Fallback: public URL + INTERNAL_API_SECRET bearer,
-# until every env has the binding (docs/plans/app-api-module-split.md, item 7).
+# until every env has the binding (weldsuite-documentation/plans/app-api-module-split.md, item 7).
 #
 # Secrets (wrangler secret put):
 # - INTERNAL_API_SECRET (fallback bearer; must match agent-api / chat-api)

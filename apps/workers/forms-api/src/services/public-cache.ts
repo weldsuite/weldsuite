@@ -1,6 +1,6 @@
 /**
  * The published form as respondents get it, cached so that opening a form
- * never opens the tenant database (docs/plans/weldforms.md, "Published forms
+ * never opens the tenant database (weldsuite-documentation/plans/weldforms.md, "Published forms
  * are cached"). KV on Global (`WORKSPACE_CACHE`, key `forms:public:<publicId>`),
  * Valkey on Kubernetes.
  *

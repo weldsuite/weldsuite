@@ -26,7 +26,7 @@ export interface Env extends KitEnv {
   SEND_EMAIL?: SendEmail;
   /** Migration switch: "resend" sends through Resend instead of Cloudflare.
    *  Flip to "cloudflare" (or unset) once mail.weldsuite.org is onboarded
-   *  (docs/plans/system-email-cloudflare.md, Phase 0). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md, Phase 0). */
   EMAIL_TRANSPORT?: string;
   /** Resend API key — the fallback transport while EMAIL_TRANSPORT="resend". */
   RESEND_API_KEY?: string;

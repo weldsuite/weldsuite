@@ -1275,7 +1275,7 @@ export const mail = {
     },
 
     // Uitgaande-mailbewaking: waarom een verzending is geweigerd, de banner zolang
-    // verzenden beperkt is (docs/plans/weldmail-outbound-abuse.md).
+    // verzenden beperkt is (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
     sending: {
       errors: {
         sendingLimited: {

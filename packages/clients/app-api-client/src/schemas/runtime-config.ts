@@ -6,7 +6,7 @@
  *
  * Shared by the platform (`apps/web/platform/lib/runtime-config.ts`, which
  * documents every field) and the mobile apps
- * (`@weldsuite/mobile-platform`, docs/plans/mobile-server-choice.md), so both
+ * (`@weldsuite/mobile-platform`, weldsuite-documentation/plans/mobile-server-choice.md), so both
  * read the same document the same way. Every field is optional and unknown
  * fields are ignored, so the backend can grow it without a client release.
  * Zod v3.

@@ -11,7 +11,7 @@
  * `script_name`, so it also runs under local `wrangler dev` instead of
  * 503-ing on a missing cross-script binding. app-api keeps its old
  * `send-scheduled-email-v2*` names and re-exports this class only while their
- * in-flight instances drain (docs/plans/app-api-module-split.md, "Workflows
+ * in-flight instances drain (weldsuite-documentation/plans/app-api-module-split.md, "Workflows
  * draining in app-api").
  */
 
@@ -218,7 +218,7 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
     const { message, account } = loaded;
     const recipients = recipientsOf(message);
 
-    // ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) -----------
+    // ---- Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md) -----------
     // The guard call stays exactly as it was (design task D1): only
     // `mailStoreMode` is new, so the workspace's `MailIndex` can answer first
     // contacts authoritatively once the workspace is `object-only`.

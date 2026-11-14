@@ -2,7 +2,7 @@
  * Pure rules shared by the Postgres store and the mailbox object, so both
  * agree on what a label change means, which folders a message belongs to,
  * and how a mail rule's conditions and actions evaluate
- * (docs/plans/weldmail-mailbox-store-design.md §2, §3.2). No I/O, no
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md §2, §3.2). No I/O, no
  * Cloudflare APIs: this file runs inside the object and inside a worker
  * alike.
  *

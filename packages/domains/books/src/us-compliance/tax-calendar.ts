@@ -7,7 +7,7 @@
  * Every deadline has a stable `key` (`f1120s:2026`, `sales_tax:<agencyId>:2026-09-30`,
  * `1099_nec_recipient:2026`) that the tax_calendar_completions table keys on.
  *
- * Rules (docs/plans/weldbooks-us-research/federal.md sections 3, 5, 7, 8):
+ * Rules (weldsuite-documentation/plans/weldbooks-us-research/federal.md sections 3, 5, 7, 8):
  * - Schedule C / Form 1040: 15 April; Form 4868 extends to 15 October.
  * - Forms 1065 and 1120-S: 15th day of the 3rd month after year end; Form 7004
  *   extends by 6 months.

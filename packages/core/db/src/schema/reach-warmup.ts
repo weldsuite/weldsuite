@@ -13,7 +13,7 @@
  *
  * Mailbox logins are sealed with WELDREACH_WARMUP_KEY (not the tenant
  * DATABASE_ENCRYPTION_KEY) and never leave the warmup worker and reach-api.
- * See docs/plans/weldreach-warmup.md.
+ * See weldsuite-documentation/plans/weldreach-warmup.md.
  */
 
 import {

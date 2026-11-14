@@ -14,7 +14,7 @@
  * review queueing, cases and alerts.
  *
  * Counts are recipients, not messages: Cloudflare counts envelopes.
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import {

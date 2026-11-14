@@ -1,5 +1,5 @@
 /**
- * WeldReach hooks into WeldHost (docs/plans/weldreach.md, "WeldHost side").
+ * WeldReach hooks into WeldHost (weldsuite-documentation/plans/weldreach.md, "WeldHost side").
  *
  * A WeldHost domain is "connected to WeldReach" while its tenant database has a
  * `reach_domains` row with `host_domain_id = domains.id` whose status is not

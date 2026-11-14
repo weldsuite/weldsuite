@@ -41,10 +41,11 @@ a rule. The `weldsuite-docs` skill finds, reads and updates them.
 **This repository is public. Never commit plans, design notes, ADRs,
 investigation write-ups, digests or any other internal documentation here**:
 they go to `weldsuite-documentation`. That includes `docs/` and `.claude/` in
-this repo; the plans already in `docs/` predate this rule, so don't add to
-them or create new ones. What belongs here is code, READMEs that explain how to
-use or run the code, and the agent setup (`AGENTS.md`, `.claude/agents`,
-commands, skills).
+this repo. Plans live in that repo's `plans/` folder (the ones this repo used
+to keep in `docs/` moved there); a comment that names
+`weldsuite-documentation/plans/<file>.md` points at one. What belongs here is
+code, READMEs that explain how to use or run the code, and the agent setup
+(`AGENTS.md`, `.claude/agents`, commands, skills).
 
 ## Modules
 

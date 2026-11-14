@@ -4,7 +4,7 @@
  * the shared constants (limits, labels, consumer domains, rendering helpers)
  * every side has to agree on.
  *
- * See docs/plans/weldreach.md.
+ * See weldsuite-documentation/plans/weldreach.md.
  */
 
 import { z } from 'zod';
@@ -26,7 +26,7 @@ export const WELDREACH_TERMS = [
   'lawful_lists',
   'suspension',
   'responsible_for_content',
-  // Added with the WeldSuite warmup network (docs/plans/weldreach-warmup.md).
+  // Added with the WeldSuite warmup network (weldsuite-documentation/plans/weldreach-warmup.md).
   'warmup_network',
 ] as const;
 export type WeldReachTermKey = (typeof WELDREACH_TERMS)[number];

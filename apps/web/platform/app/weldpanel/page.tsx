@@ -16,7 +16,7 @@ import { ProjectKindBadge, ProjectStatusBadge } from './components/project-badge
 import { pickProject, readLastProjectId, writeLastProjectId } from './lib/last-project';
 
 /**
- * WeldPanel home. Phase 1 of docs/plans/weldpanel.md (collect): without a
+ * WeldPanel home. Phase 1 of weldsuite-documentation/plans/weldpanel.md (collect): without a
  * project it offers to create one; with projects it shows the installation
  * status of the one picked (the last one used in this workspace). The Overview
  * dashboard with traffic numbers replaces the status card in phase 2.

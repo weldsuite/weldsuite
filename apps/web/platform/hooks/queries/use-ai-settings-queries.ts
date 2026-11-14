@@ -1,5 +1,5 @@
 /**
- * Workspace AI settings (Kubernetes editions, plan docs/plans/eu-ai-mistral.md):
+ * Workspace AI settings (Kubernetes editions, plan weldsuite-documentation/plans/eu-ai-mistral.md):
  * the effective policy, own provider keys and usage. `GET /api/ai-settings` is
  * also the source of every model picker on those installs, so the hooks are
  * disabled where `/config.json` has no `ai` block (Global has no such route).

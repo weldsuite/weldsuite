@@ -4,7 +4,7 @@
  * JSONB blobs and into the real columns added by migration 0169 (plus `files`
  * rows for attachments).
  *
- * See docs/custom-fields-blob-extraction.md. `custom_field_values` is for
+ * See weldsuite-documentation/plans/custom-fields-blob-extraction.md. `custom_field_values` is for
  * user-created fields only; anything that is a product feature gets a real
  * column. These keys were never migrated by the Phase 2 backfill (they have no
  * `custom_field_definitions` row) and would be destroyed by the Phase 4 drop.

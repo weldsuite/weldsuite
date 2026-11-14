@@ -6,7 +6,7 @@ import { z } from 'zod';
 // and the platform's slug settings card.
 //
 // A slug names its workspace in platform URLs (`/{slug}/weldcrm/…`, see
-// docs/plans/workspace-slug-first-urls.md), in help-center and booking
+// weldsuite-documentation/plans/workspace-slug-first-urls.md), in help-center and booking
 // subdomains, and in `{slug}.weldmail.com`. So it must never be a word the
 // platform itself uses at the root of a URL.
 // ============================================================================

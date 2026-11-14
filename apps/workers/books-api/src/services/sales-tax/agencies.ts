@@ -1,5 +1,5 @@
 /**
- * Sales tax agencies (docs/plans/weldbooks-us.md §5): one row per state, plus
+ * Sales tax agencies (weldsuite-documentation/plans/weldbooks-us.md §5): one row per state, plus
  * self-administered local agencies (Colorado home-rule cities and the like).
  *
  * Registering an agency creates its two child liability accounts, "Sales Tax

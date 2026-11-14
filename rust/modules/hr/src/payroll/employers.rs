@@ -350,7 +350,7 @@ pub(crate) async fn get_employer(
         .remove(0))
 }
 
-// ── legal entity, registration and bank account (docs/plans/legal-entities.md) ──
+// ── legal entity, registration and bank account (weldsuite-documentation/plans/legal-entities.md) ──
 
 /// `viaCore(work)`: core errors (unknown entity, bad number…) answer as
 /// WeldHR ones.

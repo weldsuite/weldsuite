@@ -1,6 +1,6 @@
 /**
  * Guard: every source file that hands user-written mail to Cloudflare must go
- * through the outbound guard (docs/plans/weldmail-outbound-abuse.md). A new
+ * through the outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md). A new
  * send path that skips it fails here instead of quietly bypassing the limits.
  *
  * "Hands mail to Cloudflare" = calls `sendEmail` from @weldsuite/worker-email

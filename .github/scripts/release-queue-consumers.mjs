@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Before a module API worker deploys, release the queues it consumes from
- * app-api (docs/plans/app-api-module-split.md).
+ * app-api (weldsuite-documentation/plans/app-api-module-split.md).
  *
  *   node .github/scripts/release-queue-consumers.mjs <worker> <test|production> [--dry]
  *

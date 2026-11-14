@@ -25,7 +25,7 @@ export interface Env extends KitEnv {
    *  Hosted in this worker (class re-exported from src/index.ts,
    *  @weldsuite/chat-domain) under the `unpin-expired-message-v3*` names —
    *  app-api's old `unpin-expired-message-v2*` names keep draining
-   *  (docs/plans/app-api-module-split.md). Dispatched from the
+   *  (weldsuite-documentation/plans/app-api-module-split.md). Dispatched from the
    *  routes/chat-messages pin endpoints with the messageId as instance id so
    *  manual unpin can abort it. */
   UNPIN_EXPIRED_MESSAGE?: Workflow<{
@@ -59,7 +59,7 @@ export interface Env extends KitEnv {
   /** Migration switch: `resend` sends system email through Resend instead of
    *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
    *  together with Resend at the end of the migration
-   *  (docs/plans/system-email-cloudflare.md). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md). */
   EMAIL_TRANSPORT?: string;
   /** Cloudflare `[[send_email]]` binding — the notification email channel. */
   SEND_EMAIL?: SendEmail;

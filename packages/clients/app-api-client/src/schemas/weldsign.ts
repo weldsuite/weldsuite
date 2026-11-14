@@ -2,7 +2,7 @@
  * WeldSign — the contract between sign-api and the platform. Zod v3.
  *
  * An envelope is one signing request: PDFs, the people on it and the fields
- * they fill in. Phase 1 (docs/plans/weldsign.md) covers drafts: create, upload
+ * they fill in. Phase 1 (weldsuite-documentation/plans/weldsign.md) covers drafts: create, upload
  * documents, add recipients, place fields, list. Sending, the signer portal
  * and templates build on the same shapes.
  *

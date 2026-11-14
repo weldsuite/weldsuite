@@ -15,7 +15,7 @@
  *    the callers' path.
  *  - The public `/api/integrations` mount, reached through app-api's forwarder:
  *    authenticates with an `X-Internal-Secret` header. It stays until every
- *    caller uses the entrypoint (docs/plans/app-api-module-split.md, item 7).
+ *    caller uses the entrypoint (weldsuite-documentation/plans/app-api-module-split.md, item 7).
  *
  * The public mount MUST sit at `/api/integrations` BEFORE the global
  * `app.use('/api/*', clerkMiddleware(), ...)` guard. When a request carries no

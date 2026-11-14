@@ -1,6 +1,6 @@
 # Bank Statement Samples
 
-Test fixtures for the WeldBooks bank-statement importer (`apps/api-worker/src/services/bank-parsers/`). Upload any of these at `/weldbooks/banking/import` to exercise the full import + auto-reconcile flow.
+Test fixtures for the WeldBooks bank-statement importer (the parsers in [`bank-parsers/`](../)). Upload any of these at `/weldbooks/banking/import` to exercise the full import + auto-reconcile flow.
 
 All samples cover the same 7-transaction week of April 2026 against account `NL91ABNA0417164300` (EUR). If your entity has invoices numbered `INV-0001` / `INV-0002`, auto-reconcile will match them against the two incoming payments automatically.
 

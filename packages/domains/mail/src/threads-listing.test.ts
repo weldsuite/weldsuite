@@ -11,7 +11,7 @@
  * - the stats endpoint has a number for every folder badge (TASK-908);
  * - snoozed mail comes back when its time has passed (TASK-931);
  * - the list returns lean messages, no bodies (phase 1 item 1),
- *   docs/plans/weldmail-mailbox-storage.md;
+ *   weldsuite-documentation/plans/weldmail-mailbox-storage.md;
  * - a scheduled message past its send time is left alone until
  *   `SendScheduledEmailWorkflow` actually sends it — a read must never guess
  *   (bug fix, weldmail-mailbox-store-design.md "Where the plan or ADR is

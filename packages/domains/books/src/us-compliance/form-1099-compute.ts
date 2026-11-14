@@ -2,7 +2,7 @@
  * Yearly 1099-NEC / 1099-MISC computation, cash basis: what each vendor was
  * paid in a calendar year, by box, checked against the thresholds of that year.
  *
- * Rules (docs/plans/weldbooks-us.md section 8):
+ * Rules (weldsuite-documentation/plans/weldbooks-us.md section 8):
  * - Only payments dated in the tax year count (cash basis).
  * - Payments by credit card, debit card or a third-party network, and payments
  *   from a credit-card account, are left out: those payees get a 1099-K from

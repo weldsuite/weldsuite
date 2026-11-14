@@ -3,7 +3,7 @@
  * mail-body key always passes through before it's trusted. Covers the
  * existing `workspaces/<id>/` prefix (regression) and the new `mail/<id>/`
  * prefix added for message bodies and raw MIME in R2
- * (docs/plans/weldmail-mailbox-store-design.md decision 4).
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4).
  */
 
 import { describe, it, expect } from 'vitest';

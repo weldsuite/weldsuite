@@ -1,6 +1,6 @@
 /**
  * What a record card shows: a WeldSuite record's title, a short subtitle and
- * its status, for the cards on a board (docs/plans/weldboard.md, records).
+ * its status, for the cards on a board (weldsuite-documentation/plans/weldboard.md, records).
  *
  * A card only names a record; who may see what it says is the record's own
  * rule, applied here for each viewer: the permission global search uses for

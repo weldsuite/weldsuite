@@ -1,6 +1,6 @@
 /**
  * Submitting a response: the one path both the public portal and the
- * members-only fill page take (docs/plans/weldforms.md, "Submitting and
+ * members-only fill page take (weldsuite-documentation/plans/weldforms.md, "Submitting and
  * ProcessResponse"). forms-api never trusts the browser's path: the engine
  * replays the logic over the submitted answers, drops answers to blocks that are
  * not on the path, checks the required fields that are, recomputes the variables

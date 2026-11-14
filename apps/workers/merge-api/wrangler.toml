@@ -1,6 +1,6 @@
 # WeldSuite merge-api worker — the merge module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   merge-api.weldsuite.org        production
 #   merge-api-test.weldsuite.org   test
@@ -91,7 +91,7 @@ remote = true
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): mail-api's Durable
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): mail-api's Durable
 # Objects, bound by name. OUTBOUND_BACKSTOP is the per-sender burst limit the
 # guard falls back on when the ledger can't be reached; its namespace is shared
 # with the other sending workers on purpose.
@@ -146,7 +146,7 @@ service = "weldsuite-realtime-test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -212,7 +212,7 @@ service = "weldsuite-realtime-production"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"

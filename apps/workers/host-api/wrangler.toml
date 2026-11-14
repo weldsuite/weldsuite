@@ -1,6 +1,6 @@
 # WeldSuite host-api worker — the host module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   host-api.weldsuite.org        production
 #   host-api-test.weldsuite.org   test
@@ -40,7 +40,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 # Customer DNS zones go to the DNS sandbox D1 below, never to Cloudflare
-# (@weldsuite/cloudflare-zones/sandbox, docs/plans/weldhost-test-environment.md).
+# (@weldsuite/cloudflare-zones/sandbox, weldsuite-documentation/plans/weldhost-test-environment.md).
 WELDHOST_DNS_MODE = "sandbox"
 
 [[kv_namespaces]]

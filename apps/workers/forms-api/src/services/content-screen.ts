@@ -1,5 +1,5 @@
 /**
- * The publish-time content screen (docs/plans/weldforms.md, "Bot checks and
+ * The publish-time content screen (weldsuite-documentation/plans/weldforms.md, "Bot checks and
  * abuse"): a synchronous, cheap check for forms that look like phishing. A form
  * that trips it still publishes, but is held for staff review
  * (`form_link_registry.held_at`): respondents see "no longer available" until

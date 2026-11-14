@@ -25,7 +25,7 @@
  * prefetch here is skipped once its query key already has cached data, so a
  * click deeper in the route only warms what isn't warm yet.
  *
- * docs/plans/weldmail-mailbox-storage.md, phase 1 item 7.
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 1 item 7.
  */
 
 import type { QueryClient } from '@tanstack/react-query';

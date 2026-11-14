@@ -1,6 +1,6 @@
 # WeldSuite commerce-api worker — the commerce module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   commerce-api.weldsuite.org        production
 #   commerce-api-test.weldsuite.org   test

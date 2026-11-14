@@ -87,7 +87,7 @@ interface CachedWorkspace {
   /**
    * Licensed app codes, null = unrestricted. Absent on entries cached before it
    * was added, read as null. Only partner-managed workspaces carry one
-   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
+   * (weldsuite-documentation/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
    */
   licensedApps?: string[] | null;
   /**

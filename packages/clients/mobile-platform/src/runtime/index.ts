@@ -13,7 +13,7 @@
  * getMobileRuntime().apiOrigin
  * ```
  *
- * See docs/plans/mobile-server-choice.md and ADR MOB-006.
+ * See weldsuite-documentation/plans/mobile-server-choice.md and ADR MOB-006.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';

@@ -2,7 +2,7 @@
 # sources, operators and the ingress, the encrypted secrets, Postgres and the
 # issuer (with the MTA's database after it, configs-extra), the services, and
 # the weldsuite server, with video (LiveKit) next to it, and the monitoring
-# and logging layers (docs/plans/eu-observability.md). Copy clusters/example
+# and logging layers (weldsuite-documentation/plans/eu-observability.md). Copy clusters/example
 # to clusters/<your cluster> and change the paths below that name example.
 #
 # One source: GitRepository flux-system, your copy of this repository (a fork

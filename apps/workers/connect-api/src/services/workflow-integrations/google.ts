@@ -4,7 +4,7 @@
  * (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) but connect as three separate
  * `workflow_integrations` rows (one per product), each requesting only the
  * scopes its own action needs. See "Provider pattern" in
- * docs/plans/weldconnect.md.
+ * weldsuite-documentation/plans/weldconnect.md.
  *
  * No Drive scope is requested anywhere here: it would add Drive's own
  * (restricted-tier) scopes to the OAuth consent screen for a feature — a

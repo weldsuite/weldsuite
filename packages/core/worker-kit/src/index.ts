@@ -4,7 +4,7 @@
  * auth → tenant DB → feature-flag chain, CORS, response helpers and ids.
  *
  * Keep module code out of this package. Anything in here redeploys every API
- * worker when it changes (docs/plans/app-api-module-split.md).
+ * worker when it changes (weldsuite-documentation/plans/app-api-module-split.md).
  */
 
 export { apiAuth, createModuleApi, ensurePermissionMiddleware, type ModuleApiOptions } from './app';

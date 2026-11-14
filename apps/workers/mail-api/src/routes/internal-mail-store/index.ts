@@ -14,7 +14,7 @@
  *   GET  /internal/mail-store/status/all   ?workspaceId=
  *   GET  /internal/mail-store/export       ?workspaceId=&accountId=&cursor=&limit=&sentOnly=&since=&until=
  *
- * `export` (task E2, docs/plans/weldmail-mailbox-store-design.md §9) is the
+ * `export` (task E2, weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9) is the
  * one read-only addition this task makes: it pages the object's own
  * `exportPage` RPC directly (every row, ordered by `id`, no bodies — the
  * object has none to give), the only way `apps/tools/outbound-audit` (which

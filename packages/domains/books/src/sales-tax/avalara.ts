@@ -1,5 +1,5 @@
 /**
- * Avalara AvaTax engine (docs/plans/weldbooks-us.md §3, phase 3.2).
+ * Avalara AvaTax engine (weldsuite-documentation/plans/weldbooks-us.md §3, phase 3.2).
  *
  * The customer's own account id and license key (HTTP Basic). `calculate`
  * creates a temporary SalesOrder (PurchaseOrder for use tax); `commit` records

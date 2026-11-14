@@ -2,7 +2,7 @@
  * Cloudflare Email Sending events → a Queue, one Queues event subscription per
  * sending domain (Cloudflare scopes these per domain). WeldMail's outbound
  * guard consumes them for bounce and complaint rates and suppressions
- * (docs/plans/weldmail-outbound-abuse.md).
+ * (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
  * Official SDK, tree-shakable client with only the subscriptions resource.
  * SDK 7.0.0 predates the Email Sending event source, so its `source` union

@@ -9,7 +9,7 @@
  * instantiate a workflow.
  *
  * `DurableObject` was added for the mailbox-store object-mode tests
- * (docs/plans/weldmail-mailbox-store-design.md, task D7): crm-api's own
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7): crm-api's own
  * mail-store fakes (`@weldsuite/mail-domain/store/object/testing/fake-env`)
  * transitively import `MailboxStoreObject extends DurableObject`. This
  * worker doesn't define its own Durable Object, but `cloudflare:workers`

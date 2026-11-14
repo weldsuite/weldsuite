@@ -1,6 +1,6 @@
 # WeldSuite calendar-api worker — the calendar module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   calendar-api.weldsuite.org        production
 #   calendar-api-test.weldsuite.org   test
@@ -21,7 +21,7 @@
 #   GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
 #     outbound sync: token refresh before pushing an event to Google)
 #
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every batch of
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): every batch of
 # attendee mail is checked against the workspace's OutboundLedger (source
 # `calendar`). OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's Durable
 # Objects bound by name; OUTBOUND_BACKSTOP is the burst limit used when the
@@ -30,7 +30,7 @@
 # Calendar attendee mail (services/calendar-mail.ts) goes through
 # @weldsuite/emails. EMAIL_TRANSPORT="cloudflare" sends through Cloudflare
 # Email Service; "resend" is the rollback until Resend is removed
-# (docs/plans/system-email-cloudflare.md).
+# (weldsuite-documentation/plans/system-email-cloudflare.md).
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-calendar-api-dev"
@@ -84,7 +84,7 @@ remote = true
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every batch of
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): every batch of
 # calendar invitations is checked against the workspace's OutboundLedger, a
 # Durable Object hosted by mail-api and bound here by name. OUTBOUND_BACKSTOP is
 # the per-sender burst limit the guard falls back on when the ledger can't be
@@ -123,7 +123,7 @@ routes = [
 ENVIRONMENT = "test"
 # On Cloudflare Email Service (mail.weldsuite.org).
 # Set back to "resend" to fall back without a code change
-# (docs/plans/system-email-cloudflare.md).
+# (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.send_email]]
@@ -132,7 +132,7 @@ name = "SEND_EMAIL"
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 # Outbound mail guard (test): mail-api's Durable Objects and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -191,7 +191,7 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.send_email]]
@@ -200,7 +200,7 @@ name = "SEND_EMAIL"
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 # Outbound mail guard (production): mail-api's Durable Objects and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"

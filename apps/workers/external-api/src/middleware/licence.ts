@@ -1,6 +1,6 @@
 /**
  * App licence and read-only checks for the public API. A partner-managed
- * workspace (docs/plans/reseller-licensing.md) carries a licence listing the
+ * workspace (weldsuite-documentation/plans/reseller-licensing.md) carries a licence listing the
  * apps it may use; a call into a module none of them reads is rejected with
  * 403 APP_NOT_LICENSED. Uses the same module table as the first-party workers'
  * `licenceGate()` (`@weldsuite/api-modules`), mapping `/v1/<object>` onto its

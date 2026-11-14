@@ -67,7 +67,7 @@ tag = "v4"
 new_classes = ["DocumentRoom"]
 
 # WeldFlow's whiteboards became WeldBoard boards, co-edited in board-api's
-# BoardRoom (docs/plans/weldboard.md). WhiteboardRoom only relayed cursors
+# BoardRoom (weldsuite-documentation/plans/weldboard.md). WhiteboardRoom only relayed cursors
 # and saves; it kept nothing, so deleting it loses no data.
 [[migrations]]
 tag = "v5"

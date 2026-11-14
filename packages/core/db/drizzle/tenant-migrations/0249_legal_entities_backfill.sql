@@ -1,4 +1,4 @@
--- Legal entities, release 1: data backfill (docs/plans/legal-entities.md,
+-- Legal entities, release 1: data backfill (weldsuite-documentation/plans/legal-entities.md,
 -- "Release 1 (expand)"). Deterministic copies with ids derived from their
 -- source rows, so the statements are safe to run again. What SQL cannot do
 -- (decrypting bank details, merging the workspace business profile) is done

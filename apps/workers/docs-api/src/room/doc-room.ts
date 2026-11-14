@@ -1,6 +1,6 @@
 /**
  * DocRoom: one Durable Object per document (named `${workspaceId}:${docId}`),
- * the single place a document's edits are ordered (docs/plans/welddocs.md).
+ * the single place a document's edits are ordered (weldsuite-documentation/plans/welddocs.md).
  *
  * The co-editing logic is `RoomCore` from @weldsuite/collab, run on the docs
  * engine's adapter; this class gives it sockets and persistence:

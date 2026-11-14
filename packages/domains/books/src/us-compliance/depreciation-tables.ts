@@ -11,7 +11,7 @@
  *
  * The section 179, bonus depreciation and de minimis figures are data keyed by
  * date. Rows marked "research" come from
- * docs/plans/weldbooks-us-research/federal.md; the others are from the statute
+ * weldsuite-documentation/plans/weldbooks-us-research/federal.md; the others are from the statute
  * and revenue procedures as remembered and have not been re-verified here.
  * Review them every December with the other yearly figures.
  */

@@ -11,7 +11,7 @@
  * `panel_project_registry` (weldpanel-registry.ts), which panel-api keeps in
  * step with `panel_projects`.
  *
- * See docs/plans/weldpanel.md.
+ * See weldsuite-documentation/plans/weldpanel.md.
  */
 
 import { pgTable, varchar, text, timestamp, boolean, integer, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';

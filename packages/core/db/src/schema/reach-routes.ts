@@ -9,7 +9,7 @@
  *
  * It also drives the daily Mailpool slot reconciliation: the active
  * `mailpool_mailbox` rows per `mailbox_type` are what WeldSuite's Mailpool
- * account should be paying slots for. See docs/plans/weldreach.md.
+ * account should be paying slots for. See weldsuite-documentation/plans/weldreach.md.
  */
 
 import { pgTable, varchar, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';

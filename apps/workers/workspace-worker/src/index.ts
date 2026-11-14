@@ -87,7 +87,7 @@ export interface Env {
   SEND_EMAIL?: SendEmail;
   // Migration switch: `resend` sends through Resend instead of the SEND_EMAIL
   // binding. Removed together with Resend at the end of the migration
-  // (docs/plans/system-email-cloudflare.md).
+  // (weldsuite-documentation/plans/system-email-cloudflare.md).
   EMAIL_TRANSPORT?: string;
   // Resend API key — the migration-window fallback for the invitation email.
   RESEND_API_KEY?: string;
@@ -95,7 +95,7 @@ export interface Env {
   // shown in the email when Clerk doesn't return a ticket URL.
   APP_URL?: string;
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D8) ---
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D8) ---
   // One SQLite Durable Object per mailbox and one per workspace, both owned
   // and hosted by mail-api; reached here by `script_name` only to destroy a
   // deleted workspace's mail held outside Postgres

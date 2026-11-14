@@ -1,6 +1,6 @@
 /**
  * 1099 filings: one filing per form type and tax year of an entity, one line
- * per recipient (docs/plans/weldbooks-us.md section 8).
+ * per recipient (weldsuite-documentation/plans/weldbooks-us.md section 8).
  *
  *   draft      lines follow the yearly computation; manual adjustments (with a
  *              reason), manual exclusions and state fields are kept on refresh

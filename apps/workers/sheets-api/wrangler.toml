@@ -1,6 +1,6 @@
 # WeldSuite sheets-api worker — WeldSheets' API and spreadsheet rooms.
 #
-# A module worker (docs/plans/app-api-module-split.md); app-api forwards
+# A module worker (weldsuite-documentation/plans/app-api-module-split.md); app-api forwards
 # /api/sheets here for clients that still call it. Hosts:
 #   sheets-api.weldsuite.org        production
 #   sheets-api-test.weldsuite.org   test

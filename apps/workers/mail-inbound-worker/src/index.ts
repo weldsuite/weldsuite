@@ -47,7 +47,7 @@ export interface Env {
   STORAGE: R2Bucket;
   /**
    * EU-jurisdiction R2 bucket for raw MIME and bodies
-   * (docs/plans/weldmail-mailbox-store-design.md decision 7). Required, not
+   * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 7). Required, not
    * optional: `getWorkspaceMail`'s env type (`@weldsuite/mail-domain/store`)
    * declares it non-optional even though it goes unused while every
    * workspace resolves to `postgres` mode — a deploy-time prerequisite

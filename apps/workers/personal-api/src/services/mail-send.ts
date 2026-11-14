@@ -13,7 +13,7 @@
  * `personal:<accountId>`) wraps the transmit: it checks sender ownership and
  * the personal plan's recipient limits before anything goes out and counts what
  * did. The personal DB has no correspondents table, so it runs without a tenant
- * DB (no first-contact tracking). docs/plans/weldmail-outbound-abuse.md.
+ * DB (no first-contact tracking). weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';

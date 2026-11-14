@@ -13,7 +13,7 @@ export const featureFlagsResponseSchema = z.object({
   'upgrade-button': z.boolean(),
   /** WeldFlow "Move to project" action (task list row + detail panel). */
   'weldflow-move-task': z.boolean(),
-  /** WeldHR payroll screens (docs/plans/weldhr-payroll.md). */
+  /** WeldHR payroll screens (weldsuite-documentation/plans/weldhr-payroll.md). */
   'weldhr-payroll': z.boolean(),
   /** Sending the Dutch loonaangifte over Digipoort. */
   'weldhr-payroll-digipoort': z.boolean(),

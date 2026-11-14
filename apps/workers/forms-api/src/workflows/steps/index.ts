@@ -1,5 +1,5 @@
 /**
- * The ordered steps of ProcessResponse (docs/plans/weldforms.md, "Submitting and
+ * The ordered steps of ProcessResponse (weldsuite-documentation/plans/weldforms.md, "Submitting and
  * ProcessResponse"). One idempotent step per enabled integration, then
  * notifications and the receipt email.
  *

@@ -1,5 +1,5 @@
 /**
- * Core legal entities (docs/plans/legal-entities.md): the companies of a
+ * Core legal entities (weldsuite-documentation/plans/legal-entities.md): the companies of a
  * workspace, their registrations and bank accounts. Pure functions over the
  * tenant DB; app-api's `/api/legal-entities` routes, books-api and hr-api
  * call them.

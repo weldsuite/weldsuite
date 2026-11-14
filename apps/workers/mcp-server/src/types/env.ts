@@ -97,7 +97,7 @@ export interface Env {
   /** Cloudflare Flagship: the `weldreach-sending` kill switch `GET /v1/reach/access` reports, and (shared with the mailbox store) `resolveMailStoreMode`'s per-workspace flag. Unset: both default to their "off"/`postgres` behaviour. */
   FLAGSHIP?: FlagshipBinding;
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) --------
   // Read by `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
   // (`src/api/lib/mail-store-context.ts`). Unset ⇒ `resolveMailStoreMode`
   // treats every workspace as `postgres`, so these three go unread until

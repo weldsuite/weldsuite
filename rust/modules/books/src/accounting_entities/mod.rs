@@ -6,7 +6,7 @@
 //! tax lines on their accounts; lock dates and their exceptions are set here
 //! (the posting engine enforces them), and so is the documents' numbering.
 //!
-//! The company itself is a core legal entity (docs/plans/legal-entities.md):
+//! The company itself is a core legal entity (weldsuite-documentation/plans/legal-entities.md):
 //! the list shows the entities the member sees that WeldBooks is enabled for
 //! (an `accounting_entity_settings` row), `POST` with `legalEntityId` enables
 //! WeldBooks for an existing one (with `entities:create` in the member's role

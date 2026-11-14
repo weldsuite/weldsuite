@@ -13,7 +13,7 @@ import { files } from './files';
  *
  * Documents from before WeldDocs keep their BlockNote block JSON in `content`
  * (flow-api `/api/documents`, which refuses to write to a WeldDocs row); phase
- * 8 of docs/plans/welddocs.md converts them. docx/pdf are derived on demand,
+ * 8 of weldsuite-documentation/plans/welddocs.md converts them. docx/pdf are derived on demand,
  * never the source of truth. `yjsState` was reserved for a Yjs design that
  * was not built and stays null.
  *

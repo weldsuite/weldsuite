@@ -1,7 +1,7 @@
 /**
  * Economic nexus rules per state, versioned by effective date.
  *
- * Seeded from docs/plans/weldbooks-us-research/sales-tax.md section 2.3
+ * Seeded from weldsuite-documentation/plans/weldbooks-us-research/sales-tax.md section 2.3
  * (Sales Tax Institute chart "as of 8/1/2026", updated for the Illinois,
  * Kentucky and Utah changes in section 2.2). Every number below is a row of
  * that table. Where the research could not settle a cell it is listed in

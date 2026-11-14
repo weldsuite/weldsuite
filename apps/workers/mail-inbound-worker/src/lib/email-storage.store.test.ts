@@ -1,5 +1,5 @@
 /**
- * `storeEmail` through the mailbox store (docs/plans/weldmail-mailbox-store-design.md
+ * `storeEmail` through the mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md
  * task D4): object-mode ingest via the C2 fakes (threading, idempotent
  * redelivery, bodies in R2 exactly once), the pure mail-rule/AI-label fold
  * into `inbound.finalize`, and the entity-event publish gating by

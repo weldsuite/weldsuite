@@ -2,7 +2,7 @@
  * Vendor tax data on /api/accounting-contacts (pglite): the TIN and the ACH
  * account number are write-only, encrypted, revealed only with tax_ids:reveal
  * (and logged), and a change to the bank details puts a verification hold on
- * the vendor. docs/plans/weldbooks-us.md section 8.
+ * the vendor. weldsuite-documentation/plans/weldbooks-us.md section 8.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
