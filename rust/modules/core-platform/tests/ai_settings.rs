@@ -451,12 +451,19 @@ async fn settings_keys_events_and_the_owners_email_on_the_real_schema() {
     assert_eq!(refused["error"]["code"], "AI_KEY_REJECTED");
     assert!(!text.contains("sk-ant-wrong"));
 
-    // Testing the key again, and without one.
+    // Testing the key again; a provider this install doesn't offer own keys
+    // for (only Anthropic is opted in here) is refused before any lookup.
     let (status, tested, _) = call(&admin.app, "POST", "/keys/anthropic/test", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(tested["data"]["status"], "ok");
-    let (status, _, _) = call(&admin.app, "POST", "/keys/openai/test", None).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, refused, _) = call(&admin.app, "POST", "/keys/openai/test", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("does not allow your own")),
+        "{refused}"
+    );
 
     // Overrides: fixed features and disabled providers are refused, an
     // enabled provider's model is accepted and shows as the feature's target.
@@ -514,6 +521,9 @@ async fn settings_keys_events_and_the_owners_email_on_the_real_schema() {
     let (status, _, _) = call(&admin.app, "DELETE", "/keys/anthropic", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let (status, _, _) = call(&admin.app, "DELETE", "/keys/anthropic", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // And with no key stored, testing it is a 404 too.
+    let (status, _, _) = call(&admin.app, "POST", "/keys/anthropic/test", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Usage: two months, the current one first.
