@@ -261,6 +261,7 @@ fn ok_or_error(answer: Value) -> Result<Value, String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

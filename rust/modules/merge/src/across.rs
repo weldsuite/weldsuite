@@ -691,6 +691,7 @@ pub async fn workflow_action(state: &MergeState, envelope: Value) -> Result<Valu
 /// # Errors
 ///
 /// The refusal message, or a database failure as `Internal server error`.
+#[allow(clippy::too_many_arguments)] // the envelope's fields, as the worker takes them
 pub async fn agent_tool(
     state: &MergeState,
     db: &PgPool,
@@ -716,12 +717,9 @@ pub async fn agent_tool(
         "Internal server error".to_owned()
     };
     for (permission, doing) in tool_permissions(tool) {
-        if let Err(error) = authorize_member(&scope, user_id, permission, doing)
+        authorize_member(&scope, user_id, permission, doing)
             .await
-            .map_err(internal_error)?
-        {
-            return Err(error);
-        }
+            .map_err(internal_error)??;
     }
     let actor = Actor {
         user_id: user_id.to_owned(),
