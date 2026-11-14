@@ -18,6 +18,7 @@ const navigate = vi.hoisted(() => vi.fn());
 vi.mock('@tanstack/react-router', () => ({ useRouter: () => ({ navigate }) }));
 
 import BankFeedsCallbackPage from './callback-page';
+import { resetReturnForTests } from './callback-return';
 import { readPendingLink, savePendingLink } from './launchers';
 import {
   installPointerPolyfills,
@@ -45,6 +46,8 @@ beforeEach(() => {
   toast.success.mockReset();
   navigate.mockReset();
   window.sessionStorage.clear();
+  // Each test is a new page load.
+  resetReturnForTests();
 });
 
 afterEach(() => {
@@ -100,6 +103,36 @@ describe('BankFeedsCallbackPage', () => {
     });
     expect(await screen.findByRole('dialog', { name: 'Link your ING accounts' })).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows the outcome on a second mount instead of losing the link', async () => {
+    // The app shell can unmount and mount the page again while the code is being exchanged.
+    let answer: (value: unknown) => void = () => {};
+    api.post.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    savePendingLink({
+      provider: 'ponto',
+      kind: 'redirect',
+      mode: 'create',
+      redirectUrl: REDIRECT_URL,
+      returnTo: '/weldbooks/banking',
+      state: 'state-1',
+    });
+    arriveAt('?code=auth-code&state=state-1');
+
+    const first = renderWithProviders(<BankFeedsCallbackPage />);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    first.unmount();
+    renderWithProviders(<BankFeedsCallbackPage />);
+    answer(completeResponse(makeConnection({ institutionName: 'ING', accounts: [makeAccount()] })));
+
+    expect(await screen.findByRole('dialog', { name: 'Link your ING accounts' })).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/could not be found/)).not.toBeInTheDocument();
   });
 
   it('returns to the page the link started from when nothing needs mapping (a reconnect)', async () => {

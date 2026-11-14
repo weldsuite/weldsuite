@@ -5,7 +5,7 @@
  * is found in sessionStorage; this page completes it with the same payload the
  * in-page launchers produce, then shows the account mapping.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
@@ -13,6 +13,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useCompleteBankFeedLink } from '@/hooks/queries/use-weldbooks-bank-feeds-queries';
 import type { BankFeedCompletePayload, BankFeedConnection } from '@/lib/api/domains/weldbooks-bank-feeds';
 import { redirectPayload } from './callback-payload';
+import { finishReturnOnce } from './callback-return';
 import { AccountMappingDialog } from './account-mapping-dialog';
 import { describeFeedError, type FeedErrorMessage } from './describe-error';
 import { FEEDS_PATH } from './feed-utils';
@@ -25,6 +26,12 @@ type CallbackState =
   | { phase: 'error'; error: FeedErrorMessage }
   | { phase: 'mapping'; connection: BankFeedConnection };
 
+/** How a return ended, for whichever mount of the page is there to show it. */
+type CallbackOutcome =
+  | { kind: 'error'; error: FeedErrorMessage; returnTo: string }
+  | { kind: 'mapping'; connection: BankFeedConnection; returnTo: string; defaultBankAccountId?: string }
+  | { kind: 'leave'; returnTo: string };
+
 export default function BankFeedsCallbackPage() {
   const { t, format } = useFeedTexts();
   const router = useRouter();
@@ -33,57 +40,43 @@ export default function BankFeedsCallbackPage() {
   const [state, setState] = useState<CallbackState>({ phase: 'processing' });
   const [returnTo, setReturnTo] = useState(FEEDS_PATH);
   const [defaultBankAccountId, setDefaultBankAccountId] = useState<string | undefined>();
-  // The return URL carries one-time codes: finish the link once, even if the effect runs twice.
-  const started = useRef(false);
 
   const leave = (path: string) => void router.navigate({ href: path });
-  const fail = (message: string) => setState({ phase: 'error', error: { message, detail: null } });
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-
-    const run = async () => {
+    const finish = async (): Promise<CallbackOutcome> => {
+      const failed = (message: string, target = FEEDS_PATH): CallbackOutcome => ({
+        kind: 'error',
+        error: { message, detail: null },
+        returnTo: target,
+      });
       const pending = readPendingLink();
       // One link per return: whatever happens next, a reload does not replay it.
       clearPendingLink();
-      if (!pending) {
-        fail(t.callback.errors.noPending);
-        return;
-      }
+      if (!pending) return failed(t.callback.errors.noPending);
       const target = safeReturnPath(pending.returnTo);
-      setReturnTo(target);
-      setDefaultBankAccountId(pending.defaultBankAccountId);
 
       const params = new URLSearchParams(window.location.search);
       try {
         let payload: BankFeedCompletePayload;
         if (pending.kind === 'plaid_link') {
           if (!params.get('oauth_state_id') || !pending.linkToken) {
-            fail(t.callback.errors.missingOAuthState);
-            return;
+            return failed(t.callback.errors.missingOAuthState, target);
           }
           const resumed = await resumePlaidOAuth({
             linkToken: pending.linkToken,
             mode: pending.mode,
             receivedRedirectUri: window.location.href,
           });
-          if (resumed.status !== 'completed') {
-            // The user closed Link: nothing was linked.
-            leave(target);
-            return;
-          }
+          // The user closed Link: nothing was linked.
+          if (resumed.status !== 'completed') return { kind: 'leave', returnTo: target };
           payload = resumed.payload;
         } else if (pending.kind === 'redirect') {
           const parsed = redirectPayload(pending, params, t, format);
-          if ('error' in parsed) {
-            fail(parsed.error);
-            return;
-          }
+          if ('error' in parsed) return failed(parsed.error, target);
           payload = parsed.payload;
         } else {
-          fail(t.callback.errors.noPending);
-          return;
+          return failed(t.callback.errors.noPending, target);
         }
 
         const done = await completeLink.mutateAsync({
@@ -92,15 +85,34 @@ export default function BankFeedsCallbackPage() {
           connectionId: pending.mode === 'create' ? undefined : pending.connectionId,
         });
         const { needsMapping } = outcome(done.connection, pending.mode);
-        if (needsMapping) setState({ phase: 'mapping', connection: done.connection });
-        else leave(target);
+        return needsMapping
+          ? {
+              kind: 'mapping',
+              connection: done.connection,
+              returnTo: target,
+              defaultBankAccountId: pending.defaultBankAccountId,
+            }
+          : { kind: 'leave', returnTo: target };
       } catch (err) {
-        setState({ phase: 'error', error: describeFeedError(err, t, 'link') });
+        return { kind: 'error', error: describeFeedError(err, t, 'link'), returnTo: target };
       }
     };
 
-    void run();
-    // Runs once per mount; the guard above makes later dependency changes irrelevant.
+    let mounted = true;
+    // Once per return, not per mount: a second mount shows the same outcome.
+    void finishReturnOnce(window.location.search, finish).then((result) => {
+      if (!mounted) return;
+      setReturnTo(result.returnTo);
+      if (result.kind === 'error') setState({ phase: 'error', error: result.error });
+      else if (result.kind === 'mapping') {
+        setDefaultBankAccountId(result.defaultBankAccountId);
+        setState({ phase: 'mapping', connection: result.connection });
+      } else leave(result.returnTo);
+    });
+    return () => {
+      mounted = false;
+    };
+    // Once per mount; the run itself happens once per return, whichever mount starts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
