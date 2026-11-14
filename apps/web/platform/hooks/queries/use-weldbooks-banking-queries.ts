@@ -256,9 +256,9 @@ export function useRecordBillPaymentWithTarget() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: RecordBillPaymentInput }) => bankingApi.recordBillPayment(id, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
-      qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
-      qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
       invalidateLedger(qc);
     },
   });

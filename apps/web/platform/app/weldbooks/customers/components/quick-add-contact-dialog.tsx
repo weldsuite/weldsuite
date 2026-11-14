@@ -196,7 +196,7 @@ function QuickAddContactForm({
             onClick={() => {
               onCancel();
               // The full form, for the same role: addresses, banking and tax details.
-              navigate({ to: '/weldbooks/customers/add', search: role === 'supplier' ? { role: 'supplier' } : {} });
+              void navigate({ to: '/weldbooks/customers/add', search: role === 'supplier' ? { role: 'supplier' } : {} });
             }}
           >
             {tc.moreDetails}

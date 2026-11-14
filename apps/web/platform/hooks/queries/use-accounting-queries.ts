@@ -577,9 +577,9 @@ export function useDeleteInvoice() {
   return useMutation({
     mutationFn: (id: string) => accountingApi.deleteInvoice(id),
     onSuccess: (_, id) => {
-      qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
       qc.removeQueries({ queryKey: accountingKeys.invoices.detail(id) });
-      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+      void qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
     },
   });
 }
