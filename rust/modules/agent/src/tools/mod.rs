@@ -144,11 +144,20 @@ pub fn platform_tools() -> &'static [ToolSpec] {
     &TOOLS
 }
 
+/// The tools the builder's catalog lists: the platform tools and the cloud
+/// browser's three. The in-sandbox tools (`computer_*`, `web_*`) are not
+/// catalog tools: they are governed by the `computer:use` / `browser:use`
+/// toggles, which the model is offered through [`offered_tools`] regardless.
+fn catalog_tools() -> impl Iterator<Item = &'static ToolSpec> {
+    platform_tools()
+        .iter()
+        .filter(|tool| !is_sandbox_tool(tool.id) || tool.id.starts_with("browser."))
+}
+
 /// `listToolCatalog()`: the catalog the builder shows.
 pub fn list_tool_catalog() -> Value {
     Value::Array(
-        platform_tools()
-            .iter()
+        catalog_tools()
             .map(|tool| {
                 json!({
                     "id": tool.id,
@@ -165,7 +174,7 @@ pub fn list_tool_catalog() -> Value {
 /// grant that is not in this list gives the agent no platform tool.
 pub fn list_tool_permissions() -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
-    for key in platform_tools().iter().flat_map(|t| t.required_permissions) {
+    for key in catalog_tools().flat_map(|t| t.required_permissions) {
         if !key.is_empty() && !keys.iter().any(|k| k == key) {
             keys.push((*key).to_owned());
         }

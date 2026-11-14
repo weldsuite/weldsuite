@@ -15,7 +15,7 @@ use weldsuite_db::js_row;
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 
-use crate::agent_routes::{Mode, agent_guard};
+use crate::agent_routes::{Mode, agent_guard, cannot_grant, ungrantable};
 use crate::agents::{CreateAgent, UpdateAgent, create_agent, get_agent, update_agent};
 use crate::routines::{
     NewRoutine, create_routine, create_routine_run, delete_routine, find_connector_routines,
@@ -908,6 +908,16 @@ async fn template_by(db: &PgPool, column: &str, value: &str) -> Result<Option<Va
         .map(template_row))
 }
 
+/// The model a template installs with: on Global only a Claude id it still
+/// knows (older templates carry others), elsewhere whatever the policy knows.
+fn template_model(global: bool, model: Option<String>) -> Option<String> {
+    if global {
+        model.filter(|m| crate::agents::GLOBAL_MODELS.contains(&m.as_str()))
+    } else {
+        model
+    }
+}
+
 /// A 32-character random alphanumeric token (`randomString(32, ALPHANUMERIC)`).
 fn share_token() -> String {
     let id = generate_id("");
@@ -1082,11 +1092,7 @@ pub(crate) async fn templates_install(
             .as_str()
             .filter(|m| !m.is_empty())
             .map(str::to_owned);
-        let model = if state.sandbox {
-            model.filter(|m| crate::agents::GLOBAL_MODELS.contains(&m.as_str()))
-        } else {
-            model
-        };
+        let model = template_model(state.global, model);
         let name = data.2.clone().unwrap_or_else(|| {
             let base = template["name"].as_str().unwrap_or_default();
             let cut = if base.to_lowercase().ends_with("template") {
@@ -1101,8 +1107,19 @@ pub(crate) async fn templates_install(
                 cut.to_owned()
             }
         });
+        // The template's grants are the installer's to give, as on `POST /agents`.
+        let denied = ungrantable(&caller, strings("permissions").as_deref(), &[]);
+        if !denied.is_empty() {
+            return Ok(Some(Err(denied)));
+        }
+        // Without grants of its own: the sandbox and web ones, where the
+        // installer holds them.
         let default_permissions: Vec<String> = if state.sandbox {
-            vec!["computer:use".into(), "browser:use".into()]
+            ["computer:use", "browser:use"]
+                .into_iter()
+                .filter(|p| crate::grants::granter_holds(caller.permissions.resolved(), p))
+                .map(str::to_owned)
+                .collect()
         } else {
             Vec::new()
         };
@@ -1198,14 +1215,15 @@ pub(crate) async fn templates_install(
             )
             .await?;
         }
-        Ok(Some(agent))
+        Ok(Some(Ok(agent)))
     }
     .await;
     match result {
-        Ok(Some(agent)) => {
+        Ok(Some(Ok(agent))) => {
             reindex_workspace(state.master.as_ref(), &caller.db, &caller.workspace_id).await;
             Created(agent).into_response()
         }
+        Ok(Some(Err(denied))) => cannot_grant(&denied),
         Ok(None) => not_found("Template not found"),
         Err(e) => failed(&e, CONTEXT, "Failed to install the template"),
     }
@@ -1526,6 +1544,17 @@ pub(crate) async fn connector_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_template_keeps_its_model_by_edition() {
+        let mistral = || Some("mistral/mistral-large".to_owned());
+        // EU with a sandbox is not Global: the template's model stays.
+        assert_eq!(template_model(false, mistral()), mistral());
+        assert_eq!(template_model(true, mistral()), None);
+        let claude = Some("claude-opus-5-5".to_owned());
+        assert_eq!(template_model(true, claude.clone()), claude);
+        assert_eq!(template_model(false, claude.clone()), claude);
+    }
 
     #[test]
     fn share_tokens_are_long_and_prefixed() {

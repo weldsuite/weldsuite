@@ -81,6 +81,11 @@ pub struct AgentState {
     /// Kubernetes editions when the install has a sandbox (`agent-sandbox`,
     /// `SANDBOX_ENABLED`).
     pub sandbox: bool,
+    /// Whether this is Global (conformance builds stand in for it): the
+    /// Claude-only `modelId` validation and the Claude template models. The
+    /// Kubernetes editions take any model the policy knows. Not the same as
+    /// `sandbox`: an EU install may have a sandbox and is still not Global.
+    pub global: bool,
     /// The install's sandbox (`weldsuite-sandbox`), where the sandbox and web
     /// tools run: give a turn [`tools::SandboxAccess::for_turn`] and run its
     /// tools with [`tools::execute_tool_with`]. `None` without one.

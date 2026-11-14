@@ -227,8 +227,8 @@ fn build_specs() -> Vec<SandboxToolSpec> {
         SandboxToolSpec {
             id: "browser.open",
             name: "browser_open",
-            description: "Open a URL in the cloud browser for this agent. Returns title, text extract and a \
-                screenshot. Prefer connectors/platform tools when available.",
+            description: "Open a URL in the cloud browser for this agent. Returns title, text extract, screenshot, \
+                and optional Live View URL. Prefer connectors/platform tools when available.",
             grant: BROWSER_GRANT,
             parameters: json!({
                 "type": "object",

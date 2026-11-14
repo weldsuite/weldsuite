@@ -148,7 +148,11 @@ async fn a_chat_turn_runs_the_tool_as_the_person_and_stores_the_steps() {
             .filter(|n| n.contains("spreadsheet"))
             .cloned()
             .collect::<Vec<_>>(),
-        ["list_spreadsheet_tabs", "read_spreadsheet_range"]
+        [
+            "find_spreadsheets",
+            "list_spreadsheet_tabs",
+            "read_spreadsheet_range"
+        ]
     );
     assert!(
         calls[1].body["messages"]
