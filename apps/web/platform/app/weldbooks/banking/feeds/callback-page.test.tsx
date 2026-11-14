@@ -18,7 +18,7 @@ const navigate = vi.hoisted(() => vi.fn());
 vi.mock('@tanstack/react-router', () => ({ useRouter: () => ({ navigate }) }));
 
 import BankFeedsCallbackPage from './callback-page';
-import { resetReturnForTests } from './callback-return';
+import { forgetReturn } from './callback-return';
 import { readPendingLink, savePendingLink } from './launchers';
 import {
   installPointerPolyfills,
@@ -47,7 +47,7 @@ beforeEach(() => {
   navigate.mockReset();
   window.sessionStorage.clear();
   // Each test is a new page load.
-  resetReturnForTests();
+  forgetReturn();
 });
 
 afterEach(() => {
@@ -147,15 +147,28 @@ describe('BankFeedsCallbackPage', () => {
     });
     arriveAt('?code=again');
 
-    renderWithProviders(<BankFeedsCallbackPage />);
+    const page = renderWithProviders(<BankFeedsCallbackPage />);
 
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ href: '/weldbooks/banking/feeds' }));
+    // Replaced, so Back skips the callback and its spent code.
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ href: '/weldbooks/banking/feeds', replace: true }),
+    );
     expect(api.post).toHaveBeenCalledWith('/bank-connections/complete', {
       provider: 'ponto',
       payload: { code: 'again', redirectUrl: REDIRECT_URL },
       connectionId: 'bkc_1',
     });
     expect(toast.success).toHaveBeenCalledWith('First Platypus Bank reconnected.');
+
+    // Back at the same URL in the same page load: the finished return is not replayed.
+    page.unmount();
+    navigate.mockReset();
+    renderWithProviders(<BankFeedsCallbackPage />);
+    expect(await screen.findByText(/could not be found. Start again from Bank feeds/)).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    // One exchange (the reconnect's own sync is the other post).
+    expect(api.post.mock.calls.filter(([path]) => path === '/bank-connections/complete')).toHaveLength(1);
+    expect(toast.success).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a return whose state is not the one that was sent', async () => {

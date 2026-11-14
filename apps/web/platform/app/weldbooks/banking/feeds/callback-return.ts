@@ -5,6 +5,7 @@
  * effect, or the app shell unmounting the page while it settles the
  * workspace) must wait for the run already going instead of starting another,
  * which would find no pending link and report the connection as lost.
+ * Forgotten once the page leaves, so coming back to the URL never replays it.
  */
 let current: { key: string; outcome: Promise<unknown> } | null = null;
 
@@ -14,6 +15,7 @@ export function finishReturnOnce<T>(key: string, start: () => Promise<T>): Promi
   return current.outcome as Promise<T>;
 }
 
-export function resetReturnForTests(): void {
+/** Done with the return: the page has left it (a new page load starts empty too). */
+export function forgetReturn(): void {
   current = null;
 }

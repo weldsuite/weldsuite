@@ -13,7 +13,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useCompleteBankFeedLink } from '@/hooks/queries/use-weldbooks-bank-feeds-queries';
 import type { BankFeedCompletePayload, BankFeedConnection } from '@/lib/api/domains/weldbooks-bank-feeds';
 import { redirectPayload } from './callback-payload';
-import { finishReturnOnce } from './callback-return';
+import { finishReturnOnce, forgetReturn } from './callback-return';
 import { AccountMappingDialog } from './account-mapping-dialog';
 import { describeFeedError, type FeedErrorMessage } from './describe-error';
 import { FEEDS_PATH } from './feed-utils';
@@ -41,7 +41,12 @@ export default function BankFeedsCallbackPage() {
   const [returnTo, setReturnTo] = useState(FEEDS_PATH);
   const [defaultBankAccountId, setDefaultBankAccountId] = useState<string | undefined>();
 
-  const leave = (path: string) => void router.navigate({ href: path });
+  // Leaving ends the return: the callback's history entry is replaced, so Back
+  // skips it, and its outcome is forgotten, so nothing replays it.
+  const leave = (path: string) => {
+    forgetReturn();
+    void router.navigate({ href: path, replace: true });
+  };
 
   useEffect(() => {
     const finish = async (): Promise<CallbackOutcome> => {
