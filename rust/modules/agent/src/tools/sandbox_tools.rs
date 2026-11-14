@@ -54,6 +54,15 @@ impl SandboxAccess {
             computer_use,
         })
     }
+
+    /// Ends the turn's sandbox session now, for a session that is only this
+    /// turn's (a chat call, a run). A failure is logged, the idle sweep ends
+    /// the pod anyway.
+    pub async fn release(&self) {
+        if let Err(error) = self.sandboxes.release(&self.session).await {
+            tracing::warn!(%error, "[weldagent] releasing the turn's sandbox failed");
+        }
+    }
 }
 
 /// Whether the catalog model `id` drives a desktop (`computer_use`).
