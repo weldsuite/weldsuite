@@ -125,16 +125,18 @@ export function fakeKv(initial: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(initial));
   return {
     store,
-    get: async (key: string, type?: string) => {
+    get: (key: string, type?: string): Promise<unknown> => {
       const value = store.get(key);
-      if (value === undefined) return null;
-      return type === 'json' ? JSON.parse(value) : value;
+      if (value === undefined) return Promise.resolve(null);
+      return Promise.resolve(type === 'json' ? (JSON.parse(value) as unknown) : value);
     },
-    put: async (key: string, value: string) => {
+    put: (key: string, value: string): Promise<void> => {
       store.set(key, value);
+      return Promise.resolve();
     },
-    delete: async (key: string) => {
+    delete: (key: string): Promise<void> => {
       store.delete(key);
+      return Promise.resolve();
     },
   } as unknown as KVNamespace & { store: Map<string, string> };
 }
