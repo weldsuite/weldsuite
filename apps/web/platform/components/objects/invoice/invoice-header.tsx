@@ -171,26 +171,47 @@ export function recordPaymentLabel(
   return invoice.status === 'uncollectible' ? ti.recordRecovery : ti.recordPayment;
 }
 
-/** The workflow buttons the invoice's status and the member's permissions allow (send and record payment sit in the menu). */
+/** The workflow buttons the invoice's status and the member's permissions allow (they are in the menu as well). */
 export function InvoiceActionBar({
   caps,
+  recordLabel,
   finalizing,
   applyingCredit,
   onFinalize,
   onApplyCredit,
+  onSend,
+  onRecordPayment,
 }: Readonly<{
   caps: InvoiceCapabilities;
+  /** The label of the record-payment button; falls back to the plain one. */
+  recordLabel?: string;
   finalizing: boolean;
   applyingCredit: boolean;
   onFinalize: () => void;
   onApplyCredit: () => void;
+  onSend: () => void;
+  onRecordPayment: () => void;
 }>) {
   const { t } = useI18n();
   const ti = t.accounting.invoiceDetail;
-  // Nothing to do from a finalized invoice: no empty bar under the title.
-  if (!caps.isDraft && !caps.canApplyCredit) return null;
+  const showSend = !caps.isDraft && caps.canSend;
+  const showRecord = !caps.isDraft && caps.canRecordPayment;
+  // Nothing to do from a settled invoice: no empty bar under the title.
+  if (!caps.isDraft && !caps.canApplyCredit && !showSend && !showRecord) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-1">
+      {showSend ? (
+        <Button variant="outline" size="sm" onClick={onSend}>
+          <SendHorizontal className="mr-1 h-4 w-4" />
+          {ti.send}
+        </Button>
+      ) : null}
+      {showRecord ? (
+        <Button variant="outline" size="sm" onClick={onRecordPayment}>
+          <Banknote className="mr-1 h-4 w-4" />
+          {recordLabel ?? ti.recordPayment}
+        </Button>
+      ) : null}
       {caps.isDraft ? (
         <Button variant="outline" size="sm" onClick={onFinalize} disabled={finalizing}>
           {finalizing ? ti.finalizing : ti.finalize}

@@ -13,7 +13,7 @@ export function catchAllRegistryEmail(domain: string): string {
 }
 
 /** Keep in sync with `SHARED_WELDMAIL_APEXES` in `@weldsuite/app-api-client/schemas/outbound-mail`. */
-const SHARED_WELDMAIL_APEXES = ['weldmail.com', 'weldmail.org'];
+const SHARED_WELDMAIL_APEXES = ['weldmail.com', 'weldmail.org', 'weldmail.eu'];
 
 export function isSharedWeldMailDomain(domain: string): boolean {
   const d = domain.toLowerCase();

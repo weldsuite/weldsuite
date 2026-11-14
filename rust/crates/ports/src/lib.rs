@@ -13,6 +13,7 @@
 //! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
+//! | [`SignInProvider`] | Clerk's sign-in, which Global's browser calls itself (`@clerk/clerk-react`), ADR SEC-016 | [`MemorySignIn`] |
 //! | [`MailTransport`] | customer mail over the `SEND_EMAIL` binding (`@weldsuite/worker-email`), ADR MAIL-010 | [`RecordingMailTransport`] |
 //! | [`LedgerStore`] | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects' storage (MAIL-006) | [`MemoryLedgerStore`] |
 //! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
@@ -47,6 +48,7 @@ pub mod mail;
 pub mod outbound;
 pub mod presence;
 pub mod realtime;
+pub mod sign_in;
 pub mod transport;
 pub mod video_rooms;
 
@@ -66,9 +68,10 @@ pub use files::{
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
     ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
-    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
-    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
-    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
+    IdentityResult, Invitation, InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser,
+    Membership, MemoryIdentity, NewInvitation, NewMembership, NewOrganization, Organization,
+    OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata,
+    with_identity,
 };
 pub use imap::{
     ImapConfig, ImapConnector, ImapError, ImapErrorKind, ImapSession, MailboxInfo, MemoryImap,
@@ -76,17 +79,26 @@ pub use imap::{
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
-    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL,
-    StepFn, StepRetry, step,
+    DynJobs, JOB_DURATION_METRIC, JOB_RUNS_METRIC, Job, JobContext, JobError, JobRegistry,
+    JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL, StepFn, StepRetry, record_job_run, run_job,
+    step,
 };
 pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerStore};
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
-pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, is_public_ip};
+pub use outbound::{
+    DynOutboundHttp, HttpBodyStream, HttpRequest, HttpResponse, HttpStreamResponse, OutboundHttp,
+    is_public_ip,
+};
 pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
+};
+pub use sign_in::{
+    AuthMethods, AuthRequest, CodeDelivery, CodeFormat, CodeKind, LinkTemplate, MemorySignIn,
+    MemoryUser, NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError,
+    SignInProvider, SignInResult, SignInSettings, SignInUser, UserStatus,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

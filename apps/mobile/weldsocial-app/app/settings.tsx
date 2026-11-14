@@ -4,7 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, LogOut, Moon, Sun, Bell } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
+import { useHostedSignIn } from '@weldsuite/mobile-platform/auth';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -12,12 +15,15 @@ import { useI18n } from '@/lib/i18n';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace } = useWorkspace();
+  // Both rows render nothing with the picker off on Clerk; skip the empty section then.
+  const hostedSignIn = useHostedSignIn();
+  const showServerSection = Boolean(peekMobileRuntime()?.serverPickerEnabled || hostedSignIn?.accountUrl);
   const { isPermissionGranted, requestPermissions, openNotificationSettings } = useNotifications();
 
   const handleNotifications = async () => {
@@ -55,6 +61,14 @@ export default function SettingsScreen() {
           </View>
         )}
       </View>
+
+      {/* Which server the app talks to; renders nothing when the build has the picker off. */}
+      {showServerSection ? (
+      <View style={[styles.section, { backgroundColor: colors.card }]}>
+        <ServerRow variant="settings" language={language} accentColor="#8B5CF6" />
+        <ProviderAccountRow language={language} />
+      </View>
+      ) : null}
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
         <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.settings.preferences}</Text>

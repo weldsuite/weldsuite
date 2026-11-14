@@ -11,7 +11,7 @@ use super::user_agent::ParsedUserAgent;
 use super::visitor::COOKIELESS_PREFIX;
 use super::wire::{EventBatch, WireEvent};
 use crate::domain::ProjectRecord;
-use crate::js::{Js, stringify};
+use crate::js::{Js, number_value, stringify};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_AGE_MS: i64 = 7 * DAY_MS;
@@ -129,6 +129,11 @@ pub(crate) fn build_event_rows(source: &RowSource<'_>) -> Vec<Value> {
             props.push(("$action".to_owned(), Js::String(el.action.clone())));
         }
         let el = event.el.as_ref();
+        // A user id is personal data like the anonymous id: only with consent
+        // (and so only next to a consented id).
+        let user_id = consented
+            .and(event.user_id.as_deref())
+            .filter(|id| !id.is_empty());
         rows.push(json!({
             "event_id": event.event_id,
             "workspace_id": source.record.workspace_id,
@@ -136,9 +141,9 @@ pub(crate) fn build_event_rows(source: &RowSource<'_>) -> Vec<Value> {
             "name": event.name,
             "ts": iso_millis(ts),
             "received_at": received_iso,
-            "distinct_id": anon_id,
+            "distinct_id": user_id.map_or_else(|| anon_id.clone(), str::to_owned),
             "anon_id": anon_id,
-            "user_id": null,
+            "user_id": user_id,
             "session_id": if consented.is_some() { or_null(event.session_id.as_deref()) } else { Value::Null },
             "cookieless": consented.is_none(),
             "url": page.url,
@@ -164,10 +169,10 @@ pub(crate) fn build_event_rows(source: &RowSource<'_>) -> Vec<Value> {
             "el_text": or_null(el.and_then(|el| el.text.as_deref())),
             "x": event.x,
             "y": event.y,
-            "rel_x": null,
-            "rel_y": null,
+            "rel_x": event.rel_x.map_or(Value::Null, number_value),
+            "rel_y": event.rel_y.map_or(Value::Null, number_value),
             "scroll_depth": event.scroll_depth,
-            "error_message": null,
+            "error_message": or_null(event.error_message.as_deref()),
             "properties": stringify(&Js::Object(props)),
             "lib": source.batch.lib,
             "lib_version": source.batch.lib_version,
@@ -202,5 +207,95 @@ mod tests {
         let ahead = correct_timestamp("2030-01-01T00:00:00Z", "2026-10-27T12:00:00Z", received)
             .expect("a time");
         assert_eq!(ahead, received + MAX_AHEAD_MS);
+    }
+
+    fn rows_of(consent: bool, events: &Value) -> Vec<Value> {
+        let body: Js = serde_json::from_value(json!({
+            "token": "wpk_0123456789abcdef0123456789abcdef",
+            "sent_at": "2026-10-27T12:00:00.000Z",
+            "lib": "web",
+            "lib_version": "0.1.0",
+            "consent": consent,
+            "events": events,
+            "people": [{ "op": "set", "user_id": "u-1", "ts": "2026-10-27T12:00:00.000Z", "props": {} }],
+        }))
+        .expect("a body");
+        let batch = crate::collector::wire::parse_event_batch(&body).expect("a batch");
+        let record = ProjectRecord::parse(Some(
+            &json!({ "v": 1, "projectId": "p", "workspaceId": "w", "status": "active",
+                     "allowedDomains": [], "settings": {} })
+            .to_string(),
+        ))
+        .expect("a record");
+        build_event_rows(&RowSource {
+            record: &record,
+            batch: &batch,
+            received_at: parse_millis("2026-10-27T12:00:00.000Z").expect("a date"),
+            user_agent: ParsedUserAgent::default(),
+            geo: Geo::default(),
+            cookieless_id: Some("ck_cookieless".to_owned()),
+        })
+    }
+
+    fn event(extra: &Value) -> Value {
+        let mut event = json!({
+            "event_id": "evt-00000001", "name": "$rageclick",
+            "ts": "2026-10-27T12:00:00.000Z", "url": "https://shop.example.com/",
+        });
+        event
+            .as_object_mut()
+            .expect("an object")
+            .extend(extra.as_object().expect("an object").clone());
+        event
+    }
+
+    #[test]
+    fn writes_user_id_click_position_and_error_message() {
+        let rows = rows_of(
+            true,
+            &json!([event(&json!({
+                "anon_id": "a-1", "user_id": "u-1", "rel_x": 0.25, "rel_y": 1,
+                "error_message": "boom", "props": { "$source": "app.js" }
+            }))]),
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["user_id"], json!("u-1"));
+        assert_eq!(rows[0]["distinct_id"], json!("u-1"));
+        assert_eq!(rows[0]["anon_id"], json!("a-1"));
+        assert_eq!(rows[0]["rel_x"], json!(0.25));
+        assert_eq!(rows[0]["rel_y"], json!(1));
+        assert_eq!(rows[0]["error_message"], json!("boom"));
+        assert_eq!(rows[0]["properties"], json!("{\"$source\":\"app.js\"}"));
+    }
+
+    #[test]
+    fn leaves_the_user_id_out_without_consent() {
+        let rows = rows_of(
+            false,
+            &json!([event(&json!({ "anon_id": "a-1", "user_id": "u-1" }))]),
+        );
+        assert_eq!(rows[0]["user_id"], Value::Null);
+        assert_eq!(rows[0]["distinct_id"], json!("ck_cookieless"));
+        assert_eq!(rows[0]["rel_x"], Value::Null);
+        assert_eq!(rows[0]["error_message"], Value::Null);
+    }
+
+    #[test]
+    fn drops_events_with_a_bad_user_id_or_click_position() {
+        let rows = rows_of(
+            true,
+            &json!([
+                event(&json!({ "event_id": "evt-00000001", "user_id": "" })),
+                event(&json!({ "event_id": "evt-00000002", "user_id": "a\nb" })),
+                event(&json!({ "event_id": "evt-00000003", "rel_x": 1.5 })),
+                event(&json!({ "event_id": "evt-00000004", "props": { "$action": "x" } })),
+                event(&json!({ "event_id": "evt-00000005", "user_id": "ok", "anon_id": "a-1" })),
+            ]),
+        );
+        let ids: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row["event_id"].as_str())
+            .collect();
+        assert_eq!(ids, ["evt-00000005"]);
     }
 }

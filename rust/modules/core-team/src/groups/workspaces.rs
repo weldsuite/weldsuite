@@ -1,8 +1,9 @@
 //! `/api/workspaces` (`app-api/src/routes/workspaces`, `listUserWorkspaces`
 //! in `@weldsuite/core-domain/workspaces`): the workspaces the caller is an
 //! active member of, for the workspace switcher. A master-DB read behind the
-//! session and tenant layers, with no permission of its own; a failed read
-//! answers an empty list.
+//! session and tenant layers, with no permission of its own. A failed read
+//! answers 500, never an empty list: an empty list means the person belongs
+//! to no workspace, and the platform's OIDC session takes it as such.
 
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
-use weldsuite_kit::Data;
+use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::{Caller, CoreTeamState};
@@ -62,7 +63,9 @@ async fn list(State(state): State<CoreTeamState>, caller: Caller) -> Response {
         }
         Err(error) => {
             tracing::error!(%error, "workspaces: list failed");
-            Data(json!([])).into_response()
+            ApiError::internal()
+                .with_message("Failed to list workspaces")
+                .into_response()
         }
     }
 }

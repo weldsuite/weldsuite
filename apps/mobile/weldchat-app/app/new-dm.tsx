@@ -11,7 +11,7 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';

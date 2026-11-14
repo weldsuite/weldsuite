@@ -19,6 +19,7 @@
 # console's (ADR FE-018) are targets of the same file:
 #
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target forms-portal -t weldsuite-forms-portal:dev .
 #   docker build -f rust/Dockerfile --target admin -t weldsuite-admin:dev .
 #   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 
@@ -37,10 +38,10 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/admin/package.json packages/*/*/package.json ./
+COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal... --filter admin... --filter @weldsuite/panel-sdk
+      --filter platform... --filter sign-portal... --filter forms-portal... --filter admin... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -133,6 +134,23 @@ USER nonroot:nonroot
 EXPOSE 3000
 CMD ["node/server.mjs"]
 
+# ── The forms portal (WeldForms respondent page), TanStack Start's Node build ──
+FROM web-deps AS forms-portal-build
+COPY apps/web/forms-portal apps/web/forms-portal
+RUN set -eux;     cd apps/web/forms-portal;     pnpm build:node;     echo '{"type":"module"}' > dist/package.json;     mkdir /portal;     mv dist node /portal/
+
+# Node, the build and nothing else (every dependency is bundled). Configured by
+# FORMS_PORTAL_BACKEND_URL, FORMS_PORTAL_SECRET and FORMS_PORTAL_TRUSTED_PROXIES
+# (the Helm chart sets them).
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS forms-portal
+LABEL org.opencontainers.image.title="weldsuite-forms-portal"       org.opencontainers.image.description="The WeldForms respondent page for the Kubernetes editions"       org.opencontainers.image.source="https://github.com/weldsuite/weldsuite"       org.opencontainers.image.licenses="AGPL-3.0-only"
+WORKDIR /app
+COPY --from=forms-portal-build /portal /app
+ENV NODE_ENV=production     PORT=3000
+USER nonroot:nonroot
+EXPOSE 3000
+CMD ["node/server.mjs"]
+
 # ── The staff admin console, TanStack Start's Node build (ADR FE-018) ───────
 # `build:node` also checks the bundle carries no Clerk, Neon driver or
 # Cloudflare runtime module (apps/web/admin/scripts/check-node-build.mjs).
@@ -196,11 +214,15 @@ COPY rust/bins bins
 # (crates/migrations/build.rs).
 COPY packages/core/db/drizzle drizzle
 ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
+# `release` ships. CI builds a pull request's image with `ci-image`
+# (rust/Cargo.toml), which skips the slow release settings. Any profile but
+# `dev`, whose output folder isn't named after it.
+ARG CARGO_PROFILE=release
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
     target="$(cat /rust-target)" \
- && cargo build --release --locked --bin weldsuite --target "$target" \
- && cp "target/$target/release/weldsuite" /weldsuite
+ && cargo build --profile "$CARGO_PROFILE" --locked --bin weldsuite --target "$target" \
+ && cp "target/$target/$CARGO_PROFILE/weldsuite" /weldsuite
 
 # glibc + libgcc + CA certificates, no shell, uid 65532. The last stage, so
 # a build without --target makes this image.

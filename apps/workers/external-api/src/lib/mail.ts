@@ -12,7 +12,7 @@
  * key cannot probe which private mailboxes exist.
  *
  * Reads and organize ops go through `getWorkspaceMail` (design
- * docs/plans/weldmail-mailbox-store-design.md, task D5) via
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5) via
  * `./mail-store-context`'s `workspaceMailFromContext`, so the shapes below also
  * cover the store's row types (`MailMessageRecord`/`MailMessageListRow`), which
  * carry a `threadKey` field `mail_messages` itself never had — stripped here so

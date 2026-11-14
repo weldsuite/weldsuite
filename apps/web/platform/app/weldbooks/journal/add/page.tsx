@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -22,6 +23,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
 import { ProjectSelect } from '@/components/weldflow/project-select';
+import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { AccountCombobox } from '../components/account-combobox';
 
 interface JournalLine {
@@ -59,6 +61,9 @@ export default function AddJournalEntryPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const { formatMoney: fmt, today } = useWeldbooksFormat();
+  const describeError = useDescribeError();
+  const lineLabel = (field: string, idx: number) =>
+    tj.lineField.replace('{field}', field).replace('{n}', String(idx + 1));
 
   const [date, setDate] = useState(() => today());
   const [description, setDescription] = useState('');
@@ -84,28 +89,35 @@ export default function AddJournalEntryPage() {
     e.preventDefault();
     if (!isBalanced) return;
     const validLines = lines.filter((l) => l.accountId && (Number(l.debit) || Number(l.credit)));
-    await createEntry.mutateAsync({
-      date,
-      description,
-      reference,
-      lines: validLines.map((l) => ({
-        accountId: l.accountId,
-        description: l.description,
-        debit: l.debit || '0',
-        credit: l.credit || '0',
-        classId: l.classId || null,
-        locationId: l.locationId || null,
-        projectId: l.projectId || null,
-      })),
-    });
+    try {
+      await createEntry.mutateAsync({
+        date,
+        description,
+        reference,
+        lines: validLines.map((l) => ({
+          accountId: l.accountId,
+          description: l.description,
+          debit: l.debit || '0',
+          credit: l.credit || '0',
+          classId: l.classId || null,
+          locationId: l.locationId || null,
+          projectId: l.projectId || null,
+        })),
+      });
+    } catch (err) {
+      toast.error(tj.createFailed, { description: describeError(err) });
+      return;
+    }
     navigate({ to: '/weldbooks/journal' });
   };
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/weldbooks/journal' })}>
-          <ArrowLeft className="h-4 w-4" />
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/weldbooks/journal" aria-label={tj.backToJournal}>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
         </Button>
         <h1 className="text-2xl font-semibold">{tj.newEntry}</h1>
       </div>
@@ -118,20 +130,22 @@ export default function AddJournalEntryPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>{tj.date}</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                <Label htmlFor="journal-date">{tj.date}</Label>
+                <Input id="journal-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label>{tj.reference}</Label>
+                <Label htmlFor="journal-reference">{tj.reference}</Label>
                 <Input
+                  id="journal-reference"
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
                   placeholder={tj.referencePlaceholder}
                 />
               </div>
               <div className="space-y-2 md:col-span-1">
-                <Label>{tj.description}</Label>
+                <Label htmlFor="journal-description">{tj.description}</Label>
                 <Textarea
+                  id="journal-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={tj.descriptionPlaceholder}
@@ -168,6 +182,7 @@ export default function AddJournalEntryPage() {
                     <TableCell>
                       <AccountCombobox
                         accounts={accounts}
+                        aria-label={lineLabel(tj.account, idx)}
                         value={line.accountId}
                         onChange={(v) => updateLine(idx, 'accountId', v)}
                         placeholder={tj.selectAccount}
@@ -177,6 +192,7 @@ export default function AddJournalEntryPage() {
                     </TableCell>
                     <TableCell>
                       <Input
+                        aria-label={lineLabel(tj.description, idx)}
                         value={line.description}
                         onChange={(e) => updateLine(idx, 'description', e.target.value)}
                         placeholder={tj.linePlaceholder}
@@ -187,9 +203,10 @@ export default function AddJournalEntryPage() {
                         type="number"
                         step="0.01"
                         min="0"
+                        aria-label={lineLabel(tj.debit, idx)}
                         value={line.debit}
                         onChange={(e) => updateLine(idx, 'debit', e.target.value)}
-                        placeholder="0.00"
+                        placeholder="0"
                       />
                     </TableCell>
                     <TableCell>
@@ -197,9 +214,10 @@ export default function AddJournalEntryPage() {
                         type="number"
                         step="0.01"
                         min="0"
+                        aria-label={lineLabel(tj.credit, idx)}
                         value={line.credit}
                         onChange={(e) => updateLine(idx, 'credit', e.target.value)}
-                        placeholder="0.00"
+                        placeholder="0"
                       />
                     </TableCell>
                     <TableCell>
@@ -208,6 +226,7 @@ export default function AddJournalEntryPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => removeLine(idx)}
+                        aria-label={`${tj.removeLine} ${idx + 1}`}
                         disabled={lines.length <= 2}
                       >
                         <Trash2 className="h-4 w-4 text-muted-foreground" />

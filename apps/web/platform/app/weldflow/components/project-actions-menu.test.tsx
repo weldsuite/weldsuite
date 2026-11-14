@@ -17,7 +17,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
 vi.mock('@/hooks/queries/use-projects-queries', () => ({
   useProject: () => ({ data: { data: { id: 'prj_1', name: 'Customer Portal Relaunch' } } }),
 }));
-vi.mock('@/app/weldflow/templates/_components/save-template-dialog', () => ({
+vi.mock('@/app/weldflow/components/save-template-dialog', () => ({
   SaveTemplateDialog: ({ open, projectId, defaultName }: { open: boolean; projectId?: string; defaultName?: string }) =>
     open ? <div role="dialog">{`save ${projectId} as ${defaultName}`}</div> : null,
 }));

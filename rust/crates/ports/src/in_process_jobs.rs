@@ -25,6 +25,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::jobs::{
     JobContext, JobError, JobRegistry, JobRequest, Jobs, PENDING_SIGNAL_TTL, StepFn, StepRetry,
+    run_job,
 };
 use crate::{BoxFuture, PortError};
 
@@ -231,7 +232,7 @@ impl Jobs for InProcessJobs {
                     key: request.key,
                     signals: Arc::clone(&this.signals),
                 };
-                let state = match job.run(&ctx, request.payload).await {
+                let state = match run_job(&*job, &ctx, request.payload).await {
                     Ok(()) => RunState::Succeeded,
                     Err(error) => {
                         tracing::error!(job = ctx.name, key = ctx.key, %error, "jobs: job failed");

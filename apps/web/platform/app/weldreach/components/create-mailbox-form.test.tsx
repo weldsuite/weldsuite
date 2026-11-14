@@ -16,6 +16,7 @@ vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn(), useSearch
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import { CreateMailboxForm } from './create-mailbox-form';
 
 function domain(overrides: Partial<ReachDomain> = {}): ReachDomain {
@@ -144,5 +145,47 @@ describe('CreateMailboxForm', () => {
     await user.click(screen.getByRole('button', { name: 'Create mailbox' }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Mailbox limit reached (10)'));
+  });
+
+  describe('with inboxes on the plan (Mollie, EU)', () => {
+    beforeEach(() => setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: [] }));
+    afterEach(() => setRuntimeConfig(null));
+
+    it('shows the euro price on the plan, before VAT', () => {
+      renderForm();
+      expect(screen.getByText(/€8 per month excl\. VAT, added to your plan's monthly charge/)).toBeInTheDocument();
+    });
+
+    it('turns 402 PAID_PLAN_REQUIRED into a prompt to pick a plan, not a card', async () => {
+      api.reach.createMailbox.mockRejectedValue(
+        new ApiError('Subscribe first', 402, { error: { code: 'PAID_PLAN_REQUIRED', message: 'Subscribe first' } }),
+      );
+      const user = userEvent.setup();
+      const { onCreated } = renderForm();
+      await fill(user);
+      await user.click(screen.getByRole('button', { name: 'Create mailbox' }));
+
+      expect(await screen.findByText('Subscribe to a paid plan first')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'See plans' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add payment method' })).not.toBeInTheDocument();
+      expect(onCreated).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('explains a refused payment in the UI language', async () => {
+      api.reach.createMailbox.mockRejectedValue(
+        new ApiError('refused', 402, { error: { code: 'PAYMENT_FAILED', message: 'refused' } }),
+      );
+      const user = userEvent.setup();
+      renderForm();
+      await fill(user);
+      await user.click(screen.getByRole('button', { name: 'Create mailbox' }));
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(
+          'Your payment method was refused. Update it on the billing page, then add the mailbox.',
+        ),
+      );
+    });
   });
 });

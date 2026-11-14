@@ -19,7 +19,7 @@ import { useSharedValue } from 'react-native-reanimated';
 import { Hash, Lock, Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { BRAND } from '@/lib/brand';

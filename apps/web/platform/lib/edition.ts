@@ -25,6 +25,7 @@
 
 import { API_MODULES, type ApiModuleId } from '@weldsuite/api-modules';
 import { normalizeAppCode } from '@weldsuite/permissions';
+import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 
 /**
@@ -36,7 +37,18 @@ export const EDITION_FEATURES = [
   'sso-connections',
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
-  /** Buying credits (a Stripe checkout). */
+  /**
+   * WeldReach inbox billing: a per-mailbox Stripe subscription on Global; on
+   * the Rust backend the inboxes ride on the plan's Mollie charge, so it is
+   * offered exactly where plans are billed through Mollie (`billingProvider`
+   * is `mollie`), and unbilled elsewhere.
+   */
+  'reach-billing',
+  /**
+   * Buying credits: a Stripe checkout on Global, a Mollie payment on the
+   * Kubernetes editions when the deployment has a Mollie key. Without
+   * `billing`, the billing page shows just the balance and the top-up.
+   */
   'credit-top-up',
   /** Paid WeldApps: subscriptions and developer payouts (Stripe). */
   'paid-apps',
@@ -48,9 +60,17 @@ export const EDITION_FEATURES = [
   'search-reindex',
   /** Company logos fetched from each company's website (`POST /api/company-logos/resolve`). */
   'company-logos',
-  /** Custom mail domains (`/api/mail-domains`, Cloudflare Email Routing and DNS; ADR MAIL-010). */
+  /**
+   * Custom mail domains (`/api/mail-domains`; ADR MAIL-010, MAIL-011). Offered
+   * on Kubernetes when the deployment has an MX for them (`MAIL_MX_HOST`);
+   * the domain is then added and verified under WeldMail settings › Domains.
+   */
   'mail-domains',
-  /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
+  /**
+   * Free addresses on the workspace's shared subdomain (`/api/mail-weldmail`,
+   * ADR MAIL-007): `{slug}.weldmail.com` on Global, `{slug}.weldmail.eu` on the
+   * EU edition when the deployment sets it (ADR MAIL-012).
+   */
   'mail-free-addresses',
   /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
   'mail-ai',
@@ -79,18 +99,48 @@ export const EDITION_FEATURES = [
   /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
   'meet-recordings',
   /**
-   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
-   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
-   * Kubernetes editions yet).
+   * WeldAgent's AI: agent runs, routine tests and teach mode (Claude Managed
+   * Agents on Global, the Kubernetes editions' own agent loop). Unavailable on
+   * Kubernetes without an AI provider (`AI_DEFAULT_PROVIDER`), like every AI
+   * feature (ADR AI-012).
    */
   'agent-ai',
+  /**
+   * The assistant chat and its drawer (`/new-chat`, the global shortcut,
+   * board AI). Offered on a Kubernetes install as soon as an AI provider is
+   * configured; split from `agent-ai` so chat does not depend on agents.
+   */
+  'assistant-ai',
+  /**
+   * WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
+   * `browser:use` toggles). They run at Anthropic on Global; a Kubernetes
+   * install runs them on its own gVisor sandbox pods and SearXNG
+   * (`rust/crates/sandbox`), and lists this as unavailable without one
+   * (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`). The desktop (computer
+   * use) is offered there only to a Claude or GPT-5 model the workspace enabled.
+   */
+  'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
+  /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
+  'forms-ai',
+  /**
+   * Choosing where a new workspace's data is stored (a Neon region per
+   * workspace). A Kubernetes install keeps every workspace in its one cluster.
+   */
+  'data-regions',
   /**
    * Live editing of WeldDocs, WeldSheets and WeldBoard (the collab-rooms service).
    * Unavailable when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): the apps are hidden.
    */
   'collab-rooms',
+  /**
+   * WeldPanel's analytics pages: web analytics, insights, funnels, retention, flows,
+   * reports, dashboards, cohorts, lexicon, users, recordings, heatmaps and frustration
+   * (queries run on Basin, which only Global has). Projects and the install
+   * instructions stay available; the other pages are hidden and redirect to them.
+   */
+  'panel-analytics',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
@@ -159,6 +209,24 @@ export function moduleForApp(appCode: string): ApiModuleId {
 /** Whether this deployment offers a first-party app (sidebar, app store, routes). */
 export function isAppOffered(appCode: string): boolean {
   return isModuleOffered(moduleForApp(appCode));
+}
+
+/**
+ * The AI this deployment runs (`ai` in `/config.json`): null on Global, which
+ * has no `/api/ai-settings`, and on a Kubernetes install without a provider.
+ */
+export function getAiConfig(): RuntimeAiConfig | null {
+  return getRuntimeConfig()?.ai ?? null;
+}
+
+/** Whether workspace AI settings exist here: a Kubernetes install with a configured provider. */
+export function hasAiSettings(): boolean {
+  return getAiConfig() !== null;
+}
+
+/** Who bills plans: Mollie when `/config.json` says so, Stripe otherwise (Global). */
+export function billingProvider(): 'stripe' | 'mollie' {
+  return getRuntimeConfig()?.billingProvider === 'mollie' ? 'mollie' : 'stripe';
 }
 
 /** Whether this deployment offers a feature (`unavailableFeatures` doesn't name it). */

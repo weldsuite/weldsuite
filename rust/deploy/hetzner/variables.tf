@@ -121,7 +121,7 @@ variable "livekit_worker_count" {
   }
 }
 
-# The MTA's IP pools (docs/plans/eu-mail-service.md): `system` for the
+# The MTA's IP pools (weldsuite-documentation/plans/eu-mail-service.md): `system` for the
 # platform's own mail, `customer` for what people write. Each pool is its own
 # servers, each with a primary IPv4 that outlives the server and its reverse
 # DNS, round robin over the pool's locations. Private addresses: 10 per pool
@@ -147,6 +147,28 @@ variable "mail_pools" {
       can(regex("^[a-z][a-z0-9]{0,15}$", name)) && pool.count >= 0 && pool.count <= 10 && length(pool.locations) > 0
     ])
     error_message = "mail_pools: names are lowercase letters and digits (they become MTA_SUBMISSION_PASSWORD_<POOL>), 0-10 nodes per pool, at least one location."
+  }
+}
+
+# A pool can also send from a node the cluster already has, instead of a
+# dedicated mail server: no extra server or address, at the price of sharing
+# the node (and its address) with the node's other workloads.
+variable "mail_pool_nodes" {
+  description = "Mail pools on existing cluster nodes: pool name => node key (worker-1, or cp-2 on a cluster without general workers). The node sends from its own public IPv4, which gets the PTR mail1-<pool>.<domain>, the mail firewall (inbound 25) and the weldsuite.org/mail-pool label, but no taint, so its other workloads stay. Only untainted nodes: the MTA's DaemonSet tolerates the mail taint alone, so not the Postgres nodes, nor control-plane nodes while worker_count > 0. A pool is in mail_pools or here, not both. Empty: none."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for pool, node in var.mail_pool_nodes :
+      can(regex("^[a-z][a-z0-9]{0,15}$", pool)) && can(regex("^(cp|worker)-[0-9]+$", node))
+    ])
+    error_message = "mail_pool_nodes: pool names are lowercase letters and digits; nodes are general workers (worker-1) or, on a cluster without them, control-plane nodes (cp-2). Not the Postgres nodes: they are tainted, and the MTA can't run there."
+  }
+
+  validation {
+    condition     = length(distinct(values(var.mail_pool_nodes))) == length(var.mail_pool_nodes)
+    error_message = "mail_pool_nodes: one pool per node (each pool needs its own address)."
   }
 }
 

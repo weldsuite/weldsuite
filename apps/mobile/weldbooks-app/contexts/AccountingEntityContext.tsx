@@ -25,7 +25,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import api from '@/services/api';
 import { entityStorageKey, resolveActiveEntity } from '@/lib/entity';
 import type { AccountingEntity } from '@/types/accounting';
@@ -54,7 +54,7 @@ interface AccountingEntityContextValue {
 const AccountingEntityContext = createContext<AccountingEntityContextValue | undefined>(undefined);
 
 export function AccountingEntityProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const [entities, setEntities] = useState<AccountingEntity[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);

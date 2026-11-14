@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect } from 'react';
-import { useClerkAuth } from './ClerkAuthContext';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import { useAuthSession } from './AuthContext';
 import { initMixpanel, track, identify, setUserProperties, reset } from '../lib/analytics';
 
 const MIXPANEL_TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN ?? '';
@@ -20,16 +21,19 @@ const AnalyticsContext = createContext<AnalyticsContextType>({
 });
 
 export function AnalyticsProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
+  // Servers that list `analytics` as unavailable (EU, self-hosted) get none.
+  const enabled = !peekMobileRuntime()?.unavailableFeatures.has('analytics');
 
   useEffect(() => {
+    if (!enabled) return;
     initMixpanel(MIXPANEL_TOKEN).catch(() => {
       // Analytics is best effort; the app works without it.
     });
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!enabled || !user) return;
 
     identify(user.id);
     setUserProperties({
@@ -37,7 +41,7 @@ export function AnalyticsProvider({ children }: Readonly<{ children: React.React
       $name: user.fullName ?? '',
       ...(user.organizationId && { organization_id: user.organizationId }),
     });
-  }, [user]);
+  }, [enabled, user]);
 
   return (
     <AnalyticsContext.Provider value={ANALYTICS_VALUE}>

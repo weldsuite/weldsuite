@@ -29,6 +29,18 @@ describe('settingsChanges', () => {
     expect(settingsChanges(privacyFormValues(settings), settings)).toEqual({});
   });
 
+  it('sends the sample rate as a share, and only when the percent changed', () => {
+    const values = { ...privacyFormValues(settings), recordingSamplePercent: 25 };
+    expect(settingsChanges(values, settings)).toEqual({ settings: { recordingSampleRate: 0.25 } });
+    const odd = { ...settings, recordingSampleRate: 0.333 };
+    expect(settingsChanges(privacyFormValues(odd), odd)).toEqual({});
+  });
+
+  it('sends changed IP filters and the AI switch', () => {
+    const values = { ...privacyFormValues(settings), ipFilters: ['203.0.113.0/24'], aiEnabled: !settings.aiEnabled };
+    expect(settingsChanges(values, settings)).toEqual({ settings: { ipFilters: ['203.0.113.0/24'], aiEnabled: !settings.aiEnabled } });
+  });
+
   it('wraps the changed settings only', () => {
     const values = { ...privacyFormValues(settings), autocapture: false, maskingLevel: 'strict' as const };
     expect(settingsChanges(values, settings)).toEqual({ settings: { autocapture: false, maskingLevel: 'strict' } });

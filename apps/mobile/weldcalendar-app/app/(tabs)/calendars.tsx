@@ -26,7 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { CalendarDays, Plus } from 'lucide-react-native';
 
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Badge } from '@weldsuite/mobile-ui/components/Badge';

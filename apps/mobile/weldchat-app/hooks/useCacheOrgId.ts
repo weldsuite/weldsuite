@@ -10,7 +10,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { clearOrgCache } from '@/lib/offline/cache';
 
 const LATCH_KEY = 'weldchat.cache.orgId';
@@ -35,7 +35,7 @@ function setLatch(next: string | null): void {
 }
 
 export function useCacheOrgId(): string | null {
-  const { organizationId, isSignedIn } = useClerkAuth();
+  const { organizationId, isSignedIn } = useAuthSession();
   const latched = useSyncExternalStore(subscribe, getSnapshot);
 
   useEffect(() => {

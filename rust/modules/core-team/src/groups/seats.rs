@@ -252,6 +252,17 @@ pub(crate) async fn workspace_seat_limit(
                 included_users,
                 Some(purchased_seats),
             );
+            // Plans billed through Mollie (the EU edition, ADR BILL-014): the
+            // gate is exactly the seats bought, within the plan's ceiling.
+            // Global never has a billing account, so its limit is as above.
+            if purchased_seats > 0 && billed_through_mollie(&master, &workspace_id).await? {
+                let seats = i64::from(purchased_seats);
+                limit = Some(
+                    max_users
+                        .filter(|max| *max > 0)
+                        .map_or(seats, |max| seats.min(i64::from(max))),
+                );
+            }
         }
     }
 
@@ -266,6 +277,18 @@ pub(crate) async fn workspace_seat_limit(
         plan_name,
         managed_by: managed_by.filter(|name: &String| !name.is_empty()),
     }))
+}
+
+/// Whether the workspace's plan is billed through Mollie: a billing account
+/// with a charge to come (`weldsuite-core-billing`).
+async fn billed_through_mollie(master: &PgPool, workspace_id: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "select exists (select 1 from billing_accounts
+                        where workspace_id = $1 and next_charge_at is not null)",
+    )
+    .bind(workspace_id)
+    .fetch_one(master)
+    .await
 }
 
 /// A `user_workspaces` row, as the member count and its re-sync read it.

@@ -405,6 +405,7 @@ import {
   unreadCountSchema,
 } from '@weldsuite/core-api-client/schemas/notifications';
 import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
+import { auditLogStreamSchema, auditLogStreamTestResultSchema } from '@weldsuite/core-api-client/schemas/audit-log-streams';
 import {
   assignAllMembersResultSchema,
   canManageAppsSchema,
@@ -546,6 +547,7 @@ import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
 import { PERSONAL_ROUTES } from './conformance-schemas-personal';
 import { PANEL_ROUTES } from './conformance-schemas-panel';
 import { MERGE_ROUTES } from './conformance-schemas-merge';
+import { FORMS_ROUTES } from './conformance-schemas-forms';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -844,6 +846,11 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogSchema },
   { method: 'POST', route: '/api/audit-logs', envelope: 'single', data: auditLogRefSchema },
   { method: 'PATCH', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogRefSchema },
+  // core: audit-log-streams (strict: a row never carries the token or `tokenEncrypted`)
+  { method: 'GET', route: '/api/audit-log-streams', envelope: 'list', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'PATCH', route: '/api/audit-log-streams/:id', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams/:id/test', envelope: 'single', data: auditLogStreamTestResultSchema.strict() },
   // core: appstore
   { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
   { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },
@@ -1421,6 +1428,8 @@ const ROUTES: RouteSchema[] = [
   ...PANEL_ROUTES,
   // merge: WeldMerge (teams, issues, pull requests, connections, the GitHub event intake)
   ...MERGE_ROUTES,
+  // forms: WeldForms (forms, folders, themes, settings, the fill page, the respondent side)
+  ...FORMS_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

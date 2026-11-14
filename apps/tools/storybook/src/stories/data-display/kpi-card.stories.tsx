@@ -8,6 +8,7 @@ const meta = {
   component: KpiCard,
   argTypes: {
     tone: { control: 'select', options: ['default', 'warning', 'danger', 'success'] },
+    size: { control: 'inline-radio', options: ['default', 'large'] },
     loading: { control: 'boolean' },
     interactive: { control: 'boolean' },
   },
@@ -41,6 +42,11 @@ export const Tones: Story = {
       <KpiCard label="Bounce rate" value="6.1%" icon={TriangleAlert} tone="danger" hint="Above the 5% guardrail" />
     </KpiGrid>
   ),
+};
+
+/** For a wallboard read from across a room. */
+export const Large: Story = {
+  args: { label: 'Waiting on the team', value: 12, icon: Clock, size: 'large', tone: 'warning' },
 };
 
 export const Loading: Story = {

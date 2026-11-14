@@ -3,7 +3,7 @@
  *
  * The customer view of the outbound mail guard: what the workspace may send,
  * what it has used and how its recent mail was delivered. See
- * docs/plans/weldmail-outbound-abuse.md.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import type { ClientApi, DataResponse } from '../types';

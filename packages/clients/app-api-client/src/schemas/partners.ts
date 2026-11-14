@@ -4,7 +4,7 @@
  * A partner (reseller) licenses its customers' workspaces (apps, monthly
  * credits, seats), records what it charges each customer (never below the
  * contract's minimum selling price), and pays WeldSuite its share of that
- * monthly. Plan: docs/plans/reseller-licensing.md. Tables: master DB,
+ * monthly. Plan: weldsuite-documentation/plans/reseller-licensing.md. Tables: master DB,
  * `packages/core/db/src/schema/partners.ts`.
  *
  * Readers: app-api (partner portal `/api/partner/*`, onboarding territory

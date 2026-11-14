@@ -9,7 +9,8 @@
 use serde_json::{Value, json};
 use weldsuite_books_domain::bank_accounts::{
     BankAccountError, BankLedgerPlan, create_ledger_account_for_bank, insert_ledger_account,
-    plan_bank_ledger_account, reveal_account_number, seal_account_number,
+    plan_bank_ledger_account, plan_default_bank_ledger_account, reveal_account_number,
+    seal_account_number,
 };
 use weldsuite_books_domain::tables::BANK_ACCOUNTS;
 use weldsuite_db::{Keyring, master_pool};
@@ -181,4 +182,71 @@ async fn bank_accounts_on_the_real_schema() {
         panic!("no number on file must be refused");
     };
     assert_eq!(message, "This bank account has no account number on file");
+}
+
+#[tokio::test]
+async fn a_bank_account_without_a_type_takes_the_template_bank_account_once() {
+    let Ok(tenant_url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+        eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
+        return;
+    };
+    let db = master_pool(&tenant_url, 2).expect("tenant pool");
+    let entity = generate_id("ent");
+    sqlx::query("insert into entities (id, name, jurisdiction_code, base_currency) values ($1, 'Bank NL BV', 'NL', 'EUR')")
+        .bind(&entity)
+        .execute(&db)
+        .await
+        .expect("entity");
+    let template = account(&db, &entity, "1100", "Bank", "asset", "bank", None).await;
+    let card_payable = account(
+        &db,
+        &entity,
+        "2100",
+        "Credit Card Payable",
+        "liability",
+        "credit_card",
+        Some("credit_card_payable"),
+    )
+    .await;
+
+    // No type (the NL form sends none): the template's 1100 Bank.
+    let BankLedgerPlan::Existing(existing) =
+        plan_default_bank_ledger_account(&db, &entity, "Main", None, "EUR")
+            .await
+            .expect("plan")
+    else {
+        panic!("the template bank account must be linked");
+    };
+    assert_eq!(existing["id"], json!(template));
+
+    // A card is a liability: never the template.
+    let BankLedgerPlan::New(card) =
+        plan_default_bank_ledger_account(&db, &entity, "Visa", Some("credit_card"), "EUR")
+            .await
+            .expect("plan")
+    else {
+        panic!("cards skip the template");
+    };
+    assert_eq!(card["parentAccountId"], json!(card_payable));
+
+    // Once a bank account sits on it, the next one gets an asset bank account of its own.
+    sqlx::query("insert into bank_accounts (id, entity_id, name, ledger_account_id) values ($1, $2, 'Main', $3)")
+        .bind(generate_id("ba"))
+        .bind(&entity)
+        .bind(&template)
+        .execute(&db)
+        .await
+        .expect("bank account");
+    let BankLedgerPlan::New(row) =
+        plan_default_bank_ledger_account(&db, &entity, "Spaarpot", None, "EUR")
+            .await
+            .expect("plan")
+    else {
+        panic!("a linked template can't be reused");
+    };
+    assert_eq!(row["code"], json!("1101"));
+    assert_eq!(row["name"], json!("Spaarpot"));
+    assert_eq!(row["type"], json!("asset"));
+    assert_eq!(row["subtype"], json!("bank"));
+    assert_eq!(row["normalSide"], json!("debit"));
 }

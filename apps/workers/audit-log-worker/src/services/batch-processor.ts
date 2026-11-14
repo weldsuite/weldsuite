@@ -15,6 +15,21 @@
  *    before. After the consumer's `max_retries` (wrangler.toml) Cloudflare
  *    moves the message to the dead-letter queue instead of deleting it.
  *
+ * After the loop, every workspace that had an audit row written gets one flush
+ * of its audit log streams (SIEM push), reusing the tenant database handle the
+ * batch already opened. The messages are acked by then, and a flush that fails
+ * or throws is logged by kind and otherwise ignored: the streams keep their own
+ * cursor and catch up on the next flush, so it never fails or retries a message.
+ *
+ * That flush is not immediate. Delivery only reads rows older than a settle
+ * window (see `@weldsuite/core-domain/audit-streams`), so a workspace that has
+ * an active stream is flushed a few seconds after its rows were written
+ * (`STREAM_FLUSH_DELAY_MS` in stream-flusher.ts); a workspace without one
+ * costs a single small query and no wait. The queue handler passes its
+ * `ctx`, and the flushes are handed to `ctx.waitUntil` so `processAuditBatch`
+ * returns as soon as every message has its `ack()` or `retry()`; without a
+ * `ctx` they are awaited, after the acks all the same.
+ *
  * Log lines carry the event id and the kind of failure only: the driver's own
  * message can quote SQL with the event's data or a connection string.
  */
@@ -22,7 +37,9 @@
 import type { Env } from '../env';
 import type { EntityEventMessage } from '../lib/entity-events';
 import { isTenantLockedError } from '../lib/pg-errors';
-import { processEntityEvent } from './event-processor';
+import { createTenantDbResolver, processEntityEvent, type TenantDbResolver } from './event-processor';
+import { flushStreamsForWorkspace } from './stream-flusher';
+import type { Database } from '../db';
 
 /** An entity event as this queue carries it: plus the lock retries it has had. */
 export type AuditQueueMessage = EntityEventMessage & { auditLockRetries?: number };
@@ -39,7 +56,13 @@ export function lockedRetryDelaySeconds(retry: number): number {
   return Math.min(LOCKED_RETRY_BASE_DELAY_SECONDS * 2 ** (retry - 1), LOCKED_RETRY_MAX_DELAY_SECONDS);
 }
 
-type EventProcessor = (event: EntityEventMessage, env: Env) => Promise<void>;
+type EventProcessor = (event: EntityEventMessage, env: Env, tenantDb: TenantDbResolver) => Promise<void>;
+
+/** Pushes one workspace's new audit rows to its streams, once they have settled. */
+type StreamFlusher = (db: Database, workspaceId: string, env: Env) => Promise<unknown>;
+
+/** The part of the queue handler's `ExecutionContext` the batch uses. */
+export type BatchContext = Pick<ExecutionContext, 'waitUntil'>;
 
 function kindOf(err: unknown): string {
   return err instanceof Error ? err.name : 'unknown error';
@@ -70,13 +93,20 @@ export async function processAuditBatch(
   batch: MessageBatch<AuditQueueMessage>,
   env: Env,
   process: EventProcessor = processEntityEvent,
+  flushStreams: StreamFlusher = flushStreamsForWorkspace,
+  ctx?: BatchContext,
 ): Promise<void> {
   console.log(`[Queue] Processing batch of ${batch.messages.length} audit events`);
 
+  const tenantDb = createTenantDbResolver(env);
+  const written = new Set<string>();
+
   for (const message of batch.messages) {
     try {
-      await process(message.body, env);
+      await process(message.body, env, tenantDb);
       message.ack();
+      const workspaceId = message.body.metadata?.workspaceId;
+      if (workspaceId) written.add(workspaceId);
     } catch (err) {
       if (isTenantLockedError(err) && (await requeueLocked(message, env))) continue;
 
@@ -84,4 +114,31 @@ export async function processAuditBatch(
       message.retry();
     }
   }
+
+  // Every message has its answer by now. The flushes wait for the settle
+  // window, so they run behind the handler when it gave us its context.
+  const flushed = flushWorkspaceStreams(written, tenantDb, env, flushStreams);
+  if (ctx) ctx.waitUntil(flushed);
+  else await flushed;
+}
+
+/**
+ * One flush per workspace the batch wrote for, in parallel; a failure of one
+ * never touches another, and the promise never rejects.
+ */
+async function flushWorkspaceStreams(
+  workspaceIds: ReadonlySet<string>,
+  tenantDb: TenantDbResolver,
+  env: Env,
+  flushStreams: StreamFlusher,
+): Promise<void> {
+  await Promise.all(
+    [...workspaceIds].map(async (workspaceId) => {
+      try {
+        await flushStreams(await tenantDb(workspaceId), workspaceId, env);
+      } catch (err) {
+        console.error(`[Queue] Audit stream flush failed for workspace ${workspaceId}: ${kindOf(err)}`);
+      }
+    }),
+  );
 }

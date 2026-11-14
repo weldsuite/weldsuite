@@ -22,6 +22,10 @@ head_sampling_rate = 1
 # WeldBooks bank feed webhooks (POST /webhooks/bank-feeds/:provider, scripts/secrets/manifest.ts):
 # - PLAID_CLIENT_ID / PLAID_SECRET: fetch Plaid's webhook verification key (PLAID_ENV var below)
 # - STRIPE_FC_WEBHOOK_SECRET: signing secret of the Stripe Financial Connections webhook endpoint
+# - PONTO_APPLICATION_ID (a var): the Ponto application's id in Isabel's developer portal, which
+#   its webhook signatures name; with it, a PONTO_CERT mtls_certificates binding (the same
+#   certificate as books-api's) to fetch Ibanity's webhook keys. Register
+#   https://<this worker>/webhooks/bank-feeds/ponto in the application's Webhooks tab.
 
 [vars]
 ENVIRONMENT = "development"
@@ -73,7 +77,7 @@ remote = true
 # authenticated on X-Internal-Secret) while CONNECT_INTERNAL is unbound or the
 # entrypoint is not deployed yet. This worker's INTERNAL_API_SECRET must match the
 # target env's secret for that path; it can go once every env has the entrypoint
-# binding (docs/plans/app-api-module-split.md, rollout item 7).
+# binding (weldsuite-documentation/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
 service = "weldsuite-app-api-dev"

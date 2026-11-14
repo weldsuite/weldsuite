@@ -10,6 +10,9 @@ import {
 import { useSendInvoice } from '@/hooks/queries/use-accounting-queries';
 import { salesTaxErrorCode } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
+import { missingFieldsFromError } from '@/lib/weldbooks/invoice-requirements';
+import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-details';
+import { EntityInvoiceDetailsNotice } from './entity-invoice-details';
 import { useDescribeError } from './sales-tax-error-notice';
 
 interface SendInvoiceDialogProps {
@@ -39,6 +42,9 @@ export function SendInvoiceDialog({
   const { t } = useI18n();
   const ts = t.accounting.sendInvoice;
   const describeError = useDescribeError();
+  // Sending a draft finalizes it, which needs the company details every invoice shows.
+  const invoiceDetails = useEntityInvoiceDetails();
+  const detailsMissing = isDraft && invoiceDetails.missing.length > 0;
 
   const handleSend = () => {
     onTaxError?.(null);
@@ -53,7 +59,16 @@ export function SendInvoiceDialog({
           onOpenChange(false);
           return;
         }
-        toast.error(ts.sendFailed, { description: describeError(err) });
+        // The company details the server found missing, named in the user's language.
+        const missing = missingFieldsFromError(err);
+        const description =
+          missing.length > 0
+            ? t.accounting.entityInvoiceDetails.issueDescription.replace(
+                '{fields}',
+                missing.map((field) => invoiceDetails.labels[field]).join(', '),
+              )
+            : describeError(err);
+        toast.error(ts.sendFailed, { description });
       },
     });
   };
@@ -70,11 +85,19 @@ export function SendInvoiceDialog({
             : ts.noEmailFound}
         </p>
         {isDraft && <p className="text-sm text-muted-foreground">{ts.draftWillFinalize}</p>}
+        {isDraft && (
+          <EntityInvoiceDetailsNotice
+            entity={invoiceDetails.entity}
+            missing={invoiceDetails.missing}
+            labels={invoiceDetails.labels}
+            context="issue"
+          />
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {ts.cancel}
           </Button>
-          <Button onClick={handleSend} disabled={sendInvoice.isPending}>
+          <Button onClick={handleSend} disabled={sendInvoice.isPending || detailsMissing}>
             {sendInvoice.isPending ? ts.sending : ts.send}
           </Button>
         </DialogFooter>

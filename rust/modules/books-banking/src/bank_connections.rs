@@ -25,7 +25,9 @@ use weldsuite_books_domain::bank_feeds::connections::{
     self as feeds, LinkSessionArgs, Mapping, require_connection,
 };
 use weldsuite_books_domain::bank_feeds::providers::capabilities;
-use weldsuite_books_domain::bank_feeds::sync::sync_connection;
+use weldsuite_books_domain::bank_feeds::sync::{
+    SyncOptions, sync_connection, sync_connection_with,
+};
 use weldsuite_books_domain::bank_feeds::{FeedConfig, FeedContext, ServiceError};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{
@@ -288,7 +290,8 @@ fn read_link(issues: &mut Issues, body: &Map<String, Value>) -> Option<LinkBody>
 }
 
 // A second factor verified in the last 10 minutes, for every mode: a link
-// (new or renewed) opens the bank's data to this workspace.
+// (new or renewed) opens the bank's data to this workspace. Clerk sign-in
+// only for now (`BooksState::second_factor_step_up`).
 async fn link_session(
     caller: Caller,
     State(state): State<BooksState>,
@@ -296,7 +299,9 @@ async fn link_session(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if let Err(refused) = weldsuite_auth::require_second_factor(&auth, 10) {
+    if state.second_factor_step_up
+        && let Err(refused) = weldsuite_auth::require_second_factor(&auth, 10)
+    {
         return refused.into_response();
     }
     let input = match validate(&headers, &body, read_link) {
@@ -549,7 +554,14 @@ async fn sync(
         require_connection(&ctx.db, &id, entity_id.as_deref())
             .await
             .map_err(failure)?;
-        let outcome = sync_connection(&ctx, &id, refresh).await.map_err(failure)?;
+        let options = SyncOptions {
+            refresh,
+            // The member's address: Ponto synchronizes only with the customer present.
+            customer_ip: caller.client_ip(state.trusted_proxies),
+        };
+        let outcome = sync_connection_with(&ctx, &id, &options)
+            .await
+            .map_err(failure)?;
         let view = feeds::view_by_id(&ctx, &id, false).await.map_err(failure)?;
         if outcome.skipped.is_none() && outcome.error.is_none() {
             let mut data = event_data(&view);

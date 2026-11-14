@@ -1,14 +1,15 @@
 /**
  * DB-backed tests for /api/merge/releases on a real tenant schema (pglite).
- * Outbound HTTP (GitHub's compare API, the AI gateway, DNS-over-HTTPS) is
- * stubbed by URL and method, never by call order, so the Rust backend can
- * answer the same tests in conformance mode. What must not regress:
+ * Outbound HTTP (GitHub's compare API, the model through the mock model of
+ * `@weldsuite/ai/testing`, DNS-over-HTTPS) is stubbed by URL and method (the
+ * model by its prompt), never by call order, so the Rust backend can answer
+ * the same tests in conformance mode. What must not regress:
  *   1. CRUD with its events, and the permission, validation and 404 gates.
  *   2. Refresh: GitHub compare matches merged mirrors by head commit and by
  *      the pull request number in a merge or squash commit message; without
  *      refs, for another provider, or when GitHub does not know the compare it
  *      falls back to the pull requests merged since the previous shipped release.
- *   3. Generate notes asks the AI gateway once and saves the Markdown.
+ *   3. Generate notes asks the model once and saves the Markdown.
  *   4. Ship moves the release to shipped once and carries pull request, issue
  *      and desk ticket ids on the event.
  *   5. Publish writes a WeldKnow page (teamspace role applies) and sends the
@@ -18,6 +19,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { MOCK_AI_BASE_URL, createMockModel, type MockChatReply } from '@weldsuite/ai/testing';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type {
   MergePublishReleaseResult,
@@ -65,22 +67,28 @@ beforeEach(async () => {
 });
 
 const BASE = '/api/merge/releases';
-const AI_ENV = { CF_ACCOUNT_ID: 'acct_test', AI_GATEWAY_API_TOKEN: 'cf_token' };
+/** Both backends' model calls go to the mock model (`@weldsuite/ai/testing`). */
+const AI_ENV = { AI_TEST_BASE_URL: MOCK_AI_BASE_URL };
 const PUBLISH_GRANTS = [...ADMIN, 'knowledge:create', 'messages:create'];
 
 const app = (grants = ADMIN, env: Record<string, unknown> = AI_ENV, userId = ALICE) =>
   makeApp(db, BASE, releasesRoutes, { grants, userId, env });
 
-const AI_CALL = { method: 'POST', url: '/v1/acct_test/default/compat/chat/completions' };
 const NOTES = '## Fixes\n- Tabs no longer flicker (#1)\n- Faster search (#2)';
-const completion = {
-  id: 'chatcmpl_1',
-  object: 'chat.completion',
-  created: 1_790_000_000,
-  model: 'anthropic/claude-sonnet-4-5',
-  choices: [{ index: 0, message: { role: 'assistant', content: NOTES }, finish_reason: 'stop' }],
-  usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 },
-};
+
+/**
+ * The model answers the release notes prompt with `reply` (by the prompt, so
+ * it serves both runs in conformance mode); every other request goes to the
+ * stub `stubGithub` installed.
+ */
+function stubModel(reply: MockChatReply) {
+  const mock = createMockModel(
+    { chat: (request) => (request.system.startsWith('You write release notes') ? reply : { text: 'ok' }) },
+    globalThis.fetch,
+  );
+  vi.stubGlobal('fetch', mock.fetch);
+  return mock;
+}
 const MX = { Status: 0, Answer: [{ name: 'example.com', type: 15, TTL: 60, data: '10 mx.example.com' }] };
 
 const t = (day: string) => new Date(`2026-${day}T10:00:00Z`);
@@ -281,28 +289,31 @@ describe('generate notes', () => {
 
   const releaseWithPullRequests = async () => fillRelease(await createRelease());
 
-  it('asks the AI gateway once and saves the Markdown on the release', async () => {
+  it('asks the model once and saves the Markdown on the release', async () => {
     const { release } = await releaseWithPullRequests();
-    const calls = stubGithub({ [`${AI_CALL.method} ${AI_CALL.url}`]: completion });
+    const calls = stubGithub({});
+    const model = stubModel({ text: NOTES });
 
     const result = await ok<MergeGenerateNotesResult>(await app().request(`${BASE}/${release.id}/generate-notes`, jsonInit({})));
     expect(result.release.notes).toBe(NOTES);
     expect(result.release.notesGeneratedAt).toEqual(expect.any(String));
-    expect(calls).toEqual(perRun([AI_CALL]));
+    expect(model.calls.map((call) => call.path)).toEqual(perRun(['/chat/completions']));
+    expect(calls).toEqual([]);
     expect(events.map((e) => e.eventType)).toEqual(['merge_release:updated']);
 
     const [row] = await db.select().from(schema.mergeReleases).where(eq(schema.mergeReleases.id, release.id));
     expect(row!.notes).toBe(NOTES);
   });
 
-  it('is 422 for a release with nothing in it, 503 without the gateway, 502 when the gateway fails', async () => {
+  it('is 422 for a release with nothing in it, 503 without AI, 502 when the model fails', async () => {
     const empty = await createRelease();
     stubGithub({});
     expect((await app().request(`${BASE}/${empty.release.id}/generate-notes`, jsonInit({}))).status).toBe(422);
 
     const filled = await fillRelease(empty);
     expect((await app(ADMIN, {}).request(`${BASE}/${filled.release.id}/generate-notes`, jsonInit({}))).status).toBe(503);
-    stubGithub({ [`${AI_CALL.method} ${AI_CALL.url}`]: new Response('{"error":{"message":"bad"}}', { status: 400 }) });
+    stubGithub({});
+    stubModel({ status: 400, message: 'bad' });
     expect((await app().request(`${BASE}/${filled.release.id}/generate-notes`, jsonInit({}))).status).toBe(502);
   });
 });

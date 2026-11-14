@@ -56,6 +56,38 @@ describe('useCurrentEntityCurrency', () => {
     expect(result.current.formatMoney(1500)).not.toMatch(/€/);
   });
 
+  it('reads an entity without a locale the way its country does, not the way the browser does', async () => {
+    entityIdRef.current = 'ent_nl';
+    getMock.mockImplementation(async (path: string) => {
+      if (path.includes('jurisdictions')) {
+        return { data: [{ code: 'NL', defaultLocale: 'nl-NL' }, { code: 'US', defaultLocale: 'en-US' }] };
+      }
+      return { data: [{ id: 'ent_nl', baseCurrency: 'EUR', locale: null, jurisdictionCode: 'NL' }] };
+    });
+
+    const { result } = renderHook(() => useCurrentEntityCurrency(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.locale).toBe('nl-NL');
+    });
+    // Dutch grouping and decimal comma, whatever the browser's locale is.
+    expect(result.current.formatMoney(1234.5).replace(/\s/g, ' ')).toMatch(/1\.234,50/);
+  });
+
+  it('prefers the locale of the entity itself over the one of its jurisdiction', async () => {
+    entityIdRef.current = 'ent_nl';
+    getMock.mockImplementation(async (path: string) => {
+      if (path.includes('jurisdictions')) return { data: [{ code: 'NL', defaultLocale: 'nl-NL' }] };
+      return { data: [{ id: 'ent_nl', baseCurrency: 'EUR', locale: 'en-IE', jurisdictionCode: 'NL' }] };
+    });
+
+    const { result } = renderHook(() => useCurrentEntityCurrency(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.locale).toBe('en-IE');
+    });
+  });
+
   it('does not assume a currency when no entity is loaded', async () => {
     entityIdRef.current = null;
     getMock.mockResolvedValue({ data: [] });

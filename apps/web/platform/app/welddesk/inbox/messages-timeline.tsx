@@ -18,6 +18,7 @@ import { MessageTranslation } from './translation/message-translation';
 import { LinkifiedText } from './linkified-text';
 import { impactUrgencySentences, isLinkEvent, linkEventSentence } from './linked-timeline';
 import { escalationSentence } from './escalation-label';
+import { isPhoneTimelineMessage, PhoneTimelineRow } from './phone-timeline';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -248,6 +249,7 @@ function EventRow({
 
 function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
   if (!a || a.kind === 'event' || b.kind === 'event') return false;
+  if (isPhoneTimelineMessage(a) || isPhoneTimelineMessage(b)) return false;
   if (a.kind !== b.kind || a.authorType !== b.authorType || a.authorId !== b.authorId) return false;
   if (!isSameDay(new Date(a.createdAt), new Date(b.createdAt))) return false;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
@@ -356,6 +358,16 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
               <div key={message.clientId ?? message.id}>
                 {showDay && <DaySeparator date={created} />}
                 <EventRow message={message} members={members} visitorLabel={visitorLabel} />
+              </div>
+            );
+          }
+
+          // Phone events and voicemail: a timeline line or a player, not a bubble from an agent.
+          if (isPhoneTimelineMessage(message)) {
+            return (
+              <div key={message.clientId ?? message.id}>
+                {showDay && <DaySeparator date={created} />}
+                <PhoneTimelineRow message={message} />
               </div>
             );
           }

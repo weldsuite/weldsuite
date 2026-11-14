@@ -30,6 +30,7 @@ pub(crate) struct Bindings {
     http: Option<OutboundHttp>,
     buckets: Option<StorageBuckets>,
     scheduled: Option<crate::scheduled::RequestScheduledRuns>,
+    ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Bindings {
@@ -52,7 +53,18 @@ impl Bindings {
                 .extensions
                 .get::<crate::scheduled::RequestScheduledRuns>()
                 .cloned(),
+            ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
         }
+    }
+
+    /// The AI the request calls: the request's own (conformance builds),
+    /// else the app's; `None` when it is off.
+    pub(crate) fn ai(&self, state: &MailState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// An env value: the request's (conformance), else the app's.

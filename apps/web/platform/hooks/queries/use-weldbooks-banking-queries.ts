@@ -9,6 +9,7 @@ import {
   type ImportPreviewInput,
   type ImportStatementInput,
   type ReconciliationHistoryFilters,
+  type RecordBillPaymentInput,
   type RecordInvoicePaymentWithTarget,
   type SaveBankAccountInput,
   type SaveReconciliationProgressInput,
@@ -244,6 +245,20 @@ export function useRecordInvoicePaymentWithTarget() {
       qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
       qc.invalidateQueries({ queryKey: bankingKeys.deposits.all });
       qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+      invalidateLedger(qc);
+    },
+  });
+}
+
+/** Pay a bill out of a bank account (the default bank ledger account when none is named). */
+export function useRecordBillPaymentWithTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: RecordBillPaymentInput }) => bankingApi.recordBillPayment(id, data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
       invalidateLedger(qc);
     },
   });

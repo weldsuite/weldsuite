@@ -45,6 +45,21 @@
 import { appApi } from '../app-api-browser-client';
 import type { Helpdesk } from '../types/apps/helpdesk.types';
 import { asText } from '@weldsuite/text';
+import {
+  createHelpdeskReportScheduleSchema,
+  helpdeskReportScheduleSchema,
+  helpdeskReportScheduleSendResultSchema,
+  updateHelpdeskReportScheduleSchema,
+  type CreateHelpdeskReportScheduleInput,
+  type HelpdeskReportScheduleDto,
+  type UpdateHelpdeskReportScheduleInput,
+} from '@weldsuite/core-api-client/schemas/helpdesk-analytics';
+import {
+  deskPhoneReportSchema,
+  deskWallboardSchema,
+  type DeskPhoneReport,
+  type DeskWallboard,
+} from '@weldsuite/core-api-client/schemas/helpdesk-live-reports';
 
 type PublishStatus = 'draft' | 'published' | 'archived';
 
@@ -2078,6 +2093,63 @@ export const helpdeskWorkerApi = {
         { charts },
       ),
     );
+  },
+
+  /**
+   * The wallboard: the queue as it is right now (WeldDesk roadmap 3). `teamId`
+   * narrows every number to one team; an unknown team is a 400.
+   */
+  async getWallboard(teamId?: string): Promise<DeskWallboard> {
+    const query = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+    const res = await appApi.get<AppApiSingle<unknown>>(`/helpdesk-analytics/wallboard${query}`);
+    return deskWallboardSchema.parse(res.data);
+  },
+
+  /** Call KPIs for a period; `range` takes the same ids as the overview. */
+  async getPhoneReport(range: string): Promise<DeskPhoneReport> {
+    const res = await appApi.get<AppApiSingle<unknown>>(
+      `/helpdesk-analytics/phone?range=${encodeURIComponent(range)}`,
+    );
+    return deskPhoneReportSchema.parse(res.data);
+  },
+
+  /** The overview as a CSV file (settings:read). The response carries the file name. */
+  exportOverviewCsv(range: string): Promise<Response> {
+    return appApi.getRaw(`/helpdesk-analytics/overview/export?range=${encodeURIComponent(range)}`);
+  },
+
+  /** Every chart of a saved report as a CSV file (settings:read); an unknown report is a 404. */
+  exportReportCsv(reportId: string): Promise<Response> {
+    return appApi.getRaw(`/helpdesk-analytics/reports/${encodeURIComponent(reportId)}/export`);
+  },
+
+  // Scheduled report emails (TASK-1228)
+
+  async listReportSchedules(): Promise<HelpdeskReportScheduleDto[]> {
+    const res = await appApi.get<AppApiSingle<unknown>>('/helpdesk-analytics/schedules');
+    return helpdeskReportScheduleSchema.array().parse(res.data);
+  },
+
+  async createReportSchedule(input: CreateHelpdeskReportScheduleInput): Promise<HelpdeskReportScheduleDto> {
+    const body = createHelpdeskReportScheduleSchema.parse(input);
+    const res = await appApi.post<AppApiSingle<unknown>>('/helpdesk-analytics/schedules', body);
+    return helpdeskReportScheduleSchema.parse(res.data);
+  },
+
+  async updateReportSchedule(id: string, input: UpdateHelpdeskReportScheduleInput): Promise<HelpdeskReportScheduleDto> {
+    const body = updateHelpdeskReportScheduleSchema.parse(input);
+    const res = await appApi.patch<AppApiSingle<unknown>>(`/helpdesk-analytics/schedules/${encodeURIComponent(id)}`, body);
+    return helpdeskReportScheduleSchema.parse(res.data);
+  },
+
+  async deleteReportSchedule(id: string): Promise<void> {
+    await appApi.delete(`/helpdesk-analytics/schedules/${encodeURIComponent(id)}`);
+  },
+
+  /** Send a schedule's report now. HTTP 200 either way: read `status`. */
+  async sendReportSchedule(id: string) {
+    const res = await appApi.post<AppApiSingle<unknown>>(`/helpdesk-analytics/schedules/${encodeURIComponent(id)}/send`);
+    return helpdeskReportScheduleSendResultSchema.parse(res.data);
   },
 
   // ============================================================================

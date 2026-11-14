@@ -23,6 +23,7 @@ import {
 import type { SheetDataRefreshError } from '@weldsuite/app-api-client/schemas/sheets';
 import type { DataTableWrite } from '@weldsuite/sheets-engine';
 import { SheetDataPermissionError, listRecords } from './query';
+import { formColumnTypes } from './form-responses';
 import type { DataSourceRecord } from './sources';
 
 /** How each kind of field shows in the sheet. */
@@ -64,16 +65,19 @@ export async function buildRefresh(db: Database, source: DataSourceRecord, file:
   const denied = await refreshAccess(db, source.createdById, objectType, file);
   if (denied) return { ok: false, error: denied };
   let rows;
+  // The type of each column; a form's own questions are not in the static catalog.
+  let formTypes: Map<string, string> | null = null;
   try {
     // Listed as the person who connected it: their records, their scope.
     const viewer = { userId: source.createdById, hasPermission: await permissionsOf(db, source.createdById) };
     rows = await listRecords(db, objectType, source.definition, viewer);
+    if (objectType === 'form_responses') formTypes = await formColumnTypes(db, source.definition.formId!, viewer);
   } catch (err) {
     if (err instanceof SheetDataPermissionError) return { ok: false, error: 'no_permission' };
     console.error('[sheets-api/data-sources] listing records failed:', err);
     return { ok: false, error: 'failed' };
   }
   const fields = new Map(SHEET_DATA_OBJECTS[objectType].fields.map((f) => [f.key, f]));
-  const formats = source.definition.columns.map((key) => FORMATS[fields.get(key)?.type ?? 'text']);
+  const formats = source.definition.columns.map((key) => FORMATS[(formTypes?.get(key) ?? fields.get(key)?.type ?? 'text') as SheetDataFieldType]);
   return { ok: true, write: { id: source.id, header: source.definition.headers, rows, formats }, rowCount: rows.length };
 }

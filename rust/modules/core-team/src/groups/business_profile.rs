@@ -1,6 +1,6 @@
 //! The workspace business profile is the default legal entity
 //! (`app-api/src/services/business-profile.ts`; "Workspace business profile"
-//! in `docs/plans/legal-entities.md`).
+//! in `weldsuite-documentation/plans/legal-entities.md`).
 //!
 //! During the transition `PUT /api/workspace-settings` writes the legal fields
 //! through to the default entity and `GET` reads them back from it, so old

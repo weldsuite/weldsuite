@@ -1,5 +1,5 @@
 /**
- * Who emails whom (docs/plans/weldreach-warmup.md, "Pairing").
+ * Who emails whom (weldsuite-documentation/plans/weldreach-warmup.md, "Pairing").
  *
  * Pure: the planner loads the pool and the recent history, this picks one
  * recipient per message and keeps the running tallies.

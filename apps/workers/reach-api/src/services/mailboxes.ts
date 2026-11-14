@@ -2,7 +2,7 @@
  * Mailbox lifecycle: create (billed, provisioned at Mailpool, entered in the
  * warmup network), update, pause / resume, delete.
  *
- * Warmup is WeldSuite's own network (docs/plans/weldreach-warmup.md): every
+ * Warmup is WeldSuite's own network (weldsuite-documentation/plans/weldreach-warmup.md): every
  * mailbox is also a row in the master pool (`reach_warmup_mailboxes`), holding
  * its logins sealed with WELDREACH_WARMUP_KEY. Create registers it, a rename,
  * pause, resume and delete keep it in step, and `services/warmup.ts` reads the

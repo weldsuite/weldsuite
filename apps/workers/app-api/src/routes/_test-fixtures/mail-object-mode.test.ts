@@ -1,6 +1,6 @@
 /**
  * `/test-fixtures/seed/mail-message`, `/seed/mail-messages-bulk` and `/reset`
- * under the mailbox store's `object-only` mode (docs/plans/weldmail-mailbox-
+ * under the mailbox store's `object-only` mode (weldsuite-documentation/plans/weldmail-mailbox-
  * store-design.md, task D6): seeding must ingest through the mailbox store
  * instead of inserting into Postgres, and `/reset` must clear the object too,
  * not just (today, in this mode, nonexistent) Postgres rows.

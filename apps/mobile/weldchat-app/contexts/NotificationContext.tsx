@@ -12,7 +12,13 @@ import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import {
+  isFeatureAvailable,
+  isNotificationForThisServer,
+  isPushAvailable,
+} from '@weldsuite/mobile-platform/edition';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
 import {
@@ -91,7 +97,8 @@ async function registerPushToken(token: string): Promise<boolean> {
  * it the ordinary "Incoming call" push.
  */
 async function registerCallToken(expoToken: string | undefined): Promise<void> {
-  if (!isNativeCallsAvailable) return;
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have: no ring to register for.
+  if (!isNativeCallsAvailable || !isFeatureAvailable('chat-calls')) return;
   if (Platform.OS === 'ios' && !isCallKitAvailable()) {
     await appApi.pushTokens.unregister(`${await getDeviceId()}:call`).catch(() => {});
     return;
@@ -214,7 +221,7 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
@@ -223,8 +230,24 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     useState<PushRegistrationStatus>(emptyRegistrationStatus);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  // Leaving this server (switching to another): stop it pushing to this device,
+  // the ordinary token and the call token (`<deviceId>:call`, VoIP / call ring).
+  useEffect(
+    () =>
+      onLeaveServer('push-token', async (runtime) => {
+        if (!runtime.pushEnabled) return;
+        const deviceId = await getDeviceId();
+        await appApi.pushTokens.unregister(deviceId).catch(() => {});
+        await appApi.pushTokens.unregister(`${deviceId}:call`).catch(() => {});
+      }),
+    [],
+  );
+
   const navigateFromNotificationData = useCallback(
     (data: Record<string, unknown>) => {
+      // A notification left over from another server points at records this one doesn't have.
+      if (!isNotificationForThisServer(data)) return;
+
       const notificationType: string | undefined =
         typeof data.notificationType === 'string' ? data.notificationType : undefined;
 
@@ -274,7 +297,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     let tokenSuffixes: string[] = [];
     let serverRegistered = false;
     try {
-      const res = await appApi.pushTokens.list();
+      // Push is off on this server: nothing is registered there to list.
+      const res = isPushAvailable() ? await appApi.pushTokens.list() : { data: [] };
       // Call tokens (`<deviceId>:call`) ring calls only; they are not the device's push registration.
       const weldchat = (res.data ?? []).filter(
         (t) => (t.appCode === APP_CODE || t.appCode === 'weldsuite') && !t.deviceId?.endsWith(':call'),
@@ -293,7 +317,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    if (!notifUtils || !EAS_PROJECT_ID) return false;
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!notifUtils || !EAS_PROJECT_ID || !isPushAvailable()) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
@@ -318,7 +343,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const sendTestPush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     try {
       // Re-register first so a stale/missing DB row is not mistaken for FCM failure.
-      if (notifUtils && EAS_PROJECT_ID) {
+      if (notifUtils && EAS_PROJECT_ID && isPushAvailable()) {
         const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
         if (token) {
           await registerPushToken(token);
@@ -375,7 +400,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
 
     const init = async () => {
-      if (!Notifications || !notifUtils) {
+      if (!Notifications || !notifUtils || !isPushAvailable()) {
         setIsConnected(false);
         return;
       }

@@ -2398,5 +2398,16 @@ export const crm = {
       addedToCrm: 'Toegevoegd aan CRM',
       addToCrmFailed: 'Toevoegen aan CRM mislukt',
     },
+
+    websiteActivity: {
+      title: 'Websiteactiviteit',
+      lastSeen: 'Laatst op de site {date}',
+      openInWeldPanel: 'Openen in WeldPanel',
+      recentEvents: 'Recente activiteit',
+      noEvents: 'Geen recente events.',
+      viewed: 'Bekeek',
+      recordings: 'Opnames',
+      watchSession: 'Bekijk het bezoek van {date}',
+    },
   };
 

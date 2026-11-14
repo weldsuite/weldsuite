@@ -19,23 +19,27 @@ interface Stub {
 
 type Method = (...args: unknown[]) => unknown;
 
+/** What the stub (./install.ts) queues; nothing else is replayed. */
+const METHODS = [
+  'track',
+  'identify',
+  'reset',
+  'flush',
+  'optOut',
+  'optIn',
+  'consent.grant',
+  'consent.revoke',
+  'people.set',
+  'people.set_once',
+  'people.unset',
+  'people.increment',
+];
+
 function method(api: WeldPanel, name: string): Method | undefined {
-  switch (name) {
-    case 'track':
-      return api.track as Method;
-    case 'flush':
-      return api.flush;
-    case 'optOut':
-      return api.optOut;
-    case 'optIn':
-      return api.optIn;
-    case 'consent.grant':
-      return api.consent.grant;
-    case 'consent.revoke':
-      return api.consent.revoke;
-    default:
-      return undefined;
-  }
+  if (METHODS.indexOf(name) < 0) return undefined;
+  const [first, second] = name.split('.');
+  const value = (api as unknown as Record<string, unknown>)[first];
+  return (second ? (value as Record<string, Method>)[second] : value) as Method;
 }
 
 /** Run the stub's queued calls against the real client, in order. */

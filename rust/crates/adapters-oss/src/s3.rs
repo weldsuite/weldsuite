@@ -91,6 +91,35 @@ impl S3FileStore {
         self.bucket.name()
     }
 
+    /// Creates the bucket when the store doesn't have it yet (`S3_ENSURE_BUCKETS`,
+    /// for the object store a self-hosted chart bundles). `true` when it was
+    /// created. A store that answers anything else to the existence check
+    /// (wrong keys, no access) is an error, not a reason to create it.
+    pub async fn ensure_bucket(&self) -> Result<bool, PortError> {
+        let url = self
+            .bucket
+            .head_bucket(Some(&self.credentials))
+            .sign(SIGNED_FOR);
+        let response = self.send(Method::HEAD, url, HeaderMap::new(), None).await?;
+        match response.status() {
+            status if status.is_success() => return Ok(false),
+            StatusCode::NOT_FOUND => {}
+            _ => return Err(Self::refused(response, "head bucket").await),
+        }
+        let action = self.bucket.create_bucket(&self.credentials);
+        let body = action.body();
+        let url = action.sign(SIGNED_FOR);
+        let response = self
+            .send(Method::PUT, url, HeaderMap::new(), Some(body.into_bytes()))
+            .await?;
+        match response.status() {
+            status if status.is_success() => Ok(true),
+            // Another replica created it first.
+            StatusCode::CONFLICT => Ok(false),
+            _ => Err(Self::refused(response, "create bucket").await),
+        }
+    }
+
     fn check(key: &str) -> Result<(), PortError> {
         if is_safe_key(key) {
             Ok(())

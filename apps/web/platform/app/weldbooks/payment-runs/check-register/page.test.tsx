@@ -14,7 +14,7 @@ vi.mock('@tanstack/react-router', () => ({
     select({ location: { pathname: '/weldbooks/payment-runs/check-register' } }),
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
-vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: 'US', isError: false }) }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: 'US', isError: false, isResolved: true }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', async () => {
   const { testFormat } = await import('../test-utils');
   return { useWeldbooksFormat: () => testFormat };

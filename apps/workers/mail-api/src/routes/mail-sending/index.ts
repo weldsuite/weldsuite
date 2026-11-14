@@ -5,7 +5,7 @@
  *   GET /api/mail-sending/usage   → { data: OutboundUsage | null }
  *
  * null when the outbound guard isn't reachable in this environment. See
- * docs/plans/weldmail-outbound-abuse.md.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { Hono } from 'hono';

@@ -353,6 +353,5 @@ Or use the bash script:
 
 - `lib/notifications/types.ts` - TypeScript type definitions
 - `lib/notifications/websocket-client.ts` - WebSocket client implementation
-- `contexts/notification-context.tsx` - React context provider
 - `hooks/use-notification-subscription.ts` - Custom hooks
 - `app/api/auth/token/route.ts` - Token endpoint for WebSocket auth

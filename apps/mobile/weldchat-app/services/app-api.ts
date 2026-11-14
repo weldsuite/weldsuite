@@ -3,7 +3,9 @@
  *
  * Wires the WeldChat mobile app to the unified app-api (`/api`) via the shared
  * `@weldsuite/app-api-client` domain clients. This is the sole API client for
- * the app. A module-level token getter is wired from `app/_layout.tsx` using Clerk
+ * the app. The server it talks to (WeldSuite cloud, EU or self-hosted) is the one
+ * `ServerRuntimeGate` booted; hosts are read per request, never at import time.
+ * A module-level token getter is wired from `app/_layout.tsx` using the session
  * credentials (see `setAppApiTokenGetter`) — the client re-reads the token on
  * every request, so no rebuild is needed when it refreshes.
  *
@@ -13,8 +15,7 @@
  * `{ success }` branching like the legacy client.
  */
 
-import { createClientApi } from '@weldsuite/api-client/client';
-import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
+import { apiOriginForPath, createMobileApiClient } from '@weldsuite/mobile-platform/api';
 import { createChannelsApi } from '@weldsuite/app-api-client/domains/channels';
 import { createChatMessagesApi } from '@weldsuite/app-api-client/domains/chat-messages';
 import { createChatSectionsApi } from '@weldsuite/app-api-client/domains/chat-sections';
@@ -27,42 +28,26 @@ import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspace
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
-
-/** app-api base URL. Defaults to the local wrangler dev port. */
-export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
-
-/** The web app, for links people open in a browser: set, else the API host without `-api`. */
-export const PLATFORM_URL = process.env.EXPO_PUBLIC_PLATFORM_URL || APP_API_URL.replace('//app-api', '//app');
-
-/**
- * Modules served by their own worker (`<module>-api` host), from
- * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
- * which forwards moved modules. See docs/plans/app-api-module-split.md.
- */
-const apiOrigins = createApiOriginResolver({
-  coreOrigin: APP_API_URL,
-  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
-});
+import { APP } from '@/lib/server';
 
 /** Absolute URL of an API path on the worker that serves it, for native code
  *  that calls the API without this client (the call ring's Decline). */
 export function apiUrl(path: string): string {
-  return `${apiOrigins.originForPath(path)}${path}`;
+  return `${apiOriginForPath(path)}${path}`;
 }
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
-/** Wire the Clerk token getter. Called from `app/_layout.tsx`. */
+/** Wire the session token getter. Called from `app/_layout.tsx`. */
 export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) {
   tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
-const client = createClientApi({
-  baseUrl: apiOrigins.originForPath,
+// Sends `X-Weld-App` (which app's permissions apply: the per-app permission model,
+// see @weldsuite/permissions APP_CONTEXT_HEADER).
+const { client } = createMobileApiClient({
+  appCode: APP.code,
   getToken: () => tokenGetter(),
-  // Tells app-api which app's permissions apply (per-app permission model,
-  // see @weldsuite/permissions APP_CONTEXT_HEADER).
-  getExtraHeaders: () => ({ 'X-Weld-App': 'weldchat' }),
 });
 
 export const appApi = {

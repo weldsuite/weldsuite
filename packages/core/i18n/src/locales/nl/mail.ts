@@ -916,6 +916,7 @@ export const mail = {
       addLabel: 'Label toevoegen',
       noEmailAccountConnected: 'Geen e-mailaccount verbonden.',
       allAccounts: 'Alle Accounts',
+      accountCount: '{count} accounts',
       setAsDefault: 'Als standaard instellen',
       defaultAccount: 'Standaard',
       emailAccounts: 'E-mailaccounts',
@@ -1074,6 +1075,9 @@ export const mail = {
       weldHostRequiredDescription: 'Eigen e-maildomeinen worden beheerd door de WeldHost-app. Installeer deze om een domein toe te voegen of te kopen.',
       installWeldHost: 'WeldHost installeren',
       noActiveDomainsYet: 'U heeft nog geen actieve WeldHost-domeinen. Voeg er een toe of koop er een voordat u een eigen e-mailadres aanmaakt.',
+      noVerifiedDomainsYet: 'U heeft nog geen geverifieerd domein. Voeg eerst uw domein toe in de WeldMail-instellingen en publiceer de DNS-records.',
+      addDomainInSettings: 'Uw domein toevoegen',
+      addDomainInSettingsDescription: 'Stel het in via WeldMail-instellingen › Domeinen',
       addExistingDomain: 'Bestaand domein toevoegen',
       addExistingDomainDescription: 'Verbind een domein dat u al bezit via WeldHost',
       buyNewDomain: 'Nieuw domein kopen',
@@ -1271,7 +1275,7 @@ export const mail = {
     },
 
     // Uitgaande-mailbewaking: waarom een verzending is geweigerd, de banner zolang
-    // verzenden beperkt is (docs/plans/weldmail-outbound-abuse.md).
+    // verzenden beperkt is (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
     sending: {
       errors: {
         sendingLimited: {

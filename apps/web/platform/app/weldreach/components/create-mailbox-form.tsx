@@ -2,7 +2,8 @@
  * Create a mailbox on a connected domain. Shared by the setup wizard and the
  * "New mailbox" dialog. Validates with the contract's `createReachMailboxSchema`;
  * a 402 PAYMENT_METHOD_REQUIRED turns into a prompt to add a card instead of a
- * dead end.
+ * dead end. Where inboxes ride on the plan's Mollie charge (EU), a 402
+ * PAID_PLAN_REQUIRED turns into a prompt to pick a plan.
  */
 
 import { useMemo, useState } from 'react';
@@ -12,6 +13,7 @@ import type { z } from 'zod';
 import { toast } from 'sonner';
 import { CreditCard, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { useNavigate } from '@tanstack/react-router';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -31,14 +33,13 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import {
   createReachMailboxSchema,
   reachMailboxTypeSchema,
-  WELDREACH_INBOX_CURRENCY,
-  WELDREACH_INBOX_PRICE_CENTS,
   type ReachDomain,
   type ReachMailbox,
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useCreateReachMailbox } from '@/hooks/queries/use-reach-queries';
 import { isFeatureAvailable } from '@/lib/edition';
-import { isPaymentMethodRequiredError, reachErrorMessage } from '@/lib/reach/errors';
+import { isPaidPlanRequiredError, isPaymentMethodRequiredError, reachErrorMessage } from '@/lib/reach/errors';
+import { inboxPrice } from '@/lib/reach/inbox-price';
 import { useReachFormat } from '@/lib/reach/format';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
 import { cn } from '@/lib/utils';
@@ -73,6 +74,8 @@ export function CreateMailboxForm({
   const createMailbox = useCreateReachMailbox();
   const paymentSetup = usePaymentMethodSetup(paymentReturnPath, paymentReturnQuery);
   const [paymentRequired, setPaymentRequired] = useState(false);
+  const [paidPlanRequired, setPaidPlanRequired] = useState(false);
+  const navigate = useNavigate();
   const schemaOptions = useMemo(() => createReachSchemaOptions(t), [t]);
 
   const form = useForm<MailboxFormInput, unknown, MailboxFormOutput>({
@@ -88,11 +91,13 @@ export function CreateMailboxForm({
   });
 
   const selectedDomain = domains.find((domain) => domain.id === form.watch('domainId'));
-  const price = format.money(WELDREACH_INBOX_PRICE_CENTS, WELDREACH_INBOX_CURRENCY);
+  const unitPrice = inboxPrice();
+  const price = format.money(unitPrice.cents, unitPrice.currency);
   const localPartError = form.formState.errors.localPart;
 
   const onSubmit = form.handleSubmit(async (values) => {
     setPaymentRequired(false);
+    setPaidPlanRequired(false);
     try {
       const res = await createMailbox.mutateAsync({ ...values, signature: values.signature?.trim() || undefined });
       toast.success(t('reach.mailboxes.create.created'));
@@ -101,6 +106,10 @@ export function CreateMailboxForm({
     } catch (error) {
       if (isPaymentMethodRequiredError(error)) {
         setPaymentRequired(true);
+        return;
+      }
+      if (isPaidPlanRequiredError(error)) {
+        setPaidPlanRequired(true);
         return;
       }
       toast.error(reachErrorMessage(error, t));
@@ -130,6 +139,14 @@ export function CreateMailboxForm({
                 <CreditCard className="mr-1.5 h-3.5 w-3.5" />
               )}
               {t('reach.mailboxes.create.addPayment')}
+            </Button>
+          </InfoBanner>
+        )}
+        {paidPlanRequired && (
+          <InfoBanner variant="warning" title={t('reach.mailboxes.create.paidPlanRequiredTitle')}>
+            <p>{t('reach.mailboxes.create.paidPlanRequiredDescription')}</p>
+            <Button type="button" size="sm" className="mt-2" onClick={() => void navigate({ to: '/settings/plans' })}>
+              {t('reach.mailboxes.create.seePlans')}
             </Button>
           </InfoBanner>
         )}
@@ -273,7 +290,11 @@ export function CreateMailboxForm({
           )}
         />
 
-        {isFeatureAvailable('billing') && <p className="text-sm text-muted-foreground">{t('reach.mailboxes.create.price', { price })}</p>}
+        {isFeatureAvailable('reach-billing') && (
+          <p className="text-sm text-muted-foreground">
+            {t(unitPrice.withPlan ? 'reach.mailboxes.create.priceWithPlan' : 'reach.mailboxes.create.price', { price })}
+          </p>
+        )}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {onCancel && (

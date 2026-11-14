@@ -16,7 +16,8 @@ weldsuite-kit = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-ports = { workspace = true }
 jiff = { workspace = true }
-regex = { workspace = true }
+# `\p{L}` and `\p{N}` in the article search's word pattern (articles.rs).
+regex = { workspace = true, features = ["unicode-gencat"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

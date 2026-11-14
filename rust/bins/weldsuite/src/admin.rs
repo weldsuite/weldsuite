@@ -59,6 +59,21 @@ without writing.
   staff add <email> --role superadmin|admin|viewer [--name <text>] --reason <text>
         a superadmin only; the first one without --as, while the list is empty
   staff remove <email> --reason <text>
+  billing show <workspace>
+        plan, seats, period, the Mollie account, the latest charges and
+        invoices (plan billing on Mollie, ADR BILL-014)
+  billing comp <workspace> [--plan <id|slug>] [--seats <n>]
+        [--until <YYYY-MM-DD>|none] --reason <text>
+        a complimentary plan: nothing is charged, the plan's credits still
+        come; the renewal job ends it on --until
+  billing uncomp <workspace> --reason <text>
+        ends the comp now; without a paid subscription the workspace goes
+        to Free
+  billing refund <bpy_…|tr_…> [--amount <cents>] --reason <text>
+        refunds a paid charge through Mollie (in full by default); make the
+        credit note in WeldBooks, in the issuer workspace
+  billing retry-now <workspace> --reason <text>
+        charges a past-due workspace's open charge on its mandate again
 
 <workspace> is its id, slug or organization id. --app defaults to weldreach.
 
@@ -107,6 +122,8 @@ enum Command {
     StaffRemove {
         email: String,
     },
+    /// `billing …` (`crate::admin_billing`).
+    Billing(crate::admin_billing::BillingCommand),
 }
 
 /// [`LimitsPatch`] with `PartialEq`, for the parser's tests.
@@ -142,10 +159,13 @@ struct Options {
 
 impl Options {
     fn writes(&self) -> bool {
-        !matches!(
-            self.command,
-            Command::AccessList { .. } | Command::AccessShow { .. } | Command::StaffList
-        )
+        match &self.command {
+            Command::Billing(billing) => billing.writes(),
+            command => !matches!(
+                command,
+                Command::AccessList { .. } | Command::AccessShow { .. } | Command::StaffList
+            ),
+        }
     }
 }
 
@@ -169,6 +189,10 @@ const VALUE_FLAGS: &[&str] = &[
     "--max-daily-sends",
     "--consumer-recipients",
     "--allow-domains",
+    "--plan",
+    "--seats",
+    "--until",
+    "--amount",
 ];
 
 /// The words after `admin`: positionals and flags (`--flag value` or
@@ -289,9 +313,14 @@ fn parse(args: &[String], actor_env: Option<String>) -> Result<Parsed, String> {
         (Some("staff"), Some("remove")) => Command::StaffRemove {
             email: target("email address")?,
         },
+        (Some("billing"), action) => Command::Billing(crate::admin_billing::BillingCommand::parse(
+            action,
+            words.get(2).map(String::as_str),
+            &mut take,
+        )?),
         (Some(area @ ("access" | "staff")), None) => return Err(format!("{area} needs an action")),
         (Some(area), _) => return Err(format!("unknown area {area}")),
-        (None, _) => return Err("name an area: access or staff".to_owned()),
+        (None, _) => return Err("name an area: access, staff or billing".to_owned()),
     };
     // A flag no command above took is one this command doesn't have.
     if let Some((flag, _)) = flags.first() {
@@ -418,6 +447,16 @@ async fn execute(options: &Options, master_url: &str) -> StaffResult<String> {
     match &options.command {
         Command::StaffList | Command::StaffAdd { .. } | Command::StaffRemove { .. } => {
             execute_staff(&master, options).await
+        }
+        Command::Billing(billing) => {
+            crate::admin_billing::execute(
+                &master,
+                billing,
+                options.actor.as_deref(),
+                &options.reason,
+                options.dry_run,
+            )
+            .await
         }
         _ => execute_access(&master, options).await,
     }
@@ -1031,7 +1070,9 @@ mod tests {
         for (line, expected) in [
             ("", "name an area"),
             ("access", "access needs an action"),
-            ("billing list", "unknown area billing"),
+            ("billing list", "unknown billing action list"),
+            ("billing", "billing needs an action"),
+            ("invoices list", "unknown area invoices"),
             ("access delete ws_1", "unknown access action delete"),
             ("access approve", "name the workspace"),
             ("access list --status pending", "--status is one of"),

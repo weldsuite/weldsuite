@@ -1,0 +1,47 @@
+# What the monitoring layer (../monitoring) scrapes, probes and alerts on,
+# and the dashboards WeldSuite adds to Grafana. A layer of its own because
+# these are the Prometheus Operator's kinds, whose CRDs come with
+# ../monitoring's HelmRelease. What each alert means: ALERTS.md.
+#
+# ${DOMAIN} is substituted (Flux postBuild) in the probes and the Flux
+# alerts. The rules use Prometheus's own $labels and $value, which Flux
+# leaves alone; nothing here may contain a dollar-brace otherwise.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - monitors.yaml
+  - probes.yaml
+  - flux-alerts.yaml
+  - rules/platform.yaml
+  - rules/postgres.yaml
+  - rules/nodes.yaml
+  - rules/certificates.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    # Dashboards are JSON with Grafana's own variables: never substitute.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+    # Grafana's folder for them (the sidecar's folderAnnotation).
+    grafana_folder: WeldSuite
+# Written by dashboards/generate.mjs: edit that, run it, commit the JSON.
+configMapGenerator:
+  - name: dashboard-weldsuite-overview
+    namespace: monitoring
+    files: [overview.json=dashboards/overview.json]
+  - name: dashboard-weldsuite-jobs
+    namespace: monitoring
+    files: [jobs.json=dashboards/jobs.json]
+  - name: dashboard-weldsuite-postgres
+    namespace: monitoring
+    files: [postgres.json=dashboards/postgres.json]
+  - name: dashboard-weldsuite-capacity
+    namespace: monitoring
+    files: [capacity.json=dashboards/capacity.json]
+  - name: dashboard-weldsuite-api
+    namespace: monitoring
+    files: [weldsuite-api.json=dashboards/weldsuite-api.json]
+  - name: dashboard-public-endpoints
+    namespace: monitoring
+    files: [public-endpoints.json=dashboards/public-endpoints.json]

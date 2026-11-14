@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   finalize: vi.fn(),
   submitRequest: vi.fn(),
+  setActive: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-onboarding', () => ({
@@ -30,7 +31,7 @@ vi.mock('@/hooks/queries/use-partner-queries', () => ({
   useSubmitPartnerRequest: () => ({ mutateAsync: mocks.submitRequest, isPending: false }),
 }));
 vi.mock('@clerk/clerk-react', () => ({
-  useOrganizationList: () => ({ setActive: vi.fn(), userMemberships: { revalidate: vi.fn() } }),
+  useOrganizationList: () => ({ setActive: mocks.setActive, userMemberships: { revalidate: vi.fn() } }),
   useUser: () => ({ user: { primaryEmailAddress: { emailAddress: 'jane@customer.example' } } }),
 }));
 
@@ -69,6 +70,21 @@ describe('CreateWorkspaceDialog and partner territories', () => {
   beforeEach(() => {
     mocks.create.mockReset();
     mocks.submitRequest.mockReset();
+  });
+
+  it('activates the new workspace, returning to /onboarding where the provider switches by redirect', async () => {
+    mocks.create.mockResolvedValue({ success: true, organizationId: 'org_new', ready: false });
+    mocks.setActive.mockReset().mockResolvedValue(undefined);
+    window.sessionStorage.clear();
+    renderDialog();
+    await fillAndCreate();
+
+    await waitFor(() =>
+      expect(mocks.setActive).toHaveBeenCalledWith({ organization: 'org_new', returnTo: '/onboarding' }),
+    );
+    // /onboarding reads it to show provisioning without starting it again.
+    expect(window.sessionStorage.getItem('weldsuite:pending-org')).toBe('org_new');
+    window.sessionStorage.clear();
   });
 
   it('sends the chosen country with the new workspace', async () => {

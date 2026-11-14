@@ -1,18 +1,18 @@
-# The test cluster (TEST-CLUSTER.md): cp test.tfvars.example terraform.tfvars
-# (git-ignored), then set admin_cidrs. The token is not here:
+# A small test cluster: cp test.tfvars.example terraform.tfvars
+# (git-ignored), then set domain and admin_cidrs. The token is not here:
 # export TF_VAR_hcloud_token=… in the shell that runs tofu.
 
-cluster_name = "weldsuite-eu-test"
-domain       = "test.weldsuite.eu"
+cluster_name = "weldsuite-test"
+domain       = "test.example.com"
 
 # Your own public address (curl -s https://ifconfig.me), as /32: the only
 # address that reaches the Kubernetes and Talos APIs.
 admin_cidrs = ["203.0.113.10/32"]
 
 # Six cx23 (2 vCPU / 4 GB, the cheapest x86 type): one control plane, five
-# workers, about €50 a month with both load balancers. The Flux `test` cluster
-# runs one replica of everything on them. The cx types are often sold out;
-# the server_types API says where one is free (TEST-CLUSTER.md, step 5).
+# workers, about €50 a month with both load balancers, for a Flux cluster that
+# runs one replica of everything (patches in its layers.yaml). The cx types
+# are often sold out; GET /v1/server_types?name=cx23 says where one is free.
 # worker_count = 0 instead runs everything on the control plane, which then
 # needs a cpx32 (4 vCPU / 8 GB) or bigger.
 control_plane_locations = ["nbg1"]

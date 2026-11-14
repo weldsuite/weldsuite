@@ -314,7 +314,7 @@ describe('ContactForm: sections that only apply to the US', () => {
 });
 
 describe('ContactForm: a company or a person', () => {
-  const create = () => screen.getByRole('button', { name: 'Create Contact' });
+  const create = () => screen.getByRole('button', { name: 'Create customer' });
   /** The company and its contact person both have Email and Phone inputs, so these go by id. */
   const field = (selector: string) => document.querySelector(selector) as HTMLInputElement;
 

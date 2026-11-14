@@ -3,8 +3,8 @@
  * (`rust/modules/reach/src/warmup_network`), written by this worker's own code.
  *
  * - `builtin_corpus.json` (next to the Rust module): `BUILTIN_CORPUS`, which the
- *   Rust side writes from. There is no AI on the Kubernetes editions, so the
- *   monthly generated set does not exist there.
+ *   Rust side writes from until the install's AI has generated a monthly set
+ *   (kept in the master database's `system_settings` there, not R2).
  * - `tests/fixtures/warmup_pure.json`: business hours and time zones, the day's
  *   plan and send times, pairing, thread picks and rendering, each case drawing
  *   from the same scripted random sequence.

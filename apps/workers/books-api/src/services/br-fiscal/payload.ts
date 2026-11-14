@@ -4,7 +4,7 @@
  *
  * Pure functions: they take what the invoice, its lines, the entity and the
  * customer hold, plus the taxes the BR engine works out per line, and return the
- * JSON body. Field names follow docs/plans/weldbooks-br/focusnfe-api.md.
+ * JSON body. Field names follow weldsuite-documentation/plans/weldbooks-br/focusnfe-api.md.
  *
  * Money in an invoice is the price with ISS, ICMS, PIS and COFINS inside it
  * ("por dentro") and IPI on top, so each tax comes from the engine's breakdown

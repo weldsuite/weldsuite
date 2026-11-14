@@ -15,7 +15,7 @@
  * title and description to people the workspace may never have written to, so
  * each batch goes through the outbound mail guard first
  * (`@weldsuite/mail-domain/outbound`, source `calendar`; see
- * docs/plans/weldmail-outbound-abuse.md). A refusal skips the whole batch and
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md). A refusal skips the whole batch and
  * is logged, like any other mail failure here: the event stays saved.
  */
 

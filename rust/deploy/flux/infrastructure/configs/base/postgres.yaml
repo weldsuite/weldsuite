@@ -5,7 +5,8 @@
 # Pooler in front.
 #
 #   master     the master database (workspaces, link registry, flags, …);
-#              on eu also the MTA's weldsuite_mta (configs/eu/mta-database.yaml)
+#              with the MTA also its weldsuite_mta (a cluster's own configs,
+#              e.g. clusters/example/configs/mta-database.yaml)
 #   tenants-1  the first tenant shard: one database per workspace (DATA-016)
 #   zitadel-db Zitadel's own database (namespace zitadel, next to Zitadel,
 #              which reads its superuser secret)
@@ -42,8 +43,8 @@ spec:
   # Logins CloudNativePG keeps in step with their Secrets (secrets example).
   # `marketing`: the marketing site (apps/marketing) reads the edition's plan
   # prices from `plans` with it, through the master-r Service. It may read
-  # those columns and nothing else, granted once per cluster
-  # (hetzner/TEST-CLUSTER.md, "The marketing site"); the grant is in the
+  # those columns and nothing else, granted once per cluster (WeldSuite's
+  # test cluster runbook, "The marketing site"); the grant is in the
   # database, so a restore keeps it.
   managed:
     roles:

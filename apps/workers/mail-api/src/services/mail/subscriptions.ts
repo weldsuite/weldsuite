@@ -10,7 +10,7 @@
  * personal-api.
  *
  * Raw MIME lives in R2, never in the Postgres `raw_message` column
- * (docs/plans/weldmail-mailbox-store-design.md decision 4), so the scan reads
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4), so the scan reads
  * each candidate message's header bytes from R2
  * (`@weldsuite/mail-domain/store/bodies`) instead of a `raw_message IS NOT
  * NULL` SQL filter — that column is always NULL for workspace mail.

@@ -75,6 +75,7 @@ import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/
 import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
 import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
 import type { SignatureMode } from '@/app/weldmail/lib/signature';
+import { MailAiBadge } from '@/components/ai/mail-ai-badge';
 
 /**
  * Pairs each attachment with a stable content-based React key. The same file can
@@ -850,6 +851,7 @@ export function ComposeSurface({
                 placeholder={t.mail.floatingCompose.aiPlaceholder}
                 className="flex-1 bg-transparent text-sm text-gray-900 dark:text-foreground placeholder:text-gray-400 dark:placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50"
               />
+              <MailAiBadge className="flex-shrink-0" />
               <Button aria-label={t.mail.a11y.generateDraft}
                 variant="ghost"
                 size="icon"

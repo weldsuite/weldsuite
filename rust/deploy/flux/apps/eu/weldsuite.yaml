@@ -5,8 +5,9 @@
 #
 # The chart is a release (infrastructure/sources/weldsuite.yaml), pinned by
 # WELDSUITE_VERSION in the cluster's settings; its appVersion is the same
-# version, so it installs that release's images. The test cluster swaps the
-# source for the newest develop build (clusters/test/layers.yaml).
+# version, so it installs that release's images. WeldSuite's test cluster
+# swaps the source for the newest develop build (a patch in its layers, in the
+# deploy repository).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:

@@ -27,7 +27,7 @@ ENVIRONMENT = "development"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.org"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
@@ -81,7 +81,7 @@ crons = ["*/5 * * * *", "0 3 * * *", "17 * * * *"]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D8): both
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D8): both
 # Durable Objects are owned and hosted by mail-api, reached here only by
 # `script_name` to destroy a deleted workspace's mail held outside Postgres
 # (services/workspace-mail-destroy.ts). No `[[migrations]]` block here — that
@@ -109,7 +109,7 @@ ENVIRONMENT = "test"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.org"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
@@ -118,7 +118,7 @@ POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
 DATABASE_MOVE_RETENTION_DAYS = "7"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.send_email]]
@@ -182,7 +182,7 @@ ENVIRONMENT = "production"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.com"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
@@ -190,7 +190,7 @@ POOL_TARGET_SHARED = "10"
 POOL_TARGET_DEDICATED = "2"
 DATABASE_MOVE_RETENTION_DAYS = "7"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.send_email]]

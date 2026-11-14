@@ -19,7 +19,7 @@ import { MailpoolNotConfiguredError } from '../lib/mailpool/errors';
 import { computeSlotAdjustments, type SlotAdjustment } from '../services/slots';
 import type { Env } from '../types';
 
-/** What a mailbox costs WeldSuite per month at Mailpool, by type (docs/plans/weldreach.md, Billing). */
+/** What a mailbox costs WeldSuite per month at Mailpool, by type (weldsuite-documentation/plans/weldreach.md, Billing). */
 export const MAILPOOL_COST_CENTS_PER_MAILBOX: Readonly<Record<string, number>> = {
   shared: 300,
   google: 400,

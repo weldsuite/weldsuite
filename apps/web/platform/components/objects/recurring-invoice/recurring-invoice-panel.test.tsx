@@ -147,7 +147,7 @@ describe('RecurringInvoicePanel', () => {
     const user = userEvent.setup();
     await renderPanel();
 
-    await user.click(screen.getByRole('tab', { name: 'Template Items' }));
+    await user.click(screen.getByRole('tab', { name: 'Line items' }));
     expect(screen.getByText('Software as a service · Business use · Tax included')).toBeInTheDocument();
     expect(screen.getByText('2 × $49.50')).toBeInTheDocument();
     expect(screen.getByText('$99.00')).toBeInTheDocument();
@@ -160,7 +160,7 @@ describe('RecurringInvoicePanel', () => {
     env.recurring = { ...(env.recurring as object), templateData: { currency: 'USD', items: [] } };
     await renderPanel();
 
-    await user.click(screen.getByRole('tab', { name: 'Template Items' }));
+    await user.click(screen.getByRole('tab', { name: 'Line items' }));
     expect(screen.getByText('No template items')).toBeInTheDocument();
   });
 
@@ -187,7 +187,7 @@ describe('RecurringInvoicePanel', () => {
     env.recurring = { ...(env.recurring as object), status: 'paused' };
     await renderPanel();
 
-    expect(screen.queryByRole('button', { name: /Generate Now/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate now/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Resume' }));
     expect(env.resume).toHaveBeenCalledWith('ri_1');
@@ -207,7 +207,7 @@ describe('RecurringInvoicePanel', () => {
     });
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     const banner = await screen.findByTestId('finalize-error');
     expect(banner).toHaveTextContent('The sales tax engine could not calculate tax: the provider timed out.');
@@ -221,7 +221,7 @@ describe('RecurringInvoicePanel', () => {
     env.generate.mockRejectedValue(Object.assign(new Error('refused'), { code: 'TAX_RATES_NOT_CONFIGURED', status: 400 }));
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     const notice = await screen.findByTestId('sales-tax-error');
     expect(within(notice).getByRole('link', { name: 'Open sales tax agencies' })).toBeInTheDocument();
@@ -234,7 +234,7 @@ describe('RecurringInvoicePanel', () => {
     });
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     await waitFor(() => expect(screen.getByText(/INV-0009/)).toBeInTheDocument());
     expect(screen.queryByTestId('finalize-error')).not.toBeInTheDocument();
@@ -258,7 +258,7 @@ describe('RecurringInvoicePanel', () => {
     expect(env.setMode).toHaveBeenCalledWith('fullscreen');
     // The form replaces the tabs and the actions while it is open.
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Generate Now/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate now/ })).not.toBeInTheDocument();
   });
 
   it('offers no edit without permission', async () => {

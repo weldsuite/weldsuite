@@ -22,6 +22,7 @@ beforeEach(async () => {
   await db.delete(schema.deskMessages);
   await db.delete(schema.deskConversations);
   await db.delete(schema.deskVisitors);
+  await db.delete(schema.helpdeskSettings);
 });
 
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
@@ -38,6 +39,11 @@ interface Conversation {
   email: string | null;
   externalId: string | null;
   assigneeId: string | null;
+}
+
+interface Matrixed {
+  impact: string | null;
+  urgency: string | null;
 }
 
 describe('/v1/conversations · the live inbox', () => {
@@ -135,6 +141,50 @@ describe('/v1/conversations · the live inbox', () => {
 
     const badType = await request(`/v1/conversations/${first.id}`, patch({ ticketTypeId: 'tt_nope' }));
     expect(badType.status).toBe(400);
+  });
+
+  it('takes impact and urgency, and follows the priority matrix when the workspace has it on', async () => {
+    const request = api();
+    const read = async (res: Response) => ((await res.json()) as { data: Conversation & Matrixed }).data;
+
+    // Matrix off: the two fields are stored, the priority is left alone.
+    const plain = await request('/v1/conversations', post({ title: 'VPN down', body: 'a', impact: 'high', urgency: 'medium' }));
+    expect(plain.status).toBe(201);
+    expect(await read(plain)).toMatchObject({ impact: 'high', urgency: 'medium', priority: null });
+
+    await db.insert(schema.helpdeskSettings).values({
+      id: 'hds_matrix',
+      tickets: {
+        defaultPriority: 'low',
+        priorityMatrix: {
+          enabled: true,
+          matrix: {
+            low: { low: 'low', medium: 'low', high: 'medium' },
+            medium: { low: 'low', medium: 'medium', high: 'high' },
+            high: { low: 'medium', medium: 'high', high: 'urgent' },
+          },
+        },
+      } as never,
+    });
+
+    // Matrix on: the pair sets the priority, on open and on update.
+    const opened = await read(
+      await request('/v1/conversations', post({ title: 'Mail down', body: 'b', impact: 'high', urgency: 'high' })),
+    );
+    expect(opened).toMatchObject({ impact: 'high', urgency: 'high', priority: 'urgent' });
+
+    const calmer = await request(`/v1/conversations/${opened.id}`, patch({ urgency: 'low' }));
+    expect(calmer.status).toBe(200);
+    expect(await read(calmer)).toMatchObject({ impact: 'high', urgency: 'low', priority: 'medium' });
+
+    // A priority sent along is an override; null clears a field without touching the priority.
+    const overridden = await request(`/v1/conversations/${opened.id}`, patch({ urgency: 'medium', priority: 'low' }));
+    expect(await read(overridden)).toMatchObject({ urgency: 'medium', priority: 'low' });
+    const cleared = await request(`/v1/conversations/${opened.id}`, patch({ impact: null }));
+    expect(await read(cleared)).toMatchObject({ impact: null, urgency: 'medium', priority: 'low' });
+
+    expect((await request(`/v1/conversations/${opened.id}`, patch({ impact: 'critical' }))).status).toBe(400);
+    expect((await request('/v1/conversations', post({ body: 'c', urgency: null }))).status).toBe(400);
   });
 
   it('filters by search as well as q, so a lookup by name never lists everything', async () => {

@@ -15,7 +15,8 @@ use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, reply};
 use weldsuite_books_domain::js::{days_from_civil, parse_float};
 use weldsuite_books_domain::reports_basis::{
-    DateRange, LedgerFilters, ReportColumn, create_ledger, iso, money, resolve_basis, today_for,
+    AggregateOptions, DateRange, LedgerFilters, LedgerRange, ReportColumn, create_ledger, iso,
+    money, resolve_basis, today_for,
 };
 use weldsuite_books_domain::tables::{ENTITIES, INVOICES, PAYMENTS};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -57,10 +58,12 @@ fn month_columns(today: &str, count: i64) -> Vec<ReportColumn> {
         .collect()
 }
 
-/// `{ id, name, iban, currentBalance, currency }` of a bank account.
+/// `{ id, name, iban, currentBalance, currency }` of a bank account, and the
+/// ledger account it is linked to.
 type BankAccountRow = (
     String,
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -188,12 +191,85 @@ async fn build_dashboard(caller: &Caller) -> Reply {
 
     // Bank balances (entity-scoped).
     let bank_accounts: Vec<BankAccountRow> = sqlx::query_as(
-        "select id, name, iban, current_balance::text, currency from bank_accounts \
+        "select id, name, iban, current_balance::text, currency, ledger_account_id from bank_accounts \
              where entity_id = $1 and deleted_at is null and is_active = true",
     )
     .bind(&entity_id)
     .fetch_all(db)
     .await?;
+
+    // Cash: the ledger balance of the money accounts. `currentBalance` above
+    // moves only with bank transactions, so a payment recorded without a
+    // statement line would not show in it.
+    let mut money_account_ids: Vec<String> = Vec::new();
+    for (.., ledger_account_id) in &bank_accounts {
+        if let Some(id) = ledger_account_id.as_ref().filter(|id| !id.is_empty())
+            && !money_account_ids.contains(id)
+        {
+            money_account_ids.push(id.clone());
+        }
+    }
+    let any_linked_bank: Option<String> = sqlx::query_scalar(
+        "select id from bank_accounts where entity_id = $1 and deleted_at is null \
+         and ledger_account_id is not null limit 1",
+    )
+    .bind(&entity_id)
+    .fetch_optional(db)
+    .await?;
+    if any_linked_bank.is_none() {
+        // No bank account is linked to the ledger: payments post to the
+        // chart's bank account (see `resolve_money_account`).
+        let template_code = if entity.get("jurisdictionCode").and_then(Value::as_str) == Some("IN")
+        {
+            "1200"
+        } else {
+            "1100"
+        };
+        let chart = || ledger.accounts().iter().filter(|a| !a.virtual_account);
+        let fallback = chart()
+            .find(|a| a.code == template_code && a.subtype.as_deref() == Some("bank"))
+            .or_else(|| chart().find(|a| a.subtype.as_deref() == Some("bank")));
+        if let Some(fallback) = fallback
+            && !money_account_ids.contains(&fallback.id)
+        {
+            money_account_ids.push(fallback.id.clone());
+        }
+    }
+    let cash_balance = if money_account_ids.is_empty() {
+        0.0
+    } else {
+        let ids: Vec<&str> = money_account_ids.iter().map(String::as_str).collect();
+        let today_end = days_from_civil(
+            year,
+            month,
+            today.get(8..10).and_then(|d| d.parse().ok()).unwrap_or(1),
+        ) * 86_400_000
+            + 86_399_999;
+        ledger
+            .aggregate(
+                LedgerRange {
+                    from: None,
+                    to: today_end,
+                },
+                AggregateOptions {
+                    account_ids: &ids,
+                    ..AggregateOptions::default()
+                },
+            )
+            .await?
+            .iter()
+            .fold(0.0, |total, row| {
+                let credit_side = ledger
+                    .account(&row.account_id)
+                    .is_some_and(|a| a.normal_side == "credit");
+                total
+                    + if credit_side {
+                        row.credit - row.debit
+                    } else {
+                        row.debit - row.credit
+                    }
+            })
+    };
 
     // Recent payments (last 10).
     let recent_payments: Vec<Value> = sqlx::query_scalar(concat!(
@@ -269,7 +345,8 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             "month": value(profit, current_month),
             "year": value(profit, "year"),
         },
-        "bankAccounts": bank_accounts.into_iter().map(|(id, name, iban, balance, currency)| json!({
+        "cashBalance": money(cash_balance),
+        "bankAccounts": bank_accounts.into_iter().map(|(id, name, iban, balance, currency, _)| json!({
             "id": id,
             "name": name,
             "iban": iban,

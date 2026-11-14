@@ -1,7 +1,7 @@
 /**
  * Partner portal (reseller licensing) and the partner-managed workspace
  * surfaces: Settings > Billing, banners, the territory screen and the App
- * Store hint. Plan: docs/plans/reseller-licensing.md.
+ * Store hint. Plan: weldsuite-documentation/plans/reseller-licensing.md.
  *
  * Placeholders use `{name}` and are filled with `format()` from `useI18n()`.
  */

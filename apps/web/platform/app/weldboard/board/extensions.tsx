@@ -21,8 +21,8 @@ export function useBoardExtensions(): LiveBoardProps['extend'] {
   const stores = useRef(new WeakMap<BoardController, BoardPanels>());
   const router = useRouter();
   const canCreateTasks = useCan('tasks:create');
-  // AI runs where WeldAgent's does (no AI provider on the Kubernetes editions yet).
-  const aiAvailable = isFeatureAvailable('agent-ai');
+  // AI runs where the assistant does (an AI provider must be configured on the Kubernetes editions).
+  const aiAvailable = isFeatureAvailable('assistant-ai');
   return useCallback<NonNullable<LiveBoardProps['extend']>>(
     (c, ctx) => {
       let panels = stores.current.get(c);

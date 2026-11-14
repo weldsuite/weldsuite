@@ -661,7 +661,13 @@ async fn search(
     let query = query.as_deref();
     let (db, workspace) = tenant_or_answer!(ctx, state, query);
     let term = query_param(query, "q").unwrap_or_default();
-    let Some(search) = articles::typed_search(&term) else {
+    // `match=any`: what a reader is writing in a request form (deflection).
+    let found = if query_param(query, "match").as_deref() == Some("any") {
+        articles::suggest_search(&term)
+    } else {
+        articles::typed_search(&term)
+    };
+    let Some(search) = found else {
         return axum::Json(json!({ "data": [], "pagination": page_meta(1, 20, 0) }))
             .into_response();
     };

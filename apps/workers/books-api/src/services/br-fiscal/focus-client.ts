@@ -1,7 +1,7 @@
 /**
  * Focus NFe REST API v2 client (https://doc.focusnfe.com.br): the electronic
  * fiscal document provider WeldBooks uses for Brazilian NF-e and NFS-e. A small
- * fetch wrapper, no SDK. Reference: docs/plans/weldbooks-br/focusnfe-api.md.
+ * fetch wrapper, no SDK. Reference: weldsuite-documentation/plans/weldbooks-br/focusnfe-api.md.
  *
  * - Auth is HTTP Basic with the company token as user and an empty password.
  * - Every non-2xx answer becomes a `FiscalProviderError` carrying Focus' own

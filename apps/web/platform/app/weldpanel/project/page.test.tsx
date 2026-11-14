@@ -157,14 +157,18 @@ describe('WeldPanel project page', () => {
       const { user } = show();
       await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
       const tpv = en.weldpanel.privacy;
-      expect(screen.getByText(tpv.on)).toBeTruthy();
+      expect(screen.getAllByText(tpv.on)).toHaveLength(2);
       expect(screen.getByText(tpv.consent.required.label)).toBeTruthy();
       expect(screen.getByText(tpv.masking.balanced.label)).toBeTruthy();
       expect(screen.getByText('/admin/*')).toBeTruthy();
+      expect(screen.getByText(tpv.ipFiltersNone)).toBeTruthy();
+      expect(screen.getByText('100% of consented sessions')).toBeTruthy();
+      expect(screen.getByText(tpv.aiLabel)).toBeTruthy();
       expect(screen.getByText(tpv.readOnlyNote)).toBeTruthy();
       expect(screen.queryByRole('switch')).toBeNull();
       expect(screen.queryByRole('radio')).toBeNull();
       expect(screen.queryByRole('textbox')).toBeNull();
+      expect(screen.queryByRole('spinbutton')).toBeNull();
       expect(screen.queryByRole('button', { name: tpv.save })).toBeNull();
     });
 
@@ -236,6 +240,11 @@ describe('WeldPanel project page', () => {
       expect(screen.getByRole('switch', { name: tpv.autocaptureLabel }).getAttribute('aria-checked')).toBe('true');
       expect(screen.getByText(tpv.consent.required.description)).toBeTruthy();
       expect(screen.getByText(tpv.maskingDescription)).toBeTruthy();
+      expect(screen.getByRole('switch', { name: tpv.aiLabel }).getAttribute('aria-checked')).toBe('true');
+      expect(screen.getByText(tpv.aiDescription)).toBeTruthy();
+      expect((screen.getByLabelText(tpv.recordingRateLabel) as HTMLInputElement).value).toBe('100');
+      expect(screen.getByText(tpv.recordingRateDescription)).toBeTruthy();
+      expect(screen.getByPlaceholderText(tpv.ipFiltersPlaceholder)).toBeTruthy();
       expect(screen.getByRole('radio', { name: new RegExp(tpv.consent.required.label) }).getAttribute('aria-checked')).toBe('true');
       expect(screen.getByRole('radio', { name: new RegExp(tpv.masking.balanced.label) }).getAttribute('aria-checked')).toBe('true');
     });
@@ -273,6 +282,86 @@ describe('WeldPanel project page', () => {
       await user.click(screen.getByRole('button', { name: 'Remove /admin/*' }));
       await user.click(screen.getByRole('button', { name: en.weldpanel.privacy.save }));
       await waitFor(() => expect(state.updateSettings).toHaveBeenCalledWith({ settings: { excludedUrls: ['/checkout/*'] } }));
+    });
+  });
+
+  describe('Privacy tab, recordings and IP filters', () => {
+    beforeEach(() => {
+      state.perms = new Set([READ, 'panel_projects:manage']);
+    });
+
+    it('saves the sample rate as a share, the AI switch and the IP filters', async () => {
+      state.updateSettings.mockResolvedValue(makeProject());
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      const tpv = en.weldpanel.privacy;
+
+      const rate = screen.getByLabelText(tpv.recordingRateLabel);
+      await user.clear(rate);
+      await user.type(rate, '25');
+      await user.click(screen.getByRole('switch', { name: tpv.aiLabel }));
+      await user.type(screen.getByPlaceholderText(tpv.ipFiltersPlaceholder), '203.0.113.0/24{Enter}');
+      await user.click(screen.getByRole('button', { name: tpv.save }));
+
+      await waitFor(() =>
+        expect(state.updateSettings).toHaveBeenCalledWith({
+          settings: { recordingSampleRate: 0.25, aiEnabled: false, ipFilters: ['203.0.113.0/24'] },
+        }),
+      );
+    });
+
+    it('splits several IP filters pasted with commas or spaces, not at the letter s', async () => {
+      state.updateSettings.mockResolvedValue(makeProject());
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      await user.type(screen.getByPlaceholderText(en.weldpanel.privacy.ipFiltersPlaceholder), '203.0.113.0/24, 198.51.100.7 192.0.2.1{Enter}');
+      await user.click(screen.getByRole('button', { name: en.weldpanel.privacy.save }));
+      await waitFor(() =>
+        expect(state.updateSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ settings: expect.objectContaining({ ipFilters: ['203.0.113.0/24', '198.51.100.7', '192.0.2.1'] }) }),
+        ),
+      );
+    });
+
+    it('refuses an IP filter that is not an address or range', async () => {
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      await user.type(screen.getByPlaceholderText(en.weldpanel.privacy.ipFiltersPlaceholder), 'office{Enter}');
+      expect(await screen.findByText(en.weldpanel.validation.ipInvalid)).toBeTruthy();
+    });
+
+    it('refuses a sample rate above 100 and does not save', async () => {
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      const rate = screen.getByLabelText(en.weldpanel.privacy.recordingRateLabel);
+      await user.clear(rate);
+      await user.type(rate, '150');
+      await user.click(screen.getByRole('button', { name: en.weldpanel.privacy.save }));
+      expect(await screen.findByText(en.weldpanel.validation.sampleRateInvalid)).toBeTruthy();
+      expect(state.updateSettings).not.toHaveBeenCalled();
+    });
+
+    it('points the AI-off hint at the control it names', () => {
+      for (const lang of [en, nl]) {
+        expect(lang.weldpanel.observe.session.summary.aiDisabled).toContain(lang.weldpanel.privacy.aiLabel);
+        expect(lang.weldpanel.observe.session.summary.aiDisabled).toContain(lang.weldpanel.project.tabs.privacy);
+      }
+    });
+  });
+
+  describe('Install tab, server usage', () => {
+    it('shows the SDK and HTTP forms the collector accepts, built from the collector URL', () => {
+      show();
+      const sdk = screen.getByRole('region', { name: en.weldpanel.observe.install.serverTitle }).textContent ?? '';
+      expect(sdk).toContain('createPanelServer({');
+      expect(sdk).toContain("collectorUrl: 'https://pnl.weldsuite.org'");
+      expect(sdk).toContain('panel.track({ name:');
+      expect(sdk).not.toContain('createServerClient');
+      const http = screen.getByRole('region', { name: en.weldpanel.observe.install.httpTitle }).textContent ?? '';
+      expect(http).toContain('curl -X POST https://pnl.weldsuite.org/v1/track');
+      expect(http).toContain('"lib":"server"');
+      expect(http).toContain('"event_id"');
+      expect(http).toContain('"distinct_id":"user_123"');
     });
   });
 

@@ -55,8 +55,8 @@ runs:
         TARGET: ${{ inputs.environment }}
       run: node .github/scripts/release-queue-consumers.mjs "$WORKER" "$TARGET"
 
-    - name: Set up Docker (agent-runtime containers)
-      if: inputs.kind == 'core' && inputs.worker == 'agent-runtime'
+    - name: Set up Docker (agent-runtime and panel-maintenance containers)
+      if: inputs.kind == 'core' && (inputs.worker == 'agent-runtime' || inputs.worker == 'panel-maintenance')
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
     # A worker that binds a Durable Object class hosted by another module

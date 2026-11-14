@@ -2,8 +2,11 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter, type Href } from 'expo-router';
+import { appApi } from '@/services/app-api';
 import { notificationTarget } from '@/lib/notification-route';
 
 const EAS_PROJECT_ID =
@@ -24,7 +27,8 @@ const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreCl
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | null>;
-  registerDeviceToken: (token: string, accessToken: string, orgId: string, appCode: string) => Promise<void>;
+  registerDeviceToken: (token: string, accessToken: string, orgId: string, appCode: string) => Promise<unknown>;
+  getDeviceId: () => Promise<string>;
   setupNotificationListeners: (onReceive: (n: any) => void, onTap: (r: any) => void) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
   createNotificationChannels: (channels: Array<{ id: string; name: string; description: string }>) => Promise<void>;
@@ -58,7 +62,7 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, getCredentials, organizationId } = useClerkAuth();
+  const { user, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
@@ -67,8 +71,19 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   // Notifications already followed, so the one that launched the app is not followed again when this re-runs.
   const followed = useRef(new Set<string>());
 
+  // Leaving this server (switching to another): stop it pushing to this device.
+  useEffect(
+    () =>
+      onLeaveServer('push-token', async (runtime) => {
+        if (!runtime.pushEnabled || !notifUtils) return;
+        await appApi.pushTokens.unregister(await notifUtils.getDeviceId());
+      }),
+    [],
+  );
+
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    if (!notifUtils || !hasProjectId) return false;
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!notifUtils || !hasProjectId || !isPushAvailable()) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
@@ -105,7 +120,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
 
     const init = async () => {
-      if (!Notifications || !notifUtils) {
+      if (!Notifications || !notifUtils || !isPushAvailable()) {
         setIsConnected(false);
         return;
       }
@@ -141,7 +156,10 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             if (followed.current.has(id)) return;
             followed.current.add(id);
           }
-          const target = notificationTarget(response?.notification?.request?.content?.data);
+          const data = response?.notification?.request?.content?.data;
+          // A notification left over from another server points at records this one doesn't have.
+          if (!isNotificationForThisServer(data)) return;
+          const target = notificationTarget(data);
           if (target) router.push(target as Href);
         };
 

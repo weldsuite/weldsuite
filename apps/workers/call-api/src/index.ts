@@ -4,7 +4,7 @@
  * (phone numbers), number porting, the Telnyx Call Control webhook and
  * billing-worker's internal phone-number fulfilment endpoint.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
@@ -52,7 +52,7 @@ export default {
 // so it is trusted by topology: the telephony router accepts `internalTrusted`
 // instead of the INTERNAL_API_SECRET bearer. Only that router is mounted here,
 // at the same path as on the public app, which stays until every caller uses
-// the entrypoint (docs/plans/app-api-module-split.md, rollout item 7).
+// the entrypoint (weldsuite-documentation/plans/app-api-module-split.md, rollout item 7).
 const internalApp = createModuleApi<Env, Variables>({ service: 'call-api' });
 internalApp.use('*', async (c, next) => {
   c.set('internalTrusted', true);

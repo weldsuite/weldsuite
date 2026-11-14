@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Building2 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -28,7 +28,7 @@ export default function AccountMiniSidebar() {
     isUnifiedInbox, selectUnifiedInbox, hasPersonalAccount,
   } = useMail();
   const { can } = usePermissions();
-  const { organizationId } = useClerkAuth();
+  const { organizationId } = useAuthSession();
   const { workspaces, switchWorkspace } = useWorkspace();
   const { prepareWorkspaceSwitch } = useNotifications();
 

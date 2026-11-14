@@ -69,7 +69,6 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
       'phases': t.projects.projectLayout.routeLabels.phases,
       'close': t.projects.projectLayout.routeLabels.close,
       'reviews': t.projects.projectLayout.routeLabels.reviews,
-      'templates': t.projects.projectLayout.routeLabels.templates,
       'capacity': t.projects.projectLayout.routeLabels.capacity,
       'intake': t.projects.projectLayout.routeLabels.intake,
       'roadmap': t.projects.projectLayout.routeLabels.roadmap,

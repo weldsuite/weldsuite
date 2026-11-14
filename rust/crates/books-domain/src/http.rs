@@ -69,6 +69,19 @@ pub struct BooksState {
     pub env: Arc<HashMap<String, String>>,
     /// The live ECB rates, kept an hour (`accounting-currency`'s module cache).
     pub rates: Arc<RateCache>,
+    /// `TRUSTED_PROXIES`: where the member's address sits in
+    /// `X-Forwarded-For`, counted from the right ([`Caller::client_ip`]).
+    pub trusted_proxies: usize,
+    /// Starting a bank link asks for a second factor verified in the last
+    /// 10 minutes (`requireSecondFactor`, from Clerk's `fva`). Off with OIDC
+    /// sign-in for now: Zitadel puts `auth_time` and `amr` only in the ID
+    /// token, never in the access token the platform sends, and the platform
+    /// has no step-up flow there yet, so every link would be refused.
+    pub second_factor_step_up: bool,
+    /// The install's AI (`weldsuite_ai`, ADR AI-012), for document OCR.
+    /// `None` with AI off. A request's own (conformance) wins
+    /// ([`Caller::ai`]).
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for BooksState {
@@ -80,6 +93,7 @@ impl std::fmt::Debug for BooksState {
             .field("cache", &self.cache.is_some())
             .field("realtime", &self.realtime.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -99,6 +113,9 @@ impl BooksState {
             keyring: Keyring::default(),
             env: Arc::default(),
             rates: Arc::default(),
+            trusted_proxies: 1,
+            second_factor_step_up: true,
+            ai: None,
         }
     }
 }
@@ -126,6 +143,8 @@ pub struct Caller {
     flags: Option<weldsuite_pipeline::Flags>,
     http: Option<OutboundHttp>,
     cache: Option<RequestCache>,
+    /// The request's AI (conformance builds: the test's mock model).
+    ai: Option<weldsuite_ai::Ai>,
     /// `resolveEntityId(c, db)`, once per request (books-api keeps it in a
     /// `WeakMap` keyed by the context).
     pub(crate) entity: OnceCell<Option<String>>,
@@ -159,6 +178,33 @@ impl Caller {
     /// The request's headers.
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
+    }
+
+    /// The member's IP address: the `X-Forwarded-For` entry
+    /// `trusted_proxies` from the right (the proxies in front append theirs),
+    /// when it looks like an address. `CF-Connecting-IP` is not read: on
+    /// Kubernetes nothing in front sets it, so a client could. Ponto takes it
+    /// as evidence that the customer asked for a synchronization.
+    pub fn client_ip(&self, trusted_proxies: usize) -> Option<String> {
+        let hops: Vec<&str> = self
+            .headers
+            .get_all("x-forwarded-for")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .filter(|hop| !hop.is_empty())
+            .collect();
+        hops.len()
+            .checked_sub(trusted_proxies.max(1))
+            .and_then(|at| hops.get(at))
+            .filter(|ip| {
+                (2..=45).contains(&ip.len())
+                    && ip
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || matches!(b, b'.' | b':'))
+            })
+            .map(|ip| (*ip).to_owned())
     }
 
     /// What `legal_entity_context` settled for this request, when it ran.
@@ -330,6 +376,17 @@ impl Caller {
             .or_else(|| state.cache.clone())
     }
 
+    /// The AI a route calls: the request's own (conformance), else the
+    /// app's. `None` when it is off: the route then answers as books-api
+    /// does without its AI gateway.
+    pub fn ai(&self, state: &BooksState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
+    }
+
     /// The client address the accounting audit trail records:
     /// `cf-connecting-ip ?? x-forwarded-for ?? null`.
     pub fn ip_address(&self) -> Option<String> {
@@ -386,6 +443,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     flags: parts.extensions.get::<weldsuite_pipeline::Flags>().cloned(),
                     http: parts.extensions.get::<OutboundHttp>().cloned(),
                     cache: parts.extensions.get::<RequestCache>().cloned(),
+                    ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
                     entity: OnceCell::new(),
                     legal_entity: RequestEntity::of(&parts.extensions).cloned(),
                     entity_access: OnceCell::new(),

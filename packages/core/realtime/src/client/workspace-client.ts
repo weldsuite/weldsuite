@@ -93,6 +93,14 @@ export class WorkspaceClient {
       // If disconnected while awaiting the token, bail out
       if (this.intentionalClose) return;
 
+      // No token (signed out, or no workspace selected yet): a socket opened
+      // now is refused. Stay disconnected; connect() is called again once a
+      // token can be had.
+      if (!token) {
+        this.setState('disconnected');
+        return;
+      }
+
       const url = new URL(this.config.url);
       url.searchParams.set('token', token);
       const ws = new WebSocket(url.toString());

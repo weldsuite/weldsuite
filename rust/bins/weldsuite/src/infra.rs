@@ -24,7 +24,7 @@ use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
 };
 
-use crate::config::{FlagSourceKind, InfraConfig};
+use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -148,10 +148,11 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
 }
 
 /// The private and public file stores. Nothing is sent until a route uses
-/// one, so a wrong key shows up in that route's logs, not at start.
+/// one, so a wrong key shows up in that route's logs, not at start; except
+/// with `S3_ENSURE_BUCKETS`, which checks (and creates) each bucket first.
 type FileStores = (Option<Arc<dyn DynFileStore>>, Option<Arc<dyn DynFileStore>>);
 
-fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
+async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     let Some(files) = &config.files else {
         tracing::warn!("S3_ENDPOINT is not set: no file storage, file routes will fail");
         return Ok((None, None));
@@ -160,15 +161,22 @@ fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
-    let private: Arc<dyn DynFileStore> =
-        Arc::new(S3FileStore::new(&files.private, client.clone())?);
-    let public = match files.public() {
-        Some(options) => {
-            Some(Arc::new(S3FileStore::new(&options, client)?) as Arc<dyn DynFileStore>)
+    let private = S3FileStore::new(&files.private, client.clone())?;
+    let public = files
+        .public()
+        .map(|options| S3FileStore::new(&options, client))
+        .transpose()?;
+    if files.ensure_buckets {
+        for store in std::iter::once(&private).chain(public.as_ref()) {
+            if store.ensure_bucket().await? {
+                tracing::info!(bucket = store.bucket_name(), "created the bucket");
+            }
         }
-        None => None,
-    };
-    Ok((Some(private), public))
+    }
+    Ok((
+        Some(Arc::new(private) as Arc<dyn DynFileStore>),
+        public.map(|store| Arc::new(store) as Arc<dyn DynFileStore>),
+    ))
 }
 
 /// The registry every process starts with.
@@ -203,7 +211,7 @@ fn jobs(
 }
 
 /// The SMTP relay, when `SMTP_URL` is set. It connects on the first send.
-fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
+pub(crate) fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
     let Some(url) = &config.smtp_url else {
         tracing::warn!("SMTP_URL is not set: system mail is skipped");
         return Ok(None);
@@ -216,22 +224,40 @@ fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, E
 }
 
 /// Zitadel's management API, when `ZITADEL_*` is set.
-fn identity(config: &InfraConfig) -> Result<Option<Arc<dyn Identity>>, Error> {
+fn identity(
+    config: &InfraConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Result<Option<Arc<dyn Identity>>, Error> {
     let Some(settings) = &config.identity else {
         tracing::warn!(
             "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
         );
         return Ok(None);
     };
-    let identity = ZitadelIdentity::new(ZitadelOptions {
+    let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
+    Ok(Some(Arc::new(identity)))
+}
+
+/// How to reach Zitadel's management API. With system mail, invitations go
+/// out in WeldSuite's template and Zitadel hands the invite code back.
+pub(crate) fn zitadel_options(
+    settings: &IdentityConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> ZitadelOptions {
+    ZitadelOptions {
         api_url: settings.api_url.clone(),
         token: settings.token.clone(),
         project_id: settings.project_id.clone(),
         invite_url_template: settings.invite_url_template.clone(),
+        accept_on_platform: settings.accept_on_platform,
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
-    })?;
-    Ok(Some(Arc::new(identity)))
+        invitation_mailer: mail.map(|mail| {
+            Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
+                Arc::clone(mail),
+            )) as Arc<dyn weldsuite_ports::InvitationMailer>
+        }),
+    }
 }
 
 /// The CloudNativePG provisioner, when `TENANT_SHARDS` is set.
@@ -274,11 +300,11 @@ pub(crate) async fn connect(
         )),
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
-    let (files, public_files) = file_stores(config)?;
+    let (files, public_files) = file_stores(config).await?;
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let identity = identity(config)?;
+    let identity = identity(config, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,

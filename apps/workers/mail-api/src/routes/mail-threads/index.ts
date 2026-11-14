@@ -7,7 +7,7 @@
  * is the write side.
  *
  * Both routes go through `workspaceMailFromContext`'s `store`/`access`
- * (design docs/plans/weldmail-mailbox-store-design.md, task D2), so marking a
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2), so marking a
  * folder or a thread read works the same in every mailbox-store mode.
  */
 

@@ -20,6 +20,10 @@ export default function InvitePage() {
   const invitationId = params.get('invitation_id') || params.get('invitationId') || params.get('id') || undefined;
   const email = params.get('email') || undefined;
   const orgName = params.get('org_name') || params.get('orgName') || params.get('organization') || undefined;
+  // The identity provider's invitation on the Kubernetes editions (Zitadel):
+  // the account it made and the code, put in the emailed link by the backend.
+  const userId = params.get('userId') || undefined;
+  const code = params.get('code') || undefined;
 
   // A signed-in member with nothing to accept goes to the dashboard. With a
   // ticket or a target workspace in the link they stay: the invite client
@@ -30,6 +34,8 @@ export default function InvitePage() {
 
   return (
     <InviteClient
+      userId={userId}
+      code={code}
       orgId={orgIdParam}
       orgName={orgName}
       invitationId={invitationId}

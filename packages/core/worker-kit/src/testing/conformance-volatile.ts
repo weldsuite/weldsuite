@@ -68,6 +68,23 @@ function toolToken(path: string): VolatileField {
  */
 const MEET_SESSION_DURATION = { fields: [], realtime: [{ path: 'body.data.duration' }] };
 
+/**
+ * WeldForms' AI: the engine's builders give each generated block and choice
+ * a fresh id (`b_` / `c_` and 8 random base62 characters), up to `blocks`
+ * blocks of 20 choices under `prefix`.
+ */
+function formBuilderIds(prefix: string, blocks: number): VolatileField[] {
+  const id = (path: string, letter: string): VolatileField => ({
+    path,
+    pattern: new RegExp(`^${letter}_[0-9A-Za-z]{8}$`, 'g'),
+    replacement: `${letter}_<volatile>`,
+  });
+  return Array.from({ length: blocks }, (_, b) => [
+    id(`${prefix}.${b}.id`, 'b'),
+    ...Array.from({ length: 20 }, (_, c) => id(`${prefix}.${b}.properties.choices.${c}.id`, 'c')),
+  ]).flat();
+}
+
 const ROUTES: VolatileRoute[] = [
   // The public API's client_credentials grant: a fresh `wsat_` token per run.
   { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
@@ -140,6 +157,23 @@ const ROUTES: VolatileRoute[] = [
   },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
+  // The assistant chat: each backend names the model it served (`@cf/…` on the
+  // gateway, `mistral/…` on the Kubernetes editions), and the AI SDK's usage
+  // carries detail fields the Rust crate does not.
+  ...['/api/ai/chat', '/api/ai/generate'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.model' }, { path: 'data.usage' }],
+  })),
+  // An audit log stream's test event: how long the destination took to
+  // answer, and in the request the moment it was sent as Splunk HEC's epoch
+  // seconds (the event's own ISO timestamp is masked like any other).
+  {
+    method: 'POST',
+    route: '/api/audit-log-streams/:id/test',
+    fields: [{ path: 'data.durationMs' }],
+    outbound: [{ path: 'body.time' }],
+  },
   // WeldDesk OAuth starts: a fresh state nonce (`crypto.randomUUID()`) per run.
   ...['discord', 'slack'].map((provider) => ({
     method: 'POST',
@@ -315,6 +349,18 @@ const ROUTES: VolatileRoute[] = [
       toolToken('body.assistant.tools.1.webhook.headers.0.value'),
     ],
   },
+  // The WeldDesk phone queue rings a member's softphone outside the webhook
+  // too (a queue pickup, "take calls" switched on with a caller waiting):
+  // the dial carries the new leg's id in the same base64 JSON.
+  ...[
+    { method: 'POST', route: '/api/desk/phone/queue/:callId/pickup' },
+    { method: 'PUT', route: '/api/desk/phone/softphone' },
+  ].map(({ method, route }) => ({
+    method,
+    route,
+    fields: [],
+    outbound: [{ path: 'body.client_state', decode: 'base64-json' as const }],
+  })),
   // WeldBooks VAT: a Digipoort filing reference (`WS-<Date.now() base 36>-<6 random>`) per run,
   // the moment a status was asked, and the creation time inside an XBRL message built on request.
   { method: 'POST', route: '/api/vat-returns/:id/file', fields: [{ path: 'data.kenmerk' }] },
@@ -369,6 +415,13 @@ const ROUTES: VolatileRoute[] = [
   // gzipped first checkpoint, whose size the drive file's event carries,
   // compresses a byte or two differently per run.
   { method: 'POST', route: '/api/boards/import', fields: [], events: [{ path: 'data.fileSize' }] },
+  // WeldBoard's AI actions: the elements they make get new ids (board-engine's
+  // `newId()`: `e`, the time in base 36, six random and two counter characters).
+  {
+    method: 'POST',
+    route: '/api/boards/:id/ai',
+    fields: Array.from({ length: 80 }, (_, i) => ({ path: `data.elementIds.${i}`, pattern: /^e[0-9a-z]{15,17}$/g, replacement: 'e<volatile>' })),
+  },
   // WeldMerge: the GitHub App's install page carries a signed state (a fresh
   // nonce and the second it was issued), an OAuth consent page a fresh random
   // state id.
@@ -402,6 +455,42 @@ const ROUTES: VolatileRoute[] = [
       { path: 'body.consumerInputs.basicAuthPassword' },
     ],
   })),
+  // WeldForms: a blank form's ending id (`e_` and 8 random base62 characters).
+  {
+    method: 'POST',
+    route: '/api/forms/forms',
+    fields: [{ path: 'data.definition.endings.0.id', pattern: /^e_[0-9A-Za-z]{8}$/g, replacement: 'e_<volatile>' }],
+  },
+  // WeldForms' AI: a generated draft's blocks, choices and ending, and suggested blocks.
+  {
+    method: 'POST',
+    route: '/api/forms/ai/generate',
+    fields: [
+      ...formBuilderIds('data.definition.blocks', 40),
+      { path: 'data.definition.endings.0.id', pattern: /^e_[0-9A-Za-z]{8}$/g, replacement: 'e_<volatile>' },
+    ],
+  },
+  { method: 'POST', route: '/api/forms/ai/suggest-blocks', fields: formBuilderIds('data.blocks', 8) },
+  // WeldForms: an uploaded image's key carries 16 random characters.
+  {
+    method: 'POST',
+    route: '/api/forms/media',
+    fields: [{ path: 'data.url', pattern: /\/media\/[A-Za-z0-9]{16}\./g, replacement: '/media/<volatile>.' }],
+  },
+  // WeldForms: an ALTCHA challenge is drawn per call (salt, secret number,
+  // its hash and signature, and the salt's expiry).
+  { method: 'GET', route: '/public/forms/altcha/challenge', fields: [{ path: 'challenge' }, { path: 'salt' }, { path: 'signature' }] },
+  // WeldForms: a verification token carries its expiry (the run's clock plus 30 minutes).
+  { method: 'POST', route: '/public/forms/f/:publicId/verify', fields: [{ path: 'data.verification' }] },
+  // WeldForms: a refused rate limit says how many seconds are left of the
+  // minute's window, read off each run's own clock.
+  ...[
+    '/public/forms/f/:publicId/sessions',
+    '/public/forms/f/:publicId/send-code',
+    '/public/forms/f/:publicId/report',
+    '/public/forms/sessions/uploads',
+    '/public/forms/sessions/submit',
+  ].map((route) => ({ method: 'POST', route, fields: [{ path: 'error.details.retryAfterSeconds' }] })),
 ];
 
 /** The value at a dot path, as text for ordering. */

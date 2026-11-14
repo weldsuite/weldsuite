@@ -11,7 +11,7 @@ use weldsuite_kit::ApiError;
 use crate::session::{ApiSession, Key, internal, internal_with};
 
 /// Every object group the public API documents, in the worker's order.
-const ENDPOINTS: [&str; 90] = [
+const ENDPOINTS: [&str; 91] = [
     "/v1/accounting-contacts",
     "/v1/accounting-documents",
     "/v1/accounting-entities",
@@ -19,6 +19,7 @@ const ENDPOINTS: [&str; 90] = [
     "/v1/activities",
     "/v1/app-storage",
     "/v1/articles",
+    "/v1/audit-logs",
     "/v1/bank-accounts",
     "/v1/bank-transactions",
     "/v1/bills",

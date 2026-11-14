@@ -274,6 +274,12 @@ function summarizePostChatMessage(config: Bag): string {
   return clip(text(config.message) || text(config.content));
 }
 
+/** `parse_alert`: the alert tool it reads ("auto" is the default and says nothing). */
+function summarizeParseAlert(config: Bag): string {
+  const source = text(config.source);
+  return source === 'auto' ? '' : source;
+}
+
 function summarizeTitle(config: Bag): string {
   return text(config.title);
 }
@@ -336,6 +342,7 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['merge.update_issue', summarizeMergeIssue],
   ['merge.comment_on_issue', summarizeMergeIssue],
   ['create_conversation', summarizeTitle],
+  ['parse_alert', summarizeParseAlert],
   ['manual_step', summarizeTitle],
   ['ai_generate', summarizePrompt],
   ['slack.post_message', summarizeSlackPostMessage],

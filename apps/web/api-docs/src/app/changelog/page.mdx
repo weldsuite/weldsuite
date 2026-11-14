@@ -14,6 +14,13 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-11-09: Audit logs
+
+- **New resource**, [Audit Logs](/audit-logs): `GET /v1/audit-logs` and `GET /v1/audit-logs/:id` read the workspace audit trail. Filter on `action`, `entityType`, `entityId`, `performedBy`, `since` and `until`, and set `order=asc` with `since` to poll forward.
+- **An unknown `cursor` answers `400`**, on purpose: a poller that lost its place should notice, not skip entries.
+- **New scope**, `audit_logs:read`. The resource is read-only; writes answer `405 METHOD_NOT_ALLOWED`.
+- **Log streaming**, instead of polling, a workspace can push its audit log to Splunk (HTTP Event Collector) or any HTTPS collector from Settings, Activity, Log streaming. See [Log streaming](/audit-logs#log-streaming) for the delivery rules and the request formats.
+
 ### 2026-11-05: Companies and people in one request
 
 - **Custom fields land in WeldCRM.** `customFields` on [Companies](/companies#custom-fields) and [People](/people#custom-fields) is now written where WeldCRM reads custom fields, so values sent through the API show in the record panel, filters and sorting like values set in the app. Responses return the stored values.

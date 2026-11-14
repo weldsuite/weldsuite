@@ -1,7 +1,7 @@
 /**
  * Whether `app/weldmail/layout.tsx` can render the mail shell, from the
  * installed-apps gate's live and cached state
- * (docs/plans/weldmail-mailbox-storage.md phase 1 item 10).
+ * (weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 1 item 10).
  *
  * A cached "installed" answer — this page's own earlier fetch, or the
  * persisted query cache restored from a previous session — lets mail render

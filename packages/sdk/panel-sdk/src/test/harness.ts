@@ -1,6 +1,7 @@
 /** Test helpers: a client on a fake network, and a clean page between tests. */
 
 import { vi } from 'vitest';
+import { resetSeqMemory } from '../storage';
 import { createClient, type Client, type ClientOptions } from '../client';
 import type { ClientConfig, EventBatch, WireEvent } from '../wire';
 
@@ -106,7 +107,7 @@ export function setup(
   options: NetworkOptions & Partial<ClientOptions> = {},
 ): { client: Client; net: Network } {
   const net = installNetwork(options);
-  const client = createClient({ token: TOKEN, host: HOST, debug: options.debug });
+  const client = createClient({ token: TOKEN, host: HOST, debug: options.debug, recorder: options.recorder });
   cleanups.push(() => client.destroy());
   client.start({ autocapture: true, consentMode: 'required', maskingLevel: 'balanced', excludedUrls: [], ...config });
   return { client, net };
@@ -123,6 +124,7 @@ export function resetPage(): void {
   vi.restoreAllMocks();
   vi.useRealTimers();
   localStorage.clear();
+  resetSeqMemory();
   sessionStorage.clear();
   document.body.innerHTML = '';
   document.title = '';

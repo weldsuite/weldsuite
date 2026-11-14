@@ -1,6 +1,6 @@
 /**
- * Mail bodies and raw MIME in R2 (docs/plans/weldmail-mailbox-store-design.md,
- * decision 4; docs/plans/weldmail-mailbox-storage.md phase 2 item 2).
+ * Mail bodies and raw MIME in R2 (weldsuite-documentation/plans/weldmail-mailbox-store-design.md,
+ * decision 4; weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 2 item 2).
  *
  * No `body_key` / `search_text` columns: every object lives at a deterministic
  * key, so nothing needs to be looked up to find it:

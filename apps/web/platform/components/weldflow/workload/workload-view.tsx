@@ -738,9 +738,11 @@ export interface WorkloadViewProps {
   initialData: Projects.WorkloadOverview | null;
   error: string | null;
   projectId?: string;
+  /** Shown first in the toolbar (the Workload page's view switch). */
+  leading?: ReactNode;
 }
 
-export function WorkloadView({ initialData, error, projectId }: Readonly<WorkloadViewProps>) {
+export function WorkloadView({ initialData, error, projectId, leading }: Readonly<WorkloadViewProps>) {
   const st = useTranslations();
   const { dateFnsLocale, formatMedium } = useDateLocale();
   const { canWrite } = useProjectPermissions();
@@ -990,10 +992,14 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
   // Show error state
   if (error) {
     return (
-      <div className="flex flex-col flex-1 items-center justify-center">
-        <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
-        <p className="text-lg font-medium text-gray-900 dark:text-foreground">{st('sweep.weldflow.workloadView.loadFailed')}</p>
-        <p className="text-sm text-gray-500 mt-1">{error}</p>
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* The view switch stays, so the other view is still one click away. */}
+        {leading ? <div className="flex items-center px-4 pt-[10px] pb-[10px] border-b bg-background">{leading}</div> : null}
+        <div className="flex flex-col flex-1 items-center justify-center">
+          <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
+          <p className="text-lg font-medium text-gray-900 dark:text-foreground">{st('sweep.weldflow.workloadView.loadFailed')}</p>
+          <p className="text-sm text-gray-500 mt-1">{error}</p>
+        </div>
       </div>
     );
   }
@@ -1003,6 +1009,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 pt-[10px] pb-[10px] border-b bg-background">
         <div className="flex items-center gap-2">
+          {leading}
           {/* Filter Pills */}
           <FilterPills
             filters={activeFilters}

@@ -1,0 +1,45 @@
+{
+  "name": "Refs shared by blocks, a group child and an ending",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "name",
+        "type": "short_text",
+        "title": "name"
+      },
+      {
+        "id": "b_2",
+        "ref": "name",
+        "type": "short_text",
+        "title": "name"
+      },
+      {
+        "id": "b_g",
+        "ref": "group",
+        "type": "group",
+        "title": "Group",
+        "children": [
+          {
+            "id": "b_3",
+            "ref": "group",
+            "type": "statement",
+            "title": "S"
+          }
+        ]
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "name",
+        "title": "End"
+      }
+    ]
+  },
+  "expectIssues": [
+    "duplicate_ref",
+    "duplicate_ref",
+    "duplicate_ref"
+  ]
+}

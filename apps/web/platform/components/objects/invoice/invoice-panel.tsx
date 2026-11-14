@@ -32,6 +32,8 @@ import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-previ
 import { useI18n } from '@/lib/i18n/provider';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-details';
+import { EntityInvoiceDetailsNotice } from '@/app/weldbooks/invoices/components/entity-invoice-details';
 import { RecordPaymentDialog } from '@/app/weldbooks/invoices/components/record-payment-dialog';
 import { SalesTaxErrorNotice } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { SendInvoiceDialog } from '@/app/weldbooks/invoices/components/send-invoice-dialog';
@@ -154,7 +156,7 @@ function InvoiceDialogs({
         onTaxError={workflow.setTaxError}
       />
       <RecordPaymentDialog
-        invoiceId={invoice.id}
+        target={{ type: 'invoice', id: invoice.id }}
         balanceDue={invoice.status === 'uncollectible' ? caps.writtenOffBalance.toFixed(2) : (invoice.balanceDue ?? '0')}
         currency={invoice.currency}
         open={workflow.paymentOpen}
@@ -194,6 +196,7 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
 
   const { entityId } = useCurrentAccountingEntity();
   const { data: entity } = useAccountingEntity(entityId);
+  const invoiceDetails = useEntityInvoiceDetails();
 
   const invoiceQuery = useAccountingInvoice(id);
   const invoice = invoiceQuery.data?.data as unknown as InvoiceWithTax | undefined;
@@ -263,10 +266,13 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
           invoice && caps ? (
             <InvoiceActionBar
               caps={caps}
+              recordLabel={recordPaymentLabel(t.accounting.invoiceDetail, invoice, caps.isCreditMemo)}
               finalizing={workflow.finalizing}
               applyingCredit={workflow.applyingCredit}
               onFinalize={() => workflow.setFinalizeOpen(true)}
               onApplyCredit={workflow.applyCredit}
+              onSend={() => workflow.setSendOpen(true)}
+              onRecordPayment={() => workflow.setPaymentOpen(true)}
             />
           ) : null
         }
@@ -290,6 +296,18 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
         {invoice && caps && workflow.taxError !== null && (
           <div className="px-4 pt-4">
             <SalesTaxErrorNotice error={workflow.taxError} invoiceId={invoice.id} />
+          </div>
+        )}
+
+        {/* A draft is finalized or sent only with the company details every invoice shows. */}
+        {invoice && caps?.isDraft && invoiceDetails.missing.length > 0 && (
+          <div className="px-4 pt-4">
+            <EntityInvoiceDetailsNotice
+              entity={invoiceDetails.entity}
+              missing={invoiceDetails.missing}
+              labels={invoiceDetails.labels}
+              context="issue"
+            />
           </div>
         )}
 

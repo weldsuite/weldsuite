@@ -9,7 +9,7 @@
  * We only ever write `next_run_at = NULL` here — the worker computes the actual
  * fire time (cron math: `@weldsuite/workflow-integrations/cron`). Keep the
  * SQL in lockstep with `workflow-worker/src/schedule-index.ts` (deliberate copy,
- * same as the manifest copies noted in CLAUDE.md — two workers, no shared pkg).
+ * same as the manifest copies noted in packages/sdk/AGENTS.md — two workers, no shared pkg).
  *
  * All calls are best-effort: a D1 hiccup logs and returns rather than failing
  * the user's save. A stale index self-heals via the worker's

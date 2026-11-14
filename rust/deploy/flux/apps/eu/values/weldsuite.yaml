@@ -31,6 +31,15 @@ config:
       # is the workspace, not for someone in several.)
       orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
       webClientId: "${ZITADEL_WEB_CLIENT_ID}"
+      # The mobile apps' native application (runbook step 7, item 2b).
+      # Empty: the apps can't sign in to this cluster yet.
+      mobileClientId: "${ZITADEL_MOBILE_CLIENT_ID}"
+      # WeldSuite's own sign-in screens (the ones Global shows) rather than
+      # Zitadel's, with the server as Zitadel's login client (ADR SEC-016).
+      # They show once Zitadel's sign-in for the platform's application
+      # points at https://app.${DOMAIN}/auth (Hetzner runbook, step 7);
+      # until then Zitadel's own pages still do.
+      signIn: platform
   # Flag values from the master database (feature_flag_overrides).
   featureFlags: master-db
   nats:
@@ -51,6 +60,10 @@ config:
   # Signing links point at the portal below.
   sign:
     portalUrl: https://sign.${DOMAIN}
+  # Form and invitation links point at the forms portal below. The bot check
+  # is ALTCHA's self-hosted proof of work (ADR FORMS-005, the chart's default).
+  forms:
+    portalUrl: https://forms.${DOMAIN}
   # Signup and team changes go to the in-cluster Zitadel's management API
   # as the weldsuite service user (ZITADEL_SERVICE_TOKEN in the Secret);
   # Zitadel picks its instance by the external domain.
@@ -73,20 +86,52 @@ config:
     livekit:
       url: wss://livekit.${DOMAIN}
       apiUrl: http://livekit.livekit.svc:7880
-  # The platform's origin, for links the server writes into email: the W-9
-  # requests of WeldBooks and the WeldReach access decisions of
-  # `weldsuite admin access` (ADR SEC-014).
-  extraEnv:
-    - { name: PLATFORM_URL, value: "https://app.${DOMAIN}" }
+  # The platform's origin: links in mail (invites, WeldSign, the W-9 requests
+  # of WeldBooks, the WeldReach access decisions of `weldsuite admin access`),
+  # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
+  # every URL setting that names this host from it.
+  publicUrl: https://app.${DOMAIN}
+  # AI on Mistral, in the EU (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md):
+  # every AI feature runs there unless a workspace admin opts in to a
+  # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
+  # AI_KEYS_ENCRYPTION_KEY (seals the keys workspaces bring); the server
+  # doesn't start without them. Claude and ChatGPT are offered with the
+  # workspace's own key; set weldsuiteKey once WeldSuite's EU-edition
+  # accounts are open and ANTHROPIC_API_KEY / OPENAI_API_KEY are in the
+  # Secret. The credit gate (402 at an empty wallet) is on: the Mollie
+  # top-up lets a workspace buy credits.
+  ai:
+    defaultProvider: mistral
+    mistral:
+      baseUrl: https://api.mistral.ai/v1
+    optIn:
+      anthropic: { weldsuiteKey: false, ownKey: true }
+      openai: { weldsuiteKey: false, ownKey: true }
+    creditGate: true
+    billing: credits
+  # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
+  # weldsuite-env: Mollie reports payments to
+  # https://app.${DOMAIN}/api/webhooks/mollie and checkouts return to the
+  # billing page, both from publicUrl. The packages on sale are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
-# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET:
+# SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
+# WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, SANDBOX_TOKEN_SECRET, and optionally MOLLIE_API_KEY:
 # secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
   existingSecret: weldsuite-env
+  # The EU edition's keys live in its SOPS Secret, which a rebuilt cluster
+  # (the drill) gets back; a key the chart generated in the cluster wouldn't.
+  generate: false
 
 # The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
 # api.${DOMAIN} for clients that call the API by that name.
@@ -164,6 +209,32 @@ signPortal:
         hosts:
           - sign.${DOMAIN}
 
+# The WeldForms respondent page at forms.${DOMAIN} (ADR FORMS-002): form links,
+# invitation links and /embed.js. Its image is the `forms-portal` target of
+# rust/Dockerfile, released with the server's. It calls the server's
+# /public/forms/* with FORMS_PORTAL_SECRET from weldsuite-env.
+formsPortal:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-forms-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # As the sign portal: only Traefik appends to X-Forwarded-For.
+  trustedProxies: 1
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: forms.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-forms-tls
+        hosts:
+          - forms.${DOMAIN}
+
 # The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
 # workspaces, the app catalog, warmup and outbound mail. Its image is the
 # `admin` target of rust/Dockerfile, released with the server's. Staff sign in
@@ -206,6 +277,29 @@ collabRooms:
     tag: ${WELDSUITE_IMAGE_TAG}
   replicaCount: 2
 
+# WeldAgent's sandbox, computer use and browsing on the EU edition's own
+# cluster (ADR AI-012 phase 5): gVisor pods in weldsuite-sandbox
+# (infrastructure/controllers/namespaces.yaml), released with the server's
+# image. Needs gVisor on the nodes (the gvisor extension in the Talos image,
+# hetzner/scripts/schematic.yaml) and a CNI that enforces NetworkPolicy:
+# until a new sandbox can't reach the metadata service or the Kubernetes API,
+# the server hands out none and says so in its log and `weldsuite doctor`
+# (rust/deploy/hetzner/README.md, "Agent sandbox"). SANDBOX_TOKEN_SECRET is in
+# the Secret.
+sandbox:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # The nodes' public addresses: a pod could reach its own node's host ports
+  # on them. Add them when they are known (tofu output).
+  deniedCidrs: []
+
+# Web search for WeldAgent (web_search): SearXNG in the cluster, asked only by
+# the server; only the query leaves, to Qwant, Startpage, Mojeek and Wikipedia.
+searxng:
+  enabled: true
+
 autoscaling:
   enabled: true
   minReplicas: 2
@@ -220,9 +314,10 @@ resources:
     memory: 1Gi
 
 # The entity-event subscribers on the in-cluster JetStream: audit log,
-# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
-# search-index subscriber stays off until an embeddings endpoint (EU model
-# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+# outgoing webhooks, realtime fan-out (VALKEY_URL is in the Secret) and the
+# semantic search index. The index's vectors come from config.ai: Mistral's
+# mistral-embed (1024 dimensions), metered as search-index per workspace and
+# batch, so consume.embeddings (for installs without AI) stays unset.
 consume:
   enabled: true
   replicaCount: 2
@@ -263,9 +358,9 @@ mailInbound:
       # Only nodes with a Haraka pod pass the load balancer's health check.
       externalTrafficPolicy: Local
 
-# The MTA (docs/plans/eu-mail-service.md): system and customer mail from the
+# The MTA (weldsuite-documentation/plans/eu-mail-service.md): system and customer mail from the
 # mail nodes' own addresses (hetzner mail_pools, one node each to start),
-# its queue in weldsuite_mta on master (infrastructure/configs/eu). Bounces
+# its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
 # nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
 # Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's

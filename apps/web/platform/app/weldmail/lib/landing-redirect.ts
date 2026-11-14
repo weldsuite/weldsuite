@@ -9,7 +9,7 @@
  * piece isn't cached yet (a cold load) — `page.tsx` then renders and redirects
  * the normal way once both of its own queries resolve.
  *
- * docs/plans/weldmail-mailbox-storage.md, phase 1 item 7.
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 1 item 7.
  */
 
 import { UNIFIED_ACCOUNT } from './mail-preferences';

@@ -5,8 +5,14 @@
  * view itself.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { helpdeskWorkerApi } from '@/lib/api/domains/welddesk';
+import { saveResponseAsFile } from '@/lib/download-response';
+import type {
+  CreateHelpdeskReportScheduleInput,
+  UpdateHelpdeskReportScheduleInput,
+} from '@weldsuite/core-api-client/schemas/helpdesk-analytics';
 
 /** The ranges the overview offers (desk-api accepts more; the builder uses those). */
 export const DESK_OVERVIEW_RANGES = [
@@ -92,4 +98,107 @@ export function useDeskReportsOverview(range: DeskOverviewRange) {
     // Live data, but a team lead doesn't need it to the second.
     staleTime: 60_000,
   });
+}
+
+// ── Phone report (TASK-1229) ────────────────────────────────────────────────
+
+export const deskPhoneReportKeys = {
+  report: (range: string) => [...deskReportKeys.all, 'phone', range] as const,
+};
+
+/** Call KPIs for a period (settings:read). */
+export function useDeskPhoneReport(range: DeskOverviewRange) {
+  return useQuery({
+    queryKey: deskPhoneReportKeys.report(range),
+    queryFn: () => helpdeskWorkerApi.getPhoneReport(range),
+    staleTime: 60_000,
+  });
+}
+
+// ── Wallboard (TASK-1230) ───────────────────────────────────────────────────
+
+/** How often the wallboard refetches on its own. */
+export const DESK_WALLBOARD_REFRESH_MS = 15_000;
+
+export const deskWallboardKeys = {
+  board: (teamId: string | null) => [...deskReportKeys.all, 'wallboard', teamId ?? 'all'] as const,
+};
+
+/**
+ * The live queue (conversations:read). Refetches every 15 seconds while the
+ * tab is visible and pauses while it is hidden (react-query's default for a
+ * background tab, kept explicit here). Unlike the other polls in the platform
+ * it ignores the idle rule: a wallboard on a TV is a window nobody touches,
+ * and it has to keep refreshing. A failed refresh keeps the last numbers
+ * (data stays set, isError is true).
+ */
+export function useDeskWallboard(teamId: string | null) {
+  return useQuery({
+    queryKey: deskWallboardKeys.board(teamId),
+    queryFn: () => helpdeskWorkerApi.getWallboard(teamId ?? undefined),
+    refetchInterval: DESK_WALLBOARD_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 5_000,
+    retry: 1,
+  });
+}
+
+// ── CSV export and scheduled report emails (TASK-1228) ──────────────────────
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Download the overview of `range` as CSV. The file name comes from the response, else this fallback. */
+export function useExportDeskOverviewCsv() {
+  return useMutation({
+    mutationFn: async (range: string) =>
+      saveResponseAsFile(await helpdeskWorkerApi.exportOverviewCsv(range), `welddesk-overview-${range}-${today()}.csv`),
+  });
+}
+
+/** Download every chart of a saved report as CSV. */
+export function useExportDeskReportCsv() {
+  return useMutation({
+    mutationFn: async (reportId: string) =>
+      saveResponseAsFile(await helpdeskWorkerApi.exportReportCsv(reportId), `welddesk-report-${today()}.csv`),
+  });
+}
+
+export const deskReportScheduleKeys = {
+  all: [...deskReportKeys.all, 'schedules'] as const,
+};
+
+/** The schedules, newest first (settings:read). */
+export function useDeskReportSchedules() {
+  return useQuery({
+    queryKey: deskReportScheduleKeys.all,
+    queryFn: () => helpdeskWorkerApi.listReportSchedules(),
+    staleTime: 30_000,
+  });
+}
+
+function useScheduleMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: deskReportScheduleKeys.all }),
+  });
+}
+
+export function useCreateDeskReportSchedule() {
+  return useScheduleMutation((input: CreateHelpdeskReportScheduleInput) => helpdeskWorkerApi.createReportSchedule(input));
+}
+
+export function useUpdateDeskReportSchedule() {
+  return useScheduleMutation(({ id, input }: { id: string; input: UpdateHelpdeskReportScheduleInput }) =>
+    helpdeskWorkerApi.updateReportSchedule(id, input),
+  );
+}
+
+export function useDeleteDeskReportSchedule() {
+  return useScheduleMutation((id: string) => helpdeskWorkerApi.deleteReportSchedule(id));
+}
+
+/** Send now: resolves with `{ status, error? }`; a failed send is still a resolved call. */
+export function useSendDeskReportSchedule() {
+  return useScheduleMutation((id: string) => helpdeskWorkerApi.sendReportSchedule(id));
 }

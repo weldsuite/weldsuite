@@ -63,9 +63,11 @@ interface BillingDetailsDialogProps {
   onOpenChange: (open: boolean) => void;
   /** The persisted details; the form edits its own copy and only saves on submit. */
   details: BillingDetails;
+  /** Called after the details were saved (a checkout waiting on them continues). */
+  onSaved?: () => void;
 }
 
-export function BillingDetailsDialog({ open, onOpenChange, details }: Readonly<BillingDetailsDialogProps>) {
+export function BillingDetailsDialog({ open, onOpenChange, details, onSaved }: Readonly<BillingDetailsDialogProps>) {
   const { t, format } = useI18n();
   const ts = t.settings.billing;
   const gs = t.settings.generalSettings;
@@ -89,6 +91,7 @@ export function BillingDetailsDialog({ open, onOpenChange, details }: Readonly<B
     try {
       await updateMutation.mutateAsync(toBillingDetailsPayload(values));
       toast.success(ts.messages.updateSuccess);
+      onSaved?.();
       onOpenChange(false);
     } catch {
       toast.error(ts.messages.updateFailed);

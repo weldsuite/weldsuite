@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Linking } from 'react-native';
 import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
-import { useOrganizationList, useUser } from '@clerk/expo';
+import { useOrganizationList, useHostedSignIn, useUser } from '@weldsuite/mobile-platform/auth';
 import { Inbox, RefreshCw, LogOut, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { hideAppSplash } from '@/utils/splash';
 
 export default function NoWorkspaceScreen() {
@@ -14,8 +14,9 @@ export default function NoWorkspaceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { user, signOut } = useClerkAuth();
-  const { user: clerkUser } = useUser();
+  const { user, signOut } = useAuthSession();
+  const { user: authUser } = useUser();
+  const hosted = useHostedSignIn();
   const { userMemberships, isLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -50,7 +51,14 @@ export default function NoWorkspaceScreen() {
     }
   };
 
+  // Clerk deletes the account in the app; on another server the person does it at the provider.
+  const canDeleteAccount = !!authUser?.delete || !!hosted?.accountUrl;
+
   const handleDeleteAccount = () => {
+    if (!authUser?.delete) {
+      if (hosted?.accountUrl) void Linking.openURL(hosted.accountUrl);
+      return;
+    }
     Alert.alert(
       'Delete Account',
       `This will permanently delete the account for ${user?.email}. This action cannot be undone.`,
@@ -60,10 +68,10 @@ export default function NoWorkspaceScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (!clerkUser) return;
+            if (!authUser?.delete) return;
             setDeleting(true);
             try {
-              await clerkUser.delete();
+              await authUser.delete();
               await signOut().catch(() => {});
             } catch (error) {
               console.error('Error deleting account:', error);
@@ -116,6 +124,7 @@ export default function NoWorkspaceScreen() {
           <Text style={[styles.footerText, { color: colors.muted }]}>Sign out</Text>
         </TouchableOpacity>
 
+        {canDeleteAccount && (
         <TouchableOpacity
           style={styles.footerButton}
           onPress={handleDeleteAccount}
@@ -128,6 +137,7 @@ export default function NoWorkspaceScreen() {
           )}
           <Text style={[styles.footerText, { color: '#EF4444' }]}>Delete account</Text>
         </TouchableOpacity>
+        )}
       </View>
     </View>
   );

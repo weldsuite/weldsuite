@@ -136,6 +136,50 @@ describe('/api/recurring-invoices', () => {
     expect((await recurring(`/${created.data.id}/generate`, { method: 'POST' })).status).toBe(400);
   });
 
+  const monthly = (nextIssueDate: string) =>
+    recurring('', {
+      method: 'POST',
+      body: {
+        contactId: 'pty_rec',
+        frequency: 'monthly',
+        nextIssueDate,
+        autoFinalize: false,
+        templateData: { items: [{ description: 'Hosting', quantity: 1, unitPrice: 25, taxRateId: hoog }], paymentTermsDays: 14 },
+      },
+    });
+
+  it('consumes a due period (invoice dated today, never back-dated) and clamps month-end to the last day', async () => {
+    const created = await monthly('2026-01-31');
+    const generated = await recurring(`/${created.data.id}/generate`, { method: 'POST' });
+    expect(generated.status).toBe(201);
+    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, generated.data.invoiceId));
+    const today = new Date().toISOString().slice(0, 10);
+    expect(Math.abs(invoice.issueDate.getTime() - new Date(today).getTime())).toBeLessThan(2 * 24 * 60 * 60 * 1000);
+    expect(invoice.dueDate.getTime() - invoice.issueDate.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(generated.data.nextIssueDate.slice(0, 10)).toBe('2026-02-28');
+    const [schedule] = await db.select().from(schema.recurringInvoices).where(eq(schema.recurringInvoices.id, created.data.id));
+    expect(schedule.nextIssueDate.toISOString().slice(0, 10)).toBe('2026-02-28');
+    expect(schedule.generatedCount).toBe(1);
+  });
+
+  it('generates an extra invoice dated today and keeps the schedule when the next date is still ahead', async () => {
+    const created = await monthly('2099-03-01');
+    const generated = await recurring(`/${created.data.id}/generate`, { method: 'POST' });
+    expect(generated.status).toBe(201);
+    expect(generated.data.nextIssueDate.slice(0, 10)).toBe('2099-03-01');
+    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, generated.data.invoiceId));
+    const today = new Date().toISOString().slice(0, 10);
+    expect(Math.abs(invoice.issueDate.getTime() - new Date(today).getTime())).toBeLessThan(2 * 24 * 60 * 60 * 1000);
+    expect(invoice.dueDate.getTime() - invoice.issueDate.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    const [schedule] = await db.select().from(schema.recurringInvoices).where(eq(schema.recurringInvoices.id, created.data.id));
+    expect(schedule.nextIssueDate.toISOString().slice(0, 10)).toBe('2099-03-01');
+    expect(schedule.status).toBe('active');
+    expect(schedule.generatedCount).toBe(1);
+    expect(schedule.lastGeneratedInvoiceId).toBe(generated.data.invoiceId);
+    // A second click makes another extra invoice rather than a conflict.
+    expect((await recurring(`/${created.data.id}/generate`, { method: 'POST' })).status).toBe(201);
+  });
+
   it('refuses a bad body, no entity and an unknown schedule', async () => {
     expect((await recurring('', { method: 'POST', body: { contactId: 'pty_rec', frequency: 'daily', nextIssueDate: '2026-08-01' } })).status).toBe(400);
     expect((await recurring('', { method: 'POST', entityId: null, body: { contactId: 'pty_rec', frequency: 'monthly', nextIssueDate: '2026-08-01' } })).status).toBe(400);

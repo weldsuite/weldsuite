@@ -28,8 +28,10 @@
  *    both start from the same state and only Rust's writes reach the test's
  *    database and stubs, which its own assertions then check.
  * 4. Status and JSON are compared (ids, timestamps and cursors normalised for
- *    writes), the body is validated against the route's Zod schema when one is
- *    registered (./conformance-schemas.ts), and the outcome is recorded.
+ *    writes, seconds counted to each run's own "now" aligned within what the
+ *    runs' clocks differ by), the body is validated against the route's Zod
+ *    schema when one is registered (./conformance-schemas.ts), and the
+ *    outcome is recorded.
  * 5. Side effects are compared too: the Hono app gets recording
  *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
  *    Rust records through its port doubles, and both lists must match. The
@@ -272,6 +274,8 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'PONTO_SIGNATURE_CERT_ID',
   'PONTO_SIGNATURE_KEY',
+  'PONTO_ENV',
+  'PONTO_APPLICATION_ID',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
   // The integration workers' webhook receivers: Stripe Financial
@@ -333,6 +337,26 @@ export const FORWARDED_ENV = [
   'AZURE_DEVOPS_CLIENT_ID',
   'AZURE_DEVOPS_CLIENT_SECRET',
   'WEBHOOK_BASE_URL',
+  // WeldForms: the portal's key, the respondent sessions' secret, the portal
+  // origin public links point at, the bot check (provider, Turnstile's keys,
+  // ALTCHA's HMAC key) and the minimum fill time the tests lower
+  // (PLATFORM_URL and R2_PUBLIC_URL are forwarded above).
+  'FORMS_PORTAL_SECRET',
+  'FORMS_SESSION_SECRET',
+  'FORMS_PORTAL_URL',
+  'BOT_CHECK_PROVIDER',
+  'TURNSTILE_SITE_KEY',
+  'TURNSTILE_SECRET_KEY',
+  'ALTCHA_HMAC_KEY',
+  'FORMS_MIN_FILL_MS',
+  // AI (ADR AI-012): the mock model both backends call (`@weldsuite/ai/testing`;
+  // without it Rust's AI is off, as the worker without its gateway), and the
+  // Rust install settings a test may change (`rust/bins/weldsuite/src/ai.rs`).
+  'AI_TEST_BASE_URL',
+  'AI_CREDIT_GATE',
+  'AI_BILLING',
+  'AI_OPTIN_ANTHROPIC',
+  'AI_OPTIN_OPENAI',
 ] as const;
 
 /**
@@ -407,6 +431,9 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/merge\/connections\/github\/install-url(\?|$)/,
   /^\/api\/workflow-github\/install-url(\?|$)/,
   /^\/api\/weldconnect\/github\/callback(\?|$)/,
+  // WeldForms: the published form, its public cache entry rebuilt and
+  // stored on a miss.
+  /^\/public\/forms\/f\/[^/?]+(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -774,12 +801,27 @@ const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A slug ending in its new record's id time: WeldDesk's article slugs are
+ * `<title>-<id.slice(4, 10)>`, the first six base36 characters of the id's
+ * `Date.now()`, whose last one moves every 36² ms. Two runs a moment apart
+ * can straddle that (`getting-started-mwf5de` vs `-mwf5df`, PR #1559's CI).
+ */
+const SLUG_WITH_ID_TIME = /-([0-9a-z]{6})$/;
+/** The milliseconds one step of a `Date.now().toString(36)` six-character prefix stands for. */
+const ID_TIME_PREFIX_MS = 36 ** 2;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A WeldAgent template's share token: `share_` and 32 random alphanumerics
+ * (any case), new per run. Masked like a generated id, whichever case the
+ * random draw gives each backend.
+ */
+const SHARE_TOKEN = /^share_[A-Za-z0-9]{32}$/;
 /** A generated id inside an MCP tool result's text. */
 const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
 /** The same, for `test` (a global pattern's `test` keeps state). */
@@ -821,6 +863,16 @@ const RECORDING_TOKEN = /\/public\/meeting-recordings\/[A-Za-z0-9_-]{32}(?![A-Za
 const MEETING_RUN_STAMP = /^((?:summarize|bf)-.+)-[0-9a-z]{8}$/;
 /** A WeldMeet Whisper Workflow instance (`whisper-<transcription id>`). */
 const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
+/**
+ * A WeldForms ProcessResponse run of an edited response or a retry
+ * (`<responseId>-update-<Date.now().toString(36)>`): new per run. Any
+ * response id: tests seed their own (`frs_r1`).
+ */
+const FORMS_RUN_STAMP = /^(frs_\w+-(?:update|retry))-[0-9a-z]{8}$/;
+/** A WeldForms public link id (10 random base62 characters, drawn on first publish). */
+const FORMS_PUBLIC_ID = /^[A-Za-z0-9]{10}$/;
+/** A link to a WeldForms public id (`<portal>/f/<publicId>`). */
+const FORMS_PUBLIC_URL = /\/f\/[A-Za-z0-9]{10}$/;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -860,6 +912,34 @@ function isRecentEpochMs(value: unknown): boolean {
   return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
 }
 
+/**
+ * Whether six base36 characters are the start of a `Date.now()` taken within
+ * two days of now. Checked against the real clock too: a test that fakes
+ * `Date` gives the TypeScript run its time, while Rust's ids carry the real one.
+ */
+function isRecentIdTimePrefix(prefix: string): boolean {
+  const at = Number.parseInt(prefix, 36) * ID_TIME_PREFIX_MS;
+  const real = performance.timeOrigin + performance.now();
+  return [Date.now(), real].some((now) => Math.abs(at - now) <= EXPIRY_WINDOW_SECONDS * 1000);
+}
+
+
+/**
+ * `record` without the `meta.ai` label an AI answer carries (`{ provider,
+ * model, region }`, ADR AI-012), and without `meta` when nothing else is in
+ * it: the backends serve the same route on different models by design
+ * (Workers AI or Claude on Global, Mistral on the Kubernetes editions), and
+ * only the Rust side labels its answers.
+ */
+function withoutAiMeta(record: Record<string, unknown>): Record<string, unknown> {
+  const meta = record.meta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return record;
+  const ai = (meta as Record<string, unknown>).ai;
+  if (!ai || typeof ai !== 'object' || !('provider' in ai) || !('model' in ai)) return record;
+  const rest = Object.fromEntries(Object.entries(meta).filter(([key]) => key !== 'ai'));
+  const others = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'meta'));
+  return Object.keys(rest).length > 0 ? { ...others, meta: rest } : others;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -879,10 +959,11 @@ function isMintedExpiry(value: unknown): boolean {
 export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeForDiff(item, isWrite));
   if (value && typeof value === 'object') {
+    const record = withoutAiMeta(value as Record<string, unknown>);
     return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
+      Object.keys(record)
         .sort()
-        .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
+        .map((k) => [k, normalizeForDiff(record[k], isWrite, k)]),
     );
   }
   // A realtime room payload's `ts: Date.now()`.
@@ -906,6 +987,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (MEETING_RUN_STAMP.test(value)) return value.replace(MEETING_RUN_STAMP, '$1-<stamp>');
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
+  // WeldForms: an edit's ProcessResponse run, and the public link the first
+  // publish draws (the form's `publicId`, its URL and its event's).
+  if (FORMS_RUN_STAMP.test(value)) return value.replace(FORMS_RUN_STAMP, '$1-<stamp>');
+  if (key === 'publicId' && FORMS_PUBLIC_ID.test(value)) return '<public-id>';
+  if (key === 'publicUrl' && FORMS_PUBLIC_URL.test(value)) return value.replace(FORMS_PUBLIC_URL, '/f/<public-id>');
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   // A collaborative room's ticket: the room's id, then a secret new per call.
   if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
@@ -951,11 +1037,9 @@ const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
-  if (GENERATED_ID.test(value)) return '<id>';
+  if (GENERATED_ID.test(value) || SHARE_TOKEN.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
-  // A taken channel slug gets the new channel's id appended
-  // (`resolveChannelSlug`): `sales-ch_<id>`.
-  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
@@ -969,6 +1053,19 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
+}
+
+/** A slug that carries a new record's id or its time; undefined when it carries neither. */
+function normalizeGeneratedSlug(value: string): string | undefined {
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A new WeldDesk article's slug ends in its id's time; an untitled one's
+  // base is the id itself (`deskArticleSlug(title) || id`).
+  const idTime = SLUG_WITH_ID_TIME.exec(value);
+  if (!idTime || !isRecentIdTimePrefix(idTime[1]!)) return undefined;
+  const base = value.slice(0, -idTime[0].length);
+  return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
 }
 
 /** Random segments anywhere in a string. */
@@ -1020,6 +1117,47 @@ function firstObjectDifference(a: Record<string, unknown>, b: Record<string, unk
     if (diff) return diff;
   }
   return null;
+}
+
+/**
+ * Whole seconds counted up to the moment a write ran, each next to the
+ * instant it was counted to: WeldDesk's reporting times (ADR DESK-011),
+ * from the conversation's creation to its close and from the visitor's
+ * first message to the first agent reply.
+ */
+const CLOCK_SECONDS: ReadonlyArray<{ seconds: string; at: string }> = [
+  { seconds: 'resolutionSeconds', at: 'resolvedAt' },
+  { seconds: 'firstResponseSeconds', at: 'firstResponseAt' },
+];
+
+/**
+ * Rust's answer with each value of {@link CLOCK_SECONDS} set to TypeScript's
+ * where the two runs' own clocks explain the difference. The runs read "now"
+ * milliseconds apart, so `floor((now - from) / 1000)` can fall either side of
+ * a second: with the two instants `d` ms apart, the seconds may differ by
+ * `floor(d / 1000)` or `ceil(d / 1000)`, nothing else. Equal instants (one
+ * stored before the request) keep the comparison exact, and so do seconds
+ * without their instant or a difference the instants do not account for.
+ */
+export function alignClockSeconds(ts: unknown, rust: unknown): unknown {
+  if (Array.isArray(ts) && Array.isArray(rust)) return rust.map((item, i) => alignClockSeconds(ts[i], item));
+  if (!isPlainObject(ts) || !isPlainObject(rust)) return rust;
+  const aligned = Object.fromEntries(Object.entries(rust).map(([key, value]) => [key, alignClockSeconds(ts[key], value)]));
+  for (const { seconds, at } of CLOCK_SECONDS) {
+    if (clockExplains(ts[seconds], rust[seconds], ts[at], rust[at])) aligned[seconds] = ts[seconds];
+  }
+  return aligned;
+}
+
+/** Whether two whole-seconds counts differ by no more than their instants do. */
+function clockExplains(tsSeconds: unknown, rustSeconds: unknown, tsAt: unknown, rustAt: unknown): boolean {
+  if (!Number.isInteger(tsSeconds) || !Number.isInteger(rustSeconds)) return false;
+  if (typeof tsAt !== 'string' || typeof rustAt !== 'string' || !ISO_TIMESTAMP.test(tsAt) || !ISO_TIMESTAMP.test(rustAt)) {
+    return false;
+  }
+  const apart = (Date.parse(rustAt) - Date.parse(tsAt)) / 1000;
+  const drift = (rustSeconds as number) - (tsSeconds as number);
+  return drift >= Math.floor(apart) && drift <= Math.ceil(apart);
 }
 
 interface Captured {
@@ -1364,10 +1502,11 @@ function compareRuns(
     if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
   }
   if (ts.json !== undefined || rust.json !== undefined) {
-    // Values a route draws per run (./conformance-volatile.ts) are masked first.
+    // Values a route draws per run (./conformance-volatile.ts) are masked
+    // first, and seconds counted to each run's own "now" aligned.
     const body = firstDifference(
       normalizeForDiff(maskVolatile(method, route, ts.json), isWrite),
-      normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
+      normalizeForDiff(maskVolatile(method, route, alignClockSeconds(ts.json, rust.json)), isWrite),
     );
     if (body) return body;
   } else if (!sameBody(route, ts.bytes, rust.bytes)) {
@@ -1394,7 +1533,12 @@ function compareRuns(
       ...(outbound ? { outbound } : {}),
     };
   };
-  const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
+  // An event or a publish carries the row the answer does, reporting times included.
+  const tsPrepared = prepare(tsEffects);
+  const effects = firstDifference(
+    normalizeForDiff(tsPrepared, true),
+    normalizeForDiff(alignClockSeconds(tsPrepared, prepare(rustEffects)), true),
+  );
   return effects ? `side effects: ${effects}` : null;
 }
 

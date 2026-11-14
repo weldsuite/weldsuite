@@ -11,6 +11,7 @@ import {
 import MaterialSpinner from './MaterialSpinner';
 import CenteredModalShell from './CenteredModalShell';
 import { X } from 'lucide-react-native';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { appApi } from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
@@ -35,6 +36,7 @@ interface CreateLabelDialogProps {
 
 export default function CreateLabelDialog({ visible, onClose, accountId }: Readonly<CreateLabelDialogProps>) {
   const { colors } = useTheme();
+  const aiAvailable = useEditionFeature('mail-ai');
   const { refreshLabels } = useMail();
 
   const [name, setName] = useState('');
@@ -135,11 +137,13 @@ export default function CreateLabelDialog({ visible, onClose, accountId }: Reado
                 </View>
 
                 {/* AI Auto-Labeling is unavailable — the AI backend has been removed. */}
-                <View style={[styles.aiSection, { borderColor: colors.border || '#E5E7EB' }]}>
-                  <Text style={[styles.aiUnavailableText, { color: colors.muted }]}>
-                    AI is currently unavailable. This label will match emails you apply it to manually.
-                  </Text>
-                </View>
+                {aiAvailable ? (
+                  <View style={[styles.aiSection, { borderColor: colors.border || '#E5E7EB' }]}>
+                    <Text style={[styles.aiUnavailableText, { color: colors.muted }]}>
+                      AI is currently unavailable. This label will match emails you apply it to manually.
+                    </Text>
+                  </View>
+                ) : null}
               </ScrollView>
 
               {/* Actions */}

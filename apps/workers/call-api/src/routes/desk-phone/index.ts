@@ -1,5 +1,6 @@
 /**
- * WeldDesk phone — voice agents + inbound routes.
+ * WeldDesk phone — voice agents, inbound routes, the member softphone
+ * (./softphone.ts) and the call queue (./queue.ts).
  * Mounted at /api/desk/phone/*
  */
 
@@ -9,6 +10,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   createDeskVoiceAgentSchema,
+  normalizeDeskPhoneRouteOptions,
   updateDeskVoiceAgentSchema,
   upsertDeskPhoneRouteSchema,
 } from '@weldsuite/core-api-client/schemas/desk-phone';
@@ -27,6 +29,8 @@ import {
 } from '../../lib/telnyx';
 import { signDeskPhoneToolToken } from '../../lib/desk-phone-tool-auth';
 import { lookupCrmUrl, lookupCrmWebhookTool } from '../../lib/desk-phone-tools';
+import { deskPhoneQueueRoutes } from './queue';
+import { deskPhoneSoftphoneRoutes } from './softphone';
 
 const app = new Hono<{ Bindings: Env & TelnyxEnv; Variables: Variables }>();
 
@@ -70,7 +74,28 @@ function toRouteJson(row: typeof schema.deskPhoneRoutes.$inferSelect) {
     voiceAgentId: row.voiceAgentId,
     forwardToE164: row.forwardToE164,
     schedule: row.schedule,
+    options: row.options ?? null,
   };
+}
+
+type RouteOptionsInput = NonNullable<ReturnType<typeof normalizeDeskPhoneRouteOptions>>;
+
+/** The ids of the teams an options blob points at: its own and its menu choices'. */
+function referencedTeamIds(options: RouteOptionsInput | null): string[] {
+  const ids = new Set<string>();
+  if (options?.departmentId) ids.add(options.departmentId);
+  for (const choice of options?.menu?.choices ?? []) {
+    if (choice.departmentId) ids.add(choice.departmentId);
+  }
+  return [...ids];
+}
+
+function referencedVoiceAgentIds(options: RouteOptionsInput | null): string[] {
+  const ids = new Set<string>();
+  for (const choice of options?.menu?.choices ?? []) {
+    if (choice.action === 'ai_agent' && choice.voiceAgentId) ids.add(choice.voiceAgentId);
+  }
+  return [...ids];
 }
 
 // ── Voice agents ──────────────────────────────────────────────────────────
@@ -264,6 +289,11 @@ app.put(
     const db = c.get('tenantDb');
     const data = c.req.valid('json');
     const now = new Date();
+    // The new actions keep their settings in `options`; the old ones keep the columns.
+    const classic = data.action === 'ai_agent' || data.action === 'forward' || data.action === 'hangup';
+    const voiceAgentId = classic ? (data.voiceAgentId ?? null) : null;
+    const forwardToE164 = classic ? (data.forwardToE164 ?? null) : null;
+    const options = normalizeDeskPhoneRouteOptions(data.action, data.options);
 
     const [phone] = await db
       .select()
@@ -277,18 +307,39 @@ app.put(
       .limit(1);
     if (!phone) return error.notFound(c, 'Phone number', data.voipPhoneNumberId);
 
-    if (data.voiceAgentId) {
+    if (voiceAgentId) {
       const [agent] = await db
         .select()
         .from(schema.deskVoiceAgents)
         .where(
           and(
-            eq(schema.deskVoiceAgents.id, data.voiceAgentId),
+            eq(schema.deskVoiceAgents.id, voiceAgentId),
             isNull(schema.deskVoiceAgents.deletedAt),
           ),
         )
         .limit(1);
-      if (!agent) return error.notFound(c, 'Voice agent', data.voiceAgentId);
+      if (!agent) return error.notFound(c, 'Voice agent', voiceAgentId);
+    }
+
+    // A menu's AI choices need an existing, enabled voice agent.
+    for (const agentId of referencedVoiceAgentIds(options)) {
+      const [agent] = await db
+        .select()
+        .from(schema.deskVoiceAgents)
+        .where(and(eq(schema.deskVoiceAgents.id, agentId), isNull(schema.deskVoiceAgents.deletedAt)))
+        .limit(1);
+      if (!agent) return error.notFound(c, 'Voice agent', agentId);
+      if (!agent.enabled) return error.badRequest(c, `Voice agent ${agentId} is disabled`);
+    }
+
+    // Teams must exist.
+    for (const teamId of referencedTeamIds(options)) {
+      const [team] = await db
+        .select({ id: schema.helpdeskDepartments.id })
+        .from(schema.helpdeskDepartments)
+        .where(and(eq(schema.helpdeskDepartments.id, teamId), isNull(schema.helpdeskDepartments.deletedAt)))
+        .limit(1);
+      if (!team) return error.notFound(c, 'Team', teamId);
     }
 
     const [existing] = await db
@@ -302,8 +353,9 @@ app.put(
         .update(schema.deskPhoneRoutes)
         .set({
           action: data.action,
-          voiceAgentId: data.voiceAgentId ?? null,
-          forwardToE164: data.forwardToE164 ?? null,
+          voiceAgentId,
+          forwardToE164,
+          options,
           updatedAt: now,
         })
         .where(eq(schema.deskPhoneRoutes.id, existing.id))
@@ -319,9 +371,10 @@ app.put(
         updatedAt: now,
         voipPhoneNumberId: data.voipPhoneNumberId,
         action: data.action,
-        voiceAgentId: data.voiceAgentId ?? null,
-        forwardToE164: data.forwardToE164 ?? null,
+        voiceAgentId,
+        forwardToE164,
         schedule: null,
+        options,
       })
       .returning();
 
@@ -375,6 +428,9 @@ app.post(
     return success(c, { ok: true });
   },
 );
+
+app.route('/softphone', deskPhoneSoftphoneRoutes);
+app.route('/queue', deskPhoneQueueRoutes);
 
 export { app as deskPhoneRoutes };
 export default app;

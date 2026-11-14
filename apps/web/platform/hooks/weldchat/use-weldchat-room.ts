@@ -15,7 +15,6 @@ import { useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 export function useWeldChatRoom(channelId: string | null): {
   client: RoomClient | null;
@@ -28,10 +27,12 @@ export function useWeldChatRoom(channelId: string | null): {
   getTokenRef.current = getToken;
 
   useEffect(() => {
-    if (!channelId) return;
+    const realtimeOrigin = getRealtimeWsOrigin();
+    // An empty origin means realtime is off for this deployment.
+    if (!channelId || !realtimeOrigin) return;
 
     const rc = new RoomClient({
-      url: `${REALTIME_BASE_URL}/ws/chat/${channelId}`,
+      url: `${realtimeOrigin}/ws/chat/${channelId}`,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     setClient(rc);

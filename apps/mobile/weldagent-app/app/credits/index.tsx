@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Linking } from 'react-native';
 import { Coins } from 'lucide-react-native';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 
@@ -10,12 +11,13 @@ import { KpiCard, KpiGrid, KpiSkeletonGrid } from '@/components/kpi';
 import { ErrorState } from '@/components/data-states';
 import { useI18n } from '@/lib/i18n';
 import { ACCENTS } from '@/lib/brand';
-import { TOP_UP_URL } from '@/lib/credits';
+import { topUpUrl } from '@/lib/credits';
 import appApi, { type CreditsBalance } from '@/services/app-api';
 
 export default function CreditsScreen() {
   const { colors } = useTheme();
   const { t, format, plural } = useI18n();
+  const canTopUp = useEditionFeature('credit-top-up');
   const [credits, setCredits] = useState<CreditsBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,12 +95,14 @@ export default function CreditsScreen() {
                 />
               </>
             ) : null}
-            <Button
-              title={t.credits.topUpWeb}
-              variant="outline"
-              onPress={() => void Linking.openURL(TOP_UP_URL)}
-              style={styles.topUp}
-            />
+            {canTopUp ? (
+              <Button
+                title={t.credits.topUpWeb}
+                variant="outline"
+                onPress={() => void Linking.openURL(topUpUrl())}
+                style={styles.topUp}
+              />
+            ) : null}
           </SectionCard>
         </ScrollView>
       )}

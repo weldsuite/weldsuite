@@ -1,6 +1,6 @@
 /**
  * Vendor tax data on `parties`: the W-9 facts, the encrypted TIN and the
- * vendor's ACH details (docs/plans/weldbooks-us.md section 8).
+ * vendor's ACH details (weldsuite-documentation/plans/weldbooks-us.md section 8).
  *
  * The full TIN and the ACH account number live only in
  * `parties.sensitive_encrypted`, a JSON blob `{ tin?, achAccountNumber? }`

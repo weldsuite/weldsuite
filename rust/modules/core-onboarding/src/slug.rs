@@ -10,7 +10,8 @@ const FALLBACK_SLUG: &str = "workspace";
 const SUFFIX_LENGTH: usize = 5;
 
 /// `RESERVED_WORKSPACE_SLUGS`: words the platform uses at the root of a URL
-/// (kept in step with the TypeScript list; module crates don't share code).
+/// (module crates don't share code; a test checks it against the TypeScript
+/// list, as `core-team`'s copy does).
 const RESERVED_SLUGS: &[&str] = &[
     "www",
     "app",
@@ -19,6 +20,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "mail",
     "support",
     "help",
+    "test",
     "agents",
     "apps",
     "appstore",
@@ -34,6 +36,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "social",
     "welcome",
     "weldads",
+    "weldboard",
     "weldbooks",
     "weldcalendar",
     "weldcall",
@@ -46,6 +49,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "welddocs",
     "welddrive",
     "weldflow",
+    "weldforms",
     "weldhost",
     "weldhr",
     "weldknow",
@@ -201,5 +205,31 @@ mod tests {
             "{suffixed}"
         );
         assert!(slug_format(&suffixed));
+        assert_eq!(slugify_workspace_name("Test"), "workspace-test");
+    }
+
+    #[test]
+    fn reserved_slugs_match_the_typescript_list() {
+        let source = include_str!(
+            "../../../../packages/clients/app-api-client/src/schemas/workspace-slug.ts"
+        );
+        let mut typescript = typescript_reserved_slugs(source);
+        let mut rust: Vec<&str> = RESERVED_SLUGS.to_vec();
+        typescript.sort_unstable();
+        rust.sort_unstable();
+        assert_eq!(rust, typescript);
+    }
+
+    /// The entries of `RESERVED_WORKSPACE_SLUGS`, comments left out.
+    fn typescript_reserved_slugs(source: &str) -> Vec<&str> {
+        let (_, rest) = source
+            .split_once("RESERVED_WORKSPACE_SLUGS: readonly string[] = [")
+            .expect("RESERVED_WORKSPACE_SLUGS in workspace-slug.ts");
+        let (list, _) = rest.split_once("];").expect("the list's closing bracket");
+        list.lines()
+            .map(|line| line.split("//").next().unwrap_or_default().trim())
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| entry.trim_end_matches(',').trim_matches('\''))
+            .collect()
     }
 }

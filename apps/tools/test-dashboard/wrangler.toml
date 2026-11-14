@@ -12,7 +12,7 @@ directory = "./public"
 # Unknown paths fall back to the dashboard page rather than a hard 404.
 not_found_handling = "single-page-application"
 
-# ── test (develop) ─────────────────────────────────────────────────────────
+# ── test (merge to main) ───────────────────────────────────────────────────
 [env.test]
 name = "weldsuite-test-dashboard-test"
 routes = [{ pattern = "test-dashboard-test.weldsuite.org", custom_domain = true }]
@@ -29,7 +29,7 @@ name = "weldsuite-test-dashboard-preview"
 directory = "./public"
 not_found_handling = "single-page-application"
 
-# ── production (main) ──────────────────────────────────────────────────────
+# ── production (Promote) ───────────────────────────────────────────────────
 [env.production]
 name = "weldsuite-test-dashboard"
 routes = [{ pattern = "test-dashboard.weldsuite.org", custom_domain = true }]

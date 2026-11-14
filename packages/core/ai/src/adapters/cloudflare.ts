@@ -104,7 +104,8 @@ function openAiCompatibleProvider(
 /** Direct Workers AI provider (Authorization bearer). Embeddings only. */
 function directProvider(config: CloudflareGatewayConfig) {
   return openAiCompatibleProvider('weldsuite-cloudflare-workers-ai', {
-    baseURL: restApiBaseUrl(config.accountId),
+    // Tests only: the mock model (`AI_TEST_BASE_URL`, config.ts).
+    baseURL: config.testBaseUrl ?? restApiBaseUrl(config.accountId),
     apiKey: config.apiKey,
     headers: config.headers,
   });
@@ -118,7 +119,9 @@ function gatewayProvider(config: CloudflareGatewayConfig) {
   const token = config.gatewayToken ?? config.apiKey;
   return openAiCompatibleProvider('weldsuite-cloudflare-ai-gateway', {
     baseURL:
-      config.baseURL ?? compatBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
+      config.testBaseUrl ??
+      config.baseURL ??
+      compatBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
     // Gateway-scoped bearer ONLY — no provider Authorization header (see header).
     headers: {
       ...config.headers,
@@ -155,7 +158,7 @@ export function withoutProviderKey(baseFetch?: typeof fetch): typeof fetch {
 function anthropicGatewayProvider(config: CloudflareGatewayConfig) {
   const token = config.gatewayToken ?? config.apiKey;
   return createAnthropic({
-    baseURL: anthropicBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
+    baseURL: config.testBaseUrl ?? anthropicBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
     apiKey: GATEWAY_BYOK_KEY,
     headers: {
       ...config.headers,

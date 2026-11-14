@@ -21,12 +21,13 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestApp } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { projectKvKey, seenKvKey, type PanelProjectRecord } from '@weldsuite/panel-domain/registry';
+import { projectKvKey, quotaKvKey, seenKvKey, type PanelProjectRecord } from '@weldsuite/panel-domain/registry';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import { MAX_BATCH_BYTES, type EventBatch, type WireEvent } from '@weldsuite/panel-domain/wire';
 import { buildBatches } from '../../../../packages/sdk/panel-sdk/src/batch';
 import { PanelSalt } from './durable-objects/panel-salt';
 import { PanelUsage } from './durable-objects/panel-usage';
+import type { Env } from './env';
 import { app } from './index';
 import stubBundle from './testing/sdk-bundle-stub';
 import { CHROME_WINDOWS } from './testing/fakes';
@@ -91,7 +92,7 @@ function usageNamespace(state = new Map<string, Map<string, unknown>>()) {
       if (!instance) {
         const data = state.get(name) ?? new Map<string, unknown>();
         state.set(name, data);
-        instance = new PanelUsage(storageOver(data), {});
+        instance = new PanelUsage(storageOver(data), {} as Env);
         instances.set(name, instance);
       }
       return instance;
@@ -266,6 +267,9 @@ describe('GET /c/:token', () => {
       consentMode: 'required',
       maskingLevel: 'balanced',
       excludedUrls: ['/admin/*'],
+      recordingSampleRate: 1,
+      recordingBlocked: false,
+      snapshot: null,
     });
   });
 
@@ -371,6 +375,79 @@ describe('POST /e', () => {
       properties: '{"plan":"pro","seats":3,"coupon":null}',
     });
     expect(stream.sent[1]).toMatchObject({ cookieless: true });
+  });
+
+  it('writes the user id, click position and error message, with consent only, and accepts people operations', async () => {
+    const { request, token, stream } = setup();
+    const people = [{ op: 'set', user_id: 'user-1', ts: new Date().toISOString(), props: { $email: 'a@b.com', plan: 'pro' } }];
+    const events = [
+      event({ event_id: 'evt-aaaaaaaa', name: '$identify', anon_id: 'a-browser', user_id: 'user-1' }),
+      event({
+        event_id: 'evt-bbbbbbbb',
+        name: '$rageclick',
+        anon_id: 'a-browser',
+        user_id: 'user-1',
+        x: 10,
+        y: 20,
+        rel_x: 0.25,
+        rel_y: 1,
+        el: { tag: 'button', selector: 'main > button', action: 'click' },
+      }),
+      event({ event_id: 'evt-cccccccc', name: '$exception', anon_id: 'a-browser', error_message: 'x is not a function', props: { $source: 'app.js', $line: 12, $col: 3 } }),
+      event({ event_id: 'evt-dddddddd', name: '$quickback', anon_id: 'a-browser', props: { $from: '/pricing' } }),
+    ];
+    expect((await request('/e', post({ ...batch(token, { consent: true, events }), people }))).status).toBe(204);
+    expect((await request('/e', post({ ...batch(token, { consent: false, events: [{ ...events[1]!, event_id: 'evt-eeeeeeee' }] }), people }))).status).toBe(204);
+
+    expect(stream.sent.map((row) => [row.event_id, row.user_id, row.distinct_id])).toEqual([
+      ['evt-aaaaaaaa', 'user-1', 'user-1'],
+      ['evt-bbbbbbbb', 'user-1', 'user-1'],
+      ['evt-cccccccc', null, 'a-browser'],
+      ['evt-dddddddd', null, 'a-browser'],
+      ['evt-eeeeeeee', null, expect.stringMatching(/^ck_/)],
+    ]);
+    expect(stream.sent[1]).toMatchObject({ rel_x: 0.25, rel_y: 1, x: 10, y: 20, error_message: null });
+    expect(stream.sent[2]).toMatchObject({ error_message: 'x is not a function', properties: '{"$source":"app.js","$line":12,"$col":3}' });
+    expect(stream.sent[3]!.properties).toBe('{"$from":"/pricing"}');
+  });
+
+  it('refuses a bad user id, click position or reserved property, and too many people operations', async () => {
+    const { request, token } = setup();
+    const op = { op: 'set', user_id: 'u', ts: new Date().toISOString(), props: {} };
+    const cases: Array<[unknown, string]> = [
+      [batch(token, { events: [{ ...event(), user_id: 'a\nb' }] }), 'events.0.user_id: Invalid'],
+      [batch(token, { events: [{ ...event(), user_id: '' }] }), 'events.0.user_id: Invalid'],
+      [batch(token, { events: [{ ...event(), rel_x: 1.5 }] }), 'events.0.rel_x: Number must be less than or equal to 1'],
+      [batch(token, { events: [{ ...event(), error_message: 'e'.repeat(1001) }] }), 'events.0.error_message: String must contain at most 1000 character(s)'],
+      [batch(token, { events: [{ ...event(), props: { $action: 'click' } }] }), 'events.0.props.$action: Invalid'],
+      [{ ...batch(token), people: Array.from({ length: 51 }, () => op) }, 'people: Array must contain at most 50 element(s)'],
+    ];
+    for (const [body, message] of cases) {
+      const res = await request('/e', post(body));
+      expect(res.status, message).toBe(400);
+      expect(await errorOf(res)).toEqual({ code: 'invalid_batch', message });
+    }
+  });
+
+  it('drops events with 204 when the workspace is events_blocked, and says recordings are blocked on /c', async () => {
+    const workspaceId = 'ws_conformance_quota';
+    const { request, token, stream, usage, kv } = setup({ workspaceId });
+    kv.entries.set(quotaKvKey(workspaceId), 'events_blocked');
+
+    expect((await request('/e', post(batch(token)))).status).toBe(204);
+    expect(stream.sent).toEqual([]);
+    expect((await usage.get(workspaceId).month(month())).events).toBe(0);
+    expect(await (await request(`/c/${token}`)).json()).toMatchObject({ recordingBlocked: true, recordingSampleRate: 1, snapshot: null });
+  });
+
+  it('keeps counting when only recordings are blocked', async () => {
+    const workspaceId = 'ws_conformance_replay_blocked';
+    const { request, token, stream, kv } = setup({ workspaceId });
+    kv.entries.set(quotaKvKey(workspaceId), 'replay_blocked');
+
+    expect((await request('/e', post(batch(token)))).status).toBe(204);
+    expect(stream.sent).toHaveLength(1);
+    expect(await (await request(`/c/${token}`)).json()).toMatchObject({ recordingBlocked: true });
   });
 
   it('accepts what the SDK sends, with and without consent', async () => {

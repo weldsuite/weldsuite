@@ -1,0 +1,79 @@
+{{- if .Values.bundle.postgres }}
+{{- if not (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1/Cluster") }}
+{{- fail "bundle.postgres needs the CloudNativePG operator (its postgresql.cnpg.io/v1 API); install it first, as the install script does" }}
+{{- end }}
+{{- /*
+The bundled Postgres (bundle.postgres): one CloudNativePG Cluster for the
+master database and every workspace's database. The owner's and the tenant
+role's passwords are generated once into basic-auth Secrets, as CloudNativePG
+takes them, and kept across upgrades and uninstalls like the data.
+*/}}
+{{- $cluster := include "weldsuite.postgres.fullname" . }}
+{{- range $role := list "owner" "tenant" }}
+{{- $name := printf "%s-%s" $cluster $role }}
+{{- $existing := lookup "v1" "Secret" $.Release.Namespace $name }}
+{{- $password := "" }}
+{{- if and $existing $existing.data (index $existing.data "password") }}
+{{- $password = index $existing.data "password" | b64dec }}
+{{- else }}
+{{- $password = randAlphaNum 32 }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ ternary "weldsuite" "tenant" (eq $role "owner") }}
+  password: {{ $password | quote }}
+---
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $cluster }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+  annotations:
+    # The data outlives the release; delete the Cluster by hand.
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .Values.postgres.instances }}
+  imageName: {{ .Values.postgres.imageName | quote }}
+  primaryUpdateStrategy: unsupervised
+  postgresql:
+    parameters:
+      {{- range $key, $value := .Values.postgres.parameters }}
+      {{ $key }}: {{ $value | toString | quote }}
+      {{- end }}
+  bootstrap:
+    initdb:
+      database: weldsuite_master
+      owner: weldsuite
+      secret:
+        name: {{ $cluster }}-owner
+      postInitTemplateSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  managed:
+    roles:
+      # Makes each workspace's role and database (crates/adapters-oss/src/cnpg.rs).
+      - name: tenant
+        ensure: present
+        login: true
+        createdb: true
+        createrole: true
+        passwordSecret:
+          name: {{ $cluster }}-tenant
+  storage:
+    size: {{ .Values.postgres.storage.size | quote }}
+    {{- with .Values.postgres.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+{{- end }}

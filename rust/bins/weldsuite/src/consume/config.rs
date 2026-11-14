@@ -12,11 +12,12 @@
 //! | `NATS_DEAD_LETTER_STREAM` | the dead-letter stream (default `ENTITY_EVENTS_DLQ`, subjects `<subject>-dlq.<subscriber>.…`) |
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
-//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
+//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint for the search index, for an install without AI (or whose AI has no embedding model); unmetered. With neither, the search-index subscriber does not run |
+//! | `AI_*`, `MISTRAL_API_KEY`, … (`weldsuite_ai::config`), `VALKEY_CACHE_PREFIX` | the install's AI, as for `serve`, for the subscribers that call a model (the search index's embeddings first, charged per workspace and batch); its workspace settings cached in Valkey under the cache prefix |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
-//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
+//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
-//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
+//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand, and the audit log stream flushes behind them (about 6 s), may take to finish after SIGTERM (default 25) |
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
@@ -26,6 +27,7 @@
 //! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
+//! | `METRICS_ADDR` | as for `serve`: `GET /metrics` on a listener of its own (default `0.0.0.0:9464`; `off` or empty turns it off) |
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -36,11 +38,12 @@ use weldsuite_db::{Keyring, WorkspaceConfig};
 use crate::config::LogFormat;
 
 /// The subscribers `weldsuite consume` can run.
-pub(crate) const PORTED: [&str; 5] = [
+pub(crate) const PORTED: [&str; 6] = [
     "audit",
     "search-index",
     "webhooks",
     "weldconnect",
+    "weldagent",
     "realtime",
 ];
 
@@ -163,6 +166,8 @@ pub(crate) struct EmbeddingsConfig {
 #[derive(Clone)]
 pub(crate) struct ConsumeConfig {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`, as for `serve`: `GET /metrics` apart from the probes.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     pub(crate) environment: String,
     pub(crate) log_format: LogFormat,
     pub(crate) master_database_url: String,
@@ -184,6 +189,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) subscribers: Vec<String>,
     pub(crate) valkey_url: Option<String>,
     pub(crate) valkey_realtime_prefix: String,
+    /// `VALKEY_CACHE_PREFIX`, as for `serve`: the AI settings cache.
+    pub(crate) valkey_cache_prefix: String,
     /// `VALKEY_LEDGER_PREFIX`: the outbound ledgers `serve` keeps.
     pub(crate) valkey_ledger_prefix: String,
     pub(crate) embeddings: Option<EmbeddingsConfig>,
@@ -199,12 +206,18 @@ pub(crate) struct ConsumeConfig {
     /// `FEATURE_FLAGS=master-db`: flags from the master database, refreshed
     /// this often; `None` keeps every flag at its default.
     pub(crate) master_db_flags: Option<Duration>,
+    /// The install's AI settings, as for `serve`.
+    pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*`, as for `serve`: the sandbox of the agents the weldagent
+    /// subscriber runs.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 impl fmt::Debug for ConsumeConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ConsumeConfig")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("stream", &self.stream)
             .field("subject_prefix", &self.subject_prefix)
@@ -230,6 +243,7 @@ impl fmt::Debug for ConsumeConfig {
                 &self.mail_inbound.as_ref().map(|m| m.mail.bucket.as_str()),
             )
             .field("drain", &self.drain)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -265,7 +279,7 @@ fn flag(
 
 impl ConsumeConfig {
     pub(crate) fn from_env() -> Result<Self, ConsumeConfigError> {
-        Self::from_lookup(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        Self::from_lookup(crate::config::env_value)
     }
 
     /// `lookup` reads a variable; injectable for tests.
@@ -306,6 +320,10 @@ impl ConsumeConfig {
         let stream_max_bytes = number(&mut problems, "NATS_STREAM_MAX_BYTES", 0);
         let dead_letter_max_bytes = number(&mut problems, "NATS_DEAD_LETTER_MAX_BYTES", 0);
         let drain = number(&mut problems, "CONSUME_DRAIN_SECONDS", 25);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let master_database_url = lookup("DATABASE_URL_MASTER").unwrap_or_else(|| {
             problems.push("DATABASE_URL_MASTER is required".to_owned());
@@ -418,6 +436,8 @@ impl ConsumeConfig {
                 false
             }
         };
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
         let flags_refresh = match lookup("FEATURE_FLAGS_REFRESH_SECONDS") {
             None => 30,
             Some(value) => value.parse::<u64>().unwrap_or_else(|_| {
@@ -431,6 +451,7 @@ impl ConsumeConfig {
         }
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             log_format,
             master_database_url,
@@ -461,6 +482,8 @@ impl ConsumeConfig {
             valkey_url: lookup("VALKEY_URL"),
             valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
                 .unwrap_or_else(|| "realtime:".to_owned()),
+            valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
+                .unwrap_or_else(|| "cache:".to_owned()),
             valkey_ledger_prefix: lookup("VALKEY_LEDGER_PREFIX")
                 .unwrap_or_else(|| "weldsuite:outbound:".to_owned()),
             embeddings,
@@ -471,6 +494,8 @@ impl ConsumeConfig {
             mail_inbound,
             mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
+            ai,
+            sandbox,
         })
     }
 }
@@ -568,7 +593,27 @@ mod tests {
         assert!(config.embeddings.is_none());
         assert_eq!(config.stream_max_bytes, None);
         assert_eq!(config.dead_letter_max_bytes, None);
+        assert_eq!(
+            config.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
         assert!(!format!("{config:?}").contains("postgres://master"));
+    }
+
+    #[test]
+    fn metrics_can_be_turned_off_or_moved() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let off = config(&[base[0], base[1], ("METRICS_ADDR", "off")]).expect("valid");
+        assert_eq!(off.metrics_addr, None);
+        let moved = config(&[base[0], base[1], ("METRICS_ADDR", "127.0.0.1:9100")]).expect("valid");
+        assert_eq!(
+            moved.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("127.0.0.1:9100")
+        );
+        assert!(config(&[base[0], base[1], ("METRICS_ADDR", "9100")]).is_err());
     }
 
     #[test]

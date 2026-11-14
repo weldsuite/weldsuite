@@ -5,7 +5,7 @@
  * registrations, bank accounts and who may see each one (per-entity access).
  * Bank account numbers only leave the API through `revealBankAccountNumber`,
  * which needs `legal_entities:reveal` and is logged. See
- * `../schemas/legal-entities.ts` and docs/plans/legal-entities.md.
+ * `../schemas/legal-entities.ts` and weldsuite-documentation/plans/legal-entities.md.
  */
 
 import type { ClientApi, DataResponse } from '../types';

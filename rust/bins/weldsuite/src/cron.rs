@@ -21,6 +21,11 @@
 //!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `forms-reminders` and `forms-digest` (every 15 minutes): WeldForms'
+//!   automatic invitation reminders and the daily response digest, for the
+//!   workspaces the `forms_reminders` / `forms_digest` due index lists
+//!   (`apps/workers/forms-api/src/cron/sweeps.ts`). Nothing while forms is
+//!   not served.
 //! - `merge-digest-sweep` (hourly, at :00): WeldMerge's daily WeldChat
 //!   digests, for the workspaces the `merge_digest` due index lists (each
 //!   subscription posts at its own `digest_hour`;
@@ -42,11 +47,21 @@
 //! - `desk-sla-sweep` (every minute): WeldDesk's SLA warnings and breaches
 //!   on inbox conversations, for the workspaces the due index lists
 //!   (`apps/workers/desk-api/src/cron/sla-sweep.ts`).
+//! - `desk-report-sweep` (every minute): WeldDesk's scheduled report emails
+//!   that came due, for the workspaces the due index lists (kind
+//!   `desk_report`, `apps/workers/desk-api/src/cron/report-schedule-sweep.ts`).
+//!   The mail goes out on the customer mail relay behind the outbound guard,
+//!   as WeldCalendar's invitations do.
 //! - `reach-send-sweep` (every minute): WeldReach's send sweep over the
 //!   due index (kind `reach_send`, `apps/workers/reach-api/src/cron/send-sweep.ts`).
 //!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
 //!   for the `reach-send` subscriber of `weldsuite consume`; otherwise it
 //!   runs each workspace's send tick itself.
+//! - `billing-renewals` (hourly, at :05): plan billing on Mollie (ADR BILL-014):
+//!   the anchors that came, scheduled changes, past-due reminders and ends,
+//!   comps that ran out, and invoices the issuer couldn't take yet
+//!   (`weldsuite_core_billing::renewals`). Nothing without
+//!   `BILLING_PROVIDER=mollie`.
 //! - `reach-warmup-sweep` (hourly, at :15): WeldReach's warmup progress
 //!   over the due index (kind `reach_warmup`, `cron/warmup-sweep.ts`).
 //! - `reach-slot-reconciliation` (daily, 03:15 UTC): gives back Mailpool
@@ -66,6 +81,10 @@
 //!   (`workspace-worker/src/services/deletion-sweep.ts`).
 //! - `workspace-teardown` (hourly): deleted workspaces whose database
 //!   teardown never finished (`services/teardown-sweep.ts`).
+//! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
+//!   that are done: their agent exited when idle, Kubernetes stopped them at
+//!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
+//!   Nothing without `SANDBOX_ENABLED`.
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -101,9 +120,32 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep";
+/// WeldForms opens the workspace behind a public link (and its job's) the same way.
+impl weldsuite_forms::TenantResolver for WorkspaceTenants {
+    fn tenant<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<weldsuite_forms::TenantDb, String>> {
+        Box::pin(async move {
+            let tenant = self
+                .0
+                .tenant(reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_forms::TenantDb {
+                db: tenant.db,
+                workspace_id: tenant.workspace_id,
+                clerk_org_id: tenant.clerk_org_id,
+                suspended: tenant.suspended,
+            })
+        })
+    }
+}
+
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals";
 
 /// `weldsuite cron <job>`.
+#[allow(clippy::too_many_lines)] // one arm per job
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
     let Some(
         job @ ("sign-lifecycle"
@@ -120,6 +162,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
+        | "desk-report-sweep"
         | "reach-send-sweep"
         | "reach-warmup-sweep"
         | "reach-slot-reconciliation"
@@ -133,7 +176,12 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "moneybird-push"
         | "workflow-polls"
         | "workflow-schedules"
-        | "merge-digest-sweep"),
+        | "merge-digest-sweep"
+        | "forms-reminders"
+        | "forms-digest"
+        | "weldagent-routines"
+        | "sandbox-cleanup"
+        | "billing-renewals"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -176,6 +224,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 Ok(())
             }
             "desk-sla-sweep" => desk_sla_sweep(config).await,
+            "desk-report-sweep" => desk_report_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
             "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
@@ -187,6 +236,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
+            "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
+            "weldagent-routines" => weldagent_routines(config).await,
+            "sandbox-cleanup" => sandbox_cleanup(config).await,
+            "billing-renewals" => Box::pin(billing_renewals(config)).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -199,6 +252,125 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// `forms-reminders` / `forms-digest`: one tick of WeldForms' sweep;
+/// nothing while forms is not served.
+async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("forms") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": job, "result": { "skipped": "forms is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let state = weldsuite_forms::FormsState {
+        events: infra.events.clone(),
+        master: Some(master.clone()),
+        files: infra
+            .files
+            .clone()
+            .map(|private| weldsuite_ports::FileStores {
+                private,
+                public: infra.public_files.clone(),
+            }),
+        cache: infra.cache.clone(),
+        jobs: None,
+        realtime: infra.realtime.clone(),
+        mail: infra.mail.clone(),
+        http: None,
+        tenants: Some(Arc::new(WorkspaceTenants(Arc::clone(&workspaces)))),
+        // Reminders count against the workspace like any invitation.
+        outbound: crate::routes::mail_outbound_for(&master, &infra.flags)
+            .0
+            .clone(),
+        env: Arc::new(weldsuite_forms::env_from_process()),
+        local_cache: Arc::default(),
+        // The sweeps call no model.
+        ai: None,
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let request = http::Extensions::new();
+    let result = if job == "forms-digest" {
+        weldsuite_forms::run_digest_sweep(&state, &request, now).await
+    } else {
+        weldsuite_forms::run_reminders_sweep(&state, &request, now).await
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
+    // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `billing-renewals`: one run of plan billing's scheduler (ADR BILL-014),
+/// on the same ports as `serve`: Mollie over the shared client, WeldBooks in
+/// the issuer workspace, the identity provider for seat caps, the files
+/// bucket for invoice documents and system mail for the billing owners.
+async fn billing_renewals(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let settings =
+        weldsuite_core_billing::BillingSettings::from_lookup(&|name| std::env::var(name).ok())?;
+    let Some(settings) = settings else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "billing-renewals", "result": { "skipped": "BILLING_PROVIDER is not mollie" } })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let state = crate::billing::build(
+        master,
+        workspaces,
+        settings,
+        infra.identity.clone(),
+        infra.files.clone(),
+        infra.mail.clone(),
+    );
+    let report =
+        weldsuite_core_billing::renewals::run_renewals(&state, time::OffsetDateTime::now_utc())
+            .await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "billing-renewals", "result": report.to_json() })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with work still in flight");
+    }
+    Ok(())
 }
 
 /// `merge-digest-sweep`: WeldMerge's daily WeldChat digests of the due
@@ -243,6 +415,8 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
         realtime: infra.realtime.clone(),
         // The digest sends no mail.
         mail: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        // Nor writes release notes.
+        ai: None,
     };
     let now = time::OffsetDateTime::now_utc();
     let result = weldsuite_merge::run_digest_sweep(&state, &master, now).await;
@@ -265,6 +439,90 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `weldsuite cron weldagent-routines` (hourly, at :00): WeldAgent's due cron
+/// routines (`apps/workers/agent-api/src/cron/weldagent-routines.ts`), in the
+/// workspaces the `weldagent_routine` due index lists. Nothing without AI
+/// (ADR AI-011 kept it out; it runs only when the install has a provider) or
+/// while the agent module is not served.
+async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let skipped = |why: &str| {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "weldagent-routines", "result": { "skipped": why } })
+        );
+    };
+    if !crate::routes::mounts("agent") {
+        skipped("agent is not served");
+        return Ok(());
+    }
+    let Some(ai) = crate::ai::build(&config.ai, None)? else {
+        skipped("AI is not configured");
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants = weldsuite_subscribers::WorkspaceTenants::new(workspaces);
+    // With Restate the routines run as `weldagent.job`s in `serve`, which has
+    // the spreadsheet, board and WeldMerge tools. Without it the run is
+    // inline here, with every tool but those (the in-process jobs adapter
+    // would only run the job in this process anyway).
+    let launcher = if let Some(ingress) = config.infra.jobs.restate_ingress_url.as_ref() {
+        weldsuite_agent::launch::RunLauncher::jobs(Arc::new(
+            weldsuite_adapters_oss::RestateJobs::new(ingress, reqwest::Client::new()),
+        ))
+    } else {
+        let sandboxes = crate::sandbox::build(config.sandbox.as_ref())?;
+        weldsuite_agent::launch::RunLauncher::inline(
+            Some(ai),
+            weldsuite_agent::run::RunEnv {
+                master: Some(master.clone()),
+                sandbox: sandboxes.is_some(),
+                sandboxes,
+                ..weldsuite_agent::run::RunEnv::default()
+            },
+        )
+    };
+    let result = weldsuite_agent::routines::run_routine_sweep(
+        &master,
+        &tenants,
+        &launcher,
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "weldagent-routines",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
+    Ok(())
+}
+
+/// `weldsuite cron sandbox-cleanup`: deletes WeldAgent's sandbox pods that
+/// are done (their agent exited when idle, Kubernetes stopped them at their
+/// lifetime, or they never started). Nothing without `SANDBOX_ENABLED`.
+async fn sandbox_cleanup(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sandboxes) = crate::sandbox::build(config.sandbox.as_ref())? else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "sandbox-cleanup", "result": { "skipped": "no sandbox" } })
+        );
+        return Ok(());
+    };
+    let report = sandboxes.cleanup(time::OffsetDateTime::now_utc()).await?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "sandbox-cleanup", "result": report.to_json() })
+    );
     Ok(())
 }
 
@@ -304,11 +562,21 @@ async fn mail_outbound_ledgers(config: Config) -> Result<(), Box<dyn std::error:
         crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
+    // A grey-zone review the alarm queues runs in `serve` (the
+    // `mail.outbound-review` job), reached through Restate; without Restate
+    // or AI the template stays unclassified.
+    let reviews = (config.ai.default_provider.is_some()
+        && config.infra.jobs.restate_ingress_url.is_some())
+    .then(|| {
+        Arc::new(weldsuite_mail::review::JobsReviewQueue {
+            jobs: Arc::clone(&infra.jobs),
+        }) as Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>
+    });
     let ledger = StoreLedger::new(LedgerDeps {
         store: Arc::new(store),
         master: Some(master),
         flags: Some(Arc::clone(&infra.flags)),
-        reviews: None,
+        reviews,
         daily_quota: read("MAIL_DAILY_QUOTA")
             .and_then(|v| v.parse().ok())
             .filter(|q| *q > 0),
@@ -347,6 +615,7 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
         flags: Arc::clone(&infra.flags),
         portal_url: config.sign_portal_url.clone(),
         environment: Some(config.environment.clone()),
+        app_url: config.public_app_url.clone(),
     };
     let tenants: Arc<dyn TenantResolver> = Arc::new(WorkspaceTenants(workspaces));
     let now = time::OffsetDateTime::now_utc();
@@ -826,6 +1095,67 @@ async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+/// `desk-report-sweep`: the due workspaces' scheduled report emails.
+async fn desk_report_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_desk::sla_sweep::SlaTenant {
+                db: tenant.db,
+                clerk_org_id: tenant.clerk_org_id.unwrap_or(tenant.workspace_id),
+            })
+        })
+    });
+    let read = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let services = weldsuite_desk::report_sweep::ReportSweepServices {
+        // Reports go out like the desk API's replies: the relay, behind the guard.
+        outbound: if cfg!(feature = "conformance") {
+            weldsuite_mail_domain::outbound::OutboundBindings::default()
+        } else {
+            crate::routes::mail_outbound_for(&master, &infra.flags)
+                .0
+                .clone()
+        },
+        master: Some(master.clone()),
+        cache: infra.cache.clone(),
+        environment: read("ENVIRONMENT"),
+        public_app_url: read("PUBLIC_APP_URL"),
+        from_override: read("SYSTEM_EMAIL_FROM"),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result =
+        weldsuite_desk::report_sweep::run_report_sweep(&master, &tenants, &services, now).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "desk-report-sweep", "result": result.to_json() })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with work still in flight");
+    }
+    Ok(())
+}
+
 async fn reach_send_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let master =
         weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
@@ -903,7 +1233,13 @@ async fn reach_warmup_network(config: Config, job: &str) -> Result<(), Box<dyn s
         crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
-    let network = crate::reach::warmup_network(master, Arc::clone(&infra.flags))?;
+    // The daily job refreshes the corpus with the install's AI.
+    let ai = if job == "reach-warmup-daily" {
+        crate::ai::build(&config.ai, infra.cache.clone())?
+    } else {
+        None
+    };
+    let network = crate::reach::warmup_network(master, Arc::clone(&infra.flags), ai)?;
     let now_ms = || {
         weldsuite_reach::weldsuite_reach_domain::epoch_ms(
             weldsuite_reach::weldsuite_reach_domain::now(),
@@ -930,6 +1266,7 @@ async fn reach_warmup_network(config: Config, job: &str) -> Result<(), Box<dyn s
                 "cleaned": result.cleanup.map(|c| c.cleaned),
                 "mailboxesVisited": result.cleanup.map(|c| c.mailboxes_visited),
                 "rowsDeleted": result.cleanup.map(|c| c.rows_deleted),
+                "corpusRefreshed": result.corpus_refreshed,
             })
         }
         _ => {
@@ -1383,15 +1720,12 @@ fn workspace_infra(config: &Config) -> Result<WorkspaceInfra, Box<dyn std::error
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
+    let mail = crate::infra::system_mail(&config.infra)?;
     let identity = config.infra.identity.as_ref().map(|settings| {
-        weldsuite_adapters_oss::ZitadelIdentity::new(weldsuite_adapters_oss::ZitadelOptions {
-            api_url: settings.api_url.clone(),
-            token: settings.token.clone(),
-            project_id: settings.project_id.clone(),
-            invite_url_template: settings.invite_url_template.clone(),
-            application_name: "WeldSuite".to_owned(),
-            host: settings.host.clone(),
-        })
+        weldsuite_adapters_oss::ZitadelIdentity::new(crate::infra::zitadel_options(
+            settings,
+            mail.as_ref(),
+        ))
         .map(|identity| Arc::new(identity) as Arc<dyn weldsuite_ports::Identity>)
     });
     let identity = identity.transpose()?;

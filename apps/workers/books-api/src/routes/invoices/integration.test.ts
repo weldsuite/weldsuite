@@ -160,6 +160,55 @@ describe('/api/invoices · entity base currency', () => {
   });
 });
 
+describe('/api/invoices · contact email', () => {
+  it('GET /:id gives the customer email added after the invoice was created', async () => {
+    await db.insert(schema.entities).values({
+      id: 'ent_late_email',
+      name: 'Late Email Co',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      locale: 'nl-NL',
+    });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_late_email' });
+    await db.insert(schema.companies).values({ id: 'cmp_late_email', name: 'Late Email BV', displayName: 'Late Email BV' });
+    await db.insert(schema.parties).values({
+      id: 'pty_late_email',
+      kind: 'company',
+      companyId: 'cmp_late_email',
+      displayName: 'Late Email BV',
+      role: 'customer',
+    });
+
+    const { request } = createTestApp('/api/invoices', invoicesRoutes, {
+      context: { permissions: permissions('invoices:create', 'invoices:read'), tenantDb: db },
+    });
+    const headers = { 'Content-Type': 'application/json', 'X-Accounting-Entity-Id': 'ent_late_email' };
+    const created = await request('/api/invoices', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        contactId: 'pty_late_email',
+        issueDate: '2026-04-01',
+        dueDate: '2026-04-15',
+        items: [{ description: 'Work', quantity: '1', unitPrice: '10.00' }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { data: { id: string } }).data.id;
+
+    // No address yet: the invoice is stored without one.
+    const [stored] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id)).limit(1);
+    expect(stored?.contactEmail).toBeNull();
+
+    await db.update(schema.companies).set({ email: 'billing@late-email.example' }).where(eq(schema.companies.id, 'cmp_late_email'));
+
+    const res = await request(`/api/invoices/${id}`, { headers });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { contactEmail: string | null } };
+    expect(body.data.contactEmail).toBe('billing@late-email.example');
+  });
+});
+
 describe('/api/invoices · list', () => {
   it('GET / names the invoice each credit note credits', async () => {
     await db.insert(schema.entities).values({

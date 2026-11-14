@@ -13,10 +13,10 @@
 //! Steps 1-5 fail on a database error (the handler then parks the raw
 //! message) and are safe to run twice. Step 6 is best effort.
 //!
-//! The AI classification of step 6 is not available on these editions (no
-//! AI port, as for WeldMail AI): a reply that would be classified gets the
-//! label `unclassified`, as reach-api does when the model is not
-//! configured, and a person labels it in the inbox.
+//! The label of step 6 comes from the install's AI ([`super::classify`]);
+//! without it (or when the model fails) the reply gets the label
+//! `unclassified`, as reach-api does without its gateway, and a person
+//! labels it in the inbox.
 
 use std::sync::Arc;
 
@@ -113,6 +113,9 @@ pub struct DeliverInput<'a> {
     pub storage: Option<Arc<dyn DynFileStore>>,
     pub events: &'a dyn EventSink,
     pub now: OffsetDateTime,
+    /// What labels a reply (the install's AI); `None` leaves it
+    /// `unclassified`.
+    pub classifier: Option<&'a super::classify::ReplyClassifier>,
 }
 
 /// `InboundMatch`: rows as Drizzle reads them.
@@ -763,23 +766,17 @@ async fn finish_inbound(input: &DeliverInput<'_>, message: &Value, a: &Analysis)
     {
         tracing::error!(error = %error, "[reach-inbound] CRM hand-off failed");
     }
+    // Only mail that answers something we sent (or comes from a known
+    // prospect) is worth the credits.
     if m.how != "none" {
-        settle_unclassified(db, &id).await;
-    }
-}
-
-/// `classifyStoredReply` with the model unavailable: an unlabelled reply
-/// becomes `unclassified`.
-async fn settle_unclassified(db: &PgPool, id: &str) {
-    let result = sqlx::query(
-        "update reach_messages set label = 'unclassified', updated_at = $2::timestamptz
-         where id = $1 and (label_source is null or label_source = 'ai') and label is null",
-    )
-    .bind(id)
-    .bind(iso(weldsuite_reach_domain::now()))
-    .execute(db)
-    .await;
-    if let Err(error) = result {
-        tracing::error!(%error, "[reach-classify] could not record the outcome");
+        super::classify::classify_stored_reply(
+            input.classifier,
+            db,
+            input.events,
+            input.clerk_org_id,
+            message,
+            &a.reply_text,
+        )
+        .await;
     }
 }

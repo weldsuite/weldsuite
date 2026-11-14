@@ -6,6 +6,9 @@
 //! in `rust/deploy/helm/weldsuite` sets them.
 
 mod admin;
+mod admin_billing;
+mod ai;
+mod billing;
 mod collab;
 mod config;
 #[cfg(feature = "conformance")]
@@ -14,6 +17,8 @@ mod conformance;
 mod conformance_books;
 #[cfg(feature = "conformance")]
 mod conformance_files;
+#[cfg(feature = "conformance")]
+mod conformance_forms;
 #[cfg(feature = "conformance")]
 mod conformance_kv;
 #[cfg(feature = "conformance")]
@@ -29,13 +34,16 @@ mod conformance_workflows;
 mod consume;
 mod cron;
 mod desk_http;
+mod doctor;
 mod edition;
 mod infra;
 mod migrate;
+mod monitoring;
 mod mta;
 mod reach;
 mod realtime;
 mod routes;
+mod sandbox;
 mod server;
 mod spa;
 mod telemetry;
@@ -60,17 +68,20 @@ commands:
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
              calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure,
              flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew,
-             desk-sla-sweep,
+             desk-sla-sweep, desk-report-sweep,
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
-             moneybird-push, merge-digest-sweep
+             moneybird-push, merge-digest-sweep, forms-reminders, forms-digest,
+             sandbox-cleanup, billing-renewals
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue
              tools (weldsuite mta --help)
   admin      staff work: access to apps on request only (WeldReach) and the
              staff list (weldsuite admin --help)
+  doctor     check the configuration and what it points at: the master
+             database, the AI providers' keys and models (weldsuite doctor --help)
   version   print the version and exit
   help       print this message and exit";
 
@@ -94,6 +105,7 @@ fn main() -> ExitCode {
         Some("migrate") => migrate::run(&args[1..]),
         Some("admin") => admin::run(&args[1..]),
         Some("mta") => mta::run(&args[1..]),
+        Some("doctor") => doctor::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -118,6 +130,10 @@ fn serve() -> ExitCode {
         }
     };
     let telemetry = telemetry::init(config.log_format, "info");
+    // An EU or self-hosted install should have none of these.
+    for line in &config.global_defaults {
+        tracing::warn!("Global default: {line}");
+    }
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -129,6 +145,9 @@ fn serve() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // First: a metric handle taken before the recorder exists records
+    // nowhere. Its listener keeps running on the runtime's workers.
+    runtime.block_on(monitoring::start(config.metrics_addr));
     let code = match runtime.block_on(run(config)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -140,6 +159,10 @@ fn serve() -> ExitCode {
     code
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start-up sequence, one service after the other"
+)]
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (verifier, public_auth) = session_verifier(&config.auth)?;
     tracing::info!(provider = verifier.provider(), "sign-in");
@@ -176,6 +199,10 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(dir = %spa.root().display(), "serving the SPA");
     }
 
+    let sign_in = sign_in_screens(&config, infra.cache.clone(), infra.mail.clone())?;
+    let ai = ai::for_app(&config.ai, infra.cache.clone())?;
+    let sandboxes = sandbox::build(config.sandbox.as_ref())?;
+
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
         service: "weldsuite",
@@ -190,6 +217,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
+        public_app_url: config.public_app_url.as_deref().map(Arc::from),
         project_portal_url: config.project_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
         collab: (!config.collab_rooms_urls.is_empty()).then(|| {
@@ -201,6 +229,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         collab_secret: config.collab_rooms_secret.as_deref().map(Arc::from),
         mail_inbound_secret: config.mail_inbound_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
+        files_public_via_server: config.files_public_via_server,
         widget_token_secret: config
             .realtime
             .widget_token_secret
@@ -209,13 +238,17 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         trusted_proxies: config.trusted_proxies,
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
+        sign_in,
         realtime: realtime::PublicRealtime::from_config(&config),
+        ai,
+        sandboxes,
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]
         conformance_pools: Arc::default(),
     };
 
+    monitoring::sample_pools(&state.workspaces);
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
     let gateway = realtime::start(&config, &state).await?;
@@ -223,7 +256,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, spa::mount(app, spa))
+    axum::serve(listener, monitoring::track_http(spa::mount(app, spa)))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             realtime::stop(gateway.as_ref()).await;
@@ -270,20 +303,84 @@ fn session_verifier(
         AuthConfig::Oidc {
             settings,
             web_client_id,
+            mobile_client_id,
+            platform_sign_in,
         } => {
-            let public = serde_json::json!({
+            let mut public = serde_json::json!({
                 "provider": "oidc",
                 "issuer": settings.issuer,
                 "clientId": web_client_id,
+                // The mobile apps' native client (weldsuite-documentation/plans/mobile-server-choice.md).
+                "mobileClientId": mobile_client_id,
                 "audience": settings.audiences.first(),
                 "orgClaim": settings.org_claim,
             });
+            if *platform_sign_in {
+                // The platform shows its own sign-in screens (ADR SEC-016).
+                public["signIn"] = serde_json::json!("platform");
+            }
             Ok((
                 SessionVerifier::oidc(settings.clone())?,
                 Some(Arc::new(public)),
             ))
         }
     }
+}
+
+/// The sign-in screens' backend, with `OIDC_SIGN_IN=platform` (ADR SEC-016):
+/// this server as Zitadel's login client. Its token is `ZITADEL_LOGIN_TOKEN`
+/// (a service user with only `IAM_LOGIN_CLIENT`), else the service token,
+/// whose user then needs that role too: without it Zitadel lets a session
+/// be opened but not a sign-in finished.
+fn sign_in_screens(
+    config: &Config,
+    cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
+    mail: Option<Arc<dyn weldsuite_ports::DynSystemMail>>,
+) -> Result<Option<weldsuite_core_signin::SignInState>, Box<dyn std::error::Error>> {
+    let AuthConfig::Oidc {
+        settings,
+        platform_sign_in: true,
+        ..
+    } = &config.auth
+    else {
+        return Ok(None);
+    };
+    // The configuration refuses `platform` without the provider's API.
+    let Some(identity) = &config.infra.identity else {
+        return Ok(None);
+    };
+    let provider =
+        weldsuite_adapters_oss::ZitadelSignIn::new(weldsuite_adapters_oss::ZitadelSignInOptions {
+            api_url: identity.api_url.clone(),
+            token: identity
+                .login_token
+                .clone()
+                .unwrap_or_else(|| identity.token.clone()),
+            host: identity.host.clone(),
+            // Its own login pages, for what the platform's screens hand back.
+            public_url: Some(settings.issuer.clone()),
+        })?;
+    let cache = cache.unwrap_or_else(|| {
+        tracing::warn!("VALKEY_URL is not set: sign-in attempts are counted in this process only");
+        Arc::new(weldsuite_ports::MemoryCache::new())
+    });
+    if config.platform_url.is_none() {
+        tracing::warn!(
+            "PLATFORM_URL is not set: the provider sends the sign-in emails, its links opening its own pages"
+        );
+    } else if mail.is_none() {
+        tracing::warn!("SMTP_URL is not set: the provider sends the sign-in emails");
+    }
+    tracing::info!("sign-in screens: the platform's own, on the provider's login API");
+    Ok(Some(
+        weldsuite_core_signin::SignInState::new(
+            Arc::new(provider),
+            cache,
+            config.platform_url.as_deref(),
+            config.trusted_proxies,
+        )
+        .with_mail(mail),
+    ))
 }
 
 /// With Restate configured: serve the jobs service on `JOBS_PORT` until

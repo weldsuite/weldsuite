@@ -36,8 +36,6 @@ export interface HostEntityFormLayoutProps {
   sections: HostFormSection[];
   /** Summary title */
   summaryTitle: string;
-  /** Summary icon */
-  summaryIcon: LucideIcon;
   /** Summary fields to display in right column */
   summaryFields: HostSummaryField[];
   /** Summary fields to display at the bottom (above action buttons) */
@@ -126,7 +124,6 @@ export function HostEntityFormLayout({
   subtitle,
   sections,
   summaryTitle,
-  summaryIcon: SummaryIcon,
   summaryFields,
   summaryBottomFields,
   summaryContent,
@@ -190,13 +187,12 @@ export function HostEntityFormLayout({
     >
       {/* Main column scrolls independently inside the module content card. */}
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar bg-muted/30">
-        <div className="container mx-auto px-4 md:px-6 py-6 md:py-8 max-w-[1600px] pb-20">
+        <div className="container mx-auto max-w-[1600px] px-4 pt-5 pb-20 md:px-6 md:pt-6">
           <form id={formId} onSubmit={onSubmit} className="space-y-6 md:space-y-8" suppressHydrationWarning>
             <div className="w-full">
               <div className="space-y-4">
-                <div className="mb-2">
-                  {backButton}
-                </div>
+                {/* Only when there is one: an empty slot pushed the title down. */}
+                {backButton && <div className="mb-2">{backButton}</div>}
                 <h2 className="text-xl md:text-2xl font-semibold">{title}</h2>
                 {subtitle && (
                   <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
@@ -241,7 +237,6 @@ export function HostEntityFormLayout({
           {!hideMobileSummary && (
           <div className="@4xl:hidden mt-6 bg-background rounded-lg border border-border">
             <div className="p-4 border-b border-border flex items-center gap-2">
-              <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
               <h3 className="text-base font-semibold">
                 {summaryTitle}
               </h3>
@@ -308,17 +303,12 @@ export function HostEntityFormLayout({
         className="hidden @4xl:flex w-[340px] @6xl:w-[400px] shrink-0 min-h-0 h-full bg-background border-l border-border flex-col"
       >
         <div className="flex-1 overflow-y-auto">
-          <div className="mb-6">
-            <div className="flex items-center justify-between px-4 pt-2.5 mb-2.5">
-              <div className="flex items-center gap-2">
-                <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                <h3 className="text-lg font-semibold">
-                  {summaryTitle}
-                </h3>
-              </div>
-              {summaryHeaderAction}
+          {/* The platform's 53px header row (as the list toolbars), the title centred on it */}
+          <div className="mb-6 flex h-[53px] items-center justify-between gap-2 border-b border-border px-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-[15px] font-medium">{summaryTitle}</h3>
             </div>
-            <div className="border-t border-border" />
+            {summaryHeaderAction}
           </div>
 
           <div className="space-y-6 px-4">

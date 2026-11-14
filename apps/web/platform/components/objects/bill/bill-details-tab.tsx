@@ -31,6 +31,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { isBillOverdue } from './bill-capabilities';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { cn } from '@/lib/utils';
 
@@ -109,19 +110,25 @@ export function BillDetailsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
   const vendorAddressLines = toLines(bill.vendorAddress);
   const deliveryLines = toLines(bill.deliveryAddress);
   const attachments = bill.attachmentKeys ?? [];
-  const balanceOpen = Number(bill.balanceDue) > 0;
+  // The balance only turns red once the bill is past due.
+  const balanceOverdue = isBillOverdue(bill);
 
   return (
     <div className="@container space-y-4 p-4">
       <div className="space-y-1">
         <PropertyRow icon={Banknote} label={tb.total} value={formatMoney(bill.total, bill.currency)} readOnly />
-        <PropertyRow icon={Wallet} label={tb.paid} value={formatMoney(bill.amountPaid, bill.currency)} readOnly />
+        <PropertyRow
+          icon={Wallet}
+          label={st('sweep.entities.fieldPaid')}
+          value={formatMoney(bill.amountPaid, bill.currency)}
+          readOnly
+        />
         <PropertyRow
           icon={Scale}
-          label={tb.balanceDue}
+          label={st('sweep.entities.fieldBalanceDue')}
           value={formatMoney(bill.balanceDue, bill.currency)}
           readOnly
-          renderValue={(value) => <span className={cn(balanceOpen && 'text-destructive')}>{value}</span>}
+          renderValue={(value) => <span className={cn(balanceOverdue && 'text-destructive')}>{value}</span>}
         />
         <PropertyRow icon={Building2} label={st('sweep.entities.fieldSupplier')} value={bill.contactName} placeholder={EMPTY} readOnly />
         {vendorAddressLines.length > 0 ? (

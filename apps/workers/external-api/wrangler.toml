@@ -5,7 +5,7 @@
 # - DATABASE_ENCRYPTION_KEY (optional; decrypts stored databaseUrl on master workspaces)
 # - DATABASE_URL_MASTER (Neon URL of the master DB; read only by the outbound mail
 #   guard for its sender-ownership check, auth uses the Hyperdrive binding. Unset
-#   skips that one check. docs/plans/weldmail-outbound-abuse.md)
+#   skips that one check. weldsuite-documentation/plans/weldmail-outbound-abuse.md)
 # - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
 #   the `x-access-key` header. Required by POST /v1/social-posts/:id/publish and
 #   /schedule, which publish through @weldsuite/social-publishing directly —
@@ -16,7 +16,7 @@
 #   parity if that changes.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 #
-# WeldReach (/v1/reach/*, docs/plans/weldreach-external-api.md) adds no secrets:
+# WeldReach (/v1/reach/*, weldsuite-documentation/plans/weldreach-external-api.md) adds no secrets:
 # it runs reach-api's domain code with this worker's DATABASE_ENCRYPTION_KEY (it
 # opens the mailbox logins reach-api sealed with the same key). Its bindings:
 # SCHEDULE_INDEX (reach-api's D1 schedule index: launch / resume / enrol wake the
@@ -84,7 +84,7 @@ namespace_id = "13"
   limit = 5000
   period = 60
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). The send routes
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md). The send routes
 # check every send against the workspace's OutboundLedger, a Durable Object
 # hosted by mail-api and bound here by name. OUTBOUND_BACKSTOP is the per-sender
 # burst limit the guard falls back on when the ledger can't be reached; its
@@ -106,7 +106,7 @@ namespace_id = "1101"
   limit = 30
   period = 60
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D5): read
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5): read
 # by `@weldsuite/mail-domain/store`'s `getWorkspaceMail` through the v1 mail
 # routes. mail-api hosts the Durable Object; bound here by `script_name`,
 # always reached through `.jurisdiction('eu')` (ADR MAIL-009). Unset in no
@@ -265,7 +265,7 @@ namespace_id = "23"
   period = 60
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -362,7 +362,7 @@ namespace_id = "3004"
   period = 60
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"

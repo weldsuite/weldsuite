@@ -1,10 +1,9 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2, CheckCheck } from 'lucide-react';
+import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterButton } from '@weldsuite/ui/components/filter-button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Separator } from '@weldsuite/ui/components/separator';
@@ -1243,6 +1242,19 @@ export function MessageList({
         <Separator className="my-5" />
 
         <div className="flex items-center justify-end gap-2">
+          {canMarkFolderRead(folder) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mr-auto h-8 text-sm text-muted-foreground"
+              onClick={() => {
+                setFilterOpen(false);
+                setMarkAllReadOpen(true);
+              }}
+            >
+              {t.mail.messageList.markAllAsRead}
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -1282,23 +1294,6 @@ export function MessageList({
       toast.error(t.mail.messageList.failedToMarkAllAsRead);
     }
   };
-  const markAllReadButton = canMarkFolderRead(folder) ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 w-8 p-0 flex-shrink-0 shadow-none text-muted-foreground"
-          aria-label={t.mail.messageList.markAllAsRead}
-          onClick={() => setMarkAllReadOpen(true)}
-        >
-          <CheckCheck className="h-4 w-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{t.mail.messageList.markAllAsRead}</TooltipContent>
-    </Tooltip>
-  ) : null;
-
   // Handle label drag-and-drop from sidebar onto a thread row
   const handleThreadLabelDrop = (item: ConversationItem, labelData: { name: string; accountIds?: string[] }) => {
     const thread = threadMap.get(item.id);
@@ -1356,12 +1351,7 @@ export function MessageList({
       items={items}
       selectedId={getSelectedId()}
       getItemUrl={getItemUrl}
-      filterContent={
-        <>
-          {filterPopover}
-          {markAllReadButton}
-        </>
-      }
+      filterContent={filterPopover}
       actionLabel={t.mail.messageList.compose}
       onAction={() => {
         // Pass the current URL as returnUrl so the compose X button takes the

@@ -134,6 +134,10 @@ export interface EntityListProps<T extends { id: string }> {
   // Action buttons rendered on the left side (next to filter pills)
   leftActionButtons?: ReactNode;
 
+  // Leaves out the built-in Filter button and pills, for a list that brings
+  // its own filter control in `leftActionButtons`.
+  hideFilter?: boolean;
+
   // Search
   searchPlaceholder?: string;
   searchFields?: (keyof T)[];

@@ -1,18 +1,19 @@
 /**
- * Stripe's "Your overview": the heading with the date range and compare menus
- * on the same line, then a grid of charts straight on the page, no backdrop or
- * borders.
+ * "Your overview": the chosen period is the heading ("Last 12 months ▾"), like
+ * the metric menu in the Today section, with the comparison as a line under
+ * it; then a grid of charts straight on the page, no backdrop or borders.
  *
  * - Revenue, expenses and net profit are line charts over the chosen range:
  *   the total, its change against the comparison and the comparison's total,
- *   then the chart. The pills drive every chart that follows the dashboard.
+ *   then the chart. The two menus drive every chart that follows the
+ *   dashboard.
  * - Receivables and payables by age and cash per account are breakdowns, as
  *   of today, so the range does not change them.
  *
  * Those six are only the default: every chart is one entry of the user's list
- * (`useDashboardCharts`). "Add chart" and a chart's "Edit" open the chart
- * builder; "Edit" on the heading turns the grid into a draft whose charts can
- * be dragged to a new place or taken off, then saved or cancelled.
+ * (`useDashboardCharts`). A chart's "Edit" opens the chart builder.
+ * "Customize" turns the grid into a draft whose charts can be dragged to a new
+ * place or taken off, then saved or cancelled; "Add chart" lives there.
  */
 
 import { useMemo, useState } from 'react';
@@ -26,7 +27,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { LayoutGrid, Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyStateIllustration } from '@/components/entity-list';
@@ -37,7 +38,7 @@ import { useRouter } from '@/lib/router';
 import { CustomChartCard, SortableChartCard } from './custom-chart-card';
 import type { DashboardChart } from './custom-charts';
 import { dashboardTrend, type Compare } from './dashboard-series';
-import { FilterPill } from './filter-pill';
+import { FilterMenu } from './filter-menu';
 
 type Range = '3' | '6' | '12';
 
@@ -69,12 +70,33 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
     { value: '12' as const, label: tc.last12Months },
   ];
   const compareOptions = [
-    { value: 'previousPeriod' as const, label: tc.previousPeriod, short: tc.vsPreviousPeriod },
-    { value: 'previousYear' as const, label: tc.previousYear, short: tc.vsPreviousYear },
-    { value: 'off' as const, label: tc.compareOff, short: tc.noComparisonShort },
+    { value: 'previousPeriod' as const, label: tc.previousPeriod },
+    { value: 'previousYear' as const, label: tc.previousYear },
+    { value: 'off' as const, label: tc.compareOff },
   ];
+  /** The line under the heading, spelling out what the dashed lines are. */
+  const compareLines: Record<Compare | 'off', string> = {
+    previousPeriod: tc.comparedToPreviousMonths.replace('{count}', range),
+    previousYear: tc.comparedToLastYear,
+    off: tc.noComparisonShort,
+  };
+  const rangeLabel = rangeOptions.find((o) => o.value === range)?.label ?? '';
   const body = { dashboard, months, sample, filter };
   const addChart = () => router.push(CHART_BUILDER_PATH);
+
+  /** "Add chart" while customizing keeps the new order: save it, then open the builder. */
+  const addChartWhileEditing = async () => {
+    const order = (list: DashboardChart[]) => list.map((c) => c.id).join();
+    if (draft && order(draft) !== order(charts)) {
+      try {
+        await setCharts(draft);
+      } catch {
+        toast.error(tb.saveFailed);
+        return;
+      }
+    }
+    addChart();
+  };
 
   const remove = (id: string) => {
     const index = charts.findIndex((c) => c.id === id);
@@ -109,11 +131,37 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   };
 
   return (
-    <section className="space-y-14 pt-10">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b pb-4">
-        <h2 className="text-2xl font-medium leading-6">{tc.overview}</h2>
+    <section aria-label={tc.overview} className="space-y-14 pt-10">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b pb-4">
+        <div className="space-y-1.5">
+          <h2 className="text-2xl font-medium leading-6">
+            <FilterMenu label={tc.dateRange} value={range} options={rangeOptions} onChange={setRange}>
+              <button
+                type="button"
+                aria-label={`${tc.dateRange}: ${rangeLabel}`}
+                className="flex items-center gap-1.5 rounded-sm outline-none hover:text-foreground/80 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                {rangeLabel}
+                <ChevronDown className="size-5 text-muted-foreground" aria-hidden />
+              </button>
+            </FilterMenu>
+          </h2>
+          <FilterMenu label={tc.compare} value={compareChoice} options={compareOptions} onChange={setCompareChoice}>
+            <button
+              type="button"
+              aria-label={`${tc.compare}: ${compareLines[compareChoice]}`}
+              className="flex items-center gap-1 rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              {compareLines[compareChoice]}
+              <ChevronDown className="size-3.5" aria-hidden />
+            </button>
+          </FilterMenu>
+        </div>
         {draft ? (
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={addChartWhileEditing} disabled={isSaving}>
+              {tb.addChart}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
               {tb.cancel}
             </Button>
@@ -122,18 +170,11 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
             </Button>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterPill label={tc.dateRange} value={range} options={rangeOptions} onChange={setRange} />
-            <FilterPill label={tc.compare} value={compareChoice} options={compareOptions} onChange={setCompareChoice} />
-            <Button variant="outline" size="sm" onClick={addChart}>
-              <Plus className="size-3.5" aria-hidden />
-              {tb.addChart}
-            </Button>
+          charts.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setDraft(charts)}>
-              <LayoutGrid className="size-3.5" aria-hidden />
-              {tb.editLayout}
+              {tb.customize}
             </Button>
-          </div>
+          )
         )}
       </div>
 

@@ -6,9 +6,11 @@
 //! a bad signature is a 401. Stripe Financial Connections: HMAC-SHA256 in
 //! `Stripe-Signature` with the endpoint's `STRIPE_FC_WEBHOOK_SECRET`. Plaid:
 //! an ES256 JWT in `Plaid-Verification` whose key is fetched from Plaid by
-//! its `kid` and cached an hour. Ponto and Enable Banking have no
-//! account-information webhooks (refused, 401). A verified delivery is
-//! answered 200 straight away; the work (the master
+//! its `kid` and cached an hour. Ponto (with `PONTO_APPLICATION_ID`): an
+//! RS512 JWT in `Signature` whose key comes from Ibanity's webhooks API over
+//! the application's mTLS certificate, cached an hour; without the id, and
+//! for Enable Banking, deliveries are refused (401), as those are polled. A
+//! verified delivery is answered 200 straight away; the work (the master
 //! `bank_feed_connection_index` lookup by the provider's connection id, then
 //! WeldBooks' `/internal/bank-connections/events` over `BOOKS_INTERNAL`)
 //! runs in the background, as in `waitUntil`.
@@ -27,7 +29,7 @@ use base64::Engine as _;
 use hmac::{KeyInit, Mac};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use weldsuite_books_domain::bank_feeds::{FeedConfig, providers::normalize_provider_id};
 use weldsuite_db::PgPool;
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
@@ -38,6 +40,14 @@ use crate::{IntegrationsState, PublicCtx};
 pub const STRIPE_SIGNATURE_TOLERANCE_SECONDS: f64 = 300.0;
 pub const PLAID_WEBHOOK_MAX_AGE_SECONDS: f64 = 300.0;
 pub const PLAID_KEY_CACHE_TTL_SECONDS: u64 = 3600;
+/// Ibanity allows 30 seconds of clock drift on `exp` and `iat`.
+pub const IBANITY_WEBHOOK_TOLERANCE_SECONDS: f64 = 30.0;
+pub const IBANITY_ISSUER: &str = "https://api.ibanity.com";
+/// Ibanity's webhooks API; the application's certificate picks the
+/// sandbox's or the live keys.
+pub const IBANITY_WEBHOOK_KEYS_URL: &str = "https://api.ibanity.com/webhooks/keys";
+/// Ibanity allows caching its keys an hour.
+pub const IBANITY_KEY_CACHE_TTL_SECONDS: u64 = 3600;
 
 pub(crate) fn router<S>(state: IntegrationsState) -> Router<S>
 where
@@ -62,7 +72,10 @@ fn webhook_provider(id: &str, config: &FeedConfig) -> Option<&'static str> {
     match id {
         "stripe_fc" => Some("stripe_fc"),
         "plaid" => config.plaid.as_ref().map(|_| "plaid"),
-        "ponto" => config.ponto.as_ref().map(|_| "ponto"),
+        // The receiver needs the application id, not the OAuth client.
+        "ponto" => {
+            (config.ponto.is_some() || config.ponto_application_id.is_some()).then_some("ponto")
+        }
         "enable_banking" => config.enable_banking.as_ref().map(|_| "enable_banking"),
         _ => None,
     }
@@ -124,7 +137,23 @@ async fn webhook(
                 Err(reason) => Err(reason),
             }
         }
-        // Ponto and Enable Banking: polled, never pushed.
+        "ponto" => match config.ponto_application_id.as_deref() {
+            Some(application_id) => {
+                let keys = IbanityKeys {
+                    application_id,
+                    cache: ctx.cache(&state),
+                    http: ctx.ponto_http(&state),
+                };
+                match verify_ibanity_webhook(&raw, header("signature"), &keys, now).await {
+                    Ok(()) => Ok(serde_json::from_str::<Value>(&raw)
+                        .map(|payload| ponto_events(&as_record(&payload)))
+                        .unwrap_or_default()),
+                    Err(reason) => Err(reason),
+                }
+            }
+            None => Err("webhooks are not enabled; connections are polled"),
+        },
+        // Enable Banking: polled, never pushed.
         _ => Err("webhooks are not enabled; connections are polled"),
     };
     let events = match parsed {
@@ -407,6 +436,66 @@ pub fn stripe_fc_events(event: &Map<String, Value>) -> Vec<Value> {
     }
 }
 
+/// `pontoEventsFromWebhook`: a Ponto Connect webhook body (`{ data: { type,
+/// relationships } }`) to feed events keyed by the organization. New or
+/// changed data, a reauthorization, a lifted block and a failed
+/// synchronization (the sync reads why) ask for a sync; an account taken out
+/// of the integration asks for a reconnect; a revoked integration ends the
+/// access. The rest maps to nothing.
+pub fn ponto_events(payload: &Map<String, Value>) -> Vec<Value> {
+    let data = payload.get("data").map(as_record).unwrap_or_default();
+    let relationships = data.get("relationships").map(as_record).unwrap_or_default();
+    let related = |name: &str| {
+        relationships
+            .get(name)
+            .map(as_record)
+            .unwrap_or_default()
+            .get("data")
+            .map(as_record)
+            .unwrap_or_default()
+            .get("id")
+            .and_then(|id| as_string(Some(id)))
+            .filter(|id| !id.is_empty())
+    };
+    let kind = as_string(data.get("type")).filter(|s| !s.is_empty());
+    let (Some(kind), Some(organization)) = (kind, related("organization")) else {
+        return Vec::new();
+    };
+    let account = related("account");
+    let event = |event_type: &str, message: Option<&str>| {
+        let mut event = Map::new();
+        event.insert("type".to_owned(), json!(event_type));
+        event.insert("providerConnectionId".to_owned(), json!(organization));
+        if let Some(account) = &account {
+            event.insert("accountIds".to_owned(), json!([account]));
+        }
+        if let Some(message) = message {
+            event.insert("message".to_owned(), json!(message));
+        }
+        vec![Value::Object(event)]
+    };
+    match kind.as_str() {
+        "pontoConnect.account.transactionsCreated"
+        | "pontoConnect.account.transactionsUpdated"
+        | "pontoConnect.account.detailsUpdated"
+        | "pontoConnect.account.reauthorized"
+        | "pontoConnect.synchronization.failed"
+        | "pontoConnect.organization.unblocked" => event("sync_available", None),
+        "pontoConnect.integration.accountRevoked" => event(
+            "reauth_required",
+            Some("The account was taken out of the Ponto integration."),
+        ),
+        "pontoConnect.integration.revoked" => {
+            event("revoked", Some("The Ponto integration was revoked."))
+        }
+        "pontoConnect.organization.blocked" => event(
+            "error",
+            Some("Ponto blocked the organization; Isabel's service desk can say why."),
+        ),
+        _ => Vec::new(),
+    }
+}
+
 // ── Verification ────────────────────────────────────────────────────────────
 
 fn now_millis() -> f64 {
@@ -532,40 +621,48 @@ fn memory_keys() -> &'static Mutex<HashMap<String, (String, Instant)>> {
     KEYS.get_or_init(Mutex::default)
 }
 
-impl PlaidKeys<'_> {
-    async fn cached(&self, key: &str) -> Option<String> {
-        if let Some(cache) = &self.cache {
-            cache.get_boxed(key).await.ok().flatten()
-        } else {
-            {
-                let mut keys = memory_keys().lock().unwrap_or_else(PoisonError::into_inner);
-                match keys.get(key) {
-                    Some((value, expires)) if *expires > Instant::now() => Some(value.clone()),
-                    Some(_) => {
-                        keys.remove(key);
-                        None
-                    }
-                    None => None,
-                }
+/// A verification key from the shared cache, else this process's.
+async fn cached_key(cache: Option<&Arc<dyn DynCache>>, key: &str) -> Option<String> {
+    if let Some(cache) = cache {
+        cache.get_boxed(key).await.ok().flatten()
+    } else {
+        let mut keys = memory_keys().lock().unwrap_or_else(PoisonError::into_inner);
+        match keys.get(key) {
+            Some((value, expires)) if *expires > Instant::now() => Some(value.clone()),
+            Some(_) => {
+                keys.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+}
+
+/// Keep a verification key for `ttl` seconds.
+async fn store_key(cache: Option<&Arc<dyn DynCache>>, key: &str, value: &str, ttl: u64) {
+    let ttl = Duration::from_secs(ttl);
+    match cache {
+        Some(cache) => {
+            if let Err(error) = cache.put_boxed(key, value, Some(ttl)).await {
+                tracing::warn!(%error, "[BankFeedWebhook] verification key not cached");
             }
         }
+        None => {
+            memory_keys()
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(key.to_owned(), (value.to_owned(), Instant::now() + ttl));
+        }
+    }
+}
+
+impl PlaidKeys<'_> {
+    async fn cached(&self, key: &str) -> Option<String> {
+        cached_key(self.cache.as_ref(), key).await
     }
 
     async fn store(&self, key: &str, value: &str) {
-        let ttl = Duration::from_secs(PLAID_KEY_CACHE_TTL_SECONDS);
-        match &self.cache {
-            Some(cache) => {
-                if let Err(error) = cache.put_boxed(key, value, Some(ttl)).await {
-                    tracing::warn!(%error, "[BankFeedWebhook] Plaid key not cached");
-                }
-            }
-            None => {
-                memory_keys()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(key.to_owned(), (value.to_owned(), Instant::now() + ttl));
-            }
-        }
+        store_key(self.cache.as_ref(), key, value, PLAID_KEY_CACHE_TTL_SECONDS).await;
     }
 
     /// `createPlaidKeyResolver(...)(kid)`: the JWK, cached or fetched.
@@ -732,6 +829,178 @@ pub async fn verify_plaid_webhook(
     }
 }
 
+/// Where Ibanity's webhook keys come from (`createIbanityKeyResolver`): the
+/// cache, else `/webhooks/keys` with the application's certificate.
+pub struct IbanityKeys<'a> {
+    /// Keeps a sandbox and a live application's keys apart in the cache.
+    pub application_id: &'a str,
+    pub cache: Option<Arc<dyn DynCache>>,
+    pub http: Option<OutboundHttp>,
+}
+
+impl IbanityKeys<'_> {
+    /// The JWK (`{ e, kid, kty, n }`), cached or fetched.
+    async fn resolve(&self, kid: &str) -> Result<Map<String, Value>, String> {
+        let cache_key = format!("bank-feeds:ibanity-wk:{}:{kid}", self.application_id);
+        if let Some(cached) = cached_key(self.cache.as_ref(), &cache_key).await
+            && let Ok(Value::Object(key)) = serde_json::from_str::<Value>(&cached)
+        {
+            return Ok(key);
+        }
+        let http = self
+            .http
+            .as_ref()
+            .ok_or("ponto request failed: network error")?;
+        let request = HttpRequest {
+            method: "GET".to_owned(),
+            url: IBANITY_WEBHOOK_KEYS_URL.to_owned(),
+            headers: vec![("Accept".to_owned(), "application/vnd.api+json".to_owned())],
+            body: None,
+        };
+        let response = http
+            .send(request)
+            .await
+            .map_err(|error| format!("ponto request failed: {error}"))?;
+        if !response.ok() {
+            return Err(format!("ponto responded {}", response.status));
+        }
+        let parsed = response.json();
+        let key = parsed
+            .get("keys")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(as_record)
+            .find(|key| {
+                as_string(key.get("kid")).as_deref() == Some(kid)
+                    && as_string(key.get("use")).as_deref().unwrap_or("sig") == "sig"
+            })
+            .ok_or("Unknown webhook verification key")?;
+        let text = |name: &str| as_string(key.get(name));
+        let (e, kty, n) = (
+            text("e").unwrap_or_default(),
+            text("kty").unwrap_or_else(|| "RSA".to_owned()),
+            text("n").unwrap_or_default(),
+        );
+        // `JSON.stringify({ e, kid, kty, n })`, in that order.
+        let serialized = format!(
+            "{{\"e\":{},\"kid\":{},\"kty\":{},\"n\":{}}}",
+            json!(e),
+            json!(kid),
+            json!(kty),
+            json!(n)
+        );
+        store_key(
+            self.cache.as_ref(),
+            &cache_key,
+            &serialized,
+            IBANITY_KEY_CACHE_TTL_SECONDS,
+        )
+        .await;
+        Ok([
+            ("e".to_owned(), json!(e)),
+            ("kid".to_owned(), json!(kid)),
+            ("kty".to_owned(), json!(kty)),
+            ("n".to_owned(), json!(n)),
+        ]
+        .into_iter()
+        .collect())
+    }
+}
+
+/// The RS512 (RSASSA-PKCS1-v1_5, SHA-512) signature over `signing_input`
+/// with the JWK's modulus and exponent (base64url, padded or not).
+fn rs512_valid(jwk: &Map<String, Value>, signing_input: &str, signature: &str) -> bool {
+    let text = |name: &str| jwk.get(name).and_then(Value::as_str);
+    let (Some(n), Some(e), Some(signature)) = (
+        text("n").and_then(from_base64_url),
+        text("e").and_then(from_base64_url),
+        from_base64_url(signature),
+    ) else {
+        return false;
+    };
+    aws_lc_rs::signature::RsaPublicKeyComponents { n: &n, e: &e }
+        .verify(
+            &aws_lc_rs::signature::RSA_PKCS1_2048_8192_SHA512,
+            signing_input.as_bytes(),
+            &signature,
+        )
+        .is_ok()
+}
+
+/// Base64 (standard, padded) of the body's SHA-512, as the `digest` claim
+/// carries it.
+fn sha512_base64(body: &str) -> String {
+    base64::engine::general_purpose::STANDARD.encode(Sha512::digest(body.as_bytes()))
+}
+
+/// `verifyIbanityWebhook`: an RS512 JWT (always RS512, so no downgrade), its
+/// key by `kid`; `iss` Ibanity, `aud` the application, `exp` not passed and
+/// `iat` not in the future (30 seconds' leeway, `now` in ms), and `digest`
+/// the body's SHA-512. `Err` carries why it failed (logged only: every
+/// failure is a 401).
+pub async fn verify_ibanity_webhook(
+    body: &str,
+    header: Option<&str>,
+    keys: &IbanityKeys<'_>,
+    now: f64,
+) -> Result<(), &'static str> {
+    let header = header
+        .filter(|h| !h.is_empty())
+        .ok_or("Missing Signature header")?;
+    let parts: Vec<&str> = header.split('.').collect();
+    let [encoded_header, encoded_claims, encoded_signature] = parts.as_slice() else {
+        return Err("Malformed webhook token");
+    };
+    if encoded_header.is_empty() || encoded_claims.is_empty() || encoded_signature.is_empty() {
+        return Err("Malformed webhook token");
+    }
+    let token_header = decode_jwt_part(encoded_header).ok_or("Malformed webhook token")?;
+    let kid = as_string(token_header.get("kid")).filter(|k| !k.is_empty());
+    let Some(kid) = kid.filter(|_| token_header.get("alg") == Some(&json!("RS512"))) else {
+        return Err("Unsupported webhook token");
+    };
+    let jwk = keys
+        .resolve(&kid)
+        .await
+        .map_err(|_| "Webhook verification key unavailable")?;
+    if !rs512_valid(
+        &jwk,
+        &format!("{encoded_header}.{encoded_claims}"),
+        encoded_signature,
+    ) {
+        return Err("Invalid webhook signature");
+    }
+    let claims = decode_jwt_part(encoded_claims).ok_or("Malformed webhook token")?;
+    if claims.get("iss") != Some(&json!(IBANITY_ISSUER)) {
+        return Err("Webhook token from another issuer");
+    }
+    let for_us = |aud: &Value| aud.as_str() == Some(keys.application_id);
+    let audience_ok = match claims.get("aud") {
+        Some(Value::Array(audiences)) => audiences.iter().any(for_us),
+        Some(aud) => for_us(aud),
+        None => false,
+    };
+    if !audience_ok {
+        return Err("Webhook token for another application");
+    }
+    let now_seconds = (now / 1000.0).floor();
+    let tolerance = IBANITY_WEBHOOK_TOLERANCE_SECONDS;
+    match as_number(claims.get("exp")) {
+        Some(exp) if exp + tolerance >= now_seconds => {}
+        _ => return Err("Webhook token expired"),
+    }
+    match as_number(claims.get("iat")) {
+        Some(iat) if iat <= now_seconds + tolerance => {}
+        _ => return Err("Webhook token issued in the future"),
+    }
+    let claimed = as_string(claims.get("digest")).filter(|c| !c.is_empty());
+    match claimed {
+        Some(claimed) if timing_safe_equal(&sha512_base64(body), &claimed) => Ok(()),
+        _ => Err("Webhook body does not match its token"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,6 +1060,208 @@ mod tests {
         assert_eq!(
             plaid_events(&as_record(
                 &json!({ "item_id": "i", "webhook_type": "AUTH", "webhook_code": "X" })
+            )),
+            Vec::<Value>::new()
+        );
+    }
+
+    /// A fresh RSA key, its JWK (`n`, `e`) and a signer of RS512 tokens
+    /// shaped like Ibanity's.
+    fn ibanity_key() -> (aws_lc_rs::signature::RsaKeyPair, Map<String, Value>) {
+        use aws_lc_rs::signature::KeyPair as _;
+        let key = aws_lc_rs::signature::RsaKeyPair::generate(aws_lc_rs::rsa::KeySize::Rsa2048)
+            .expect("rsa");
+        let parts = aws_lc_rs::signature::RsaPublicKeyComponents::<Vec<u8>>::from(key.public_key());
+        let b64 = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let jwk = as_record(
+            &json!({ "kty": "RSA", "kid": "kid-1", "n": b64(&parts.n), "e": b64(&parts.e) }),
+        );
+        (key, jwk)
+    }
+
+    fn ibanity_token(key: &aws_lc_rs::signature::RsaKeyPair, alg: &str, claims: &Value) -> String {
+        let b64 = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let header = b64(json!({ "alg": alg, "kid": "kid-1" }).to_string().as_bytes());
+        let mut payload = as_record(&json!({ "iss": IBANITY_ISSUER, "jti": "jti-1" }));
+        payload.extend(as_record(claims));
+        let payload = b64(Value::Object(payload).to_string().as_bytes());
+        let mut signature = vec![0; key.public_modulus_len()];
+        key.sign(
+            &aws_lc_rs::signature::RSA_PKCS1_SHA512,
+            &aws_lc_rs::rand::SystemRandom::new(),
+            format!("{header}.{payload}").as_bytes(),
+            &mut signature,
+        )
+        .expect("sign");
+        format!("{header}.{payload}.{}", b64(&signature))
+    }
+
+    #[tokio::test]
+    async fn ibanity_tokens_check_the_key_issuer_audience_time_and_digest() {
+        let (key, jwk) = ibanity_key();
+        // The key as the process cache holds it, so no fetch is needed.
+        let serialized = Value::Object(jwk).to_string();
+        store_key(None, "bank-feeds:ibanity-wk:app-1:kid-1", &serialized, 60).await;
+        let keys = IbanityKeys {
+            application_id: "app-1",
+            cache: None,
+            http: None,
+        };
+        let body = r#"{"data":{"type":"pontoConnect.account.transactionsCreated"}}"#;
+        let now = 1_800_000_000_000.0;
+        let at = 1_800_000_000;
+        let good =
+            json!({ "aud": "app-1", "digest": sha512_base64(body), "iat": at, "exp": at + 60 });
+        let with = |extra: Value| {
+            let mut claims = as_record(&good);
+            claims.extend(as_record(&extra));
+            Value::Object(claims)
+        };
+        let token = ibanity_token(&key, "RS512", &good);
+        assert_eq!(
+            verify_ibanity_webhook(body, Some(&token), &keys, now).await,
+            Ok(())
+        );
+        // Leeway, and an audience list naming the application.
+        let lenient = ibanity_token(
+            &key,
+            "RS512",
+            &with(json!({ "aud": ["other", "app-1"], "exp": at - 30, "iat": at + 30 })),
+        );
+        assert_eq!(
+            verify_ibanity_webhook(body, Some(&lenient), &keys, now).await,
+            Ok(())
+        );
+
+        let (other, _) = ibanity_key();
+        let cases = [
+            (None, "Missing Signature header"),
+            (Some("not.a".to_owned()), "Malformed webhook token"),
+            (
+                Some(ibanity_token(
+                    &key,
+                    "RS512",
+                    &with(json!({ "aud": "app-2" })),
+                )),
+                "Webhook token for another application",
+            ),
+            (
+                Some(ibanity_token(
+                    &key,
+                    "RS512",
+                    &with(json!({ "iss": "https://evil.example" })),
+                )),
+                "Webhook token from another issuer",
+            ),
+            (
+                Some(ibanity_token(
+                    &key,
+                    "RS512",
+                    &with(json!({ "exp": at - 31 })),
+                )),
+                "Webhook token expired",
+            ),
+            (
+                Some(ibanity_token(
+                    &key,
+                    "RS512",
+                    &with(json!({ "iat": at + 31 })),
+                )),
+                "Webhook token issued in the future",
+            ),
+            (
+                Some(ibanity_token(
+                    &key,
+                    "RS512",
+                    &with(json!({ "digest": sha512_base64("{}") })),
+                )),
+                "Webhook body does not match its token",
+            ),
+            (
+                Some(ibanity_token(&other, "RS512", &good)),
+                "Invalid webhook signature",
+            ),
+            (
+                Some(ibanity_token(&key, "RS256", &good)),
+                "Unsupported webhook token",
+            ),
+        ];
+        for (header, reason) in cases {
+            assert_eq!(
+                verify_ibanity_webhook(body, header.as_deref(), &keys, now).await,
+                Err(reason)
+            );
+        }
+        // An unknown key, with nothing to fetch it from.
+        let unknown = IbanityKeys {
+            application_id: "app-unknown",
+            cache: None,
+            http: None,
+        };
+        assert_eq!(
+            verify_ibanity_webhook(body, Some(&token), &unknown, now).await,
+            Err("Webhook verification key unavailable")
+        );
+    }
+
+    #[test]
+    fn ponto_deliveries_become_feed_events_keyed_by_the_organization() {
+        let delivery = |kind: &str, account: bool| {
+            let mut relationships = as_record(
+                &json!({ "organization": { "data": { "type": "organization", "id": "org_1" } } }),
+            );
+            if account {
+                relationships.insert(
+                    "account".to_owned(),
+                    json!({ "data": { "type": "account", "id": "acc_1" } }),
+                );
+            }
+            as_record(
+                &json!({ "data": { "type": kind, "id": "evt_1", "relationships": relationships } }),
+            )
+        };
+        for kind in [
+            "pontoConnect.account.transactionsCreated",
+            "pontoConnect.account.transactionsUpdated",
+            "pontoConnect.account.detailsUpdated",
+            "pontoConnect.account.reauthorized",
+            "pontoConnect.synchronization.failed",
+        ] {
+            assert_eq!(
+                ponto_events(&delivery(kind, true)),
+                vec![
+                    json!({ "type": "sync_available", "providerConnectionId": "org_1", "accountIds": ["acc_1"] })
+                ]
+            );
+        }
+        assert_eq!(
+            ponto_events(&delivery("pontoConnect.integration.accountRevoked", true)),
+            vec![json!({
+                "type": "reauth_required", "providerConnectionId": "org_1", "accountIds": ["acc_1"],
+                "message": "The account was taken out of the Ponto integration.",
+            })]
+        );
+        assert_eq!(
+            ponto_events(&delivery("pontoConnect.integration.revoked", false)),
+            vec![
+                json!({ "type": "revoked", "providerConnectionId": "org_1", "message": "The Ponto integration was revoked." })
+            ]
+        );
+        assert_eq!(
+            ponto_events(&delivery("pontoConnect.organization.unblocked", false)),
+            vec![json!({ "type": "sync_available", "providerConnectionId": "org_1" })]
+        );
+        for kind in [
+            "pontoConnect.synchronization.succeededWithoutChange",
+            "pontoConnect.account.pendingTransactionsCreated",
+            "pontoConnect.integration.created",
+            "pontoConnect.integration.accountAdded",
+        ] {
+            assert_eq!(ponto_events(&delivery(kind, true)), Vec::<Value>::new());
+        }
+        assert_eq!(
+            ponto_events(&as_record(
+                &json!({ "data": { "type": "pontoConnect.account.transactionsCreated" } })
             )),
             Vec::<Value>::new()
         );

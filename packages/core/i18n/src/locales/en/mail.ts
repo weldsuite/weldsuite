@@ -916,6 +916,7 @@ export const mail = {
       addLabel: 'Add label',
       noEmailAccountConnected: 'No email account connected.',
       allAccounts: 'All Accounts',
+      accountCount: '{count} accounts',
       setAsDefault: 'Set as default',
       defaultAccount: 'Default',
       emailAccounts: 'Email accounts',
@@ -1074,6 +1075,9 @@ export const mail = {
       weldHostRequiredDescription: 'Custom email domains are managed by the WeldHost app. Install it to add or buy a domain.',
       installWeldHost: 'Install WeldHost',
       noActiveDomainsYet: 'You don\'t have any active WeldHost domains yet. Add or buy one before creating a custom email address.',
+      noVerifiedDomainsYet: 'You don\'t have a verified domain yet. Add your domain in the WeldMail settings and publish its DNS records first.',
+      addDomainInSettings: 'Add your domain',
+      addDomainInSettingsDescription: 'Set it up under WeldMail settings › Domains',
       addExistingDomain: 'Add an existing domain',
       addExistingDomainDescription: 'Connect a domain you already own via WeldHost',
       buyNewDomain: 'Buy a new domain',
@@ -1271,7 +1275,7 @@ export const mail = {
     },
 
     // Outbound mail guard: why a send was refused, the banner while sending is
-    // restricted (docs/plans/weldmail-outbound-abuse.md).
+    // restricted (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
     sending: {
       errors: {
         sendingLimited: {

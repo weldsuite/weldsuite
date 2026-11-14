@@ -19,6 +19,7 @@ vi.mock('@weldsuite/notifications', async (importOriginal) => ({
 
 const { handleCreateConversation } = await import('./desk');
 const { handleCreateRecord } = await import('./data');
+const { parseAlert } = await import('./alerts');
 const {
   handleAddInternalNote,
   handleAssignConversation,
@@ -67,6 +68,161 @@ describe('create_conversation', () => {
     await expect(handleCreateConversation({ externalId: 'x' }, makeActionContext({ db }))).rejects.toThrow(
       'needs a message',
     );
+  });
+});
+
+describe('create_conversation ticket fields and state', () => {
+  it('sets priority and tags, from a list or a comma-separated string', async () => {
+    const ctx = makeActionContext({ db });
+    const first = (await handleCreateConversation(
+      { message: 'Disk full', externalId: 'a-1', priority: 'High', tags: ['alert', 'datadog', 'alert'] },
+      ctx,
+    )) as Opened & { priority: string };
+    expect(first.priority).toBe('high');
+    const second = (await handleCreateConversation(
+      { message: 'Still full', externalId: 'a-2', priority: 'low', tags: ' ops, disk ,, ops' },
+      ctx,
+    )) as Opened;
+    const rows = await db.select().from(schema.deskConversations);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(first.conversationId)).toMatchObject({ priority: 'high', tags: ['alert', 'datadog'] });
+    expect(byId.get(second.conversationId)).toMatchObject({ priority: 'low', tags: ['ops', 'disk'] });
+  });
+
+  it('ignores an unknown priority and state instead of failing the step', async () => {
+    const res = (await handleCreateConversation(
+      { message: 'Odd', priority: 'blocker', state: 'pending', tags: 5 },
+      makeActionContext({ db }),
+    )) as Opened;
+    expect(res).toMatchObject({ success: true, state: 'open' });
+    const [row] = await db.select().from(schema.deskConversations);
+    expect(row.priority).toBeNull();
+    expect(row.tags).toEqual([]);
+  });
+
+  it('follows an alert on one external id: open, escalate, resolve', async () => {
+    const ctx = makeActionContext({ db });
+    const key = 'grafana:{}:{alertname="HighCPU"}';
+    const opened = (await handleCreateConversation(
+      { title: 'HighCPU', message: 'CPU is above 80%', externalId: key, priority: 'medium', tags: ['grafana', 'alert'], state: 'open' },
+      ctx,
+    )) as Opened;
+    expect(opened).toMatchObject({ created: true, state: 'open' });
+
+    const escalated = (await handleCreateConversation(
+      { title: 'HighCPU', message: 'CPU is above 95%', externalId: key, priority: 'urgent', tags: ['grafana', 'alert'], state: 'open' },
+      ctx,
+    )) as Opened & { priority: string };
+    expect(escalated).toMatchObject({ created: false, conversationId: opened.conversationId, state: 'open', priority: 'urgent' });
+
+    const resolved = (await handleCreateConversation(
+      { title: 'HighCPU', message: 'CPU is back to normal', externalId: key, priority: 'urgent', tags: ['grafana', 'alert'], state: 'closed' },
+      ctx,
+    )) as Opened;
+    expect(resolved).toMatchObject({ created: false, conversationId: opened.conversationId, state: 'closed' });
+
+    const rows = await db.select().from(schema.deskConversations);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ state: 'closed', priority: 'urgent', externalId: key });
+    const messages = await db.select().from(schema.deskMessages);
+    expect(messages.filter((m) => m.kind === 'message').map((m) => m.body)).toEqual([
+      'CPU is above 80%',
+      'CPU is above 95%',
+      'CPU is back to normal',
+    ]);
+
+    // A firing alert after the resolve reopens the same ticket.
+    const again = (await handleCreateConversation(
+      { title: 'HighCPU', message: 'CPU is above 90% again', externalId: key, priority: 'high', state: 'open' },
+      ctx,
+    )) as Opened;
+    expect(again).toMatchObject({ created: false, conversationId: opened.conversationId, state: 'open' });
+  });
+
+  describe('a repeat never lowers the priority', () => {
+    type Result = Opened & { priority: string | null };
+    const send = (ctx: ReturnType<typeof makeActionContext>, key: string, priority: string, state = 'open') =>
+      handleCreateConversation({ message: `${priority} ${state}`, externalId: key, priority, state }, ctx) as Promise<Result>;
+
+    it('keeps urgent when a warning follows a critical, and raises when a critical follows a warning', async () => {
+      const ctx = makeActionContext({ db });
+      expect(await send(ctx, 'p-1', 'urgent')).toMatchObject({ created: true, priority: 'urgent' });
+      expect(await send(ctx, 'p-1', 'medium')).toMatchObject({ created: false, priority: 'urgent' });
+      expect(await send(ctx, 'p-1', 'low')).toMatchObject({ priority: 'urgent' });
+      expect(await send(ctx, 'p-2', 'medium')).toMatchObject({ created: true, priority: 'medium' });
+      expect(await send(ctx, 'p-2', 'urgent')).toMatchObject({ created: false, priority: 'urgent' });
+      expect(await send(ctx, 'p-2', 'high')).toMatchObject({ priority: 'urgent' });
+    });
+
+    it('an equal priority is left alone and a missing one counts as the lowest', async () => {
+      const ctx = makeActionContext({ db });
+      const none = (await handleCreateConversation({ message: 'no priority', externalId: 'p-3' }, ctx)) as Result;
+      expect(none.priority).toBeNull();
+      expect(await send(ctx, 'p-3', 'low')).toMatchObject({ created: false, priority: 'low' });
+      expect(await send(ctx, 'p-3', 'low')).toMatchObject({ priority: 'low' });
+    });
+
+    it('the run that closes the ticket does not change its priority', async () => {
+      const ctx = makeActionContext({ db });
+      await send(ctx, 'p-4', 'urgent');
+      expect(await send(ctx, 'p-4', 'medium', 'closed')).toMatchObject({ state: 'closed', priority: 'urgent' });
+      await send(ctx, 'p-5', 'low');
+      expect(await send(ctx, 'p-5', 'urgent', 'closed')).toMatchObject({ state: 'closed', priority: 'low' });
+    });
+
+    it('a reopened ticket is a new episode and takes the incoming priority', async () => {
+      const ctx = makeActionContext({ db });
+      await send(ctx, 'p-6', 'urgent');
+      await send(ctx, 'p-6', 'medium', 'closed');
+      expect(await send(ctx, 'p-6', 'medium')).toMatchObject({ created: false, state: 'open', priority: 'medium' });
+    });
+
+    it('a step without an external id or priority is untouched by the rule', async () => {
+      const ctx = makeActionContext({ db });
+      const a = (await handleCreateConversation({ message: 'x', priority: 'low' }, ctx)) as Result;
+      const b = (await handleCreateConversation({ message: 'y', priority: 'urgent' }, ctx)) as Result;
+      expect([a.priority, b.priority]).toEqual(['low', 'urgent']);
+    });
+  });
+
+  it('opens, updates and closes a ticket from parse_alert output as the template wires it', async () => {
+    const ctx = makeActionContext({ db });
+    const grafana = {
+      receiver: 'weldsuite',
+      groupKey: '{}:{alertname="Disk"}',
+      title: '[FIRING:1] Disk',
+      message: 'Disk is full',
+      commonLabels: { severity: 'critical' },
+      alerts: [{ status: 'firing', labels: { severity: 'critical' }, fingerprint: 'f1' }],
+    };
+    const send = async (payload: Record<string, unknown>) => {
+      const alert = parseAlert(payload);
+      if (!alert.success) throw new Error(alert.error);
+      return (await handleCreateConversation(
+        {
+          title: alert.title,
+          message: alert.message,
+          externalId: alert.externalId,
+          priority: alert.priority,
+          tags: alert.tags,
+          state: alert.state,
+        },
+        ctx,
+      )) as Opened;
+    };
+    const firing = await send({ ...grafana, status: 'firing' });
+    const resolved = await send({ ...grafana, status: 'resolved', title: '[RESOLVED] Disk', message: 'Disk is fine' });
+    expect(resolved).toMatchObject({ created: false, conversationId: firing.conversationId, state: 'closed' });
+    const [row] = await db.select().from(schema.deskConversations);
+    expect(row).toMatchObject({ priority: 'urgent', tags: ['grafana', 'alert'], state: 'closed' });
+  });
+
+  it('opens and closes a conversation that a resolved alert is the first sight of', async () => {
+    const res = (await handleCreateConversation(
+      { message: 'Recovered', externalId: 'dd-1', state: 'closed' },
+      makeActionContext({ db }),
+    )) as Opened;
+    expect(res).toMatchObject({ created: true, state: 'closed' });
   });
 });
 

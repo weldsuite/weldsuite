@@ -1,7 +1,9 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
   Baseline,
   Bold,
+  Check,
+  ChevronDown,
   Eye,
   FilePen,
   Highlighter,
@@ -29,6 +31,8 @@ import {
   Undo2,
   UnfoldVertical,
 } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController, EditMode } from './model/doc-controller';
 import { MOD_LABEL } from './model/keyboard';
@@ -43,8 +47,8 @@ const LINE_HEIGHTS = [1, 1.15, 1.5, 2];
 const MODES: EditMode[] = ['editing', 'suggesting', 'viewing'];
 const MODE_ICONS: Record<EditMode, React.ReactNode> = { editing: <Pencil />, suggesting: <FilePen />, viewing: <Eye /> };
 
-/** The row of formatting controls under the menus, as in Google Docs. */
-export function Toolbar({ controller }: { controller: DocController }) {
+/** The row of formatting controls under the name; `end` goes on its right (the menus). */
+export function Toolbar({ controller, end }: { controller: DocController; end?: ReactNode }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t } = useI18n();
   const tt = t.welddocs.toolbar;
@@ -57,7 +61,7 @@ export function Toolbar({ controller }: { controller: DocController }) {
   const align = para.align ?? 'left';
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2" role="toolbar" aria-label={t.welddocs.title}>
+    <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2" role="toolbar" aria-label={t.welddocs.title}>
       <IconButton label={tt.undo} onClick={() => controller.undo()} disabled={ro || !controller.canUndo}>
         <Undo2 />
       </IconButton>
@@ -185,26 +189,40 @@ export function Toolbar({ controller }: { controller: DocController }) {
         <RemoveFormatting />
       </IconButton>
       <div className="min-w-2 flex-1" />
-      <Menu
-        label={tr.mode}
-        className="gap-1 px-2"
-        trigger={
-          <>
-            {MODE_ICONS[controller.editMode]}
-            <span className="text-xs">{tr.modes[controller.editMode]}</span>
-          </>
-        }
-        items={MODES.map((mode) => ({
-          key: mode,
-          label: tr.modes[mode],
-          hint: tr.modeHints[mode],
-          checked: controller.editMode === mode,
-          // Someone who may not edit stays in viewing.
-          disabled: mode !== 'viewing' && !controller.mayEdit,
-          onSelect: () => controller.setEditMode(mode),
-        }))}
-      />
+      {end}
     </div>
+  );
+}
+
+/** Editing, suggesting or viewing: an outline header button next to Share, like the other editors' header buttons. */
+export function ModeMenu({ controller }: { controller: DocController }) {
+  const { t } = useI18n();
+  const tr = t.welddocs.review;
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8" onMouseDown={(e) => e.preventDefault()}>
+          {tr.modes[controller.editMode]}
+          <ChevronDown className="opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44" onCloseAutoFocus={(e) => e.preventDefault()}>
+        {MODES.map((mode) => (
+          // Someone who may not edit stays in viewing.
+          <DropdownMenuItem
+            key={mode}
+            role="menuitemradio"
+            aria-checked={controller.editMode === mode}
+            disabled={mode !== 'viewing' && !controller.mayEdit}
+            onSelect={() => controller.setEditMode(mode)}
+          >
+            {MODE_ICONS[mode]}
+            {tr.modes[mode]}
+            {controller.editMode === mode && <Check className="ml-auto" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

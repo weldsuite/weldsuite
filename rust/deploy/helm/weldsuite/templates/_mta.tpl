@@ -1,4 +1,4 @@
-{{/* The MTA (`weldsuite mta`, docs/plans/eu-mail-service.md): component
+{{/* The MTA (`weldsuite mta`, weldsuite-documentation/plans/eu-mail-service.md): component
 mta, so the API's Service, PDB and NetworkPolicy (component api) never
 select its pods. */}}
 {{- define "weldsuite.mta.selectorLabels" -}}

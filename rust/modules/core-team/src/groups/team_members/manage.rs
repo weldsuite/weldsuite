@@ -580,6 +580,7 @@ async fn invite_member(
                 redirect_url: Some(invitation_redirect_url(caller, &org)),
                 public_metadata: is_guest.then(|| json!({ "member_type": "EXTERNAL_GUEST" })),
                 inviter_user_id: None,
+                invited_by: Some(caller.user_id.clone()),
             },
         )
         .await
@@ -998,6 +999,7 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
                 redirect_url: Some(invitation_redirect_url(caller, &org)),
                 public_metadata: None,
                 inviter_user_id: None,
+                invited_by: Some(caller.user_id.clone()),
             },
         )
         .await

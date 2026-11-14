@@ -1,7 +1,7 @@
 //! The MTA's HTTP API (private network, `Authorization: Bearer
 //! <MTA_API_SECRET>`): sending domains and queue counts for the server, and
 //! health for the probes. Shapes: the contract in
-//! `docs/plans/eu-mail-service.md`.
+//! `weldsuite-documentation/plans/eu-mail-service.md`.
 
 use std::sync::Arc;
 

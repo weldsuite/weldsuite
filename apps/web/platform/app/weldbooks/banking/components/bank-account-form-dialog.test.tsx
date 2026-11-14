@@ -161,3 +161,25 @@ describe('BankAccountFormDialog', () => {
     expect(updateMutate.mock.calls[1][0].data).toHaveProperty('accountNumber', null);
   });
 });
+
+describe('BankAccountFormDialog: after creating', () => {
+  beforeAll(polyfillRadixSelect);
+
+  it('closes and hands the new account id to onCreated', async () => {
+    createMutate.mockReset().mockImplementation((_payload: unknown, options: { onSuccess: (res: unknown) => void }) =>
+      options.onSuccess({ data: { id: 'ba_new' } }),
+    );
+    const onOpenChange = vi.fn();
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<BankAccountFormDialog open onOpenChange={onOpenChange} onCreated={onCreated} />);
+
+    await user.type(screen.getByLabelText('Name'), 'Operating');
+    await user.type(screen.getByLabelText('Routing number'), VALID_ROUTING);
+    await user.type(screen.getByLabelText('Account number'), '0012 3456 7890');
+    await user.click(screen.getByRole('button', { name: 'Create bank account' }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onCreated).toHaveBeenCalledWith('ba_new');
+  });
+});

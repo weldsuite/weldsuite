@@ -100,6 +100,9 @@ pub struct SignState {
     pub portal_url: Option<Arc<str>>,
     /// `ENVIRONMENT`: which platform URL emails link to.
     pub environment: Option<Arc<str>>,
+    /// `PUBLIC_APP_URL`: the platform emails link to, on an install that
+    /// sets it (the Kubernetes editions); unset, the one `ENVIRONMENT` names.
+    pub app_url: Option<Arc<str>>,
 }
 
 impl SignState {
@@ -113,6 +116,7 @@ impl SignState {
             flags: Arc::clone(&self.flags),
             portal_url: self.portal_url.as_deref().map(str::to_owned),
             environment: self.environment.as_deref().map(str::to_owned),
+            app_url: self.app_url.as_deref().map(str::to_owned),
         }
     }
 }
@@ -397,6 +401,7 @@ impl Caller {
             flags: Arc::clone(&state.flags),
             portal_url: self.env_value("SIGN_PORTAL_URL", state.portal_url.as_ref()),
             environment: self.env_value("ENVIRONMENT", state.environment.as_ref()),
+            app_url: self.env_value("PUBLIC_APP_URL", state.app_url.as_ref()),
         }
     }
 
@@ -434,6 +439,9 @@ pub struct Services {
     pub flags: Arc<dyn DynFlagSource>,
     pub portal_url: Option<String>,
     pub environment: Option<String>,
+    /// `PUBLIC_APP_URL`: the platform the sender's "open in WeldSuite" link
+    /// goes to; unset, the one `ENVIRONMENT` names.
+    pub app_url: Option<String>,
 }
 
 /// What sending, the lifecycle, the sweep and the finalize job work in

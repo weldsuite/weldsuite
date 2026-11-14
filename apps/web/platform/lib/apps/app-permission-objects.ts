@@ -48,6 +48,7 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   weldsheets: ['sheets'],
   weldsign: ['sign_envelopes', 'sign_templates'],
   weldpanel: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
+  weldforms: ['forms', 'form_responses'],
   weldmerge: ['merge_issues', 'merge_pull_requests', 'merge_releases', 'merge_teams', 'merge_connections'],
   welddocs: ['docs'],
   weldboard: ['boards'],

@@ -28,7 +28,6 @@ function renderLayout(overrides?: { hideMobileSummary?: boolean }) {
         },
       ]}
       summaryTitle="Purchase Summary"
-      summaryIcon={Globe}
       summaryFields={[]}
       summaryBottomFields={[{ label: 'Total', value: '$0.00' }]}
       summaryContent={<div>cart-items</div>}

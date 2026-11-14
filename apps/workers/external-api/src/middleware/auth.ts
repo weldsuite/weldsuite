@@ -43,7 +43,7 @@ export interface CachedWorkspaceDetails {
   /**
    * Licensed app codes, null = unrestricted. Absent on entries cached before it
    * was added, read as null. Only partner-managed workspaces carry one
-   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
+   * (weldsuite-documentation/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
    */
   licensedApps?: string[] | null;
   /**
@@ -486,7 +486,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // The top-level context vars that `publishEntityEvent` reads: `workspaceId`
   // is the master `workspaces.id` (ADR SEC-011), `clerkOrgId` the org id that
   // events still carry until their consumers move (phase 2b of
-  // docs/plans/workspace-id-standardization.md). An older cached session has
+  // weldsuite-documentation/plans/workspace-id-standardization.md). An older cached session has
   // no org id, and then it is looked up.
   const clerkOrgId =
     session.clerkOrgId !== undefined ? session.clerkOrgId : await resolveClerkOrgId(c.env, session.workspaceId);

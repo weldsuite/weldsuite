@@ -8,7 +8,7 @@
  * Applying labels to messages is on `mail-messages` and `mail-threads`.
  *
  * Label definitions stay on Postgres in every mailbox-store mode (design
- * docs/plans/weldmail-mailbox-store-design.md, task D5: "P rows" — `mail_labels`
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5: "P rows" — `mail_labels`
  * is config, not mail content); only the per-account access check goes through
  * `getWorkspaceMail`'s `access`, so a workspace key and a private mailbox
  * behave the same here as everywhere else in WeldMail.

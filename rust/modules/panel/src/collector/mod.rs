@@ -47,8 +47,11 @@ use weldsuite_ports::{
 
 pub use visitor::{CacheSalt, CacheUsage};
 
-use crate::domain::{ProjectRecord, is_allowed_origin, is_project_token, project_key, seen_key};
-use crate::js::Js;
+use crate::domain::{
+    ProjectRecord, is_allowed_origin, is_project_token, parse_quota_state, project_key, quota_key,
+    seen_key,
+};
+use crate::js::{Js, number_value};
 use rows::{Geo, RowSource, build_event_rows, consented_anon_id, iso_millis, parse_millis};
 use visitor::{cookieless_visitor_id, utc_date};
 use wire::{EventBatch, MAX_BATCH_BYTES, parse_event_batch};
@@ -487,6 +490,21 @@ async fn load_project(
     Ok(ProjectRecord::parse(Some(&record)))
 }
 
+/// The workspace's quota state (`panel:quota:<workspace>`); missing,
+/// unreadable or unknown is `ok`, so a cache hiccup never drops events.
+async fn quota_state(ctx: &Ctx, state: &CollectorState, workspace_id: &str) -> &'static str {
+    let Some(cache) = ctx.cache(state) else {
+        return "ok";
+    };
+    match cache.get(&quota_key(workspace_id)).await {
+        Ok(raw) => parse_quota_state(raw.as_deref()),
+        Err(error) => {
+            tracing::error!(%error, "[panel-ingest] Quota lookup failed for workspace {workspace_id}");
+            "ok"
+        }
+    }
+}
+
 /// `GET /c/:token`: what the SDK needs before it collects anything.
 async fn config(
     State(state): State<CollectorState>,
@@ -510,11 +528,25 @@ async fn config(
         return response;
     };
     let setting = |key: &str| project.settings.get(key).cloned().unwrap_or(Value::Null);
+    // `Math.min(Math.max(Number(x) || 0, 0), 1)`.
+    let sample_rate = project
+        .settings
+        .get("recordingSampleRate")
+        .and_then(Value::as_f64)
+        .filter(|rate| rate.is_finite())
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let quota = quota_state(&ctx, &state, &project.workspace_id).await;
+    // Heatmap snapshots are a Global-edition feature (recordings and their
+    // R2 bucket): a Kubernetes edition never asks the SDK for one.
     let mut response = axum::Json(json!({
         "autocapture": setting("autocapture"),
         "consentMode": setting("consentMode"),
         "maskingLevel": setting("maskingLevel"),
         "excludedUrls": setting("excludedUrls"),
+        "recordingSampleRate": number_value(sample_rate),
+        "recordingBlocked": sample_rate == 0.0 || quota != "ok",
+        "snapshot": null,
     }))
     .into_response();
     response.headers_mut().insert(
@@ -665,6 +697,10 @@ async fn events(
         || user_agent::is_bot_user_agent(&user_agent)
         || ip_filter::matches_ip_filter(&ip, &project.setting_strings("ipFilters"));
     if dropped {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    // Past the plan's allowance with no wallet to pay for more: accepted, not counted.
+    if quota_state(&ctx, &state, &project.workspace_id).await == "events_blocked" {
         return StatusCode::NO_CONTENT.into_response();
     }
 

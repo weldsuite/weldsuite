@@ -41,7 +41,6 @@ import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 import { publicEnv } from '@/lib/runtime-config';
 import { isLiveKit, videoJoin } from '@/lib/video-provider';
 
-const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
 // (legacy alias VITE_DF3_NOISE_SUPPRESSION=false) to disable.
@@ -705,8 +704,12 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       return;
     }
 
+    const realtimeOrigin = getRealtimeWsOrigin();
+    // An empty origin means realtime is off for this deployment.
+    if (!realtimeOrigin) return;
+
     const rc = new RoomClient({
-      url: `${REALTIME_BASE_URL}/ws/chat/${channelId}`,
+      url: `${realtimeOrigin}/ws/chat/${channelId}`,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     handRaiseRoomRef.current = rc;

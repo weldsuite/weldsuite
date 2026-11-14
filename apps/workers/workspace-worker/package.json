@@ -26,7 +26,7 @@
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/neon-provisioning": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "svix": "^1.44.0",
     "zod": "^3.25.76"
   },

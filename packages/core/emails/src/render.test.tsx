@@ -107,3 +107,19 @@ describe('fill', () => {
     expect(fill('{a} and {b}', { a: 1 })).toBe('1 and {b}');
   });
 });
+
+describe('auth emails', () => {
+  it.each([
+    ['auth.verify-email', 60],
+    ['auth.sign-in-code', 5],
+    ['auth.password-reset', 60],
+  ] as const)("%s states the provider's lifetime, else Zitadel's default", async (id, minutes) => {
+    const template = templates[id] as AnyTemplate;
+    const props = template.previews.default!.props as Record<string, unknown>;
+    const given = await renderTemplate(template, { ...props, expiresInMinutes: 10 }, { locale: 'en' });
+    expect(given.text).toContain('in 10 minutes.');
+    const { expiresInMinutes: _, ...withoutLifetime } = props;
+    const fallback = await renderTemplate(template, withoutLifetime, { locale: 'en' });
+    expect(fallback.text).toContain(`in ${minutes} minutes.`);
+  });
+});

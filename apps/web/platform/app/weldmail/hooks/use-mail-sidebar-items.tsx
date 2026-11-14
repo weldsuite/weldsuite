@@ -299,7 +299,7 @@ export function useMailSidebarItems(isActive: boolean): {
 
   // Email accounts: the shared React Query cache (`mailKeys.accounts()`)
   // instead of a second, uncached `mailAccounts.list()` fetch outside React
-  // Query (docs/plans/weldmail-mailbox-storage.md phase 1 item 9). `isActive`
+  // Query (weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 1 item 9). `isActive`
   // keeps this from firing for every module's sidebar on every render — this
   // hook is called unconditionally for all of them (see `unified-module-sidebar.tsx`).
   const accountsQuery = useMailAccounts(isActive);
@@ -758,6 +758,7 @@ export function useMailSidebarItems(isActive: boolean): {
           {
             id: 'unified',
             name: t.mail.sidebar.allAccounts,
+            description: t.mail.sidebar.accountCount.replace('{count}', String(localEmailAccounts.length)),
             stack: localEmailAccounts.map((acc) => acc.displayName || acc.email),
           },
         ]

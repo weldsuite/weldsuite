@@ -26,6 +26,7 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldsign: 'WeldSign',
   weldpanel: 'WeldPanel',
   weldmerge: 'WeldMerge',
+  weldforms: 'WeldForms',
   weldsuite: 'WeldSuite',
   weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
@@ -47,6 +48,7 @@ export interface BreadcrumbMenuLabels {
   apiKeys: string;
   webhooks: string;
   sso: string;
+  ai: string;
   customFields: string;
   objectTemplates: string;
   integrations: string;
@@ -81,6 +83,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     'api-keys': menu.apiKeys,
     webhooks: menu.webhooks,
     sso: menu.sso,
+    ai: menu.ai,
     'custom-fields': menu.customFields,
     'object-templates': menu.objectTemplates,
     integrations: menu.integrations,

@@ -69,9 +69,7 @@ spec:
               value: {{ .Values.signPortal.trustedProxies | quote }}
             - name: SIGN_PORTAL_SECRET
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "weldsuite.secretName" . }}
-                  key: SIGN_PORTAL_SECRET
+                {{- include "weldsuite.secretKeyRef" (dict "root" . "key" "SIGN_PORTAL_SECRET") | nindent 16 }}
           startupProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 2

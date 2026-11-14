@@ -29,6 +29,31 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe('the ai block', () => {
+  it('is read when the install runs AI', () => {
+    const ai = { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] };
+    expect(parseRuntimeConfig({ ...rustConfig, ai })?.ai).toEqual(ai);
+  });
+
+  it('counts a block this build cannot read as absent, never as a broken document', () => {
+    const config = parseRuntimeConfig({ ...rustConfig, ai: { defaultProvider: 'some-new-provider' } });
+    expect(config).not.toBeNull();
+    expect(config?.ai).toBeUndefined();
+  });
+});
+
+describe('the billingProvider field', () => {
+  it('is read as mollie', () => {
+    expect(parseRuntimeConfig({ ...rustConfig, billingProvider: 'mollie' })?.billingProvider).toBe('mollie');
+  });
+
+  it('counts a value this build does not know as absent, never as a broken document', () => {
+    const config = parseRuntimeConfig({ ...rustConfig, billingProvider: 'some-new-psp' });
+    expect(config).not.toBeNull();
+    expect(config?.billingProvider).toBeUndefined();
+  });
+});
+
 describe('fetchRuntimeConfig', () => {
   it('reads what the Rust backend serves', async () => {
     const fetchImpl = vi.fn(async () => response(JSON.stringify(rustConfig)));
@@ -121,6 +146,14 @@ describe('parseRuntimeConfig', () => {
     });
     expect(config?.edition).toBe('eu');
     expect(config?.unavailableFeatures).toEqual(['billing', 'sso-connections']);
+  });
+
+  it('reads who shows the sign-in screens, and a value it does not know as the provider', () => {
+    const auth = { provider: 'oidc', issuer: 'https://id.example.eu', clientId: '300000000000000300' };
+    // OIDC_SIGN_IN=platform on the backend (ADR SEC-016).
+    expect(parseRuntimeConfig({ auth: { ...auth, signIn: 'platform' } })?.auth).toEqual({ ...auth, signIn: 'platform' });
+    // A newer backend's value must not cost the whole document.
+    expect(parseRuntimeConfig({ auth: { ...auth, signIn: 'something-newer' } })?.auth).toEqual(auth);
   });
 
   it('keeps an OIDC block whose clientId the backend left unset', () => {

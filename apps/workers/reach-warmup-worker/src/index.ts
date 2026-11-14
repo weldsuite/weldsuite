@@ -1,7 +1,7 @@
 /**
  * WeldSuite reach-warmup-worker — the WeldReach warmup network.
  *
- * docs/plans/weldreach-warmup.md. Crons plan and dispatch work; two queues
+ * weldsuite-documentation/plans/weldreach-warmup.md. Crons plan and dispatch work; two queues
  * carry it out (SMTP sends, IMAP engagements). Master DB only.
  */
 

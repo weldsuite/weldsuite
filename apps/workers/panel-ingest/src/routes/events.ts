@@ -16,11 +16,13 @@ import { readTextLimited } from '../lib/body';
 import { collectInBackground } from '../lib/collect';
 import { matchesIpFilter } from '../lib/ip-filter';
 import { loadProject } from '../lib/project';
+import { quotaState } from '../lib/quota';
+import { rateLimited } from '../lib/rate-limit';
 import { isBotUserAgent } from '../lib/user-agent';
 
 type EventsContext = Context<{ Bindings: Env }>;
 
-type ErrorStatus = 400 | 403 | 404 | 413 | 415;
+type ErrorStatus = 400 | 403 | 404 | 413 | 415 | 429;
 
 function reject(c: EventsContext, status: ErrorStatus, code: string, message: string): Response {
   return c.json({ error: { code, message } }, status);
@@ -38,8 +40,13 @@ const geoValue = (value: string | undefined): string | null => (value && value !
 export const eventRoutes = new Hono<{ Bindings: Env }>();
 
 eventRoutes.post('/e', async (c) => {
-  // Phase 1 has no rate limiting. A per-IP limit belongs here, before the body
-  // is read and the KV lookup is made, so a flood costs as little as possible.
+  // The per-IP limit comes first, before the body is read and KV is asked, so a
+  // flood costs as little as possible.
+  if (await rateLimited(c.env.EVENTS_RATE_LIMIT, c.req.header('CF-Connecting-IP') ?? '')) {
+    c.header('Retry-After', '10');
+    return reject(c, 429, 'rate_limited', 'Too many requests');
+  }
+
 
   // text/plain is what the SDK sends (a simple request, so no preflight).
   const contentType = (c.req.header('Content-Type') ?? '').split(';')[0]!.trim().toLowerCase();
@@ -80,11 +87,15 @@ eventRoutes.post('/e', async (c) => {
     matchesIpFilter(ip, project.settings.ipFilters);
   if (dropped) return c.body(null, 204);
 
+  // Past the plan's allowance with no wallet to pay for more: accepted, not counted.
+  const receivedAt = Date.now();
+  if ((await quotaState(c.env.WORKSPACE_CACHE, project.workspaceId, receivedAt)) === 'events_blocked') return c.body(null, 204);
+
   c.executionCtx.waitUntil(
     collectInBackground(c.env, {
       project,
       batch,
-      receivedAt: Date.now(),
+      receivedAt,
       ip,
       userAgent,
       geo: { country: geoValue(cf?.country), region: geoValue(cf?.region), city: geoValue(cf?.city) },

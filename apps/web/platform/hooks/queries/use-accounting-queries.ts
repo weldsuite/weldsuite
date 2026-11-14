@@ -571,6 +571,19 @@ export function useUpdateInvoice() {
   });
 }
 
+/** Deletes a draft invoice or credit note (the server refuses one that is finalized). */
+export function useDeleteInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteInvoice(id),
+    onSuccess: (_, id) => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+      qc.removeQueries({ queryKey: accountingKeys.invoices.detail(id) });
+      void qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
 export function useSendInvoice() {
   const qc = useQueryClient();
   return useMutation({
@@ -665,6 +678,16 @@ export function useAccountingBill(id: string) {
     queryKey: accountingKeys.bills.detail(id),
     queryFn: () => accountingApi.getBill(id),
     enabled: !!id,
+  });
+}
+
+/** The account a new bill's lines post to when they name none: the supplier's default, else the entity's. */
+export function useBillDefaultExpenseAccount(contactId: string | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: [...accountingKeys.bills.all, 'default-expense-account', contactId ?? null] as const,
+    queryFn: () => accountingApi.getBillDefaultExpenseAccount(contactId || undefined),
+    select: (res) => res.data?.defaultExpenseAccount ?? null,
   });
 }
 

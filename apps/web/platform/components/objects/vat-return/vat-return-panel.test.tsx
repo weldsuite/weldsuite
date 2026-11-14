@@ -14,12 +14,23 @@ const jurisdiction = vi.hoisted(() => ({ vatReturn: true }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useCurrentJurisdiction: () => ({ features: { vatReturn: jurisdiction.vatReturn }, isResolved: true, isError: false }),
 }));
+// Stable, like the real formatter's callbacks: the mark-as-filed dialog resets its form when this changes.
+const today = vi.hoisted(() => () => '2026-04-10');
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const { RouteLink } = await import('@/app/weldbooks/invoices/components/test-utils');
+  return { ...(await importOriginal<typeof import('@tanstack/react-router')>()), Link: RouteLink };
+});
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string | null | undefined) => `€${Number(value ?? 0).toFixed(2)}`,
     formatDate: (value: string | null | undefined) => (value ? `date:${value}` : ''),
     formatDateTime: (value: string) => `datetime:${value.slice(0, 10)}`,
+    today,
   }),
+}));
+const edition = vi.hoisted(() => ({ digipoort: true }));
+vi.mock('@/lib/edition', () => ({
+  isFeatureAvailable: (feature: string) => (feature === 'vat-digipoort' ? edition.digipoort : true),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
@@ -79,6 +90,7 @@ beforeEach(() => {
   toast.error.mockReset();
   toast.info.mockReset();
   jurisdiction.vatReturn = true;
+  edition.digipoort = true;
   permissions.allowed = new Set(['reports:read', 'reports:create', 'reports:update', 'reports:delete']);
   serve(vatReturn());
 });
@@ -155,7 +167,7 @@ describe('VatReturnPanel', () => {
     await screen.findByText('VAT return Q1 2026');
     expect(screen.queryByRole('button', { name: 'File with the Dutch Tax Administration' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
     expect(await screen.findByRole('menuitem', { name: 'Check status' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Check for corrections' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
@@ -166,7 +178,7 @@ describe('VatReturnPanel', () => {
     serve(vatReturn({ status: 'filed' }));
     api.post.mockResolvedValue({ data: { correctionRequired: true, id: 'vr_2', netDiff: 50, message: 'A correction is needed' } });
     renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Check for corrections' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/vat-returns/vr_1/suppletie'));
@@ -182,7 +194,7 @@ describe('VatReturnPanel', () => {
       return { data: [] };
     });
     renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Check status' }));
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Filing status: accepted'));
   });
@@ -190,7 +202,7 @@ describe('VatReturnPanel', () => {
   it('deletes a return that was not filed, after a confirmation, and closes the panel', async () => {
     const user = userEvent.setup();
     const onClose = renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     const dialog = await screen.findByRole('dialog');
     expect(api.delete).not.toHaveBeenCalled();
@@ -205,7 +217,7 @@ describe('VatReturnPanel', () => {
     api.delete.mockRejectedValue(new Error('Already filed'));
     const user = userEvent.setup();
     const onClose = renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -219,9 +231,75 @@ describe('VatReturnPanel', () => {
     renderPanel();
     await screen.findByText('VAT return Q1 2026');
     expect(screen.queryByRole('button', { name: 'File with the Dutch Tax Administration' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
     expect(await screen.findByRole('menuitem', { name: 'Download XML' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
+  });
+
+  it('shows a payable total as a plain amount and only a refund in green', async () => {
+    serve(vatReturn({ rubrieken: { r5a: 100, r5b: 0, r5g: 100 } }));
+    const { unmount } = renderWithProviders(
+      <VatReturnPanel id="vr_1" isOpen onClose={vi.fn()} mode="fullscreen" onModeChange={vi.fn()} />,
+    );
+    const payable = (await screen.findByText('Total (5g)')).parentElement?.nextElementSibling?.firstElementChild;
+    expect(payable).not.toHaveClass('text-red-600');
+    expect(payable).not.toHaveClass('text-green-600');
+    unmount();
+
+    serve(vatReturn({ rubrieken: { r5a: 0, r5b: 40, r5g: -40 } }));
+    renderPanel();
+    const refund = (await screen.findByText('Total (5g)')).parentElement?.nextElementSibling?.firstElementChild;
+    expect(refund).toHaveClass('text-green-600');
+  });
+
+  it('has no Mark as filed where Digipoort files the return', async () => {
+    renderPanel();
+    await screen.findByText('VAT return Q1 2026');
+    expect(screen.queryByRole('button', { name: 'Mark as filed' })).not.toBeInTheDocument();
+  });
+
+  it('marks a return as filed by hand where there is no Digipoort, with a reference and a date', async () => {
+    edition.digipoort = false;
+    const user = userEvent.setup();
+    renderPanel();
+    expect(screen.queryByRole('button', { name: 'File with the Dutch Tax Administration' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Mark as filed' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Filed on')).toHaveValue('2026-04-10');
+    await user.type(within(dialog).getByLabelText('Filing reference (optional)'), 'EU-2026-77');
+    await user.click(within(dialog).getByRole('button', { name: 'Mark as filed' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/vat-returns/vr_1/mark-filed', {
+        filingReference: 'EU-2026-77',
+        filedAt: '2026-04-10',
+      }),
+    );
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Return marked as filed'));
+  });
+
+  it('needs reports:update to mark a return as filed', async () => {
+    edition.digipoort = false;
+    permissions.allowed = new Set(['reports:read']);
+    renderPanel();
+    await screen.findByText('VAT return Q1 2026');
+    expect(screen.queryByRole('button', { name: 'Mark as filed' })).not.toBeInTheDocument();
+  });
+
+  it('shows the filing details and the correction follow-up of a return filed by hand', async () => {
+    edition.digipoort = false;
+    const user = userEvent.setup();
+    serve(vatReturn({ status: 'filed', filingReference: 'EU-77', filedAt: '2026-04-02', filedBy: 'Jan' }));
+    renderPanel();
+    expect(await screen.findByText('Filing reference')).toBeInTheDocument();
+    expect(screen.getByText('EU-77')).toBeInTheDocument();
+    expect(screen.getByText('date:2026-04-02')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mark as filed' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Check for corrections' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Check status' })).not.toBeInTheDocument();
   });
 
   it('says so when the jurisdiction has no VAT return', async () => {

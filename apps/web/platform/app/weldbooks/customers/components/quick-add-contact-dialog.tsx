@@ -2,11 +2,12 @@
  * Quick-add a customer or supplier: the same small popup as WeldCRM's
  * "Add company" / "Add person" (type tabs on top, the fields that matter,
  * Cancel / Save). Everything else (addresses, banking, vendor tax) is filled
- * in later from the contact's panel. The full form at `/weldbooks/customers/add`
- * stays for deep links.
+ * in later from the contact's panel, or from "More details…", which opens the
+ * full form at `/weldbooks/customers/add` (`?role=supplier` for a supplier).
  */
 
 import { useMemo } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -50,6 +51,8 @@ function QuickAddContactForm({
 >) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
+  const submitLabel = role === 'supplier' ? tc.createSupplier : tc.createCustomer;
+  const navigate = useNavigate();
   const { submit, conflict, clearConflict, isPending } = useCreateContact({
     onCreated,
     onOpenExisting,
@@ -185,13 +188,27 @@ function QuickAddContactForm({
           </div>
         ) : null}
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel} disabled={isPending}>
-            {tc.cancel}
+        <DialogFooter className="sm:justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isPending}
+            onClick={() => {
+              onCancel();
+              // The full form, for the same role: addresses, banking and tax details.
+              void navigate({ to: '/weldbooks/customers/add', search: role === 'supplier' ? { role: 'supplier' } : {} });
+            }}
+          >
+            {tc.moreDetails}
           </Button>
-          <Button type="submit" disabled={isPending}>
-            {isPending ? tc.creating : tc.createContact}
-          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button type="button" variant="outline" onClick={onCancel} disabled={isPending}>
+              {tc.cancel}
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? tc.creating : submitLabel}
+            </Button>
+          </div>
         </DialogFooter>
       </form>
 

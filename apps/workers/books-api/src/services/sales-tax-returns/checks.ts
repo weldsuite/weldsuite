@@ -1,5 +1,5 @@
 /**
- * Checks before filing (docs/plans/weldbooks-us.md §5).
+ * Checks before filing (weldsuite-documentation/plans/weldbooks-us.md §5).
  *
  * Pre-file check: the return's net sales against the income posted for the
  * agency's state shipments, with the documents behind any difference.

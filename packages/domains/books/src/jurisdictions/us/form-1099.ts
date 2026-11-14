@@ -2,7 +2,7 @@
  * Forms 1099-NEC and 1099-MISC: boxes, reporting thresholds per tax year, due
  * dates, e-file rules and the per-state direct-filing table.
  *
- * Sources: docs/plans/weldbooks-us-research/federal.md section 5 (Rev. Proc.
+ * Sources: weldsuite-documentation/plans/weldbooks-us-research/federal.md section 5 (Rev. Proc.
  * 2025-32 section 2.15, IR-2025-107, Pub 1099, Pub 1220 Rev. 5-2026, the
  * instructions for Forms 1099-MISC and 1099-NEC). Everything the research could
  * not confirm is marked `verified: false` or called out in a comment; check
