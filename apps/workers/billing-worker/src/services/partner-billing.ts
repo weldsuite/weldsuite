@@ -2,7 +2,7 @@
  * Partner statements: the Stripe invoice for a monthly statement, voiding it,
  * and what an `invoice.paid` does to the partner.
  *
- * Reseller licensing (docs/plans/reseller-licensing.md). The pricing itself is
+ * Reseller licensing (weldsuite-documentation/plans/reseller-licensing.md). The pricing itself is
  * `buildStatement` in @weldsuite/core-domain/partners; this file turns a saved
  * statement into a `send_invoice` Stripe invoice on the partner's customer and
  * keeps the statement row in step with it. Every step is safe to repeat: a

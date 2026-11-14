@@ -10,7 +10,7 @@
  * in step with the tenant row (see services/mailboxes.ts) and reads the pool
  * back here. A mailbox may join campaigns once `warmupGate` says so: 14 days of
  * warmup, 85% inbox placement over 3 days and no login errors
- * (docs/plans/weldreach-warmup.md).
+ * (weldsuite-documentation/plans/weldreach-warmup.md).
  *
  * `processWorkspaceWarmup` is called from `cron/warmup-sweep.ts` for one
  * workspace at a time (due-index kind `reach_warmup`) and returns when the

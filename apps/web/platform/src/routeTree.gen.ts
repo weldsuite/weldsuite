@@ -124,7 +124,21 @@ import { Route as WeldreachInboxIndexRouteImport } from './routes/weldreach/inbo
 import { Route as WeldreachCampaignsIndexRouteImport } from './routes/weldreach/campaigns/index'
 import { Route as WeldpassPasswordsIndexRouteImport } from './routes/weldpass/passwords/index'
 import { Route as WeldpassProjectIdIndexRouteImport } from './routes/weldpass/$projectId/index'
+import { Route as WeldpanelUsersIndexRouteImport } from './routes/weldpanel/users/index'
+import { Route as WeldpanelSettingsIndexRouteImport } from './routes/weldpanel/settings/index'
+import { Route as WeldpanelRetentionIndexRouteImport } from './routes/weldpanel/retention/index'
+import { Route as WeldpanelReportsIndexRouteImport } from './routes/weldpanel/reports/index'
+import { Route as WeldpanelRecordingsIndexRouteImport } from './routes/weldpanel/recordings/index'
 import { Route as WeldpanelProjectsIndexRouteImport } from './routes/weldpanel/projects/index'
+import { Route as WeldpanelLiveIndexRouteImport } from './routes/weldpanel/live/index'
+import { Route as WeldpanelLexiconIndexRouteImport } from './routes/weldpanel/lexicon/index'
+import { Route as WeldpanelInsightsIndexRouteImport } from './routes/weldpanel/insights/index'
+import { Route as WeldpanelHeatmapsIndexRouteImport } from './routes/weldpanel/heatmaps/index'
+import { Route as WeldpanelFunnelsIndexRouteImport } from './routes/weldpanel/funnels/index'
+import { Route as WeldpanelFrustrationIndexRouteImport } from './routes/weldpanel/frustration/index'
+import { Route as WeldpanelFlowsIndexRouteImport } from './routes/weldpanel/flows/index'
+import { Route as WeldpanelDashboardsIndexRouteImport } from './routes/weldpanel/dashboards/index'
+import { Route as WeldpanelCohortsIndexRouteImport } from './routes/weldpanel/cohorts/index'
 import { Route as WeldmergeSettingsIndexRouteImport } from './routes/weldmerge/settings/index'
 import { Route as WeldmergeReleasesIndexRouteImport } from './routes/weldmerge/releases/index'
 import { Route as WeldmergePullRequestsIndexRouteImport } from './routes/weldmerge/pull-requests/index'
@@ -339,7 +353,10 @@ import { Route as WeldpassPasswordsVaultsIndexRouteImport } from './routes/weldp
 import { Route as WeldpassPasswordsHealthIndexRouteImport } from './routes/weldpass/passwords/health/index'
 import { Route as WeldpassProjectIdSyncIndexRouteImport } from './routes/weldpass/$projectId/sync/index'
 import { Route as WeldpassProjectIdAuditIndexRouteImport } from './routes/weldpass/$projectId/audit/index'
+import { Route as WeldpanelUsersDistinctIdIndexRouteImport } from './routes/weldpanel/users/$distinctId/index'
+import { Route as WeldpanelRecordingsSessionIdIndexRouteImport } from './routes/weldpanel/recordings/$sessionId/index'
 import { Route as WeldpanelProjectsProjectIdIndexRouteImport } from './routes/weldpanel/projects/$projectId/index'
+import { Route as WeldpanelDashboardsDashboardIdIndexRouteImport } from './routes/weldpanel/dashboards/$dashboardId/index'
 import { Route as WeldmailUnifiedLabelSlugIndexRouteImport } from './routes/weldmail/unified/$labelSlug/index'
 import { Route as WeldmailSettingsLabelsIndexRouteImport } from './routes/weldmail/settings/labels/index'
 import { Route as WeldmailSettingsAccountsIndexRouteImport } from './routes/weldmail/settings/accounts/index'
@@ -1196,9 +1213,82 @@ const WeldpassProjectIdIndexRoute = WeldpassProjectIdIndexRouteImport.update({
   path: '/$projectId/',
   getParentRoute: () => WeldpassRouteRoute,
 } as any)
+const WeldpanelUsersIndexRoute = WeldpanelUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelSettingsIndexRoute = WeldpanelSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelRetentionIndexRoute = WeldpanelRetentionIndexRouteImport.update({
+  id: '/retention/',
+  path: '/retention/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelReportsIndexRoute = WeldpanelReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelRecordingsIndexRoute =
+  WeldpanelRecordingsIndexRouteImport.update({
+    id: '/recordings/',
+    path: '/recordings/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
 const WeldpanelProjectsIndexRoute = WeldpanelProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelLiveIndexRoute = WeldpanelLiveIndexRouteImport.update({
+  id: '/live/',
+  path: '/live/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelLexiconIndexRoute = WeldpanelLexiconIndexRouteImport.update({
+  id: '/lexicon/',
+  path: '/lexicon/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelInsightsIndexRoute = WeldpanelInsightsIndexRouteImport.update({
+  id: '/insights/',
+  path: '/insights/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelHeatmapsIndexRoute = WeldpanelHeatmapsIndexRouteImport.update({
+  id: '/heatmaps/',
+  path: '/heatmaps/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelFunnelsIndexRoute = WeldpanelFunnelsIndexRouteImport.update({
+  id: '/funnels/',
+  path: '/funnels/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelFrustrationIndexRoute =
+  WeldpanelFrustrationIndexRouteImport.update({
+    id: '/frustration/',
+    path: '/frustration/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
+const WeldpanelFlowsIndexRoute = WeldpanelFlowsIndexRouteImport.update({
+  id: '/flows/',
+  path: '/flows/',
+  getParentRoute: () => WeldpanelRouteRoute,
+} as any)
+const WeldpanelDashboardsIndexRoute =
+  WeldpanelDashboardsIndexRouteImport.update({
+    id: '/dashboards/',
+    path: '/dashboards/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
+const WeldpanelCohortsIndexRoute = WeldpanelCohortsIndexRouteImport.update({
+  id: '/cohorts/',
+  path: '/cohorts/',
   getParentRoute: () => WeldpanelRouteRoute,
 } as any)
 const WeldmergeSettingsIndexRoute = WeldmergeSettingsIndexRouteImport.update({
@@ -2324,10 +2414,28 @@ const WeldpassProjectIdAuditIndexRoute =
     path: '/$projectId/audit/',
     getParentRoute: () => WeldpassRouteRoute,
   } as any)
+const WeldpanelUsersDistinctIdIndexRoute =
+  WeldpanelUsersDistinctIdIndexRouteImport.update({
+    id: '/users/$distinctId/',
+    path: '/users/$distinctId/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
+const WeldpanelRecordingsSessionIdIndexRoute =
+  WeldpanelRecordingsSessionIdIndexRouteImport.update({
+    id: '/recordings/$sessionId/',
+    path: '/recordings/$sessionId/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
 const WeldpanelProjectsProjectIdIndexRoute =
   WeldpanelProjectsProjectIdIndexRouteImport.update({
     id: '/projects/$projectId/',
     path: '/projects/$projectId/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
+const WeldpanelDashboardsDashboardIdIndexRoute =
+  WeldpanelDashboardsDashboardIdIndexRouteImport.update({
+    id: '/dashboards/$dashboardId/',
+    path: '/dashboards/$dashboardId/',
     getParentRoute: () => WeldpanelRouteRoute,
   } as any)
 const WeldmailUnifiedLabelSlugIndexRoute =
@@ -4279,7 +4387,21 @@ export interface FileRoutesByFullPath {
   '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
   '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
+  '/weldpanel/cohorts/': typeof WeldpanelCohortsIndexRoute
+  '/weldpanel/dashboards/': typeof WeldpanelDashboardsIndexRoute
+  '/weldpanel/flows/': typeof WeldpanelFlowsIndexRoute
+  '/weldpanel/frustration/': typeof WeldpanelFrustrationIndexRoute
+  '/weldpanel/funnels/': typeof WeldpanelFunnelsIndexRoute
+  '/weldpanel/heatmaps/': typeof WeldpanelHeatmapsIndexRoute
+  '/weldpanel/insights/': typeof WeldpanelInsightsIndexRoute
+  '/weldpanel/lexicon/': typeof WeldpanelLexiconIndexRoute
+  '/weldpanel/live/': typeof WeldpanelLiveIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
+  '/weldpanel/recordings/': typeof WeldpanelRecordingsIndexRoute
+  '/weldpanel/reports/': typeof WeldpanelReportsIndexRoute
+  '/weldpanel/retention/': typeof WeldpanelRetentionIndexRoute
+  '/weldpanel/settings/': typeof WeldpanelSettingsIndexRoute
+  '/weldpanel/users/': typeof WeldpanelUsersIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords/': typeof WeldpassPasswordsIndexRoute
   '/weldreach/campaigns/': typeof WeldreachCampaignsIndexRoute
@@ -4460,7 +4582,10 @@ export interface FileRoutesByFullPath {
   '/weldmail/settings/accounts/': typeof WeldmailSettingsAccountsIndexRoute
   '/weldmail/settings/labels/': typeof WeldmailSettingsLabelsIndexRoute
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
+  '/weldpanel/dashboards/$dashboardId/': typeof WeldpanelDashboardsDashboardIdIndexRoute
   '/weldpanel/projects/$projectId/': typeof WeldpanelProjectsProjectIdIndexRoute
+  '/weldpanel/recordings/$sessionId/': typeof WeldpanelRecordingsSessionIdIndexRoute
+  '/weldpanel/users/$distinctId/': typeof WeldpanelUsersDistinctIdIndexRoute
   '/weldpass/$projectId/audit/': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync/': typeof WeldpassProjectIdSyncIndexRoute
   '/weldpass/passwords/health/': typeof WeldpassPasswordsHealthIndexRoute
@@ -4837,7 +4962,21 @@ export interface FileRoutesByTo {
   '/weldmerge/pull-requests': typeof WeldmergePullRequestsIndexRoute
   '/weldmerge/releases': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings': typeof WeldmergeSettingsIndexRoute
+  '/weldpanel/cohorts': typeof WeldpanelCohortsIndexRoute
+  '/weldpanel/dashboards': typeof WeldpanelDashboardsIndexRoute
+  '/weldpanel/flows': typeof WeldpanelFlowsIndexRoute
+  '/weldpanel/frustration': typeof WeldpanelFrustrationIndexRoute
+  '/weldpanel/funnels': typeof WeldpanelFunnelsIndexRoute
+  '/weldpanel/heatmaps': typeof WeldpanelHeatmapsIndexRoute
+  '/weldpanel/insights': typeof WeldpanelInsightsIndexRoute
+  '/weldpanel/lexicon': typeof WeldpanelLexiconIndexRoute
+  '/weldpanel/live': typeof WeldpanelLiveIndexRoute
   '/weldpanel/projects': typeof WeldpanelProjectsIndexRoute
+  '/weldpanel/recordings': typeof WeldpanelRecordingsIndexRoute
+  '/weldpanel/reports': typeof WeldpanelReportsIndexRoute
+  '/weldpanel/retention': typeof WeldpanelRetentionIndexRoute
+  '/weldpanel/settings': typeof WeldpanelSettingsIndexRoute
+  '/weldpanel/users': typeof WeldpanelUsersIndexRoute
   '/weldpass/$projectId': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords': typeof WeldpassPasswordsIndexRoute
   '/weldreach/campaigns': typeof WeldreachCampaignsIndexRoute
@@ -5011,7 +5150,10 @@ export interface FileRoutesByTo {
   '/weldmail/settings/accounts': typeof WeldmailSettingsAccountsIndexRoute
   '/weldmail/settings/labels': typeof WeldmailSettingsLabelsIndexRoute
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugIndexRoute
+  '/weldpanel/dashboards/$dashboardId': typeof WeldpanelDashboardsDashboardIdIndexRoute
   '/weldpanel/projects/$projectId': typeof WeldpanelProjectsProjectIdIndexRoute
+  '/weldpanel/recordings/$sessionId': typeof WeldpanelRecordingsSessionIdIndexRoute
+  '/weldpanel/users/$distinctId': typeof WeldpanelUsersDistinctIdIndexRoute
   '/weldpass/$projectId/audit': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync': typeof WeldpassProjectIdSyncIndexRoute
   '/weldpass/passwords/health': typeof WeldpassPasswordsHealthIndexRoute
@@ -5442,7 +5584,21 @@ export interface FileRoutesById {
   '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
   '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
+  '/weldpanel/cohorts/': typeof WeldpanelCohortsIndexRoute
+  '/weldpanel/dashboards/': typeof WeldpanelDashboardsIndexRoute
+  '/weldpanel/flows/': typeof WeldpanelFlowsIndexRoute
+  '/weldpanel/frustration/': typeof WeldpanelFrustrationIndexRoute
+  '/weldpanel/funnels/': typeof WeldpanelFunnelsIndexRoute
+  '/weldpanel/heatmaps/': typeof WeldpanelHeatmapsIndexRoute
+  '/weldpanel/insights/': typeof WeldpanelInsightsIndexRoute
+  '/weldpanel/lexicon/': typeof WeldpanelLexiconIndexRoute
+  '/weldpanel/live/': typeof WeldpanelLiveIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
+  '/weldpanel/recordings/': typeof WeldpanelRecordingsIndexRoute
+  '/weldpanel/reports/': typeof WeldpanelReportsIndexRoute
+  '/weldpanel/retention/': typeof WeldpanelRetentionIndexRoute
+  '/weldpanel/settings/': typeof WeldpanelSettingsIndexRoute
+  '/weldpanel/users/': typeof WeldpanelUsersIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
   '/weldpass/passwords/': typeof WeldpassPasswordsIndexRoute
   '/weldreach/campaigns/': typeof WeldreachCampaignsIndexRoute
@@ -5623,7 +5779,10 @@ export interface FileRoutesById {
   '/weldmail/settings/accounts/': typeof WeldmailSettingsAccountsIndexRoute
   '/weldmail/settings/labels/': typeof WeldmailSettingsLabelsIndexRoute
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
+  '/weldpanel/dashboards/$dashboardId/': typeof WeldpanelDashboardsDashboardIdIndexRoute
   '/weldpanel/projects/$projectId/': typeof WeldpanelProjectsProjectIdIndexRoute
+  '/weldpanel/recordings/$sessionId/': typeof WeldpanelRecordingsSessionIdIndexRoute
+  '/weldpanel/users/$distinctId/': typeof WeldpanelUsersDistinctIdIndexRoute
   '/weldpass/$projectId/audit/': typeof WeldpassProjectIdAuditIndexRoute
   '/weldpass/$projectId/sync/': typeof WeldpassProjectIdSyncIndexRoute
   '/weldpass/passwords/health/': typeof WeldpassPasswordsHealthIndexRoute
@@ -6055,7 +6214,21 @@ export interface FileRouteTypes {
     | '/weldmerge/pull-requests/'
     | '/weldmerge/releases/'
     | '/weldmerge/settings/'
+    | '/weldpanel/cohorts/'
+    | '/weldpanel/dashboards/'
+    | '/weldpanel/flows/'
+    | '/weldpanel/frustration/'
+    | '/weldpanel/funnels/'
+    | '/weldpanel/heatmaps/'
+    | '/weldpanel/insights/'
+    | '/weldpanel/lexicon/'
+    | '/weldpanel/live/'
     | '/weldpanel/projects/'
+    | '/weldpanel/recordings/'
+    | '/weldpanel/reports/'
+    | '/weldpanel/retention/'
+    | '/weldpanel/settings/'
+    | '/weldpanel/users/'
     | '/weldpass/$projectId/'
     | '/weldpass/passwords/'
     | '/weldreach/campaigns/'
@@ -6236,7 +6409,10 @@ export interface FileRouteTypes {
     | '/weldmail/settings/accounts/'
     | '/weldmail/settings/labels/'
     | '/weldmail/unified/$labelSlug/'
+    | '/weldpanel/dashboards/$dashboardId/'
     | '/weldpanel/projects/$projectId/'
+    | '/weldpanel/recordings/$sessionId/'
+    | '/weldpanel/users/$distinctId/'
     | '/weldpass/$projectId/audit/'
     | '/weldpass/$projectId/sync/'
     | '/weldpass/passwords/health/'
@@ -6613,7 +6789,21 @@ export interface FileRouteTypes {
     | '/weldmerge/pull-requests'
     | '/weldmerge/releases'
     | '/weldmerge/settings'
+    | '/weldpanel/cohorts'
+    | '/weldpanel/dashboards'
+    | '/weldpanel/flows'
+    | '/weldpanel/frustration'
+    | '/weldpanel/funnels'
+    | '/weldpanel/heatmaps'
+    | '/weldpanel/insights'
+    | '/weldpanel/lexicon'
+    | '/weldpanel/live'
     | '/weldpanel/projects'
+    | '/weldpanel/recordings'
+    | '/weldpanel/reports'
+    | '/weldpanel/retention'
+    | '/weldpanel/settings'
+    | '/weldpanel/users'
     | '/weldpass/$projectId'
     | '/weldpass/passwords'
     | '/weldreach/campaigns'
@@ -6787,7 +6977,10 @@ export interface FileRouteTypes {
     | '/weldmail/settings/accounts'
     | '/weldmail/settings/labels'
     | '/weldmail/unified/$labelSlug'
+    | '/weldpanel/dashboards/$dashboardId'
     | '/weldpanel/projects/$projectId'
+    | '/weldpanel/recordings/$sessionId'
+    | '/weldpanel/users/$distinctId'
     | '/weldpass/$projectId/audit'
     | '/weldpass/$projectId/sync'
     | '/weldpass/passwords/health'
@@ -7217,7 +7410,21 @@ export interface FileRouteTypes {
     | '/weldmerge/pull-requests/'
     | '/weldmerge/releases/'
     | '/weldmerge/settings/'
+    | '/weldpanel/cohorts/'
+    | '/weldpanel/dashboards/'
+    | '/weldpanel/flows/'
+    | '/weldpanel/frustration/'
+    | '/weldpanel/funnels/'
+    | '/weldpanel/heatmaps/'
+    | '/weldpanel/insights/'
+    | '/weldpanel/lexicon/'
+    | '/weldpanel/live/'
     | '/weldpanel/projects/'
+    | '/weldpanel/recordings/'
+    | '/weldpanel/reports/'
+    | '/weldpanel/retention/'
+    | '/weldpanel/settings/'
+    | '/weldpanel/users/'
     | '/weldpass/$projectId/'
     | '/weldpass/passwords/'
     | '/weldreach/campaigns/'
@@ -7398,7 +7605,10 @@ export interface FileRouteTypes {
     | '/weldmail/settings/accounts/'
     | '/weldmail/settings/labels/'
     | '/weldmail/unified/$labelSlug/'
+    | '/weldpanel/dashboards/$dashboardId/'
     | '/weldpanel/projects/$projectId/'
+    | '/weldpanel/recordings/$sessionId/'
+    | '/weldpanel/users/$distinctId/'
     | '/weldpass/$projectId/audit/'
     | '/weldpass/$projectId/sync/'
     | '/weldpass/passwords/health/'
@@ -8393,11 +8603,109 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldpassProjectIdIndexRouteImport
       parentRoute: typeof WeldpassRouteRoute
     }
+    '/weldpanel/users/': {
+      id: '/weldpanel/users/'
+      path: '/users'
+      fullPath: '/weldpanel/users/'
+      preLoaderRoute: typeof WeldpanelUsersIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/settings/': {
+      id: '/weldpanel/settings/'
+      path: '/settings'
+      fullPath: '/weldpanel/settings/'
+      preLoaderRoute: typeof WeldpanelSettingsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/retention/': {
+      id: '/weldpanel/retention/'
+      path: '/retention'
+      fullPath: '/weldpanel/retention/'
+      preLoaderRoute: typeof WeldpanelRetentionIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/reports/': {
+      id: '/weldpanel/reports/'
+      path: '/reports'
+      fullPath: '/weldpanel/reports/'
+      preLoaderRoute: typeof WeldpanelReportsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/recordings/': {
+      id: '/weldpanel/recordings/'
+      path: '/recordings'
+      fullPath: '/weldpanel/recordings/'
+      preLoaderRoute: typeof WeldpanelRecordingsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
     '/weldpanel/projects/': {
       id: '/weldpanel/projects/'
       path: '/projects'
       fullPath: '/weldpanel/projects/'
       preLoaderRoute: typeof WeldpanelProjectsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/live/': {
+      id: '/weldpanel/live/'
+      path: '/live'
+      fullPath: '/weldpanel/live/'
+      preLoaderRoute: typeof WeldpanelLiveIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/lexicon/': {
+      id: '/weldpanel/lexicon/'
+      path: '/lexicon'
+      fullPath: '/weldpanel/lexicon/'
+      preLoaderRoute: typeof WeldpanelLexiconIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/insights/': {
+      id: '/weldpanel/insights/'
+      path: '/insights'
+      fullPath: '/weldpanel/insights/'
+      preLoaderRoute: typeof WeldpanelInsightsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/heatmaps/': {
+      id: '/weldpanel/heatmaps/'
+      path: '/heatmaps'
+      fullPath: '/weldpanel/heatmaps/'
+      preLoaderRoute: typeof WeldpanelHeatmapsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/funnels/': {
+      id: '/weldpanel/funnels/'
+      path: '/funnels'
+      fullPath: '/weldpanel/funnels/'
+      preLoaderRoute: typeof WeldpanelFunnelsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/frustration/': {
+      id: '/weldpanel/frustration/'
+      path: '/frustration'
+      fullPath: '/weldpanel/frustration/'
+      preLoaderRoute: typeof WeldpanelFrustrationIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/flows/': {
+      id: '/weldpanel/flows/'
+      path: '/flows'
+      fullPath: '/weldpanel/flows/'
+      preLoaderRoute: typeof WeldpanelFlowsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/dashboards/': {
+      id: '/weldpanel/dashboards/'
+      path: '/dashboards'
+      fullPath: '/weldpanel/dashboards/'
+      preLoaderRoute: typeof WeldpanelDashboardsIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/cohorts/': {
+      id: '/weldpanel/cohorts/'
+      path: '/cohorts'
+      fullPath: '/weldpanel/cohorts/'
+      preLoaderRoute: typeof WeldpanelCohortsIndexRouteImport
       parentRoute: typeof WeldpanelRouteRoute
     }
     '/weldmerge/settings/': {
@@ -9898,11 +10206,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldpassProjectIdAuditIndexRouteImport
       parentRoute: typeof WeldpassRouteRoute
     }
+    '/weldpanel/users/$distinctId/': {
+      id: '/weldpanel/users/$distinctId/'
+      path: '/users/$distinctId'
+      fullPath: '/weldpanel/users/$distinctId/'
+      preLoaderRoute: typeof WeldpanelUsersDistinctIdIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/recordings/$sessionId/': {
+      id: '/weldpanel/recordings/$sessionId/'
+      path: '/recordings/$sessionId'
+      fullPath: '/weldpanel/recordings/$sessionId/'
+      preLoaderRoute: typeof WeldpanelRecordingsSessionIdIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
     '/weldpanel/projects/$projectId/': {
       id: '/weldpanel/projects/$projectId/'
       path: '/projects/$projectId'
       fullPath: '/weldpanel/projects/$projectId/'
       preLoaderRoute: typeof WeldpanelProjectsProjectIdIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/dashboards/$dashboardId/': {
+      id: '/weldpanel/dashboards/$dashboardId/'
+      path: '/dashboards/$dashboardId'
+      fullPath: '/weldpanel/dashboards/$dashboardId/'
+      preLoaderRoute: typeof WeldpanelDashboardsDashboardIdIndexRouteImport
       parentRoute: typeof WeldpanelRouteRoute
     }
     '/weldmail/unified/$labelSlug/': {
@@ -13338,14 +13667,50 @@ const WeldmergeRouteRouteWithChildren = WeldmergeRouteRoute._addFileChildren(
 
 interface WeldpanelRouteRouteChildren {
   WeldpanelIndexRoute: typeof WeldpanelIndexRoute
+  WeldpanelCohortsIndexRoute: typeof WeldpanelCohortsIndexRoute
+  WeldpanelDashboardsIndexRoute: typeof WeldpanelDashboardsIndexRoute
+  WeldpanelFlowsIndexRoute: typeof WeldpanelFlowsIndexRoute
+  WeldpanelFrustrationIndexRoute: typeof WeldpanelFrustrationIndexRoute
+  WeldpanelFunnelsIndexRoute: typeof WeldpanelFunnelsIndexRoute
+  WeldpanelHeatmapsIndexRoute: typeof WeldpanelHeatmapsIndexRoute
+  WeldpanelInsightsIndexRoute: typeof WeldpanelInsightsIndexRoute
+  WeldpanelLexiconIndexRoute: typeof WeldpanelLexiconIndexRoute
+  WeldpanelLiveIndexRoute: typeof WeldpanelLiveIndexRoute
   WeldpanelProjectsIndexRoute: typeof WeldpanelProjectsIndexRoute
+  WeldpanelRecordingsIndexRoute: typeof WeldpanelRecordingsIndexRoute
+  WeldpanelReportsIndexRoute: typeof WeldpanelReportsIndexRoute
+  WeldpanelRetentionIndexRoute: typeof WeldpanelRetentionIndexRoute
+  WeldpanelSettingsIndexRoute: typeof WeldpanelSettingsIndexRoute
+  WeldpanelUsersIndexRoute: typeof WeldpanelUsersIndexRoute
+  WeldpanelDashboardsDashboardIdIndexRoute: typeof WeldpanelDashboardsDashboardIdIndexRoute
   WeldpanelProjectsProjectIdIndexRoute: typeof WeldpanelProjectsProjectIdIndexRoute
+  WeldpanelRecordingsSessionIdIndexRoute: typeof WeldpanelRecordingsSessionIdIndexRoute
+  WeldpanelUsersDistinctIdIndexRoute: typeof WeldpanelUsersDistinctIdIndexRoute
 }
 
 const WeldpanelRouteRouteChildren: WeldpanelRouteRouteChildren = {
   WeldpanelIndexRoute: WeldpanelIndexRoute,
+  WeldpanelCohortsIndexRoute: WeldpanelCohortsIndexRoute,
+  WeldpanelDashboardsIndexRoute: WeldpanelDashboardsIndexRoute,
+  WeldpanelFlowsIndexRoute: WeldpanelFlowsIndexRoute,
+  WeldpanelFrustrationIndexRoute: WeldpanelFrustrationIndexRoute,
+  WeldpanelFunnelsIndexRoute: WeldpanelFunnelsIndexRoute,
+  WeldpanelHeatmapsIndexRoute: WeldpanelHeatmapsIndexRoute,
+  WeldpanelInsightsIndexRoute: WeldpanelInsightsIndexRoute,
+  WeldpanelLexiconIndexRoute: WeldpanelLexiconIndexRoute,
+  WeldpanelLiveIndexRoute: WeldpanelLiveIndexRoute,
   WeldpanelProjectsIndexRoute: WeldpanelProjectsIndexRoute,
+  WeldpanelRecordingsIndexRoute: WeldpanelRecordingsIndexRoute,
+  WeldpanelReportsIndexRoute: WeldpanelReportsIndexRoute,
+  WeldpanelRetentionIndexRoute: WeldpanelRetentionIndexRoute,
+  WeldpanelSettingsIndexRoute: WeldpanelSettingsIndexRoute,
+  WeldpanelUsersIndexRoute: WeldpanelUsersIndexRoute,
+  WeldpanelDashboardsDashboardIdIndexRoute:
+    WeldpanelDashboardsDashboardIdIndexRoute,
   WeldpanelProjectsProjectIdIndexRoute: WeldpanelProjectsProjectIdIndexRoute,
+  WeldpanelRecordingsSessionIdIndexRoute:
+    WeldpanelRecordingsSessionIdIndexRoute,
+  WeldpanelUsersDistinctIdIndexRoute: WeldpanelUsersDistinctIdIndexRoute,
 }
 
 const WeldpanelRouteRouteWithChildren = WeldpanelRouteRoute._addFileChildren(

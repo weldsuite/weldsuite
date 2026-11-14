@@ -21,7 +21,7 @@
  * limits, first-contact and cold-outreach caps) with source `api`, so a send
  * can be refused with a guard code. `sendErrorResponse` maps those, and
  * Cloudflare's own refusals, to 403 / 422 / 429 / 502 / 503 with `Retry-After`
- * where a retry can succeed (docs/plans/weldmail-outbound-abuse.md).
+ * where a retry can succeed (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  * Sending needs `mail_messages:send`, a scope that `*` and `mail_messages:*`
  * do not include (see `lib/scopes.ts`).
  *

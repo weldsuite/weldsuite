@@ -1,6 +1,6 @@
 /**
  * Settings → Workspace → Legal entities: the workspace's companies, shared by
- * WeldBooks and WeldHR. Docs: docs/plans/legal-entities.md ("Platform UI").
+ * WeldBooks and WeldHR. Docs: weldsuite-documentation/plans/legal-entities.md ("Platform UI").
  */
 
 import { useState } from 'react';

@@ -141,7 +141,7 @@ done
 ### Private deploy repo `weldsuite/weldsuite-deploy` (OPS-018)
 
 Its environments `test` and `production` are limited to that repo's `main`
-branch (`docs/plans/main-only-private-deploys.md`). Fill them with:
+branch (`weldsuite-documentation/plans/main-only-private-deploys.md`). Fill them with:
 
 - the Doppler-backed ones: the loop above;
 - by hand (not in Doppler, and a GitHub secret can't be read back):

@@ -3593,6 +3593,28 @@
         "packages/domains/panel/src/",
         "packages/sdk/panel-sdk/src/",
         "rust/modules/panel/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /rec.js",
+          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
+        },
+        {
+          "route": "POST /r",
+          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
+        },
+        {
+          "route": "POST /snap",
+          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
+        },
+        {
+          "route": "POST /v1/track",
+          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
+        },
+        {
+          "route": "POST /v1/import",
+          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
+        }
       ]
     },
     {

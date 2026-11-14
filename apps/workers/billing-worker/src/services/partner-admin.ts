@@ -2,7 +2,7 @@
  * Reseller partner operations behind the admin console
  * (routes/admin-partners.ts, `/api/internal/admin/partners/*`).
  *
- * Reseller licensing: docs/plans/reseller-licensing.md. The master-DB write
+ * Reseller licensing: weldsuite-documentation/plans/reseller-licensing.md. The master-DB write
  * paths are the shared ones in @weldsuite/core-domain/partners (the same ones
  * the partner portal uses); this file adds what only staff do: create a
  * partner with its Stripe customer, contracts, territories, members, status

@@ -1,6 +1,6 @@
 /**
  * The AI catalog of the Kubernetes editions (ADR AI-012,
- * `docs/plans/eu-ai-mistral.md`): providers with their region, the models they
+ * `weldsuite-documentation/plans/eu-ai-mistral.md`): providers with their region, the models they
  * serve with capabilities and context, each provider's task map, and the
  * features a workspace admin can route.
  *
@@ -417,7 +417,7 @@ export interface AiFeatureEntry {
   overridable: boolean;
 }
 
-/** The "Features" table of `docs/plans/eu-ai-mistral.md`. */
+/** The "Features" table of `weldsuite-documentation/plans/eu-ai-mistral.md`. */
 export const AI_FEATURES: readonly AiFeatureEntry[] = [
   {
     id: "mail",

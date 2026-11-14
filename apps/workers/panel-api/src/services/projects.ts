@@ -22,6 +22,7 @@ import type {
   UpdatePanelProjectInput,
   UpdatePanelProjectSettingsInput,
 } from '@weldsuite/app-api-client/schemas/weldpanel';
+import { syncKeyRecords } from './keys';
 import { removeProjectFromRegistry, syncProjectRegistry, type ProjectRegistry } from './project-registry';
 
 const { panelProjects } = schema;
@@ -155,6 +156,8 @@ export async function updateProjectSettings(
   if (!project) return null;
 
   await syncProjectRegistry(registry, project);
+  // Secret keys follow the project's status: a paused project stops /v1/* too.
+  if (patch.status !== undefined) await syncKeyRecords(registry, project);
   return project;
 }
 
@@ -205,11 +208,15 @@ export async function deleteProject(
       .from(panelProjects)
       .where(and(eq(panelProjects.id, id), isNotNull(panelProjects.deletedAt)))
       .limit(1);
-    if (deleted) await removeProjectFromRegistry(registry, deleted);
+    if (deleted) {
+      await removeProjectFromRegistry(registry, deleted);
+      await syncKeyRecords(registry, deleted, true);
+    }
     return null;
   }
 
   await removeProjectFromRegistry(registry, project);
+  await syncKeyRecords(registry, project, true);
   return project;
 }
 

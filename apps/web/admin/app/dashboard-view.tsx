@@ -1,8 +1,9 @@
 import Link from '@/components/link';
-import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Tags, Video } from 'lucide-react';
+import { Activity, ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Tags, Video } from 'lucide-react';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import {
   adminMeetAiPricingCopy,
+  adminPanelPricingCopy,
   adminPhonePricingCopy,
   adminPlanPricingCopy,
   adminPricingCopy,
@@ -15,6 +16,7 @@ export function DashboardPage({ greetingName, appStats }: Readonly<DashboardPage
   const pricing = adminPricingCopy();
   const phonePricing = adminPhonePricingCopy();
   const meetAiPricing = adminMeetAiPricingCopy();
+  const panelPricing = adminPanelPricingCopy();
   const planPricing = adminPlanPricingCopy();
 
   const cards: { href: string; icon: typeof Package; title: string; description: string; stat: string | null; globalOnly?: boolean }[] = [
@@ -78,6 +80,14 @@ export function DashboardPage({ greetingName, appStats }: Readonly<DashboardPage
       icon: Video,
       title: meetAiPricing.cardTitle,
       description: meetAiPricing.cardDescription,
+      stat: null,
+    },
+    {
+      href: '/weldpanel-pricing',
+      globalOnly: true,
+      icon: Activity,
+      title: panelPricing.cardTitle,
+      description: panelPricing.cardDescription,
       stat: null,
     },
   ];

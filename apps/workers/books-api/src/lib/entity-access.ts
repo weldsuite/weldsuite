@@ -1,5 +1,5 @@
 /**
- * Per-entity record checks for books-api (docs/plans/legal-entities.md,
+ * Per-entity record checks for books-api (weldsuite-documentation/plans/legal-entities.md,
  * "Per-entity access").
  *
  * `legalEntityContext()` decides which entity a request is scoped to. A route

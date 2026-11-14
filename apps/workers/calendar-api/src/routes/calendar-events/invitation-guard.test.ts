@@ -3,7 +3,7 @@
  *
  * Every attendee is mailed an invitation from WeldSuite's own address, so an
  * event carries at most 100 of them, and each batch of invitations goes through
- * the outbound guard first (docs/plans/weldmail-outbound-abuse.md). What must
+ * the outbound guard first (weldsuite-documentation/plans/weldmail-outbound-abuse.md). What must
  * hold:
  *   - 101 attendees is a 400, on create and on update; 100 is fine;
  *   - the guard is asked once per batch with the workspace's Clerk org id;

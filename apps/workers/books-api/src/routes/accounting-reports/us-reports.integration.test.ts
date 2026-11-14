@@ -1,5 +1,5 @@
 /**
- * Phase 1 exit test (docs/plans/weldbooks-us.md): a US LLC (Schedule C) and a
+ * Phase 1 exit test (weldsuite-documentation/plans/weldbooks-us.md): a US LLC (Schedule C) and a
  * US S corporation (1120-S) are set up through the API and run a month of
  * invoices, bills, partial payments, an unapplied payment and a manual entry;
  * accrual- and cash-basis reports match a hand-computed fixture. Also covers

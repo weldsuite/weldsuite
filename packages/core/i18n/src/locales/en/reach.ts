@@ -1,5 +1,5 @@
 /**
- * WeldReach — cold email outreach (on request only). See docs/plans/weldreach.md.
+ * WeldReach — cold email outreach (on request only). See weldsuite-documentation/plans/weldreach.md.
  *
  * Sections: `access` / `accessUi` (requesting access, app store), `nav`,
  * `shell` (module header and blocked states), `overview`, `setup` (onboarding

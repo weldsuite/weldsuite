@@ -1,5 +1,5 @@
 /**
- * WeldMail outbound guard (docs/plans/weldmail-outbound-abuse.md): what a
+ * WeldMail outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): what a
  * person sees when a send is refused, the banner while sending is restricted,
  * and the Sending limits tab in Settings.
  *

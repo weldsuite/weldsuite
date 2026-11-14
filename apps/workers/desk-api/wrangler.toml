@@ -1,6 +1,6 @@
 # WeldSuite desk-api worker — the desk module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   desk-api.weldsuite.org        production
 #   desk-api-test.weldsuite.org   test
@@ -117,7 +117,7 @@ remote = true
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). Agent email
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md). Agent email
 # replies (lib/desk-email.ts, channel-dispatch.ts) call it, as replies. Every
 # send is checked against the workspace's OutboundLedger, a Durable Object
 # hosted by mail-api and bound here by name.
@@ -198,7 +198,7 @@ service = "helpdesk-workflow-worker-test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -271,7 +271,7 @@ service = "helpdesk-workflow-worker"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"

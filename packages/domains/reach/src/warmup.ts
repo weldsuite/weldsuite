@@ -2,7 +2,7 @@
  * WeldReach warmup network: the numbers reach-api and the warmup worker have
  * to agree on (ramp, health gate, pool minimum). Pure, no I/O.
  *
- * See docs/plans/weldreach-warmup.md.
+ * See weldsuite-documentation/plans/weldreach-warmup.md.
  */
 
 /** Days of warmup sending before a mailbox may join campaigns. */
@@ -67,7 +67,7 @@ export type WarmupGateResult =
   | { ready: true }
   | { ready: false; reason: 'too_early' | 'not_enough_data' | 'low_inbox_rate' | 'login_error' };
 
-/** Whether a mailbox may join campaigns (docs/plans/weldreach-warmup.md, "Health gate"). */
+/** Whether a mailbox may join campaigns (weldsuite-documentation/plans/weldreach-warmup.md, "Health gate"). */
 export function warmupGate(input: WarmupGateInput): WarmupGateResult {
   if (input.hasLoginError) return { ready: false, reason: 'login_error' };
   if (input.rampDay < WARMUP_MIN_DAYS) return { ready: false, reason: 'too_early' };

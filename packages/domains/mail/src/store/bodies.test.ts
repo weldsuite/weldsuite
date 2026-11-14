@@ -1,6 +1,6 @@
 /**
  * `store/bodies.ts` key layout and R2 read/write/delete behaviour
- * (docs/plans/weldmail-mailbox-store-design.md decision 4).
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4).
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';

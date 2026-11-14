@@ -1,7 +1,7 @@
 /**
  * Changing server: leave the current one cleanly, forget what it left on the
  * device, save the new choice and restart the JS so everything boots against
- * the new server (docs/plans/mobile-server-choice.md, section 7).
+ * the new server (weldsuite-documentation/plans/mobile-server-choice.md, section 7).
  *
  * Apps register what to do on the way out:
  * - `onLeaveServer`: runs first, while still signed in (unregister the push

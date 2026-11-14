@@ -6,7 +6,7 @@
  * has to agree on.
  *
  * WeldMail is for one-to-one business mail; cold outreach belongs in WeldReach.
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { z } from 'zod';
@@ -159,7 +159,7 @@ export function resolveOutboundLimits(
 /**
  * Apex zones that host shared WeldMail addresses: production's, the test
  * environment's own zone (so test mail has its own Email Routing catch-all,
- * docs/plans/weldmail-test-mail-zone.md), and the EU edition's free-address
+ * weldsuite-documentation/plans/weldmail-test-mail-zone.md), and the EU edition's free-address
  * domain (`weldmail.eu`, ADR MAIL-012; Global never builds on it). Which one
  * new domains are built on is the `WELDMAIL_DOMAIN` setting; recognising a
  * shared domain is not environment-dependent.

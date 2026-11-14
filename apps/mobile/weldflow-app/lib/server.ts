@@ -1,6 +1,6 @@
 /**
  * Who this app is and what its build bakes in, for the server choice
- * (WeldSuite cloud, EU, self-hosted; docs/plans/mobile-server-choice.md).
+ * (WeldSuite cloud, EU, self-hosted; weldsuite-documentation/plans/mobile-server-choice.md).
  *
  * `<ServerRuntimeGate app={APP} build={BUILD}>` in `app/_layout.tsx` boots the
  * runtime from these; everything else reads `getMobileRuntime()` (inside a

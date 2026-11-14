@@ -273,7 +273,9 @@ config:
       # The instance's external domain, sent as Host when apiUrl is in-cluster.
       host: ""
       projectId: ""
-      # Where Zitadel's invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      # Where the invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      # Empty: the platform's /invite with config.auth.oidc.signIn: platform,
+      # else Zitadel's own page.
       inviteUrlTemplate: ""
   # New workspace databases (P4 4a): the provisioner places them on the
   # CloudNativePG shards in TENANT_SHARDS (in the Secret, it holds the admin
@@ -285,7 +287,7 @@ config:
   # Seal new workspaces.database_url values as v3 (bound to the workspace);
   # every Rust reader opens v3, so a new cluster can have it on.
   aadWrites: false
-  # AI (ADR AI-012, docs/plans/eu-ai-mistral.md): the install's provider, what
+  # AI (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md): the install's provider, what
   # workspaces may opt in to, fallback and billing. Empty defaultProvider is AI
   # off: the AI features are hidden and their routes answer as the workers do
   # without their model. The keys go in the Secret (MISTRAL_API_KEY,
@@ -423,7 +425,7 @@ secret:
   generatedName: weldsuite-generated
 
 # Dependencies the chart runs itself (Chart.yaml's dependencies, pinned to
-# the EU cluster's versions; docs/plans/self-hosted-edition.md, decision 2).
+# the EU cluster's versions; weldsuite-documentation/plans/self-hosted-edition.md, decision 2).
 # On, the chart also sets the server's settings for it from the generated
 # Secret, overriding the same keys in the Secret above: VALKEY_URL; NATS_URL
 # and NATS_TOKEN; RESTATE_INGRESS_URL and RESTATE_ADMIN_URL; S3_ENDPOINT, the
@@ -991,7 +993,7 @@ mailInbound:
       limits:
         memory: 512Mi
 
-# The MTA (docs/plans/eu-mail-service.md, ADR MAIL-011), off by default:
+# The MTA (weldsuite-documentation/plans/eu-mail-service.md, ADR MAIL-011), off by default:
 # `weldsuite mta` from the server's image, sending the platform's and the
 # customers' mail straight to the recipients' MX from the mail nodes' own
 # addresses. One DaemonSet per pool, on the nodes labelled
@@ -1130,6 +1132,13 @@ networkPolicy:
 # `weldsuite cron <name>` with the server's environment. A run that is still
 # going when the next is due is left alone (concurrencyPolicy: Forbid).
 cron:
+  # Remove a finished run (its Job and pods) this long after it ended. A
+  # CronJob keeps its last three failed runs, and only a newer failure
+  # replaces them: without a TTL, a job that failed once and works since keeps
+  # its failed runs, and kube-prometheus-stack's KubeJobFailed, for ever. A
+  # day leaves the alert up and the pods' logs readable for a day (Loki keeps
+  # them longer). null: keep them until newer runs replace them.
+  ttlSecondsAfterFinished: 86400
   jobs:
     # WeldSign: automatic reminders and expiry of open requests.
     sign-lifecycle:

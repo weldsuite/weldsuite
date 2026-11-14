@@ -8,13 +8,30 @@
  * repeating it (or by the next change to the project).
  */
 
-import { eq, lte, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, sql } from 'drizzle-orm';
 import { masterSchema, type AnyMasterDatabase } from '@weldsuite/worker-kit/db';
 import type { PanelProject } from '@weldsuite/db/schema';
-import { projectKvKey, toProjectRecord } from '@weldsuite/panel-domain/registry';
+import type { PanelPlanLimits } from '@weldsuite/panel-domain/plans';
+import { PANEL_KV_PREFIX, parseProjectRecord, projectKvKey, toProjectRecord, type PanelProjectRecord } from '@weldsuite/panel-domain/registry';
 import { withSettingDefaults } from '@weldsuite/panel-domain/settings';
+import { loadWorkspacePlan } from './workspace-plan';
 
 const { panelProjectRegistry } = masterSchema;
+
+/** `panel:tier:<workspaceId>` → the replay tier last written into the workspace's project records. */
+export const tierKvKey = (workspaceId: string): string => `${PANEL_KV_PREFIX}tier:${workspaceId}`;
+
+/** The record with the workspace's replay tier: `90d` is written, `30d` is the default and left out. */
+function withReplayTier(record: PanelProjectRecord, tier: PanelPlanLimits['replayTier']): PanelProjectRecord {
+  const next = { ...record };
+  if (tier === '90d') next.replayTier = tier;
+  else delete next.replayTier;
+  return next;
+}
+
+async function replayTierOf(registry: ProjectRegistry): Promise<PanelPlanLimits['replayTier']> {
+  return (await loadWorkspacePlan(registry.masterDb, registry.workspaceId))?.limits.replayTier ?? '30d';
+}
 
 type RegistryRow = typeof panelProjectRegistry.$inferSelect;
 
@@ -86,7 +103,8 @@ export async function syncProjectRegistry(
 
   // No expiry: the collector reads only KV, so a lapsed key would drop the
   // project's traffic. Deleting is explicit (rotation, project deletion).
-  const record = toProjectRecord({ ...project, settings }, registry.workspaceId);
+  const tier = await replayTierOf(registry);
+  const record = withReplayTier(toProjectRecord({ ...project, settings }, registry.workspaceId), tier);
   await registry.kv.put(projectKvKey(project.token), JSON.stringify(record));
 
   // A newer change (or the deletion) that synced while this one ran wins:
@@ -95,7 +113,7 @@ export async function syncProjectRegistry(
   if (after && after.updatedAt > project.updatedAt) {
     if (after.deletedAt || after.token !== project.token) await registry.kv.delete(projectKvKey(project.token));
     if (!after.deletedAt) {
-      const latest = toProjectRecord({ ...after, id: after.projectId }, after.workspaceId);
+      const latest = withReplayTier(toProjectRecord({ ...after, id: after.projectId }, after.workspaceId), tier);
       await registry.kv.put(projectKvKey(after.token), JSON.stringify(latest));
     }
   }
@@ -118,4 +136,28 @@ export async function removeProjectFromRegistry(registry: ProjectRegistry, proje
     })
     .where(eq(panelProjectRegistry.projectId, project.id));
   await deleteTokens(registry, [project.token, before?.token]);
+}
+
+/**
+ * Brings the KV records of a workspace's projects in step with its plan's
+ * replay tier (a plan change takes effect without anyone touching a project).
+ * Checked against `panel:tier:<workspace>` first, so the usual call is one KV
+ * read; a failed run leaves the marker alone and is repeated by the next one.
+ */
+export async function applyReplayTier(
+  deps: Pick<ProjectRegistry, 'masterDb' | 'kv'>,
+  workspaceId: string,
+  tier: PanelPlanLimits['replayTier'],
+): Promise<void> {
+  if ((await deps.kv.get(tierKvKey(workspaceId))) === tier) return;
+  const rows = await deps.masterDb
+    .select({ token: panelProjectRegistry.token })
+    .from(panelProjectRegistry)
+    .where(and(eq(panelProjectRegistry.workspaceId, workspaceId), isNull(panelProjectRegistry.deletedAt)));
+  for (const { token } of rows) {
+    const record = parseProjectRecord(await deps.kv.get(projectKvKey(token)));
+    if (!record || record.replayTier === (tier === '90d' ? tier : undefined)) continue;
+    await deps.kv.put(projectKvKey(token), JSON.stringify(withReplayTier(record, tier)));
+  }
+  await deps.kv.put(tierKvKey(workspaceId), tier);
 }

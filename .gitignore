@@ -97,3 +97,6 @@ gcp-*-key.json
 .scannerwork/
 .sonar-changed/
 tsconfig.sonar.json
+
+# Autopilot digests are internal working notes, never committed (AGENTS.md)
+.claude/autopilot/digest-*.md

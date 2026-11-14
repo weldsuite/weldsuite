@@ -77,7 +77,7 @@ remote = true
 # authenticated on X-Internal-Secret) while CONNECT_INTERNAL is unbound or the
 # entrypoint is not deployed yet. This worker's INTERNAL_API_SECRET must match the
 # target env's secret for that path; it can go once every env has the entrypoint
-# binding (docs/plans/app-api-module-split.md, rollout item 7).
+# binding (weldsuite-documentation/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
 service = "weldsuite-app-api-dev"

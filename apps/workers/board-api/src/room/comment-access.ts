@@ -1,6 +1,6 @@
 /**
  * What a commenter may change: someone who can view a board and holds
- * `boards:comment`, but cannot edit it (docs/plans/weldboard.md, Access).
+ * `boards:comment`, but cannot edit it (weldsuite-documentation/plans/weldboard.md, Access).
  *
  * What is said in a comment thread lives in the board's WeldChat chat (ADR
  * CHAT-007); the board holds each thread's pin (where it is, who started

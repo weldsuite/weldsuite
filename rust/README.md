@@ -845,7 +845,7 @@ log none.
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
+| `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Invitations are accepted there too, on `/invite` at `PUBLIC_APP_URL` (`/api/sign-in/invitation/accept`). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_REDIRECT_URL`, `MOLLIE_API_URL` | Buying credits (the `credit-top-up` feature; unset key: unavailable, and `POST /api/credits/checkout` answers as without billing-worker): Mollie's API key, where Mollie posts payment changes (default `<PUBLIC_API_URL>/api/webhooks/mollie`, else `APP_API_PUBLIC_URL`, `PUBLIC_URL`), where a checkout returns when the client names no address (default `<PUBLIC_APP_URL>/settings/billing?credits=success`, else `PUBLIC_URL`), and the API's base URL (tests). A key without a webhook or return address stops the start. Packages are master `credit_packages` rows priced in EUR; pending checkouts are kept a week in Valkey (or this process) for the return page |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
@@ -898,7 +898,7 @@ log none.
 | `S3_ENSURE_BUCKETS` | `true`: create the private and public buckets at start when the store doesn't have them (the chart's bundled object store, `bundle.objectStorage`) |
 | `S3_PUBLIC_VIA_SERVER` | `true`: serve the public bucket's objects at `/api/storage/public/<key>` to anyone, for an object store with no public endpoint of its own (the bundled one, unless `config.files.publicUrl` names one; the chart then points `S3_PUBLIC_URL` there). Unset, that route answers only local development, as in TypeScript |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
-| `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: no identity provider) |
+| `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: the platform's `/invite` with `OIDC_SIGN_IN=platform`, else Zitadel's page) |
 | `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |
 | `PARTNER_PORTAL_URL` | the reseller portal named in a territory request's email (default `https://partner.weldsuite.org`) |
 | `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
@@ -1013,7 +1013,7 @@ webhook keeping the session. v1.9 servers are too old for the pinned client
 
 Global runs every model call through `@weldsuite/ai` and the Cloudflare AI
 Gateway. The Kubernetes editions run them through `crates/ai`
-(`weldsuite-ai`, ADR AI-012, `docs/plans/eu-ai-mistral.md`): Mistral as the
+(`weldsuite-ai`, ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`): Mistral as the
 EU edition's install provider (chat, structured output, OCR, embeddings,
 transcription), a self-hosted install's own OpenAI-compatible endpoint
 (`compat`), and Anthropic and OpenAI only for workspaces whose admin opts in,
@@ -1106,7 +1106,7 @@ On Global, Claude Managed Agents run an agent's sandbox (`computer:use`) and
 web tools (`browser:use`) at Anthropic. The Kubernetes editions run them on
 the install's own cluster: `crates/sandbox` (`weldsuite-sandbox`), the image
 `rust/deploy/sandbox`, the chart's `sandbox` and `searxng` sections
-(`docs/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
+(`weldsuite-documentation/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
 
 - **Pods.** One per agent conversation (or run) in the `weldsuite-sandbox`
   namespace, under gVisor (`RuntimeClass gvisor`), with no service-account

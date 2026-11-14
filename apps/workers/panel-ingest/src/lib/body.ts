@@ -1,14 +1,14 @@
 /**
- * Reads a request body as text, but never more than `limit` bytes: the
- * collector is public, so a Content-Length that lies (or a chunked body with
- * none) must not make it buffer an arbitrary amount.
+ * Reads a request body, but never more than `limit` bytes: the collector is
+ * public, so a Content-Length that lies (or a chunked body with none) must not
+ * make it buffer an arbitrary amount.
  */
 
-/** The body text, or null when it is larger than `limit` bytes. */
-export async function readTextLimited(request: Request, limit: number): Promise<string | null> {
+/** The body bytes, or null when it is larger than `limit` bytes. */
+export async function readBytesLimited(request: Request, limit: number): Promise<Uint8Array | null> {
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > limit) return null;
-  if (!request.body) return '';
+  if (!request.body) return new Uint8Array(0);
 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -30,5 +30,11 @@ export async function readTextLimited(request: Request, limit: number): Promise<
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return bytes;
+}
+
+/** The body text, or null when it is larger than `limit` bytes. */
+export async function readTextLimited(request: Request, limit: number): Promise<string | null> {
+  const bytes = await readBytesLimited(request, limit);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
 }

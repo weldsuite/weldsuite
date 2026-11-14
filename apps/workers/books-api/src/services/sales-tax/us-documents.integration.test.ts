@@ -1,7 +1,7 @@
 /**
  * US sales tax on documents with the manual engine (pglite): invoices, credit
  * memos, write-offs, bills and use tax, recurring invoices, dimensions. Fixture
- * rates are invented (see test-fixtures.ts). docs/plans/weldbooks-us.md §3-7.
+ * rates are invented (see test-fixtures.ts). weldsuite-documentation/plans/weldbooks-us.md §3-7.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

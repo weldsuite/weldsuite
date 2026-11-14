@@ -13,7 +13,7 @@
  *
  * Every snooze/unsnooze/resnooze/list call goes through
  * `workspaceMailFromContext`'s `store`/`access` (design
- * docs/plans/weldmail-mailbox-store-design.md, task D2); the store's
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2); the store's
  * `snooze`/`resnooze`/`unsnooze` ops call the exact same
  * `@weldsuite/mail-domain/snooze` functions this route used to call directly
  * in `postgres` mode, so a thrown `MailSnoozeError` (bad "until", not

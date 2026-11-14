@@ -3,7 +3,7 @@
 What each alert means and what to check first. Every rule's `runbook_url`
 points at its heading here. A cluster operator's own steps (names, addresses,
 who to call) belong in that cluster's runbook, not here. Plan and decisions:
-[docs/plans/eu-observability.md](../../../../../docs/plans/eu-observability.md),
+[weldsuite-documentation/plans/eu-observability.md](https://github.com/weldsuite/weldsuite-documentation/blob/main/plans/eu-observability.md),
 ADR OPS-021.
 
 **Severity.** `critical` pages at any hour. `warning` is quiet and muted at
@@ -266,7 +266,10 @@ pushes with 5xx. Its logs say which; limits are in
 ## From kube-prometheus-stack
 
 The chart's own rules also apply, trimmed (`../monitoring/values/kube-prometheus-stack.yaml`):
-among them `KubeJobFailed` (a cron run failed), `KubePodCrashLooping`,
+among them `KubeJobFailed` (a cron run failed; it clears a day later, when
+the chart's `cron.ttlSecondsAfterFinished` removes the failed Job, or at once
+with `kubectl -n weldsuite delete job <name>` once its logs are read),
+`KubePodCrashLooping`,
 `KubePersistentVolumeFillingUp`, `NodeMemoryHighUtilization`,
 `TargetDown`, `PrometheusRuleFailures` and `AlertmanagerFailedToSendAlerts`,
 and once etcd is scraped, `etcdNoLeader` and `etcdMembersDown` (critical).

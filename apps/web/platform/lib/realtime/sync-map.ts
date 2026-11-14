@@ -343,7 +343,7 @@ export const platformSyncMap: EntitySyncMap = {
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
-  // US accounting (docs/plans/weldbooks-us.md).
+  // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
   sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
   sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
   sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
@@ -592,6 +592,15 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
+  // Saved objects refresh their own branch of weldpanelKeys. Dashboards show
+  // reports on their tiles, so a report change refreshes them too; secret keys
+  // sit under the project detail.
+  panel_report: inv(['weldpanel', 'reports'], ['weldpanel', 'dashboards']),
+  panel_dashboard: inv(['weldpanel', 'dashboards']),
+  panel_cohort: inv(['weldpanel', 'cohorts']),
+  panel_event_definition: inv(['weldpanel', 'lexicon']),
+  panel_heatmap_page: inv(['weldpanel', 'heatmap-pages']),
+  panel_key: inv(['weldpanel', 'projects']),
 
   // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
   // root: issues, teams, labels, cycles, comments, connections, repositories and

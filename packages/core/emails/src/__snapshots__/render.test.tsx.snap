@@ -2528,6 +2528,182 @@ Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'panel.usage' / 'eventsBlocked' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel is dropping events for Acme Staffing
+
+WeldPanel usage
+
+New events are being dropped
+
+Your credit wallet cannot cover the next block of usage and events are more than 10% over the allowance, so new events and recordings are dropped until the next month, a top-up or a plan upgrade. Dropped events cannot be recovered.
+
+Events: 55,000 of 50,000
+
+Recordings: 640 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'eventsBlocked' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel laat events vallen voor Acme Staffing
+
+WeldPanel-gebruik
+
+Nieuwe events worden niet meer opgeslagen
+
+Je tegoed kan het volgende blok gebruik niet dekken en je zit meer dan 10% boven de bundel, dus nieuwe events en opnames worden niet opgeslagen tot de volgende maand, een opwaardering of een upgrade. Gemiste events zijn niet terug te halen.
+
+Events: 55.000 van 50.000
+
+Opnames: 640 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing has used its WeldPanel allowance for this month
+
+WeldPanel usage
+
+You have used your monthly allowance
+
+Usage above the allowance is now charged from your credit wallet in blocks, so tracking keeps running.
+
+Events: 50,200 of 50,000
+
+Recordings: 310 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft de WeldPanel-bundel van deze maand gebruikt
+
+WeldPanel-gebruik
+
+Je hebt je maandelijkse bundel gebruikt
+
+Gebruik boven de bundel wordt nu in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.
+
+Events: 50.200 van 50.000
+
+Opnames: 310 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'near' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing has used 80% of its WeldPanel allowance
+
+WeldPanel usage
+
+You have used 80% of your monthly allowance
+
+Usage above the allowance is charged from your credit wallet in blocks, so tracking keeps running.
+
+Events: 40,000 of 50,000
+
+Recordings: 120 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'near' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft 80% van de WeldPanel-bundel gebruikt
+
+WeldPanel-gebruik
+
+Je hebt 80% van je maandelijkse bundel gebruikt
+
+Gebruik boven de bundel wordt in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.
+
+Events: 40.000 van 50.000
+
+Opnames: 120 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'replayBlocked' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel stopped recording sessions for Acme Staffing
+
+WeldPanel usage
+
+New recordings have stopped
+
+Your credit wallet cannot cover the next block of usage, so no new recordings are made. Events are still counted. Top up your credits or upgrade your plan to continue.
+
+Events: 52,000 of 50,000
+
+Recordings: 640 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'replayBlocked' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel neemt geen sessies meer op voor Acme Staffing
+
+WeldPanel-gebruik
+
+Nieuwe opnames zijn gestopt
+
+Je tegoed kan het volgende blok gebruik niet dekken, dus er worden geen nieuwe opnames gemaakt. Events worden nog wel geteld. Waardeer je tegoed op of upgrade je abonnement om door te gaan.
+
+Events: 52.000 van 50.000
+
+Opnames: 640 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'partner.dunning' / 'finalWarning' / 'en' > matches the text snapshot 1`] = `
 "Final warning: your workspaces go read-only on November 30, 2026
 

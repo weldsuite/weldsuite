@@ -3,7 +3,7 @@
 //! 1 when a check fails, and 78 when the configuration itself is invalid (as
 //! `serve` would refuse to start).
 //!
-//! The checks so far (`docs/plans/self-hosted-edition.md`, C1, lists the rest):
+//! The checks so far (`weldsuite-documentation/plans/self-hosted-edition.md`, C1, lists the rest):
 //!
 //! - the configuration, with every problem `serve` would stop on;
 //! - the settings still on a default that names Global (`global_defaults`);

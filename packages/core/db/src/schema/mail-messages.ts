@@ -122,7 +122,7 @@ export const mailMessages = pgTable('mail_messages', {
   sendStatus: varchar('send_status', { length: 20 }), // 'scheduled' | 'sent' | 'cancelled' | 'failed'
   triggerRunId: varchar('trigger_run_id', { length: 255 }),
 
-  // Send state — extracted from custom_fields blob (see docs/custom-fields-blob-extraction.md)
+  // Send state — extracted from custom_fields blob (see weldsuite-documentation/plans/custom-fields-blob-extraction.md)
   sendProvider: varchar('send_provider', { length: 50 }), // e.g. 'mailgun' | 'postal' | 'mailcow'
   providerMessageId: varchar('provider_message_id', { length: 255 }),
   mailgunMessageId: varchar('mailgun_message_id', { length: 255 }),
@@ -136,7 +136,7 @@ export const mailMessages = pgTable('mail_messages', {
   unsnoozeTriggerRunId: varchar('unsnooze_trigger_run_id', { length: 255 }),
 
   // Delivery of a SENT copy, from Cloudflare Email Sending events
-  // (docs/plans/weldmail-outbound-abuse.md). Null until an event arrives.
+  // (weldsuite-documentation/plans/weldmail-outbound-abuse.md). Null until an event arrives.
   deliveryStatus: varchar('delivery_status', { length: 20 }).$type<MailDeliveryStatus>(),
   deliveryUpdatedAt: timestamp('delivery_updated_at'),
   /** SMTP response or bounce reason for the latest event, at most 500 characters. */
@@ -185,7 +185,7 @@ export const mailMessages = pgTable('mail_messages', {
   // COALESCE(thread_id, id)` in `listThreadsByLabel`). An expression index,
   // not a stored generated column: a generated column would rewrite the
   // whole table under an exclusive lock
-  // (docs/plans/weldmail-mailbox-storage.md, phase 2 item 1).
+  // (weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 2 item 1).
   index('mail_messages_account_thread_key_idx').on(
     table.accountId,
     sql`COALESCE(${table.threadId}, ${table.id})`,

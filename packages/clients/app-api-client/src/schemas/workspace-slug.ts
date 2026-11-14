@@ -6,7 +6,7 @@ import { z } from 'zod';
 // and the platform's slug settings card.
 //
 // A slug names its workspace in platform URLs (`/{slug}/weldcrm/…`, see
-// docs/plans/workspace-slug-first-urls.md), in help-center and booking
+// weldsuite-documentation/plans/workspace-slug-first-urls.md), in help-center and booking
 // subdomains, and in `{slug}.weldmail.com`. So it must never be a word the
 // platform itself uses at the root of a URL.
 // ============================================================================
@@ -19,7 +19,10 @@ export const SLUG_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/;
  * slugs anyway.
  *
  * `apps/web/platform/lib/reserved-workspace-slugs.test.ts` fails when a
- * top-level platform route or `public/` entry is missing here. Adding a name
+ * top-level platform route or `public/` entry is missing here, and the Rust
+ * copies (`rust/modules/core-onboarding/src/slug.rs`,
+ * `rust/modules/core-team/src/groups/workspace_settings.rs`) fail their tests
+ * when they differ from this list. Adding a name
  * makes an existing workspace that already uses it fall back to org-id URLs,
  * so run the collision query in the plan before adding one.
  */
@@ -32,6 +35,9 @@ export const RESERVED_WORKSPACE_SLUGS: readonly string[] = [
   'mail',
   'support',
   'help',
+  // `test.weldmail.eu` holds the EU test cluster's free WeldMail addresses,
+  // so a production workspace `test` would get no mail on `{slug}.weldmail.eu`.
+  'test',
   // Top-level platform routes (apps/web/platform/src/routes), modules included.
   'agents',
   'apps',

@@ -47,7 +47,7 @@ export function toPublicAttachment<T extends { storagePath?: unknown; downloadUr
  * (`workspaces/ws_…/`, mail-inbound-worker). Pass both.
  *
  * `mail/<workspaceId>/…` is the separate R2 layout for message bodies and raw
- * MIME (`store/bodies.ts`, docs/plans/weldmail-mailbox-store-design.md
+ * MIME (`store/bodies.ts`, weldsuite-documentation/plans/weldmail-mailbox-store-design.md
  * decision 4) — a sibling top-level prefix, not nested under `workspaces/`.
  * It only ever uses the master `workspaces.id`, but the check is run against
  * whichever ids the caller passes (same as the `workspaces/` prefix above),

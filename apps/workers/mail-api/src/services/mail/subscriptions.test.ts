@@ -1,6 +1,6 @@
 /**
  * pglite-backed tests for mail subscriptions: backfill scan from raw headers
- * read out of R2 (docs/plans/weldmail-mailbox-store-design.md decision 4 — the
+ * read out of R2 (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4 — the
  * Postgres `raw_message` column workspace mail never populates), listing, and
  * unsubscribe state. Uses a link-only sender so the unsubscribe path needs no
  * network or send binding.

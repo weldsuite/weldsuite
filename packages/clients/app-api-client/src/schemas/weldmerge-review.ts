@@ -7,7 +7,7 @@
  * verified account for the provider), 409 `not_mergeable`, 422
  * `unsupported_method`, 502 `provider_error` (the provider's own message).
  *
- * Design: docs/plans/weldmerge-phases-2-5.md.
+ * Design: weldsuite-documentation/plans/weldmerge-phases-2-5.md.
  */
 
 import { z } from 'zod';

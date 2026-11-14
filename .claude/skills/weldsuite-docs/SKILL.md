@@ -12,11 +12,18 @@ not in this one:
 - `design/platform/*.md`: cross-cutting areas (API, data, identity, events, AI, billing, CI/CD, …)
 - `design/modules/*.md`: one document per `weld*` module
 - `adr/<PREFIX>-<NNN>-<slug>.md`: decision records, numbered per area (`API-003`, `DATA-004`, …)
+- `plans/*.md`: implementation plans, research and working notes, indexed in `plans/README.md`
 - `open-questions.md`, `glossary.md`, `templates/`, and `CONTRIBUTING.md` (the rules for writing)
 
 It is cloned **next to** the main checkout (`../weldsuite-documentation`), not as
-a submodule. `docs/plans/` and `docs/decisions/` in this repo stay where they
-are; the docs repo summarises and links to them.
+a submodule.
+
+The main repo is public, so plans, design notes, decisions and any other
+internal write-up go to the docs repo, never into the main repo. A code comment
+or agent file that names `weldsuite-documentation/plans/<file>.md` means
+`$DOCS/plans/<file>.md` (the plans that used to be in this repo's `docs/` and
+`.claude/` moved there). A new plan goes in `plans/` with a line in
+`plans/README.md`.
 
 ## 1. Find the clone
 
@@ -63,6 +70,7 @@ Read `CONTRIBUTING.md` first; it is short and it is the authority.
 | A change makes a decision that is expensive to reverse, constrains future work, or had a real alternative | New ADR, status **Proposed** |
 | A change reverses or replaces an Accepted ADR | New ADR that supersedes it; on the old one edit **only** the status line, to `Superseded by [<ID>](<file>)` |
 | A change alters how an area works | Edit its design doc in place |
+| A change follows, finishes or changes a plan in `plans/` | Update that plan (status, phase, table) |
 | The user confirms or corrects *Inferred* rationale | Replace the inferred text, drop the *Inferred* marker, remove the entry from `open-questions.md` |
 | You notice docs and code disagree | Fix the design doc, or add an entry to `open-questions.md` when you can't tell which is right |
 
@@ -73,7 +81,7 @@ Mechanics:
 - Next number for a prefix: `ls "$DOCS/adr" | grep "^<PREFIX>-" | sort | tail -1`, plus one. Numbers are never reused. A new prefix needs a row in the table in `CONTRIBUTING.md`.
 - Start from `templates/adr.md` or `templates/design-doc.md`.
 - In the same change, update the design doc that links the ADR, the area's table in `adr/README.md` (and the decision count in its first line), and `design/README.md` when a design doc is added.
-- Style per `CONTRIBUTING.md`: code paths relative to this repo's root in backticks; links into this repo as full GitHub URLs on `main`; name secrets and bindings, never their values; no credentials or customer data.
+- Style per `CONTRIBUTING.md`: code paths relative to this repo's root in backticks; links into this repo as full GitHub URLs on `main`; links between docs (plans, design docs, ADRs) relative; name secrets and bindings, never their values; no credentials or customer data.
 
 ## 4. Branch, commit, PR
 

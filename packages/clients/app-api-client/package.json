@@ -137,6 +137,8 @@
     "./schemas/weldsign": "./src/schemas/weldsign.ts",
     "./schemas/weldforms": "./src/schemas/weldforms.ts",
     "./schemas/weldpanel": "./src/schemas/weldpanel.ts",
+    "./schemas/weldpanel-objects": "./src/schemas/weldpanel-objects.ts",
+    "./schemas/weldpanel-query": "./src/schemas/weldpanel-query.ts",
     "./schemas/weldmerge": "./src/schemas/weldmerge.ts",
     "./schemas/weldmerge-sync": "./src/schemas/weldmerge-sync.ts",
     "./schemas/weldmerge-providers": "./src/schemas/weldmerge-providers.ts",

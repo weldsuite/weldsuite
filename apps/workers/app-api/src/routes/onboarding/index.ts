@@ -26,7 +26,7 @@
  *     POST /finalize        — mark onboarding complete in the master DB and
  *                             install the selected apps in the tenant DB
  *
- *   Reseller territory (docs/plans/reseller-licensing.md):
+ *   Reseller territory (weldsuite-documentation/plans/reseller-licensing.md):
  *     create-workspace, /workspace and the /complete fallback answer 409
  *     PARTNER_TERRITORY, creating nothing, when a reseller serves the request's
  *     network country (`requestCountry`: cf.country / CF-IPCountry). The

@@ -897,7 +897,35 @@
     "cancelled",
     "completed"
   ],
+  "panel_cohort": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_dashboard": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_event_definition": [
+    "created",
+    "updated"
+  ],
+  "panel_heatmap_page": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_key": [
+    "created",
+    "deleted"
+  ],
   "panel_project": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_report": [
     "created",
     "updated",
     "deleted"

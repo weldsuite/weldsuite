@@ -1,6 +1,6 @@
 /**
  * Income-tax return line catalogs and the default mapping from the chart of
- * accounts (docs/plans/weldbooks-us.md §1, federal.md §3).
+ * accounts (weldsuite-documentation/plans/weldbooks-us.md §1, federal.md §3).
  *
  * A chart row carries a tax-line category (`ChartOfAccountsTemplateRow.taxLine`,
  * e.g. `advertising`). Which return line that lands on depends on the entity's

@@ -9,7 +9,7 @@
  * `execute-sequence-v3[-dev]` (bound as EXECUTE_SEQUENCE and re-exported from
  * crm-api's src/index.ts, where routes/sequences dispatches it). app-api keeps
  * its old `execute-sequence-v2*` names and re-exports this class only while
- * their in-flight instances drain (docs/plans/app-api-module-split.md,
+ * their in-flight instances drain (weldsuite-documentation/plans/app-api-module-split.md,
  * "Workflows draining in app-api").
  */
 

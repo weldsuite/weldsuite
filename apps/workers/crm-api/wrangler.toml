@@ -1,6 +1,6 @@
 # WeldSuite crm-api worker — the crm module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   crm-api.weldsuite.org        production
 #   crm-api-test.weldsuite.org   test
@@ -78,7 +78,7 @@ bucket_name = "weldsuite-storage"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). The sequence
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md). The sequence
 # send_email step (ExecuteSequenceWorkflow) calls it. Every send is checked
 # against the workspace's OutboundLedger, a Durable Object hosted by mail-api
 # and bound here by name.
@@ -95,7 +95,7 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7):
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7):
 # MailboxStoreObject (one per mailbox) and MailIndex (one per workspace), both
 # hosted by mail-api and bound here by name, like the outbound guard's
 # Durable Objects above. Reached only through `@weldsuite/mail-domain/store`'s
@@ -186,7 +186,7 @@ bucket_name = "weldsuite-storage-test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -197,7 +197,7 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7).
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7).
 [[env.test.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"
@@ -278,7 +278,7 @@ bucket_name = "weldsuite-storage"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -289,7 +289,7 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7).
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7).
 [[env.production.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"

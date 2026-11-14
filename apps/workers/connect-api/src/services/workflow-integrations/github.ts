@@ -8,7 +8,7 @@
  * `services/github/connections.ts`). "Connecting"
  * GitHub for WeldConnect is therefore just pointing a `workflow_integrations`
  * row at that existing installation — see "Provider pattern" in
- * docs/plans/weldconnect.md.
+ * weldsuite-documentation/plans/weldconnect.md.
  */
 
 import { eq, and, isNull } from 'drizzle-orm';

@@ -1,5 +1,5 @@
 /**
- * Sales tax rounding (docs/plans/weldbooks-us.md §3, research §7).
+ * Sales tax rounding (weldsuite-documentation/plans/weldbooks-us.md §3, research §7).
  *
  * Streamlined Sales Tax rule: carry the computation to at least three
  * decimals and round half-up to the cent (the cent goes up when the third

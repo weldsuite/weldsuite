@@ -57,7 +57,7 @@ All occur as literal text inside files; the scaffolder does a plain string repla
 ## What's included
 
 - Server choice: WeldSuite cloud, WeldSuite EU or a self-hosted server (`lib/server.ts`,
-  `ServerRuntimeGate`, `ServerRow`; docs/plans/mobile-server-choice.md). Off in production
+  `ServerRuntimeGate`, `ServerRow`; weldsuite-documentation/plans/mobile-server-choice.md). Off in production
   builds until `EXPO_PUBLIC_SERVER_PICKER=on`.
 - Sign-in through the auth facade (`@weldsuite/mobile-platform/auth`): Clerk on WeldSuite cloud,
   the server's OIDC provider elsewhere, with `LoginScreen` from `@weldsuite/mobile-ui`

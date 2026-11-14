@@ -1,7 +1,7 @@
 # Loki as one pod (single binary), chunks and index in the cluster's logs
 # bucket (Hetzner Object Storage, LOGS_* in the cluster's settings), a small
 # local volume for its write-ahead log. Kept 30 days (the GDPR retention for
-# production, docs/plans/eu-observability.md); the test cluster patches
+# production, weldsuite-documentation/plans/eu-observability.md); the test cluster patches
 # retention_period down. The bucket's lifecycle rule deletes a day later as
 # a backstop.
 #

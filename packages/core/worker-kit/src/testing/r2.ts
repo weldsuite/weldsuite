@@ -66,8 +66,13 @@ async function toBytes(value: PutValue): Promise<Uint8Array> {
   throw new TypeError('createMemoryR2(): put() received an unsupported value type.');
 }
 
+/**
+ * A content hash shaped like R2's ETag (32 hex characters). R2 itself uses
+ * MD5; the fake only needs equal bytes to give equal tags, so it takes the
+ * first half of a SHA-256 rather than a broken hash.
+ */
 function etagOf(bytes: Uint8Array): string {
-  return createHash('md5').update(bytes).digest('hex');
+  return createHash('sha256').update(bytes).digest('hex').slice(0, 32);
 }
 
 function resolveRange(size: number, range?: R2Range | Headers): { offset: number; length: number } | undefined {

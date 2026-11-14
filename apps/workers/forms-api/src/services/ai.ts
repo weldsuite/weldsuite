@@ -1,5 +1,5 @@
 /**
- * WeldForms' AI (docs/plans/weldforms.md, "AI"; the Kubernetes editions run
+ * WeldForms' AI (weldsuite-documentation/plans/weldforms.md, "AI"; the Kubernetes editions run
  * the same prompts on `weldsuite-ai` in rust/modules/forms/src/ai.rs, ADR AI-012):
  *
  *  - `generateForm`: a description in, a draft definition out;

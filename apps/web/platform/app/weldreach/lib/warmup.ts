@@ -5,7 +5,7 @@
  * overview.
  *
  * The thresholds mirror `@weldsuite/reach-domain/warmup`, which the platform
- * does not depend on; change them together (docs/plans/weldreach-warmup.md).
+ * does not depend on; change them together (weldsuite-documentation/plans/weldreach-warmup.md).
  */
 
 import {

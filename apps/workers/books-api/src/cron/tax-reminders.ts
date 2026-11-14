@@ -1,5 +1,5 @@
 /**
- * Daily tax reminders (docs/plans/weldbooks-us.md §5): part of the books-api
+ * Daily tax reminders (weldsuite-documentation/plans/weldbooks-us.md §5): part of the books-api
  * sweep, for every US accounting entity of a tenant the sweep visits.
  *
  *   sales tax returns   due in 7 days, due in 1 day (or today), overdue

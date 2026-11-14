@@ -1,6 +1,6 @@
 /**
  * Server-side app licence check. A partner-managed workspace carries a licence
- * listing the apps it may use (docs/plans/reseller-licensing.md); a request to
+ * listing the apps it may use (weldsuite-documentation/plans/reseller-licensing.md); a request to
  * a module none of those apps reads is rejected with 403 APP_NOT_LICENSED.
  *
  * The browser's AppAccessGuard only hides screens, so without this an

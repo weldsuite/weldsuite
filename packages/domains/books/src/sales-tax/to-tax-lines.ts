@@ -1,6 +1,6 @@
 /**
  * From an engine result to what a posted document stores
- * (docs/plans/weldbooks-us.md §4):
+ * (weldsuite-documentation/plans/weldbooks-us.md §4):
  *
  * - `salesTaxResultToBreakdown`: the document's `tax_breakdown`, one row per
  *   line per jurisdiction (`DocumentTaxBreakdownRow`);

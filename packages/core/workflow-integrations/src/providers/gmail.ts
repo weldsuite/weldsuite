@@ -1,6 +1,6 @@
 /**
  * Gmail integration (Google Workspace). Reuses the shared Google OAuth client
- * (see "Provider pattern" in docs/plans/weldconnect.md). Scoped to
+ * (see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md). Scoped to
  * `gmail.send` only — see GOOGLE_SCOPES.gmail in ./google for why.
  */
 

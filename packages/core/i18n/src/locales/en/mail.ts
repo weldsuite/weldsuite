@@ -1275,7 +1275,7 @@ export const mail = {
     },
 
     // Outbound mail guard: why a send was refused, the banner while sending is
-    // restricted (docs/plans/weldmail-outbound-abuse.md).
+    // restricted (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
     sending: {
       errors: {
         sendingLimited: {

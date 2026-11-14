@@ -233,7 +233,7 @@ async function syncStripeCustomer(
 /**
  * Push a business profile onto the workspace's Stripe customer. Best-effort:
  * failures are logged, never thrown. Shared by the settings save and by every
- * change to the default legal entity (docs/plans/legal-entities.md).
+ * change to the default legal entity (weldsuite-documentation/plans/legal-entities.md).
  */
 export async function mirrorStripeCustomer(params: {
   masterDb: MasterDatabase;

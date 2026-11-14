@@ -1,5 +1,5 @@
 /**
- * Email codes for verified-email forms (docs/plans/weldforms.md, "Respondent
+ * Email codes for verified-email forms (weldsuite-documentation/plans/weldforms.md, "Respondent
  * modes"): a 6-digit code, valid 10 minutes, 5 wrong tries then the address is
  * locked for 15 minutes, as WeldSign.
  *

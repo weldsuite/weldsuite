@@ -20,7 +20,7 @@
  *                 the newest deployment record with that task whose latest
  *                 status is `success`, with the deployed commit in
  *                 `payload.sha`: what the private deploy repo records after
- *                 each deploy (docs/plans/main-only-private-deploys.md).
+ *                 each deploy (weldsuite-documentation/plans/main-only-private-deploys.md).
  *             The first source whose commit is an ancestor of HEAD wins.
  *   BEFORE    fallback when no source has one (the push's `before`); a zero
  *             sha counts as missing

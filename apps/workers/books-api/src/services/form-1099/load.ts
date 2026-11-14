@@ -1,6 +1,6 @@
 /**
  * Loads what the yearly 1099 computation needs from the tenant DB and builds
- * the `compute1099Totals` input (docs/plans/weldbooks-us.md section 8).
+ * the `compute1099Totals` input (weldsuite-documentation/plans/weldbooks-us.md section 8).
  *
  * Cash basis, calendar year: the bill payments (`payments.type = 'sent'`) dated
  * in the year, spread over the bills they paid through `payment_allocations`;

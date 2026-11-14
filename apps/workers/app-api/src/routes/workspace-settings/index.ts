@@ -307,7 +307,7 @@ app.get('/', requirePermission('general:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
     const row = await settingsService.getWorkspaceSettings(db);
-    // The business fields live on the default legal entity (docs/plans/legal-entities.md).
+    // The business fields live on the default legal entity (weldsuite-documentation/plans/legal-entities.md).
     return success(c, row ? await businessProfile.overlayDefaultEntity(db, row) : row);
   } catch (err) {
     console.error('[app-api/workspace-settings] get blob failed:', err);

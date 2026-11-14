@@ -35,14 +35,14 @@ WeldSuite is one platform built from modules that share the same customer, conta
 - **Backend:** Hono on Cloudflare Workers
 - **Database:** Neon Postgres (multi-tenant), Drizzle ORM
 - **Infra:** Cloudflare (Workers, KV, R2, Queues, Durable Objects, Hyperdrive)
-- **Tooling:** pnpm 10.34.5 + Turborepo, Node 20+
+- **Tooling:** pnpm 10.34.5 + Turborepo, Node 22+
 
 ## Repository layout
 
 ```
 apps/
   web/        Browser frontends: platform (main SPA), sites, help center, admin, portals
-  workers/    Cloudflare Workers: app-api (the unified backend) + specialized workers
+  workers/    Cloudflare Workers: app-api (core), one API worker per module, background workers
   mobile/     Expo / React Native apps
   tools/      Dev & ops tooling (migrations, storybook, dashboards)
   desktop/    Desktop shell
@@ -54,7 +54,7 @@ packages/
   config/     Shared eslint / typescript configs
 ```
 
-The unified first-party backend is `apps/workers/app-api`. Every endpoint lives there.
+The first-party API is one Cloudflare Worker per module (`apps/workers/<module>-api`) plus `apps/workers/app-api` for the core platform. [AGENTS.md](./AGENTS.md) maps the rest.
 
 ## Configuration & deployment
 

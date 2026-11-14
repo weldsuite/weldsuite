@@ -97,7 +97,7 @@ export async function registerDeviceToken(
   apiBaseUrl: string = defaultApiBaseUrl()
 ): Promise<boolean> {
   // Push reaches the apps on Global only until the content-free relay
-  // exists (docs/plans/mobile-server-choice.md, section 6).
+  // exists (weldsuite-documentation/plans/mobile-server-choice.md, section 6).
   if (!isPushEnabled()) return false;
   try {
     const deviceId = await getDeviceId();

@@ -5,7 +5,7 @@ Where people fill in a form (`forms.weldsuite.org/f/<publicId>`,
 TanStack Start on a Cloudflare Worker (FE-015), plus a Node build for the
 Kubernetes editions (FE-017). Tailwind v4 and `@weldsuite/ui` for the chrome;
 the form itself is `@weldsuite/forms-renderer`. No Clerk, no database, no
-tenant secrets (ADR FORMS-002). Plan: `docs/plans/weldforms.md`.
+tenant secrets (ADR FORMS-002). Plan: `weldsuite-documentation/plans/weldforms.md`.
 
 ## Routes
 

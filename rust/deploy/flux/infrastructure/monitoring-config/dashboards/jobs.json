@@ -120,7 +120,7 @@
           "expr": "sum by (cronjob) (label_replace((kube_job_failed{namespace=\"weldsuite\", condition=\"true\"} == 1) * on (job_name, namespace) group_left (owner_name) kube_job_owner{namespace=\"weldsuite\", owner_kind=\"CronJob\"}, \"cronjob\", \"$1\", \"owner_name\", \"(.*)\")) or max by (cronjob) (kube_cronjob_info{namespace=\"weldsuite\"} * 0)"
         }
       ],
-      "description": "Times are how long ago. Failed runs kept: failed Jobs Kubernetes still holds (failedJobsHistoryLimit); their pods' logs say why.",
+      "description": "Times are how long ago. Failed runs kept: failed Jobs Kubernetes still holds (the last three, each for a day: the chart's cron.ttlSecondsAfterFinished); their pods' logs say why.",
       "transformations": [
         {
           "id": "merge",

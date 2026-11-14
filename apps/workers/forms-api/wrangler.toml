@@ -1,6 +1,6 @@
 # WeldSuite forms-api worker — the forms module's API (WeldForms).
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   forms-api.weldsuite.org        production
 #   forms-api-test.weldsuite.org   test

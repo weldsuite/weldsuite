@@ -1,7 +1,7 @@
 /**
  * Normalization rules the package owns, so WeldBooks never sees provider
  * quirks: amounts, dates, fingerprints, status roll-up, the date-range re-pull
- * window and pending matching (docs/plans/weldbooks-us.md section 9).
+ * window and pending matching (weldsuite-documentation/plans/weldbooks-us.md section 9).
  */
 
 import type { ConnectionStatus } from './types';

@@ -91,7 +91,7 @@ config:
   # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
   # every URL setting that names this host from it.
   publicUrl: https://app.${DOMAIN}
-  # AI on Mistral, in the EU (ADR AI-012, docs/plans/eu-ai-mistral.md):
+  # AI on Mistral, in the EU (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md):
   # every AI feature runs there unless a workspace admin opts in to a
   # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
   # AI_KEYS_ENCRYPTION_KEY (seals the keys workspaces bring); the server
@@ -358,7 +358,7 @@ mailInbound:
       # Only nodes with a Haraka pod pass the load balancer's health check.
       externalTrafficPolicy: Local
 
-# The MTA (docs/plans/eu-mail-service.md): system and customer mail from the
+# The MTA (weldsuite-documentation/plans/eu-mail-service.md): system and customer mail from the
 # mail nodes' own addresses (hetzner mail_pools, one node each to start),
 # its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail

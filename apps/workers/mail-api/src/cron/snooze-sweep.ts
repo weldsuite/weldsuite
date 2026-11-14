@@ -20,7 +20,7 @@
  * Only workspace mailboxes are swept. Personal inboxes live in the shared
  * personal database, which is personal-api's.
  *
- * Mailbox-store mode (design docs/plans/weldmail-mailbox-store-design.md,
+ * Mailbox-store mode (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md,
  * task D2, "DATA-008"): a due workspace is still only ever the ones the D1
  * index lists — this sweep does not change which workspaces it opens, only
  * how it wakes mail once a workspace's tenant DB is open. `postgres`/`shadow`

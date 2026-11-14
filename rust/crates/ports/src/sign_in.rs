@@ -22,7 +22,7 @@
 //! The trait is object safe (boxed futures), like [`crate::Identity`]: the
 //! provider is picked at run time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -260,6 +260,8 @@ pub enum CodeKind {
     EmailSecondFactor,
     /// Lets somebody set a new password.
     PasswordReset,
+    /// Comes with an invitation: proves the address and sets the first password.
+    Invitation,
 }
 
 /// How the provider writes a code it emails.
@@ -429,6 +431,18 @@ pub trait SignInProvider: Send + Sync {
         password: &'a str,
     ) -> BoxFuture<'a, SignInResult<()>>;
 
+    /// Accept an invitation: check the code that came with it, which proves
+    /// the address, then give the account its first password. A code that
+    /// is wrong, expired or already used is [`SignInError::InvalidCode`]. The
+    /// code is spent once it checks out, so a password the provider then
+    /// refuses ([`SignInError::WeakPassword`]) is set with a password reset.
+    fn accept_invitation<'a>(
+        &'a self,
+        user_id: &'a str,
+        code: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, SignInResult<()>>;
+
     /// The provider's own page for this auth request, for what the
     /// platform's screens don't do (a passkey, enrolling a second factor).
     fn hosted_url(&self, auth_request: &str) -> Option<String>;
@@ -457,6 +471,8 @@ struct MemoryState {
     sent: Vec<(&'static str, String)>,
     /// Codes handed back instead (`CodeDelivery::Return`), newest last.
     returned: Vec<(&'static str, String)>,
+    /// Accounts with an invite code not used yet.
+    invited: HashSet<String>,
     next_id: u64,
     failure: Option<SignInError>,
     /// How many sessions a new account refuses before it is known.
@@ -514,6 +530,27 @@ impl MemorySignIn {
                 ..AuthMethods::default()
             },
         });
+        id
+    }
+
+    /// Add an invited account: no password, an unverified address and an
+    /// open invite code ([`MemorySignIn::CODE`]); its id.
+    pub fn add_invited_user(&self, email: &str) -> String {
+        let mut state = self.lock();
+        state.next_id += 1;
+        let id = format!("user_{}", state.next_id);
+        state.users.push(MemoryUser {
+            user: SignInUser {
+                id: id.clone(),
+                organization_id: Some("org_invited".to_owned()),
+                email: Some(email.to_owned()),
+                status: UserStatus::Initial,
+                ..SignInUser::default()
+            },
+            password: String::new(),
+            methods: AuthMethods::default(),
+        });
+        state.invited.insert(id.clone());
         id
     }
 
@@ -675,7 +712,8 @@ impl SignInProvider for MemorySignIn {
             match kind {
                 CodeKind::EmailVerification
                 | CodeKind::EmailSecondFactor
-                | CodeKind::PasswordReset => CodeFormat {
+                | CodeKind::PasswordReset
+                | CodeKind::Invitation => CodeFormat {
                     length: 6,
                     letters: true,
                     uppercase: true,
@@ -969,6 +1007,32 @@ impl SignInProvider for MemorySignIn {
                     return Err(SignInError::WeakPassword);
                 }
                 password.clone_into(&mut state.user_mut(user_id)?.password);
+                Ok(())
+            })
+        })
+    }
+
+    fn accept_invitation<'a>(
+        &'a self,
+        user_id: &'a str,
+        code: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, SignInResult<()>> {
+        Box::pin(async move {
+            self.run(|state| {
+                // As the provider: a wrong code, or none open, is refused
+                // alike; a code that checks out is spent before the password.
+                if code != Self::CODE || !state.invited.remove(user_id) {
+                    return Err(SignInError::InvalidCode);
+                }
+                let user = state.user_mut(user_id)?;
+                user.user.email_verified = true;
+                user.user.status = UserStatus::Active;
+                if password.len() < 8 {
+                    return Err(SignInError::WeakPassword);
+                }
+                password.clone_into(&mut user.password);
+                user.methods.password = true;
                 Ok(())
             })
         })

@@ -1,4 +1,4 @@
-//! WeldAgent on the Kubernetes editions (ADR AI-012, `docs/plans/eu-ai-mistral.md`
+//! WeldAgent on the Kubernetes editions (ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`
 //! "Phase 5"): agent-api's `/api/weldagent`, `/api/ai-models` and
 //! `/api/chat-agent` (`apps/workers/agent-api/src/routes/`), with the domain
 //! rules of `@weldsuite/agent-domain` (`packages/domains/agent/src/`).

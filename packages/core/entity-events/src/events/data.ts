@@ -623,6 +623,61 @@ export interface PanelProjectEventData {
   status?: string;
 }
 
+/** A WeldPanel report: id, name, kind, visibility and project. The query spec stays off the bus. */
+export interface PanelReportEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  kind?: string;
+  visibility?: string;
+}
+
+export interface PanelDashboardEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  visibility?: string;
+}
+
+export interface PanelCohortEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+}
+
+export interface PanelEventDefinitionEventData {
+  id: string;
+  projectId?: string;
+  kind?: string;
+  name?: string;
+  hidden?: boolean;
+  verified?: boolean;
+}
+
+export interface PanelEventDefinitionEventData {
+  id: string;
+  projectId?: string;
+  kind?: string;
+  name?: string;
+  hidden?: boolean;
+  verified?: boolean;
+}
+
+export interface PanelHeatmapPageEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  urlPattern?: string;
+}
+
+export interface PanelKeyEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  /** The key's visible start (`wps_ab12…`), never the key. */
+  prefix?: string;
+}
+
 export interface MergeTeamEventData {
   id: string;
   key?: string;
@@ -884,6 +939,12 @@ export interface EntityEventData {
 
   // WeldPanel
   panel_project: PanelProjectEventData;
+  panel_report: PanelReportEventData;
+  panel_dashboard: PanelDashboardEventData;
+  panel_cohort: PanelCohortEventData;
+  panel_event_definition: PanelEventDefinitionEventData;
+  panel_heatmap_page: PanelHeatmapPageEventData;
+  panel_key: PanelKeyEventData;
 
   // WeldMerge
   merge_team: MergeTeamEventData;

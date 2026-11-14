@@ -1,6 +1,6 @@
 /**
  * The manual sales tax engine: rates, zones and taxability rules the user
- * keeps (docs/plans/weldbooks-us.md §3). Right for a business collecting in one
+ * keeps (weldsuite-documentation/plans/weldbooks-us.md §3). Right for a business collecting in one
  * or two states; the UI says the rates are the user's responsibility.
  *
  * Per line and per agency it works out the taxable, exempt and non-taxable

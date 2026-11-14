@@ -663,6 +663,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "mail",
     "support",
     "help",
+    "test",
     "agents",
     "apps",
     "appstore",
@@ -678,6 +679,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "social",
     "welcome",
     "weldads",
+    "weldboard",
     "weldbooks",
     "weldcalendar",
     "weldcall",
@@ -690,6 +692,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "welddocs",
     "welddrive",
     "weldflow",
+    "weldforms",
     "weldhost",
     "weldhr",
     "weldknow",
@@ -1046,6 +1049,40 @@ mod tests {
         assert!(!slug_format("2acme"));
         assert!(!slug_format("acme-"));
         assert!(!slug_format("Acme"));
+    }
+
+    #[test]
+    fn slugs_refuse_reserved_names() {
+        for slug in ["test", "settings", "weldforms"] {
+            assert!(read_slug(&json!({ "slug": slug })).is_err(), "{slug}");
+        }
+        assert_eq!(
+            read_slug(&json!({ "slug": "testing" })).expect("valid"),
+            "testing"
+        );
+    }
+
+    #[test]
+    fn reserved_slugs_match_the_typescript_list() {
+        let source = include_str!(
+            "../../../../../packages/clients/app-api-client/src/schemas/workspace-slug.ts"
+        );
+        let (_, after_name) = source
+            .split_once("RESERVED_WORKSPACE_SLUGS: readonly string[] = [")
+            .expect("RESERVED_WORKSPACE_SLUGS in workspace-slug.ts");
+        let (list, _) = after_name
+            .split_once("];")
+            .expect("the list's closing bracket");
+        let mut typescript: Vec<&str> = list
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or_default().trim())
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| entry.trim_end_matches(',').trim_matches('\''))
+            .collect();
+        let mut rust: Vec<&str> = RESERVED_SLUGS.to_vec();
+        typescript.sort_unstable();
+        rust.sort_unstable();
+        assert_eq!(rust, typescript);
     }
 
     #[test]

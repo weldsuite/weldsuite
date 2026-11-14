@@ -401,7 +401,7 @@ const DRIVE_MAIL_ATTACHMENTS_LIMIT = 2000;
 
 /**
  * `/api/drive/all`'s mail attachments, through the mailbox store in
- * `shadow`/`object`/`object-only` mode (docs/plans/weldmail-mailbox-store-
+ * `shadow`/`object`/`object-only` mode (weldsuite-documentation/plans/weldmail-mailbox-store-
  * design.md §5: "Drive: `recentAttachments(accountIds, {limit: 2000 per
  * mailbox})` + Σ `totalCount`, merged by `createdAt`"), keeping today's join
  * query verbatim in `postgres` mode (and when no `mail` was resolved at all —

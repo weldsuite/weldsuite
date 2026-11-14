@@ -1,5 +1,5 @@
 {
-  "id": "db849b86-9baa-425f-89ca-e2ec99306370",
+  "id": "5fb4020f-fed9-47da-bd92-b2cfd67a2386",
   "prevId": "0803168f-c857-48e5-9654-f54d886df408",
   "version": "7",
   "dialect": "postgresql",
@@ -1469,205 +1469,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.billing_accounts": {
-      "name": "billing_accounts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'mollie'"
-        },
-        "customer_id": {
-          "name": "customer_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "mandate_id": {
-          "name": "mandate_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "mandate_method": {
-          "name": "mandate_method",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "mandate_label": {
-          "name": "mandate_label",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unit_amount": {
-          "name": "unit_amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "currency": {
-          "name": "currency",
-          "type": "varchar(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'EUR'"
-        },
-        "anchor_day": {
-          "name": "anchor_day",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_charge_at": {
-          "name": "next_charge_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scheduled_plan_id": {
-          "name": "scheduled_plan_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scheduled_seats": {
-          "name": "scheduled_seats",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scheduled_cycle": {
-          "name": "scheduled_cycle",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "past_due_since": {
-          "name": "past_due_since",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "past_due_payment_id": {
-          "name": "past_due_payment_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dunning_reminded_at": {
-          "name": "dunning_reminded_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "billing_accounts_next_charge_at_idx": {
-          "name": "billing_accounts_next_charge_at_idx",
-          "columns": [
-            {
-              "expression": "next_charge_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "billing_accounts_past_due_since_idx": {
-          "name": "billing_accounts_past_due_since_idx",
-          "columns": [
-            {
-              "expression": "past_due_since",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "billing_accounts_customer_id_idx": {
-          "name": "billing_accounts_customer_id_idx",
-          "columns": [
-            {
-              "expression": "customer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "billing_accounts_workspace_id_workspaces_id_fk": {
-          "name": "billing_accounts_workspace_id_workspaces_id_fk",
-          "tableFrom": "billing_accounts",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "billing_accounts_workspace_id_unique": {
-          "name": "billing_accounts_workspace_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.billing_invoices": {
       "name": "billing_invoices",
       "schema": "",
@@ -1684,18 +1485,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'stripe'"
-        },
         "stripe_invoice_id": {
           "name": "stripe_invoice_id",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "stripe_customer_id": {
           "name": "stripe_customer_id",
@@ -1706,30 +1500,6 @@
         "stripe_subscription_id": {
           "name": "stripe_subscription_id",
           "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_invoice_id": {
-          "name": "provider_invoice_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_payment_id": {
-          "name": "provider_payment_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lines": {
-          "name": "lines",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "document_key": {
-          "name": "document_key",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1923,13 +1693,6 @@
           "columns": [
             "stripe_invoice_id"
           ]
-        },
-        "billing_invoices_provider_payment_id_unique": {
-          "name": "billing_invoices_provider_payment_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "provider_payment_id"
-          ]
         }
       },
       "policies": {},
@@ -1958,13 +1721,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'stripe'"
-        },
         "stripe_payment_intent_id": {
           "name": "stripe_payment_intent_id",
           "type": "varchar(255)",
@@ -1974,36 +1730,6 @@
         "stripe_charge_id": {
           "name": "stripe_charge_id",
           "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_payment_id": {
-          "name": "provider_payment_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "paid_at": {
-          "name": "paid_at",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
@@ -2174,20 +1900,6 @@
           "nullsNotDistinct": false,
           "columns": [
             "stripe_payment_intent_id"
-          ]
-        },
-        "billing_payments_provider_payment_id_unique": {
-          "name": "billing_payments_provider_payment_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "provider_payment_id"
-          ]
-        },
-        "billing_payments_idempotency_key_unique": {
-          "name": "billing_payments_idempotency_key_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "idempotency_key"
           ]
         }
       },
@@ -5094,6 +4806,27 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "event_credits_charged": {
+          "name": "event_credits_charged",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "recording_credits_charged": {
+          "name": "recording_credits_charged",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "notified": {
+          "name": "notified",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "created_at": {
           "name": "created_at",

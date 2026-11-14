@@ -3,7 +3,7 @@
  * provider keys. Tenant DB.
  *
  * Used by the Rust backend (EU and self-hosted editions, ADR AI-012); the
- * tables stay empty on Global. Plan: `docs/plans/eu-ai-mistral.md`.
+ * tables stay empty on Global. Plan: `weldsuite-documentation/plans/eu-ai-mistral.md`.
  *
  * - `ai_settings` is a singleton: one row per workspace database.
  * - `ai_provider_keys` holds a workspace's own key per provider, encrypted with

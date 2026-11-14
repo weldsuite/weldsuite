@@ -60,7 +60,7 @@ runs:
         TARGET: ${{ inputs.environment }}
       run: |
         set -euo pipefail
-        # Server choice (docs/plans/mobile-server-choice.md): test builds show the
+        # Server choice (weldsuite-documentation/plans/mobile-server-choice.md): test builds show the
         # picker with the EU test cluster; production keeps it off (Global only)
         # until the EU edition launches. Same values as each app's eas.json.
         if [ "$TARGET" = "test" ]; then
