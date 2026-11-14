@@ -25,6 +25,39 @@
     "workspace": "Workspace",
     "workspaceId": "Workspace id"
   },
+  "auth": {
+    "passwordReset": {
+      "body": "We received a request to reset the password for {email}.",
+      "expires": "The link and code expire in {minutes} minutes.",
+      "footer": "If you didn't ask for this, you can ignore this email. Your password stays the same.",
+      "heading": "Choose a new password",
+      "kicker": "Password reset",
+      "preview": "Choose a new password for {email}.",
+      "reset": "Reset password",
+      "subject": "Reset your WeldSuite password",
+      "useCode": "Or enter this code on the reset screen:"
+    },
+    "signInCode": {
+      "body": "Enter this code to finish signing in:",
+      "expires": "The code expires in {minutes} minutes.",
+      "footer": "If you didn't try to sign in, someone may know your password. Change it as soon as you can.",
+      "heading": "Sign in to WeldSuite",
+      "kicker": "Your sign-in code",
+      "preview": "Your sign-in code is {code}.",
+      "subject": "Your WeldSuite sign-in code: {code}"
+    },
+    "verifyEmail": {
+      "body": "Confirm this address to finish setting up your account.",
+      "confirm": "Confirm email address",
+      "expires": "The link and code expire in {minutes} minutes.",
+      "footer": "If you didn't create a WeldSuite account, you can ignore this email.",
+      "heading": "Welcome to WeldSuite",
+      "kicker": "Confirm your email address",
+      "preview": "Your confirmation code is {code}.",
+      "subject": "Confirm your email address for WeldSuite",
+      "useCode": "Or enter this code on the sign-in screen:"
+    }
+  },
   "booking": {
     "date": "Date",
     "host": "Host",

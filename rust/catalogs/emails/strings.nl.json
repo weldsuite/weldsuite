@@ -25,6 +25,39 @@
     "workspace": "Werkruimte",
     "workspaceId": "Werkruimte-id"
   },
+  "auth": {
+    "passwordReset": {
+      "body": "We hebben een verzoek ontvangen om het wachtwoord van {email} opnieuw in te stellen.",
+      "expires": "De link en code verlopen over {minutes} minuten.",
+      "footer": "Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren. Je wachtwoord blijft hetzelfde.",
+      "heading": "Kies een nieuw wachtwoord",
+      "kicker": "Wachtwoord opnieuw instellen",
+      "preview": "Kies een nieuw wachtwoord voor {email}.",
+      "reset": "Wachtwoord opnieuw instellen",
+      "subject": "Stel je WeldSuite-wachtwoord opnieuw in",
+      "useCode": "Of vul deze code in op het scherm voor een nieuw wachtwoord:"
+    },
+    "signInCode": {
+      "body": "Vul deze code in om het inloggen af te ronden:",
+      "expires": "De code verloopt over {minutes} minuten.",
+      "footer": "Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.",
+      "heading": "Inloggen bij WeldSuite",
+      "kicker": "Je inlogcode",
+      "preview": "Je inlogcode is {code}.",
+      "subject": "Je inlogcode voor WeldSuite: {code}"
+    },
+    "verifyEmail": {
+      "body": "Bevestig dit adres om het aanmaken van je account af te ronden.",
+      "confirm": "E-mailadres bevestigen",
+      "expires": "De link en code verlopen over {minutes} minuten.",
+      "footer": "Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.",
+      "heading": "Welkom bij WeldSuite",
+      "kicker": "Bevestig je e-mailadres",
+      "preview": "Je bevestigingscode is {code}.",
+      "subject": "Bevestig je e-mailadres voor WeldSuite",
+      "useCode": "Of vul deze code in op het inlogscherm:"
+    }
+  },
   "booking": {
     "date": "Datum",
     "host": "Organisator",

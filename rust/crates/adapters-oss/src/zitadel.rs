@@ -10,7 +10,7 @@
 //! | organization (a workspace) | organization; its id is what `workspaces.clerk_org_id` holds on Kubernetes |
 //! | slug, membership cap | organization metadata `weldsuite.slug`, `weldsuite.max_memberships` |
 //! | membership with a role | an authorization (user grant) on the WeldSuite project in that organization, role key without `org:` (`org:admin` → `admin`) |
-//! | invitation | a user grant on a human user who hasn't verified their email yet; the user is created in the organization and Zitadel sends the invite (`invite_code`) |
+//! | invitation | a user grant on a human user who hasn't verified their email yet; the user is created in the organization with an invite code (`invite_code`), which Zitadel emails, or, with an [`InvitationMailer`], hands back for WeldSuite's own email |
 //! | invitation id | `{userId}:{grantId}` |
 //!
 //! So `memberships` lists the grants of signed-up users and `invitations`
@@ -42,7 +42,7 @@
 //! grant may take a moment to show up in a list after it was made.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use crate::zitadel_api::{ApiFailure, ZitadelApi, millis, safe_path, str_field};
@@ -52,9 +52,9 @@ use reqwest::Method;
 use serde_json::{Value, json};
 use weldsuite_ports::{
     BoxFuture, ChangeEvent, Identity, IdentityChange, IdentityError, IdentityResult, Invitation,
-    ListPage, Listing, MemberUser, Membership, NewInvitation, NewMembership, NewOrganization,
-    Organization, OrganizationChanges, OrganizationRef, User, UserChanges, UserProfile,
-    merge_metadata,
+    InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser, Membership, NewInvitation,
+    NewMembership, NewOrganization, Organization, OrganizationChanges, OrganizationRef, User,
+    UserChanges, UserProfile, merge_metadata,
 };
 
 const SLUG_KEY: &str = "weldsuite.slug";
@@ -86,6 +86,9 @@ pub struct ZitadelOptions {
     pub invite_url_template: Option<String>,
     /// The sender name in Zitadel's invite email.
     pub application_name: String,
+    /// Sends the invitation in WeldSuite's template; Zitadel then hands the
+    /// invite code back instead of mailing its own. `None`: Zitadel's email.
+    pub invitation_mailer: Option<Arc<dyn InvitationMailer>>,
     /// `Host` header for every call, when `api_url` is an in-cluster address
     /// (Zitadel picks the instance by host).
     pub host: Option<String>,
@@ -97,6 +100,7 @@ impl std::fmt::Debug for ZitadelOptions {
             .field("api_url", &self.api_url)
             .field("project_id", &self.project_id)
             .field("host", &self.host)
+            .field("invitation_mailer", &self.invitation_mailer.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -398,6 +402,126 @@ impl ZitadelIdentity {
             .ok_or_else(|| IdentityError::Unavailable("no userGrantId in the answer".to_owned()))
     }
 
+    /// The invite code of a user just created: Zitadel's email, or, with an
+    /// invitation mailer, handed back and sent in WeldSuite's template. The
+    /// invitation stands when that email fails (logged): "Resend" sends a
+    /// new one, as with Zitadel's own.
+    async fn send_invite_code(
+        &self,
+        org: &str,
+        user_id: &str,
+        email: &str,
+        invitation: &NewInvitation,
+    ) -> IdentityResult<()> {
+        let path = format!("/v2/users/{user_id}/invite_code");
+        let Some(mailer) = &self.options.invitation_mailer else {
+            let mut send = json!({ "applicationName": self.options.application_name });
+            if let Some(template) = &self.options.invite_url_template {
+                send["urlTemplate"] = json!(template);
+            }
+            self.call(Method::POST, &path, None, Some(json!({ "sendCode": send })))
+                .await?;
+            return Ok(());
+        };
+        let answer = self
+            .call(Method::POST, &path, None, Some(json!({ "returnCode": {} })))
+            .await?;
+        let code = str_field(&answer, "inviteCode")
+            .filter(|code| !code.is_empty())
+            .ok_or_else(|| IdentityError::Unavailable("no inviteCode in the answer".to_owned()))?;
+        let login_name = match self
+            .call(Method::GET, &format!("/v2/users/{user_id}"), None, None)
+            .await
+        {
+            Ok(found) => found
+                .get("user")
+                .and_then(|user| str_field(user, "preferredLoginName"))
+                .unwrap_or(email)
+                .to_owned(),
+            Err(error) => {
+                tracing::warn!(%error, "zitadel: login name not read for the invite link");
+                email.to_owned()
+            }
+        };
+        let (inviter_name, inviter_email) = self.inviter(invitation).await;
+        let workspace_name = match self.organization_inner(org).await {
+            Ok(organization) => Some(organization.name).filter(|name| !name.is_empty()),
+            Err(error) => {
+                tracing::warn!(%error, "zitadel: workspace name not read for the invitation");
+                None
+            }
+        };
+        let message = InvitationEmail {
+            to: email.to_owned(),
+            inviter_name,
+            inviter_email,
+            workspace_name,
+            role: invitation.role.clone(),
+            accept_url: self.invite_link(org, user_id, &login_name, code),
+        };
+        if let Err(error) = mailer.send(&message).await {
+            tracing::error!(%error, "zitadel: invitation email not sent");
+        }
+        Ok(())
+    }
+
+    /// Where the invitee accepts, as Zitadel would have linked it: the
+    /// configured template (`{{.UserID}}`, `{{.Code}}`, `{{.OrgID}}`, as
+    /// Zitadel's `RenderConfirmURLTemplate`), else its login's invite page
+    /// (`login.InviteUserLink`).
+    fn invite_link(&self, org: &str, user_id: &str, login_name: &str, code: &str) -> String {
+        if let Some(template) = &self.options.invite_url_template {
+            return template
+                .replace("{{.UserID}}", user_id)
+                .replace("{{.Code}}", code)
+                .replace("{{.OrgID}}", org);
+        }
+        let origin = self.options.host.as_deref().map_or_else(
+            || self.options.api_url.clone(),
+            |host| format!("https://{host}"),
+        );
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("authRequestID", "")
+            .append_pair("code", code)
+            .append_pair("loginname", login_name)
+            .append_pair("orgID", org)
+            .append_pair("userID", user_id)
+            .finish();
+        format!("{origin}/ui/login/user/invite?{query}")
+    }
+
+    /// The inviter's name and address for the invitation email: the user who
+    /// invites (`invited_by`, else `inviter_user_id`), else the name in
+    /// `invitedByName` (partner onboarding).
+    async fn inviter(&self, invitation: &NewInvitation) -> (Option<String>, Option<String>) {
+        let named = invitation
+            .public_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("invitedByName"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned);
+        let Some(user_id) = invitation
+            .invited_by
+            .as_deref()
+            .or(invitation.inviter_user_id.as_deref())
+        else {
+            return (named, None);
+        };
+        match self.user_profile_inner(user_id).await {
+            Ok(profile) => {
+                let email = profile.primary_email().map(str::to_owned);
+                let name = person_name(profile.first_name.as_deref(), profile.last_name.as_deref());
+                (name.or(named).or_else(|| email.clone()), email)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "zitadel: inviter not read for the invitation");
+                (named, None)
+            }
+        }
+    }
+
     async fn invite_inner(
         &self,
         org: &str,
@@ -427,17 +551,8 @@ impl ZitadelIdentity {
             let user_id = str_field(&created, "userId")
                 .map(str::to_owned)
                 .ok_or_else(|| IdentityError::Unavailable("no userId in the answer".to_owned()))?;
-            let mut send = json!({ "applicationName": self.options.application_name });
-            if let Some(template) = &self.options.invite_url_template {
-                send["urlTemplate"] = json!(template);
-            }
-            self.call(
-                Method::POST,
-                &format!("/v2/users/{user_id}/invite_code"),
-                None,
-                Some(json!({ "sendCode": send })),
-            )
-            .await?;
+            self.send_invite_code(org, &user_id, email, invitation)
+                .await?;
             (user_id, true)
         };
         let grant_id = self.add_grant(org, &user_id, &invitation.role).await?;
@@ -1036,6 +1151,19 @@ fn change_of(event: &Value, project_id: &str) -> Option<IdentityChange> {
 /// when no slug is given.
 fn short_suffix() -> String {
     weldsuite_kit::random_string(6, "abcdefghijklmnopqrstuvwxyz0123456789")
+}
+
+/// A user's name from Zitadel's given and family name. An invited user gets
+/// the address's local part as both (Zitadel needs both); that is one name.
+fn person_name(first: Option<&str>, last: Option<&str>) -> Option<String> {
+    let first = first.map(str::trim).filter(|name| !name.is_empty());
+    let last = last.map(str::trim).filter(|name| !name.is_empty());
+    match (first, last) {
+        (Some(first), Some(last)) if first == last => Some(first.to_owned()),
+        (Some(first), Some(last)) => Some(format!("{first} {last}")),
+        (Some(name), None) | (None, Some(name)) => Some(name.to_owned()),
+        (None, None) => None,
+    }
 }
 
 impl Identity for ZitadelIdentity {

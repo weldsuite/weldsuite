@@ -186,7 +186,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(dir = %spa.root().display(), "serving the SPA");
     }
 
-    let sign_in = sign_in_screens(&config, infra.cache.clone())?;
+    let sign_in = sign_in_screens(&config, infra.cache.clone(), infra.mail.clone())?;
 
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
@@ -318,6 +318,7 @@ fn session_verifier(
 fn sign_in_screens(
     config: &Config,
     cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
+    mail: Option<Arc<dyn weldsuite_ports::DynSystemMail>>,
 ) -> Result<Option<weldsuite_core_signin::SignInState>, Box<dyn std::error::Error>> {
     let AuthConfig::Oidc {
         settings,
@@ -348,16 +349,21 @@ fn sign_in_screens(
     });
     if config.platform_url.is_none() {
         tracing::warn!(
-            "PLATFORM_URL is not set: links in sign-in emails open the provider's own pages"
+            "PLATFORM_URL is not set: the provider sends the sign-in emails, its links opening its own pages"
         );
+    } else if mail.is_none() {
+        tracing::warn!("SMTP_URL is not set: the provider sends the sign-in emails");
     }
     tracing::info!("sign-in screens: the platform's own, on the provider's login API");
-    Ok(Some(weldsuite_core_signin::SignInState::new(
-        Arc::new(provider),
-        cache,
-        config.platform_url.as_deref(),
-        config.trusted_proxies,
-    )))
+    Ok(Some(
+        weldsuite_core_signin::SignInState::new(
+            Arc::new(provider),
+            cache,
+            config.platform_url.as_deref(),
+            config.trusted_proxies,
+        )
+        .with_mail(mail),
+    ))
 }
 
 /// With Restate configured: serve the jobs service on `JOBS_PORT` until

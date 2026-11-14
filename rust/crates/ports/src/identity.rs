@@ -55,7 +55,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
 
-use crate::BoxFuture;
+use crate::{BoxFuture, PortError};
 
 /// Why an identity call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +299,31 @@ pub struct NewInvitation {
     pub public_metadata: Option<Value>,
     /// Who invites (`inviter_user_id`); left out of the request when `None`.
     pub inviter_user_id: Option<String>,
+    /// Who invites, for WeldSuite's own invitation email only
+    /// ([`InvitationMailer`]): no provider request carries it.
+    pub invited_by: Option<String>,
+}
+
+/// The invitation email WeldSuite sends itself when the provider hands the
+/// invite code back instead of mailing it (Zitadel on the Kubernetes
+/// editions; Clerk's is turned off and workspace-worker sends Global's).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InvitationEmail {
+    pub to: String,
+    /// The inviter's name; `None` for "a teammate".
+    pub inviter_name: Option<String>,
+    /// The inviter's address, as Reply-To.
+    pub inviter_email: Option<String>,
+    pub workspace_name: Option<String>,
+    /// The provider's role key (`org:admin`, `org:member`).
+    pub role: String,
+    /// Where the invitee accepts: the provider's page, with the code.
+    pub accept_url: String,
+}
+
+/// Sends [`InvitationEmail`]s.
+pub trait InvitationMailer: Send + Sync {
+    fn send<'a>(&'a self, email: &'a InvitationEmail) -> BoxFuture<'a, Result<(), PortError>>;
 }
 
 /// What [`Identity::add_membership`] sends.

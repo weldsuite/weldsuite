@@ -346,6 +346,38 @@ const SPECS: Spec[] = [
       expiresInMinutes: S('minutes'),
     }),
   },
+  // WeldSuite's own sign-in screens (ADR SEC-016): the codes Zitadel hands
+  // back instead of mailing them, and the invitation it used to send.
+  {
+    id: 'auth.verify-email',
+    flags: [],
+    fields: ['code', 'url', 'minutes'],
+    props: () => ({ code: S('code'), url: S('url'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'auth.sign-in-code',
+    flags: [],
+    fields: ['code', 'minutes'],
+    props: () => ({ code: S('code'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'auth.password-reset',
+    flags: [],
+    fields: ['email', 'code', 'url', 'minutes'],
+    props: () => ({ email: S('email'), code: S('code'), url: S('url'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'workspace.invitation',
+    flags: [],
+    fields: ['inviter_name', 'workspace_name', 'role', 'accept_url', 'recipient_email'],
+    props: () => ({
+      inviterName: S('inviter_name'),
+      workspaceName: S('workspace_name'),
+      role: S('role'),
+      acceptUrl: S('accept_url'),
+      recipientEmail: S('recipient_email'),
+    }),
+  },
   {
     id: 'hr.payslip-ready',
     flags: ['name', 'url'],

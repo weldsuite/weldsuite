@@ -24,7 +24,7 @@ use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
 };
 
-use crate::config::{FlagSourceKind, InfraConfig};
+use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -211,7 +211,7 @@ fn jobs(
 }
 
 /// The SMTP relay, when `SMTP_URL` is set. It connects on the first send.
-fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
+pub(crate) fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
     let Some(url) = &config.smtp_url else {
         tracing::warn!("SMTP_URL is not set: system mail is skipped");
         return Ok(None);
@@ -224,22 +224,39 @@ fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, E
 }
 
 /// Zitadel's management API, when `ZITADEL_*` is set.
-fn identity(config: &InfraConfig) -> Result<Option<Arc<dyn Identity>>, Error> {
+fn identity(
+    config: &InfraConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Result<Option<Arc<dyn Identity>>, Error> {
     let Some(settings) = &config.identity else {
         tracing::warn!(
             "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
         );
         return Ok(None);
     };
-    let identity = ZitadelIdentity::new(ZitadelOptions {
+    let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
+    Ok(Some(Arc::new(identity)))
+}
+
+/// How to reach Zitadel's management API. With system mail, invitations go
+/// out in WeldSuite's template and Zitadel hands the invite code back.
+pub(crate) fn zitadel_options(
+    settings: &IdentityConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> ZitadelOptions {
+    ZitadelOptions {
         api_url: settings.api_url.clone(),
         token: settings.token.clone(),
         project_id: settings.project_id.clone(),
         invite_url_template: settings.invite_url_template.clone(),
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
-    })?;
-    Ok(Some(Arc::new(identity)))
+        invitation_mailer: mail.map(|mail| {
+            Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
+                Arc::clone(mail),
+            )) as Arc<dyn weldsuite_ports::InvitationMailer>
+        }),
+    }
 }
 
 /// The CloudNativePG provisioner, when `TENANT_SHARDS` is set.
@@ -286,7 +303,7 @@ pub(crate) async fn connect(
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let identity = identity(config)?;
+    let identity = identity(config, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,

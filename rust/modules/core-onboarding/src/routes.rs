@@ -1058,6 +1058,7 @@ async fn invitations(
             redirect_url: Some(redirect.clone()),
             public_metadata: None,
             inviter_user_id: Some(user_id.clone()),
+            invited_by: None,
         };
         match with_identity(identity.as_ref(), |i| i.invite(&org, &invitation)).await {
             Ok(_) => sent += 1,

@@ -23,6 +23,10 @@
 //! | `send_email_verification`, `verify_email` | `POST /v2/users/{id}/email/send`, `/email/verify` |
 //! | `send_password_reset`, `reset_password` | `POST /v2/users/{id}/password_reset`, `/password` |
 //!
+//! Every emailed code is either Zitadel's to send (`sendCode` / `sendLink`,
+//! in its own template) or handed back (`returnCode`) for the caller to
+//! send in WeldSuite's template ([`CodeDelivery`]).
+//!
 //! What Zitadel leaves to its login client, and so to the caller of this
 //! port: whether a second factor is due, whether the address is verified,
 //! whether sign-up is open. It does count wrong passwords and codes against
@@ -41,7 +45,7 @@ use std::time::Duration;
 use reqwest::Method;
 use serde_json::{Value, json};
 use weldsuite_ports::{
-    AuthMethods, AuthRequest, BoxFuture, CodeFormat, CodeKind, LinkTemplate, NewUser,
+    AuthMethods, AuthRequest, BoxFuture, CodeDelivery, CodeFormat, CodeKind, LinkTemplate, NewUser,
     PasswordRules, Prompt, SessionRef, SessionState, SignInError, SignInProvider, SignInResult,
     SignInSettings, SignInUser, UserStatus,
 };
@@ -93,17 +97,19 @@ impl std::fmt::Debug for ZitadelSignIn {
 }
 
 /// Zitadel's defaults, for an instance whose generators cannot be read: six
-/// capitals and digits to verify an address or reset a password, eight
-/// digits as a second factor.
+/// capitals and digits to verify an address or reset a password, valid for an
+/// hour; eight digits as a second factor, valid for five minutes.
 const DEFAULT_VERIFICATION_CODE: CodeFormat = CodeFormat {
     length: 6,
     letters: true,
     uppercase: true,
+    expires_in: Some(Duration::from_hours(1)),
 };
 const DEFAULT_SECOND_FACTOR_CODE: CodeFormat = CodeFormat {
     length: 8,
     letters: false,
     uppercase: false,
+    expires_in: Some(Duration::from_mins(5)),
 };
 
 impl ZitadelSignIn {
@@ -218,6 +224,17 @@ impl ZitadelSignIn {
     /// `PATCH /v2/sessions/{id}`, once the reference is known to be the
     /// session's; the reference with the new token.
     async fn change_session(&self, session: &SessionRef, body: Value) -> SignInResult<SessionRef> {
+        self.change_session_answer(session, body)
+            .await
+            .map(|(session, _)| session)
+    }
+
+    /// [`Self::change_session`], with Zitadel's whole answer.
+    async fn change_session_answer(
+        &self,
+        session: &SessionRef,
+        body: Value,
+    ) -> SignInResult<(SessionRef, Value)> {
         if self.read_session(session).await?.is_none() {
             return Err(SignInError::NoSession);
         }
@@ -233,10 +250,11 @@ impl ZitadelSignIn {
         let token = str_field(&answer, "sessionToken").ok_or_else(|| {
             SignInError::Unavailable("no sessionToken in zitadel's answer".to_owned())
         })?;
-        Ok(SessionRef {
+        let session = SessionRef {
             id: session.id.clone(),
             token: token.to_owned(),
-        })
+        };
+        Ok((session, answer))
     }
 
     /// `POST /v2/oidc/auth_requests/{id}`: the callback URL.
@@ -424,8 +442,8 @@ impl ZitadelSignIn {
     async fn create_user_inner(
         &self,
         user: &NewUser,
-        link: LinkTemplate<'_>,
-    ) -> SignInResult<String> {
+        delivery: CodeDelivery<'_>,
+    ) -> SignInResult<(String, Option<String>)> {
         // Zitadel keeps login names apart, not addresses: an address that
         // already signs somebody in is taken, whatever its login name.
         if self.find_user_inner(&user.email, true).await?.is_some() {
@@ -450,16 +468,48 @@ impl ZitadelSignIn {
                         "givenName": name(&user.first_name),
                         "familyName": name(&user.last_name),
                     },
-                    "email": { "email": user.email, "sendCode": send_code(link) },
+                    "email": with_code(json!({ "email": user.email }), delivery),
                     "password": { "password": user.password, "changeRequired": false },
                 })),
             )
             .await
             .map_err(failed)?;
-        str_field(&answer, "userId")
+        let user_id = str_field(&answer, "userId")
             .map(str::to_owned)
-            .ok_or_else(|| SignInError::Unavailable("no userId in zitadel's answer".to_owned()))
+            .ok_or_else(|| SignInError::Unavailable("no userId in zitadel's answer".to_owned()))?;
+        Ok((user_id, returned_code(&answer, &["emailCode"], delivery)?))
     }
+}
+
+/// `with`, plus what the delivery asks of Zitadel: `sendCode` (with the
+/// link) or `returnCode`.
+fn with_code(mut with: Value, delivery: CodeDelivery<'_>) -> Value {
+    match delivery {
+        CodeDelivery::Provider(link) => with["sendCode"] = send_code(link),
+        CodeDelivery::Return => with["returnCode"] = json!({}),
+    }
+    with
+}
+
+/// The code Zitadel handed back at `path` in its answer, when it was asked
+/// to (`None` when it emailed it). Asked and missing is a failure: nobody
+/// would get the code.
+fn returned_code(
+    answer: &Value,
+    path: &[&str],
+    delivery: CodeDelivery<'_>,
+) -> SignInResult<Option<String>> {
+    if !delivery.returns() {
+        return Ok(None);
+    }
+    path.iter()
+        .try_fold(answer, |value, key| value.get(key))
+        .and_then(Value::as_str)
+        .filter(|code| !code.is_empty())
+        .map(|code| Some(code.to_owned()))
+        .ok_or_else(|| {
+            SignInError::Unavailable(format!("no {} in zitadel's answer", path.join(".")))
+        })
 }
 
 /// `{ "urlTemplate": … }` for a link, `{}` for Zitadel's own.
@@ -649,7 +699,17 @@ fn code_format_from(generator: &Value) -> Option<CodeFormat> {
         length,
         letters: lower || upper || flag(generator, "includeSymbols"),
         uppercase: upper && !lower,
+        expires_in: generator
+            .get("expiry")
+            .and_then(Value::as_str)
+            .and_then(proto_duration),
     })
+}
+
+/// A protobuf JSON duration (`"3600s"`, `"300.5s"`).
+fn proto_duration(text: &str) -> Option<Duration> {
+    let seconds: f64 = text.strip_suffix('s')?.parse().ok()?;
+    (seconds.is_finite() && seconds > 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
 impl SignInProvider for ZitadelSignIn {
@@ -746,12 +806,18 @@ impl SignInProvider for ZitadelSignIn {
     fn send_email_code<'a>(
         &'a self,
         session: &'a SessionRef,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<SessionRef>> {
-        Box::pin(self.change_session(
-            session,
-            json!({ "challenges": { "otpEmail": { "sendCode": send_code(link) } } }),
-        ))
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(SessionRef, Option<String>)>> {
+        Box::pin(async move {
+            let (session, answer) = self
+                .change_session_answer(
+                    session,
+                    json!({ "challenges": { "otpEmail": with_code(json!({}), delivery) } }),
+                )
+                .await?;
+            let code = returned_code(&answer, &["challenges", "otpEmail"], delivery)?;
+            Ok((session, code))
+        })
     }
 
     fn check_email_code<'a>(
@@ -808,26 +874,27 @@ impl SignInProvider for ZitadelSignIn {
     fn create_user<'a>(
         &'a self,
         user: &'a NewUser,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<String>> {
-        Box::pin(self.create_user_inner(user, link))
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(String, Option<String>)>> {
+        Box::pin(self.create_user_inner(user, delivery))
     }
 
     fn send_email_verification<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            self.call(
-                Method::POST,
-                &format!("/v2/users/{user_id}/email/send"),
-                &[],
-                Some(json!({ "sendCode": send_code(link) })),
-            )
-            .await
-            .map(|_| ())
-            .map_err(failed)
+            let answer = self
+                .call(
+                    Method::POST,
+                    &format!("/v2/users/{user_id}/email/send"),
+                    &[],
+                    Some(with_code(json!({}), delivery)),
+                )
+                .await
+                .map_err(failed)?;
+            returned_code(&answer, &["verificationCode"], delivery)
         })
     }
 
@@ -852,22 +919,29 @@ impl SignInProvider for ZitadelSignIn {
     fn send_password_reset<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            let mut send_link = json!({ "notificationType": "NOTIFICATION_TYPE_Email" });
-            if let Some(link) = link {
-                send_link["urlTemplate"] = json!(url_template(link));
-            }
-            self.call(
-                Method::POST,
-                &format!("/v2/users/{user_id}/password_reset"),
-                &[],
-                Some(json!({ "sendLink": send_link })),
-            )
-            .await
-            .map(|_| ())
-            .map_err(failed)
+            let body = match delivery {
+                CodeDelivery::Provider(link) => {
+                    let mut send_link = json!({ "notificationType": "NOTIFICATION_TYPE_Email" });
+                    if let Some(link) = link {
+                        send_link["urlTemplate"] = json!(url_template(link));
+                    }
+                    json!({ "sendLink": send_link })
+                }
+                CodeDelivery::Return => json!({ "returnCode": {} }),
+            };
+            let answer = self
+                .call(
+                    Method::POST,
+                    &format!("/v2/users/{user_id}/password_reset"),
+                    &[],
+                    Some(body),
+                )
+                .await
+                .map_err(failed)?;
+            returned_code(&answer, &["verificationCode"], delivery)
         })
     }
 
@@ -1094,16 +1168,60 @@ mod tests {
     #[test]
     fn code_formats_follow_the_generator() {
         assert_eq!(
-            code_format_from(
-                &json!({ "length": 6, "includeUpperLetters": true, "includeDigits": true })
-            ),
+            code_format_from(&json!({
+                "length": 6,
+                "includeUpperLetters": true,
+                "includeDigits": true,
+                "expiry": "3600s",
+            })),
             Some(DEFAULT_VERIFICATION_CODE)
         );
         assert_eq!(
-            code_format_from(&json!({ "length": 8, "includeDigits": true })),
+            code_format_from(&json!({ "length": 8, "includeDigits": true, "expiry": "300s" })),
             Some(DEFAULT_SECOND_FACTOR_CODE)
         );
+        assert_eq!(
+            code_format_from(&json!({ "length": 8, "includeDigits": true }))
+                .and_then(|format| format.expires_in),
+            None
+        );
         assert_eq!(code_format_from(&json!({ "includeDigits": true })), None);
+        assert_eq!(proto_duration("90.5s"), Some(Duration::from_millis(90_500)));
+        assert_eq!(proto_duration("0s"), None);
+        assert_eq!(proto_duration("1h"), None);
+    }
+
+    #[test]
+    fn a_code_is_sent_or_handed_back() {
+        let link = Some("https://app.test/auth/login?verifyUser={user}&verifyCode={code}");
+        assert_eq!(
+            with_code(json!({ "email": "a@b.test" }), CodeDelivery::Provider(link)),
+            json!({
+                "email": "a@b.test",
+                "sendCode": {
+                    "urlTemplate": "https://app.test/auth/login?verifyUser={{.UserID}}&verifyCode={{.Code}}"
+                },
+            })
+        );
+        assert_eq!(
+            with_code(json!({}), CodeDelivery::Return),
+            json!({ "returnCode": {} })
+        );
+        let answer = json!({ "challenges": { "otpEmail": "12345678" }, "verificationCode": "" });
+        assert_eq!(
+            returned_code(&answer, &["challenges", "otpEmail"], CodeDelivery::Return),
+            Ok(Some("12345678".to_owned()))
+        );
+        assert_eq!(
+            returned_code(
+                &answer,
+                &["challenges", "otpEmail"],
+                CodeDelivery::Provider(None)
+            ),
+            Ok(None)
+        );
+        // Asked for and not there: nobody would get the code.
+        assert!(returned_code(&answer, &["verificationCode"], CodeDelivery::Return).is_err());
     }
 
     #[test]
