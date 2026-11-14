@@ -103,6 +103,42 @@ describe('useWorkspaceUrlGate', () => {
     expect(router.history.replace).toHaveBeenCalledWith('/w/acme/weldcrm/customers?tab=notes', expect.anything());
   });
 
+  it('keeps a page rendered under the org id when the slug arrives later (OIDC sign-in)', async () => {
+    // The workspace directory has not answered yet: the session knows the org, not its slug.
+    clerk.orgSlug = null;
+    router.href = '/weldbooks/banking/feeds/callback?code=c&state=s';
+    openUrl('/weldbooks/banking/feeds/callback?code=c&state=s');
+    const statuses: string[] = [];
+    const hook = renderHook(() => {
+      const gate = useWorkspaceUrlGate('/weldbooks/banking/feeds/callback');
+      statuses.push(gate.status);
+      return gate;
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook.result.current.status).toBe('ready');
+    expect(getWorkspaceUrlState().activeRef).toBe('org_acme');
+    const rendered = statuses.length;
+
+    clerk.orgSlug = 'acme';
+    hook.rerender();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Never blocked in between: blocking would unmount the page and mount it again.
+    expect(statuses.slice(rendered)).not.toContain('blocked');
+    expect(hook.result.current.status).toBe('ready');
+    expect(getWorkspaceUrlState().activeRef).toBe('acme');
+    expect(router.history.replace).toHaveBeenLastCalledWith(
+      '/w/acme/weldbooks/banking/feeds/callback?code=c&state=s',
+      expect.anything(),
+    );
+  });
+
   it('swaps an org id link for the slug', async () => {
     openUrl('/w/org_acme/weldcrm/customers?tab=notes');
     await renderGate();
