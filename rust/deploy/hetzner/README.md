@@ -343,10 +343,13 @@ default) organisation:
    (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
    policy (Default settings → Lockout) applies on top when it is set.
 
-Zitadel sends those emails itself (sign-up codes, password resets,
-invitations, emailed second factors), through an SMTP provider you give it
-once the MTA runs: "Mail", "Zitadel's own mail". Until then sign-up stops at
-the code.
+The server sends those emails itself (sign-up codes, password resets,
+invitations, emailed second factors) in WeldSuite's templates, through the
+MTA's `system` pool (`SMTP_URL`): Zitadel hands it each code instead of
+mailing it (ADR SEC-017). Without `SMTP_URL` or `PLATFORM_URL` Zitadel sends
+its own, through an SMTP provider you give it once the MTA runs, which it also
+uses for its own pages: "Mail", "Zitadel's own mail". With neither, sign-up
+stops at the code.
 
 A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
 holds, where Global keeps the Clerk org id, and the server looks a session's
@@ -797,8 +800,12 @@ public resolvers (the nodes use Quad9), so check from its website, not with
 
 ### Zitadel's own mail
 
-Zitadel sends sign-up codes, password resets, invitations and emailed second
-factors itself. Without an active SMTP provider it logs
+The server sends the platform's sign-up codes, password resets, invitations
+and emailed second factors in WeldSuite's templates through `SMTP_URL`, once
+`PLATFORM_URL` is set too: Zitadel hands it the codes (ADR SEC-017). Zitadel
+still mails what its own pages send (its console, the `WeldSuite Staff`
+login, a passkey or SMS step the platform hands to its page), and everything
+when the server has no `SMTP_URL`. Without an active SMTP provider it logs
 `Errors.SMTPConfig.NotFound` and sends nothing. Give it the MTA's `system`
 pool once the system domain has its key (step 3): in the console, Default
 settings → SMTP provider → Generic SMTP.
@@ -829,7 +836,7 @@ not in the chart's values: set it again after rotating
 update as the other settings: v4.19's projection then sets the column twice
 ("multiple assignments to same column password") and holds back every later
 change, the activation included, until it gives up on that event after five
-failures. Its mail counts against the system
+failures. Both senders' mail counts against the system
 address's warm-up cap (step 4), and a code that waits a day in the queue is
 no use, so don't send a large batch of invitations in the first week.
 

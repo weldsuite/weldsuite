@@ -56,6 +56,138 @@ Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-suppor
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'auth.password-reset' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Reset your WeldSuite password
+
+Password reset
+
+Choose a new password
+
+We received a request to reset the password for tom@example.com.
+
+Reset password https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or enter this code on the reset screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't ask for this, you can ignore this email. Your password stays the same.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.password-reset' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Stel je WeldSuite-wachtwoord opnieuw in
+
+Wachtwoord opnieuw instellen
+
+Kies een nieuw wachtwoord
+
+We hebben een verzoek ontvangen om het wachtwoord van tom@example.com opnieuw in te stellen.
+
+Wachtwoord opnieuw instellen https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of vul deze code in op het scherm voor een nieuw wachtwoord:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren. Je wachtwoord blijft hetzelfde.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite sign-in code: 482913
+
+Your sign-in code
+
+Sign in to WeldSuite
+
+Enter this code to finish signing in:
+
+482913
+
+The code expires in 5 minutes.
+
+If you didn't try to sign in, someone may know your password. Change it as soon as you can.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je inlogcode voor WeldSuite: 482913
+
+Je inlogcode
+
+Inloggen bij WeldSuite
+
+Vul deze code in om het inloggen af te ronden:
+
+482913
+
+De code verloopt over 5 minuten.
+
+Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Confirm your email address for WeldSuite
+
+Confirm your email address
+
+Welcome to WeldSuite
+
+Confirm this address to finish setting up your account.
+
+Confirm email address https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or enter this code on the sign-in screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't create a WeldSuite account, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Bevestig je e-mailadres voor WeldSuite
+
+Bevestig je e-mailadres
+
+Welkom bij WeldSuite
+
+Bevestig dit adres om het aanmaken van je account af te ronden.
+
+E-mailadres bevestigen https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of vul deze code in op het inlogscherm:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
 "Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
 

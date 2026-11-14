@@ -270,6 +270,8 @@ pub struct CodeFormat {
     pub letters: bool,
     /// Its letters are capitals only, so a code typed in lower case still matches.
     pub uppercase: bool,
+    /// How long a code stays valid, when the provider says.
+    pub expires_in: Option<Duration>,
 }
 
 /// A new account.
@@ -292,6 +294,23 @@ impl fmt::Debug for NewUser {
 /// Where a link in the provider's email points: a platform URL with `{user}`
 /// and `{code}` where the provider writes the account's id and the code.
 pub type LinkTemplate<'a> = Option<&'a str>;
+
+/// Who emails a code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeDelivery<'a> {
+    /// The provider, in its own email, its link pointing at the template
+    /// (`None`: the provider's own pages). The code is not handed back.
+    Provider(LinkTemplate<'a>),
+    /// Nobody: the provider hands the code back and the caller emails it
+    /// (WeldSuite's own templates).
+    Return,
+}
+
+impl CodeDelivery<'_> {
+    pub fn returns(self) -> bool {
+        matches!(self, Self::Return)
+    }
+}
 
 /// The provider's login API.
 pub trait SignInProvider: Send + Sync {
@@ -345,12 +364,13 @@ pub trait SignInProvider: Send + Sync {
         code: &'a str,
     ) -> BoxFuture<'a, SignInResult<SessionRef>>;
 
-    /// Email the second-factor code to the session's account.
+    /// Email the second-factor code to the session's account, or hand it
+    /// back ([`CodeDelivery::Return`]); the session's new reference.
     fn send_email_code<'a>(
         &'a self,
         session: &'a SessionRef,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<SessionRef>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(SessionRef, Option<String>)>>;
 
     fn check_email_code<'a>(
         &'a self,
@@ -374,19 +394,20 @@ pub trait SignInProvider: Send + Sync {
     /// session): the callback URL carrying that error.
     fn refuse<'a>(&'a self, auth_request: &'a str) -> BoxFuture<'a, SignInResult<String>>;
 
-    /// Create the account and email the code that verifies its address; the
-    /// account's id.
+    /// Create the account and email the code that verifies its address (or
+    /// hand it back); the account's id.
     fn create_user<'a>(
         &'a self,
         user: &'a NewUser,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<String>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(String, Option<String>)>>;
 
+    /// A new code that verifies the account's address: emailed, or handed back.
     fn send_email_verification<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>>;
 
     fn verify_email<'a>(
         &'a self,
@@ -394,11 +415,12 @@ pub trait SignInProvider: Send + Sync {
         code: &'a str,
     ) -> BoxFuture<'a, SignInResult<()>>;
 
+    /// A password reset code: emailed, or handed back.
     fn send_password_reset<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>>;
 
     fn reset_password<'a>(
         &'a self,
@@ -431,8 +453,10 @@ struct MemoryState {
     requests: HashMap<String, AuthRequest>,
     /// Auth request id → the user it was answered for.
     completed: HashMap<String, String>,
-    /// Codes "sent", newest last: (kind, account).
+    /// Codes the provider "sent", newest last: (kind, account).
     sent: Vec<(&'static str, String)>,
+    /// Codes handed back instead (`CodeDelivery::Return`), newest last.
+    returned: Vec<(&'static str, String)>,
     next_id: u64,
     failure: Option<SignInError>,
     /// How many sessions a new account refuses before it is known.
@@ -527,6 +551,11 @@ impl MemorySignIn {
         self.lock().completed.get(auth_request).cloned()
     }
 
+    /// The codes handed back for the caller to email, oldest first: (kind, account).
+    pub fn returned(&self) -> Vec<(&'static str, String)> {
+        self.lock().returned.clone()
+    }
+
     /// What was emailed, oldest first: (`verify` | `second-factor` | `reset`, account).
     pub fn sent(&self) -> Vec<(&'static str, String)> {
         self.lock().sent.clone()
@@ -575,6 +604,22 @@ fn now_ms() -> i64 {
 }
 
 impl MemoryState {
+    /// A code for `account`: "sent", or handed back.
+    fn deliver(
+        &mut self,
+        delivery: CodeDelivery<'_>,
+        kind: &'static str,
+        account: String,
+    ) -> Option<String> {
+        if delivery.returns() {
+            self.returned.push((kind, account));
+            Some(MemorySignIn::CODE.to_owned())
+        } else {
+            self.sent.push((kind, account));
+            None
+        }
+    }
+
     fn user_mut(&mut self, user_id: &str) -> SignInResult<&mut MemoryUser> {
         self.users
             .iter_mut()
@@ -634,6 +679,7 @@ impl SignInProvider for MemorySignIn {
                     length: 6,
                     letters: true,
                     uppercase: true,
+                    expires_in: None,
                 },
             }
         })
@@ -754,14 +800,13 @@ impl SignInProvider for MemorySignIn {
     fn send_email_code<'a>(
         &'a self,
         session: &'a SessionRef,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<SessionRef>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(SessionRef, Option<String>)>> {
         Box::pin(async move {
             self.run(|state| {
                 let next = state.update_session(session, |_| {})?;
                 let user = state.sessions[&session.id].1.user_id.clone();
-                state.sent.push(("second-factor", user));
-                Ok(next)
+                Ok((next, state.deliver(delivery, "second-factor", user)))
             })
         })
     }
@@ -836,8 +881,8 @@ impl SignInProvider for MemorySignIn {
     fn create_user<'a>(
         &'a self,
         user: &'a NewUser,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<String>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(String, Option<String>)>> {
         Box::pin(async move {
             self.run(|state| {
                 if state.users.iter().any(|existing| {
@@ -864,11 +909,11 @@ impl SignInProvider for MemorySignIn {
                         ..AuthMethods::default()
                     },
                 });
-                state.sent.push(("verify", id.clone()));
+                let code = state.deliver(delivery, "verify", id.clone());
                 if state.new_account_lag > 0 {
                     state.unknown_yet.insert(id.clone(), state.new_account_lag);
                 }
-                Ok(id)
+                Ok((id, code))
             })
         })
     }
@@ -876,13 +921,10 @@ impl SignInProvider for MemorySignIn {
     fn send_email_verification<'a>(
         &'a self,
         user_id: &'a str,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            self.run(|state| {
-                state.sent.push(("verify", user_id.to_owned()));
-                Ok(())
-            })
+            self.run(|state| Ok(state.deliver(delivery, "verify", user_id.to_owned())))
         })
     }
 
@@ -905,13 +947,10 @@ impl SignInProvider for MemorySignIn {
     fn send_password_reset<'a>(
         &'a self,
         user_id: &'a str,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            self.run(|state| {
-                state.sent.push(("reset", user_id.to_owned()));
-                Ok(())
-            })
+            self.run(|state| Ok(state.deliver(delivery, "reset", user_id.to_owned())))
         })
     }
 

@@ -14,8 +14,9 @@ use axum::response::IntoResponse;
 use serde_json::{Value, json};
 use weldsuite_adapters_oss::{ZitadelIdentity, ZitadelOptions};
 use weldsuite_ports::{
-    Identity, IdentityChange, IdentityError, ListPage, NewInvitation, NewMembership,
-    NewOrganization, OrganizationChanges, UserChanges,
+    BoxFuture, Identity, IdentityChange, IdentityError, InvitationEmail, InvitationMailer,
+    ListPage, NewInvitation, NewMembership, NewOrganization, OrganizationChanges, PortError,
+    UserChanges,
 };
 
 const PROJECT: &str = "397239406596980739";
@@ -67,6 +68,14 @@ async fn handle(
 async fn mock(
     respond: impl Fn(&str, &str, &Value) -> (StatusCode, Value) + Send + Sync + 'static,
 ) -> (ZitadelIdentity, Arc<Mutex<Vec<Seen>>>) {
+    mock_with(respond, |_| {}).await
+}
+
+/// [`mock`], its options changed by `configure`.
+async fn mock_with(
+    respond: impl Fn(&str, &str, &Value) -> (StatusCode, Value) + Send + Sync + 'static,
+    configure: impl FnOnce(&mut ZitadelOptions),
+) -> (ZitadelIdentity, Arc<Mutex<Vec<Seen>>>) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let state = Mock {
         seen: Arc::clone(&seen),
@@ -78,7 +87,7 @@ async fn mock(
         .expect("bind");
     let address = listener.local_addr().expect("address");
     tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
-    let identity = ZitadelIdentity::new(ZitadelOptions {
+    let mut options = ZitadelOptions {
         api_url: format!("http://{address}/"),
         token: "pat-test".to_owned(),
         project_id: PROJECT.to_owned(),
@@ -86,10 +95,110 @@ async fn mock(
             "https://app.eu.example/invite?user={{.UserID}}&code={{.Code}}".to_owned(),
         ),
         application_name: "WeldSuite".to_owned(),
+        invitation_mailer: None,
         host: None,
-    })
-    .expect("client");
+    };
+    configure(&mut options);
+    let identity = ZitadelIdentity::new(options).expect("client");
     (identity, seen)
+}
+
+/// The invitation emails handed over, oldest first.
+#[derive(Default)]
+struct Mailbag(Mutex<Vec<InvitationEmail>>);
+
+impl InvitationMailer for Mailbag {
+    fn send<'a>(&'a self, email: &'a InvitationEmail) -> BoxFuture<'a, Result<(), PortError>> {
+        self.0.lock().expect("lock").push(email.clone());
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_a_mailer_the_invite_code_comes_back_and_weldsuite_sends_the_invitation() {
+    let mailbag = Arc::new(Mailbag::default());
+    let mailer = Arc::clone(&mailbag);
+    let (identity, seen) = mock_with(
+        |method, path, _| match (method, path) {
+            ("POST", "/v2/users") => (StatusCode::OK, json!({ "details": {}, "result": [] })),
+            ("POST", "/v2/users/human") => (StatusCode::OK, json!({ "userId": "500" })),
+            ("POST", "/v2/users/500/invite_code") => (
+                StatusCode::OK,
+                json!({ "details": {}, "inviteCode": "XY7Q2K" }),
+            ),
+            ("GET", "/v2/users/500") => (
+                StatusCode::OK,
+                json!({ "user": { "userId": "500", "preferredLoginName": "ann@acme.test" } }),
+            ),
+            ("GET", "/v2/users/42") => (
+                StatusCode::OK,
+                json!({ "user": { "userId": "42", "human": {
+                    "profile": { "givenName": "Sanne", "familyName": "de Vries" },
+                    "email": { "email": "sanne@acme.test", "isVerified": true },
+                } } }),
+            ),
+            ("GET", "/management/v1/orgs/me") => (
+                StatusCode::OK,
+                json!({ "org": { "id": ORG, "name": "Acme", "state": "ORG_STATE_ACTIVE" } }),
+            ),
+            ("POST", "/management/v1/metadata/_search") => {
+                (StatusCode::OK, json!({ "result": [] }))
+            }
+            ("POST", "/management/v1/granted_projects/_search") => (
+                StatusCode::OK,
+                json!({ "result": [{ "grantId": "pg-1", "projectId": PROJECT }] }),
+            ),
+            ("POST", "/management/v1/users/500/grants") => {
+                (StatusCode::OK, json!({ "userGrantId": "g-9" }))
+            }
+            _ => (
+                StatusCode::NOT_FOUND,
+                json!({ "code": 5, "message": "Not Found" }),
+            ),
+        },
+        move |options| {
+            options.invite_url_template = None;
+            options.host = Some("auth.eu.example".to_owned());
+            options.invitation_mailer = Some(mailer);
+        },
+    )
+    .await;
+
+    let invitation = identity
+        .invite(
+            ORG,
+            &NewInvitation {
+                email_address: "ann@acme.test".to_owned(),
+                role: "org:member".to_owned(),
+                invited_by: Some("42".to_owned()),
+                ..NewInvitation::default()
+            },
+        )
+        .await
+        .expect("invited");
+    assert_eq!(invitation.status, "pending");
+    let seen = seen.lock().expect("lock").clone();
+    let invite = seen
+        .iter()
+        .find(|s| s.path == "/v2/users/500/invite_code")
+        .expect("invite code asked for");
+    assert_eq!(invite.body, json!({ "returnCode": {} }));
+    // No Zitadel email: WeldSuite gets everything its own needs.
+    let sent = mailbag.0.lock().expect("lock").clone();
+    assert_eq!(
+        sent,
+        [InvitationEmail {
+            to: "ann@acme.test".to_owned(),
+            inviter_name: Some("Sanne de Vries".to_owned()),
+            inviter_email: Some("sanne@acme.test".to_owned()),
+            workspace_name: Some("Acme".to_owned()),
+            role: "org:member".to_owned(),
+            // Zitadel's own invite page, as its email would have linked it.
+            accept_url: format!(
+                "https://auth.eu.example/ui/login/user/invite?authRequestID=&code=XY7Q2K&loginname=ann%40acme.test&orgID={ORG}&userID=500"
+            ),
+        }]
+    );
 }
 
 fn calls(seen: &Arc<Mutex<Vec<Seen>>>) -> Vec<String> {
@@ -332,6 +441,7 @@ async fn errors_keep_the_status_and_a_missing_org_is_a_404() {
         project_id: PROJECT.to_owned(),
         invite_url_template: None,
         application_name: "WeldSuite".to_owned(),
+        invitation_mailer: None,
         host: None,
     })
     .expect("client");
@@ -360,6 +470,7 @@ fn live() -> Option<Live> {
         project_id: project.clone(),
         invite_url_template: None,
         application_name: "WeldSuite".to_owned(),
+        invitation_mailer: None,
         host: None,
     })
     .expect("client");

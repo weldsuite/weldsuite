@@ -14,6 +14,18 @@ use crate::{EmailBrand, EmailLocale};
 /// writes one that is not listed here.
 const TEMPLATE_FILES: &[(&str, &str)] = &[
     (
+        "auth.password-reset",
+        include_str!("../../../catalogs/emails/templates/auth.password-reset.json"),
+    ),
+    (
+        "auth.sign-in-code",
+        include_str!("../../../catalogs/emails/templates/auth.sign-in-code.json"),
+    ),
+    (
+        "auth.verify-email",
+        include_str!("../../../catalogs/emails/templates/auth.verify-email.json"),
+    ),
+    (
         "calendar.event.cancel",
         include_str!("../../../catalogs/emails/templates/calendar.event.cancel.json"),
     ),
@@ -120,6 +132,10 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
     (
         "sign.voided",
         include_str!("../../../catalogs/emails/templates/sign.voided.json"),
+    ),
+    (
+        "workspace.invitation",
+        include_str!("../../../catalogs/emails/templates/workspace.invitation.json"),
     ),
 ];
 const LAYOUTS: &str = include_str!("../../../catalogs/emails/layouts.json");

@@ -247,6 +247,7 @@ impl ProvisionJob {
                         redirect_url: None,
                         public_metadata: Some(metadata),
                         inviter_user_id: None,
+                        invited_by: None,
                     },
                 )
                 .await

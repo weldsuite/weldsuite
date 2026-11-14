@@ -13,6 +13,7 @@ use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_TYPE, SET_COOKIE};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use weldsuite_emails::EmailLocale;
 use weldsuite_kit::validation::json_body;
 use weldsuite_kit::{ApiError, Data, NoContent};
 use weldsuite_ports::{
@@ -27,6 +28,7 @@ use crate::limits::{
     CODES_PER_CALLER, CODES_PER_TARGET, PASSWORDS_PER_ACCOUNT, PASSWORDS_PER_CALLER, READS,
     SENDS_PER_CALLER, SENDS_PER_TARGET, SIGN_UPS_PER_CALLER,
 };
+use crate::mail::{CodeMail, locale};
 
 /// A session lives this long where the provider's policy names no lifetime
 /// for a password check (the provider's own login uses the same fallback).
@@ -281,15 +283,15 @@ async fn ask_credentials(state: &SignInState, request: &AuthRequest) -> Result<S
 ///
 /// `changed`: the session is new, or has a new token, so the cookie is
 /// written. `announce`: the step was reached by something the person did,
-/// so a code it asks for is emailed now (reading where a sign-in stands
-/// sends nothing: a reload must not send a new code).
+/// so a code it asks for is emailed now, in that language (reading where a
+/// sign-in stands sends nothing: a reload must not send a new code).
 async fn settle(
     state: &SignInState,
     request: &AuthRequest,
     session: SessionRef,
     changed: bool,
     known: Known,
-    announce: bool,
+    announce: Option<EmailLocale>,
 ) -> Answer {
     let mut session = session;
     let mut changed = changed;
@@ -311,23 +313,19 @@ async fn settle(
     if request.asks(Prompt::None) && !matches!(step, Step::Complete { .. } | Step::Expired) {
         return Ok((refuse(state, request).await?, Change::Keep));
     }
-    if announce {
+    if let Some(language) = announce {
         match &step {
             Step::NeedsSecondFactor { factors, .. } if !factors.contains(&Factor::Totp) => {
                 // No authenticator app: the code goes by email, now, unless
                 // the account was sent too many (the screen has "Resend").
                 let account = account_of(state, &session).await?;
                 if state.limits.hit(SENDS_PER_TARGET, &account).await.is_ok() {
-                    session = state
-                        .provider
-                        .send_email_code(&session, state.links.second_factor())
-                        .await
-                        .map_err(refusal)?;
+                    session = send_second_factor(state, &session, &account, language).await?;
                     changed = true;
                 }
             }
             Step::NeedsEmailVerification { .. } => {
-                send_verification(state, &session).await;
+                send_verification(state, &session, language).await;
             }
             _ => {}
         }
@@ -340,9 +338,44 @@ async fn settle(
     Ok((step, change))
 }
 
+/// Email the second-factor code to the session's account (`account`); the
+/// session's new reference.
+async fn send_second_factor(
+    state: &SignInState,
+    session: &SessionRef,
+    account: &str,
+    language: EmailLocale,
+) -> Result<SessionRef, ApiError> {
+    let (session, code) = state
+        .provider
+        .send_email_code(session, state.delivery(state.links.second_factor()))
+        .await
+        .map_err(refusal)?;
+    let code = code.as_deref().map(|code| CodeMail::SecondFactor { code });
+    state.email_code(code, account, None, language).await;
+    Ok(session)
+}
+
+/// A new code that verifies `user_id`'s address, emailed.
+async fn send_verification_code(
+    state: &SignInState,
+    user_id: &str,
+    language: EmailLocale,
+) -> Result<(), SignInError> {
+    let code = state
+        .provider
+        .send_email_verification(user_id, state.delivery(state.links.verification()))
+        .await?;
+    let code = code
+        .as_deref()
+        .map(|code| CodeMail::Verification { user_id, code });
+    state.email_code(code, user_id, None, language).await;
+    Ok(())
+}
+
 /// Email the code that verifies the session's account, unless it was sent
 /// too often. Never fails the step: the screen has "Resend".
-async fn send_verification(state: &SignInState, session: &SessionRef) {
+async fn send_verification(state: &SignInState, session: &SessionRef, language: EmailLocale) {
     let Ok(Some(session_state)) = state.provider.session(session).await else {
         return;
     };
@@ -354,11 +387,7 @@ async fn send_verification(state: &SignInState, session: &SessionRef) {
     {
         return;
     }
-    if let Err(error) = state
-        .provider
-        .send_email_verification(&session_state.user_id, state.links.verification())
-        .await
-    {
+    if let Err(error) = send_verification_code(state, &session_state.user_id, language).await {
         tracing::warn!(%error, "sign-in: verification email not sent");
     }
 }
@@ -399,7 +428,7 @@ pub(crate) async fn request(
         match cookie::read(&headers) {
             // Sign-up was asked for: the form, whoever this browser's session is.
             Some(session) if !request.asks(Prompt::Create) => {
-                settle(&state, &request, session, false, Known::default(), false).await
+                settle(&state, &request, session, false, Known::default(), None).await
             }
             _ => Ok((ask_credentials(&state, &request).await?, Change::Keep)),
         }
@@ -454,7 +483,15 @@ pub(crate) async fn password(
             }
             Err(error) => return Err(refusal(error)),
         };
-        settle(&state, &request, session, true, Known::default(), true).await
+        settle(
+            &state,
+            &request,
+            session,
+            true,
+            Known::default(),
+            Some(locale(&headers)),
+        )
+        .await
     }
     .await;
     step_response(&headers, answer)
@@ -500,6 +537,7 @@ pub(crate) async fn second_factor(
                         length: 6,
                         letters: false,
                         uppercase: false,
+                        expires_in: None,
                     },
                 );
                 state.provider.check_totp(&session, &code).await
@@ -516,7 +554,15 @@ pub(crate) async fn second_factor(
             }
         }
         .map_err(refusal)?;
-        settle(&state, &request, checked, true, Known::default(), true).await
+        settle(
+            &state,
+            &request,
+            checked,
+            true,
+            Known::default(),
+            Some(locale(&headers)),
+        )
+        .await
     }
     .await;
     step_response(&headers, answer)
@@ -535,11 +581,7 @@ pub(crate) async fn send_second_factor_code(
             .await?;
         let account = account_of(&state, &session).await?;
         state.limits.hit(SENDS_PER_TARGET, &account).await?;
-        let session = state
-            .provider
-            .send_email_code(&session, state.links.second_factor())
-            .await
-            .map_err(refusal)?;
+        let session = send_second_factor(&state, &session, &account, locale(&headers)).await?;
         Ok(Change::Set(session, COOKIE_LIFETIME))
     }
     .await;
@@ -601,7 +643,15 @@ pub(crate) async fn verify_email(
         let known = Known {
             email_verified: true,
         };
-        settle(&state, &request, session, false, known, true).await
+        settle(
+            &state,
+            &request,
+            session,
+            false,
+            known,
+            Some(locale(&headers)),
+        )
+        .await
     }
     .await;
     step_response(&headers, answer)
@@ -618,9 +668,7 @@ pub(crate) async fn resend_verification(
             .hit(SENDS_PER_CALLER, &state.limits.caller(&headers))
             .await?;
         state.limits.hit(SENDS_PER_TARGET, &user_id).await?;
-        state
-            .provider
-            .send_email_verification(&user_id, state.links.verification())
+        send_verification_code(&state, &user_id, locale(&headers))
             .await
             .map_err(refusal)?;
         Ok(Change::Keep)
@@ -703,14 +751,22 @@ pub(crate) async fn sign_up(
         }
         let lifetime = policy.password_lifetime.unwrap_or(DEFAULT_SESSION_LIFETIME);
 
+        let language = locale(&headers);
         match state
             .provider
-            .create_user(&user, state.links.verification())
+            .create_user(&user, state.delivery(state.links.verification()))
             .await
         {
-            Ok(user_id) => {
-                // The provider just emailed the code. Its read side may not
+            Ok((user_id, code)) => {
+                // The code is on its way. The provider's read side may not
                 // know the account yet, so the step is stated, not asked for.
+                let code = code.as_deref().map(|code| CodeMail::Verification {
+                    user_id: &user_id,
+                    code,
+                });
+                state
+                    .email_code(code, &user_id, Some(&user.email), language)
+                    .await;
                 let session = first_session(&state, &user_id, password, lifetime).await?;
                 let step = Step::NeedsEmailVerification {
                     email: user.email,
@@ -722,7 +778,7 @@ pub(crate) async fn sign_up(
                 Ok((step, Change::Set(session, COOKIE_LIFETIME)))
             }
             Err(SignInError::EmailTaken) => {
-                resume_sign_up(&state, &request, email, password, lifetime).await
+                resume_sign_up(&state, &request, email, password, lifetime, language).await
             }
             Err(error) => Err(refusal(error)),
         }
@@ -787,6 +843,7 @@ async fn resume_sign_up(
     email: &str,
     password: &str,
     lifetime: Duration,
+    language: EmailLocale,
 ) -> Answer {
     state.limits.hit(PASSWORDS_PER_ACCOUNT, email).await?;
     let existing = state
@@ -803,7 +860,17 @@ async fn resume_sign_up(
         .start_session(&existing.id, password, Some(lifetime))
         .await
     {
-        Ok(session) => settle(state, request, session, true, Known::default(), true).await,
+        Ok(session) => {
+            settle(
+                state,
+                request,
+                session,
+                true,
+                Known::default(),
+                Some(language),
+            )
+            .await
+        }
         Err(_) => Err(email_taken()),
     }
 }
@@ -864,13 +931,18 @@ pub(crate) async fn password_reset(
             .await
             .map_err(refusal)?
             .filter(|user| user.status == UserStatus::Active);
-        if let Some(user) = user
-            && let Err(error) = state
+        if let Some(user) = user {
+            match state
                 .provider
-                .send_password_reset(&user.id, state.links.password_reset())
+                .send_password_reset(&user.id, state.delivery(state.links.password_reset()))
                 .await
-        {
-            tracing::warn!(%error, "sign-in: password reset email not sent");
+            {
+                Ok(Some(code)) => {
+                    state.email_password_reset(code, user.id, user.email, locale(&headers));
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "sign-in: password reset email not sent"),
+            }
         }
         Ok(Change::Keep)
     }

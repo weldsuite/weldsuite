@@ -1547,15 +1547,12 @@ fn workspace_infra(config: &Config) -> Result<WorkspaceInfra, Box<dyn std::error
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
+    let mail = crate::infra::system_mail(&config.infra)?;
     let identity = config.infra.identity.as_ref().map(|settings| {
-        weldsuite_adapters_oss::ZitadelIdentity::new(weldsuite_adapters_oss::ZitadelOptions {
-            api_url: settings.api_url.clone(),
-            token: settings.token.clone(),
-            project_id: settings.project_id.clone(),
-            invite_url_template: settings.invite_url_template.clone(),
-            application_name: "WeldSuite".to_owned(),
-            host: settings.host.clone(),
-        })
+        weldsuite_adapters_oss::ZitadelIdentity::new(crate::infra::zitadel_options(
+            settings,
+            mail.as_ref(),
+        ))
         .map(|identity| Arc::new(identity) as Arc<dyn weldsuite_ports::Identity>)
     });
     let identity = identity.transpose()?;
