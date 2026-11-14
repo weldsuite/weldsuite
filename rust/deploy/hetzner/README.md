@@ -44,6 +44,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
+| weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
 | kube-prometheus-stack | chart 92.3.1 | Prometheus (30 days), Alertmanager, Grafana at `grafana.<domain>` ("Monitoring, alerts and logs" below) |
@@ -202,7 +203,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
@@ -345,10 +346,12 @@ default) organisation:
    forgotten password. For anything else (a passkey, a security key, a code
    by SMS, a forced password change, setting up a second factor the policy
    demands) they hand that one sign-in to Zitadel's page, which is why the
-   `login` ingress stays. Invitations still open Zitadel's page
-   (`config.identity.zitadel.inviteUrlTemplate`), and the emails for
-   verifying an address and resetting a password link to the platform
-   (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
+   `login` ingress stays. Invitations open the platform too: the link goes
+   to `https://app.<domain>/invite`, where the invitee chooses a password on
+   WeldSuite's "Complete your account" screen and is signed straight in
+   (`config.identity.zitadel.inviteUrlTemplate`, when set, overrides that
+   link). The emails for verifying an address and resetting a password link
+   to the platform as well (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
    policy (Default settings → Lockout) applies on top when it is set.
 
 The server sends those emails itself (sign-up codes, password resets,

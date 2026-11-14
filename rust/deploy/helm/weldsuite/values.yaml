@@ -253,7 +253,9 @@ config:
       # The instance's external domain, sent as Host when apiUrl is in-cluster.
       host: ""
       projectId: ""
-      # Where Zitadel's invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      # Where the invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      # Empty: the platform's /invite with config.auth.oidc.signIn: platform,
+      # else Zitadel's own page.
       inviteUrlTemplate: ""
   # New workspace databases (P4 4a): the provisioner places them on the
   # CloudNativePG shards in TENANT_SHARDS (in the Secret, it holds the admin

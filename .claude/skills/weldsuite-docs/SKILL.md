@@ -15,8 +15,12 @@ not in this one:
 - `open-questions.md`, `glossary.md`, `templates/`, and `CONTRIBUTING.md` (the rules for writing)
 
 It is cloned **next to** the main checkout (`../weldsuite-documentation`), not as
-a submodule. `docs/plans/` and `docs/decisions/` in this repo stay where they
-are; the docs repo summarises and links to them.
+a submodule.
+
+The main repo is public, so plans, design notes, decisions and any other
+internal write-up go to the docs repo, never into the main repo. The older
+plans still in the main repo's `docs/plans/` and `docs/decisions/` predate that
+rule: read them when relevant, but don't add to them or create new ones there.
 
 ## 1. Find the clone
 
