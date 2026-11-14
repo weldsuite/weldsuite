@@ -24,7 +24,7 @@ use crate::buyer::{self, BillingDetails};
 use crate::engine::{self, plan_line, recurring_payment};
 use crate::lines::Charge;
 use crate::notify::BillingMailKind;
-use crate::period::{add_months_on_anchor, iso};
+use crate::period::{add_months_on_anchor, anchor_on_or_before, iso};
 use crate::plans::{CURRENCY, Plan};
 use crate::settle::{self, go_past_due};
 use crate::store::{ChargeMeta, ChargeRow, Purpose, status_of};
@@ -71,6 +71,10 @@ pub async fn run_renewals(state: &BillingState, now: OffsetDateTime) -> RenewalR
     }
     if let Err(error) = sweep_past_due(state, now, &mut report).await {
         tracing::error!(?error, "billing-renewals: past-due accounts not swept");
+        report.failed += 1;
+    }
+    if let Err(error) = resend_unsent(state, now, &mut report).await {
+        tracing::error!(?error, "billing-renewals: unsent renewals not resent");
         report.failed += 1;
     }
     for _ in 0..BATCH {
@@ -146,10 +150,14 @@ async fn sweep_past_due(
 ) -> BillingResult<()> {
     let grace = time::Duration::days(state.settings.grace_days);
     let expired: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select workspace_id, past_due_payment_id from billing_accounts
-         where past_due_since is not null and past_due_since <= $1::timestamp",
+        "select a.workspace_id, a.past_due_payment_id from billing_accounts a
+         where a.past_due_since is not null and a.past_due_since <= $1::timestamp
+           and not exists (select 1 from workspaces w
+                           where w.id = a.workspace_id and w.comp_granted_at is not null
+                             and (w.comp_ends_at is null or w.comp_ends_at > $2::timestamp))",
     )
     .bind(iso(now - grace))
+    .bind(iso(now))
     .fetch_all(&state.master)
     .await?;
     for (workspace_id, open) in expired {
@@ -246,7 +254,6 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         return Ok(Some(Outcome::Skipped));
     };
     let anchor = account.anchor();
-    let next_anchor = add_months_on_anchor(anchor_at, 1, anchor);
     let Some(workspace) = Workspace::lock(&mut tx, &workspace_id).await? else {
         account::set_next_charge(&mut tx, &workspace_id, None).await?;
         tx.commit().await?;
@@ -259,6 +266,16 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     }
+    // The anchor on the period's grid this run bills, and the one after it,
+    // taken from the period, never from when the run happened: a late run,
+    // or one put off a day at a time, stays on the anchor day.
+    let (due, next_anchor) = match workspace.period() {
+        Some((_, end)) => {
+            let due = anchor_on_or_before(end, anchor_at, anchor);
+            (due, add_months_on_anchor(due, 1, anchor))
+        }
+        None => (anchor_at, add_months_on_anchor(anchor_at, 1, anchor)),
+    };
     let current_plan = match &workspace.plan_id {
         Some(id) => Plan::load(master, id).await?,
         None => None,
@@ -272,7 +289,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
             &mut tx,
             &workspace_id,
             plan_credits(current_plan.as_ref()),
-            anchor_at,
+            due,
             next_anchor,
         )
         .await?;
@@ -392,7 +409,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         &mut tx,
         &workspace_id,
         plan_credits(Some(&plan)),
-        anchor_at,
+        due,
         next_anchor,
     )
     .await?;
@@ -412,7 +429,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         seats: Some(seats_count),
         cycle: Some(cycle.as_str().to_owned()),
         unit_amount: Some(unit),
-        period_start: Some(iso(anchor_at)),
+        period_start: Some(iso(due)),
         period_end: Some(iso(next_anchor)),
         settles: None,
         user_id: None,
@@ -421,6 +438,10 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         applied: None,
         charged_back: None,
     };
+    // The charge row commits with the period it pays for: if Mollie can't
+    // be reached, or this run stops before the call, `resend_unsent` sends it.
+    let key = format!("renewal:{workspace_id}:{}", iso(due));
+    let row = ChargeRow::create_in(&mut tx, &workspace_id, &key, &meta).await?;
     tx.commit().await?;
     if plan_due
         && scheduled
@@ -435,8 +456,6 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         .await;
     }
 
-    let key = format!("renewal:{workspace_id}:{}", iso(anchor_at));
-    let row = ChargeRow::create(master, &workspace_id, &key, &meta).await?;
     if row.provider_payment_id.is_some() {
         // Sent by an earlier run that stopped halfway: settle what Mollie has.
         if let Some(http) = &http {
@@ -445,6 +464,56 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         return Ok(Some(Outcome::Charged));
     }
     charge_row(state, &workspace_id, &row, &charge, now).await
+}
+
+/// Renewal rows that were written with their period but never reached
+/// Mollie. Mollie keeps an idempotency key for an hour only, so before a row
+/// is sent again its payment is looked for among the customer's payments (by
+/// `metadata.paymentRowId`): a payment whose answer was lost is settled, not
+/// charged a second time.
+async fn resend_unsent(
+    state: &BillingState,
+    now: OffsetDateTime,
+    report: &mut RenewalReport,
+) -> BillingResult<()> {
+    let master = &state.master;
+    let Some(http) = state.http.clone() else {
+        return Ok(());
+    };
+    let before = iso(now - time::Duration::minutes(5));
+    for row in ChargeRow::unsent_renewals(master, &before, 50).await? {
+        let Some(meta) = row.meta() else {
+            continue;
+        };
+        let customer = Account::load(master, &row.workspace_id)
+            .await?
+            .and_then(|account| account.customer_id);
+        if let Some(customer) = customer {
+            let payments = state
+                .mollie
+                .customer_payments(&http, &customer)
+                .await
+                .map_err(|error| BillingError::internal("Failed to list Mollie payments", error))?;
+            if let Some(payment) = payments.into_iter().find(|payment| {
+                payment.metadata.get("paymentRowId").and_then(Value::as_str)
+                    == Some(row.id.as_str())
+            }) {
+                ChargeRow::set_payment(master, &row.id, &payment.id).await?;
+                settle::settle_payment(state, &payment, now).await?;
+                report.charged += 1;
+                continue;
+            }
+        }
+        match charge_row(state, &row.workspace_id, &row, &meta.charge, now).await? {
+            Some(Outcome::PastDue) => {
+                report.charged += 1;
+                report.past_due += 1;
+            }
+            Some(_) => report.charged += 1,
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 /// Charges `row` on the mandate: accepted, or past due.
@@ -489,8 +558,8 @@ async fn charge_row(
             .unwrap_or_else(|| payment.status.as_str().to_owned()),
         Some(Err(error)) if error.is_refusal() => error.to_string(),
         Some(Err(error)) => {
-            // Mollie unreachable: the row stays, the next run sends it again
-            // under the same idempotency key.
+            // Mollie unreachable: the row stays unsent, and the next run's
+            // `resend_unsent` looks for its payment at Mollie, then sends it.
             return Err(BillingError::internal(
                 "Failed to charge the renewal",
                 error,

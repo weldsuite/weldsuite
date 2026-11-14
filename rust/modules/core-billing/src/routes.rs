@@ -347,7 +347,7 @@ async fn seat_price(State(state): State<BillingState>, caller: Caller) -> Respon
 
 fn page_params(query: Option<&str>, default_limit: i64) -> (i64, i64) {
     let mut limit = default_limit;
-    let mut page = 1;
+    let mut page: i64 = 1;
     for (key, value) in url::form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
         match key.as_ref() {
             "limit" => limit = value.parse().unwrap_or(default_limit),
@@ -356,7 +356,7 @@ fn page_params(query: Option<&str>, default_limit: i64) -> (i64, i64) {
         }
     }
     let limit = limit.clamp(1, 100);
-    (limit, (page.max(1) - 1) * limit)
+    (limit, (page.max(1) - 1).saturating_mul(limit))
 }
 
 async fn invoices(

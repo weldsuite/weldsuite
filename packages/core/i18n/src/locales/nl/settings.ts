@@ -852,6 +852,8 @@ export const settings = {
         billingDetailsRequired: 'Vul eerst uw factuurgegevens in. Daarna gaan we verder naar afrekenen.',
         excludingVat: 'Prijzen zijn exclusief btw. De btw wordt toegevoegd op basis van uw factuurgegevens.',
         invoiceOpenFailed: 'Kon de factuur niet openen',
+        invoicePopupBlocked: 'Sta pop-ups toe voor deze site om de factuur te openen.',
+        invoiceTitle: 'Factuur',
         checkoutPlanPaid: 'Betaling ontvangen. Uw abonnement is nu actief.',
         checkoutChangePaid: 'Betaling ontvangen. Uw abonnementswijziging wordt verwerkt.',
         checkoutMandatePaid: 'Betaalmethode opgeslagen.',

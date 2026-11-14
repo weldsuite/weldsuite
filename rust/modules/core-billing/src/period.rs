@@ -97,6 +97,25 @@ pub fn add_months_on_anchor(from: OffsetDateTime, months: i32, anchor_day: u8) -
     PrimitiveDateTime::new(date, from.time()).assume_utc()
 }
 
+/// The anchor on `base`'s grid (whole months from `base`, on `anchor_day`, at
+/// `base`'s time of day) at or before `at`: the anchor a late run is billing,
+/// however late it runs. `base` is a period end, which is on the grid.
+pub fn anchor_on_or_before(
+    base: OffsetDateTime,
+    at: OffsetDateTime,
+    anchor_day: u8,
+) -> OffsetDateTime {
+    let months = |t: OffsetDateTime| t.year() * 12 + i32::from(u8::from(t.month()));
+    let mut k = months(at.to_offset(UtcOffset::UTC)) - months(base.to_offset(UtcOffset::UTC));
+    while add_months_on_anchor(base, k, anchor_day) > at {
+        k -= 1;
+    }
+    while add_months_on_anchor(base, k + 1, anchor_day) <= at {
+        k += 1;
+    }
+    add_months_on_anchor(base, k, anchor_day)
+}
+
 /// The period a first payment on `paid_at` buys: from then until the
 /// anchor `cycle` later.
 pub fn first_period(paid_at: OffsetDateTime, cycle: Cycle) -> (OffsetDateTime, OffsetDateTime) {
@@ -151,6 +170,29 @@ mod tests {
         assert_eq!(
             add_months_on_anchor(datetime!(2026-12-14 09:00:00 UTC), 1, 14),
             datetime!(2027-01-14 09:00:00 UTC)
+        );
+    }
+
+    #[test]
+    fn a_late_run_bills_the_anchor_it_missed() {
+        let end = datetime!(2026-02-28 15:20:00 UTC);
+        // The run was four days late: still February's anchor, next is March 28.
+        let due = anchor_on_or_before(end, datetime!(2026-03-04 09:00:00 UTC), 28);
+        assert_eq!(due, end);
+        assert_eq!(
+            add_months_on_anchor(due, 1, 28),
+            datetime!(2026-03-28 15:20:00 UTC)
+        );
+        // On the anchor itself, and months later.
+        assert_eq!(anchor_on_or_before(end, end, 28), end);
+        assert_eq!(
+            anchor_on_or_before(end, datetime!(2026-06-30 00:00:00 UTC), 28),
+            datetime!(2026-06-28 15:20:00 UTC)
+        );
+        // Before the period end: the anchor a month before.
+        assert_eq!(
+            anchor_on_or_before(end, datetime!(2026-02-10 00:00:00 UTC), 28),
+            datetime!(2026-01-28 15:20:00 UTC)
         );
     }
 

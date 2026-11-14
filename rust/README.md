@@ -1180,7 +1180,7 @@ install leaves it off: its seats and modules come from its licence.
   a period.
 - **VAT** per customer, from the issuer's country (`BILLING_SELLER_COUNTRY`,
   NL): the domestic rate; 0% reverse charge for an EU business whose VAT
-  number VIES accepts (a VIES outage keeps a number with the right prefix);
+  number VIES accepts (while VIES can't be reached, VAT is charged);
   the customer country's rate through OSS for other EU customers; none
   outside the EU. Rates: `modules/core-billing/src/vat.rs`.
 - **Invoices** are WeldBooks invoices in WeldSuite's own workspace

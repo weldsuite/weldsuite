@@ -226,6 +226,24 @@ pub(crate) async fn execute(
                 ),
                 None => None,
             };
+            // A workspace paying through Mollie keeps its paid plan under a
+            // comp (the renewal job then charges nothing until it ends), so
+            // the comp can't change plan or seats: uncomp would resume billing
+            // the comped plan at the paid plan's seat price.
+            let paying: bool = sqlx::query_scalar(
+                "select exists (select 1 from billing_accounts
+                                where workspace_id = $1 and next_charge_at is not null)",
+            )
+            .bind(&found.id)
+            .fetch_one(master)
+            .await?;
+            if paying && (plan_id.is_some() || seats.is_some()) {
+                return Err(StaffError::Refused(format!(
+                    "{} pays for its plan through Mollie. Comp it without --plan and --seats \
+                     (it then pays nothing until the comp ends), or have its plan changed first.",
+                    found.name
+                )));
+            }
             let ends = until.as_ref().map(|date| format!("{date}T23:59:59.999Z"));
             let details = json!({ "plan": plan_id, "seats": seats, "until": ends });
             if dry_run {
@@ -262,12 +280,40 @@ pub(crate) async fn execute(
             .bind(seats.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
             .execute(&mut *tx)
             .await?;
+            // A comp pays what is open: nothing stays past due under it.
+            sqlx::query(
+                "update billing_accounts set past_due_since = null, past_due_payment_id = null,
+                     dunning_reminded_at = null, updated_at = now()
+                 where workspace_id = $1",
+            )
+            .bind(&found.id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "update workspaces set subscription_status = 'active', updated_at = now()
+                 where id = $1 and subscription_status = 'past_due'",
+            )
+            .bind(&found.id)
+            .execute(&mut *tx)
+            .await?;
             record_success(&mut *tx, &entry).await?;
             tx.commit().await?;
             Ok(format!("Comped {} ({}): {details}\n", found.name, found.id))
         }
         BillingCommand::Uncomp { workspace } => {
             let found = find_workspace(master, workspace).await?;
+            let comped: bool = sqlx::query_scalar(
+                "select comp_granted_at is not null from workspaces where id = $1",
+            )
+            .bind(&found.id)
+            .fetch_one(master)
+            .await?;
+            if !comped {
+                return Err(StaffError::Refused(format!(
+                    "{} has no comp plan.",
+                    found.name
+                )));
+            }
             if dry_run {
                 return Ok(format!(
                     "Would end the comp of {} ({}).\n",
@@ -346,7 +392,9 @@ pub(crate) async fn execute(
                     "No Mollie charge \"{charge}\"."
                 )));
             };
-            let Some(payment_id) = payment_id.filter(|_| status == "succeeded") else {
+            let Some(payment_id) =
+                payment_id.filter(|_| status == "succeeded" || status == "duplicate")
+            else {
                 return Err(StaffError::Refused(
                     "Only a paid charge can be refunded.".to_owned(),
                 ));

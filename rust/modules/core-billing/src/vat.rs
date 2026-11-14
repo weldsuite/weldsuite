@@ -10,9 +10,9 @@
 //! | EU customer elsewhere without a valid VAT number | OSS | the customer country's standard rate |
 //! | Outside the EU | outside the EU | 0% |
 //!
-//! A VAT number VIES can't check right now (VIES down) counts as valid when
-//! its format matches the customer's country, and the invoice says so in its
-//! log line; a number VIES rejects does not.
+//! Reverse charge needs a VAT number VIES accepts. A number VIES rejects, and
+//! one it can't check right now (VIES down), are charged VAT like a customer
+//! without one.
 //!
 //! The rates are the EU standard rates in force on 2026-11-01; a change is
 //! a change here, with its date.
@@ -106,9 +106,9 @@ impl Treatment {
 pub enum VatCheck {
     /// No VAT number given.
     None,
-    /// VIES registered it (or VIES was down and the format fits).
+    /// VIES registered it.
     Valid,
-    /// VIES says it isn't registered, or it isn't a VAT number of the
+    /// VIES says it isn't registered (or couldn't be asked), or it isn't a VAT number of the
     /// customer's country.
     Invalid,
 }

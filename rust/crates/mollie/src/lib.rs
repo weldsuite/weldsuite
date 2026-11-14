@@ -722,6 +722,28 @@ impl Mollie {
         }
     }
 
+    /// `GET /customers/{id}/payments`: the customer's latest payments (at most
+    /// 50, newest first): to find a payment whose answer was lost, by the
+    /// metadata it was created with.
+    pub async fn customer_payments(
+        &self,
+        http: &OutboundHttp,
+        customer_id: &str,
+    ) -> Result<Vec<Payment>, MollieError> {
+        if !is_customer_id(customer_id) {
+            return Err(not_an_id("customer"));
+        }
+        let answer = Self::json_of(
+            http.send(self.get(&format!("/customers/{customer_id}/payments?limit=50")))
+                .await,
+        )?;
+        Ok(answer
+            .pointer("/_embedded/payments")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Payment::from_json).collect())
+            .unwrap_or_default())
+    }
+
     /// `POST /payments/{id}/refunds`: refunds `amount` of a paid payment.
     pub async fn refund(
         &self,

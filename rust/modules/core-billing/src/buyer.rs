@@ -141,9 +141,10 @@ pub(crate) fn details_required(missing: &[&'static str]) -> ApiError {
 }
 
 /// What VIES says about the customer's VAT number. A number of another
-/// country than the billing country is invalid; VIES being down leaves a
-/// number with the right prefix valid (logged), so a checkout isn't refused
-/// for an outage of the EU's service.
+/// country than the billing country is invalid. While VIES can't be reached
+/// the number counts as unchecked, so VAT is charged (domestic or OSS) rather
+/// than reverse-charged on a number nobody verified: WeldSuite would owe that
+/// VAT. The next charge checks it again.
 pub(crate) async fn check_vat(http: Option<&OutboundHttp>, details: &BillingDetails) -> VatCheck {
     let Some(number) = &details.vat_number else {
         return VatCheck::None;
@@ -158,8 +159,8 @@ pub(crate) async fn check_vat(http: Option<&OutboundHttp>, details: &BillingDeta
         Ok((_, true)) => VatCheck::Valid,
         Ok((_, false)) => VatCheck::Invalid,
         Err(reason) => {
-            tracing::warn!(%reason, vat = %normalized.full, "billing: VIES unavailable, the number's format is taken as valid");
-            VatCheck::Valid
+            tracing::warn!(%reason, vat = %normalized.full, "billing: VIES unavailable, VAT is charged on this charge");
+            VatCheck::Invalid
         }
     }
 }

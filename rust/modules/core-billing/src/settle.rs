@@ -36,6 +36,9 @@ pub enum Settled {
     PastDuePaid,
     /// A new payment method was saved.
     MandateSaved,
+    /// A second checkout was paid while a subscription already ran (two
+    /// tabs, a double submit): not applied, refunded in full.
+    DuplicateCheckout,
     /// The charge failed; the account is past due on it.
     PastDue,
     /// Recorded; nothing else follows from it.
@@ -186,9 +189,49 @@ pub async fn settle_payment(
             }
         }
         Settled::MandateSaved => after_mandate(state, &row.workspace_id, payment, now).await,
+        Settled::DuplicateCheckout => refund_duplicate(state, &row.id, payment).await,
         _ => {}
     }
     Ok(settled)
+}
+
+/// Refunds a duplicate checkout in full. A refusal is logged loudly: staff
+/// refund it with `weldsuite admin billing refund`.
+async fn refund_duplicate(state: &BillingState, row_id: &str, payment: &Payment) {
+    let (Some(http), Some(amount)) = (state.http.clone(), payment.amount.clone()) else {
+        tracing::error!(row = row_id, payment = %payment.id, "billing: duplicate checkout not refunded (no client or amount)");
+        return;
+    };
+    match state
+        .mollie
+        .refund(
+            &http,
+            &payment.id,
+            &amount,
+            "WeldSuite: duplicate checkout",
+            &format!("refund:duplicate:{row_id}"),
+        )
+        .await
+    {
+        Ok(refund) => {
+            if let Err(error) = sqlx::query(
+                "update billing_payments set refunded_amount = amount, updated_at = now() where id = $1",
+            )
+            .bind(row_id)
+            .execute(&state.master)
+            .await
+            {
+                tracing::error!(%error, row = row_id, "billing: duplicate refund not recorded");
+            }
+            tracing::warn!(row = row_id, payment = %payment.id, refund = %refund.id, "billing: duplicate checkout refunded");
+        }
+        Err(error) => tracing::error!(
+            %error,
+            row = row_id,
+            payment = %payment.id,
+            "billing: duplicate checkout NOT refunded; refund it with weldsuite admin billing refund"
+        ),
+    }
 }
 
 /// Charges whose failure (or chargeback) after the fact reopens them.
@@ -216,6 +259,28 @@ async fn paid(
             let Some(workspace) = Workspace::lock(tx, workspace_id).await? else {
                 return Ok(Settled::Ignored("workspace gone"));
             };
+            // Another checkout already started the subscription: this one
+            // pays for an overlapping period. It isn't applied, and isn't
+            // invoiced; the payment is refunded once this commits.
+            let charging: bool = sqlx::query_scalar(
+                "select exists (select 1 from billing_accounts
+                                where workspace_id = $1 and next_charge_at is not null)",
+            )
+            .bind(workspace_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if charging && workspace.has_running_subscription(now) {
+                sqlx::query(
+                    "update billing_payments set status = 'duplicate',
+                         failure_message = 'A subscription was already running: refunded',
+                         updated_at = now()
+                     where id = $1",
+                )
+                .bind(&row.id)
+                .execute(&mut *tx)
+                .await?;
+                return Ok(Settled::DuplicateCheckout);
+            }
             let (Some(plan_id), Some(seats), Some(cycle), Some(unit)) = (
                 meta.plan_id.clone(),
                 meta.seats,

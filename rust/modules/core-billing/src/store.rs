@@ -164,6 +164,18 @@ impl ChargeRow {
         key: &str,
         meta: &ChargeMeta,
     ) -> Result<Self, sqlx::Error> {
+        let mut connection = master.acquire().await?;
+        Self::create_in(&mut connection, workspace_id, key, meta).await
+    }
+
+    /// [`ChargeRow::create`] inside `tx`, so the row commits with what it
+    /// charges for.
+    pub(crate) async fn create_in(
+        tx: &mut sqlx::PgConnection,
+        workspace_id: &str,
+        key: &str,
+        meta: &ChargeMeta,
+    ) -> Result<Self, sqlx::Error> {
         let metadata = serde_json::to_value(meta).unwrap_or(Value::Null);
         sqlx::query(
             "insert into billing_payments
@@ -178,7 +190,7 @@ impl ChargeRow {
         .bind(&metadata)
         .bind(i32::try_from(meta.charge.gross).unwrap_or(i32::MAX))
         .bind(&meta.charge.currency)
-        .execute(master)
+        .execute(&mut *tx)
         .await?;
         sqlx::query_as(concat!(
             "select ",
@@ -186,7 +198,28 @@ impl ChargeRow {
             " from billing_payments where idempotency_key = $1"
         ))
         .bind(key)
-        .fetch_one(master)
+        .fetch_one(&mut *tx)
+        .await
+    }
+
+    /// Renewals written but never sent (Mollie unreachable, or the run
+    /// stopped between the row and the call), created before `before`.
+    pub(crate) async fn unsent_renewals(
+        master: &PgPool,
+        before: &str,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as(concat!(
+            "select ",
+            columns!(),
+            " from billing_payments
+             where provider = 'mollie' and kind = 'renewal' and status = 'processing'
+               and provider_payment_id is null and created_at < $1::timestamp
+             order by created_at limit $2"
+        ))
+        .bind(before)
+        .bind(limit)
+        .fetch_all(master)
         .await
     }
 

@@ -855,6 +855,8 @@ export const settings = {
         billingDetailsRequired: 'Add your billing details first. We then continue to checkout.',
         excludingVat: 'Prices exclude VAT. VAT is added based on your billing details.',
         invoiceOpenFailed: 'Could not open the invoice',
+        invoicePopupBlocked: 'Allow pop-ups for this site to open the invoice.',
+        invoiceTitle: 'Invoice',
         checkoutPlanPaid: 'Payment received. Your plan is now active.',
         checkoutChangePaid: 'Payment received. Your plan change is processed.',
         checkoutMandatePaid: 'Payment method saved.',

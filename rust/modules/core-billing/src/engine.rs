@@ -562,11 +562,23 @@ pub(crate) async fn change(
         addon: None,
     };
     let charge = Charge::new(CURRENCY, vec![line], vat);
-    let change_id = generate_id("chg");
+    // One row per change of this period, from what it was to what it becomes,
+    // on this day: a double click or two admins at once reuse the same row,
+    // and so the same Mollie payment (its id is the idempotency key), instead
+    // of charging the proration twice.
+    let today = iso(now);
+    let change_key = format!(
+        "change:{}:{}:{}:{current_seats}:{}:{seats}:{}",
+        workspace.id,
+        iso(start),
+        workspace.plan_id.as_deref().unwrap_or("-"),
+        plan.id,
+        &today[..10.min(today.len())],
+    );
     let row = ChargeRow::create(
         master,
         &workspace.id,
-        &format!("change:{change_id}"),
+        &change_key,
         &meta(charge.clone(), Purpose::Change),
     )
     .await?;
@@ -625,7 +637,7 @@ pub(crate) async fn change(
     let retry = ChargeRow::create(
         master,
         &workspace.id,
-        &format!("change:{change_id}:checkout"),
+        &format!("{change_key}:checkout"),
         &meta(charge.clone(), Purpose::Change),
     )
     .await?;
@@ -734,6 +746,21 @@ pub(crate) async fn apply_change(
     seats: i64,
     unit: i64,
 ) -> Result<(), sqlx::Error> {
+    // What was scheduled for the period end stays, except what this change
+    // replaces now: the seats always, the plan when it changes. A scheduled
+    // cycle switch is never replaced (a cycle change is always scheduled).
+    sqlx::query(
+        "update billing_accounts set scheduled_seats = null,
+             scheduled_plan_id = case
+                 when (select plan_id from workspaces where id = $1) is distinct from $2 then null
+                 else scheduled_plan_id end,
+             updated_at = now()
+         where workspace_id = $1",
+    )
+    .bind(workspace_id)
+    .bind(plan_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query(
         "update workspaces set plan_id = $2, purchased_seats = $3, updated_at = now() where id = $1",
     )
@@ -743,7 +770,6 @@ pub(crate) async fn apply_change(
     .execute(&mut *tx)
     .await?;
     account::set_unit_amount(tx, workspace_id, unit).await?;
-    account::schedule(tx, workspace_id, None).await?;
     Ok(())
 }
 

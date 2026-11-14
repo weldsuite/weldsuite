@@ -7,25 +7,35 @@ import { isApiInvoiceUrl, openInvoiceDocument } from '@/lib/billing/invoice-docu
 /**
  * Click handler for an invoice link. A public link (Stripe) opens as a plain
  * anchor; an authenticated API path (Mollie) is fetched with the session and
- * opened as a blob, since a link can't send the bearer token.
+ * shown in a new tab, since a link can't send the bearer token.
  */
 export function useInvoiceLinkClick() {
   const { getClient } = useAppApiClient();
   const { t } = useI18n();
-  const failed = t.settings.billing.mollie.invoiceOpenFailed;
+  const strings = t.settings.billing.mollie;
 
   return useCallback(
     (event: MouseEvent<HTMLAnchorElement>, pdfUrl: string) => {
       if (!isApiInvoiceUrl(pdfUrl)) return;
       event.preventDefault();
+      // Opened now, inside the click, before anything is awaited (a token
+      // refresh would take it out of the click and the popup blocker would
+      // stop it). The app never navigates away to the document.
+      const tab = window.open('', '_blank');
+      if (!tab) {
+        toast.error(strings.invoicePopupBlocked);
+        return;
+      }
+      tab.opener = null;
       void (async () => {
         try {
-          await openInvoiceDocument(await getClient(), pdfUrl);
+          await openInvoiceDocument(await getClient(), pdfUrl, tab, strings.invoiceTitle);
         } catch {
-          toast.error(failed);
+          tab.close();
+          toast.error(strings.invoiceOpenFailed);
         }
       })();
     },
-    [getClient, failed],
+    [getClient, strings],
   );
 }
