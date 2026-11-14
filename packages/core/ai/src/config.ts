@@ -189,9 +189,17 @@ export function resolveConfigFor(provider: GatewayProvider, env?: object): WeldA
 /** The account id a test config gets when it sets only `AI_TEST_BASE_URL`. */
 export const TEST_ACCOUNT_ID = 'test-account';
 
+/** `url` without its trailing slashes (a loop, not a backtracking regex). */
+export function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end -= 1;
+  return url.slice(0, end);
+}
+
 /** `AI_TEST_BASE_URL` without its trailing slash, so paths join with one. */
 function resolveTestBaseUrl(source: EnvLike): string | undefined {
-  return str(source.AI_TEST_BASE_URL)?.replace(/\/+$/, '');
+  const base = str(source.AI_TEST_BASE_URL);
+  return base === undefined ? undefined : withoutTrailingSlashes(base);
 }
 
 function resolveFallbackModel(source: EnvLike): string | null {

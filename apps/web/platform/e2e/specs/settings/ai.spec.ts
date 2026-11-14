@@ -3,12 +3,13 @@
  *
  * Runs only against a Kubernetes install that has AI configured: the page
  * and `GET /api/ai-settings` exist there and nowhere else (Global has
- * neither). The spec skips itself unless
+ * neither). The spec registers its test only when
  *   - `E2E_KUBERNETES=1` is set, and
- *   - the target's `/config.json` carries an `ai` block, and
  *   - `E2E_ANTHROPIC_API_KEY` holds a test key of the workspace's own to
  *     store (never commit one; the key is typed into a masked field and the
- *     page must only ever show its hint afterwards).
+ *     page must only ever show its hint afterwards);
+ * and it expects the target's `/config.json` to carry an `ai` block (the
+ * Kubernetes test environment runs on Mistral).
  *
  * Flow: enable Claude with an own key, set it for WeldMail, check the badge in
  * the mail account's AI dialog, then put everything back (override cleared,
@@ -19,15 +20,18 @@
 
 import { test, expect } from '../../fixtures';
 
-const OWN_KEY = process.env.E2E_ANTHROPIC_API_KEY;
+const OWN_KEY = process.env.E2E_ANTHROPIC_API_KEY ?? '';
+
+// Global CI and installs without a test key register nothing here.
+const ON_KUBERNETES_WITH_KEY = process.env.E2E_KUBERNETES === '1' && OWN_KEY !== '';
 
 test.describe('Settings · AI (Kubernetes)', () => {
-  test.skip(process.env.E2E_KUBERNETES !== '1', 'Needs a Kubernetes install (E2E_KUBERNETES=1)');
-  test.skip(!OWN_KEY, "Needs E2E_ANTHROPIC_API_KEY, a test key for the workspace's own account");
+  if (!ON_KUBERNETES_WITH_KEY) return;
 
   test.beforeEach(async ({ page, request, baseURL }) => {
     const config = await request.get(new URL('/config.json', baseURL).toString());
-    test.skip(!config.ok() || !(await config.json()).ai, 'This install has no AI configured');
+    expect(config.ok()).toBe(true);
+    expect((await config.json()).ai, 'the Kubernetes test environment has AI configured').toBeTruthy();
     await page.goto('/settings/ai');
     await expect(page.getByRole('heading', { name: 'AI', exact: true })).toBeVisible({ timeout: 20_000 });
   });
@@ -51,13 +55,13 @@ test.describe('Settings · AI (Kubernetes)', () => {
     await claude.getByRole('radio', { name: 'Our own API key' }).click();
     const field = claude.getByLabel('API key');
     await expect(field).toHaveAttribute('type', 'password');
-    await field.fill(OWN_KEY!);
+    await field.fill(OWN_KEY);
     await claude.getByRole('button', { name: 'Save and check' }).click();
     await expect(claude.getByText(/Saved key: /)).toBeVisible({
       timeout: 20_000,
     });
     await expect(claude.getByText('Key works')).toBeVisible();
-    await expect(page.locator('body')).not.toContainText(OWN_KEY!);
+    await expect(page.locator('body')).not.toContainText(OWN_KEY);
 
     // Mail runs on Claude.
     await page.getByRole('combobox', { name: 'WeldMail' }).click();

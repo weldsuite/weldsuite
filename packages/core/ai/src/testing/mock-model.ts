@@ -32,6 +32,8 @@
  * Tests only: never imported by runtime code.
  */
 
+import { withoutTrailingSlashes } from '../config.js';
+
 /** The base URL tests point both backends at (`AI_TEST_BASE_URL`). */
 export const MOCK_AI_BASE_URL = 'https://mock-ai.weldsuite.test/v1';
 
@@ -146,7 +148,11 @@ function json(value: unknown, status = 200): Response {
 
 function sse(events: { event?: string; data: unknown }[]): Response {
   const text = events
-    .map(({ event, data }) => `${event ? `event: ${event}\n` : ''}data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`)
+    .map(({ event, data }) => {
+      const name = event ? 'event: ' + event + '\n' : '';
+      const payload = typeof data === 'string' ? data : JSON.stringify(data);
+      return `${name}data: ${payload}\n\n`;
+    })
     .join('');
   return new Response(text, { status: 200, headers: { 'content-type': 'text/event-stream' } });
 }
@@ -202,8 +208,15 @@ function vector(text: string, dimensions: number): number[] {
   return Array.from({ length: dimensions }, (_, i) => Math.round(Math.sin(seed + i) * 1e6) / 1e6);
 }
 
+/** A chat reply's text content: its JSON as text, its text, or none. */
+function replyContent(reply: MockChatReply): string | null {
+  if ('json' in reply) return JSON.stringify(reply.json);
+  if ('text' in reply) return reply.text ?? null;
+  return null;
+}
+
 export function createMockModel(options: MockModelOptions = {}, fallback?: typeof fetch): MockModel {
-  const baseUrl = (options.baseUrl ?? MOCK_AI_BASE_URL).replace(/\/+$/, '');
+  const baseUrl = withoutTrailingSlashes(options.baseUrl ?? MOCK_AI_BASE_URL);
   const usage = options.usage ?? { input: 10, output: 5 };
   const calls: MockModelCall[] = [];
 
@@ -237,7 +250,7 @@ export function createMockModel(options: MockModelOptions = {}, fallback?: typeo
             function: { name: call.name, arguments: JSON.stringify(call.arguments ?? {}) },
           }))
         : undefined;
-    const content = 'json' in reply ? JSON.stringify(reply.json) : 'text' in reply ? (reply.text ?? null) : null;
+    const content = replyContent(reply);
     const finish = toolCalls ? 'tool_calls' : 'stop';
     const tokens = {
       prompt_tokens: usage.input,
@@ -397,7 +410,7 @@ export function createMockModel(options: MockModelOptions = {}, fallback?: typeo
     const body = await bodyOf(input, init);
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     const pathname = new URL(url).pathname;
-    const basePath = new URL(baseUrl).pathname.replace(/\/+$/, '');
+    const basePath = withoutTrailingSlashes(new URL(baseUrl).pathname);
     const path = url.startsWith(baseUrl) && pathname.startsWith(basePath) ? pathname.slice(basePath.length) || '/' : pathname;
     calls.push({ method, url, path, body, headers });
 

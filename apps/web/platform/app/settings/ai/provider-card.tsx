@@ -36,12 +36,10 @@ export function ProviderCard({ provider, canManage }: Readonly<{ provider: AiPro
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const keySource = provider.keySource ?? defaultKeySource(provider);
-  const regionText =
-    provider.install && provider.region === 'eu'
-      ? ta.providers.euDefault
-      : provider.region === 'eu'
-        ? ta.providers.eu
-        : ta.providers.outsideEu;
+  let regionText = ta.providers.outsideEu;
+  if (provider.region === 'eu') {
+    regionText = provider.install ? ta.providers.euDefault : ta.providers.eu;
+  }
 
   const save = (input: Parameters<typeof update.mutateAsync>[0]) =>
     update.mutateAsync(input).catch((err: unknown) => {

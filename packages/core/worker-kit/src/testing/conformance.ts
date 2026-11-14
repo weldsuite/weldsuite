@@ -927,8 +927,8 @@ function withoutAiMeta(record: Record<string, unknown>): Record<string, unknown>
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return record;
   const ai = (meta as Record<string, unknown>).ai;
   if (!ai || typeof ai !== 'object' || !('provider' in ai) || !('model' in ai)) return record;
-  const { ai: _label, ...rest } = meta as Record<string, unknown>;
-  const { meta: _meta, ...others } = record;
+  const rest = Object.fromEntries(Object.entries(meta).filter(([key]) => key !== 'ai'));
+  const others = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'meta'));
   return Object.keys(rest).length > 0 ? { ...others, meta: rest } : others;
 }
 
