@@ -18,7 +18,7 @@ Run the standard agent pipeline:
 1. Invoke `weldsuite-dispatcher`. Dispatcher reads the now-enriched task, the interview locked in scope, UX, data model, etc., so the dispatcher's job is easier.
 2. Invoke `bug-triage`. Triage reproduces, traces to root cause, writes a fix plan. It leans on the enricher's "Existing patterns to mirror" and "Decisions locked in".
 3. Invoke the specialist(s) named by the dispatcher. They implement against the triage plan, nothing more, nothing less.
-4. Run Definition-of-Done checks (see CLAUDE.md):
+4. Run Definition-of-Done checks (see AGENTS.md):
    - `pnpm lint` in the changed workspace(s)
    - `pnpm build` of the touched app(s)
    - Tenant scoping on every Drizzle query touched

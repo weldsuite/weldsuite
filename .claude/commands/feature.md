@@ -23,7 +23,7 @@ Pipeline:
 1. `weldsuite-dispatcher`, fetch the enriched task, classify, emit plan. Use the enricher's suggested specialist chain as a strong hint.
 2. `bug-triage`, produce a design sketch + file map. The enricher's decisions table gives triage a head start.
 3. Walk specialist chain in dependency order. Each specialist reads the enrichment + triage plan + prior specialists' output.
-4. DoD checks (see CLAUDE.md).
+4. DoD checks (see AGENTS.md).
 5. `update_task` with PR/commit comment, flip to `review` or `done`.
 
 Never go beyond the feature scope defined in the enriched task description. If you notice an adjacent issue, file a new task via `create_task`, do not silently bundle.

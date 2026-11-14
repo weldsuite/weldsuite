@@ -75,7 +75,7 @@ Invoke the specialist(s) named by the dispatcher, in dependency order (database 
 
 **HARD STOP C:** if any specialist determines a database migration file must be generated, STOP the loop and ask via `AskUserQuestion`:
 - "Proceed and generate the migration?" / "Skip the migration, take column changes only?" / "Abort this task"
-Wait for the answer. Per CLAUDE.md, migrations are never auto-generated.
+Wait for the answer. Per AGENTS.md, migrations are never auto-generated.
 
 ### 7. DoD checks
 
