@@ -8,6 +8,11 @@
  * In-call UI is WeldChat's branded `InCallRoom` (RealtimeKit grid + custom
  * chrome). This host owns init / join / leave, room lifecycle bridging, the
  * minimize bar, and releasing local camera/mic tracks.
+ *
+ * The media runs on the server's video provider (ADR CHAT-008): RealtimeKit on
+ * WeldSuite cloud, LiveKit on the Kubernetes editions. Both clients answer to
+ * RealtimeKit's client surface, so only setting the client up differs
+ * (`RealtimeKitCall` / `LiveKitCall`); `CallSurface` is the rest of the call.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -20,10 +25,15 @@ import {
   RealtimeKitProvider,
   useRealtimeKitClient,
 } from '@cloudflare/realtimekit-react-native';
+import { getMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import type { VideoProvider } from '@weldsuite/weldmeet-ui/providers/video-provider';
 import { useCall, type CallSession, type CallType } from '@/contexts/CallContext';
+import { useLiveKitClient } from '@/hooks/useLiveKitClient';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import type { CallInitOptions, MeetingClient } from '@/lib/calls/types';
+import { callJoinTarget } from '@/lib/calls/video-provider';
 import { InCallRoom } from './InCallRoom';
 
 const RINGBACK = require('@/assets/sounds/ringback.wav');
@@ -43,17 +53,17 @@ async function ensureCallPermissions(callType: CallType): Promise<void> {
   try {
     await PermissionsAndroid.requestMultiple(wanted);
   } catch {
-    // Join anyway: RealtimeKit then shows the mic as off.
+    // Join anyway: the client then shows the mic as off.
   }
 }
 
 /**
- * Explicitly stop the local camera/mic MediaStreamTracks held by the RTK
+ * Explicitly stop the local camera/mic MediaStreamTracks held by the call
  * client. RealtimeKit's `leave()` does not reliably stop the underlying
  * hardware tracks in React Native, so without this the OS camera/mic indicator
  * stays lit after the user leaves the call.
  */
-function stopLocalMediaTracks(meeting: ReturnType<typeof useRealtimeKitClient>[0]) {
+function stopLocalMediaTracks(meeting: MeetingClient | undefined) {
   if (!meeting) return;
   const self = meeting.self as unknown as {
     videoTrack?: { stop?: () => void };
@@ -159,9 +169,49 @@ export function CallHost() {
   return <ActiveCall key={session.callId} session={session} />;
 }
 
+/** Sets the call up on this server's video provider (fixed for the JS lifetime). */
 function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
-  const { minimized, minimizeCall, expandCall, leaveCall, markConnected } = useCall();
+  const target = useMemo(() => callJoinTarget(getMobileRuntime()), []);
+  if (!target) return <UnjoinableCall />;
+  if (target.provider === 'livekit') return <LiveKitCall session={session} url={target.url} />;
+  return <RealtimeKitCall session={session} />;
+}
+
+function RealtimeKitCall({ session }: Readonly<{ session: CallSession }>) {
   const [meeting, initMeeting] = useRealtimeKitClient();
+  return <CallSurface session={session} provider="realtimekit" meeting={meeting} initMeeting={initMeeting} />;
+}
+
+function LiveKitCall({ session, url }: Readonly<{ session: CallSession; url: string }>) {
+  const [meeting, initMeeting] = useLiveKitClient(url);
+  return <CallSurface session={session} provider="livekit" meeting={meeting} initMeeting={initMeeting} />;
+}
+
+/**
+ * The server says LiveKit but names no LiveKit server: its join tokens can't
+ * be used, so leave the call rather than sit on "Connecting".
+ */
+function UnjoinableCall() {
+  const { leaveCall } = useCall();
+  useEffect(() => {
+    console.error('[WeldChat:Call] LiveKit is the video provider, but the server names no LiveKit URL');
+    void leaveCall();
+  }, [leaveCall]);
+  return null;
+}
+
+function CallSurface({
+  session,
+  provider,
+  meeting,
+  initMeeting,
+}: Readonly<{
+  session: CallSession;
+  provider: VideoProvider;
+  meeting: MeetingClient | undefined;
+  initMeeting: (options: CallInitOptions) => Promise<unknown>;
+}>) {
+  const { minimized, minimizeCall, expandCall, leaveCall, markConnected } = useCall();
   const router = useRouter();
 
   // The call screen covers the chat: a keyboard left up from the composer
@@ -380,27 +430,32 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   const { colors } = useTheme();
   const callStatus = getCallStatus(session, reconnecting, connected, duration);
 
+  const room = meeting ? (
+    <InCallRoom
+      meeting={meeting}
+      provider={provider}
+      peerName={session.peerName}
+      peerAvatar={session.peerAvatar ?? undefined}
+      isDirect={session.isDirect}
+      callType={session.callType}
+      status={callStatus}
+      onMinimize={minimizeCall}
+      onOpenChat={openChat}
+      onLeave={handleLeave}
+    />
+  ) : null;
+
   return (
     <>
       <View
         style={[styles.overlay, minimized && styles.hidden, { backgroundColor: colors.background }]}
         pointerEvents={minimized ? 'none' : 'auto'}
       >
-        {meeting ? (
-          <RealtimeKitProvider value={meeting as never}>
-            <InCallRoom
-              meeting={meeting}
-              peerName={session.peerName}
-              peerAvatar={session.peerAvatar ?? undefined}
-              isDirect={session.isDirect}
-              callType={session.callType}
-              status={callStatus}
-              onMinimize={minimizeCall}
-              onOpenChat={openChat}
-              onLeave={handleLeave}
-            />
-          </RealtimeKitProvider>
-        ) : (
+        {room && provider === 'realtimekit' && (
+          <RealtimeKitProvider value={meeting as never}>{room}</RealtimeKitProvider>
+        )}
+        {room && provider === 'livekit' && room}
+        {!room && (
           <View style={[styles.connecting, { backgroundColor: colors.background }]}>
             <ActivityIndicator size="large" color={BRAND} />
             <Text style={[styles.connectingText, { color: colors.text }]}>
