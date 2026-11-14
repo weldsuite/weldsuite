@@ -1,12 +1,15 @@
 // The browser tools (`browser_open`, `browser_act`, `browser_close`, the
 // twins of agent-runtime's routes/browser.ts): one Chromium per sandbox, on
 // the sandbox's desktop, driven over the DevTools protocol on 127.0.0.1.
-// No library: Node's own WebSocket and fetch speak the protocol.
+// No library: Node's own WebSocket and fetch speak the protocol. Chromium
+// reaches the network only through the agent's proxy (`proxy.mjs`), which
+// holds every connection it makes to web_fetch's check.
 
 import { spawn } from 'node:child_process';
 
 import { DISPLAY, HEIGHT, WIDTH, ensureDesktop } from './desktop.mjs';
 import { checkUrl } from './fetch.mjs';
+import { proxyUrl } from './proxy.mjs';
 import { BadRequest, cap } from './util.mjs';
 
 const DEBUG_PORT = 9222;
@@ -75,6 +78,7 @@ async function versionUrl() {
 
 async function launch() {
   await ensureDesktop();
+  const proxy = await proxyUrl();
   const home = process.env.HOME || '/home/sandbox';
   const child = spawn(
     process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -82,6 +86,13 @@ async function launch() {
       '--no-sandbox', // gVisor is the sandbox; Chromium's own needs privileges the pod hasn't
       `--remote-debugging-port=${DEBUG_PORT}`,
       '--remote-debugging-address=127.0.0.1',
+      // Every connection through the checking proxy: loopback too (`<-loopback>`
+      // drops Chromium's built-in bypass, else a page could reach DevTools on
+      // 9222), no QUIC around it, and WebRTC only over the proxy.
+      `--proxy-server=${proxy}`,
+      '--proxy-bypass-list=<-loopback>',
+      '--disable-quic',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
       `--user-data-dir=${home}/.chromium`,
       '--no-first-run',
       '--no-default-browser-check',
@@ -144,7 +155,8 @@ async function settle(timeoutMs = 30_000) {
 }
 
 async function goto(raw) {
-  // Public http(s) only, as web_fetch; the network policy holds the rest.
+  // Public http(s) only, as web_fetch: refused here with a clear message, and
+  // held by the proxy for whatever the page then loads or redirects to.
   const url = (await checkUrl(raw)).toString();
   const { cdp, sessionId } = await browser();
   const { errorText } = await cdp.send('Page.navigate', { url }, sessionId);

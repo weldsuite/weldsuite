@@ -1,6 +1,7 @@
 // Shared helpers of the sandbox agent: errors, caps, paths and addresses.
 
-import { isIP } from 'node:net';
+import { lookup as dnsLookup } from 'node:dns';
+import { BlockList, isIP } from 'node:net';
 import path from 'node:path';
 
 /** A refusal the caller can act on: answered as 400 with its message. */
@@ -72,41 +73,122 @@ export function resolveWorkspacePath(input, root = workspaceRoot()) {
   return clean;
 }
 
-/** Whether `ip` is a globally routable address (the twin of `is_public_ip`). */
-export function isPublicIp(ip) {
-  const kind = isIP(ip);
-  if (kind === 4) {
-    const [a, b] = ip.split('.').map(Number);
-    return !(
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b < 128) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b < 32) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      (a === 198 && b === 51) ||
-      (a === 203 && b === 0) ||
-      a >= 224
-    );
-  }
-  if (kind === 6) {
-    const lower = ip.toLowerCase();
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPublicIp(mapped[1]);
-    if (lower === '::' || lower === '::1') return false;
-    const first = parseInt(lower.split(':')[0] || '0', 16);
-    return !(
-      (first & 0xfe00) === 0xfc00 || // unique local
-      (first & 0xffc0) === 0xfe80 || // link local
-      (first & 0xff00) === 0xff00 || // multicast
-      lower.startsWith('2001:db8:')
-    );
-  }
-  return false;
+// The addresses that aren't the public internet. The pod's network policy
+// drops the private and link-local ranges but not its own loopback, where
+// Chromium's DevTools listen, so this list is what keeps a fetch off it.
+const NOT_PUBLIC = new BlockList();
+for (const [network, prefix] of [
+  ['0.0.0.0', 8], // "this network", unspecified
+  ['10.0.0.0', 8], // private
+  ['100.64.0.0', 10], // shared address space (carrier NAT)
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16], // link local, cloud metadata
+  ['172.16.0.0', 12], // private
+  ['192.0.0.0', 24], // IETF protocol assignments
+  ['192.0.2.0', 24], // documentation
+  ['192.88.99.0', 24], // 6to4 relays
+  ['192.168.0.0', 16], // private
+  ['198.18.0.0', 15], // benchmarking
+  ['198.51.100.0', 24], // documentation
+  ['203.0.113.0', 24], // documentation
+  ['224.0.0.0', 4], // multicast
+  ['240.0.0.0', 4], // reserved, broadcast
+]) {
+  NOT_PUBLIC.addSubnet(network, prefix, 'ipv4');
 }
+for (const [network, prefix] of [
+  ['::', 128], // unspecified
+  ['::1', 128], // loopback
+  ['64:ff9b::', 96], // NAT64: an IPv4 address through the network's translator
+  ['64:ff9b:1::', 48], // local-use NAT64
+  ['100::', 64], // discard
+  ['2001::', 23], // IETF protocol assignments (Teredo, benchmarking, ORCHID)
+  ['2001:db8::', 32], // documentation
+  ['2002::', 16], // 6to4: an IPv4 address through a relay
+  ['3fff::', 20], // documentation
+  ['fc00::', 7], // unique local
+  ['fe80::', 10], // link local
+  ['fec0::', 10], // site local (deprecated)
+  ['ff00::', 8], // multicast
+]) {
+  NOT_PUBLIC.addSubnet(network, prefix, 'ipv6');
+}
+// IPv6 is public only in global unicast; the rest of the space is reserved.
+const GLOBAL_UNICAST = new BlockList();
+GLOBAL_UNICAST.addSubnet('2000::', 3, 'ipv6');
+
+/** The eight 16-bit groups of an IPv6 address `isIP` took, dotted tail included. */
+function ipv6Groups(ip) {
+  const groups = (part) =>
+    part
+      ? part.split(':').flatMap((piece) => {
+          if (!piece.includes('.')) return [parseInt(piece, 16)];
+          const [a, b, c, d] = piece.split('.').map(Number);
+          return [(a << 8) | b, (c << 8) | d];
+        })
+      : [];
+  const [head, tail] = ip.split('::');
+  const left = groups(head);
+  if (tail === undefined) return left;
+  const right = groups(tail);
+  return [...left, ...new Array(8 - left.length - right.length).fill(0), ...right];
+}
+
+/**
+ * The IPv4 address an IPv6 one stands for: IPv4-mapped (`::ffff:0:0/96`) or
+ * IPv4-compatible (`::/96`, which `::` and `::1` are part of), in either the
+ * dotted or the hex form (`URL` writes `[::ffff:127.0.0.1]` as
+ * `[::ffff:7f00:1]`). Null for any other address.
+ */
+function embeddedIpv4(groups) {
+  if (groups.slice(0, 5).some(Boolean) || (groups[5] !== 0 && groups[5] !== 0xffff)) return null;
+  return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join('.');
+}
+
+/**
+ * Whether `ip` is a globally routable address (the twin of `is_public_ip`).
+ * An IPv6 address that carries an IPv4 one is judged as that IPv4 address.
+ */
+export function isPublicIp(ip) {
+  const address = String(ip ?? '');
+  const kind = isIP(address);
+  if (kind === 4) return !NOT_PUBLIC.check(address, 'ipv4');
+  // A zone (`fe80::1%eth0`) only goes with a link-local address.
+  if (kind !== 6 || address.includes('%')) return false;
+  const groups = ipv6Groups(address.toLowerCase());
+  const v4 = embeddedIpv4(groups);
+  if (v4) return isPublicIp(v4);
+  const full = groups.map((group) => group.toString(16)).join(':');
+  return GLOBAL_UNICAST.check(full, 'ipv6') && !NOT_PUBLIC.check(full, 'ipv6');
+}
+
+/**
+ * A `dns.lookup` for a socket's `lookup` option that answers only names
+ * whose every address passes `allowed`, and refuses the rest with a
+ * `BadRequest`. The socket connects to the address this answered, so the
+ * address checked is the address reached: no second lookup a short-lived DNS
+ * answer could change (rebinding). Sockets skip `lookup` for an IP literal,
+ * which the caller checks itself.
+ */
+export function checkedLookup(allowed = isPublicIp) {
+  return function lookup(hostname, options, callback) {
+    const done = typeof options === 'function' ? options : callback;
+    let wanted = {};
+    if (typeof options === 'number') wanted = { family: options };
+    else if (options && typeof options === 'object') wanted = options;
+    dnsLookup(hostname, { ...wanted, all: true }, (error, addresses) => {
+      if (error) return done(error);
+      if (addresses.length === 0 || !addresses.every((a) => allowed(a.address))) {
+        return done(new BadRequest(`${hostname} is not on the public internet.`));
+      }
+      if (wanted.all) return done(null, addresses);
+      return done(null, addresses[0].address, addresses[0].family);
+    });
+  };
+}
+
+/** `checkedLookup` for the public internet. */
+export const publicLookup = checkedLookup(isPublicIp);
 
 /** `host:port` or `[v6]:port`, or null. */
 export function parseTarget(target) {
