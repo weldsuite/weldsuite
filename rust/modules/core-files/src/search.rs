@@ -4,17 +4,23 @@
 //! (exact 1.0, prefix 0.9, substring 0.6; e-mail columns 1.0 / 0.7 / 0.3).
 //! Types the caller may not read are left out, not refused.
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::drive_access::{DriveFileRef, file_visible, load_drive_access_for_user};
 use weldsuite_db::PgPool;
+use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::has_any_app_permission;
+use weldsuite_ports::DynCache;
+use weldsuite_subscribers::search::ai::{WorkspaceEmbeddings, index_model};
+use weldsuite_subscribers::search::backfill::{BackfillCursor, backfill_batch};
 
-use crate::understanding::{apply_permitted_types, understand_query};
+use crate::understanding::{ModelTier, apply_permitted_types, understand_query_with};
 use crate::{Caller, CoreFilesState, answer, encode_uri_component, json_response, validate};
 
 /// A searchable record type (`SEARCH_ENTITY_TYPES`), in the canonical order
@@ -74,7 +80,7 @@ const REGISTRY: [(SearchType, &str, &str); 18] = [
 
 /// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
 /// order (the enum's message lists them so), which is not the canonical one.
-const ENTITY_TYPES: [&str; 18] = [
+pub(crate) const ENTITY_TYPES: [&str; 18] = [
     "contact",
     "customer",
     "lead",
@@ -110,7 +116,7 @@ impl SearchType {
             .map_or("", |(_, _, permission)| permission)
     }
 
-    fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         REGISTRY
             .iter()
             .find(|(_, n, _)| *n == name)
@@ -955,7 +961,7 @@ fn read_input(issues: &mut Issues, body: &Map<String, Value>) -> SearchInput {
 }
 
 pub(crate) async fn search(
-    State(_state): State<CoreFilesState>,
+    State(state): State<CoreFilesState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -971,7 +977,25 @@ pub(crate) async fn search(
                 })
             };
             let permitted: Vec<SearchType> = SearchType::all().filter(|t| allowed(*t)).collect();
-            let parsed = understand_query(&input.q);
+            // Structure the query first ("Invoice from Acme Corp" becomes
+            // invoices matching "Acme Corp"). Never fails: no AI, an empty
+            // wallet or a refusal all leave the raw query.
+            let tier = ModelTier {
+                ai: caller.ai(&state),
+                call: {
+                    let call = ModelTier::call(&caller.workspace_id)
+                        .tenant(caller.db.clone())
+                        .master(caller.master(&state));
+                    match &caller.user_id {
+                        Some(user) => call.user(user),
+                        None => call,
+                    }
+                },
+                cache: caller.cache(&state),
+                // The parse cache stays under the Clerk org id, as TypeScript keeps it.
+                cache_workspace: caller.clerk_org_id.clone().unwrap_or_default(),
+            };
+            let parsed = understand_query_with(&input.q, &tier).await;
             let scoped = match &input.types {
                 Some(types) if !types.is_empty() => types.clone(),
                 _ => apply_permitted_types(&parsed, &permitted),
@@ -1041,6 +1065,111 @@ pub(crate) async fn search(
         }
         .await,
         "Failed to run search",
+    )
+}
+
+// ── POST /api/search/reindex ───────────────────────────────────────────────
+
+/// `REINDEX_LOCK_PREFIX`: the advisory lease, per workspace.
+const REINDEX_LOCK_PREFIX: &str = "search-reindex-lock:";
+/// Longer than one page, short enough to heal after a crash.
+const REINDEX_LOCK_TTL: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// `reindexInputSchema`: `{ cursor?: { entityType, afterId } | null }`.
+fn read_reindex(issues: &mut Issues, body: &Map<String, Value>) -> Option<BackfillCursor> {
+    issues
+        .nested(body, "cursor", Presence::Nullish, |issues, fields| {
+            let entity_type = issues
+                .choice(fields, "entityType", Presence::Required, &ENTITY_TYPES)
+                .into_option();
+            let after_id = issues
+                .text(fields, "afterId", Presence::Nullable, None, None)
+                .into_option();
+            BackfillCursor {
+                entity_type: entity_type.unwrap_or_default(),
+                after_id,
+            }
+        })
+        .into_option()
+}
+
+/// `acquireReindexLease(env, orgId)`: whether this walk may run. Advisory,
+/// as TypeScript's: a cache that can't be read lets the walk run rather than
+/// block an admin action.
+async fn acquire_reindex_lease(cache: Option<&Arc<dyn DynCache>>, key: &str) -> bool {
+    let Some(cache) = cache else {
+        return true;
+    };
+    match cache.get_boxed(key).await {
+        Ok(Some(held)) if !held.is_empty() => false,
+        Ok(_) => {
+            let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
+            if let Err(error) = cache.put_boxed(key, &now, Some(REINDEX_LOCK_TTL)).await {
+                tracing::debug!(%error, "[app-api/search] reindex lease unavailable");
+            }
+            true
+        }
+        Err(_) => true,
+    }
+}
+
+/// `POST /api/search/reindex` (`settings:general:update`): one page of the
+/// semantic backfill, its embeddings through the install's AI
+/// (`search-index`, the indexer's own code: [`backfill_batch`]), charged to
+/// the workspace once per page. The caller loops on the returned cursor
+/// until `done`; two walks of one workspace at once get a 409.
+pub(crate) async fn reindex(
+    State(state): State<CoreFilesState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    answer(
+        async {
+            let cursor = validate(&headers, &body, read_reindex)?;
+            let embeddings = caller
+                .ai(&state)
+                .and_then(|ai| index_model(&ai).map(|model| (ai, model)));
+            let Some((ai, model)) = embeddings else {
+                tracing::error!("[app-api/search] reindex: AI is not configured");
+                return Ok(json_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    json!({ "error": { "code": "AI_NOT_CONFIGURED", "message": "AI gateway is not configured" } }),
+                ));
+            };
+            let cache = caller.cache(&state);
+            let key = format!(
+                "{REINDEX_LOCK_PREFIX}{}",
+                caller.clerk_org_id.as_deref().unwrap_or_default()
+            );
+            if !acquire_reindex_lease(cache.as_ref(), &key).await {
+                return Ok(json_response(
+                    StatusCode::CONFLICT,
+                    json!({ "error": { "code": "REINDEX_IN_PROGRESS", "message": "A reindex is already running for this workspace" } }),
+                ));
+            }
+            let embedder = WorkspaceEmbeddings::new(ai, model, &caller.workspace_id);
+            let cursor = cursor.unwrap_or_else(BackfillCursor::initial);
+            let progress = backfill_batch(&caller.db, &embedder, &cursor).await;
+            embedder.settle(caller.master(&state).as_ref()).await;
+            if let Some(cache) = &cache {
+                let _ = cache.delete_boxed(&key).await;
+            }
+            match progress {
+                Ok(progress) => Ok(json_response(
+                    StatusCode::OK,
+                    json!({ "data": progress.to_json() }),
+                )),
+                Err(error) => {
+                    tracing::error!(%error, "[app-api/search] reindex batch failed");
+                    Ok(ApiError::internal()
+                        .with_message("Failed to run reindex batch")
+                        .into_response())
+                }
+            }
+        }
+        .await,
+        "Failed to run reindex batch",
     )
 }
 

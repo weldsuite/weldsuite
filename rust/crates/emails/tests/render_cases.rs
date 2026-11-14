@@ -15,9 +15,10 @@ use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
+use weldsuite_emails::workspace::WorkspaceInvitation;
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, desk, flow, forms, hr, meet, portal,
-    reach, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, calendar, desk, flow, forms, hr,
+    meet, portal, reach, sign, workspace,
 };
 
 #[derive(Deserialize)]
@@ -280,6 +281,18 @@ fn render(case: &Case) -> RenderedEmail {
                 url: opt("url"),
             },
         ),
+        "ai.provider-enabled" => ai::provider_enabled(
+            locale,
+            &brand,
+            &ai::ProviderEnabled {
+                recipient_name: opt("recipientName"),
+                workspace_name: s(p, "workspaceName"),
+                provider_name: s(p, "providerName"),
+                enabled_by: s(p, "enabledBy"),
+                own_key: p["keySource"].as_str() == Some("own"),
+                settings_url: s(p, "settingsUrl"),
+            },
+        ),
         "hr.bank-changed" => hr::bank_changed(
             locale,
             &brand,
@@ -349,9 +362,41 @@ fn render(case: &Case) -> RenderedEmail {
                 url: opt("url"),
             },
         ),
+        "auth.verify-email" => auth::verify_email(
+            locale,
+            &s(p, "code"),
+            &s(p, "url"),
+            minutes(p).unwrap_or(60),
+        ),
+        "auth.sign-in-code" => auth::sign_in_code(locale, &s(p, "code"), minutes(p).unwrap_or(5)),
+        "auth.password-reset" => auth::password_reset(
+            locale,
+            &s(p, "email"),
+            &s(p, "code"),
+            &s(p, "url"),
+            minutes(p).unwrap_or(60),
+        ),
+        "workspace.invitation" => workspace::invitation(
+            locale,
+            &brand,
+            &WorkspaceInvitation {
+                inviter_name: s(p, "inviterName"),
+                workspace_name: s(p, "workspaceName"),
+                role: s(p, "role"),
+                accept_url: s(p, "acceptUrl"),
+                recipient_email: s(p, "recipientEmail"),
+            },
+        ),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
+}
+
+/// `expiresInMinutes`, when the preview sets it.
+fn minutes(p: &Value) -> Option<u32> {
+    p["expiresInMinutes"]
+        .as_u64()
+        .and_then(|m| u32::try_from(m).ok())
 }
 
 fn millis(value: &Value) -> Option<i64> {

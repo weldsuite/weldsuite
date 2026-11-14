@@ -180,7 +180,8 @@ describe('AppAccessGuard · edition flags', () => {
     setRuntimeConfig({
       backend: 'rust',
       modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-      unavailableFeatures: ['billing', 'sso-connections'],
+      // No Stripe billing and no Mollie top-up: the billing page has nothing to show.
+      unavailableFeatures: ['billing', 'credit-top-up', 'sso-connections'],
     });
   });
 

@@ -56,6 +56,250 @@ Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-suppor
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'ai.provider-enabled' / 'ownKey' / 'en' > matches the text snapshot 1`] = `
+"OpenAI was enabled for AI in "Acme Studio"
+
+AI settings
+
+OpenAI was enabled for AI
+
+Hi,
+
+tom@acme.example enabled OpenAI as an AI provider for Acme Studio. Features set to use it send their content to OpenAI, which processes it outside the EU.
+
+Provider: OpenAI
+
+Region: Outside the EU
+
+Paid with: The workspace’s own key
+
+Enabled by: tom@acme.example
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'ownKey' / 'nl' > matches the text snapshot 1`] = `
+"OpenAI is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+OpenAI is ingeschakeld voor AI
+
+Hoi,
+
+tom@acme.example heeft OpenAI ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar OpenAI, dat die buiten de EU verwerkt.
+
+Aanbieder: OpenAI
+
+Regio: Buiten de EU
+
+Betaald met: De eigen sleutel van de werkruimte
+
+Ingeschakeld door: tom@acme.example
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'en' > matches the text snapshot 1`] = `
+"Anthropic was enabled for AI in "Acme Studio"
+
+AI settings
+
+Anthropic was enabled for AI
+
+Hi Lisa,
+
+Tom Jansen enabled Anthropic as an AI provider for Acme Studio. Features set to use it send their content to Anthropic, which processes it outside the EU.
+
+Provider: Anthropic
+
+Region: Outside the EU
+
+Paid with: WeldSuite’s account, charged as AI credits
+
+Enabled by: Tom Jansen
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'nl' > matches the text snapshot 1`] = `
+"Anthropic is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+Anthropic is ingeschakeld voor AI
+
+Hoi Lisa,
+
+Tom Jansen heeft Anthropic ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar Anthropic, dat die buiten de EU verwerkt.
+
+Aanbieder: Anthropic
+
+Regio: Buiten de EU
+
+Betaald met: Het account van WeldSuite, in rekening gebracht als AI-tegoed
+
+Ingeschakeld door: Tom Jansen
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.password-reset' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Reset your WeldSuite password
+
+Password reset
+
+Choose a new password
+
+We received a request to reset the password for tom@example.com.
+
+Reset password https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or enter this code on the reset screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't ask for this, you can ignore this email. Your password stays the same.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.password-reset' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Stel je WeldSuite-wachtwoord opnieuw in
+
+Wachtwoord opnieuw instellen
+
+Kies een nieuw wachtwoord
+
+We hebben een verzoek ontvangen om het wachtwoord van tom@example.com opnieuw in te stellen.
+
+Wachtwoord opnieuw instellen https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of vul deze code in op het scherm voor een nieuw wachtwoord:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren. Je wachtwoord blijft hetzelfde.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite sign-in code: 482913
+
+Your sign-in code
+
+Sign in to WeldSuite
+
+Enter this code to finish signing in:
+
+482913
+
+The code expires in 5 minutes.
+
+If you didn't try to sign in, someone may know your password. Change it as soon as you can.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je inlogcode voor WeldSuite: 482913
+
+Je inlogcode
+
+Inloggen bij WeldSuite
+
+Vul deze code in om het inloggen af te ronden:
+
+482913
+
+De code verloopt over 5 minuten.
+
+Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Confirm your email address for WeldSuite
+
+Confirm your email address
+
+Welcome to WeldSuite
+
+Confirm this address to finish setting up your account.
+
+Confirm email address https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or enter this code on the sign-in screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't create a WeldSuite account, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Bevestig je e-mailadres voor WeldSuite
+
+Bevestig je e-mailadres
+
+Welkom bij WeldSuite
+
+Bevestig dit adres om het aanmaken van je account af te ronden.
+
+E-mailadres bevestigen https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of vul deze code in op het inlogscherm:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
 "Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
 

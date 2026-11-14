@@ -11,6 +11,11 @@ interface RealtimeProviderProps extends WorkspaceClientConfig {
    * are replayed instead of refetched.
    */
   cursorStore?: CursorStore;
+  /**
+   * Reconnects when it changes, without remounting the children. The platform
+   * passes the workspace id, so a workspace switch gets a socket for the new one.
+   */
+  connectionKey?: string;
 }
 
 /**
@@ -20,7 +25,7 @@ interface RealtimeProviderProps extends WorkspaceClientConfig {
  * Handles React Strict Mode: each effect cycle creates a fresh client
  * so the cleanup fully tears down the previous connection.
  */
-export function RealtimeProvider({ url, getToken, cursorStore, children }: Readonly<RealtimeProviderProps>) {
+export function RealtimeProvider({ url, getToken, cursorStore, connectionKey, children }: Readonly<RealtimeProviderProps>) {
   const [client, setClient] = useState<WorkspaceClient | null>(null);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
@@ -28,6 +33,8 @@ export function RealtimeProvider({ url, getToken, cursorStore, children }: Reado
   cursorStoreRef.current = cursorStore;
 
   useEffect(() => {
+    // No endpoint (realtime is off for this deployment): stay without a client.
+    if (!url) return;
     const c = new WorkspaceClient({
       url,
       getToken: () => getTokenRef.current(),
@@ -40,7 +47,7 @@ export function RealtimeProvider({ url, getToken, cursorStore, children }: Reado
       c.disconnect();
       setClient(null);
     };
-  }, [url]);
+  }, [url, connectionKey]);
 
   return (
     <WorkspaceClientContext.Provider value={client}>

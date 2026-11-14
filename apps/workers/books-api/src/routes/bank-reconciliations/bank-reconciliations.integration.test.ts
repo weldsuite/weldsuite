@@ -93,7 +93,7 @@ beforeAll(async () => {
   const ledger = await accountOf('asset', 'bank');
   bankId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Main', currency: 'EUR', ledgerAccountId: ledger })).data.id;
   cardId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Card', currency: 'EUR', accountType: 'credit_card' })).data.id;
-  looseId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Loose', currency: 'EUR' })).data.id;
+  looseId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Loose', currency: 'EUR', createLedgerAccount: false })).data.id;
 
   await post('in500', bankId, '2026-01-05', 500, incomeId);
   await post('out120', bankId, '2026-01-10', -120, expenseId);

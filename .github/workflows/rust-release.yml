@@ -15,6 +15,8 @@ name: Rust release
 #       ghcr.io/weldsuite/weldsuite-collab-rooms:X.Y.Z
 #       ghcr.io/weldsuite/weldsuite-haraka:X.Y.Z (a build from before it
 #       existed can't be released)
+#       ghcr.io/weldsuite/weldsuite-sandbox:X.Y.Z (WeldAgent's sandbox pods;
+#       likewise)
 #   - publishes that commit's chart as
 #       oci://ghcr.io/weldsuite/releases/weldsuite:X.Y.Z (appVersion X.Y.Z),
 #     a repository of its own, so the test cluster, which takes the newest
@@ -123,7 +125,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka ghcr.io/weldsuite/weldsuite-sandbox)
           digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
           for image in "${images[@]}"; do
             digest "$image:$BUILD" >/dev/null || { echo "::error::$image:$BUILD not found"; exit 1; }

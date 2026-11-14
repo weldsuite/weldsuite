@@ -1,0 +1,218 @@
+{{- if .Values.searxng.enabled }}
+{{- /*
+SearXNG for WeldAgent's web_search (SEARXNG_URL, rust/crates/sandbox
+search.rs): JSON answers for the server's pods only. No query log (debug and
+metrics off; the server posts the query, so no access log line holds it), the
+limiter on with a Valkey of its own in the pod, and the engines of
+searxng.engines only. Its secret key is generated once and kept.
+*/}}
+{{- $name := include "weldsuite.searxng.fullname" . }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $name }}
+{{- $secret := randAlphaNum 48 | b64enc }}
+{{- if and $existing $existing.data (hasKey $existing.data "SEARXNG_SECRET") }}
+{{- $secret = index $existing.data "SEARXNG_SECRET" }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+type: Opaque
+data:
+  SEARXNG_SECRET: {{ $secret | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+data:
+  settings.yml: |
+    use_default_settings:
+      engines:
+        keep_only:
+          {{- range .Values.searxng.engines }}
+          - {{ . }}
+          {{- end }}
+    general:
+      debug: false
+      instance_name: "WeldSuite search"
+      enable_metrics: false
+    search:
+      safe_search: 1
+      autocomplete: ""
+      formats:
+        - json
+    server:
+      limiter: true
+      public_instance: false
+      image_proxy: false
+      method: "POST"
+    valkey:
+      url: "valkey://127.0.0.1:6379/0"
+    outgoing:
+      request_timeout: 5.0
+      max_request_timeout: 10.0
+  limiter.toml: |
+    [botdetection]
+    ipv4_prefix = 32
+    ipv6_prefix = 48
+    trusted_proxies = []
+
+    [botdetection.ip_limit]
+    link_token = false
+
+    [botdetection.ip_lists]
+    pass_ip = [
+    {{- range $i, $cidr := .Values.searxng.passCidrs }}{{ if $i }},{{ end }} {{ $cidr | quote }}{{- end }} ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.searxng.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "weldsuite.searxng.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ printf "%v%v%v" .Values.searxng.engines .Values.searxng.passCidrs .Values.searxng.image.tag | sha256sum }}
+      labels:
+        {{- include "weldsuite.searxng.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: searxng
+          image: "{{ .Values.searxng.image.repository }}:{{ .Values.searxng.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}
+                  key: SEARXNG_SECRET
+            - name: SEARXNG_BASE_URL
+              value: {{ printf "http://%s.%s.svc:8080/" $name .Release.Namespace | quote }}
+            # No access log: nothing of a request reaches the logs.
+            - name: GRANIAN_ACCESS_LOG
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.searxng.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/searxng
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/searxng
+            - name: tmp
+              mountPath: /tmp
+        # The limiter's store, in the pod: nothing else reads it.
+        - name: valkey
+          image: "{{ .Values.searxng.valkey.image.repository }}:{{ .Values.searxng.valkey.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          args: ["--bind", "127.0.0.1", "--port", "6379", "--save", "", "--appendonly", "no", "--protected-mode", "yes"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: valkey
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: valkey
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "weldsuite.searxng.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+# Only the server's pods (serve, consume, the cron jobs) ask it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weldsuite.searxng.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name | quote }}]
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["api", "consume", "cron"]
+      ports:
+        - port: http
+          protocol: TCP
+{{- end }}

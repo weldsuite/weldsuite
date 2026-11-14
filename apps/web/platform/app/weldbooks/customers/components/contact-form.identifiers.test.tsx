@@ -134,3 +134,37 @@ describe('ContactForm · VAT number and IBAN checks', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   });
 });
+
+describe('ContactForm · KvK number check', () => {
+  it('refuses a KvK number that is not eight digits for a Dutch contact, and saves one that is', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(contact('NL', { registrationNumber: '1234567' } as Partial<ContactFormContact>));
+
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText('A KvK number has 8 digits')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    const field = screen.getByLabelText('Chamber of Commerce (KvK) number');
+    await user.clear(field);
+    await user.type(field, '1234 5678');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
+
+  it('leaves an empty KvK number alone', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(contact('NL'));
+
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not apply the KvK rule to the company number of another country', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(contact('DE', { registrationNumber: 'HRB 12345' } as Partial<ContactFormContact>));
+
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('A KvK number has 8 digits')).not.toBeInTheDocument();
+  });
+});

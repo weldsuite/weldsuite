@@ -15,6 +15,8 @@ import { useOrganization, useAuth } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ArrowRight, Loader2, Search } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { isWeldbooksHrefVisible } from '@/lib/weldbooks/jurisdiction-menu';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useRouter } from '@/lib/router';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useGlobalSearch } from '@/hooks/queries/use-global-search-queries';
@@ -195,11 +197,29 @@ export function CommandPalette() {
   }));
   const installedCodes = new Set(installed.map((app) => app.appCode));
   const canSee = (permission: string | undefined) => !permission || isOwner || can(permission);
+  // WeldBooks pages follow the selected entity's country, like its sidebar does.
+  const {
+    features: weldbooksFeatures,
+    isResolved: weldbooksResolved,
+    isError: weldbooksError,
+  } = useCurrentJurisdiction({ enabled: installedCodes.has('weldbooks') });
+  const weldbooksKnown = weldbooksResolved && !weldbooksError;
+  const pagesFor = (code: string) =>
+    pagesForModule(
+      code,
+      t,
+      code === 'weldbooks'
+        ? {
+            isHrefVisible: (href) =>
+              isWeldbooksHrefVisible(href, { known: weldbooksKnown, features: weldbooksFeatures }),
+          }
+        : {},
+    );
 
   const commands = visibleCommands([
     ...actionCommands(t, theme, { canSee, installedCodes }),
     ...extraNavigationCommands(t),
-    ...navigationCommandsForApps(installed, (code) => pagesForModule(code, t), getAppLucideIcon, canSee),
+    ...navigationCommandsForApps(installed, pagesFor, getAppLucideIcon, canSee),
     ...settingsCommands(t, installedCodes, { includeDesktop: isDesktop() }),
   ], query);
 

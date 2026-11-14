@@ -32,10 +32,10 @@ import { useI18n } from '@/lib/i18n/provider';
 /**
  * Crumb sizing. The trail never wraps: when the header is narrow every crumb
  * truncates with an ellipsis on its own line, the current page (the last
- * crumb) giving way first so its parents stay readable.
+ * crumb) keeping its width (up to a cap) while its parents give way first.
  */
-const CRUMB_PARENT = 'min-w-0 max-w-[200px] shrink-[0.25]';
-const CRUMB_CURRENT = 'min-w-0 max-w-[200px] shrink';
+const CRUMB_PARENT = 'min-w-0 max-w-[200px] shrink';
+const CRUMB_CURRENT = 'min-w-0 max-w-[320px] shrink-0';
 
 interface AppHeaderTrailHandle {
   hideAll: boolean;

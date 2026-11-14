@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { Home } from 'lucide-react';
 import { setRuntimeConfig } from '@/lib/runtime-config';
+import { isWeldbooksHrefVisible } from '@/lib/weldbooks/jurisdiction-menu';
+import { NO_JURISDICTION_FEATURES, type JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import {
   actionCommands,
   navigationCommandsForApps,
@@ -59,6 +61,57 @@ describe('navigationCommandsForApps', () => {
   });
 });
 
+describe('WeldBooks pages follow the entity country', () => {
+  const nl: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, vatReturn: true, icp: true };
+  const us: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, salesTax: true, form1099: true };
+  const br: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, brTaxReturn: true, fiscalDocuments: true };
+  const hrefsFor = (known: boolean, features: JurisdictionFeatures) =>
+    pagesForModule('weldbooks', en, { isHrefVisible: (href) => isWeldbooksHrefVisible(href, { known, features }) }).map(
+      (p) => p.href,
+    );
+
+  it('gives a Dutch entity no US or Brazil only pages', () => {
+    const hrefs = hrefsFor(true, nl);
+    expect(hrefs).toContain('/weldbooks/invoices');
+    expect(hrefs).toContain('/weldbooks/vat');
+    for (const gone of [
+      '/weldbooks/sales-tax',
+      '/weldbooks/tax-calendar',
+      '/weldbooks/payment-runs',
+      '/weldbooks/deposits',
+      '/weldbooks/banking/statements',
+      '/weldbooks/reports/tax-worksheet',
+      '/weldbooks/form-1099',
+      '/weldbooks/received-nfe',
+    ]) {
+      expect(hrefs).not.toContain(gone);
+    }
+    expect(hrefs.some((href) => href.startsWith('/weldbooks/sales-tax/'))).toBe(false);
+  });
+
+  it('gives a US entity the US pages and no VAT or NF-e', () => {
+    const hrefs = hrefsFor(true, us);
+    expect(hrefs).toContain('/weldbooks/sales-tax');
+    expect(hrefs).toContain('/weldbooks/form-1099');
+    expect(hrefs).not.toContain('/weldbooks/vat');
+    expect(hrefs).not.toContain('/weldbooks/received-nfe');
+  });
+
+  it('gives a Brazilian entity the NF-e inbox', () => {
+    expect(hrefsFor(true, br)).toContain('/weldbooks/received-nfe');
+  });
+
+  it('hides every gated page until the jurisdiction is known', () => {
+    const hrefs = hrefsFor(false, us);
+    expect(hrefs).not.toContain('/weldbooks/sales-tax');
+    expect(hrefs).toContain('/weldbooks/invoices');
+  });
+
+  it('leaves other modules alone without a visibility rule', () => {
+    expect(pagesForModule('weldcrm', en).map((p) => p.href)).toContain('/weldcrm/companies');
+  });
+});
+
 describe('visibleCommands', () => {
   it('shows the settings root when idle and filters the rest by query', () => {
     const commands = settingsCommands(en, new Set(['weldcrm']));
@@ -85,7 +138,7 @@ describe('edition flags', () => {
     setRuntimeConfig({
       backend: 'rust',
       modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-      unavailableFeatures: ['sso-connections', 'billing'],
+      unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up'],
     });
     const hrefs = settingsCommands(en, new Set(['weldcrm'])).map((command) => command.href);
     expect(hrefs).toContain('/settings/team');
@@ -93,6 +146,17 @@ describe('edition flags', () => {
     for (const hidden of ['/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
       expect(hrefs, hidden).not.toContain(hidden);
     }
+  });
+
+  it('keeps the billing page for the credit top-up when Stripe billing is unavailable', () => {
+    setRuntimeConfig({
+      backend: 'rust',
+      modules: ['core'],
+      unavailableFeatures: ['sso-connections', 'billing'],
+    });
+    const hrefs = settingsCommands(en, new Set()).map((command) => command.href);
+    expect(hrefs).toContain('/settings/billing');
+    expect(hrefs).not.toContain('/settings/plans');
   });
 
   it('keeps every settings page on Global', () => {

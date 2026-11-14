@@ -11,11 +11,18 @@ night (21:00–06:00 UTC), and arrives in the morning if it still fires.
 `info` only shows in Grafana. A critical alert silences the warnings of the
 same namespace. Flux's own failures arrive as warnings.
 
-**Where to look.** Grafana at `https://grafana.<domain>`: "WeldSuite API",
-"WeldSuite public endpoints", the Kubernetes dashboards, and Explore with
-Loki for logs (`{cluster="<domain>", namespace="weldsuite"}`). Without
-Zitadel: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
-3000:80` and the admin login from the Secret `grafana-admin`.
+**Where to look.** Grafana at `https://grafana.<domain>`, folder WeldSuite:
+"WeldSuite overview" first (is everything OK: hosts, errors, latency,
+alerts, Postgres, backups, nodes, failed cron runs), then "WeldSuite jobs
+and consumers", "WeldSuite Postgres and backups", "WeldSuite capacity",
+"WeldSuite API" and "WeldSuite public endpoints"
+(`dashboards/generate.mjs` writes them). Also the Kubernetes dashboards,
+the Components folder (CloudNativePG, Traefik, NATS, probes), and Explore
+with Loki for logs (`{cluster="<domain>", namespace="weldsuite"}`). Without
+Zitadel: `https://grafana.<domain>/login?disableAutoLogin=true` (or, without
+the ingress, `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
+3000:80` and `http://localhost:3000/login?disableAutoLogin=true`) with the
+admin login from the Secret `grafana-admin`.
 
 ## Receivers
 
@@ -148,11 +155,14 @@ growing lag.
 
 ### PostgresInstanceDown
 
-A CloudNativePG instance has not been ready for 2 minutes. The clusters
-require a synchronous replica (`dataDurability: required`), so a
-two-instance cluster accepts no writes while either instance is down.
+A CloudNativePG instance has not been ready for 2 minutes: the platform's
+clusters (namespace `postgres`) or Zitadel's (`zitadel-db`, namespace
+`zitadel`; down, nobody can sign in). The clusters require a synchronous
+replica (`dataDurability: required`), so a two-instance cluster accepts no
+writes while either instance is down.
 
-- `kubectl -n postgres get pods`, `kubectl cnpg status <cluster> -n postgres`.
+- `kubectl -n postgres get pods`, `kubectl cnpg status <cluster> -n postgres`
+  (`-n zitadel` for `zitadel-db`).
 - A node down (`NodeNotReady`) takes its instance with it: the instance's
   volume is on that node, so it comes back with the node.
 - A full disk (`DiskFillingUp`) stops Postgres.
@@ -206,8 +216,8 @@ dmesg` / `services` through the API load balancer, and the Hetzner console
 
 ### DiskFillingUp
 
-A node filesystem (Talos's `/var`, where Postgres, Prometheus, NATS and
-Valkey keep their data) is below 10% free, or at the current rate will be
+A node's disk (per device: Talos's `/var`, where Postgres, Prometheus, NATS
+and Valkey keep their data) is above 90% used, or at the current rate will be
 full within a day. Find what grows: `kubectl get pvc -A` and the volumes
 under `/var/mnt/local-storage` (`talosctl -n <node> usage
 /var/mnt/local-storage`), container logs, images. Postgres WAL that isn't
@@ -215,8 +225,9 @@ archived (`PostgresWalArchivingFailing`) grows without bound.
 
 ### DiskUsageHigh
 
-A node filesystem is above 80% used for 30 minutes. Plan room before it
-becomes `DiskFillingUp`.
+A node's disk is above 80% used for 30 minutes. Plan room before it
+becomes `DiskFillingUp`; "WeldSuite capacity" shows which node and what
+grows.
 
 ## Certificates
 

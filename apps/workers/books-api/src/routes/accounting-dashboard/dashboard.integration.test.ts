@@ -196,9 +196,14 @@ describe('GET /api/accounting-dashboard', () => {
     expect(total(dashboard.payables.aging)).toBe(dashboard.payables.outstanding);
   });
 
+  it('cash is the ledger balance of the money accounts, not the bank accounts\' statement balance', () => {
+    // Ledger 1100: 1,000 + 10 - 300 - 25 this month and 500 last month, none of it through a statement line.
+    expect(dashboard.cashBalance).toBe('1185.00');
+  });
+
   it('keeps the response shape the platform and mobile apps read', () => {
     expect(Object.keys(dashboard)).toEqual(
-      expect.arrayContaining(['revenue', 'expenses', 'profit', 'receivables', 'payables', 'bankAccounts', 'recentPayments', 'upcomingDue', 'pendingDocuments', 'monthlyRevenue']),
+      expect.arrayContaining(['revenue', 'expenses', 'profit', 'receivables', 'payables', 'cashBalance', 'bankAccounts', 'recentPayments', 'upcomingDue', 'pendingDocuments', 'monthlyRevenue']),
     );
     expect(dashboard.revenue).toHaveProperty('invoiceCount');
     expect(dashboard.receivables).toEqual(

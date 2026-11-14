@@ -23,6 +23,7 @@ export {
   personalHubKey,
   isPersonalHubKey,
   isBarePersonalTopic,
+  resolveSyncTopic,
   PERSONAL_HUB_PREFIX,
 } from './topics';
 

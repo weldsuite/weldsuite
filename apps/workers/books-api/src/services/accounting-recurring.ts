@@ -88,17 +88,28 @@ export class RecurringAlreadyGeneratedError extends Error {
   }
 }
 
-export function nextScheduleDate(from: Date, frequency: string): Date {
+/** Adds calendar months in UTC, clamping to the last day of the target month (31 Jan + 1 month = 28/29 Feb, not 3 Mar). */
+function addMonthsClamped(from: Date, months: number): Date {
   const next = new Date(from);
-  switch (frequency) {
-    case 'weekly': next.setDate(next.getDate() + 7); break;
-    case 'biweekly': next.setDate(next.getDate() + 14); break;
-    case 'monthly': next.setMonth(next.getMonth() + 1); break;
-    case 'quarterly': next.setMonth(next.getMonth() + 3); break;
-    case 'biannually': next.setMonth(next.getMonth() + 6); break;
-    case 'yearly': next.setFullYear(next.getFullYear() + 1); break;
-  }
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(day, lastDay));
   return next;
+}
+
+export function nextScheduleDate(from: Date, frequency: string): Date {
+  const addDays = (days: number) => new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+  switch (frequency) {
+    case 'weekly': return addDays(7);
+    case 'biweekly': return addDays(14);
+    case 'monthly': return addMonthsClamped(from, 1);
+    case 'quarterly': return addMonthsClamped(from, 3);
+    case 'biannually': return addMonthsClamped(from, 6);
+    case 'yearly': return addMonthsClamped(from, 12);
+    default: return new Date(from);
+  }
 }
 
 export interface GeneratedRecurringInvoice {
@@ -191,10 +202,16 @@ export async function generateRecurringInvoice(
   const now = opts.now ?? new Date();
   const entityId = rec.entityId;
 
-  const nextDate = nextScheduleDate(rec.nextIssueDate, rec.frequency);
-  const newStatus: 'active' | 'completed' = rec.endDate && nextDate > new Date(rec.endDate) ? 'completed' : 'active';
+  // A period is due once its date is today or past: it is consumed. "Generate now" on a schedule
+  // whose next date is still ahead makes an extra invoice and leaves the schedule alone. Either
+  // way the invoice is dated today: a schedule resumed after a pause must not back-date into
+  // closed periods.
+  const periodDue = rec.nextIssueDate.toISOString().slice(0, 10) <= now.toISOString().slice(0, 10);
+  const nextDate = periodDue ? nextScheduleDate(rec.nextIssueDate, rec.frequency) : rec.nextIssueDate;
+  const newStatus: 'active' | 'completed' =
+    periodDue && rec.endDate && nextDate > new Date(rec.endDate) ? 'completed' : 'active';
 
-  await claimPeriod(db, rec, { nextDate, status: newStatus }, now);
+  if (periodDue) await claimPeriod(db, rec, { nextDate, status: newStatus }, now);
 
   const parsed = recurringTemplateSchema.safeParse(rec.templateData ?? {});
   const template: RecurringTemplateData = parsed.success ? parsed.data : {};

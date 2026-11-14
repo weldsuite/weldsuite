@@ -110,7 +110,7 @@ function PayrollRunActions({
             variant="ghost"
             size="icon-sm"
             className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
-            aria-label={t.common.actions.openMenu}
+            aria-label={st('sweep.entities.moreActions')}
           >
             <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
           </Button>

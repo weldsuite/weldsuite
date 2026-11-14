@@ -349,6 +349,14 @@ export const FORWARDED_ENV = [
   'TURNSTILE_SECRET_KEY',
   'ALTCHA_HMAC_KEY',
   'FORMS_MIN_FILL_MS',
+  // AI (ADR AI-012): the mock model both backends call (`@weldsuite/ai/testing`;
+  // without it Rust's AI is off, as the worker without its gateway), and the
+  // Rust install settings a test may change (`rust/bins/weldsuite/src/ai.rs`).
+  'AI_TEST_BASE_URL',
+  'AI_CREDIT_GATE',
+  'AI_BILLING',
+  'AI_OPTIN_ANTHROPIC',
+  'AI_OPTIN_OPENAI',
 ] as const;
 
 /**
@@ -790,12 +798,27 @@ const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A slug ending in its new record's id time: WeldDesk's article slugs are
+ * `<title>-<id.slice(4, 10)>`, the first six base36 characters of the id's
+ * `Date.now()`, whose last one moves every 36² ms. Two runs a moment apart
+ * can straddle that (`getting-started-mwf5de` vs `-mwf5df`, PR #1559's CI).
+ */
+const SLUG_WITH_ID_TIME = /-([0-9a-z]{6})$/;
+/** The milliseconds one step of a `Date.now().toString(36)` six-character prefix stands for. */
+const ID_TIME_PREFIX_MS = 36 ** 2;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A WeldAgent template's share token: `share_` and 32 random alphanumerics
+ * (any case), new per run. Masked like a generated id, whichever case the
+ * random draw gives each backend.
+ */
+const SHARE_TOKEN = /^share_[A-Za-z0-9]{32}$/;
 /** A generated id inside an MCP tool result's text. */
 const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
 /** The same, for `test` (a global pattern's `test` keeps state). */
@@ -886,6 +909,34 @@ function isRecentEpochMs(value: unknown): boolean {
   return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
 }
 
+/**
+ * Whether six base36 characters are the start of a `Date.now()` taken within
+ * two days of now. Checked against the real clock too: a test that fakes
+ * `Date` gives the TypeScript run its time, while Rust's ids carry the real one.
+ */
+function isRecentIdTimePrefix(prefix: string): boolean {
+  const at = Number.parseInt(prefix, 36) * ID_TIME_PREFIX_MS;
+  const real = performance.timeOrigin + performance.now();
+  return [Date.now(), real].some((now) => Math.abs(at - now) <= EXPIRY_WINDOW_SECONDS * 1000);
+}
+
+
+/**
+ * `record` without the `meta.ai` label an AI answer carries (`{ provider,
+ * model, region }`, ADR AI-012), and without `meta` when nothing else is in
+ * it: the backends serve the same route on different models by design
+ * (Workers AI or Claude on Global, Mistral on the Kubernetes editions), and
+ * only the Rust side labels its answers.
+ */
+function withoutAiMeta(record: Record<string, unknown>): Record<string, unknown> {
+  const meta = record.meta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return record;
+  const ai = (meta as Record<string, unknown>).ai;
+  if (!ai || typeof ai !== 'object' || !('provider' in ai) || !('model' in ai)) return record;
+  const rest = Object.fromEntries(Object.entries(meta).filter(([key]) => key !== 'ai'));
+  const others = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'meta'));
+  return Object.keys(rest).length > 0 ? { ...others, meta: rest } : others;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -905,10 +956,11 @@ function isMintedExpiry(value: unknown): boolean {
 export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeForDiff(item, isWrite));
   if (value && typeof value === 'object') {
+    const record = withoutAiMeta(value as Record<string, unknown>);
     return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
+      Object.keys(record)
         .sort()
-        .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
+        .map((k) => [k, normalizeForDiff(record[k], isWrite, k)]),
     );
   }
   // A realtime room payload's `ts: Date.now()`.
@@ -982,11 +1034,9 @@ const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
-  if (GENERATED_ID.test(value)) return '<id>';
+  if (GENERATED_ID.test(value) || SHARE_TOKEN.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
-  // A taken channel slug gets the new channel's id appended
-  // (`resolveChannelSlug`): `sales-ch_<id>`.
-  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
@@ -1000,6 +1050,19 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
+}
+
+/** A slug that carries a new record's id or its time; undefined when it carries neither. */
+function normalizeGeneratedSlug(value: string): string | undefined {
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A new WeldDesk article's slug ends in its id's time; an untitled one's
+  // base is the id itself (`deskArticleSlug(title) || id`).
+  const idTime = SLUG_WITH_ID_TIME.exec(value);
+  if (!idTime || !isRecentIdTimePrefix(idTime[1]!)) return undefined;
+  const base = value.slice(0, -idTime[0].length);
+  return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
 }
 
 /** Random segments anywhere in a string. */

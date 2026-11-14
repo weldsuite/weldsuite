@@ -205,7 +205,7 @@ describe('TaxLineMappingPage', () => {
   it('is for US entities only', () => {
     mocks.jurisdiction.code = 'NL';
     render(<TaxLineMappingPage />);
-    expect(screen.getByText('Tax lines are available for US entities only.')).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
   });
 
   it('shows a retryable error', async () => {

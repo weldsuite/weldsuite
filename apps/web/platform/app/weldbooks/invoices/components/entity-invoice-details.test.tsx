@@ -106,6 +106,21 @@ describe('EntityInvoiceDetailsNotice', () => {
     expect(env.update).not.toHaveBeenCalled();
   });
 
+  it('refuses a KvK number that is not 8 digits for an NL entity, inline instead of in a toast', async () => {
+    const user = userEvent.setup();
+    renderNotice(['registrationNumber']);
+    const dialog = await openDialog(user);
+
+    await user.type(within(dialog).getByLabelText('KvK number'), '123');
+    await user.click(within(dialog).getByRole('button', { name: 'Save details' }));
+    expect(within(dialog).getByText('A KvK number has 8 digits')).toBeInTheDocument();
+    expect(env.update).not.toHaveBeenCalled();
+
+    await user.clear(within(dialog).getByLabelText('KvK number'));
+    await user.type(within(dialog).getByLabelText('KvK number'), '1234 5678');
+    expect(within(dialog).queryByText('A KvK number has 8 digits')).not.toBeInTheDocument();
+  });
+
   it('saves the details on the entity, keeping the bank details it has', async () => {
     const user = userEvent.setup();
     renderNotice(['vatNumber', 'registrationNumber', 'iban', 'bic', 'address']);

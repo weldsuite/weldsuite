@@ -17,7 +17,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
-import { WORKSPACE_AGENT_MODELS } from '@weldsuite/app-api-client/schemas/workspace-agents';
+import {
+  WORKSPACE_AGENT_MODELS,
+  WORKSPACE_AGENT_POLICY_DEFAULT_MODEL,
+  isWorkspaceAgentModel,
+} from '@weldsuite/app-api-client/schemas/workspace-agents';
+import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
+import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
+import type { AiProviderId, AiRegion } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
@@ -101,6 +108,30 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
   const t = getTranslations('common').agents.detail.settings.general;
   const models = getTranslations('common').agents.detail.general.models;
   const { values, set } = form;
+  // Kubernetes editions: the agent models this workspace may use (its enabled
+  // providers), each with where it is processed, and "the workspace default"
+  // (the policy's model for agents, resolved on every run). Global shows the
+  // three Claude models, unlabelled.
+  const policyModels = useAiModelOptions('agents');
+  type Choice = { model: string; label: string; description: string; ai: { provider: AiProviderId; region: AiRegion } | null };
+  const claude = (model: (typeof WORKSPACE_AGENT_MODELS)[number], ai: Choice['ai']): Choice => ({
+    model,
+    label: models[model].label,
+    description: models[model].description,
+    ai,
+  });
+  const pickerModels: Choice[] =
+    policyModels && policyModels.length > 0
+      ? [
+          { model: WORKSPACE_AGENT_POLICY_DEFAULT_MODEL, label: models.default.label, description: models.default.description, ai: null },
+          ...policyModels.map((m): Choice => {
+            const bare = m.id.slice(m.id.indexOf('/') + 1);
+            return isWorkspaceAgentModel(bare)
+              ? claude(bare, { provider: m.provider, region: m.region })
+              : { model: m.id, label: m.label, description: '', ai: { provider: m.provider, region: m.region } };
+          }),
+        ]
+      : WORKSPACE_AGENT_MODELS.map((model) => claude(model, null));
 
   return (
     <div className="space-y-8">
@@ -122,7 +153,7 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
 
       <SettingsSection title={t.model} description={t.modelHint}>
         <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t.model}>
-          {WORKSPACE_AGENT_MODELS.map((model) => {
+          {pickerModels.map(({ model, label, description, ai }) => {
             const selected = values.modelId === model;
             return (
               <button
@@ -136,8 +167,9 @@ export function GeneralTab({ agent, form }: Readonly<{ agent: AgentWithRuns; for
                   selected ? 'border-foreground bg-accent/60' : 'hover:border-foreground/25',
                 )}
               >
-                <span className="block text-sm font-medium">{models[model].label}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{models[model].description}</span>
+                <span className="block text-sm font-medium">{label}</span>
+                {description && <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>}
+                {ai && <AiMetaBadge ai={ai} className="mt-2" />}
               </button>
             );
           })}

@@ -171,3 +171,12 @@ export function ibanProblem(raw: string): IbanProblem | null {
 export function isValidIban(raw: string): boolean {
   return ibanProblem(raw) === null;
 }
+
+// ---------------------------------------------------------------------------
+// Dutch Chamber of Commerce (KvK) number
+// ---------------------------------------------------------------------------
+
+/** A KvK number is eight digits; people type it with spaces, which are ignored. */
+export function isValidKvk(raw: string): boolean {
+  return /^\d{8}$/.test(raw.replace(/\s/g, ''));
+}

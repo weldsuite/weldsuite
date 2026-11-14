@@ -32,6 +32,7 @@
 pub use weldsuite_forms_engine as engine;
 
 mod access;
+mod ai;
 mod bot_check;
 mod codes;
 mod common;
@@ -138,6 +139,9 @@ pub struct FormsState {
     pub env: Arc<HashMap<String, String>>,
     /// The cache when there is no Valkey.
     pub local_cache: Arc<MemoryCache>,
+    /// The install's AI (the AI routes); `None` with AI off. A request's own
+    /// `Ai` (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for FormsState {
@@ -191,6 +195,11 @@ impl FormsState {
                 .get::<OutboundHttp>()
                 .cloned()
                 .or_else(|| self.http.clone()),
+            ai: extensions
+                .get::<weldsuite_ai::Ai>()
+                .or(self.ai.as_ref())
+                .filter(|ai| ai.enabled())
+                .cloned(),
         }
     }
 

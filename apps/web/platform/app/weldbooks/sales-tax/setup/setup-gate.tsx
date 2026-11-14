@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
+import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useSetupTexts } from './setup-texts';
 
@@ -41,21 +41,19 @@ export function useSalesTaxSetupGate(): SalesTaxSetupGateStatus {
  * screen only for a US entity and a member who can read taxes.
  */
 export function SalesTaxSetupGate({ children }: Readonly<{ children: ReactNode }>) {
-  const { t } = useSetupTexts();
-  const status = useSalesTaxSetupGate();
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.features.salesTax} feature={t.accounting.header.salesTax}>
+      <SalesTaxReadAccess>{children}</SalesTaxReadAccess>
+    </JurisdictionGate>
+  );
+}
 
-  if (status === 'loading') return <PageLoader fullScreen={false} />;
-  if (status === 'load-error') {
-    return (
-      <Alert variant="destructive" className="m-4 sm:m-6 w-auto">
-        <AlertDescription>{t.common.loadError}</AlertDescription>
-      </Alert>
-    );
-  }
-  if (status === 'us-only') {
-    return <p className="p-6 text-sm text-muted-foreground">{t.common.usOnly}</p>;
-  }
-  if (status === 'no-access') {
+/** The permission half of the gate, inside the jurisdiction check. */
+function SalesTaxReadAccess({ children }: Readonly<{ children: ReactNode }>) {
+  const { t } = useSetupTexts();
+  const { can } = usePermissions();
+  if (!can('taxes:read')) {
     return <p className="p-6 text-sm text-muted-foreground">{t.common.noAccess}</p>;
   }
   return <>{children}</>;

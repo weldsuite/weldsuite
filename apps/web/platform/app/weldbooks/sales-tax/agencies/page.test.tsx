@@ -180,7 +180,7 @@ describe('SalesTaxAgenciesPage', () => {
     jurisdiction.salesTax = false;
     serve([texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    expect(screen.getByText(en.weldbooksUs.salesTax.setup.common.usOnly)).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 

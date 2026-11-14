@@ -5,8 +5,8 @@
  * no charge), the reply draft, 402 on an empty wallet, 503 without the AI
  * gateway.
  *
- * TypeScript only: Rust answers these routes 503 (no AI provider on the
- * Kubernetes editions), so they are excluded from its conformance suite.
+ * TypeScript only (the AI layer is mocked in-process); the routes run on both
+ * backends against a mock model in translation.integration.test.ts.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';

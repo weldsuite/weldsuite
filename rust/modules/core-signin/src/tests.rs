@@ -9,7 +9,7 @@ use http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use weldsuite_ports::{MemoryCache, MemorySignIn, Prompt, SignInSettings};
+use weldsuite_ports::{MemoryCache, MemorySignIn, Prompt, RecordingSystemMail, SignInSettings};
 
 use crate::{SignInState, router};
 
@@ -18,6 +18,10 @@ const PASSWORD: &str = "Secret123";
 struct Harness {
     provider: Arc<MemorySignIn>,
     app: Router,
+    /// The system mail, when WeldSuite emails the codes.
+    mail: Option<Arc<RecordingSystemMail>>,
+    /// The browser's `Accept-Language`.
+    language: Option<&'static str>,
 }
 
 struct Reply {
@@ -40,6 +44,23 @@ impl Reply {
 }
 
 fn harness() -> Harness {
+    built(Some("https://app.test/"), None, None)
+}
+
+/// With system mail: WeldSuite emails the codes in its own templates.
+fn mailing_harness(language: Option<&'static str>) -> Harness {
+    built(
+        Some("https://app.test/"),
+        Some(Arc::new(RecordingSystemMail::new())),
+        language,
+    )
+}
+
+fn built(
+    platform_url: Option<&str>,
+    mail: Option<Arc<RecordingSystemMail>>,
+    language: Option<&'static str>,
+) -> Harness {
     let provider = Arc::new(MemorySignIn::new());
     provider.set_settings(SignInSettings {
         allow_register: true,
@@ -48,16 +69,45 @@ fn harness() -> Harness {
     let state = SignInState::new(
         Arc::clone(&provider) as _,
         Arc::new(MemoryCache::new()),
-        Some("https://app.test/"),
+        platform_url,
         1,
-    );
+    )
+    .with_mail(mail.clone().map(|mail| mail as _));
     Harness {
         provider,
         app: router(state),
+        mail,
+        language,
     }
 }
 
 impl Harness {
+    /// What WeldSuite emailed, oldest first: (to, subject, text).
+    fn mailed(&self) -> Vec<(String, String, String)> {
+        self.mail
+            .as_ref()
+            .map(|mail| {
+                mail.sent()
+                    .into_iter()
+                    .map(|sent| (sent.to[0].email.clone(), sent.subject, sent.text))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The emails sent, once there are `count`: the reset email goes out
+    /// after the answer.
+    async fn mailed_after(&self, count: usize) -> Vec<(String, String, String)> {
+        for _ in 0..100 {
+            let mailed = self.mailed();
+            if mailed.len() >= count {
+                return mailed;
+            }
+            tokio::task::yield_now().await;
+        }
+        self.mailed()
+    }
+
     async fn send(
         &self,
         method: Method,
@@ -70,6 +120,9 @@ impl Harness {
             .uri(path)
             .header("host", "app.test")
             .header("x-forwarded-for", "203.0.113.9");
+        if let Some(language) = self.language {
+            request = request.header("accept-language", language);
+        }
         if let Some(cookie) = cookie {
             request = request.header(COOKIE, cookie);
         }
@@ -770,4 +823,100 @@ async fn the_password_policy_is_the_providers() {
             "symbol": false,
         })
     );
+}
+
+#[tokio::test]
+async fn with_system_mail_weldsuite_emails_the_sign_up_code_itself() {
+    let h = mailing_harness(Some("nl-NL,nl;q=0.9,en;q=0.8"));
+    let request = h.provider.add_auth_request(&[Prompt::Create]);
+    let created = h
+        .post(
+            "/sign-up",
+            None,
+            json!({
+                "authRequest": request,
+                "firstName": "Jane",
+                "lastName": "Doe",
+                "email": "jane@acme.test",
+                "password": PASSWORD,
+            }),
+        )
+        .await;
+    assert_eq!(created.step(), "needs_email_verification");
+    let user = h
+        .provider
+        .user_by_email("jane@acme.test")
+        .expect("created")
+        .user;
+    // The provider handed the code back and mailed nothing itself.
+    assert_eq!(h.provider.sent(), Vec::new());
+    assert_eq!(h.provider.returned(), vec![("verify", user.id.clone())]);
+    let mailed = h.mailed();
+    assert_eq!(mailed.len(), 1);
+    let (to, subject, text) = &mailed[0];
+    assert_eq!(to, "jane@acme.test");
+    // In the browser's language.
+    assert_eq!(subject, "Bevestig je e-mailadres voor WeldSuite");
+    assert!(text.contains(&format!(
+        "https://app.test/auth/login?verifyUser={}&verifyCode=ABC123",
+        user.id
+    )));
+
+    // "Resend" mails a new one the same way.
+    let cookie = created.cookie.expect("session cookie");
+    let resent = h
+        .post("/email-verification/resend", Some(&cookie), json!({}))
+        .await;
+    assert_eq!(resent.status, StatusCode::NO_CONTENT);
+    assert_eq!(h.mailed().len(), 2);
+    assert_eq!(h.provider.sent(), Vec::new());
+}
+
+#[tokio::test]
+async fn with_system_mail_the_second_factor_and_the_reset_come_from_weldsuite() {
+    let h = mailing_harness(None);
+    let user = h.provider.add_user("jane@acme.test", PASSWORD);
+    h.provider
+        .update_user(&user, |user| user.methods.email_code = true);
+    let request = h.provider.add_auth_request(&[]);
+
+    let after_password = h.sign_in(&request, "jane@acme.test", PASSWORD).await;
+    assert_eq!(after_password.step(), "needs_second_factor");
+    let mailed = h.mailed();
+    assert_eq!(mailed.len(), 1);
+    assert_eq!(mailed[0].0, "jane@acme.test");
+    assert_eq!(mailed[0].1, "Your WeldSuite sign-in code: ABC123");
+    assert_eq!(h.provider.sent(), Vec::new());
+
+    let reset = h
+        .post(
+            "/password-reset",
+            None,
+            json!({ "email": "jane@acme.test" }),
+        )
+        .await;
+    assert_eq!(reset.status, StatusCode::NO_CONTENT);
+    let mailed = h.mailed_after(2).await;
+    assert_eq!(mailed.len(), 2);
+    assert_eq!(mailed[1].1, "Reset your WeldSuite password");
+    assert!(mailed[1].2.contains(&format!(
+        "https://app.test/auth/reset-password?userId={user}&code=ABC123"
+    )));
+    assert_eq!(h.provider.sent(), Vec::new());
+}
+
+#[tokio::test]
+async fn without_the_platform_address_the_provider_sends_its_own_even_with_system_mail() {
+    let h = built(None, Some(Arc::new(RecordingSystemMail::new())), None);
+    let user = h.provider.add_user("jane@acme.test", PASSWORD);
+    let reset = h
+        .post(
+            "/password-reset",
+            None,
+            json!({ "email": "jane@acme.test" }),
+        )
+        .await;
+    assert_eq!(reset.status, StatusCode::NO_CONTENT);
+    assert_eq!(h.provider.sent(), vec![("reset", user)]);
+    assert_eq!(h.mailed(), Vec::new());
 }

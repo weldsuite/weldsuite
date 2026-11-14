@@ -21,7 +21,9 @@ export function memoryStore(): CounterStore & { data: Map<string, unknown> } {
   };
 }
 
-export function memoryFormCounters(now: () => number = Date.now): DurableObjectNamespace<FormCounters> {
+// `Date.now()` looked up per call, not `Date.now` taken once: a test that fakes
+// `Date` after building its world still reaches these counters.
+export function memoryFormCounters(now: () => number = () => Date.now()): DurableObjectNamespace<FormCounters> {
   const forms = new Map<string, { rules: CounterRules; queue: Promise<unknown> }>();
   const serial = <T>(name: string, run: (rules: CounterRules) => Promise<T>): Promise<T> => {
     let form = forms.get(name);

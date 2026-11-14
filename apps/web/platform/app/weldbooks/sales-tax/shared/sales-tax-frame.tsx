@@ -1,12 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Landmark } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 const NAV = [
   { key: 'overview', href: '/weldbooks/sales-tax' },
@@ -31,28 +27,11 @@ export function sectionOf(pathname: string): SalesTaxSection {
 /** Sales tax is for US entities: anyone else gets a notice instead of the screen. */
 export function SalesTaxGate({ children }: Readonly<{ children: ReactNode }>) {
   const { t } = useI18n();
-  const tu = t.weldbooksUs.salesTax.center.usOnly;
-  const { features, isResolved, isError } = useCurrentJurisdiction();
-
-  // Never assume a jurisdiction while it is unknown: wait for it, but let the API answer when it cannot be loaded.
-  if (!isResolved && !isError) return <PageLoader fullScreen={false} />;
-  if (isResolved && !features.salesTax) {
-    return (
-      <div className="p-4 sm:p-6">
-        <Card>
-          <CardContent className="space-y-3 py-10 text-center">
-            <Landmark className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">{tu.title}</p>
-            <p className="mx-auto max-w-md text-sm text-muted-foreground">{tu.description}</p>
-            <Button asChild variant="outline">
-              <Link to="/weldbooks/dashboard">{tu.back}</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-  return <>{children}</>;
+  return (
+    <JurisdictionGate when={(j) => j.features.salesTax} feature={t.accounting.header.salesTax}>
+      {children}
+    </JurisdictionGate>
+  );
 }
 
 interface SalesTaxFrameProps {

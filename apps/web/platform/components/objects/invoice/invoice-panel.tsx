@@ -156,7 +156,7 @@ function InvoiceDialogs({
         onTaxError={workflow.setTaxError}
       />
       <RecordPaymentDialog
-        invoiceId={invoice.id}
+        target={{ type: 'invoice', id: invoice.id }}
         balanceDue={invoice.status === 'uncollectible' ? caps.writtenOffBalance.toFixed(2) : (invoice.balanceDue ?? '0')}
         currency={invoice.currency}
         open={workflow.paymentOpen}
@@ -266,10 +266,13 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
           invoice && caps ? (
             <InvoiceActionBar
               caps={caps}
+              recordLabel={recordPaymentLabel(t.accounting.invoiceDetail, invoice, caps.isCreditMemo)}
               finalizing={workflow.finalizing}
               applyingCredit={workflow.applyingCredit}
               onFinalize={() => workflow.setFinalizeOpen(true)}
               onApplyCredit={workflow.applyCredit}
+              onSend={() => workflow.setSendOpen(true)}
+              onRecordPayment={() => workflow.setPaymentOpen(true)}
             />
           ) : null
         }

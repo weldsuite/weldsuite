@@ -72,6 +72,7 @@
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "hono": "4.13.13",
     "typescript": "^5.9.2",

@@ -40,7 +40,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "weldsuite.serviceAccountName" . }}
-      automountServiceAccountToken: false
+      {{- /* With the sandbox on, the server manages its pods through the Kubernetes API (the sandbox Role). */}}
+      automountServiceAccountToken: {{ .Values.sandbox.enabled }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}

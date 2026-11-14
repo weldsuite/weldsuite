@@ -55,25 +55,25 @@ export default function CreditNotesPage() {
     {
       id: 'number',
       header: tcn.colNumber,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (cn) => <RowTitle>{cn.invoiceNumber ?? '—'}</RowTitle>,
     },
     {
       id: 'contact',
       header: tcn.colContact,
-      width: 'w-[200px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
       render: (cn) => <ContactCell name={cn.contactName} />,
     },
     {
       id: 'date',
       header: tcn.colDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (cn) => <RowDate>{formatDate(cn.issueDate)}</RowDate>,
     },
     {
       id: 'source',
       header: tcn.colForInvoice,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[130px]',
       render: (cn) => {
         const sourceId = cn.creditNoteForInvoiceId;
         if (!sourceId) return <EmptyCell />;
@@ -94,13 +94,13 @@ export default function CreditNotesPage() {
     {
       id: 'total',
       header: tcn.colTotal,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (cn) => <RowAmount>{formatMoney(cn.total, cn.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: tcn.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (cn) => (
         <StatusChip status={cn.status}>{tsl[cn.status as keyof typeof tsl] ?? cn.status}</StatusChip>
       ),

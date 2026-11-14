@@ -14,6 +14,19 @@ describe('conformance comparison', () => {
     );
   });
 
+  it("leaves out an AI answer's provider label, which only Rust adds", () => {
+    const ts = { data: { subject: 'Hello' } };
+    const rust = {
+      data: { subject: 'Hello' },
+      meta: { ai: { provider: 'mistral', model: 'mistral/mistral-small-2506', region: 'eu' } },
+    };
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).toBeNull();
+    // Whatever else is in `meta` stays compared.
+    const withMore = { ...rust, meta: { ...rust.meta, total: 3 } };
+    expect(firstDifference(normalizeForDiff({ ...ts, meta: { total: 3 } }, true), normalizeForDiff(withMore, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(withMore, false))).not.toBeNull();
+  });
+
   it('normalises new ids, timestamps and cursors on writes only', () => {
     const ts = { data: { id: 'comp_mh2k3j4lab12cd34', createdAt: '2026-10-29T07:00:00.000Z' }, pagination: { cursor: 'abc' } };
     const rust = { data: { id: 'comp_mh2k3j9zzz98yx76', createdAt: '2026-10-29T07:00:00.123Z' }, pagination: { cursor: 'xyz' } };
@@ -40,6 +53,33 @@ describe('conformance comparison', () => {
     );
     // Only `ts`, and only a millisecond epoch.
     expect(normalizeForDiff({ ts: 42, size: 1793274036998 }, true)).toEqual({ size: 1793274036998, ts: 42 });
+  });
+
+  it("normalises the id time a new article's slug ends in, on writes only", () => {
+    // `deskArticleSlug(title)-${id.slice(4, 10)}`: the id's Date.now() in base 36, first six characters.
+    const idTime = (ms: number) => ms.toString(36).slice(0, 6);
+    const now = Date.now();
+    const slug = (base: string, ms: number) => ({ events: [{ data: { slug: `${base}-${idTime(ms)}` } }] });
+
+    // PR #1559's CI run 43453966160: the id's time ticked over between the two runs.
+    const ts = slug('getting-started', now);
+    const rust = slug('getting-started', now + 36 ** 2);
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    expect(normalizeForDiff(ts, true)).toEqual({ events: [{ data: { slug: 'getting-started-<id-time>' } }] });
+
+    // The title part still compares, and an untitled article's id base is an id.
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(slug('getting-going', now), true))).toBe(
+      '$.events[0].data.slug: "getting-started-<id-time>" vs "getting-going-<id-time>"',
+    );
+    expect(normalizeForDiff({ slug: `art_mh2k3j4lab12cd34-${idTime(now)}` }, true)).toEqual({ slug: '<id>-<id-time>' });
+
+    // Only a time near now, and only in a slug.
+    expect(normalizeForDiff({ slug: `getting-started-${idTime(now - 30 * 24 * 3600 * 1000)}` }, true)).toEqual({
+      slug: `getting-started-${idTime(now - 30 * 24 * 3600 * 1000)}`,
+    });
+    expect(normalizeForDiff({ slug: 'manage-orders' }, true)).toEqual({ slug: 'manage-orders' });
+    expect(normalizeForDiff({ title: `getting-started-${idTime(now)}` }, true)).toEqual({ title: `getting-started-${idTime(now)}` });
   });
 
   it('normalises random hex tokens on writes only', () => {

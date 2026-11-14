@@ -200,12 +200,18 @@ spec:
                   key: MTA_SUBMISSION_PASSWORD_{{ upper .name }}
             {{- end }}
             # Delivery events for `weldsuite consume`; without NATS_URL they
-            # wait in the MTA's outbox table.
+            # wait in the MTA's outbox table. From the release's Secret, or,
+            # in a namespace of its own (which can't read that one), from the
+            # MTA's.
+            {{- $natsSecret := include "weldsuite.secretName" $ }}
+            {{- if ne (include "weldsuite.mta.namespace" $) $.Release.Namespace }}
+            {{- $natsSecret = $secret }}
+            {{- end }}
             {{- range list "NATS_URL" "NATS_USER" "NATS_PASSWORD" "NATS_TOKEN" }}
             - name: {{ . }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "weldsuite.secretName" $ }}
+                  name: {{ $natsSecret }}
                   key: {{ . }}
                   optional: true
             {{- end }}

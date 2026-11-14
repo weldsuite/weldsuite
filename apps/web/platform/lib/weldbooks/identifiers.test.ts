@@ -12,6 +12,7 @@ import {
   isValidCnpj,
   isValidCpf,
   isValidIban,
+  isValidKvk,
   isValidInscricaoEstadual,
   isValidMunicipalityCode,
   normalizeCep,
@@ -127,5 +128,19 @@ describe('Brazil identifiers', () => {
     expect(normalizeCep('0131')).toBeUndefined();
     expect(isValidMunicipalityCode('3550308')).toBe(true);
     expect(isValidMunicipalityCode('35503')).toBe(false);
+  });
+});
+
+describe('isValidKvk', () => {
+  it('accepts eight digits, with or without spaces', () => {
+    expect(isValidKvk('12345678')).toBe(true);
+    expect(isValidKvk(' 1234 5678 ')).toBe(true);
+  });
+
+  it('refuses anything else', () => {
+    expect(isValidKvk('1234567')).toBe(false);
+    expect(isValidKvk('123456789')).toBe(false);
+    expect(isValidKvk('1234567A')).toBe(false);
+    expect(isValidKvk('')).toBe(false);
   });
 });

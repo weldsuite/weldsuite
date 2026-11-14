@@ -271,6 +271,7 @@ import { Route as SettingsBusinessIndexRouteImport } from './routes/settings/bus
 import { Route as SettingsBillingIndexRouteImport } from './routes/settings/billing/index'
 import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/appearance/index'
 import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
+import { Route as SettingsAiIndexRouteImport } from './routes/settings/ai/index'
 import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
 import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
 import { Route as PreviewWeldsheetsIndexRouteImport } from './routes/preview/weldsheets/index'
@@ -1958,6 +1959,11 @@ const SettingsAppearanceIndexRoute = SettingsAppearanceIndexRouteImport.update({
 const SettingsApiKeysIndexRoute = SettingsApiKeysIndexRouteImport.update({
   id: '/api-keys/',
   path: '/api-keys/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAiIndexRoute = SettingsAiIndexRouteImport.update({
+  id: '/ai/',
+  path: '/ai/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsAdvancedIndexRoute = SettingsAdvancedIndexRouteImport.update({
@@ -4126,6 +4132,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
+  '/settings/ai/': typeof SettingsAiIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
   '/settings/appearance/': typeof SettingsAppearanceIndexRoute
   '/settings/billing/': typeof SettingsBillingIndexRoute
@@ -4683,6 +4690,7 @@ export interface FileRoutesByTo {
   '/preview/weldsheets': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity': typeof SettingsActivityIndexRoute
   '/settings/advanced': typeof SettingsAdvancedIndexRoute
+  '/settings/ai': typeof SettingsAiIndexRoute
   '/settings/api-keys': typeof SettingsApiKeysIndexRoute
   '/settings/appearance': typeof SettingsAppearanceIndexRoute
   '/settings/billing': typeof SettingsBillingIndexRoute
@@ -5287,6 +5295,7 @@ export interface FileRoutesById {
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
+  '/settings/ai/': typeof SettingsAiIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
   '/settings/appearance/': typeof SettingsAppearanceIndexRoute
   '/settings/billing/': typeof SettingsBillingIndexRoute
@@ -5899,6 +5908,7 @@ export interface FileRouteTypes {
     | '/preview/weldsheets/'
     | '/settings/activity/'
     | '/settings/advanced/'
+    | '/settings/ai/'
     | '/settings/api-keys/'
     | '/settings/appearance/'
     | '/settings/billing/'
@@ -6456,6 +6466,7 @@ export interface FileRouteTypes {
     | '/preview/weldsheets'
     | '/settings/activity'
     | '/settings/advanced'
+    | '/settings/ai'
     | '/settings/api-keys'
     | '/settings/appearance'
     | '/settings/billing'
@@ -7059,6 +7070,7 @@ export interface FileRouteTypes {
     | '/preview/weldsheets/'
     | '/settings/activity/'
     | '/settings/advanced/'
+    | '/settings/ai/'
     | '/settings/api-keys/'
     | '/settings/appearance/'
     | '/settings/billing/'
@@ -9408,6 +9420,13 @@ declare module '@tanstack/react-router' {
       path: '/api-keys'
       fullPath: '/settings/api-keys/'
       preLoaderRoute: typeof SettingsApiKeysIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/ai/': {
+      id: '/settings/ai/'
+      path: '/ai'
+      fullPath: '/settings/ai/'
+      preLoaderRoute: typeof SettingsAiIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/advanced/': {
@@ -11950,6 +11969,7 @@ interface SettingsRouteRouteChildren {
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
+  SettingsAiIndexRoute: typeof SettingsAiIndexRoute
   SettingsApiKeysIndexRoute: typeof SettingsApiKeysIndexRoute
   SettingsAppearanceIndexRoute: typeof SettingsAppearanceIndexRoute
   SettingsBillingIndexRoute: typeof SettingsBillingIndexRoute
@@ -12016,6 +12036,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
+  SettingsAiIndexRoute: SettingsAiIndexRoute,
   SettingsApiKeysIndexRoute: SettingsApiKeysIndexRoute,
   SettingsAppearanceIndexRoute: SettingsAppearanceIndexRoute,
   SettingsBillingIndexRoute: SettingsBillingIndexRoute,

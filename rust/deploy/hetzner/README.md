@@ -51,6 +51,8 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Loki | chart 7.5.0 | Logs, single binary, chunks in the logs bucket, 30 days |
 | Fluent Bit | chart 0.58.3 | Every node's pod and Talos logs, and the cluster's events, to Loki |
 | Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
+| WeldAgent sandbox | this repository (`rust/deploy/sandbox`), gVisor from the Talos extension | Pods the server starts per agent conversation in `weldsuite-sandbox` ("Agent sandbox" below) |
+| SearXNG | 2026.10.28-c360868e5 (Valkey 9.1.2 beside it) | WeldAgent's web search, asked only by the server ("Agent sandbox" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -90,8 +92,10 @@ differ.
 HCLOUD_TOKEN=… TALOS_VERSION=v1.14.3 rust/deploy/hetzner/scripts/upload-talos-image.sh
 ```
 
-Uploads the stock Talos image as a snapshot labelled `os=talos,
-talos_version=v1.14.3`; `servers.tf` picks the newest one with that label.
+Uploads the Talos image (stock, plus the `siderolabs/gvisor` extension for
+WeldAgent's sandbox: `scripts/schematic.yaml`) as a snapshot labelled
+`os=talos, talos_version=v1.14.3`; `servers.tf` picks the newest one with that
+label.
 
 ## 2. Settings
 
@@ -187,6 +191,10 @@ a time.
   (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
   and the MTA's database password matches in `weldsuite-mta` and
   `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
+  `MISTRAL_API_KEY` is the one AI key the cluster needs ("AI" below); the
+  script takes it from the variable of that name, and generates
+  `AI_KEYS_ENCRYPTION_KEY`, which seals the keys workspaces bring for Claude
+  and ChatGPT (losing it loses those keys, nothing else).
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -342,6 +350,14 @@ default) organisation:
    verifying an address and resetting a password link to the platform
    (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
    policy (Default settings → Lockout) applies on top when it is set.
+
+The server sends those emails itself (sign-up codes, password resets,
+invitations, emailed second factors) in WeldSuite's templates, through the
+MTA's `system` pool (`SMTP_URL`): Zitadel hands it each code instead of
+mailing it (ADR SEC-017). Without `SMTP_URL` or `PLATFORM_URL` Zitadel sends
+its own, through an SMTP provider you give it once the MTA runs, which it also
+uses for its own pages: "Mail", "Zitadel's own mail". With neither, sign-up
+stops at the code.
 
 A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
 holds, where Global keeps the Clerk org id, and the server looks a session's
@@ -584,6 +600,113 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
   belong on these shared nodes.
 
+## AI (Mistral)
+
+Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
+`docs/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
+`config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
+workspaces with their own key, the credit gate on); the search index embeds
+through it with `mistral-embed`, metered as `search-index` (so
+`consume.embeddings`, for installs without AI, stays unset).
+
+- **Keys** (`weldsuite-env`): `MISTRAL_API_KEY`, from the EU edition's
+  account on Mistral's La Plateforme (zero data retention, the rate-limit
+  tier it was granted); `AI_KEYS_ENCRYPTION_KEY`, 64 hex characters. The
+  server, `consume` and the cron jobs don't start without them. A running
+  cluster adds them with
+
+  ```bash
+  MISTRAL_API_KEY=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+    node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+  ```
+
+  (it generates `AI_KEYS_ENCRYPTION_KEY`), before Flux applies a release
+  with `config.ai` set.
+- **WeldSuite's own Claude and ChatGPT accounts**, once opened for the EU
+  edition: add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to `weldsuite-env`,
+  then set `weldsuiteKey: true` for that provider under `config.ai.optIn`.
+  The other order stops the server: an opt-in with WeldSuite's key needs the
+  key.
+- **Check it**: `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor`
+  lists each key the install holds (a model list, free) and asks the default
+  chat models for one token each; `--no-model-calls` skips that.
+  `/config.json` names the providers under `ai`.
+- **Credits**: every call on WeldSuite's key is charged to the workspace's
+  credit wallet and written to the ops ledger (`ai_provider_usage`); with
+  `creditGate: true` a workspace with an empty wallet gets 402 until it tops
+  up.
+
+## Agent sandbox
+
+WeldAgent's code execution, web search and fetch, browser and computer use
+run on this cluster (ADR AI-012 phase 5, `docs/plans/eu-ai-mistral.md`, "The
+EU sandbox"; rust/README.md, "WeldAgent's sandbox"). The EU values turn on the
+chart's `sandbox` and `searxng`: the server starts one gVisor pod per agent
+conversation in `weldsuite-sandbox`, behind a default-deny NetworkPolicy
+(public internet on 80/443 only), and asks SearXNG for web searches.
+
+**The server hands out no sandbox until the cluster isolates it.** Before the
+first one (and hourly), a new sandbox tries to reach the metadata service and
+the Kubernetes API; if either answers, it is deleted, the agents get "the
+sandbox is switched off", and the server logs `isolation check failed`. Do
+these first:
+
+1. **gVisor on the nodes.** The image from step 1 carries the
+   `siderolabs/gvisor` extension. Nodes installed from an older image need
+   the new one, one node at a time:
+
+   ```bash
+   HCLOUD_TOKEN=… rust/deploy/hetzner/scripts/upload-talos-image.sh   # prints the schematic id
+   talosctl -n <node> upgrade --image factory.talos.dev/installer/<schematic>:v1.14.3 --preserve
+   talosctl -n <node> get extensions          # lists gvisor
+   kubectl get runtimeclass gvisor            # the chart creates it (handler runsc)
+   ```
+
+   A node without it can't start sandbox pods (they stay Pending: "no
+   runtime for gvisor"). To keep sandboxes off the database and mail nodes,
+   give them a pool of their own and set `sandbox.nodeSelector` and
+   `sandbox.tolerations`.
+2. **A CNI that enforces NetworkPolicy.** Talos' default, Flannel, routes pod
+   traffic but ignores NetworkPolicy, so today every pod can reach every
+   other pod, the Kubernetes API and the **Hetzner metadata service, which
+   serves each server's user data: the Talos machine configuration, secrets
+   included**. Either replace Flannel with Cilium (`cluster.network.cni.name:
+   none` in the Talos config, then Cilium from Flux; a maintenance window, the
+   pods restart) or add a policy-only controller beside Flannel (kube-router
+   with only its firewall: `--run-firewall=true --run-router=false
+   --run-service-proxy=false`, or Calico in policy-only mode). Then
+   `weldsuite doctor` shows `pass  sandbox isolation`. The chart's other
+   NetworkPolicies (`networkPolicy.enabled`) start working at the same time:
+   check them on the test cluster first.
+3. **The token secret.** `SANDBOX_TOKEN_SECRET` in `weldsuite-env`, the same
+   on every replica: `fill-secrets.mjs --update` generates it.
+4. **The nodes' public addresses** in `sandbox.deniedCidrs` (`tofu output`):
+   a pod reaches its own node's host ports on them (node-exporter, the
+   kubelet), which the private ranges don't cover.
+5. **Check it:**
+
+   ```bash
+   kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor --no-model-calls
+   ```
+
+   `sandbox` (the API and the Role answer), `web search` (SearXNG answers) and
+   `sandbox isolation` (a throwaway sandbox reaches neither the metadata
+   service nor the API) must pass. `kubectl -n weldsuite-sandbox get pods`
+   lists the sandboxes; `weldsuite cron sandbox-cleanup` (every 5 minutes)
+   deletes the finished ones.
+
+**Web search.** SearXNG keeps no query log (debug and metrics off; the server
+posts the query, so it shows in no access line) and is reachable from the
+server's pods only. The query itself goes to the engines in
+`searxng.engines` (Qwant, Startpage, Mojeek, Wikipedia by default), each a
+company outside WeldSuite; Startpage passes it on to Google without the user,
+Wikipedia is in the US. Add or remove engines there. Update the image pins
+(`searxng.image.tag`, two weeks old at least) as SearXNG's engines change.
+
+**Computer use** (the desktop) is offered only to a Claude or GPT-5 model the
+workspace enabled outside the EU; on Mistral it's hidden. Screenshots of the
+sandbox's desktop then go to that provider with the conversation.
+
 ## Mail
 
 The EU edition sends and receives its own mail (plan:
@@ -602,7 +725,11 @@ migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
 Security `privileged`: the host network), with its keys in the
 `weldsuite-mta` Secret there; the server reads the API secret and the
 submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
-events reach `weldsuite consume` over NATS (`mail.sending-events`).
+events reach `weldsuite consume` over NATS (`mail.sending-events`), with
+`NATS_URL` and `NATS_TOKEN` in `weldsuite-mta` too (the MTA can't read
+`weldsuite-env`); without them they stay in its outbox (`pendingEvents` in
+`$M queue`). On a running cluster: `fill-secrets.mjs --update --only
+weldsuite-mail/weldsuite-mta` copies them from `weldsuite-env`.
 
 Nothing below is optional: a new address that sends without its DNS in
 place, or too much on its first days, lands in spam folders for weeks.
@@ -786,6 +913,48 @@ update its A record and `_spf.<domain>`. Spamhaus refuses lookups through
 public resolvers (the nodes use Quad9), so check from its website, not with
 `dig` on a node.
 
+### Zitadel's own mail
+
+The server sends the platform's sign-up codes, password resets, invitations
+and emailed second factors in WeldSuite's templates through `SMTP_URL`, once
+`PLATFORM_URL` is set too: Zitadel hands it the codes (ADR SEC-017). Zitadel
+still mails what its own pages send (its console, the `WeldSuite Staff`
+login, a passkey or SMS step the platform hands to its page), and everything
+when the server has no `SMTP_URL`. Without an active SMTP provider it logs
+`Errors.SMTPConfig.NotFound` and sends nothing. Give it the MTA's `system`
+pool once the system domain has its key (step 3): in the console, Default
+settings → SMTP provider → Generic SMTP.
+
+| Field | Value |
+|---|---|
+| Host and port | `weldsuite-mta.weldsuite-mail.svc.cluster.local:587`, the submission Service |
+| TLS | off: submission has no STARTTLS unless `mta.submission.tls` is on, and the connection stays in the cluster |
+| User | `system` |
+| Password | `MTA_SUBMISSION_PASSWORD_SYSTEM` from the Secret `weldsuite-mail/weldsuite-mta` |
+| Sender | the platform's sender (`config.mail.from`, e.g. `notifications@mail.<domain>`): the MTA refuses a sender whose domain has no key for the pool (`550 5.7.1`) |
+
+Then **Test** with an address of your own and **Activate**. The admin API
+does the same with an `IAM_OWNER` token: the chart's machine user
+`iam-admin`, whose PAT Zitadel's first start writes to the Secret
+`zitadel/iam-admin-pat` (the chart's default
+`FirstInstance.Org.Machine`), or the service user's from step 7.5
+(`ZITADEL_SERVICE_TOKEN` in `weldsuite-env`). `POST /admin/v1/email/smtp` with
+`senderAddress`, `senderName`, `tls`, `host`, `user` and `password`, then
+`POST /admin/v1/email/smtp/_test` with the same settings, `id` and
+`receiverAddress`, and `POST /admin/v1/email/<id>/_activate`. (Zitadel v4.19
+answers `/admin/v1/email/smtp/<id>/_test` with "not implemented".)
+
+Zitadel keeps the provider and its copy of the password in its own database,
+not in the chart's values: set it again after rotating
+`MTA_SUBMISSION_PASSWORD_SYSTEM`, with `PUT /admin/v1/email/smtp/<id>/password`
+(or the console's password field alone). Don't send the password in the same
+update as the other settings: v4.19's projection then sets the column twice
+("multiple assignments to same column password") and holds back every later
+change, the activation included, until it gives up on that event after five
+failures. Both senders' mail counts against the system
+address's warm-up cap (step 4), and a code that waits a day in the queue is
+no use, so don't send a large batch of invitations in the first week.
+
 ### Inbound: Haraka
 
 `mx_node_port = 30025` in `terraform.tfvars` makes the ingress load balancer
@@ -803,17 +972,23 @@ Three layers (`flux/infrastructure/monitoring`, `monitoring-config`,
 scrape, probe and alert on, and Loki with Fluent Bit. What each alert means
 and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
 
-1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_DOMAIN`, the
-   primary domain of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
+1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_ID`, the
+   id of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
    (a host name, no `https://`), `LOGS_S3_REGION` and `LOGS_BUCKET` for
    Loki. Give the bucket a lifecycle rule that deletes after 31 days (Loki
    deletes after 30) and a key limited to it.
-2. **Grafana's sign-in.** In Zitadel's console, in the WeldSuite project:
-   a web application "Grafana" (code flow, PKCE, redirect
+2. **Grafana's sign-in.** In Zitadel's console, in the project of the
+   organisation whose users sign in (WeldSuite's clusters: `WeldSuite Staff`,
+   next to the admin console's app): a web application "Grafana" (code flow, PKCE, redirect
    `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
-   ID Token" on, the project's "Assert Roles on Authentication" on, and a
+   ID Token" and "User Info inside ID Token" on, the project's "Assert Roles on Authentication" on, and a
    role `grafana-admin` granted to whoever administers Grafana. Everyone
-   else in the organisation gets Viewer; nobody outside it gets in.
+   else in the organisation gets Viewer; nobody outside it gets in. Tick
+   "Use new Login UI" and leave its base URL empty, like the admin console's
+   app ("Give every other application a login setting", section 7): without it Grafana's sign-in goes to the old
+   Login V1, which refuses a security key or passkey registered on the new
+   pages (`Errors.User.WebAuthN.BeginLoginFailed`, "Found no credentials for
+   user" in Zitadel's log).
 3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three
    URLs by role and a token: `critical-url` (pages at any hour),
    `warning-url` (muted at night), `heartbeat-url` (pinged every minute by
@@ -969,9 +1144,9 @@ Be clear about this before anyone signs a contract:
   before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
   sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
-  MEET-007; "Video" above), without recording and transcripts. Not here yet:
-  Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off).
+  MEET-007; "Video" above), without recording and transcripts. The
+  semantic search index embeds on Mistral through `config.ai` ("AI (Mistral)"
+  above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a

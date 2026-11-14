@@ -5,29 +5,20 @@
  * does not say which mailboxes they may read. Every endpoint takes an
  * `accountId` and/or message ids from the body, so each has to refuse a
  * private mailbox the caller is not assigned to — admins and owners included
- * — before anything reaches the model. The model itself is stubbed: the
- * prompt it would have received is what these tests inspect.
+ * — before anything reaches the model. The model is a mock model server
+ * (`@weldsuite/ai/testing`) behind the `fetch` stub: the prompts it received
+ * are what these tests inspect. It answers by request, never by call order,
+ * so the file runs on both backends in conformance mode (suite `mail: ai`).
  */
 
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-
-const ai = vi.hoisted(() => ({ generateText: vi.fn(), generateObject: vi.fn() }));
-
-vi.mock('@weldsuite/ai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/ai')>()),
-  assertGatewayConfigured: vi.fn(),
-  createWeldAI: () => ({ model: (id: string) => id }),
-  generateText: ai.generateText,
-  generateObject: ai.generateObject,
-}));
+import { createMockModel } from '@weldsuite/ai/testing';
 
 vi.mock('@weldsuite/core-domain/ai-billing', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/core-domain/ai-billing')>()),
   resolveAiMetering: vi.fn(async () => null),
 }));
-
-vi.mock('@weldsuite/entity-events', () => ({ publishEntityEvent: vi.fn() }));
 
 import { mailAiRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -35,6 +26,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
+import type { Env } from '../../types';
 
 const { mailAccounts, mailMessages, workspaceMembers } = schema;
 
@@ -48,6 +40,16 @@ const PRIVATE_SUBJECT = 'Salary review for Q4';
 const UNASSIGNED_SUBJECT = 'Orphaned mailbox notice';
 
 const DENIED = 'Access to this mail account is not allowed';
+
+/** What every structured call answers; a text call answers `generated`. */
+const STRUCTURED = { subject: 's', body: 'b', replies: ['ok'], category: 'other', priority: 'normal' };
+
+const mock = createMockModel(
+  { chat: (request) => (request.wantsJson ? { json: STRUCTURED } : { text: 'generated' }) },
+  globalThis.fetch.bind(globalThis),
+);
+/** The worker env that points `@weldsuite/ai` at the mock (tests only, not in `Env`). */
+const aiEnv = mock.env as unknown as Partial<Env>;
 
 let db: Database;
 let shared: string;
@@ -99,6 +101,7 @@ function post(userId: string, path: string, body: unknown) {
       tenantDb: db,
       permissions: permissions('messages:read', 'messages:create', 'messages:update'),
     },
+    env: aiEnv,
   });
   return request(`/api/mail-ai${path}`, {
     method: 'POST',
@@ -107,9 +110,9 @@ function post(userId: string, path: string, body: unknown) {
   });
 }
 
-/** Everything the stubbed model was sent, as one string. */
+/** Everything the model was sent, as one string. */
 function promptsSent(): string {
-  return JSON.stringify([...ai.generateText.mock.calls, ...ai.generateObject.mock.calls]);
+  return JSON.stringify(mock.calls.map((call) => call.body));
 }
 
 async function categoriesOf(messageId: string): Promise<string[]> {
@@ -140,11 +143,12 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(() => {
-  ai.generateText.mockReset().mockResolvedValue({ text: 'generated', usage: {} });
-  ai.generateObject.mockReset().mockResolvedValue({
-    object: { subject: 's', body: 'b', replies: ['ok'], category: 'other', priority: 'normal' },
-    usage: {},
-  });
+  vi.stubGlobal('fetch', mock.fetch);
+  mock.reset();
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
 });
 
 /** One request per way a private mailbox can be named in a body. */
@@ -173,15 +177,13 @@ describe('a private mailbox the caller is not assigned to', () => {
     const json = (await res.json()) as { success: boolean; error: { code: string; message: string } };
     expect(json.success).toBe(false);
     expect(json.error).toEqual({ code: 'forbidden', message: DENIED });
-    expect(ai.generateText).not.toHaveBeenCalled();
-    expect(ai.generateObject).not.toHaveBeenCalled();
+    expect(mock.calls).toEqual([]);
   });
 
   it.each(privateMailboxRequests)('%s is refused to an admin and an owner', async (_name, path, body) => {
     expect((await post(ADMIN, path, body())).status).toBe(403);
     expect((await post(OWNER, path, body())).status).toBe(403);
-    expect(ai.generateText).not.toHaveBeenCalled();
-    expect(ai.generateObject).not.toHaveBeenCalled();
+    expect(mock.calls).toEqual([]);
   });
 
   it('/label/batch refuses the whole batch and classifies nothing', async () => {
@@ -189,7 +191,7 @@ describe('a private mailbox the caller is not assigned to', () => {
     expect(res.status).toBe(403);
     const json = (await res.json()) as { error: { message: string } };
     expect(json.error.message).toBe('Access to one or more mail accounts is not allowed');
-    expect(ai.generateObject).not.toHaveBeenCalled();
+    expect(mock.calls).toEqual([]);
     expect(await categoriesOf(sharedMessage)).toEqual([]);
     expect(await categoriesOf(privateMessage)).toEqual([]);
   });

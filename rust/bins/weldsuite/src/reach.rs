@@ -75,10 +75,12 @@ pub(crate) fn warmup_spec(kind: WarmupQueueKind) -> ConsumerSpec {
 /// The warmup network on the master database, lettre for SMTP, async-imap
 /// over rustls for IMAP, and the given flags (the `weldreach-warmup` kill
 /// switch). `WELDREACH_WARMUP_KEY` opens the pool's logins; without it
-/// every mailbox's login is unavailable and the jobs park them.
+/// every mailbox's login is unavailable and the jobs park them. `ai` (the
+/// install's) writes the corpus monthly; `None` keeps the built-in one.
 pub(crate) fn warmup_network(
     master: PgPool,
     flags: Arc<dyn DynFlagSource>,
+    ai: Option<weldsuite_ai::Ai>,
 ) -> Result<WarmupNetwork, weldsuite_ports::PortError> {
     Ok(WarmupNetwork {
         master,
@@ -88,6 +90,7 @@ pub(crate) fn warmup_network(
         smtp: Arc::new(weldsuite_reach::LettreSmtp),
         imap: Arc::new(weldsuite_adapters_oss::AsyncImapConnector::new()?),
         flags,
+        ai,
     })
 }
 

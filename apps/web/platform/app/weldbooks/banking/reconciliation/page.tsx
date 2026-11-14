@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -96,6 +96,102 @@ function ReconcileLineButton({
   );
 }
 
+type SuggestionListProps = ComponentProps<typeof SuggestionList>;
+
+/** The right-hand side: match suggestions for the selected line, the categorize box and the exclude button. */
+function MatchSuggestionsCard({
+  selectedTxnId,
+  suggestions,
+  formatAmount,
+  matching,
+  readOnly,
+  onMatch,
+  matchError,
+  ledgerAccounts,
+  moneyOut,
+  categorizing,
+  categorizeError,
+  onCategorize,
+  excludePending,
+  onExclude,
+}: Readonly<{
+  selectedTxnId: string | null;
+  suggestions: SuggestionListProps['suggestions'];
+  formatAmount: SuggestionListProps['formatAmount'];
+  matching: boolean;
+  readOnly: boolean;
+  onMatch: SuggestionListProps['onMatch'];
+  matchError: Error | null;
+  ledgerAccounts: Account[];
+  moneyOut: boolean;
+  categorizing: boolean;
+  categorizeError: string | null;
+  onCategorize: (categoryAccountId: string) => void;
+  excludePending: boolean;
+  onExclude: () => void;
+}>) {
+  const { t } = useI18n();
+  const tbp = t.accounting.bankingPages;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          {selectedTxnId ? tbp.matchSuggestions : tbp.selectTransaction}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!selectedTxnId ? (
+          <p className="text-sm text-muted-foreground">
+            {tbp.clickToSeeSuggestions}
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {suggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{tbp.noMatchesFound}</p>
+            ) : (
+              <SuggestionList
+                suggestions={suggestions}
+                formatAmount={formatAmount}
+                pending={matching}
+                readOnly={readOnly}
+                onMatch={onMatch}
+              />
+            )}
+            {matchError ? (
+              <p className="text-sm text-destructive" role="alert" data-testid="match-error">{matchError.message}</p>
+            ) : null}
+            <CategorizeBankTransactionPanel
+              key={selectedTxnId}
+              accounts={ledgerAccounts}
+              includeLiabilities={moneyOut}
+              pending={categorizing}
+              errorMessage={categorizeError}
+              labels={{
+                title: moneyOut ? tbp.categorizeTitleOut : tbp.categorizeTitle,
+                hint: moneyOut ? tbp.categorizeHintOut : tbp.categorizeHint,
+                accountLabel: tbp.categorizeAccountLabel,
+                accountPlaceholder: tbp.categorizeAccountPlaceholder,
+                button: tbp.categorizeButton,
+                examples: moneyOut ? tbp.categorizeExamplesOut : tbp.categorizeExamples,
+              }}
+              onCategorize={onCategorize}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onExclude}
+              disabled={excludePending || readOnly}
+            >
+              <XCircle className="h-4 w-4 mr-1" />
+              {tbp.excludeTransaction}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function BankReconciliationPage() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { accountId?: string };
@@ -130,6 +226,9 @@ export default function BankReconciliationPage() {
   // Suggestions for the selected bank line
   const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
   const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
+  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
+  const selectedTxn = transactions.find((txn) => txn.id === selectedTxnId);
+  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
   const displayCurrency = selectedAccount?.currency || entityCurrency;
 
   const reconcileMutation = useMutation({
@@ -163,7 +262,14 @@ export default function BankReconciliationPage() {
   });
 
   const matching = reconcileMutation.isPending || matchPayment.isPending || matchDeposit.isPending;
-  const matchError = (reconcileMutation.error ?? matchPayment.error ?? matchDeposit.error) as Error | null;
+  // A refused categorize is shown in the categorize box, every other refusal under the suggestions: never both.
+  const categorizeFailed = reconcileMutation.variables?.data?.categoryAccountId !== undefined;
+  const categorizeError = categorizeFailed ? ((reconcileMutation.error as Error | null)?.message ?? null) : null;
+  const matchError = (
+    (categorizeFailed ? null : reconcileMutation.error) ??
+    matchPayment.error ??
+    matchDeposit.error
+  ) as Error | null;
 
   const handleMatch = (s: MatchSuggestion) => {
     if (!selectedTxnId) return;
@@ -274,67 +380,26 @@ export default function BankReconciliationPage() {
             </CardContent>
           </Card>
 
-          {/* Right: Match suggestions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {selectedTxnId ? tbp.matchSuggestions : tbp.selectTransaction}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!selectedTxnId ? (
-                <p className="text-sm text-muted-foreground">
-                  {tbp.clickToSeeSuggestions}
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {suggestions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{tbp.noMatchesFound}</p>
-                  ) : (
-                    <SuggestionList
-                      suggestions={suggestions}
-                      formatAmount={(amount) => fmt(amount, displayCurrency)}
-                      pending={matching}
-                      readOnly={!can('banking:update')}
-                      onMatch={handleMatch}
-                    />
-                  )}
-                  {matchError ? (
-                    <p className="text-sm text-destructive" role="alert" data-testid="match-error">{matchError.message}</p>
-                  ) : null}
-                  <CategorizeBankTransactionPanel
-                    key={selectedTxnId}
-                    accounts={ledgerAccounts}
-                    pending={reconcileMutation.isPending}
-                    errorMessage={(reconcileMutation.error as Error | null)?.message ?? null}
-                    labels={{
-                      title: tbp.categorizeTitle,
-                      hint: tbp.categorizeHint,
-                      accountLabel: tbp.categorizeAccountLabel,
-                      accountPlaceholder: tbp.categorizeAccountPlaceholder,
-                      button: tbp.categorizeButton,
-                      examples: tbp.categorizeExamples,
-                    }}
-                    onCategorize={(categoryAccountId) =>
-                      reconcileMutation.mutate({
-                        txnId: selectedTxnId,
-                        data: { type: 'manual', categoryAccountId },
-                      })
-                    }
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => excludeMutation.mutate(selectedTxnId)}
-                    disabled={excludeMutation.isPending || !can('banking:update')}
-                  >
-                    <XCircle className="h-4 w-4 mr-1" />
-                    {tbp.excludeTransaction}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <MatchSuggestionsCard
+            selectedTxnId={selectedTxnId}
+            suggestions={suggestions}
+            formatAmount={(amount) => fmt(amount, displayCurrency)}
+            matching={matching}
+            readOnly={!can('banking:update')}
+            onMatch={handleMatch}
+            matchError={matchError}
+            ledgerAccounts={ledgerAccounts}
+            moneyOut={moneyOut}
+            categorizing={reconcileMutation.isPending}
+            categorizeError={categorizeError}
+            onCategorize={(categoryAccountId) => {
+              if (selectedTxnId) reconcileMutation.mutate({ txnId: selectedTxnId, data: { type: 'manual', categoryAccountId } });
+            }}
+            excludePending={excludeMutation.isPending}
+            onExclude={() => {
+              if (selectedTxnId) excludeMutation.mutate(selectedTxnId);
+            }}
+          />
         </div>
       )}
     </div>

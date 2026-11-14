@@ -1,5 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { completeWooCommerceAppAuth, startWooCommerceAppAuth } from './auth';
+import { completeWooCommerceAppAuth, startMoneybirdOAuth, startWooCommerceAppAuth } from './auth';
+import { startStripeOAuth } from './stripe-auth';
+
+// The EU edition's platform: not one of Global's hosts, so only its own
+// PUBLIC_APP_URL makes it a WeldSuite page.
+const EU_PAGE = 'https://app.test.weldsuite.eu/settings/integrations/moneybird';
+const EU_ENV = { PUBLIC_APP_URL: 'https://app.test.weldsuite.eu' };
+const START = { clerkOrgId: 'org_1', userId: 'user_1', enabledSyncs: [], returnUrl: EU_PAGE };
+
+describe("OAuth starts on the install's own platform origin", () => {
+  it('refuses the EU page when PUBLIC_APP_URL names another origin', async () => {
+    const env = { PUBLIC_APP_URL: 'https://app.weldsuite.org' } as never;
+    expect(await startMoneybirdOAuth({ ...START, env })).toEqual({
+      error: 'Return URL is not a WeldSuite page',
+      status: 400,
+    });
+    expect(await startStripeOAuth({ ...START, env })).toEqual({
+      error: 'Return URL is not a WeldSuite page',
+      status: 400,
+    });
+  });
+
+  it('lets Moneybird past the return-URL check on PUBLIC_APP_URL', async () => {
+    const result = await startMoneybirdOAuth({ ...START, env: EU_ENV as never });
+    expect(result).toMatchObject({ status: 400 });
+    expect('error' in result && result.error).toMatch(/Moneybird connect is not configured/);
+  });
+
+  it('lets Stripe past the return-URL check on PUBLIC_APP_URL', async () => {
+    const result = await startStripeOAuth({ ...START, env: EU_ENV as never });
+    expect(result).toMatchObject({ status: 400 });
+    expect('error' in result && result.error).toMatch(/Stripe connect is not configured/);
+  });
+});
 
 describe('startWooCommerceAppAuth', () => {
   it('rejects a return URL that is not a WeldSuite page', async () => {

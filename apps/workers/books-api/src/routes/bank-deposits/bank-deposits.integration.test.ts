@@ -93,7 +93,7 @@ beforeAll(async () => {
   const ledger = await accountOf('asset', 'bank');
   bankId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Main', currency: 'EUR', ledgerAccountId: ledger, autoReconcile: false })).data.id;
   dollarBankId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Dollars', currency: 'USD', ledgerAccountId: ledger })).data.id;
-  looseBankId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Loose', currency: 'EUR' })).data.id;
+  looseBankId = (await call('/api/bank-accounts', bankAccountsRoutes, '/api/bank-accounts', 'POST', { name: 'Loose', currency: 'EUR', createLedgerAccount: false })).data.id;
 
   await db.insert(schema.parties).values([
     { id: 'pty_dep_a', kind: 'company', displayName: 'Alpha Retail', createdAt: now, updatedAt: now },

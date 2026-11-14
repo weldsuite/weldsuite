@@ -498,7 +498,8 @@ mod tests {
                 email_code: CodeFormat {
                     length: 8,
                     letters: false,
-                    uppercase: false
+                    uppercase: false,
+                    expires_in: None
                 },
             }
             .to_json(),

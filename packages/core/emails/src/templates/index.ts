@@ -6,6 +6,10 @@
  */
 
 import workspaceDeletion from './admin/workspace-deletion';
+import aiProviderEnabled from './ai/provider-enabled';
+import authPasswordReset from './auth/password-reset';
+import authSignInCode from './auth/sign-in-code';
+import authVerifyEmail from './auth/verify-email';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
 import deskReport from './desk/report';
@@ -44,6 +48,9 @@ export const templates = {
   'meet.invitation': meetInvitation,
   booking,
   'workspace.invitation': workspaceInvitation,
+  'auth.verify-email': authVerifyEmail,
+  'auth.sign-in-code': authSignInCode,
+  'auth.password-reset': authPasswordReset,
   notification,
   'task.assigned': taskAssigned,
   'desk.report': deskReport,
@@ -73,6 +80,7 @@ export const templates = {
   'sign.declined': signDeclined,
   'sign.voided': signVoided,
   'sign.expired': signExpired,
+  'ai.provider-enabled': aiProviderEnabled,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -82,6 +90,7 @@ export type TemplateProps<Id extends TemplateId> =
   (typeof templates)[Id] extends { previews: Record<string, { props: infer P }> } ? P : never;
 
 export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
+export type { AiProviderEnabledEmailProps } from './ai/provider-enabled';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
 export type {

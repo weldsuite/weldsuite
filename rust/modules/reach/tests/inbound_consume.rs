@@ -156,6 +156,7 @@ async fn replies_are_taken_out_of_mail_inbound() {
             storage: Some(storage.clone() as Arc<dyn DynFileStore>),
             events: EntityEventPublisher::new(None, TaskTracker::new()),
             inbound_domain: DOMAIN.to_owned(),
+            classifier: None,
         },
         mail: mail.clone(),
         spool: spool.clone(),

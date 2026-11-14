@@ -130,9 +130,27 @@ describe('POST /api/bank-accounts', () => {
     expect(none.data.ledgerAccountId).toBeNull();
     expect(none.data.hasAccountNumber).toBe(false);
 
-    const plain = await call('', { method: 'POST', body: { name: 'NL bank' }, entity: OTHER });
-    expect(plain.status).toBe(201);
-    expect(plain.data).toMatchObject({ currency: 'EUR', ledgerAccountId: null, entityId: OTHER });
+    const optedOut = await call('', { method: 'POST', body: { name: 'NL bank', createLedgerAccount: false }, entity: OTHER });
+    expect(optedOut.status).toBe(201);
+    expect(optedOut.data).toMatchObject({ currency: 'EUR', ledgerAccountId: null, entityId: OTHER });
+  });
+
+  it('links the template bank account when no type and no ledger account are sent (the NL form), then makes a new one', async () => {
+    const first = await call('', { method: 'POST', body: { name: 'NL bank' }, entity: OTHER });
+    expect(first.status).toBe(201);
+    expect(first.data).toMatchObject({
+      currency: 'EUR',
+      entityId: OTHER,
+      ledgerAccountId: 'acc_ba_nl_bank',
+      ledgerAccount: { id: 'acc_ba_nl_bank', code: '1100', name: 'Bank', created: false },
+    });
+
+    // 1100 is taken now: the next account gets an asset bank account of its own.
+    const second = await call('', { method: 'POST', body: { name: 'NL savings pot' }, entity: OTHER });
+    expect(second.status).toBe(201);
+    expect(second.data.ledgerAccount).toMatchObject({ code: '1101', name: 'NL savings pot', created: true });
+    const [ledger] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, second.data.ledgerAccountId)).limit(1);
+    expect(ledger).toMatchObject({ type: 'asset', subtype: 'bank', entityId: OTHER, normalSide: 'debit' });
   });
 
   it('refuses a ledger account of the wrong kind or of another entity', async () => {

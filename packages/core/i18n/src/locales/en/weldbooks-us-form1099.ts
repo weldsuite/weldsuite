@@ -287,7 +287,7 @@ export const weldbooksUs1099 = {
 
   // 1099 Center
   center: {
-    title: '1099 Center',
+    title: '1099 center',
     subtitle: 'See who gets a 1099, fix what is missing, file the forms and send the recipients their copies.',
     noAccess: 'You do not have permission to view 1099 reporting.',
     usOnly: '1099 reporting is for US entities. Select a US entity to use it.',

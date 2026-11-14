@@ -80,6 +80,7 @@ export function MetricChartBody({
         variant="card"
         shape={shape}
         color={color}
+        sample={sample}
         points={points}
         label={label || titles[metric]}
         compareLabel={compare === 'previousYear' ? tc.previousYear : tc.previousPeriod}

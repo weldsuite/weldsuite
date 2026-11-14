@@ -30,7 +30,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
-import { createLedger, resolveBasis } from '../../services/accounting-reports-basis';
+import { createLedger, parseReportDate, resolveBasis } from '../../services/accounting-reports-basis';
 import { balanceInBase, buildAgedReport, buildProfitLoss, money } from '../../services/accounting-reports';
 import { todayFor, type ReportColumn } from '../../services/accounting-report-periods';
 
@@ -135,6 +135,7 @@ app.get('/', requirePermission('reports:read'), async (c) => {
         iban: bankAccounts.iban,
         currentBalance: bankAccounts.currentBalance,
         currency: bankAccounts.currency,
+        ledgerAccountId: bankAccounts.ledgerAccountId,
       })
       .from(bankAccounts)
       .where(
@@ -144,6 +145,44 @@ app.get('/', requirePermission('reports:read'), async (c) => {
           eq(bankAccounts.isActive, true),
         ),
       );
+
+    // Cash: the ledger balance of the money accounts. `currentBalance` above moves only with bank
+    // transactions, so a payment recorded without a statement line would not show in it.
+    const moneyAccountIds = new Set(
+      bankAccountsList.map((b) => b.ledgerAccountId).filter((id): id is string => Boolean(id)),
+    );
+    const [anyLinkedBank] = await db
+      .select({ id: bankAccounts.id })
+      .from(bankAccounts)
+      .where(
+        and(
+          eq(bankAccounts.entityId, entityId),
+          isNull(bankAccounts.deletedAt),
+          sql`${bankAccounts.ledgerAccountId} is not null`,
+        ),
+      )
+      .limit(1);
+    if (!anyLinkedBank) {
+      // No bank account is linked to the ledger: payments post to the chart's bank account (see resolveMoneyAccount).
+      const chartAccounts = [...ledger.accounts.values()].filter((a) => !a.virtual);
+      const templateCode = entity.jurisdictionCode === 'IN' ? '1200' : '1100';
+      const fallback =
+        chartAccounts.find((a) => a.code === templateCode && a.subtype === 'bank') ??
+        chartAccounts.find((a) => a.subtype === 'bank');
+      if (fallback) moneyAccountIds.add(fallback.id);
+    }
+    const cashRows = moneyAccountIds.size
+      ? await ledger.aggregate(
+          { from: null, to: parseReportDate(today, 'end') },
+          { accountIds: [...moneyAccountIds] },
+        )
+      : [];
+    const cashBalance = money(
+      cashRows.reduce((total, row) => {
+        const account = ledger.accounts.get(row.accountId);
+        return total + (account?.normalSide === 'credit' ? row.credit - row.debit : row.debit - row.credit);
+      }, 0),
+    );
 
     // Recent payments (last 10). Entity scoping added over legacy
     // (which listed payments tenant-wide) — multi-entity correctness.
@@ -214,7 +253,8 @@ app.get('/', requirePermission('reports:read'), async (c) => {
       },
       receivables,
       payables,
-      bankAccounts: bankAccountsList,
+      cashBalance,
+      bankAccounts: bankAccountsList.map((b) => ({ id: b.id, name: b.name, iban: b.iban, currentBalance: b.currentBalance, currency: b.currency })),
       recentPayments,
       upcomingDue,
       pendingDocuments: pendingDocs.count,

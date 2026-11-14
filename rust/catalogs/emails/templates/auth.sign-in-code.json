@@ -1,0 +1,37 @@
+{
+  "fields": [
+    "code",
+    "minutes"
+  ],
+  "flags": [],
+  "id": "auth.sign-in-code",
+  "multiline": [],
+  "variants": {
+    "en": {
+      "": {
+        "footer": "If you didn't try to sign in, someone may know your password. Change it as soon as you can.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Your sign-in code</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Sign in to WeldSuite</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Enter this code to finish signing in:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The code expires in {{ minutes }} minutes.</p>",
+        "preview": "Your sign-in code is {{ code }}.",
+        "subject": "Your WeldSuite sign-in code: {{ code }}",
+        "text": {
+          "weldsuite": "Your sign-in code\n\nSign in to WeldSuite\n\nEnter this code to finish signing in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, someone may know your password. Change it as soon as you can.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nYour sign-in code\n\nSign in to WeldSuite\n\nEnter this code to finish signing in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, someone may know your password. Change it as soon as you can.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Your sign-in code\n\nSign in to WeldSuite\n\nEnter this code to finish signing in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, someone may know your password. Change it as soon as you can.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": "Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Je inlogcode</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Inloggen bij WeldSuite</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Vul deze code in om het inloggen af te ronden:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De code verloopt over {{ minutes }} minuten.</p>",
+        "preview": "Je inlogcode is {{ code }}.",
+        "subject": "Je inlogcode voor WeldSuite: {{ code }}",
+        "text": {
+          "weldsuite": "Je inlogcode\n\nInloggen bij WeldSuite\n\nVul deze code in om het inloggen af te ronden:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nProbeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nJe inlogcode\n\nInloggen bij WeldSuite\n\nVul deze code in om het inloggen af te ronden:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nProbeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Je inlogcode\n\nInloggen bij WeldSuite\n\nVul deze code in om het inloggen af te ronden:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nProbeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

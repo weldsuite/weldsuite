@@ -27,6 +27,8 @@ import {
   CardTitle,
 } from '@weldsuite/ui/components/card';
 import { ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
+import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -96,6 +98,7 @@ export default function EditAccountPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.accounting.accounts;
+  const describeError = useDescribeError();
   const { entityCurrency } = useCurrentEntityCurrency();
   const { code: jurisdictionCode, features } = useCurrentJurisdiction();
   const isUs = jurisdictionCode === 'US';
@@ -139,25 +142,30 @@ export default function EditAccountPage() {
     // The tax line and the 1099 box exist for US entities only; an empty one clears the stored one.
     const { taxLine, form1099Box, ...rest } = values;
     // An empty currency is left out so the stored one is kept.
-    await updateAccount.mutateAsync({
-      id,
-      data: {
-        ...rest,
-        currency: values.currency || undefined,
-        ...(isUs ? { taxLine: taxLine || null, ...(features.form1099 ? { form1099Box: form1099Box || null } : {}) } : {}),
-      } as Record<string, unknown>,
-    });
+    try {
+      await updateAccount.mutateAsync({
+        id,
+        data: {
+          ...rest,
+          currency: values.currency || undefined,
+          ...(isUs ? { taxLine: taxLine || null, ...(features.form1099 ? { form1099Box: form1099Box || null } : {}) } : {}),
+        } as Record<string, unknown>,
+      });
+    } catch (err) {
+      toast.error(ta.updateFailed, { description: describeError(err) });
+      return;
+    }
     navigate({ to: '/weldbooks/accounts/$id', params: { id } });
   };
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/weldbooks/accounts/$id" params={{ id }}>
-          <Button variant="ghost" size="icon">
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/weldbooks/accounts/$id" params={{ id }} aria-label={ta.backToAccounts}>
             <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <h1 className="text-2xl font-semibold">{ta.editAccount}</h1>
       </div>
 

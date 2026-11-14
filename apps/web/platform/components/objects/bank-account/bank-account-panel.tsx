@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Banknote,
+  BookOpen,
   Building2,
   CalendarClock,
   CircleDot,
@@ -67,7 +68,11 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
-import { useAutoReconcile, useDeleteBankAccount } from '@/hooks/queries/use-accounting-queries';
+import {
+  useAccountingAccounts,
+  useAutoReconcile,
+  useDeleteBankAccount,
+} from '@/hooks/queries/use-accounting-queries';
 import { useBankAccount, useBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { isLiabilityAccountType, type BankLine, type UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
@@ -309,6 +314,15 @@ function BankAccountDetailsTab({
   const td = tb.accountDetails;
   const liability = isLiabilityAccountType(account.accountType);
   const currency = account.currency ?? entityCurrency;
+  const st = useTranslations();
+  // The ledger account the bank account books to: inactive ones included, the link may point at one.
+  const { data: ledgerAccountsRes } = useAccountingAccounts({ includeInactive: true });
+  const ledgerAccount = account.ledgerAccountId
+    ? ledgerAccountsRes?.data?.find((candidate) => candidate.id === account.ledgerAccountId)
+    : undefined;
+  let ledgerLabel: string | null = null;
+  if (!account.ledgerAccountId) ledgerLabel = st('sweep.weldbooks.records.notLinked');
+  else if (ledgerAccount) ledgerLabel = `${ledgerAccount.code} — ${ledgerAccount.name}`;
 
   return (
     <div className="@container p-4 space-y-4">
@@ -350,6 +364,15 @@ function BankAccountDetailsTab({
           )}
         />
         <PropertyRow icon={Building2} label={tp.bankName} value={account.bankName} readOnly />
+        <PropertyRow
+          icon={BookOpen}
+          label={st('sweep.weldbooks.records.ledgerAccount')}
+          value={ledgerLabel}
+          readOnly
+          renderValue={(value) => (
+            <span className={cn(!account.ledgerAccountId && 'text-amber-700 dark:text-amber-400')}>{value}</span>
+          )}
+        />
         {isUs ? (
           <UsAccountRows account={account} t={t} />
         ) : (

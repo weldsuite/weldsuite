@@ -182,8 +182,24 @@ export async function verifyWooCommerceAuthUserId(
   }
 }
 
-/** Browser return_url after the merchant grants or denies access. */
-export function isAllowedConnectorReturnUrl(url: string): boolean {
+/** The origin of a configured URL, or null when it isn't an http(s) URL. */
+function configuredOrigin(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Browser return_url after the merchant grants or denies access: a connector
+ * page on Global's platform hosts, or on `publicAppUrl` (the install's own
+ * platform origin, `PUBLIC_APP_URL`, which is how the EU and self-hosted
+ * editions are reached).
+ */
+export function isAllowedConnectorReturnUrl(url: string, publicAppUrl?: string | null): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -197,7 +213,8 @@ export function isAllowedConnectorReturnUrl(url: string): boolean {
     host === '127.0.0.1' ||
     host === 'app.weldsuite.org' ||
     host === 'app-test.weldsuite.org' ||
-    host.endsWith('.weldsuite.pages.dev');
+    host.endsWith('.weldsuite.pages.dev') ||
+    parsed.origin === configuredOrigin(publicAppUrl);
   if (!allowedHost) return false;
   // A `/w/{workspace}/…` link names its workspace (FE-013); the page is the rest.
   const workspacePage = /^\/w\/[^/]+(\/.*)$/.exec(parsed.pathname);

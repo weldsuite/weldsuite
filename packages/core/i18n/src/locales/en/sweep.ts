@@ -340,6 +340,34 @@ export const sweep = {
     "billDetail": {
       "billFallback": "Bill"
     },
+    "records": {
+      "recordPayment": "Record payment",
+      "paymentsTab": "Payments",
+      "payFrom": "Pay from",
+      "noBankAccountHint": "No bank account yet: this payment is booked to your default bank ledger account.",
+      "addBankAccount": "Add a bank account",
+      "noBillPayments": "No payments yet",
+      "noBillPaymentsDescription": "Payments made against this bill appear here.",
+      "billApproved": "Bill approved",
+      "approveBillTitle": "Approve this bill?",
+      "approveBillDescription": "Approving books the bill in the ledger. After that it can't be edited; corrections need a credit note.",
+      "approveBillConfirm": "Approve",
+      "defaultAccount": "Default: {account}",
+      "markFiled": "Mark as filed",
+      "markFiledTitle": "Mark this return as filed",
+      "markFiledDescription": "Use this when you filed the return with the tax authority yourself. Nothing is sent from here.",
+      "filingReference": "Filing reference",
+      "filingReferenceOptional": "Filing reference (optional)",
+      "filedOn": "Filed on",
+      "cancel": "Cancel",
+      "markedFiled": "Return marked as filed",
+      "markFiledFailed": "Could not mark the return as filed",
+      "ledgerAccount": "Ledger account",
+      "notLinked": "Not linked",
+      "groupPartiallyPaid": "Partially paid",
+      "sampleData": "Sample data",
+      "pdfDownloaded": "PDF downloaded"
+    },
     "contactForm": {
       "nameRequired": "Name is required",
       "invalidEmail": "Invalid email"

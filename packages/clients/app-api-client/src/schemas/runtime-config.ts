@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { runtimeAiConfigSchema } from './ai-settings';
 
 export const runtimeAuthSchema = z.discriminatedUnion('provider', [
   z.object({
@@ -58,6 +59,11 @@ export const runtimeConfigSchema = z.object({
   videoProvider: z.string().min(1).optional(),
   videoUrl: z.string().min(1).optional(),
   auth: runtimeAuthSchema.optional(),
+  /**
+   * The AI the install runs (plan eu-ai-mistral): present only when a default
+   * provider is configured. A block this build can't read counts as absent.
+   */
+  ai: runtimeAiConfigSchema.optional().catch(undefined),
   env: z.record(z.string()).optional(),
 });
 

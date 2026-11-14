@@ -23,7 +23,22 @@ generatorOptions:
   annotations:
     # Dashboards are JSON with Grafana's own variables: never substitute.
     kustomize.toolkit.fluxcd.io/substitute: disabled
+    # Grafana's folder for them (the sidecar's folderAnnotation).
+    grafana_folder: WeldSuite
+# Written by dashboards/generate.mjs: edit that, run it, commit the JSON.
 configMapGenerator:
+  - name: dashboard-weldsuite-overview
+    namespace: monitoring
+    files: [overview.json=dashboards/overview.json]
+  - name: dashboard-weldsuite-jobs
+    namespace: monitoring
+    files: [jobs.json=dashboards/jobs.json]
+  - name: dashboard-weldsuite-postgres
+    namespace: monitoring
+    files: [postgres.json=dashboards/postgres.json]
+  - name: dashboard-weldsuite-capacity
+    namespace: monitoring
+    files: [capacity.json=dashboards/capacity.json]
   - name: dashboard-weldsuite-api
     namespace: monitoring
     files: [weldsuite-api.json=dashboards/weldsuite-api.json]

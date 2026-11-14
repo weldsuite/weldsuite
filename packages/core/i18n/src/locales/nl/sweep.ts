@@ -340,6 +340,34 @@ export const sweep = {
     "billDetail": {
       "billFallback": "Inkoopfactuur"
     },
+    "records": {
+      "recordPayment": "Betaling registreren",
+      "paymentsTab": "Betalingen",
+      "payFrom": "Betalen vanaf",
+      "noBankAccountHint": "Nog geen bankrekening: deze betaling wordt geboekt op je standaard bankgrootboekrekening.",
+      "addBankAccount": "Bankrekening toevoegen",
+      "noBillPayments": "Nog geen betalingen",
+      "noBillPaymentsDescription": "Betalingen op deze inkoopfactuur verschijnen hier.",
+      "billApproved": "Inkoopfactuur goedgekeurd",
+      "approveBillTitle": "Deze inkoopfactuur goedkeuren?",
+      "approveBillDescription": "Bij goedkeuren wordt de inkoopfactuur in het grootboek geboekt. Daarna kan hij niet meer worden bewerkt; correcties lopen via een creditnota.",
+      "approveBillConfirm": "Goedkeuren",
+      "defaultAccount": "Standaard: {account}",
+      "markFiled": "Markeren als ingediend",
+      "markFiledTitle": "Deze aangifte markeren als ingediend",
+      "markFiledDescription": "Gebruik dit als je de aangifte zelf bij de belastingdienst hebt ingediend. Er wordt hier niets verstuurd.",
+      "filingReference": "Indieningskenmerk",
+      "filingReferenceOptional": "Indieningskenmerk (optioneel)",
+      "filedOn": "Ingediend op",
+      "cancel": "Annuleren",
+      "markedFiled": "Aangifte gemarkeerd als ingediend",
+      "markFiledFailed": "De aangifte kon niet als ingediend worden gemarkeerd",
+      "ledgerAccount": "Grootboekrekening",
+      "notLinked": "Niet gekoppeld",
+      "groupPartiallyPaid": "Gedeeltelijk betaald",
+      "sampleData": "Voorbeeldgegevens",
+      "pdfDownloaded": "PDF gedownload"
+    },
     "contactForm": {
       "nameRequired": "Naam is verplicht",
       "invalidEmail": "Ongeldig e-mailadres"

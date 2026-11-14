@@ -20,6 +20,16 @@ const accounts: UsBankAccount[] = [
   { id: 'ba_card', name: 'Visa', iban: null, bankName: null, currentBalance: '0', currency: 'USD', isActive: true, accountType: 'credit_card' } as UsBankAccount,
 ];
 
+const jurisdiction = vi.hoisted(() => ({ code: 'US' as string }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
+  useCurrentJurisdiction: () => ({
+    code: jurisdiction.code,
+    jurisdiction: { name: jurisdiction.code === 'US' ? 'United States' : 'Netherlands' },
+    features: { salesTax: jurisdiction.code === 'US' },
+    isResolved: true,
+    isError: false,
+  }),
+}));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => navigate,

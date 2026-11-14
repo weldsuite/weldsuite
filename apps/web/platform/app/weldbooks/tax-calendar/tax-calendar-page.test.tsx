@@ -12,6 +12,9 @@ let calendar: TaxCalendar | undefined;
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -200,7 +203,7 @@ describe('Tax calendar page', () => {
   it('says so for an entity outside the US', () => {
     jurisdiction = 'NL';
     renderWithProviders(<TaxCalendarPage />);
-    expect(screen.getByText('This screen is for US accounting entities only.')).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(screen.queryByTestId('tax-calendar-agenda')).not.toBeInTheDocument();
   });
 });

@@ -72,7 +72,7 @@ export default function AccountingCustomersPage() {
     {
       id: 'name',
       header: tcp.colName,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (customer) => (
         <>
           <RowAvatar name={customer.name || '?'} icon={contactKindIcon(customer)} />
@@ -87,13 +87,13 @@ export default function AccountingCustomersPage() {
     {
       id: 'email',
       header: tcp.colEmail,
-      width: 'w-[240px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[240px]',
       render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',
       header: tcp.colRole,
-      width: 'w-[170px]',
+      width: 'shrink-0 w-[170px]',
       render: (c) =>
         c.role ? (
           <StatusChip tone={c.role === 'both' ? 'indigo' : 'blue'}>
@@ -106,7 +106,7 @@ export default function AccountingCustomersPage() {
     {
       id: 'vat',
       header: labels.taxId,
-      width: 'w-[180px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[180px]',
       render: (c) => <RowText>{c.vatNumber}</RowText>,
     },
   ];

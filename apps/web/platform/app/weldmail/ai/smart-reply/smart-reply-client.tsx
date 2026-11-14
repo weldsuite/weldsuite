@@ -26,6 +26,7 @@ import { useSmartReplies } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
+import { MailAiBadge } from '@/components/ai/mail-ai-badge';
 
 interface Email {
   id: string;
@@ -148,6 +149,7 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
             <p className="text-muted-foreground mt-1">
               {t.mail.ai.smartReplySubtitle}
             </p>
+            <MailAiBadge className="mt-2" />
           </div>
           <Button onClick={() => handleGenerate()} disabled={isPending}>
             {isPending ? (

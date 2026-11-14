@@ -28,9 +28,16 @@ on:
   push:
     branches: [main]
 
+# A new push to a pull request cancels its running CI. On main a run that has
+# started always finishes, and the newest push waits for it (GitHub keeps one
+# pending run per group and drops older pending ones), so main never runs two
+# at a time. A main run takes about an hour: when every merge cancelled the
+# last, merges less than an hour apart left no commit with a passing CI, and
+# that is what the test deploy (handoff.yml) and EU production's pin
+# (ADR OPS-020, eu-production-watch.yml) wait for.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -278,6 +285,27 @@ jobs:
           tags: weldsuite-haraka:dev
           cache-from: type=gha,scope=rust-haraka
           cache-to: type=gha,mode=max,scope=rust-haraka
+      # WeldAgent's sandbox pods (ADR AI-012 phase 5): the agent's own tests,
+      # then the image, which must have what the agent drives.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The sandbox agent's tests
+        working-directory: rust/deploy/sandbox/agent
+        run: node --test test/*.test.mjs
+      - name: Build the sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust/deploy/sandbox
+          load: true
+          tags: weldsuite-sandbox:dev
+          cache-from: type=gha,scope=rust-sandbox
+          cache-to: type=gha,mode=max,scope=rust-sandbox
+      - name: The sandbox image has its tools
+        run: |
+          set -euo pipefail
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/sandbox --user 1000:1000 weldsuite-sandbox:dev \
+            sh -c 'for tool in node python3 chromium Xvfb openbox xdotool import pdftotext git curl; do command -v "$tool" >/dev/null || { echo "missing $tool"; exit 1; }; done; python3 -c "import numpy, pandas, matplotlib"'
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail

@@ -296,6 +296,18 @@ export interface RecordInvoicePaymentWithTarget {
   exchangeRate?: string;
 }
 
+/** Body of `POST /bills/:id/record-payment`: money paid to the supplier, out of a bank account. */
+export interface RecordBillPaymentInput {
+  amount: string;
+  /** YYYY-MM-DD */
+  date: string;
+  paymentMethod?: string;
+  reference?: string;
+  bankAccountId?: string;
+  bankTransactionId?: string;
+  notes?: string;
+}
+
 // ============================================================================
 // Deposits
 // ============================================================================
@@ -595,6 +607,9 @@ export const bankingApi = {
   // Payments
   recordInvoicePayment: (invoiceId: string, data: RecordInvoicePaymentWithTarget) =>
     weldbooksApi.post<Envelope<unknown>>(`/invoices/${invoiceId}/record-payment`, data),
+
+  recordBillPayment: (billId: string, data: RecordBillPaymentInput) =>
+    weldbooksApi.post<Envelope<unknown>>(`/bills/${billId}/record-payment`, data),
 
   // Deposits
   listUndeposited: () => weldbooksApi.get<CursorPage<UndepositedPayment>>('/bank-deposits/undeposited'),
