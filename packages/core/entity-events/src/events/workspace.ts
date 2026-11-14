@@ -16,7 +16,7 @@ export const WORKSPACE_ENTITY_EVENTS = {
   workflow_webhook: ['created', 'updated', 'deleted'],
   workspace_settings: ['updated', 'deleted'],
   /**
-   * Core legal entities (docs/plans/legal-entities.md). Registrations count
+   * Core legal entities (weldsuite-documentation/plans/legal-entities.md). Registrations count
    * as an `updated` of the entity; so does switching per-entity access on
    * or off. `accounting_entity` stays for WeldBooks' extension.
    */

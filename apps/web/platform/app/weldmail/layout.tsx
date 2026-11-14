@@ -23,7 +23,7 @@ export default function MailLayout({
   // A cached "installed" answer — this page's own earlier fetch, or the
   // persisted query cache restored from a previous session — lets mail render
   // before `useAppAccess` resolves again, instead of behind its `isLoading`
-  // gate (docs/plans/weldmail-mailbox-storage.md phase 1 item 10). Read the
+  // gate (weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 1 item 10). Read the
   // installed-apps query cache directly rather than through `useAppAccess`'s
   // own `isLoading`, which also waits on the unrelated WeldApps and
   // custom-objects sub-queries `useInstalledApps` merges in.

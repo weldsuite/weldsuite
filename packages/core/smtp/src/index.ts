@@ -6,7 +6,7 @@
  * AUTH PLAIN/LOGIN. Port 25 is blocked on Workers and is not supported.
  *
  * Used by WeldReach (apps/workers/reach-api) to send outreach from Mailpool
- * mailboxes; see docs/plans/weldreach.md. The socket is injectable so the
+ * mailboxes; see weldsuite-documentation/plans/weldreach.md. The socket is injectable so the
  * protocol is unit-tested against scripted servers.
  *
  * CONTRACT (other packages code against these names; keep them stable):

@@ -2,7 +2,7 @@
  * Which API worker serves which paths.
  *
  * app-api is being split into one worker per `weld*` module (plan:
- * docs/plans/app-api-module-split.md). This manifest is the single source of
+ * weldsuite-documentation/plans/app-api-module-split.md). This manifest is the single source of
  * truth for that split. It is read by:
  *
  *   - the clients, to pick the host for a request path (`resolveApiOrigin`)
@@ -66,7 +66,7 @@ export interface ApiModule {
   /**
    * App codes (the `PERMISSION_APPS` codes in `@weldsuite/permissions`) whose
    * screens call this module. A licensed workspace (partner-managed, see
-   * docs/plans/reseller-licensing.md) reaches the module only when at least
+   * weldsuite-documentation/plans/reseller-licensing.md) reaches the module only when at least
    * one of them is licensed. The first entry is the module's own app, the one
    * an `APP_NOT_LICENSED` error names; the rest are the apps that list one of
    * the module's objects (`companies`, `tasks`, `calendars`, …) in
@@ -307,7 +307,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/recurring-invoices',
     '/api/tax-rates',
     '/api/vat-returns',
-    // US accounting (docs/plans/weldbooks-us.md)
+    // US accounting (weldsuite-documentation/plans/weldbooks-us.md)
     '/api/accounting-dimensions',
     '/api/bank-connections',
     '/api/bank-deposits',
@@ -326,7 +326,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tax-returns',
     '/api/w9-requests',
     '/public/w9',
-    // Brazil (docs/plans/weldbooks-br.md)
+    // Brazil (weldsuite-documentation/plans/weldbooks-br.md)
     '/api/br-tax',
     '/api/fiscal-documents',
     '/api/received-fiscal-documents',
@@ -474,16 +474,16 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldSheets. Its worker (sheets-api, with the SheetRoom Durable Object)
   // arrives with live co-editing; until then nothing calls these paths.
   mod('sheets', 8822, ['weldsheets'], ['/api/sheets']),
-  // WeldSign (e-signatures, docs/plans/weldsign.md). Signers have no API path:
+  // WeldSign (e-signatures, weldsuite-documentation/plans/weldsign.md). Signers have no API path:
   // apps/web/sign-portal reads and writes the tenant DB itself (ADR FE-016).
   mod('sign', 8823, ['weldsign'], ['/api/sign']),
   // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
   mod('docs', 8824, ['welddocs'], ['/api/docs']),
   // WeldPanel (product analytics and session recordings,
-  // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
+  // weldsuite-documentation/plans/weldpanel.md). Tracked sites never call this worker: they send
   // to the public collector apps/workers/panel-ingest on its own host.
   mod('panel', 8825, ['weldpanel'], ['/api/panel']),
-  // WeldBoard (whiteboards, docs/plans/weldboard.md). Its worker is board-api
+  // WeldBoard (whiteboards, weldsuite-documentation/plans/weldboard.md). Its worker is board-api
   // (with the BoardRoom Durable Object). WeldFlow is listed too: a project's
   // whiteboards are WeldBoard boards, and keep working with WeldFlow alone.
   mod('board', 8826, ['weldboard', 'weldflow'], ['/api/boards']),
@@ -492,7 +492,7 @@ export const API_MODULES: readonly ApiModule[] = [
   // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
   // GitHub App's setup redirect (no Clerk session: the signed state decides).
   mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
-  // WeldForms (forms and surveys, docs/plans/weldforms.md). `/public/forms` is
+  // WeldForms (forms and surveys, weldsuite-documentation/plans/weldforms.md). `/public/forms` is
   // called only by apps/web/forms-portal, which proves itself with
   // FORMS_PORTAL_SECRET (ADR FORMS-002); respondents never reach it directly.
   mod('forms', 8828, ['weldforms'], ['/api/forms', '/public/forms']),

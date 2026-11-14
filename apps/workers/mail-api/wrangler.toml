@@ -1,6 +1,6 @@
 # WeldSuite mail-api worker — the mail module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   mail-api.weldsuite.org        production
 #   mail-api-test.weldsuite.org   test
@@ -22,7 +22,7 @@
 #   OUTBOUND_ADMIN_SECRET (the outbound guard's staff API, /internal/outbound/*;
 #     same value as the admin console's; at least 32 characters)
 #
-# Outbound guard (docs/plans/weldmail-outbound-abuse.md): this worker hosts the
+# Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): this worker hosts the
 # OutboundLedger (one per workspace) and OutboundPlatformBudget Durable Objects
 # that every mail-sending worker binds by script_name, and consumes two queues:
 #   mail-outbound-review-<env>  AI reviews of templates the ledgers queue
@@ -39,7 +39,7 @@
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
 #
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task C1): this
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task C1): this
 # worker hosts MailboxStoreObject (one per mailbox) and MailIndex (one per
 # workspace), both reached through `.jurisdiction('eu')` (ADR MAIL-009), and
 # the MAIL_STORAGE R2 bucket their bodies/raw MIME live in — also
@@ -75,7 +75,7 @@ ENVIRONMENT = "development"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.org"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -142,7 +142,7 @@ class_name = "SendScheduledEmailWorkflow"
 [triggers]
 crons = ["*/5 * * * *"]
 
-# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+# ---- Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md) ----
 [[durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -167,7 +167,7 @@ class_name = "UsageMeter"
 tag = "usage-meter-v1"
 new_sqlite_classes = ["UsageMeter"]
 
-# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+# ---- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) ----
 # MailboxStoreObject: one per mailbox (mbx:<workspaces.id>:<accountId>).
 # MailIndex: one per workspace (mbxidx:<workspaces.id>). Both are always
 # reached through `.jurisdiction('eu')` (ADR MAIL-009); jurisdiction is a
@@ -232,7 +232,7 @@ ENVIRONMENT = "test"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.org"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -285,7 +285,7 @@ crons = ["*/5 * * * *"]
 enabled = true
 head_sampling_rate = 1
 
-# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+# ---- Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md) ----
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -310,7 +310,7 @@ class_name = "UsageMeter"
 tag = "usage-meter-v1"
 new_sqlite_classes = ["UsageMeter"]
 
-# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+# ---- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) ----
 [[env.test.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"
@@ -368,7 +368,7 @@ ENVIRONMENT = "production"
 # Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
 # has its own apex zone, because a zone has ONE Email Routing catch-all and it
 # must point at this environment's inbound worker
-# (docs/plans/weldmail-test-mail-zone.md).
+# (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
 WELDMAIL_DOMAIN = "weldmail.com"
 MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
@@ -423,7 +423,7 @@ crons = ["*/5 * * * *"]
 enabled = true
 head_sampling_rate = 1
 
-# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+# ---- Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md) ----
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -448,7 +448,7 @@ class_name = "UsageMeter"
 tag = "usage-meter-v1"
 new_sqlite_classes = ["UsageMeter"]
 
-# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+# ---- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) ----
 [[env.production.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"

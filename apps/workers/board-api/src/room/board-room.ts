@@ -1,6 +1,6 @@
 /**
  * BoardRoom: one Durable Object per board (named `${workspaceId}:${boardId}`),
- * the single place a board's edits are ordered (docs/plans/weldboard.md, ADR
+ * the single place a board's edits are ordered (weldsuite-documentation/plans/weldboard.md, ADR
  * BOARD-003). Built like DocRoom and SheetRoom.
  *
  * The co-editing logic is `RoomCore` from @weldsuite/collab, run on the board

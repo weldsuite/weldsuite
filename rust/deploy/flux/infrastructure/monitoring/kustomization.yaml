@@ -1,4 +1,4 @@
-# Metrics, alerting and Grafana (docs/plans/eu-observability.md, ADR
+# Metrics, alerting and Grafana (weldsuite-documentation/plans/eu-observability.md, ADR
 # OPS-021): kube-prometheus-stack and the blackbox exporter. What they
 # scrape, probe and alert on is the next layer, ../monitoring-config, which
 # needs this layer's CRDs. The namespace is in ../controllers, because the

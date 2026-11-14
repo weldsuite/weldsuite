@@ -4,7 +4,7 @@
  *
  * Phase 1 only counts. Plan allowances, overage settlement against the wallet,
  * the `panel:quota:<workspace>` KV state and the flush to the master
- * `panel_usage_monthly` table come in phase 7 (docs/plans/weldpanel.md).
+ * `panel_usage_monthly` table come in phase 7 (weldsuite-documentation/plans/weldpanel.md).
  * Recordings will count under their own `recordings:` keys.
  */
 

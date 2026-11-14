@@ -1,5 +1,5 @@
 /**
- * Legal entities in WeldHR (docs/plans/legal-entities.md): the request's
+ * Legal entities in WeldHR (weldsuite-documentation/plans/legal-entities.md): the request's
  * entity scopes lists, an entity role limits what a member may do there, a
  * record of an entity the member acts in differently is a 404, and a payroll
  * employer is a registration of a legal entity.

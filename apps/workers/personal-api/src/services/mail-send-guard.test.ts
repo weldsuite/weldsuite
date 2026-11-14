@@ -15,7 +15,7 @@
  *   - Cloudflare's own refusals keep their meaning, and a send that failed
  *     halfway counts only the recipients that got it;
  *   - the plan's own daily limit still holds, ahead of the guard.
- * docs/plans/weldmail-outbound-abuse.md.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { describe, expect, it } from 'vitest';

@@ -1,7 +1,7 @@
 /**
  * The licence editor's live "WeldSuite bills / you keep" figures and the
  * minimum-price check, against the worked examples in
- * docs/plans/reseller-licensing.md (contract: 75%, $50 minimum, 2,000 included
+ * weldsuite-documentation/plans/reseller-licensing.md (contract: 75%, $50 minimum, 2,000 included
  * credits, $0.004 per credit above that).
  */
 

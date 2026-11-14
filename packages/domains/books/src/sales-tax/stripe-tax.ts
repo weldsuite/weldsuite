@@ -1,5 +1,5 @@
 /**
- * Stripe Tax engine (docs/plans/weldbooks-us.md §3, phase 3.1).
+ * Stripe Tax engine (weldsuite-documentation/plans/weldbooks-us.md §3, phase 3.1).
  *
  * Uses the customer's own Stripe account (a restricted key). Calculations work
  * without Stripe payments; WeldBooks builds its returns from its own

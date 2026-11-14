@@ -1,7 +1,7 @@
 /**
  * WeldSuite reach-api — WeldReach, cold email outreach on Mailpool.
  *
- * docs/plans/weldreach.md. HTTP: `/api/reach/*` behind apiAuth + the
+ * weldsuite-documentation/plans/weldreach.md. HTTP: `/api/reach/*` behind apiAuth + the
  * `weldreach` app-access gate (on request only; staff approve workspaces in the
  * admin console), and `/public/reach/*` for the Mailpool webhook (HMAC).
  * Background: a cron sweep feeds the `reach-send` queue (SMTP sends), an hourly

@@ -275,7 +275,7 @@ default) organisation:
      ID token and don't call userinfo. Its
      client id is `ZITADEL_MOBILE_CLIENT_ID`; until it is set the apps can't
      sign in to the cluster
-     (`docs/plans/mobile-server-choice.md` in the code repo).
+     (`weldsuite-documentation/plans/mobile-server-choice.md` in the code repo).
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and
@@ -604,7 +604,7 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
 ## AI (Mistral)
 
 Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
-`docs/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
+`weldsuite-documentation/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
 `config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
 workspaces with their own key, the credit gate on); the search index embeds
 through it with `mistral-embed`, metered as `search-index` (so
@@ -640,7 +640,7 @@ through it with `mistral-embed`, metered as `search-index` (so
 ## Agent sandbox
 
 WeldAgent's code execution, web search and fetch, browser and computer use
-run on this cluster (ADR AI-012 phase 5, `docs/plans/eu-ai-mistral.md`, "The
+run on this cluster (ADR AI-012 phase 5, `weldsuite-documentation/plans/eu-ai-mistral.md`, "The
 EU sandbox"; rust/README.md, "WeldAgent's sandbox"). The EU values turn on the
 chart's `sandbox` and `searxng`: the server starts one gVisor pod per agent
 conversation in `weldsuite-sandbox`, behind a default-deny NetworkPolicy
@@ -711,7 +711,7 @@ sandbox's desktop then go to that provider with the conversation.
 ## Mail
 
 The EU edition sends and receives its own mail (plan:
-`docs/plans/eu-mail-service.md`; ADRs MAIL-010 and MAIL-011). No relay, no
+`weldsuite-documentation/plans/eu-mail-service.md`; ADRs MAIL-010 and MAIL-011). No relay, no
 mail provider:
 
 | Path | What | Where |

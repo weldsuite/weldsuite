@@ -6,7 +6,7 @@
  * top of the modal rate; it is listed separately because the NF-e reports it
  * in its own fields.
  *
- * Rates as of October 2026; see docs/plans/weldbooks-br.md for sources.
+ * Rates as of October 2026; see weldsuite-documentation/plans/weldbooks-br.md for sources.
  */
 
 export type BrRegion = 'N' | 'NE' | 'CO' | 'SE' | 'S';

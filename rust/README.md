@@ -997,7 +997,7 @@ webhook keeping the session. v1.9 servers are too old for the pinned client
 
 Global runs every model call through `@weldsuite/ai` and the Cloudflare AI
 Gateway. The Kubernetes editions run them through `crates/ai`
-(`weldsuite-ai`, ADR AI-012, `docs/plans/eu-ai-mistral.md`): Mistral as the
+(`weldsuite-ai`, ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`): Mistral as the
 EU edition's install provider (chat, structured output, OCR, embeddings,
 transcription), a self-hosted install's own OpenAI-compatible endpoint
 (`compat`), and Anthropic and OpenAI only for workspaces whose admin opts in,
@@ -1090,7 +1090,7 @@ On Global, Claude Managed Agents run an agent's sandbox (`computer:use`) and
 web tools (`browser:use`) at Anthropic. The Kubernetes editions run them on
 the install's own cluster: `crates/sandbox` (`weldsuite-sandbox`), the image
 `rust/deploy/sandbox`, the chart's `sandbox` and `searxng` sections
-(`docs/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
+(`weldsuite-documentation/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
 
 - **Pods.** One per agent conversation (or run) in the `weldsuite-sandbox`
   namespace, under gVisor (`RuntimeClass gvisor`), with no service-account

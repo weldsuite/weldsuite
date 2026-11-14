@@ -8,7 +8,7 @@
  * A ref is either identifier of the workspace: `workspaces.id` or its Clerk org
  * id. The request context still carries the org id, but events, Workflows and
  * internal callers increasingly carry `workspaces.id`
- * (docs/plans/workspace-id-standardization.md), so every resolver here accepts
+ * (weldsuite-documentation/plans/workspace-id-standardization.md), so every resolver here accepts
  * both and the entry is cached under the ref it was asked for.
  *
  * The cached entry never holds the connection string in the clear: it is sealed
@@ -69,7 +69,7 @@ interface CachedWorkspace {
   /**
    * App codes this workspace is licensed for, or null when it is unrestricted
    * (every app). Only partner-managed workspaces carry a licence
-   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`,
+   * (weldsuite-documentation/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`,
    * `[]` (core only) when the row is missing. `licenceGate()` enforces it.
    */
   licensedApps: string[] | null;

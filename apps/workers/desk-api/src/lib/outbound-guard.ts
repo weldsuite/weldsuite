@@ -1,6 +1,6 @@
 /**
  * Glue between WeldDesk's email replies and the outbound mail guard
- * (`@weldsuite/mail-domain/outbound`, docs/plans/weldmail-outbound-abuse.md).
+ * (`@weldsuite/mail-domain/outbound`, weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
  * An agent answering a customer who wrote in is `kind: 'reply'`, so the guard
  * never throttles it below its generous floor. It still refuses a From address

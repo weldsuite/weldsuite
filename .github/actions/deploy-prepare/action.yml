@@ -4,7 +4,7 @@ description: >-
   the module API workers and Vercel apps that changed, and the deploy plan
   (.github/scripts/deploy-plan.mjs). Used by the deploy workflow of the
   private repo weldsuite-deploy, which checks this repo out at the commit it
-  deploys (ADR OPS-018, docs/plans/main-only-private-deploys.md). Expects this repo checked out at
+  deploys (ADR OPS-018, weldsuite-documentation/plans/main-only-private-deploys.md). Expects this repo checked out at
   the workspace root with full history (fetch-depth: 0).
 
 inputs:

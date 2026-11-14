@@ -3,7 +3,7 @@
 What each alert means and what to check first. Every rule's `runbook_url`
 points at its heading here. A cluster operator's own steps (names, addresses,
 who to call) belong in that cluster's runbook, not here. Plan and decisions:
-[docs/plans/eu-observability.md](../../../../../docs/plans/eu-observability.md),
+[weldsuite-documentation/plans/eu-observability.md](https://github.com/weldsuite/weldsuite-documentation/blob/main/plans/eu-observability.md),
 ADR OPS-021.
 
 **Severity.** `critical` pages at any hour. `warning` is quiet and muted at

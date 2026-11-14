@@ -9,7 +9,7 @@
  * second app with overlapping repo access. Connecting from WeldConnect
  * (`POST /api/workflow-integrations/github/link`) just points a
  * `workflow_integrations` row at the existing installation id — see
- * "Provider pattern" in docs/plans/weldconnect.md.
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  *
  * Inbound events (`github.issue`, `github.pull_request`) are not wired yet;
  * only the two outbound actions below are activatable yet.

@@ -158,7 +158,7 @@ app.post(
  * query param (see mail-messages' `GET /` and `GET /stats`).
  *
  * The address list behind `accountId` comes from the mailbox store's
- * `recentAddresses` (docs/plans/weldmail-mailbox-store-design.md, task D7) —
+ * `recentAddresses` (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7) —
  * crm-domain no longer queries `mail_messages` directly, so this works
  * unchanged in every mailbox-store mode, `object-only` included. The sample
  * size (200 most recent addresses) matches what the store's

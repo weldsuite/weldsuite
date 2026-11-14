@@ -21,7 +21,7 @@ The domain code finds the workspace from the link token (master
 R2, emails codes, publishes `sign_envelope` events, and starts sign-api's
 `FinalizeEnvelopeWorkflow` (bound by `script_name`) after the last signature.
 The signer's IP on the evidence trail is `CF-Connecting-IP`, read at the edge.
-See `docs/plans/weldsign.md`.
+See `weldsuite-documentation/plans/weldsign.md`.
 
 Layout: pages and server routes in `src/routes/`, the signer UI in
 `components/` (all client-side, as before), server-only code in

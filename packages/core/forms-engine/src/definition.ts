@@ -4,7 +4,7 @@
  * One Zod schema for the builder, the renderer, forms-api and (through the
  * fixtures) the Rust backend. A definition is stored as JSON on `forms`
  * (the draft) and `form_versions` (published snapshots), see
- * packages/core/db/src/schema/weldforms.ts and docs/plans/weldforms.md.
+ * packages/core/db/src/schema/weldforms.ts and weldsuite-documentation/plans/weldforms.md.
  *
  * Shape:
  *   - `welcome`: optional first screen.

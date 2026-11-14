@@ -1,4 +1,4 @@
-//! AI on the Kubernetes editions (ADR AI-012, `docs/plans/eu-ai-mistral.md`).
+//! AI on the Kubernetes editions (ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`).
 //!
 //! Global runs every AI call through `@weldsuite/ai` and the Cloudflare AI
 //! Gateway. The EU edition and self-hosted installs run them through this

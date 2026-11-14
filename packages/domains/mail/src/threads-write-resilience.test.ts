@@ -5,7 +5,7 @@
  * 'database_move'`, `packages/core/worker-kit/src/db.ts`): Postgres refuses
  * the write with a read-only-transaction error, and inside a shared
  * `db.batch` that would otherwise take the batch's reads down with it
- * (`batchWriteThenReads` in `db-batch.ts`, docs/plans/weldmail-mailbox-storage.md
+ * (`batchWriteThenReads` in `db-batch.ts`, weldsuite-documentation/plans/weldmail-mailbox-storage.md
  * phase 1 item 3).
  *
  * (The listing used to run a second write-then-read batch that flipped an

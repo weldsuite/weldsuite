@@ -1,6 +1,6 @@
 /**
  * GET /api/mail-sending/usage: the workspace's view of its outbound sending
- * limits, from its ledger (docs/plans/weldmail-outbound-abuse.md). pglite
+ * limits, from its ledger (weldsuite-documentation/plans/weldmail-outbound-abuse.md). pglite
  * tenant and master databases; the ledger is a stub namespace.
  */
 

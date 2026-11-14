@@ -14,7 +14,7 @@ export interface Env extends KitEnv {
   /** CF Workflow that runs a WeldData enrichment column across leads in the
    *  background. Hosted in this worker (class re-exported from src/index.ts)
    *  under the `welddata-enrich-v2*` names — app-api's old `welddata-enrich*`
-   *  names keep draining (docs/plans/app-api-module-split.md). */
+   *  names keep draining (weldsuite-documentation/plans/app-api-module-split.md). */
   WELDDATA_ENRICH?: Workflow<{
     workspaceId: string;
     userId: string;

@@ -265,7 +265,7 @@ config:
   # Seal new workspaces.database_url values as v3 (bound to the workspace);
   # every Rust reader opens v3, so a new cluster can have it on.
   aadWrites: false
-  # AI (ADR AI-012, docs/plans/eu-ai-mistral.md): the install's provider, what
+  # AI (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md): the install's provider, what
   # workspaces may opt in to, fallback and billing. Empty defaultProvider is AI
   # off: the AI features are hidden and their routes answer as the workers do
   # without their model. The keys go in the Secret (MISTRAL_API_KEY,
@@ -402,7 +402,7 @@ secret:
   generatedName: weldsuite-generated
 
 # Dependencies the chart runs itself (Chart.yaml's dependencies, pinned to
-# the EU cluster's versions; docs/plans/self-hosted-edition.md, decision 2).
+# the EU cluster's versions; weldsuite-documentation/plans/self-hosted-edition.md, decision 2).
 # On, the chart also sets the server's settings for it from the generated
 # Secret, overriding the same keys in the Secret above: VALKEY_URL; NATS_URL
 # and NATS_TOKEN; RESTATE_INGRESS_URL and RESTATE_ADMIN_URL; S3_ENDPOINT, the
@@ -970,7 +970,7 @@ mailInbound:
       limits:
         memory: 512Mi
 
-# The MTA (docs/plans/eu-mail-service.md, ADR MAIL-011), off by default:
+# The MTA (weldsuite-documentation/plans/eu-mail-service.md, ADR MAIL-011), off by default:
 # `weldsuite mta` from the server's image, sending the platform's and the
 # customers' mail straight to the recipients' MX from the mail nodes' own
 # addresses. One DaemonSet per pool, on the nodes labelled

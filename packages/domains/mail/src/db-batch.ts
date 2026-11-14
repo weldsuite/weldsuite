@@ -12,7 +12,7 @@
  * trip with the count and page SELECTs, say), so this is the
  * result-returning twin of the same fallback — kept local to mail-domain
  * rather than added to the shared helper, since no other module needed it
- * yet (docs/plans/weldmail-mailbox-storage.md, phase 1 item 3).
+ * yet (weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 1 item 3).
  *
  * `build` receives the handle to construct the statements against. On the
  * pglite fallback that handle is the transaction, not the outer `db`, so a

@@ -40,7 +40,7 @@
  * (which keys on `mail`). Default stays legacy — mobile is unaffected.
  *
  * Install on a partner-managed workspace is limited to its licence
- * (403 APP_NOT_LICENSED); see docs/plans/reseller-licensing.md.
+ * (403 APP_NOT_LICENSED); see weldsuite-documentation/plans/reseller-licensing.md.
  *
  * Apps that are on request only (`requiresApproval`, WeldReach first) cannot
  * be installed until staff approve the workspace (403 APP_ACCESS_REQUIRED with

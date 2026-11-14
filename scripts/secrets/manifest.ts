@@ -648,8 +648,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     // Authorises the admin console's outbound-guard API (/internal/outbound/*;
-    // docs/plans/weldmail-outbound-abuse.md) and the mailbox-store admin API
-    // (/internal/mail-store/*; docs/plans/weldmail-mailbox-store-design.md §9
+    // weldsuite-documentation/plans/weldmail-outbound-abuse.md) and the mailbox-store admin API
+    // (/internal/mail-store/*; weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9
     // task C4) — same shared secret, both via lib/admin-auth.ts. The console
     // (apps/web/admin) holds the same value in its own environment.
     "OUTBOUND_ADMIN_SECRET",
@@ -799,7 +799,7 @@ export const manifest: Record<string, SecretEntry[]> = {
   // reach-api: the reach module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
-  // reach-api: WeldReach (cold email on Mailpool, docs/plans/weldreach.md).
+  // reach-api: WeldReach (cold email on Mailpool, weldsuite-documentation/plans/weldreach.md).
   // DATABASE_ENCRYPTION_KEY also seals the Mailpool mailbox SMTP/IMAP logins.
   "reach-api": [
     "DATABASE_URL_MASTER",
@@ -816,7 +816,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Seals mailbox logins for the warmup network (same value on reach-warmup-worker).
     "WELDREACH_WARMUP_KEY",
   ],
-  // reach-warmup-worker: the WeldReach warmup network (docs/plans/weldreach-warmup.md).
+  // reach-warmup-worker: the WeldReach warmup network (weldsuite-documentation/plans/weldreach-warmup.md).
   // Master DB only; WELDREACH_WARMUP_KEY opens the pool logins reach-api sealed.
   "reach-warmup-worker": [
     "DATABASE_URL_MASTER",

@@ -1,6 +1,6 @@
 /**
  * Which WeldSuite deployment a mobile app talks to, and everything the app
- * reads from that choice (docs/plans/mobile-server-choice.md, ADR MOB-006).
+ * reads from that choice (weldsuite-documentation/plans/mobile-server-choice.md, ADR MOB-006).
  *
  * - **global**: WeldSuite cloud. The hosts and Clerk key baked into the
  *   build by `eas.json` (`EXPO_PUBLIC_*`), exactly as before the switch.

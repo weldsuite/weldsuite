@@ -1,4 +1,4 @@
-# The MTA's mail nodes (docs/plans/eu-mail-service.md): dedicated servers,
+# The MTA's mail nodes (weldsuite-documentation/plans/eu-mail-service.md): dedicated servers,
 # one set per IP pool, where `weldsuite mta` runs on the host network and
 # sends from the node's own public IPv4. Receivers judge mail by that address
 # and its reverse DNS, so both are kept apart from the server: a primary IP

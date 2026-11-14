@@ -1,5 +1,5 @@
 //! Two-way issue sync between WeldMerge issues and provider issues (GitHub
-//! and GitLab, `services/issue-sync/*`; spec: docs/plans/
+//! and GitLab, `services/issue-sync/*`; spec: weldsuite-documentation/plans/
 //! weldmerge-phases-2-5.md, phase 2).
 //!
 //! The engine never talks to a provider directly: it calls the issue adapter

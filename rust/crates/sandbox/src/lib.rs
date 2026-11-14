@@ -1,5 +1,5 @@
 //! WeldAgent's sandbox on the Kubernetes editions (ADR AI-012 phase 5,
-//! `docs/plans/eu-ai-mistral.md`, "The EU sandbox").
+//! `weldsuite-documentation/plans/eu-ai-mistral.md`, "The EU sandbox").
 //!
 //! On Global, Claude Managed Agents run an agent's sandbox (`computer:use`)
 //! and its web tools (`browser:use`) at Anthropic, and agent-runtime runs its

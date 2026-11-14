@@ -1,5 +1,5 @@
 /**
- * Sales tax for one document (docs/plans/weldbooks-us.md §2-3).
+ * Sales tax for one document (weldsuite-documentation/plans/weldbooks-us.md §2-3).
  *
  * `calculateUsDocumentTax` turns an invoice, estimate, credit memo or bill's
  * lines and addresses into the sales tax request of the entity's engine and

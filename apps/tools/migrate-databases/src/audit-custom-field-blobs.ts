@@ -2,7 +2,7 @@
 /**
  * Audit what is ACTUALLY stored in the 16 `custom_fields` JSONB blobs.
  *
- * Phase 4 of the custom-fields refactor (docs/custom-fields-values-table.md)
+ * Phase 4 of the custom-fields refactor (weldsuite-documentation/plans/custom-fields-values-table.md)
  * drops these columns. That is only safe if every key inside them is a
  * user-defined custom field with a matching `custom_field_definitions` row —
  * because those are the only keys the Phase 2 backfill migrated into

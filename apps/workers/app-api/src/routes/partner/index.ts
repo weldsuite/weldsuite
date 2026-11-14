@@ -4,7 +4,7 @@
  * A partner (reseller) manages the workspaces it licenses for its customers:
  * creates them, edits each licence (apps, monthly credits, seats, the price it
  * charges), grants extra credits, defines licence packages, reads its monthly
- * statements and runs its own team. Plan: docs/plans/reseller-licensing.md.
+ * statements and runs its own team. Plan: weldsuite-documentation/plans/reseller-licensing.md.
  *
  * Auth: `clerkMiddleware()` (mounted in src/index.ts, before the global
  * `apiAuth()` because a partner user may have no active org) then

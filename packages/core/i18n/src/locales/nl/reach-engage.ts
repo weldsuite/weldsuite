@@ -2,7 +2,7 @@
  * WeldReach engagepagina's: campagnes (lijst, sequentie-editor, deelnemers,
  * mailboxen, planning, statistieken), prospects (tabel, lijsten, importen) en
  * de inbox met reacties. Shell, setup, mailboxen en toegang staan in `reach.ts`.
- * Zie docs/plans/weldreach.md.
+ * Zie weldsuite-documentation/plans/weldreach.md.
  *
  * Teksten met `{example}` krijgen een letterlijk sjabloonteken zoals
  * `{{firstName|there}}` mee, zodat de dubbele accolades hier niet voorkomen.

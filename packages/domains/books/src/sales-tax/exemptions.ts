@@ -1,5 +1,5 @@
 /**
- * Exemption certificate resolution (docs/plans/weldbooks-us.md §6).
+ * Exemption certificate resolution (weldsuite-documentation/plans/weldbooks-us.md §6).
  *
  * A valid certificate covering the ship-to state on the document date zeroes
  * the tax; the sale still counts as gross and exempt sales on the return.

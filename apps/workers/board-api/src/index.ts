@@ -3,7 +3,7 @@
  *
  * REST routes for board records (/api/boards), and the room socket every open
  * board is edited over: one BoardRoom Durable Object per board orders all
- * edits (docs/plans/weldboard.md). The prefixes it owns are listed in
+ * edits (weldsuite-documentation/plans/weldboard.md). The prefixes it owns are listed in
  * @weldsuite/api-modules and checked by its ownership test.
  *
  * `BoardsInternal` (a WorkerEntrypoint) lets other workers read boards and

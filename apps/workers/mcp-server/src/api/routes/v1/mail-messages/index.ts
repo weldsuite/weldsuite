@@ -15,7 +15,7 @@
  * Reply and forward live in `mail-sending`, which only the public API mounts.
  *
  * Reads and organize ops go through `getWorkspaceMail`'s `store`/`access`
- * (design docs/plans/weldmail-mailbox-store-design.md, task D5), via
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5), via
  * `../../../lib/mail-store-context`'s `workspaceMailFromContext`, so this
  * route works the same in every mailbox-store mode. A message outside the
  * caller's reach is a 404 in every mode — this surface never answered 403 for

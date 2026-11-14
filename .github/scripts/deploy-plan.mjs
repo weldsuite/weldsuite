@@ -6,7 +6,7 @@
  * Every deploy target is listed here (core workers, mobile apps, Pages apps,
  * TanStack Start Workers), so the deploy workflows only consume JSON lists and
  * never name a target. That is what lets the private deploy repo
- * (docs/plans/main-only-private-deploys.md) run this repo's deploy logic
+ * (weldsuite-documentation/plans/main-only-private-deploys.md) run this repo's deploy logic
  * without changing when a worker or an app is added here. Module API workers
  * come from module-workers.mjs, Vercel apps from vercel-apps.mjs.
  *

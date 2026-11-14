@@ -95,7 +95,7 @@ export async function workspaceInboxUnread(db: Database, userId: string): Promis
 
 /**
  * {@link workspaceInboxUnread}, through the mailbox store's cross-mailbox
- * `stats()` fan-out (design docs/plans/weldmail-mailbox-store-design.md, task
+ * `stats()` fan-out (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task
  * D2: "`inboxUnread` 90 → F `stats(...).inboxUnread`") instead of a direct
  * `mail_messages` query — so in `object`/`object-only` mode the badge comes
  * from the object, not Postgres. `postgres`/`shadow` go through the exact

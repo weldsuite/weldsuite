@@ -1,5 +1,5 @@
 //! Per-entity access (`access.ts`; "Per-entity access" in
-//! `docs/plans/legal-entities.md`).
+//! `weldsuite-documentation/plans/legal-entities.md`).
 //!
 //! Who sees a legal entity, and which role they act with inside it:
 //!

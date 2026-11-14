@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
 
 /**
- * When the app leaves a server (switching to another, docs/plans/mobile-server-choice.md),
+ * When the app leaves a server (switching to another, weldsuite-documentation/plans/mobile-server-choice.md),
  * remove this device's push token there so that server stops pushing here.
  * Runs while the person is still signed in on the old server.
  *

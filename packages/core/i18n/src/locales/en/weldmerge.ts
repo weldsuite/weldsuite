@@ -445,7 +445,7 @@ export const weldmerge = {
     },
   },
 
-  // Phases 2-5, one file per build area (see docs/plans/weldmerge-phases-2-5.md).
+  // Phases 2-5, one file per build area (see weldsuite-documentation/plans/weldmerge-phases-2-5.md).
   sync: weldmergeSync,
   reviewing: weldmergeReviewing,
   across: weldmergeAcross,

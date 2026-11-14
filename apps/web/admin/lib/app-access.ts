@@ -8,7 +8,7 @@
  *   - labels and rates for the request answers and the usage figures
  *
  * Reads and writes live in `lib/app-access-data.ts` and `actions/app-access.ts`.
- * See docs/plans/weldreach.md ("Access and gating").
+ * See weldsuite-documentation/plans/weldreach.md ("Access and gating").
  */
 
 import {

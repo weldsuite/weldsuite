@@ -33,7 +33,7 @@
  *   customer/supplier + other → both
  *   both + * → both (no-op)
  *
- * US vendor tax data (docs/plans/weldbooks-us.md section 8) rides on the same
+ * US vendor tax data (weldsuite-documentation/plans/weldbooks-us.md section 8) rides on the same
  * payloads: 1099 flags and defaults, the W-9, a write-only TIN and ACH account
  * number (encrypted into `parties.sensitive_encrypted`, see
  * services/vendor-tax-data.ts), `taxUse` and backup withholding. Responses

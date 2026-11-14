@@ -12,7 +12,7 @@
  * Dispatch is best-effort: every failure is logged, never thrown. The message
  * is already persisted by the time we get here, so a dead external channel must
  * not fail the agent's request. An email the outbound mail guard refuses is
- * logged the same way (docs/plans/weldmail-outbound-abuse.md).
+ * logged the same way (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  */
 
 import { and, eq, isNull } from 'drizzle-orm';

@@ -9,7 +9,7 @@ export interface SendEmailBinding {
 /**
  * The outbound mail guard's bindings (`OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM`,
  * `OUTBOUND_BACKSTOP`): Durable Objects hosted by mail-api, bound by name, all
- * optional because the guard fails open. docs/plans/weldmail-outbound-abuse.md.
+ * optional because the guard fails open. weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Neon connection string for master DB (personal_accounts, registry). */

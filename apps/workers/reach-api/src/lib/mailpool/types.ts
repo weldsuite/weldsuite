@@ -15,7 +15,7 @@
 
 export type MailpoolMailboxType = 'google' | 'shared' | 'private' | 'outlook';
 
-/** Types WeldReach provisions in v1 (see docs/plans/weldreach.md, Decisions). */
+/** Types WeldReach provisions in v1 (see weldsuite-documentation/plans/weldreach.md, Decisions). */
 export type MailpoolProvisionedType = 'google' | 'shared';
 
 export type MailpoolDmarcPolicy = 'none' | 'quarantine' | 'reject';

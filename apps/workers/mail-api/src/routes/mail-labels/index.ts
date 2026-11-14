@@ -8,7 +8,7 @@
  *
  * - CRUD on the `mail_labels` table (per-account; uniqueness enforced
  *   case-insensitively per account). Label definitions stay on Postgres in
- *   every mode (design docs/plans/weldmail-mailbox-store-design.md, task D2);
+ *   every mode (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2);
  *   the KV mailbox directory is bumped after every write, and a rename/delete
  *   also mirrors the message-side relabel to the mailbox store in modes that
  *   read from it (`updateMailLabel`/`deleteMailLabel` already relabel/strip

@@ -3,7 +3,7 @@
  *
  * REST routes for document records (/api/docs), and the room socket every
  * open document is edited over: one DocRoom Durable Object per document
- * orders all edits (docs/plans/welddocs.md). The prefixes it owns are listed
+ * orders all edits (weldsuite-documentation/plans/welddocs.md). The prefixes it owns are listed
  * in @weldsuite/api-modules and checked by its ownership test.
  */
 

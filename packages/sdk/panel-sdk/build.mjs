@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
-/** The plan's budget for the core script (docs/plans/weldpanel.md, "SDK"). */
+/** The plan's budget for the core script (weldsuite-documentation/plans/weldpanel.md, "SDK"). */
 const MAX_GZIP_BYTES = 10 * 1024;
 
 const root = fileURLToPath(new URL('.', import.meta.url));

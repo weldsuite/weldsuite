@@ -1,6 +1,6 @@
 /**
  * Legal entities, release 1: the part of the backfill SQL cannot do
- * (docs/plans/legal-entities.md, "Release 1 (expand)"). The SQL migration
+ * (weldsuite-documentation/plans/legal-entities.md, "Release 1 (expand)"). The SQL migration
  * (tenant 0249) has already copied everything deterministic; this works on
  * one tenant database at a time and needs the field-encryption keyring.
  *

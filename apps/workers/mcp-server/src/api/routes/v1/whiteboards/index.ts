@@ -1,6 +1,6 @@
 /**
  * `/v1/whiteboards` (the MCP whiteboard tools) — WeldFlow's project whiteboards are WeldBoard
- * boards now (docs/plans/weldboard.md, ADR BOARD-001); this keeps the old API
+ * boards now (weldsuite-documentation/plans/weldboard.md, ADR BOARD-001); this keeps the old API
  * working on top of them, in WeldFlow's elements format, through board-api's
  * BoardsInternal entrypoint (BOARDS_INTERNAL). A write is turned into board
  * ops and committed through the board's room, so people with the board open

@@ -1,5 +1,5 @@
 /**
- * Respondent sessions and verification tokens (docs/plans/weldforms.md,
+ * Respondent sessions and verification tokens (weldsuite-documentation/plans/weldforms.md,
  * "Respondent sessions").
  *
  * A session token is HMAC-signed with `FORMS_SESSION_SECRET` and bound to the

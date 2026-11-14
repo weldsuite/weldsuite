@@ -2,7 +2,7 @@
  * DB-backed integration tests for `/api/workflow-integrations` — the Slack
  * connect/OAuth/test/picker surface (reference provider) plus the Google
  * providers (google_sheets, gmail, google_calendar) that follow the same
- * shape; see "Provider pattern" in docs/plans/weldconnect.md.
+ * shape; see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  */
 
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';

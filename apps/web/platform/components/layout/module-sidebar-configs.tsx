@@ -249,7 +249,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     ],
   },
   // WeldPanel (product analytics and session recordings). Insights, funnels,
-  // recordings and the rest join the menu phase by phase (docs/plans/weldpanel.md).
+  // recordings and the rest join the menu phase by phase (weldsuite-documentation/plans/weldpanel.md).
   weldpanel: {
     appName: 'WeldPanel',
     appIcon: ChartSpline,

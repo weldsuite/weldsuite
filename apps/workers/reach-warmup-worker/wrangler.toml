@@ -1,6 +1,6 @@
 # WeldSuite reach-warmup-worker — the WeldReach warmup network.
 #
-# docs/plans/weldreach-warmup.md. No public API. Every WeldReach mailbox
+# weldsuite-documentation/plans/weldreach-warmup.md. No public API. Every WeldReach mailbox
 # (master reach_warmup_mailboxes, registered by reach-api) sends a slowly
 # growing number of generated emails to other pool mailboxes and engages with
 # the ones it receives over IMAP; where each email landed is the

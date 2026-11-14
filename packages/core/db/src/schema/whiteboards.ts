@@ -2,7 +2,7 @@ import { pgTable, varchar, timestamp, integer, boolean, index, jsonb } from 'dri
 import { files } from './files';
 
 /**
- * WeldBoard boards (docs/plans/weldboard.md).
+ * WeldBoard boards (weldsuite-documentation/plans/weldboard.md).
  *
  * One row per board, paired 1:1 with a drive `files` row (so the board shows
  * up in WeldDrive, folders, trash, search). The board itself is not here:

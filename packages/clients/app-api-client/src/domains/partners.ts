@@ -8,7 +8,7 @@
  * the `ClientApi` with `getExtraHeaders` (see `usePartnerApi` in the platform)
  * and pass it here. `GET /partner/me` works without it.
  *
- * Plan: docs/plans/reseller-licensing.md. Contract: `../schemas/partners`.
+ * Plan: weldsuite-documentation/plans/reseller-licensing.md. Contract: `../schemas/partners`.
  */
 
 import type { z } from 'zod';

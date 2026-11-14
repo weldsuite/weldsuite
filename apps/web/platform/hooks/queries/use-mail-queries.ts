@@ -144,7 +144,7 @@ export function useMailMessages(
     queryFn: () => mailMessages.list(filters),
     enabled: !!accountId && enabled,
     // Rows carry full bodies (`textBody`/`htmlBody`) — don't let them into the
-    // persisted cache (docs/plans/weldmail-mailbox-storage.md phase 1 item 6).
+    // persisted cache (weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 1 item 6).
     meta: { persist: false },
   });
 }

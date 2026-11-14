@@ -1,7 +1,7 @@
 /**
  * WeldPanel — the contract between panel-api and the platform. Zod v3.
  *
- * Phase 1 (docs/plans/weldpanel.md): projects, their token and settings, and
+ * Phase 1 (weldsuite-documentation/plans/weldpanel.md): projects, their token and settings, and
  * the install check. Reports, recordings and people build on the same module.
  *
  * The enums and the settings shape mirror

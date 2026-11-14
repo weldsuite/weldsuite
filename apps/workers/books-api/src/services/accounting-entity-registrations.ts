@@ -1,7 +1,7 @@
 /**
  * Release 1: the tax identifiers a WeldBooks entity request carries are also
  * the entity's primary registrations in core (`legal_entity_registrations`,
- * docs/plans/legal-entities.md). `entities.tax_identifiers` stays written by
+ * weldsuite-documentation/plans/legal-entities.md). `entities.tax_identifiers` stays written by
  * the caller (the mirror); this keeps the registrations in step.
  *
  *   vatNumber          -> vat (gstin for an Indian entity); a US entity's EIN lives in `ein`

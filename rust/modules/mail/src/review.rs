@@ -1,6 +1,6 @@
 //! The outbound abuse review on the Kubernetes editions
 //! (`packages/domains/mail/src/outbound/review.ts`,
-//! `docs/plans/weldmail-outbound-abuse.md`): the model that classifies a
+//! `weldsuite-documentation/plans/weldmail-outbound-abuse.md`): the model that classifies a
 //! template the ledgers queued, and the queue itself.
 //!
 //! - [`AiTemplateClassifier`]: `classifyOutboundTemplate` on `weldsuite-ai`,

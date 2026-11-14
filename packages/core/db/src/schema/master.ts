@@ -205,7 +205,7 @@ export const workspaces = pgTable('workspaces', {
   compGrantedBy: varchar('comp_granted_by', { length: 255 }),
   compReason: text('comp_reason'),
 
-  // Reseller licensing (docs/plans/reseller-licensing.md). A `partner`
+  // Reseller licensing (weldsuite-documentation/plans/reseller-licensing.md). A `partner`
   // workspace is billed to its partner, never directly: no Stripe customer,
   // no paywall. What it may use comes from `workspace_licences`.
   partnerId: varchar('partner_id', { length: 30 }),

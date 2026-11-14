@@ -1,4 +1,4 @@
-# Logs (docs/plans/eu-observability.md, ADR OPS-021): Loki on the cluster's
+# Logs (weldsuite-documentation/plans/eu-observability.md, ADR OPS-021): Loki on the cluster's
 # logs bucket, Fluent Bit on every node and for the cluster's events. After
 # ../monitoring, whose CRDs the ServiceMonitors and the rule need, and after
 # the secrets layer (loki-s3). The namespace is in ../controllers.

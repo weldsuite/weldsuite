@@ -31,7 +31,7 @@ const REFRESH_WINDOW_MS = 5 * 60_000;
  * posting a Slack message depends on the owner's CRM/task permissions. So
  * there is no per-object permission to check here, only membership: a run
  * must still refuse once the member who owns the workflow is gone, same as
- * every other action (docs/plans/weldconnect.md, "Phase 1 decisions"). Runs
+ * every other action (weldsuite-documentation/plans/weldconnect.md, "Phase 1 decisions"). Runs
  * started before owners were carried have no `ownerUserId` (see
  * `WorkflowTenant`) and are let through unchanged.
  *
@@ -114,7 +114,7 @@ type ResolvedIntegration = Awaited<ReturnType<typeof resolveIntegration>>;
  * only GitHub: its `workflow_integrations` row stores `installationId` in
  * `settings` and has nothing in `credentials`/`oauthTokens` to decrypt at all
  * (see `AppInstallationConfig` in `@weldsuite/workflow-integrations` and
- * "Provider pattern" in docs/plans/weldconnect.md — GitHub reuses WeldFlow's
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md — GitHub reuses WeldFlow's
  * existing GitHub App installation instead of a second OAuth app). Not
  * cached here: `getGithubInstallationToken` already caches per-isolate,
  * keyed by installation id.

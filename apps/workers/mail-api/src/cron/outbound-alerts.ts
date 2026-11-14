@@ -1,5 +1,5 @@
 /**
- * Staff alerts for the outbound guard (docs/plans/weldmail-outbound-abuse.md).
+ * Staff alerts for the outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
  * The ledgers record cases in master `outbound_mail_cases`; this sweep, on the
  * existing 5-minute cron, emails each new one to ABUSE_NOTIFY_EMAIL and stamps

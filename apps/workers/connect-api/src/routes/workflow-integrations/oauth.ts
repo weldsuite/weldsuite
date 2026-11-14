@@ -262,7 +262,7 @@ app.post(
  * independently of WeldConnect — no OAuth redirect here, unlike `/authorize`
  * + `/callback` above. The route is written generically against the auth
  * kind; only GitHub implements the per-provider link today (see
- * "Provider pattern" in docs/plans/weldconnect.md for what a future
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md for what a future
  * `app_installation` provider adds).
  */
 app.post('/:provider/link', requirePermission('integrations:update'), async (c) => {

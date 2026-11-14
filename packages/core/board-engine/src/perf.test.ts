@@ -1,5 +1,5 @@
 /**
- * The engine's performance budgets (docs/plans/weldboard.md, phase 11):
+ * The engine's performance budgets (weldsuite-documentation/plans/weldboard.md, phase 11):
  * a 50,000-element board loads in under 2 s, an op applies in under 1 ms, and
  * at 10,000 elements a viewport's worth of drawing is found and listed well
  * inside a 60 fps frame (16 ms), which is what panning needs.

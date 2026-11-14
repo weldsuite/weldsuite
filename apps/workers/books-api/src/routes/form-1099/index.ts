@@ -1,5 +1,5 @@
 /**
- * 1099 reporting: /api/form-1099 (docs/plans/weldbooks-us.md section 8).
+ * 1099 reporting: /api/form-1099 (weldsuite-documentation/plans/weldbooks-us.md section 8).
  *
  *   GET  /summary?year=                  per-vendor result, summary, warnings
  *   GET  /vendors/:partyId?year=         drill-down to the payments behind a vendor's boxes

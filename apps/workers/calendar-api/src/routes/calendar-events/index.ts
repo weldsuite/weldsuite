@@ -109,7 +109,7 @@ const attendeeSchema = z.object({
 /**
  * Every attendee is mailed an invitation from WeldSuite's own address, so an
  * event carries at most this many (the outbound mail guard counts them too;
- * docs/plans/weldmail-outbound-abuse.md). WeldMeet invitations allow 50.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md). WeldMeet invitations allow 50.
  */
 const MAX_ATTENDEES = 100;
 

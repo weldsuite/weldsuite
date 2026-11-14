@@ -4,7 +4,7 @@
  * Every route is refused (403 APP_ACCESS_REQUIRED) until WeldSuite staff have
  * approved the workspace; the access request itself goes through
  * `createAppAccessApi` (app-api). Mailbox credentials never travel here.
- * See docs/plans/weldreach.md.
+ * See weldsuite-documentation/plans/weldreach.md.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';

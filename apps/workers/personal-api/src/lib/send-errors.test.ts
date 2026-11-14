@@ -4,7 +4,7 @@
  * Every refusal a send can end in has a status, the `{ error: { code, message,
  * details? } }` body the other API workers use, and `Retry-After` where a retry
  * can succeed: guard denials follow `outboundDenialStatus`, Cloudflare's own
- * refusals are 429 / 503 / 502. docs/plans/weldmail-outbound-abuse.md.
+ * refusals are 429 / 503 / 502. weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { Hono } from 'hono';

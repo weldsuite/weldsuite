@@ -1,4 +1,4 @@
-//! The workspace policy resolver (`docs/plans/eu-ai-mistral.md`, "Workspace
+//! The workspace policy resolver (`weldsuite-documentation/plans/eu-ai-mistral.md`, "Workspace
 //! policy"). Pure: settings and configuration in, a [`Route`] out.
 //!
 //! For a call from a feature at a task and tier:

@@ -2,7 +2,7 @@
  * WeldReach engage pages: campaigns (list, sequence editor, enrollments,
  * mailboxes, schedule, stats), prospects (table, lists, imports) and the reply
  * inbox. Shell, setup, mailboxes and access live in `reach.ts`.
- * See docs/plans/weldreach.md.
+ * See weldsuite-documentation/plans/weldreach.md.
  *
  * Strings with `{example}` get a literal template token such as
  * `{{firstName|there}}` passed in, so the double braces never appear here.

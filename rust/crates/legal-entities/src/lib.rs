@@ -1,7 +1,7 @@
 //! Legal entities: the companies of a workspace, owned by the core platform
 //! and shared by WeldBooks and WeldHR. The Rust port of
 //! `@weldsuite/core-domain/legal-entities` (`packages/domains/core/src/legal-entities`);
-//! design in `docs/plans/legal-entities.md`.
+//! design in `weldsuite-documentation/plans/legal-entities.md`.
 //!
 //! | Module | TypeScript | What |
 //! |---|---|---|
