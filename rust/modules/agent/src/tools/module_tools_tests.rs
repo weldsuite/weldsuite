@@ -203,8 +203,52 @@ fn the_catalog_is_the_global_one_without_the_in_sandbox_tools() {
         .iter()
         .map(|t| t["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids.len(), 39, "{ids:?}");
-    assert!(ids.contains(&"browser.open"));
+    // `PLATFORM_TOOLS`' own order: the builder's catalog and the
+    // `toolPermissions` list are compared in conformance as they come.
+    assert_eq!(
+        ids,
+        [
+            "agent.save_setup",
+            "agent.ask_user",
+            "agent.list_routines",
+            "agent.update_routine",
+            "agent.save_skill",
+            "agent.remember",
+            "agent.create_routine",
+            "people.list",
+            "people.get",
+            "people.create",
+            "tickets.list",
+            "tickets.create",
+            "tasks.list",
+            "tasks.create",
+            "projects.list",
+            "projects.get",
+            "sheets.find",
+            "sheets.create",
+            "sheets.list_tabs",
+            "sheets.read_range",
+            "sheets.write_range",
+            "boards.find",
+            "boards.create",
+            "boards.read",
+            "boards.add",
+            "boards.update",
+            "merge.list_issues",
+            "merge.get_issue",
+            "merge.create_issue",
+            "merge.update_issue",
+            "merge.comment_on_issue",
+            "merge.list_pull_requests",
+            "merge.get_pull_request",
+            "merge.open_draft_pull_request",
+            "chat.message_agent",
+            "chat.create_agent_group",
+            "browser.open",
+            "browser.act",
+            "browser.close",
+        ]
+    );
     assert!(!ids.contains(&"sandbox.exec"));
     assert!(!ids.contains(&"web.search"));
     let permissions = super::list_tool_permissions();

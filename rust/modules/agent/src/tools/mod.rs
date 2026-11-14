@@ -128,12 +128,19 @@ pub struct ToolSpec {
     pub parameters: Value,
 }
 
-/// `PLATFORM_TOOLS`: every tool this edition can run, in catalog order.
+/// `PLATFORM_TOOLS`: every tool this edition can run, in catalog order — the
+/// TypeScript array's order (agent, people, tickets, tasks, projects, sheets,
+/// boards, merge, chat, browser), which the builder's catalog and the
+/// `toolPermissions` list follow.
 pub fn platform_tools() -> &'static [ToolSpec] {
     static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         let mut tools = agent_tools::specs();
-        tools.extend(data_tools::specs());
+        let (people, records): (Vec<_>, Vec<_>) = data_tools::specs()
+            .into_iter()
+            .partition(|tool| tool.id.starts_with("people."));
+        tools.extend(people);
         tools.extend(ticket_tools::specs());
+        tools.extend(records);
         tools.extend(sheet_tools::specs());
         tools.extend(board_tools::specs());
         tools.extend(merge_tools::specs());
