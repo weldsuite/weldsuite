@@ -12,17 +12,24 @@
  *   desktop      apps/desktop is affected
  *   packages     any package but the platform is affected: Build · packages
  *   rust         rust/ or another input of the Rust jobs changed (RUST_PATHS,
- *                RUST_PACKAGES): Rust · checks, deploy config.
+ *                RUST_PACKAGES): Rust · checks. Not the files under rust/
+ *                that no Rust build or test reads (RUST_NOT_CODE: the deploy
+ *                configuration, the Dockerfile, docs and Markdown).
  *   image        a file only the image build reads changed (IMAGE_PATHS):
- *                Rust · image and chart. It is the slowest job (40+ minutes
- *                for each architecture on a cache miss), and Rust · checks
+ *                Rust · image and chart. It is the slowest job (20 to 40
+ *                minutes for a release build on a cache miss), and Rust · checks
  *                already compiles and tests the code it packages, so on a PR
  *                it runs only for the Dockerfile, the chart, the kind smoke
  *                test and the toolchain/lockfile, even when a global file
  *                such as pnpm-lock.yaml turns every other area on. Pushes to
- *                develop and main build it every time, which is where a
+ *                main build it every time, which is where a
  *                Docker-only break (the image also bundles the platform SPA
  *                and the sign portal) shows up.
+ *   crossbuild   a file that can break the arm64 cross-build changed
+ *                (CROSSBUILD_PATHS: the Dockerfile, the toolchain, the Cargo
+ *                manifest and lockfile): Rust · image arm64. Decided like
+ *                image, by its own paths alone.
+ *   deploy       rust/deploy/ changed: Rust · deploy config
  *   conformance  rust, api, or a file a conformance suite covers (CONFORMANCE_SUITES):
  *                Rust · conformance (the suites narrow it further)
  *   workers      a file under apps/workers/ changed: Rust · conformance coverage
@@ -47,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'conformance', 'workers'];
+const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'crossbuild', 'deploy', 'conformance', 'workers'];
 
 /** Read by every job: a change here runs everything. */
 const GLOBAL = [
@@ -129,11 +136,25 @@ const RUST_PATHS = [
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
 
 /**
+ * Under rust/, but read by no Rust build or test (no `include_str!`, no test
+ * reads them): the deploy configuration (the "deploy" area, and the image
+ * area for the chart), the image's Dockerfile and helpers (the image area),
+ * the docs. Markdown anywhere under rust/ counts too. These used to run
+ * Rust · checks and every conformance suite.
+ */
+const RUST_NOT_CODE = ['rust/deploy/', 'rust/docs/', 'rust/Dockerfile', 'rust/Dockerfile.dockerignore', 'rust/docker/'];
+const isRustNotCode = (file) => startsWithAny(file, RUST_NOT_CODE) || (file.startsWith('rust/') && file.endsWith('.md'));
+
+/** What Rust · deploy config (rust/deploy/validate.sh) reads: Flux, OpenTofu, the charts. */
+const DEPLOY_PATHS = ['rust/deploy/'];
+
+/**
  * What only Rust · image and chart reads, or what can break it while
  * Rust · checks passes: the Dockerfile and its helpers, the chart and the kind
- * smoke test, the MX image, and the toolchain and Cargo lockfile (the arm64
- * cross-build). Cargo.toml is here for its [profile.release]: the image job
- * runs the only release build in CI. ci.yml is here so a change to the job
+ * smoke test, the MX image, and the toolchain and Cargo manifest and lockfile
+ * (a new dependency may need a system library the build image lacks).
+ * On a PR the job builds the `ci-image` profile; a [profile.release] change
+ * is built by the next push to main. ci.yml is here so a change to the job
  * itself is tested.
  */
 const IMAGE_PATHS = [
@@ -144,6 +165,22 @@ const IMAGE_PATHS = [
   'rust/deploy/kind/',
   'rust/deploy/haraka/',
   'rust/deploy/sandbox/',
+  'rust/rust-toolchain.toml',
+  'rust/Cargo.toml',
+  'rust/Cargo.lock',
+  'rust/.cargo/',
+  '.github/workflows/ci.yml',
+];
+
+/**
+ * What can break the backend's arm64 cross-build (Rust · image arm64, the
+ * Dockerfile's `build` stage for linux/arm64) while the amd64 build passes:
+ * the Dockerfile, the toolchain, and the Cargo manifest, lockfile and config
+ * (a new crate with C code, a linker setting).
+ */
+const CROSSBUILD_PATHS = [
+  'rust/Dockerfile',
+  'rust/Dockerfile.dockerignore',
   'rust/rust-toolchain.toml',
   'rust/Cargo.toml',
   'rust/Cargo.lock',
@@ -294,12 +331,16 @@ function allAreas(reason) {
 }
 
 /**
- * area → the reasons it is on (an empty list means off). The image area is
- * decided by IMAGE_PATHS alone, whatever turned the other areas on.
+ * area → the reasons it is on (an empty list means off). The image and
+ * crossbuild areas are decided by their own paths alone, whatever turned the
+ * other areas on.
  */
 function decide(files) {
   const reasons = decideAreas(files);
   reasons.image = files.filter((f) => startsWithAny(f, IMAGE_PATHS)).map((f) => `${f} is read by the image build`);
+  reasons.crossbuild = files
+    .filter((f) => startsWithAny(f, CROSSBUILD_PATHS))
+    .map((f) => `${f} can break the arm64 cross-build`);
   return reasons;
 }
 
@@ -315,6 +356,9 @@ function decideAreas(files) {
   const changed = new Set();
   for (const file of files) {
     if (INERT_NAMES.has(path.posix.basename(file))) continue;
+    if (startsWithAny(file, DEPLOY_PATHS)) on('deploy', file);
+    // The image's files are decided in decide(), by IMAGE_PATHS.
+    if (isRustNotCode(file)) continue;
     const rust = startsWithAny(file, RUST_PATHS);
     if (rust) on('rust', file);
     else if (isInert(file)) continue;

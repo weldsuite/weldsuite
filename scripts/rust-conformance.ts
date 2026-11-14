@@ -4,8 +4,11 @@
  *
  *   pnpm rust:conformance                 build, run every suite, report
  *   pnpm rust:conformance --no-build      reuse rust/target/debug/weldsuite (or CONFORMANCE_BIN)
- *   pnpm rust:conformance --changed BASE  only suites whose paths (or rust/) changed since BASE
- *   pnpm rust:conformance --shard 2/4     every fourth of the selected suites, from the second (CI)
+ *   pnpm rust:conformance --list          print the suites the other flags select, and stop
+ *                                         (with --changed BASE --head REF: what a branch would run)
+ *   pnpm rust:conformance --changed BASE  only suites whose paths, tests or Rust module changed since
+ *                                         BASE (any other Rust change: every suite; see rustReach)
+ *   pnpm rust:conformance --shard 2/4     the second of four even shares of the selected suites (CI)
  *   pnpm rust:conformance --suite merge   only the suites named (repeatable; a name or a `prefix:` like `connect:`)
  *   pnpm rust:conformance --module board  only the suites of these modules (repeatable)
  *   pnpm rust:conformance --coverage apps/workers/know-api [...]
@@ -89,8 +92,11 @@ const rustUrl = `http://127.0.0.1:${port}`;
 
 const args = process.argv.slice(2);
 const noBuild = args.includes('--no-build');
+const listOnly = args.includes('--list');
 const changedIndex = args.indexOf('--changed');
 const changedBase = changedIndex >= 0 ? args[changedIndex + 1] : undefined;
+/** `--head REF`: compare BASE with REF instead of HEAD (with --list, to see what a branch would run). */
+const changedHead = args.includes('--head') ? args[args.indexOf('--head') + 1] ?? 'HEAD' : 'HEAD';
 const coverageIndex = args.indexOf('--coverage');
 const coverageChangedIndex = args.indexOf('--coverage-changed');
 const shardIndex = args.indexOf('--shard');
@@ -125,7 +131,7 @@ const portedModules = new Set(
 );
 
 function changedFiles(base: string): string[] {
-  const result = spawnSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd: repo, encoding: 'utf8' });
+  const result = spawnSync('git', ['diff', '--name-only', `${base}...${changedHead}`], { cwd: repo, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git diff against ${base} failed: ${result.stderr}`);
   return result.stdout.split('\n').filter(Boolean);
 }
@@ -136,10 +142,131 @@ function selectSuites(): Suite[] {
   if (!changedBase) return named;
   const changed = changedFiles(changedBase);
   const touches = (prefix: string) => changed.some((file) => file.startsWith(prefix));
-  if (touches('rust/') || touches('packages/core/worker-kit/') || touches('scripts/rust-conformance.ts')) return named;
+  if (touches('packages/core/worker-kit/') || touches('scripts/rust-conformance.ts')) return named;
+  const reached = rustReach(changed);
+  if (reached === 'all') return named;
   return named.filter(
-    (suite) => suite.paths.some(touches) || suite.tests.some((t) => touches(`${suite.workspace}/${t}`)),
+    (suite) =>
+      reached.has(suite.module) || suite.paths.some(touches) || suite.tests.some((t) => touches(`${suite.workspace}/${t}`)),
   );
+}
+
+/**
+ * Under rust/, but read by no build of the server: the deploy configuration,
+ * the image's Dockerfile, the docs, the lint and format settings. Markdown
+ * anywhere under rust/ counts too. (.github/scripts/ci-changes.mjs keeps the
+ * same list as RUST_NOT_CODE, less the lint settings Rust · checks reads.)
+ */
+const RUST_NOT_SERVER = [
+  'rust/deploy/',
+  'rust/docs/',
+  'rust/Dockerfile',
+  'rust/docker/',
+  'rust/clippy.toml',
+  'rust/rustfmt.toml',
+  'rust/deny.toml',
+];
+
+/** The module crate a suite-less name serves under: `mcp` serves mcp-server. */
+const CRATE_SUITE_MODULE: Record<string, string> = { mcp: 'mcp-server' };
+
+/**
+ * The suite module a crate in rust/modules serves: its own name, else the
+ * longest suite module it is named after (`books-sales` → books, `core-team`
+ * → core, `desk-widget` → desk). Undefined for a crate no suite covers (a
+ * Rust-only module has nothing to compare with).
+ */
+function suiteModuleOf(crate: string, modules: Set<string>): string | undefined {
+  const mapped = CRATE_SUITE_MODULE[crate];
+  if (mapped) return mapped;
+  if (modules.has(crate)) return crate;
+  return [...modules].filter((m) => crate.startsWith(`${m}-`)).sort((a, b) => b.length - a.length)[0];
+}
+
+/** Module crate → the module crates whose [dependencies] name it. */
+function moduleCrateDependents(): Map<string, Set<string>> {
+  const modulesDir = path.join(rustDir, 'modules');
+  const crates = readdirSync(modulesDir).filter((dir) => existsSync(path.join(modulesDir, dir, 'Cargo.toml')));
+  const dependents = new Map<string, Set<string>>();
+  for (const crate of crates) {
+    let section = '';
+    for (const line of readFileSync(path.join(modulesDir, crate, 'Cargo.toml'), 'utf8').split('\n')) {
+      const header = /^\s*\[([^\]]+)\]/.exec(line);
+      if (header) {
+        section = header[1]!;
+        continue;
+      }
+      if (!/(^|\.)(build-)?dependencies$/.test(section)) continue;
+      const dep = /^\s*weldsuite-([a-z0-9-]+)\s*=/.exec(line)?.[1];
+      if (dep && dep !== crate && crates.includes(dep)) {
+        if (!dependents.has(dep)) dependents.set(dep, new Set());
+        dependents.get(dep)!.add(crate);
+      }
+    }
+  }
+  return dependents;
+}
+
+/**
+ * The suite modules the change's Rust files reach. Rust-first work mostly
+ * changes one module crate, and running all 159 suites for it took every
+ * shard 20 minutes. A file in rust/modules/<crate>/ reaches the suites of the
+ * module that crate serves and of the module crates that depend on it; any
+ * other Rust file (the shared crates, which the binary also links directly,
+ * the binary, the catalogs, the Cargo files, conformance/) reaches them all.
+ * Files no build of the server reads reach none. Pushes to main run every
+ * suite whatever changed.
+ */
+function rustReach(changed: string[]): Set<string> | 'all' {
+  const crates = new Set<string>();
+  for (const file of changed) {
+    if (!file.startsWith('rust/') || file.endsWith('.md') || RUST_NOT_SERVER.some((p) => file.startsWith(p))) continue;
+    const crate = /^rust\/modules\/([^/]+)\//.exec(file)?.[1];
+    if (!crate) return 'all';
+    crates.add(crate);
+  }
+  if (crates.size === 0) return new Set();
+  const dependents = moduleCrateDependents();
+  const queue = [...crates];
+  while (queue.length > 0) {
+    for (const dependent of dependents.get(queue.pop()!) ?? []) {
+      if (crates.has(dependent)) continue;
+      crates.add(dependent);
+      queue.push(dependent);
+    }
+  }
+  const modules = new Set(suites.map((suite) => suite.module));
+  const reached = new Set([...crates].flatMap((crate) => suiteModuleOf(crate, modules) ?? []));
+  console.log(
+    `Rust module crates reached: ${[...crates].sort().join(', ')}; their suites' modules: ${[...reached].sort().join(', ') || 'none'}`,
+  );
+  return reached;
+}
+
+/** Seconds a suite takes on CI: per suite, and per test file (fitted on main, November 2026, R² 0.88). */
+const SUITE_SECONDS = 2;
+const FILE_SECONDS = 8.4;
+
+/**
+ * `--shard i/n`: the suites dealt to shard i. Biggest first, each to the
+ * shard with the least work so far, weighed by test files, so the shards
+ * finish together (dealt round-robin by count, one shard drew 114 test files
+ * and another 50: 18 minutes against 7). Every shard computes the same deal.
+ */
+function dealt(selected: Suite[]): Suite[] {
+  if (!shard) return selected;
+  const load: number[] = Array.from({ length: shard.count }, () => 0);
+  const mine = new Set<Suite>();
+  const biggestFirst = selected
+    .map((suite, index) => ({ suite, index }))
+    .sort((a, b) => b.suite.tests.length - a.suite.tests.length || a.index - b.index);
+  for (const { suite } of biggestFirst) {
+    let least = 0;
+    for (let i = 1; i < shard.count; i++) if (load[i]! < load[least]!) least = i;
+    load[least] = load[least]! + SUITE_SECONDS + FILE_SECONDS * suite.tests.length;
+    if (least === shard.index - 1) mine.add(suite);
+  }
+  return selected.filter((suite) => mine.has(suite));
 }
 
 function run(command: string, commandArgs: string[], cwd: string, env: NodeJS.ProcessEnv = {}): number {
@@ -451,8 +578,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Dealt round-robin, so a shard gets a mix of long and short suites.
-  const selected = selectSuites().filter((_, i) => !shard || i % shard.count === shard.index - 1);
+  const selected = dealt(selectSuites());
+  if (listOnly) {
+    for (const suite of selected) console.log(`${suite.name} (${suite.tests.length} test files)`);
+    const files = selected.reduce((sum, suite) => sum + suite.tests.length, 0);
+    console.log(`${selected.length} suites, ${files} test files, about ${Math.round((files * FILE_SECONDS + selected.length * SUITE_SECONDS) / 60)} minutes`);
+    return;
+  }
   if (selected.length === 0) {
     console.log('No conformance suite is affected by this change.');
     mkdirSync(reportDir, { recursive: true });
