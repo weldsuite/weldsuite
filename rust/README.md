@@ -21,14 +21,22 @@ envelope) with entity events, realtime and cache behind ports;
 scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-eight
 modules, each with conformance suites that reach every route:
 
-- **core**: everything app-api serves except `/api/billing` (Stripe stays
-  Global-only), `/api/partner` and `/public/partner-territories` (the partner
+- **core**: everything app-api serves except `/api/partner` and
+  `/public/partner-territories` (the partner
   portal) and `/api/internal` (staff); signup and provisioning on Zitadel and
   CloudNativePG (`/api/onboarding`, `workspace.provision`); buying credits
   through Mollie instead of Stripe (`POST /api/credits/checkout`, Mollie's
   webhook at `/api/webhooks/mollie`, `modules/core-platform/src/topup`); the
   workspace AI settings at `/api/ai-settings` (Rust only, mounted when the
-  install has AI: `modules/core-platform/src/groups/ai_settings.rs`, see "AI")
+  install has AI: `modules/core-platform/src/groups/ai_settings.rs`, see "AI");
+  plan billing on Mollie (ADR BILL-014) where `BILLING_PROVIDER=mollie`:
+  app-api's `/api/billing` with its shapes (`modules/core-billing`; Global's
+  is Stripe, so these routes have no conformance twin and are tested against
+  a recorded Mollie, `tests/billing_db.rs`), the pay links at
+  `/public/billing/pay/:token`, one Mollie webhook for plans and credit
+  top-ups (`bins/weldsuite/src/billing.rs`), invoices issued by WeldBooks in
+  WeldSuite's own workspace, and `weldsuite cron billing-renewals`, our own
+  scheduler for the mandates (see "Plan billing")
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
   **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
@@ -442,7 +450,8 @@ worker's endpoint tests against both.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
-the platform hides them: SSO connections, billing, credit top-up (without
+the platform hides them: SSO connections, billing (without
+`BILLING_PROVIDER=mollie`), WeldReach inbox billing, credit top-up (without
 Mollie), paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
@@ -733,6 +742,13 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   workspace's database and emails the requester; rejecting emails the
   reason (`SMTP_URL`, with `PLATFORM_URL` for the links). What can't be done
   is printed as a warning.
+- **`billing`**: plan billing on Mollie (ADR BILL-014, "Plan billing"):
+  `show` (plan, seats, period, the Mollie account, the latest charges and
+  invoices), `comp` and `uncomp` (BILL-011's complimentary plan, with
+  `--plan`, `--seats`, `--until`), `refund <bpy_…|tr_…> [--amount <cents>]`
+  through Mollie (the credit note is made in WeldBooks, in the issuer
+  workspace) and `retry-now` (charge a past-due workspace's open charge
+  again). `bins/weldsuite/src/admin_billing.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
@@ -1130,6 +1146,74 @@ the install's own cluster: `crates/sandbox` (`weldsuite-sandbox`), the image
   `SANDBOX_REQUIRE_ISOLATION`, the secret `SANDBOX_TOKEN_SECRET`, and
   `SEARXNG_URL` (chart `searxng`). Without `SANDBOX_ENABLED` the grants aren't
   offered and `/config.json` lists `agent-sandbox` as unavailable.
+
+## Plan billing
+
+The EU edition sells plans and seats through Mollie (ADR BILL-014; Global
+keeps Stripe). `BILLING_PROVIDER=mollie` turns it on: `/config.json` then
+offers `billing` and says `billingProvider: "mollie"`, which switches the
+platform to Mollie's flows (payment methods by hosted checkout, the
+checkout return page, billing details before checkout). A self-hosted
+install leaves it off: its seats and modules come from its licence.
+
+- **The record is master.** Plan, seats, cycle, period and status stay on
+  `workspaces`; `billing_accounts` holds the Mollie customer, the default
+  mandate, the seat price the period was bought at, the monthly anchor and
+  what waits for the period end. `billing_payments` (provider `mollie`) has
+  one row per intended charge, written before Mollie is called and keyed so
+  a retry never charges twice; its id is Mollie's idempotency key.
+- **Prices** are the master `plans` rows in EUR, excluding VAT:
+  `price_monthly` per seat per month, `price_yearly` per seat per year (0:
+  twelve months). A paid plan priced at 0 is on request. Paid plans should
+  have `included_users = 0`: a workspace billed through Mollie may have
+  exactly the seats it bought (`weldsuite-core-team`'s seat limit), within
+  `max_users`.
+- **Checkout** (`POST /api/billing/checkout`) needs the billing details
+  (Settings → Business: name, address, country; 400
+  `BILLING_DETAILS_REQUIRED` otherwise) and is a first payment on Mollie's
+  hosted checkout; paying starts the period, stores the mandate, grants the
+  plan's monthly credits and writes the seat cap.
+- **Changes**: more seats or a dearer plan are charged now, prorated by day
+  (today included), on the mandate (or a hosted checkout when it can't be
+  charged); fewer seats, a cheaper plan and another cycle wait for the
+  period end; cancelling ends the plan then. Nothing is refunded for part of
+  a period.
+- **VAT** per customer, from the issuer's country (`BILLING_SELLER_COUNTRY`,
+  NL): the domestic rate; 0% reverse charge for an EU business whose VAT
+  number VIES accepts (a VIES outage keeps a number with the right prefix);
+  the customer country's rate through OSS for other EU customers; none
+  outside the EU. Rates: `modules/core-billing/src/vat.rs`.
+- **Invoices** are WeldBooks invoices in WeldSuite's own workspace
+  (`BILLING_ISSUER_WORKSPACE_ID`, entity `BILLING_ISSUER_ENTITY_ID` or its
+  first), issued as the system user once a payment is paid (never before,
+  so an abandoned checkout leaves nothing to credit), with the payment
+  recorded and the printable invoice copied into the files bucket
+  (`/api/billing/invoices/:id/document`). The issuer needs the entity set
+  up (address, VAT number, invoice numbering); an invoice it can't issue is
+  retried by the renewal job and never skipped.
+- **`weldsuite cron billing-renewals`** (hourly, chart
+  `cron.jobs.billing-renewals`): charges every anchor that came (the plan
+  when its period ends, after the change scheduled for then; the monthly
+  plan credits on every anchor, yearly plans included), ends comps
+  (BILL-011) and past-due plans, sends the reminders, and issues invoices
+  still owed.
+- **Past due**: a charge that fails makes the plan `past_due` and emails the
+  billing owners (the billing email and the organization admins) a signed
+  pay link (`BILLING_PAY_LINK_KEY`, `/public/billing/pay/:token`); halfway
+  through the grace period (`BILLING_GRACE_DAYS`, 14) a reminder, then the
+  plan ends on Free (`applySubscriptionEnded`). Saving a new payment method
+  charges the open amount again at once.
+- **Staff**: `weldsuite admin billing show|comp|uncomp|refund|retry-now`
+  (see "Staff work").
+
+Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
+`MOLLIE_WEBHOOK_URL`, `MOLLIE_API_URL`), `BILLING_ISSUER_WORKSPACE_ID`,
+`BILLING_ISSUER_ENTITY_ID`, `BILLING_PAY_LINK_KEY`, `BILLING_SELLER_COUNTRY`,
+`BILLING_GRACE_DAYS`, `BILLING_RETURN_URL`, and `PUBLIC_URL` for the links.
+`BILLING_PROVIDER=mollie` with one missing stops the start. Chart:
+`config.billing` and `cron.jobs.billing-renewals`. Not yet on Mollie:
+WeldReach inboxes (still provisioned unbilled, `reach-billing`), invoices
+for credit top-ups, domains, phone numbers, paid apps and the SSO add-on.
 
 ## Inbound mail
 
