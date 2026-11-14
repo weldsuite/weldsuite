@@ -44,6 +44,7 @@ mod seats;
 pub mod settings;
 pub mod settle;
 mod store;
+pub mod top_up;
 pub mod vat;
 mod workspace;
 
@@ -62,6 +63,7 @@ pub use lines::{Charge, Line, LineKind};
 pub use notify::{BillingMail, BillingMailKind, BillingMailer};
 pub use settings::{BillingSettings, WEBHOOK_PATH};
 pub use settle::{Settled, settle_payment};
+pub use top_up::{QuotedTopUp, TopUpRequest, quote_top_up};
 pub use vat::{Treatment, VatDecision};
 
 /// The language a customer's invoices and emails are in.

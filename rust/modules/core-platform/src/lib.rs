@@ -47,7 +47,7 @@ use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, Identity};
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
 pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
 pub use groups::sso::{DnsGateway, DnsTransport};
-pub use topup::{TopUp, TopUpSettings, top_up_configured};
+pub use topup::{TopUp, TopUpBilling, TopUpPrice, TopUpQuote, TopUpSettings, top_up_configured};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]

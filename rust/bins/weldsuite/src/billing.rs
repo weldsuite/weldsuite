@@ -18,13 +18,15 @@ use http::StatusCode;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_core_billing::{
-    BillingMail, BillingMailKind, BillingMailer, BillingSettings, BillingState, InvoiceIssuer,
-    IssueRequest, IssuedInvoice, Language, LineKind, Treatment, WEBHOOK_PATH,
+    BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings, BillingState,
+    InvoiceIssuer, IssueRequest, IssuedInvoice, Language, LineKind, TopUpRequest, Treatment,
+    WEBHOOK_PATH,
 };
+use weldsuite_core_platform::{TopUpBilling, TopUpPrice, TopUpQuote};
 use weldsuite_db::{Keyring, PgPool, Workspaces};
 use weldsuite_emails::billing::{Dunning, DunningKind, dunning};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
-use weldsuite_kit::generate_id;
+use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_ports::{BoxFuture, DynSystemMail, OutboundHttp};
 
 use crate::server::AppState;
@@ -156,10 +158,19 @@ async fn mollie_webhook(State(hook): State<Hook>, body: Bytes) -> Response {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let result = if kind == "credit_topup" && hook.top_up {
-        weldsuite_core_platform::topup::settle(&hook.billing.master, &payment)
+        // The wallet first (the credits), then the charge plan billing priced
+        // it with (the invoice); a top-up from before plan billing has none.
+        match weldsuite_core_platform::topup::settle(&hook.billing.master, &payment).await {
+            Ok(granted) => weldsuite_core_billing::settle_payment(
+                &hook.billing,
+                &payment,
+                OffsetDateTime::now_utc(),
+            )
             .await
-            .map(|settled| format!("{settled:?}"))
-            .map_err(|error| error.to_string())
+            .map(|charged| format!("{granted:?}; {charged:?}"))
+            .map_err(|error| format!("{error:?}")),
+            Err(error) => Err(error.to_string()),
+        }
     } else {
         weldsuite_core_billing::settle_payment(&hook.billing, &payment, OffsetDateTime::now_utc())
             .await
@@ -175,6 +186,77 @@ async fn mollie_webhook(State(hook): State<Hook>, body: Bytes) -> Response {
             tracing::error!(error, payment = %id, "mollie: not settled, Mollie retries");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
+    }
+}
+
+// ── credit top-ups ──────────────────────────────────────────────────────────
+
+/// Plan billing's part in BILL-013's credit top-up: the package's price is
+/// before VAT, so the payment is priced with the VAT on top against a charge,
+/// and a paid top-up is invoiced from that charge.
+pub(crate) fn top_up_billing(billing: BillingState) -> Arc<dyn TopUpBilling> {
+    Arc::new(TopUpInvoicing { billing })
+}
+
+struct TopUpInvoicing {
+    billing: BillingState,
+}
+
+impl TopUpBilling for TopUpInvoicing {
+    fn quote<'a>(&'a self, request: TopUpQuote<'a>) -> BoxFuture<'a, Result<TopUpPrice, ApiError>> {
+        Box::pin(async move {
+            let quoted = weldsuite_core_billing::quote_top_up(
+                &self.billing,
+                &TopUpRequest {
+                    checkout_id: request.checkout_id,
+                    workspace_id: request.workspace_id,
+                    user_id: request.user_id,
+                    package_id: request.package_id,
+                    package_name: request.package_name,
+                    credits: request.credits,
+                    net: request.net.cents,
+                    currency: &request.net.currency,
+                },
+            )
+            .await
+            .map_err(api_error)?;
+            Ok(TopUpPrice {
+                gross: weldsuite_mollie::Money::from_cents(&request.net.currency, quoted.gross),
+                charge_id: quoted.charge_id,
+            })
+        })
+    }
+
+    fn settle<'a>(
+        &'a self,
+        payment: &'a weldsuite_mollie::Payment,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            weldsuite_core_billing::settle_payment(
+                &self.billing,
+                payment,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| format!("{error:?}"))
+        })
+    }
+}
+
+/// A billing refusal as the top-up route answers it.
+fn api_error(error: BillingError) -> ApiError {
+    match error {
+        BillingError::Api(error) => error,
+        BillingError::Internal(message, cause) => {
+            tracing::error!(cause, "billing: {message}");
+            ApiError::internal().with_message(message)
+        }
+        BillingError::Database(error) => {
+            tracing::error!(%error, "billing: database error pricing a top-up");
+            ApiError::internal()
+        }
+        BillingError::Response(_) => ApiError::internal(),
     }
 }
 

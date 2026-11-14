@@ -456,6 +456,8 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         customer: Some(details.clone()),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
     };
     // The charge row commits with the period it pays for: if Mollie can't
     // be reached, or this run stops before the call, `resend_unsent` sends it.
@@ -621,6 +623,8 @@ pub async fn retry_open_charge(
         settles: Some(open.id.clone()),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
         ..open_meta.clone()
     };
     let row = ChargeRow::create(

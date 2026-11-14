@@ -2279,7 +2279,8 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
 
 /// Buying credits through Mollie (`MOLLIE_API_KEY`; the `credit-top-up`
 /// edition feature, ADR OPS-012), made once per process: Mollie over the
-/// shared client, pending checkouts in Valkey (or this process without it).
+/// shared client, pending checkouts in Valkey (or this process without it),
+/// VAT on top and a WeldBooks invoice when plan billing is on.
 /// `None` without the key, and in conformance builds, whose tests are
 /// Global's (Stripe through billing-worker).
 fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>> {
@@ -2292,11 +2293,21 @@ fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>
             match weldsuite_core_platform::TopUpSettings::from_lookup(&|name| {
                 std::env::var(name).ok()
             }) {
-                Ok(Some(settings)) => Some(Arc::new(weldsuite_core_platform::TopUp::new(
-                    &settings,
-                    shared_outbound(),
-                    Some(upload_token_cache(state)),
-                ))),
+                Ok(Some(settings)) => {
+                    let top_up = weldsuite_core_platform::TopUp::new(
+                        &settings,
+                        shared_outbound(),
+                        Some(upload_token_cache(state)),
+                    );
+                    // With plan billing on Mollie (ADR BILL-014) a package's
+                    // price is before VAT and a paid top-up is invoiced.
+                    Some(Arc::new(match crate::billing::billing_state(state) {
+                        Some(billing) => {
+                            top_up.with_billing(crate::billing::top_up_billing(billing))
+                        }
+                        None => top_up,
+                    }))
+                }
                 Ok(None) => None,
                 // `serve` refuses to start on it (`crate::edition`).
                 Err(problem) => {

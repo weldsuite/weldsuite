@@ -65,6 +65,7 @@ const en = {
       renewal: 'Renewal',
       pay_link: 'Payment link',
       mandate: 'Mandate check',
+      credits: 'Credit top-up',
     },
   },
 };
@@ -126,6 +127,7 @@ const nl: MollieBillingCopy = {
       renewal: 'Verlenging',
       pay_link: 'Betaallink',
       mandate: 'Mandaatcontrole',
+      credits: 'Credits bijkopen',
     },
   },
 };

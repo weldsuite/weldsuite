@@ -2,8 +2,8 @@
 //! `WELDSUITE_TEST_TENANT_URL`, built by `scripts/rust-test-db.ts`; skipped
 //! without them), against a recorded Mollie and an issuer that only counts:
 //! a checkout, its first payment, renewals on the anchor, a prorated seat
-//! upgrade, a scheduled decrease, a failed renewal, past due, and the end of
-//! the grace period on Free.
+//! upgrade, a scheduled decrease, a failed renewal, past due, the end of
+//! the grace period on Free, and a credit top-up priced with VAT on top.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -16,8 +16,8 @@ use weldsuite_core_billing::engine::{self, Actor, CheckoutAnswer, CheckoutInput}
 use weldsuite_core_billing::period::Cycle;
 use weldsuite_core_billing::renewals::run_renewals;
 use weldsuite_core_billing::{
-    BillingSettings, BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice, Settled,
-    settle_payment,
+    BillingError, BillingSettings, BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice,
+    LineKind, Settled, TopUpRequest, quote_top_up, settle_payment,
 };
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -456,6 +456,84 @@ async fn a_subscription_from_checkout_to_free() {
         .expect("free");
     assert_eq!(ws["plan"], free);
     assert!(account(&master).await["next_charge_at"].is_null());
+
+    // 8. A credit top-up: its €10 price is before VAT, so €12.10 is charged,
+    // and once paid it is invoiced like a plan charge (no plan needed).
+    let top_up = TopUpRequest {
+        checkout_id: "ctp_billingdb1",
+        workspace_id: WS,
+        user_id: "user_billingdb",
+        package_id: "pkg_billingdb",
+        package_name: "Starter",
+        credits: 1000,
+        net: 1000,
+        currency: "EUR",
+    };
+    let quoted = quote_top_up(&state, &top_up).await.expect("quote");
+    assert_eq!(quoted.gross, 1210, "€10 + 21%");
+    // The same checkout prices the same charge.
+    assert_eq!(quote_top_up(&state, &top_up).await.expect("again"), quoted);
+    let invoiced_before = issuer.issued.lock().expect("lock").len();
+    // The top-up (weldsuite-core-platform) creates the payment: as it would.
+    mollie.payments.lock().expect("lock").insert(
+        "tr_billingdbtopup".to_owned(),
+        json!({
+            "id": "tr_billingdbtopup",
+            "status": "open",
+            "amount": { "currency": "EUR", "value": "12.10" },
+            "sequenceType": "oneoff",
+            "metadata": {
+                "kind": "credit_topup",
+                "checkoutId": "ctp_billingdb1",
+                "workspaceId": WS,
+                "packageId": "pkg_billingdb",
+                "credits": 1000,
+                "billingChargeId": quoted.charge_id,
+            },
+        }),
+    );
+    let t5 = datetime!(2027-02-01 09:00:00 UTC);
+    assert_eq!(
+        pay(&state, &mollie, "tr_billingdbtopup", t5).await,
+        Settled::CreditsBought
+    );
+    assert!(matches!(
+        pay(&state, &mollie, "tr_billingdbtopup", t5).await,
+        Settled::Recorded(_)
+    ));
+    let requests = issuer.issued.lock().expect("lock").clone();
+    assert_eq!(requests.len(), invoiced_before + 1, "one invoice");
+    let invoice = requests.last().expect("invoice");
+    assert_eq!(invoice.charge.gross, 1210);
+    assert_eq!(invoice.charge.lines[0].kind, LineKind::Credits);
+    assert_eq!(invoice.charge.lines[0].description, "Starter: 1000 credits");
+    let (status, kind): (String, String) = sqlx::query_as(
+        "select status, kind from billing_payments where id = $1 and invoice_id is not null",
+    )
+    .bind(&quoted.charge_id)
+    .fetch_one(&master)
+    .await
+    .expect("charge");
+    assert_eq!((status.as_str(), kind.as_str()), ("succeeded", "credits"));
+    // A top-up never touches the plan.
+    assert_eq!(workspace(&master).await["plan"], free);
+
+    // Without billing details there is no VAT to decide: refused, as a plan is.
+    exec(
+        &tenant,
+        "update workspace_settings set country = null where id = 'wss_billingdb1'",
+        &[],
+    )
+    .await;
+    let refused = quote_top_up(
+        &state,
+        &TopUpRequest {
+            checkout_id: "ctp_billingdb2",
+            ..top_up
+        },
+    )
+    .await;
+    assert!(matches!(refused, Err(BillingError::Api(_))), "{refused:?}");
 
     reset(&master, &tenant).await;
 }

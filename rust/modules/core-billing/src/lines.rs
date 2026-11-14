@@ -16,6 +16,8 @@ pub enum LineKind {
     Proration,
     /// A monthly add-on (WeldReach inboxes).
     Addon,
+    /// A credit package, priced before VAT.
+    Credits,
 }
 
 /// One line, in cents, before VAT.

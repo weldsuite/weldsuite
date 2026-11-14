@@ -1211,9 +1211,13 @@ Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
 `BILLING_ISSUER_ENTITY_ID`, `BILLING_PAY_LINK_KEY`, `BILLING_SELLER_COUNTRY`,
 `BILLING_GRACE_DAYS`, `BILLING_RETURN_URL`, and `PUBLIC_URL` for the links.
 `BILLING_PROVIDER=mollie` with one missing stops the start. Chart:
-`config.billing` and `cron.jobs.billing-renewals`. Not yet on Mollie:
-WeldReach inboxes (still provisioned unbilled, `reach-billing`), invoices
-for credit top-ups, domains, phone numbers, paid apps and the SSO add-on.
+`config.billing` and `cron.jobs.billing-renewals`. Credit top-ups join plan
+billing: a package's price is before VAT, so `POST /api/credits/checkout`
+needs the billing details, charges the price plus VAT against a `credits`
+charge (`modules/core-billing/src/top_up.rs`, handed to the top-up as its
+`TopUpBilling`), and a paid top-up is invoiced like a plan charge. Not yet
+on Mollie: WeldReach inboxes (still provisioned unbilled, `reach-billing`),
+domains, phone numbers, paid apps and the SSO add-on.
 
 ## Inbound mail
 

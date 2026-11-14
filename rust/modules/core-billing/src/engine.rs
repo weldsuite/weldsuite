@@ -366,6 +366,8 @@ pub async fn checkout(
         customer: Some(details.clone()),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
     };
     let row = ChargeRow::create(
         master,
@@ -507,6 +509,8 @@ pub(crate) async fn change(
         customer: Some(details.clone()),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
     };
     if prorated <= 0 {
         let mut tx = master.begin().await?;
@@ -891,6 +895,8 @@ pub async fn mandate_checkout(
         customer: details.clone(),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
     };
     let row = ChargeRow::create(
         master,
@@ -974,6 +980,8 @@ pub async fn outstanding_checkout(
         settles: Some(open.id.clone()),
         applied: None,
         charged_back: None,
+        credits: None,
+        package_id: None,
         ..open_meta.clone()
     };
     let row = ChargeRow::create(

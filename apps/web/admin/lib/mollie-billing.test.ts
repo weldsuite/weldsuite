@@ -36,7 +36,7 @@ describe('Mollie billing copy', () => {
   });
 
   it('labels every charge kind the Rust billing writes', () => {
-    for (const kind of ['checkout', 'change', 'renewal', 'pay_link', 'mandate']) {
+    for (const kind of ['checkout', 'change', 'renewal', 'pay_link', 'mandate', 'credits']) {
       expect(paymentKindLabel(en, kind), kind).not.toBe(kind);
     }
   });

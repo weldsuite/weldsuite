@@ -1,10 +1,12 @@
 //! Applying what Mollie says about a billing payment, once (ADR BILL-014,
 //! "The webhook"). Called by `POST /api/webhooks/mollie` (shared with the
-//! credit top-up, which handles `kind: credit_topup`), by the return page
-//! (`GET /api/billing/checkout/:id`) and by the renewal job, always with a
-//! payment the server read back from Mollie.
+//! credit top-up, which grants a `kind: credit_topup` payment's credits
+//! before its charge row is settled here), by the return pages
+//! (`GET /api/billing/checkout/:id`, `GET /api/credits/checkout/:id`) and by
+//! the renewal job, always with a payment the server read back from Mollie.
 //!
-//! The payment's metadata names its charge row (`paymentRowId`). Nothing is
+//! The payment's metadata names its charge row (`paymentRowId`; a top-up's
+//! `billingChargeId`, [`crate::top_up`]). Nothing is
 //! applied unless the row is a Mollie charge of the same workspace, sent as
 //! this payment, for the same amount. Every effect is keyed on the row's
 //! state under a row lock, so a second delivery, or the return page settling
@@ -36,6 +38,8 @@ pub enum Settled {
     PastDuePaid,
     /// A new payment method was saved.
     MandateSaved,
+    /// A credit top-up was paid (its credits are the top-up's to grant).
+    CreditsBought,
     /// A second checkout was paid while a subscription already ran (two
     /// tabs, a double submit): not applied, refunded in full.
     DuplicateCheckout,
@@ -59,10 +63,19 @@ pub async fn settle_payment(
     payment: &Payment,
     now: OffsetDateTime,
 ) -> BillingResult<Settled> {
-    if text(payment.metadata.get("kind")) != Some("billing") {
-        return Ok(Settled::Ignored("not a billing payment"));
-    }
-    let Some(row_id) = text(payment.metadata.get("paymentRowId")) else {
+    // A plan charge names its row as `paymentRowId`; a credit top-up priced
+    // by plan billing ([`crate::top_up`]) as `billingChargeId`.
+    let top_up = match text(payment.metadata.get("kind")) {
+        Some("billing") => false,
+        Some("credit_topup") => true,
+        _ => return Ok(Settled::Ignored("not a billing payment")),
+    };
+    let row_field = if top_up {
+        "billingChargeId"
+    } else {
+        "paymentRowId"
+    };
+    let Some(row_id) = text(payment.metadata.get(row_field)) else {
         return Ok(Settled::Ignored("no charge row in the metadata"));
     };
     let master = &state.master;
@@ -90,6 +103,10 @@ pub async fn settle_payment(
     let Some(meta) = row.meta() else {
         return Ok(Settled::Ignored("the row has no metadata"));
     };
+    if top_up != (meta.purpose == Purpose::Credits) {
+        tracing::warn!(payment = %payment.id, row = %row.id, "billing: a top-up and a plan charge crossed");
+        return Ok(Settled::Ignored("purpose mismatch"));
+    }
     // A duplicate checkout is settled for good: refunded, never applied.
     // Mollie calls again (when the refund goes through, say); that changes
     // nothing, and asks for no second refund.
@@ -187,7 +204,11 @@ pub async fn settle_payment(
 
     match &settled {
         Settled::PastDue => notify_failed(state, &row.workspace_id, &row.id, now).await,
-        Settled::Activated | Settled::Changed | Settled::Renewed | Settled::PastDuePaid
+        Settled::Activated
+        | Settled::Changed
+        | Settled::Renewed
+        | Settled::PastDuePaid
+        | Settled::CreditsBought
             if meta.charge.gross > 0 =>
         {
             if let Some(row) = ChargeRow::load(master, &row.id).await? {
@@ -390,6 +411,8 @@ async fn paid(
             save_mandate(tx, workspace_id, payment).await?;
             Ok(Settled::MandateSaved)
         }
+        // A one-off payment: no mandate, no plan, no past due to clear.
+        Purpose::Credits => Ok(Settled::CreditsBought),
     }
 }
 
@@ -671,7 +694,7 @@ async fn try_issue_invoice(state: &BillingState, row: &ChargeRow) -> BillingResu
         Purpose::Checkout => "subscription_create",
         Purpose::Renewal => "subscription_cycle",
         Purpose::Change => "subscription_update",
-        Purpose::PayLink => "manual",
+        Purpose::PayLink | Purpose::Credits => "manual",
         Purpose::Mandate => "setup",
     };
     mirror_invoice(

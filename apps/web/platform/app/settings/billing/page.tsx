@@ -1,5 +1,5 @@
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import {
   ColumnDef,
   flexRender,
@@ -50,7 +50,8 @@ import {
 } from './billing-details';
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
-import { isFeatureAvailable } from '@/lib/edition';
+import { billingProvider, isFeatureAvailable } from '@/lib/edition';
+import { apiErrorCode } from '@/lib/partner/api-errors';
 import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
 import { useCreditCheckoutReturn, type BillingCheckoutReturnStrings } from './credit-checkout-return';
 import { MollieBillingNotices } from '@/components/billing/mollie-billing-notices';
@@ -435,6 +436,10 @@ function DirectBillingSettings() {
     router.push('/settings/plans');
   };
 
+  // With plan billing on Mollie a top-up is invoiced with VAT, so it is refused
+  // (400 BILLING_DETAILS_REQUIRED) until the billing details are complete:
+  // the dialog opens, and the purchase continues once it saves.
+  const pendingCreditPackage = useRef<string | null>(null);
   const handleBuyCredits = async (packageId: string) => {
     try {
       const { url } = await buyCreditsMutation.mutateAsync(packageId);
@@ -443,7 +448,14 @@ function DirectBillingSettings() {
       } else {
         toast.error(ts.creditsWallet.purchaseFailed);
       }
-    } catch {
+    } catch (err) {
+      if (apiErrorCode(err) === 'BILLING_DETAILS_REQUIRED') {
+        pendingCreditPackage.current = packageId;
+        setBuyCreditsOpen(false);
+        toast.info(ts.mollie.billingDetailsRequired);
+        setBillingDialogOpen(true);
+        return;
+      }
       toast.error(ts.creditsWallet.purchaseFailed);
     }
   };
@@ -785,8 +797,16 @@ function DirectBillingSettings() {
       {/* Update Billing Details Dialog — edits its own copy of the saved details. */}
       <BillingDetailsDialog
         open={billingDialogOpen}
-        onOpenChange={setBillingDialogOpen}
+        onOpenChange={(open) => {
+          setBillingDialogOpen(open);
+          if (!open) pendingCreditPackage.current = null;
+        }}
         details={billingDetails}
+        onSaved={() => {
+          const packageId = pendingCreditPackage.current;
+          pendingCreditPackage.current = null;
+          if (packageId) void handleBuyCredits(packageId);
+        }}
       />
 
       <BuyCreditsDialog
@@ -796,6 +816,7 @@ function DirectBillingSettings() {
         packages={creditPackages}
         pending={buyCreditsMutation.isPending}
         onBuy={(packageId) => void handleBuyCredits(packageId)}
+        priceNote={billingProvider() === 'mollie' ? ts.mollie.excludingVat : undefined}
       />
     </div>
   );

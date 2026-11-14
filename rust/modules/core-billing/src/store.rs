@@ -32,6 +32,9 @@ pub(crate) enum Purpose {
     PayLink,
     /// A new payment method: a zero-amount first payment.
     Mandate,
+    /// A credit package (BILL-013's top-up), its VAT on top: the payment is
+    /// the top-up's, this row prices and invoices it ([`crate::top_up`]).
+    Credits,
 }
 
 impl Purpose {
@@ -42,6 +45,7 @@ impl Purpose {
             Self::Renewal => "renewal",
             Self::PayLink => "pay_link",
             Self::Mandate => "mandate",
+            Self::Credits => "credits",
         }
     }
 }
@@ -82,6 +86,11 @@ pub(crate) struct ChargeMeta {
     /// A chargeback already reopened it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) charged_back: Option<bool>,
+    /// A top-up's: the credits and the package they came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) credits: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) package_id: Option<String>,
 }
 
 /// `billing_payments.status` for a Mollie state: what Global's mirror uses.
