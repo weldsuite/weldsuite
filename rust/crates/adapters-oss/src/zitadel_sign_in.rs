@@ -22,6 +22,7 @@
 //! | `create_user` | `POST /v2/users/human` in the instance's default organization |
 //! | `send_email_verification`, `verify_email` | `POST /v2/users/{id}/email/send`, `/email/verify` |
 //! | `send_password_reset`, `reset_password` | `POST /v2/users/{id}/password_reset`, `/password` |
+//! | `accept_invitation` | `POST /v2/users/{id}/invite_code/verify`, then `/password` without a code |
 //!
 //! Every emailed code is either Zitadel's to send (`sendCode` / `sendLink`,
 //! in its own template) or handed back (`returnCode`) for the caller to
@@ -110,6 +111,12 @@ const DEFAULT_SECOND_FACTOR_CODE: CodeFormat = CodeFormat {
     letters: false,
     uppercase: false,
     expires_in: Some(Duration::from_mins(5)),
+};
+const DEFAULT_INVITE_CODE: CodeFormat = CodeFormat {
+    length: 6,
+    letters: true,
+    uppercase: true,
+    expires_in: Some(Duration::from_hours(72)),
 };
 
 impl ZitadelSignIn {
@@ -309,6 +316,7 @@ impl ZitadelSignIn {
                 "SECRET_GENERATOR_TYPE_PASSWORD_RESET_CODE",
                 DEFAULT_VERIFICATION_CODE,
             ),
+            CodeKind::Invitation => ("SECRET_GENERATOR_TYPE_INVITE_CODE", DEFAULT_INVITE_CODE),
         };
         let answer = self
             .call(
@@ -540,9 +548,12 @@ fn failed(failure: ApiFailure) -> SignInError {
         // Locked or inactive, at the user, password, TOTP or OTP check.
         "SESSION-Gj4ko" | "SESSION-oL9nT" | "COMMAND-JLK35" | "COMMAND-SFA3t" | "COMMAND-SF3fg"
         | "COMMAND-S6h4R" => SignInError::Locked,
-        // TOTP wrong, reused or not set up; a code wrong, expired or never asked for.
+        // TOTP wrong, reused or not set up; a code wrong, expired or never
+        // asked for; an invite code wrong, expired or used.
         "EVENT-8isk2" | "TOTP-Auw0a" | "COMMAND-3Mif9s" | "CODE-woT0xc" | "CODE-QvUQ4P"
-        | "COMMAND-S34gh" | "COMMAND-eis9R" | "COMMAND-2M9fs" => SignInError::InvalidCode,
+        | "COMMAND-S34gh" | "COMMAND-eis9R" | "COMMAND-2M9fs" | "COMMAND-Wgn4q" => {
+            SignInError::InvalidCode
+        }
         // Session ended, expired or missing; not its token.
         "COMMAND-Hewfq" | "COMMAND-Hkl3d" | "COMMAND-Flk38" | "COMMAND-sGr42" | "QUERY-dsfr3"
         | "QUERY-SFeaa" => SignInError::NoSession,
@@ -967,6 +978,38 @@ impl SignInProvider for ZitadelSignIn {
         })
     }
 
+    fn accept_invitation<'a>(
+        &'a self,
+        user_id: &'a str,
+        code: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, SignInResult<()>> {
+        Box::pin(async move {
+            // Zitadel's own login does the same two steps: the code first
+            // (it verifies the address), then the password, set by the login
+            // client (`user.credential.write`) because the account has none.
+            self.call(
+                Method::POST,
+                &format!("/v2/users/{user_id}/invite_code/verify"),
+                &[],
+                Some(json!({ "verificationCode": code })),
+            )
+            .await
+            .map_err(invite_refused)?;
+            self.call(
+                Method::POST,
+                &format!("/v2/users/{user_id}/password"),
+                &[],
+                Some(json!({
+                    "newPassword": { "password": password, "changeRequired": false },
+                })),
+            )
+            .await
+            .map(|_| ())
+            .map_err(failed)
+        })
+    }
+
     fn hosted_url(&self, auth_request: &str) -> Option<String> {
         let public = self.public_url.as_deref()?;
         // The auth request id goes into a URL the browser opens.
@@ -983,6 +1026,17 @@ fn code_refused(failure: ApiFailure) -> SignInError {
     match failure {
         ApiFailure::Refused(refusal) if refusal.status == 404 => SignInError::InvalidCode,
         failure => failed(failure),
+    }
+}
+
+/// Checking an invite code: as [`code_refused`], and an account Zitadel
+/// does not know at all (`COMMAND-F5g2h`, a failed precondition) too.
+fn invite_refused(failure: ApiFailure) -> SignInError {
+    match failure {
+        ApiFailure::Refused(refusal) if refusal.code.as_deref() == Some("COMMAND-F5g2h") => {
+            SignInError::InvalidCode
+        }
+        failure => code_refused(failure),
     }
 }
 
@@ -1045,6 +1099,19 @@ mod tests {
         assert_eq!(
             code_refused(refusal(404, "COMMAND-SAF4f")),
             SignInError::InvalidCode
+        );
+        // An invite code: wrong, expired or used; the account unknown.
+        assert_eq!(
+            invite_refused(refusal(400, "COMMAND-Wgn4q")),
+            SignInError::InvalidCode
+        );
+        assert_eq!(
+            invite_refused(refusal(412, "COMMAND-F5g2h")),
+            SignInError::InvalidCode
+        );
+        assert_eq!(
+            invite_refused(refusal(403, "AUTH-AWfge")),
+            SignInError::Forbidden("AUTH-AWfge".to_owned())
         );
     }
 

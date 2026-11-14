@@ -180,11 +180,11 @@ describe('addresses', () => {
     // Allowed, the answer is the address the socket then connects to.
     const one = await lookupOnce(checkedLookup(() => true), 'localhost', { family: 4 });
     assert.deepEqual([one.error, one.address, one.family], [null, '127.0.0.1', 4]);
-    // Every answer the resolver gives, which may list 127.0.0.1 more than
-    // once: GitHub's runners have localhost twice in /etc/hosts.
     const all = await lookupOnce(checkedLookup(() => true), 'localhost', { all: true, family: 4 });
+    // The system's own list: a hosts file can name localhost on more than one line.
     assert.ok(all.address.length > 0);
-    for (const entry of all.address) assert.deepEqual(entry, { address: '127.0.0.1', family: 4 });
+    const answered = new Set(all.address.map(({ address, family }) => `${address}/${family}`));
+    assert.deepEqual(answered, new Set(['127.0.0.1/4']));
   });
 
   it('parses targets', () => {

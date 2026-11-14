@@ -249,6 +249,7 @@ pub(crate) fn zitadel_options(
         token: settings.token.clone(),
         project_id: settings.project_id.clone(),
         invite_url_template: settings.invite_url_template.clone(),
+        accept_on_platform: settings.accept_on_platform,
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
         invitation_mailer: mail.map(|mail| {

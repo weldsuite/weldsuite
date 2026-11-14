@@ -95,6 +95,7 @@ async fn mock_with(
             "https://app.eu.example/invite?user={{.UserID}}&code={{.Code}}".to_owned(),
         ),
         application_name: "WeldSuite".to_owned(),
+        accept_on_platform: false,
         invitation_mailer: None,
         host: None,
     };
@@ -198,6 +199,90 @@ async fn with_a_mailer_the_invite_code_comes_back_and_weldsuite_sends_the_invita
                 "https://auth.eu.example/ui/login/user/invite?authRequestID=&code=XY7Q2K&loginname=ann%40acme.test&orgID={ORG}&userID=500"
             ),
         }]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_platforms_sign_in_screens_the_invitee_accepts_on_the_platform() {
+    let respond = |method: &str, path: &str, _: &Value| match (method, path) {
+        ("POST", "/v2/users") => (StatusCode::OK, json!({ "details": {}, "result": [] })),
+        ("POST", "/v2/users/human") => (StatusCode::OK, json!({ "userId": "500" })),
+        ("POST", "/v2/users/500/invite_code") => (
+            StatusCode::OK,
+            json!({ "details": {}, "inviteCode": "XY7Q2K" }),
+        ),
+        ("GET", "/management/v1/orgs/me") => (
+            StatusCode::OK,
+            json!({ "org": { "id": ORG, "name": "Acme", "state": "ORG_STATE_ACTIVE" } }),
+        ),
+        ("POST", "/management/v1/metadata/_search") => (StatusCode::OK, json!({ "result": [] })),
+        ("POST", "/management/v1/granted_projects/_search") => (
+            StatusCode::OK,
+            json!({ "result": [{ "grantId": "pg-1", "projectId": PROJECT }] }),
+        ),
+        ("POST", "/management/v1/users/500/grants") => {
+            (StatusCode::OK, json!({ "userGrantId": "g-9" }))
+        }
+        _ => (
+            StatusCode::NOT_FOUND,
+            json!({ "code": 5, "message": "Not Found" }),
+        ),
+    };
+    let invitation = NewInvitation {
+        email_address: "ann@acme.test".to_owned(),
+        role: "org:member".to_owned(),
+        redirect_url: Some(format!("https://app.eu.example/invite?org_id={ORG}")),
+        ..NewInvitation::default()
+    };
+    let page = format!("https://app.eu.example/invite?org_id={ORG}");
+
+    // WeldSuite's email links to the platform's page, filled in.
+    let mailbag = Arc::new(Mailbag::default());
+    let mailer = Arc::clone(&mailbag);
+    let (identity, _) = mock_with(respond, move |options| {
+        options.invite_url_template = None;
+        options.accept_on_platform = true;
+        options.invitation_mailer = Some(mailer);
+    })
+    .await;
+    identity.invite(ORG, &invitation).await.expect("invited");
+    let sent = mailbag.0.lock().expect("lock").clone();
+    assert_eq!(
+        sent[0].accept_url,
+        format!("{page}&userId=500&code=XY7Q2K&email=ann%40acme.test")
+    );
+
+    // Zitadel's own email (no system mail) links there too.
+    let (identity, seen) = mock_with(respond, |options| {
+        options.invite_url_template = None;
+        options.accept_on_platform = true;
+    })
+    .await;
+    identity.invite(ORG, &invitation).await.expect("invited");
+    let seen = seen.lock().expect("lock").clone();
+    let invite = seen
+        .iter()
+        .find(|s| s.path == "/v2/users/500/invite_code")
+        .expect("invite code sent");
+    assert_eq!(
+        invite.body["sendCode"]["urlTemplate"],
+        format!("{page}&userId={{{{.UserID}}}}&code={{{{.Code}}}}&email=ann%40acme.test")
+    );
+
+    // A configured template still wins.
+    let (identity, seen) = mock_with(respond, |options| {
+        options.accept_on_platform = true;
+    })
+    .await;
+    identity.invite(ORG, &invitation).await.expect("invited");
+    let seen = seen.lock().expect("lock").clone();
+    let invite = seen
+        .iter()
+        .find(|s| s.path == "/v2/users/500/invite_code")
+        .expect("invite code sent");
+    assert_eq!(
+        invite.body["sendCode"]["urlTemplate"],
+        "https://app.eu.example/invite?user={{.UserID}}&code={{.Code}}"
     );
 }
 
@@ -441,6 +526,7 @@ async fn errors_keep_the_status_and_a_missing_org_is_a_404() {
         project_id: PROJECT.to_owned(),
         invite_url_template: None,
         application_name: "WeldSuite".to_owned(),
+        accept_on_platform: false,
         invitation_mailer: None,
         host: None,
     })
@@ -470,6 +556,7 @@ fn live() -> Option<Live> {
         project_id: project.clone(),
         invite_url_template: None,
         application_name: "WeldSuite".to_owned(),
+        accept_on_platform: false,
         invitation_mailer: None,
         host: None,
     })
