@@ -36,6 +36,7 @@ pub use pg_errors::{
 };
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,
+    read_only_message,
 };
 pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;

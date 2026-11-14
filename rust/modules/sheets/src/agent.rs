@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use weldsuite_core_domain::drive_access::{
     DriveRole, file_role, load_drive_access_for_user, visible_files,
 };
-use weldsuite_db::{PgPool, TenantPermissionQueries};
+use weldsuite_db::{PgPool, ReadOnlyReason, TenantPermissionQueries, read_only_message};
 use weldsuite_events::{EventContext, EventSource};
 use weldsuite_permissions::{Permissions, resolve_effective_permissions};
 
@@ -37,6 +37,18 @@ pub struct AgentScope<'a> {
     pub user_id: &'a str,
     /// The Clerk org id: room names and bucket keys use it.
     pub clerk_org_id: &'a str,
+    /// Why the workspace may only be read, when it may (`readOnly` /
+    /// `readOnlyReason` of the workspace context). Writes are refused with
+    /// the gate's message; reads pass.
+    pub read_only: Option<ReadOnlyReason>,
+}
+
+/// `readOnlyRefusal(c)`: the message a write gets in a read-only workspace.
+fn read_only_refusal(read_only: Option<ReadOnlyReason>) -> Result<(), String> {
+    match read_only {
+        Some(reason) => Err(read_only_message(Some(reason)).to_owned()),
+        None => Ok(()),
+    }
 }
 
 /// Cells one write takes at most (`MAX_WRITE_CELLS`).
@@ -145,6 +157,7 @@ pub async fn agent_call(
         }
         "create" => {
             need("sheets:create")?;
+            read_only_refusal(scope.read_only)?;
             let name = input["name"].as_str().unwrap_or_default().trim().to_owned();
             if name.is_empty() {
                 return Err("name is required".to_owned());
@@ -226,6 +239,7 @@ pub async fn agent_call(
                     ok_or_error(answer)
                 }
                 _ => {
+                    read_only_refusal(scope.read_only)?;
                     if !caller.may_edit(role) {
                         return Err(VIEW_ONLY.to_owned());
                     }
@@ -286,5 +300,32 @@ mod tests {
     #[test]
     fn like_patterns_are_literal() {
         assert_eq!(escape_like("50%_off"), "50\\%\\_off");
+    }
+
+    #[test]
+    fn writes_are_refused_with_the_gates_words_in_a_read_only_workspace() {
+        assert_eq!(read_only_refusal(None), Ok(()));
+        for reason in [
+            ReadOnlyReason::PartnerSuspended,
+            ReadOnlyReason::LicenceInactive,
+            ReadOnlyReason::DatabaseMove,
+        ] {
+            assert_eq!(
+                read_only_refusal(Some(reason)),
+                Err(read_only_message(Some(reason)).to_owned())
+            );
+        }
+        let suspended = read_only_refusal(Some(ReadOnlyReason::PartnerSuspended));
+        assert!(
+            suspended
+                .unwrap_err()
+                .contains("account that manages it is suspended")
+        );
+        let moving = read_only_refusal(Some(ReadOnlyReason::DatabaseMove));
+        assert!(
+            moving
+                .unwrap_err()
+                .contains("being moved to a new database")
+        );
     }
 }

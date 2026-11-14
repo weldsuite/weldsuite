@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{BOARD_UPDATED, FILE_UPDATED};
 use weldsuite_core_domain::drive_access::{DriveRole, load_drive_access_for_user, visible_files};
 use weldsuite_core_domain::files::{Change, FileUpdate, UpdatedFile, update_file};
-use weldsuite_db::{PgPool, TenantPermissionQueries};
+use weldsuite_db::{PgPool, ReadOnlyReason, TenantPermissionQueries, read_only_message};
 use weldsuite_events::{EventContext, EventSource};
 use weldsuite_permissions::{Permissions, resolve_effective_permissions};
 use weldsuite_ports::collab::value_bytes;
@@ -44,6 +44,18 @@ pub struct AgentScope<'a> {
     pub clerk_org_id: &'a str,
     /// `workspaces.id`.
     pub workspace_id: &'a str,
+    /// Why the workspace may only be read, when it may (`readOnly` /
+    /// `readOnlyReason` of the workspace context). Writes are refused with
+    /// the gate's message; reads pass.
+    pub read_only: Option<ReadOnlyReason>,
+}
+
+/// `readOnlyRefusal(c)`: the message a write gets in a read-only workspace.
+fn read_only_refusal(read_only: Option<ReadOnlyReason>) -> Result<(), String> {
+    match read_only {
+        Some(reason) => Err(read_only_message(Some(reason)).to_owned()),
+        None => Ok(()),
+    }
 }
 
 const DEFAULT_BOARD_NAME: &str = "Untitled board";
@@ -109,6 +121,7 @@ async fn caller_for(scope: &AgentScope<'_>, state: &BoardState) -> Result<Caller
 /// whiteboard (`writeTarget`): the `boards:update` permission, edit access.
 async fn write_target(
     state: &BoardState,
+    scope: &AgentScope<'_>,
     caller: &Caller,
     org: &str,
     id: &str,
@@ -116,6 +129,7 @@ async fn write_target(
     if !caller.can("boards:update") {
         return Err("Forbidden".to_owned());
     }
+    read_only_refusal(scope.read_only)?;
     let (board, role) = find_board(caller, id).await.map_err(|r| r.message())?;
     if !caller.may_edit(role) {
         return Err(VIEW_ONLY.to_owned());
@@ -247,6 +261,7 @@ pub async fn agent_call(
         }
         "create" => {
             need("boards:create")?;
+            read_only_refusal(scope.read_only)?;
             let project = match input["projectId"].as_str() {
                 Some(project_id) => Some(
                     writable_project(&caller, project_id)
@@ -333,7 +348,7 @@ pub async fn agent_call(
             let Some(name) = name else {
                 return Err("Send a name or elements".to_owned());
             };
-            let before = write_target(state, &caller, org, board_arg()?).await?;
+            let before = write_target(state, scope, &caller, org, board_arg()?).await?;
             if before.name != name {
                 match update_file(
                     &caller.db,
@@ -381,7 +396,7 @@ pub async fn agent_call(
             Ok(brief(&board, DriveRole::Editor))
         }
         "add" | "edit" => {
-            let board = write_target(state, &caller, org, board_arg()?).await?;
+            let board = write_target(state, scope, &caller, org, board_arg()?).await?;
             let live = live_snapshot(state, &caller, org, &board)
                 .await
                 .map_err(refuse)?;
@@ -461,5 +476,32 @@ mod tests {
     #[test]
     fn like_patterns_are_literal() {
         assert_eq!(escape_like("a_b%"), "a\\_b\\%");
+    }
+
+    #[test]
+    fn writes_are_refused_with_the_gates_words_in_a_read_only_workspace() {
+        assert_eq!(read_only_refusal(None), Ok(()));
+        for reason in [
+            ReadOnlyReason::PartnerSuspended,
+            ReadOnlyReason::LicenceInactive,
+            ReadOnlyReason::DatabaseMove,
+        ] {
+            assert_eq!(
+                read_only_refusal(Some(reason)),
+                Err(read_only_message(Some(reason)).to_owned())
+            );
+        }
+        let suspended = read_only_refusal(Some(ReadOnlyReason::PartnerSuspended));
+        assert!(
+            suspended
+                .unwrap_err()
+                .contains("account that manages it is suspended")
+        );
+        let moving = read_only_refusal(Some(ReadOnlyReason::DatabaseMove));
+        assert!(
+            moving
+                .unwrap_err()
+                .contains("being moved to a new database")
+        );
     }
 }

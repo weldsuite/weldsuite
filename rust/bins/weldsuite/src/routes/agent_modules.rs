@@ -19,8 +19,8 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use sqlx::PgPool;
 use weldsuite_agent::tools::{ModuleCall, ModuleTools};
+use weldsuite_db::{ReadOnlyReason, Tenant, Workspaces};
 use weldsuite_ports::BoxFuture;
 
 use super::{AppState, file_stores, merge_state};
@@ -29,7 +29,7 @@ pub(super) struct AppModules {
     sheets: weldsuite_sheets::SheetsState,
     board: weldsuite_board::BoardState,
     merge: weldsuite_merge::MergeState,
-    master: PgPool,
+    workspaces: Arc<Workspaces>,
 }
 
 impl AppModules {
@@ -50,23 +50,49 @@ impl AppModules {
                 master: Some(state.workspaces.master().clone()),
             },
             merge: merge_state(state),
-            master: state.workspaces.master().clone(),
+            workspaces: Arc::clone(&state.workspaces),
         }
     }
 
-    /// `workspaces.id` and the Clerk org id, from either (a run carries
-    /// whichever the event or request had).
-    async fn workspace(&self, reference: &str) -> (String, String) {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, clerk_org_id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(reference)
-        .fetch_optional(&self.master)
-        .await
-        .unwrap_or(None);
-        match row {
-            Some((id, org)) => (id, org.unwrap_or_else(|| reference.to_owned())),
-            None => (reference.to_owned(), reference.to_owned()),
+    /// The workspace a call is for, from either id (a run carries whichever
+    /// the event or request had): the same resolution the HTTP middleware
+    /// does (cached, from the master `workspaces` row), so the restrictions
+    /// are the ones a request to that workspace would meet right now.
+    async fn workspace(&self, reference: &str) -> Result<WorkspaceScope, String> {
+        match self.workspaces.tenant(reference).await {
+            Ok(tenant) => Ok(WorkspaceScope::of(&tenant, reference)),
+            Err(error) => {
+                tracing::error!(%error, reference, "[weldagent] cannot resolve the workspace of a module tool");
+                Err("Internal server error".to_owned())
+            }
+        }
+    }
+}
+
+/// What a module call needs to know about its workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceScope {
+    /// `workspaces.id`.
+    id: String,
+    /// The organization id (room names and bucket keys use it).
+    org: String,
+    /// Why the workspace may only be read (`readOnlyReason`).
+    read_only: Option<ReadOnlyReason>,
+}
+
+impl WorkspaceScope {
+    fn of(tenant: &Tenant, reference: &str) -> Self {
+        Self {
+            id: tenant.workspace_id.clone(),
+            org: tenant
+                .clerk_org_id
+                .clone()
+                .unwrap_or_else(|| reference.to_owned()),
+            read_only: tenant
+                .restrictions
+                .read_only
+                .then(|| tenant.read_only_reason())
+                .flatten(),
         }
     }
 }
@@ -74,13 +100,18 @@ impl AppModules {
 impl ModuleTools for AppModules {
     fn call<'a>(&'a self, call: ModuleCall<'a>) -> BoxFuture<'a, Result<Value, String>> {
         Box::pin(async move {
-            let (workspace_id, clerk_org_id) = self.workspace(call.workspace_id).await;
+            let WorkspaceScope {
+                id: workspace_id,
+                org: clerk_org_id,
+                read_only,
+            } = self.workspace(call.workspace_id).await?;
             match call.module {
                 "sheets" => {
                     let scope = weldsuite_sheets::AgentScope {
                         db: call.db,
                         user_id: call.user_id,
                         clerk_org_id: &clerk_org_id,
+                        read_only,
                     };
                     weldsuite_sheets::agent_call(
                         &self.sheets,
@@ -97,6 +128,7 @@ impl ModuleTools for AppModules {
                         user_id: call.user_id,
                         clerk_org_id: &clerk_org_id,
                         workspace_id: &workspace_id,
+                        read_only,
                     };
                     weldsuite_board::agent_call(&self.board, &scope, call.op, call.id, &call.input)
                         .await
@@ -123,4 +155,53 @@ impl ModuleTools for AppModules {
 /// Installs the surface for the agent tools of this process.
 pub(super) fn install(state: &AppState) {
     weldsuite_agent::tools::install_module_tools(Arc::new(AppModules::new(state)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use weldsuite_db::WorkspaceRestrictions;
+
+    fn tenant(restrictions: WorkspaceRestrictions) -> Tenant {
+        Tenant {
+            workspace_id: "ws_1".into(),
+            clerk_org_id: Some("org_1".into()),
+            db: sqlx::PgPool::connect_lazy("postgres://localhost/none").expect("lazy"),
+            suspended: false,
+            restrictions,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_writable_workspace_carries_no_read_only_reason() {
+        let scope = WorkspaceScope::of(&tenant(WorkspaceRestrictions::default()), "ws_1");
+        assert_eq!(scope.read_only, None);
+        assert_eq!((scope.id.as_str(), scope.org.as_str()), ("ws_1", "org_1"));
+    }
+
+    #[tokio::test]
+    async fn a_read_only_workspace_carries_its_reason() {
+        for reason in [
+            ReadOnlyReason::PartnerSuspended,
+            ReadOnlyReason::LicenceInactive,
+            ReadOnlyReason::DatabaseMove,
+        ] {
+            let scope = WorkspaceScope::of(
+                &tenant(WorkspaceRestrictions {
+                    licensed_apps: None,
+                    read_only: true,
+                    read_only_reason: Some(reason),
+                }),
+                "ws_1",
+            );
+            assert_eq!(scope.read_only, Some(reason));
+        }
+    }
+
+    #[tokio::test]
+    async fn the_organization_falls_back_to_the_reference() {
+        let mut t = tenant(WorkspaceRestrictions::default());
+        t.clerk_org_id = None;
+        assert_eq!(WorkspaceScope::of(&t, "ws_1").org, "ws_1");
+    }
 }

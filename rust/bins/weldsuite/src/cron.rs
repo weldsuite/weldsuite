@@ -415,22 +415,21 @@ async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Er
     // the spreadsheet, board and WeldMerge tools. Without it the run is
     // inline here, with every tool but those (the in-process jobs adapter
     // would only run the job in this process anyway).
-    let launcher = match config.infra.jobs.restate_ingress_url.as_ref() {
-        Some(ingress) => weldsuite_agent::launch::RunLauncher::jobs(Arc::new(
+    let launcher = if let Some(ingress) = config.infra.jobs.restate_ingress_url.as_ref() {
+        weldsuite_agent::launch::RunLauncher::jobs(Arc::new(
             weldsuite_adapters_oss::RestateJobs::new(ingress, reqwest::Client::new()),
-        )),
-        None => {
-            let sandboxes = crate::sandbox::build(config.sandbox.as_ref())?;
-            weldsuite_agent::launch::RunLauncher::inline(
-                Some(ai),
-                weldsuite_agent::run::RunEnv {
-                    master: Some(master.clone()),
-                    sandbox: sandboxes.is_some(),
-                    sandboxes,
-                    ..weldsuite_agent::run::RunEnv::default()
-                },
-            )
-        }
+        ))
+    } else {
+        let sandboxes = crate::sandbox::build(config.sandbox.as_ref())?;
+        weldsuite_agent::launch::RunLauncher::inline(
+            Some(ai),
+            weldsuite_agent::run::RunEnv {
+                master: Some(master.clone()),
+                sandbox: sandboxes.is_some(),
+                sandboxes,
+                ..weldsuite_agent::run::RunEnv::default()
+            },
+        )
     };
     let result = weldsuite_agent::routines::run_routine_sweep(
         &master,

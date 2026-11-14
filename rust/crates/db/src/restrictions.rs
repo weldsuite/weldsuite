@@ -23,6 +23,25 @@ impl ReadOnlyReason {
     }
 }
 
+/// The words a refused write carries: the `message` of the 403
+/// `WORKSPACE_READ_ONLY` body (`workspaceReadOnlyBody`) or of the 503
+/// `WORKSPACE_MOVING` one (`workspaceMovingBody`). No reason reads as an
+/// inactive licence, as in `workspaceReadOnlyBody`. WeldAgent's module tools
+/// hand it to the model, as the internal routes' error answers do.
+pub fn read_only_message(reason: Option<ReadOnlyReason>) -> &'static str {
+    match reason {
+        Some(ReadOnlyReason::DatabaseMove) => {
+            "This workspace is being moved to a new database. Try again in a minute."
+        }
+        Some(ReadOnlyReason::PartnerSuspended) => {
+            "This workspace is read-only because the account that manages it is suspended. You can view and export your data."
+        }
+        Some(ReadOnlyReason::LicenceInactive) | None => {
+            "This workspace is read-only because its licence is not active. You can view and export your data."
+        }
+    }
+}
+
 /// The outcome of [`compute_workspace_restrictions`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceRestrictions {
@@ -79,6 +98,17 @@ pub fn compute_workspace_restrictions(input: &RestrictionInput<'_>) -> Workspace
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_words_follow_the_reason() {
+        assert!(read_only_message(Some(ReadOnlyReason::PartnerSuspended)).contains("suspended"));
+        assert!(read_only_message(Some(ReadOnlyReason::LicenceInactive)).contains("licence"));
+        assert_eq!(
+            read_only_message(None),
+            read_only_message(Some(ReadOnlyReason::LicenceInactive))
+        );
+        assert!(read_only_message(Some(ReadOnlyReason::DatabaseMove)).contains("moved"));
+    }
 
     #[test]
     fn partner_rules() {
