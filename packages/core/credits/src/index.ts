@@ -56,7 +56,10 @@ export type CreditServiceType =
   // Usage meters past the plan allowance (./meters.ts)
   | 'workflow_run'
   | 'sign_request'
-  | 'email';
+  | 'email'
+  // WeldPanel overage blocks (@weldsuite/panel-domain/pricing)
+  | 'panel_events'
+  | 'panel_recordings';
 
 export type CreditGrantType = 'purchase' | 'refund' | 'adjustment' | 'monthly_allocation';
 
@@ -94,6 +97,13 @@ export const SERVICE_CREDIT_RATES = {
   meetingTranscriptionPerMinute: 2,
   /** Credits per meeting minute of a WeldMeet AI summary (same override as above). */
   meetingSummaryPerMinute: 1,
+  /**
+   * Credits per overage block of WeldPanel usage past the plan allowance: 10,000
+   * events, 100 recordings. Placeholders; the live price is the master
+   * `system_settings` row `weldpanel.pricing` (@weldsuite/panel-domain/pricing).
+   */
+  panelEventsPer10k: 10,
+  panelRecordingsPer100: 20,
 } as const;
 
 export interface CreditTransactionMetadata {

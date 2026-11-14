@@ -935,6 +935,22 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Basin SQL (read-only token) for the query layer; PANEL_BASIN_BUCKET is a var in wrangler.toml.
+    "R2_SQL_API_TOKEN",
+    "CF_ACCOUNT_ID",
+    // Session and set summaries through @weldsuite/ai (same tokens as crm-api).
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+  ],
+
+  // panel-maintenance: WeldPanel's erasure and retention job (queue, weekly cron and a
+  // PyIceberg container). Reads the project registry and plans from the master DB.
+  // PANEL_CATALOG_TOKEN is the R2 token with Data Catalog access that the container
+  // job opens the Iceberg tables with (the same Doppler key setup-resources.mjs uses).
+  "panel-maintenance": [
+    "DATABASE_URL_MASTER",
+    "CF_ACCOUNT_ID",
+    "PANEL_CATALOG_TOKEN",
   ],
 
   // merge-api: the merge module's API worker (split from app-api). Base

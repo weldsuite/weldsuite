@@ -6,9 +6,18 @@
 #   panel-api-test.weldsuite.org   test
 # The path prefixes it owns live in packages/core/api-modules.
 #
+# PanelApiInternal (src/internal.ts) is a service-binding entrypoint, not a route: panel-ingest's
+# PanelUsage settles usage through it (POST /internal/panel/usage/settle). No secret; the
+# public fetch handler does not serve it. Deploy this worker before panel-ingest.
+#
 # Secrets (scripts/secrets/manifest.ts → "panel-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
-#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, R2_SQL_API_TOKEN, CF_ACCOUNT_ID,
+#   AI_GATEWAY_API_TOKEN, CLOUDFLARE_API_TOKEN (session summaries, @weldsuite/ai)
+#
+# Production bindings still to add once the resources exist (the code treats a
+# missing binding as "feature off"): PANEL_REPLAYS (weldsuite-panel-replays, eu)
+# and the PANEL_MAINTENANCE queue producer (panel-maintenance).
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-panel-api-dev"
@@ -23,7 +32,8 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias (unlike most API workers): the panel.usage email renders a real
+# React Email template through @weldsuite/emails, which needs react.
 
 [observability]
 enabled = true
@@ -33,6 +43,10 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Public collector (panel-ingest): the origin the install snippet points tracked sites at.
 PANEL_COLLECTOR_URL = "http://localhost:8841"
+# Basin bucket holding the panel.* Iceberg tables (dev reads the test bucket).
+PANEL_BASIN_BUCKET = "weldsuite-panel-test"
+# Platform origin the usage emails link to.
+PLATFORM_URL = "http://localhost:3000"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -41,6 +55,28 @@ id = "748b8f38937f4807b3978cacb17e1880"
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
+
+# The PanelProject Durable Object lives in the collector worker; panel-api reaches the same class.
+[[durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest-dev"
+
+# Recording chunks and heatmap snapshots: private bucket, EU jurisdiction (ADR PANEL-005).
+# Dev reads the test bucket. Production gets its binding once the bucket exists.
+[[r2_buckets]]
+binding = "PANEL_REPLAYS"
+bucket_name = "weldsuite-panel-replays-test"
+jurisdiction = "eu"
+
+# Erasure messages for panel-maintenance (rewrites the Iceberg rows). Dev shares the test queue.
+[[queues.producers]]
+binding = "PANEL_MAINTENANCE"
+queue = "panel-maintenance-test"
+
+# Usage notices to workspace owners (panel.usage), from notifications@mail.weldsuite.org.
+[[send_email]]
+name = "SEND_EMAIL"
 
 # Remote binding so local dev reaches the deployed test realtime worker.
 [[services]]
@@ -58,7 +94,11 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Summaries on Anthropic models are paid with the key stored in the gateway (BYOK).
+AI_BYOK_PROVIDERS = "anthropic"
 PANEL_COLLECTOR_URL = "https://pnl-test.weldsuite.org"
+PANEL_BASIN_BUCKET = "weldsuite-panel-test"
+PLATFORM_URL = "https://app-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -72,9 +112,29 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
 
+[[env.test.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest-test"
+
+# Recording chunks and heatmap snapshots: private bucket, EU jurisdiction (ADR PANEL-005).
+[[env.test.r2_buckets]]
+binding = "PANEL_REPLAYS"
+bucket_name = "weldsuite-panel-replays-test"
+jurisdiction = "eu"
+
+# Erasure messages for panel-maintenance (rewrites the Iceberg rows).
+[[env.test.queues.producers]]
+binding = "PANEL_MAINTENANCE"
+queue = "panel-maintenance-test"
+
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+# Usage notices to workspace owners (panel.usage), from notifications@mail.weldsuite.org.
+[[env.test.send_email]]
+name = "SEND_EMAIL"
 
 [env.test.observability]
 enabled = true
@@ -90,7 +150,10 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+AI_BYOK_PROVIDERS = "anthropic"
 PANEL_COLLECTOR_URL = "https://pnl.weldsuite.org"
+PANEL_BASIN_BUCKET = "weldsuite-panel"
+PLATFORM_URL = "https://app.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -104,9 +167,18 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
 
+[[env.production.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+script_name = "weldsuite-panel-ingest"
+
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+# Usage notices to workspace owners (panel.usage), from notifications@mail.weldsuite.org.
+[[env.production.send_email]]
+name = "SEND_EMAIL"
 
 [env.production.observability]
 enabled = true
