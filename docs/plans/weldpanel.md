@@ -537,16 +537,78 @@ Done:
   and device; the excluded page sent nothing. The temporary project was
   removed from KV; its rows stay in the test table.
 
+Per-IP rate limiting and the help docs moved into phases 2–7 (below).
+
+**Phases 2–7, built in one change on 2026-11-14.** Decisions taken for it:
+TypeScript only (the Kubernetes editions keep phase 1 until their analytics
+store exists, ADR EVT-019 in the docs repo; the platform hides the rest
+behind the edition feature `panel-analytics`); the allowances, retention,
+sampling and grace in "Open items" adopted as proposed; overage rates in the
+master `system_settings` row `weldpanel.pricing` (placeholders, edited in the
+admin console); PanelProject objects in the EU jurisdiction; the query cache
+in global KV.
+
+Built:
+
+- Contract and query layer (phases 2–3): typed specs and results for `web`,
+  `trends`, `funnel`, `retention`, `flows`, `sessions` and `heatmap` in
+  `@weldsuite/app-api-client/schemas/weldpanel-query`, saved objects in
+  `weldpanel-objects`; the compiler in `@weldsuite/panel-domain/query` (every
+  statement scoped to workspace, project and a time range, one escaping
+  function, erased ids excluded, the identity join only when a project has
+  identified users, top-N breakdowns picked in TypeScript, per-step funnel
+  CTEs); the Basin REST call shared as `@weldsuite/worker-kit/basin`;
+  panel-api `POST /query` (2-minute KV cache), reports, dashboards, cohorts,
+  lexicon.
+- SDK (phases 3–5): `identify`, `reset`, `people.*`, the five frustration
+  signals, click positions relative to the element, a separate recorder
+  bundle (`/rec.js`, rrweb 2.1.7, masking levels and attributes), heatmap
+  snapshots, and a server client (`@weldsuite/panel-sdk/server`). Core 8.6 KB
+  gzipped, recorder 24 KB.
+- Collector (phases 3–5): the PanelProject Durable Object (people, identity
+  links, erased ids, live view; writes `identities_v1` and `people_v1`),
+  `/r`, `/snap`, `/rec.js`, `/v1/track`, `/v1/import`, per-IP rate limits,
+  quota states. The Rust collector answers `/e` and `/c` the same way; the new
+  routes are excluded from its conformance suite with the reason.
+- panel-api (phases 3–6): people with erasure, recordings (detail, chunk
+  streaming, favourites copied to `keep/`), heatmap page groups and
+  snapshots, live, server keys (a paused project stops `/v1/*`), session and
+  set AI summaries (charged once, cached).
+- Billing and privacy (phase 7): `@weldsuite/panel-domain/plans`, PanelUsage
+  settlement through panel-api's internal entrypoint (overage blocks charged
+  once, `replay_blocked` / `events_blocked`), usage emails at 80% and 100% and
+  when data is dropped, master migration `0067` on `panel_usage_monthly`, the
+  admin pricing page, and `apps/workers/panel-maintenance` (erasure ledger,
+  weekly PyIceberg job on Containers for erasure rewrites and retention).
+- Platform: Overview, Insights, Funnels, Retention, Flows, Reports,
+  Dashboards, Cohorts, Lexicon, Users, Recordings with the player and AI
+  summaries, Heatmaps, Frustration, Live, Settings (usage), project server
+  keys, the usage banner, and the WeldCRM person card "Website activity".
+- Test resources: streams `weldpanel_identities_test`,
+  `weldpanel_people_test`, `weldpanel_replay_chunks_test`, the EU bucket
+  `weldsuite-panel-replays-test` with lifecycle rules, and the queue
+  `panel-maintenance-test`, made with `scripts/weldpanel/setup-resources.mjs`
+  (idempotent; the same script sets up production).
+
 Open:
 
-- Production sink and pipeline (and catalog compaction / snapshot expiry):
-  waiting for a dedicated catalog token in Doppler `prd`
-  (`PANEL_CATALOG_TOKEN`). Until then production events would queue in the
-  stream without reaching a table.
-- panel-api secrets on test and production (`pnpm secrets:sync <env> panel-api`)
-  before the UI can create projects there.
-- Per-IP rate limiting on `/e`.
-- Help docs (`apps/web/docs`) once the module is published.
+- Test and production sinks and pipelines for the three new tables, the
+  production `events_v1` sink and pipeline, and catalog maintenance: need
+  `PANEL_CATALOG_TOKEN` (`doppler run … node scripts/weldpanel/setup-resources.mjs <env>`).
+  Then add the production stream ids, the replays bucket and the maintenance
+  queue to the collector's and panel-api's `[env.production]` bindings.
+- Secrets: panel-api `R2_SQL_API_TOKEN` (read-only Basin), `CF_ACCOUNT_ID`,
+  `AI_GATEWAY_API_TOKEN`, `CLOUDFLARE_API_TOKEN`; panel-maintenance
+  `DATABASE_URL_MASTER`, `CF_ACCOUNT_ID`, `PANEL_CATALOG_TOKEN`.
+- Run the compiler's SQL on the live test table: window functions,
+  `UNION ALL`, `json_contains`, `json_get_bool`, `to_unixtime` and interval
+  literals were only tested against a stubbed Basin.
+- Run the maintenance job against the real catalog, with snapshot expiry
+  short enough that erased rows don't outlive the rewrite in old snapshots.
+- Deploy order: panel-api and panel-ingest bind each other (the PanelProject
+  object one way, the internal entrypoint the other).
+- Overage rates, DPA and sub-processor update, and the App Store entry
+  (`isPublished`) before launch; screenshots for the help docs.
 
 ## Later (not in v1)
 
@@ -617,19 +679,22 @@ ADRs under a new `PANEL` area, written in phase 0 (skill `weldsuite-docs`):
 
 ## Open items
 
-- Allowances per plan (proposal, plan slugs `free` / `business` / `scale` /
-  `enterprise`): Free 50k events / 500 recordings; Business 1M / 5k; Scale
-  5M / 25k; Enterprise 20M / 100k. Overage rate per 10k events and per 100
-  recordings to set with the wallet pricing.
-- Retention per plan (proposal): events 12 months on Free, 25 months above;
-  recordings 30 days (90 on Scale and Enterprise); favourites 13 months. A
-  favourite outlives its events on Free, so the player must work from the
-  chunks alone there, or favourites keep their events too.
-- The rest of the open questions the design doc lists (grace counting when the
-  wallet is empty, the cookieless salt's storage, EU placement of the Durable
-  Objects and the KV query cache, permissions for heatmaps and the live view).
-- Default recording sample rate (proposal: 100% up to the plan allowance, with
-  a per-project override).
+- Allowances per plan (adopted 2026-11-14, in `@weldsuite/panel-domain/plans`;
+  a plan's `features.panelEventsPerMonth` / `panelRecordingsPerMonth`
+  override them): Free 50k events / 500 recordings; Business 1M / 5k; Scale
+  5M / 25k; Enterprise 20M / 100k. Still open: the overage rates per 10k
+  events and per 100 recordings (placeholders in `weldpanel.pricing`).
+- Retention per plan (adopted 2026-11-14): events 12 months on Free, 25 months
+  above; recordings 30 days (90 on Scale and Enterprise); favourites 13
+  months. A favourite outlives its events on Free, so the player must work
+  from the chunks alone there, or favourites keep their events too.
+- Decided 2026-11-14: the 10% event grace counts from the allowance;
+  PanelProject objects in the EU jurisdiction; the 2-minute query cache in
+  global KV; heatmap backgrounds need `panel_recordings:read`, the live view
+  `panel_reports:read` (distinct ids pseudonymised without
+  `panel_people:read`), favourites `panel_recordings:read`.
+- Default recording sample rate (adopted 2026-11-14): 100% up to the plan
+  allowance, with a per-project override.
 - Collector host name: `pnl.weldsuite.org` is a proposal; avoid words block
   lists match (`analytics`, `track`, `collect`).
 - Legal: DPA and sub-processor update, wording customers can use in their own
