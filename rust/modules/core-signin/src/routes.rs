@@ -2,7 +2,8 @@
 //! token: they are what a person without one calls. Each answers the next
 //! step of the sign-in ([`Step`]), or an error the screen words itself
 //! (`INVALID_CREDENTIALS`, `INVALID_CODE`, `ACCOUNT_LOCKED`, `RATE_LIMITED`,
-//! `EMAIL_TAKEN`, `WEAK_PASSWORD`, `SIGN_UP_DISABLED`, `NO_SESSION`).
+//! `EMAIL_TAKEN`, `WEAK_PASSWORD`, `SIGN_UP_DISABLED`, `NO_SESSION`,
+//! `INVITATION_ACCEPTED`).
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -17,8 +18,8 @@ use weldsuite_emails::EmailLocale;
 use weldsuite_kit::validation::json_body;
 use weldsuite_kit::{ApiError, Data, NoContent};
 use weldsuite_ports::{
-    AuthRequest, CodeFormat, CodeKind, NewUser, Prompt, SessionRef, SignInError, SignInSettings,
-    UserStatus,
+    AuthRequest, CodeFormat, CodeKind, NewUser, PasswordRules, Prompt, SessionRef, SignInError,
+    SignInSettings, UserStatus,
 };
 
 use crate::SignInState;
@@ -996,6 +997,138 @@ pub(crate) async fn password_reset_confirm(
     }
     .await;
     empty_response(&headers, answer)
+}
+
+// ── POST /invitation/accept ─────────────────────────────────────────────────
+
+fn invitation_accepted() -> ApiError {
+    refused(
+        StatusCode::CONFLICT,
+        "INVITATION_ACCEPTED",
+        "This invitation has already been accepted",
+    )
+}
+
+/// The password meets the provider's rules, checked as the provider does
+/// (Zitadel: the length in bytes, ASCII letters and digits, a symbol is
+/// anything else).
+fn meets_rules(rules: PasswordRules, password: &str) -> bool {
+    let has = |test: fn(&u8) -> bool| password.bytes().any(|byte| test(&byte));
+    u32::try_from(password.len()).unwrap_or(u32::MAX) >= rules.min_length
+        && (!rules.uppercase || has(u8::is_ascii_uppercase))
+        && (!rules.lowercase || has(u8::is_ascii_lowercase))
+        && (!rules.number || has(u8::is_ascii_digit))
+        && (!rules.symbol || has(|byte| !byte.is_ascii_alphanumeric()))
+}
+
+/// Wait, a few seconds at most, until the provider reads the address as
+/// verified: the sign-in that follows reads it there, and would otherwise ask
+/// for a verification code the invitation already stood for.
+async fn await_verified(state: &SignInState, user_id: &str) {
+    let mut waits = NEW_ACCOUNT_WAITS.into_iter();
+    loop {
+        match state.provider.user(user_id).await {
+            Ok(Some(user)) if user.email_verified => return,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "invitation: the account could not be read back");
+                return;
+            }
+        }
+        let Some(wait) = waits.next() else {
+            tracing::warn!(
+                user_id,
+                "invitation: the provider does not read the address as verified yet"
+            );
+            return;
+        };
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// The link in an invitation email (`/invite?userId=…&code=…`): the code
+/// that came with it proves the address, and the person chooses their first
+/// password. Answers the account's address, and puts a provider session in
+/// the cookie so the sign-in the platform starts next goes straight through
+/// (`signedIn`). A code that does not check out is `INVALID_CODE`; an
+/// account that has already accepted (the link opened twice) is
+/// `INVITATION_ACCEPTED`, before any code is checked: a used code must never
+/// set the password of an account that has one.
+pub(crate) async fn accept_invitation(
+    State(state): State<SignInState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let answer = async {
+        let fields = Fields::parse(&headers, &body)?;
+        let user_id = fields.text("userId", 128)?;
+        let code = fields.text("code", 64)?;
+        let password = fields.password()?;
+        if !plain_id(user_id) {
+            return Err(invalid_code());
+        }
+        state
+            .limits
+            .hit(CODES_PER_CALLER, &state.limits.caller(&headers))
+            .await?;
+        state.limits.hit(CODES_PER_TARGET, user_id).await?;
+
+        let Some(user) = state.provider.user(user_id).await.map_err(refusal)? else {
+            return Err(invalid_code());
+        };
+        if matches!(user.status, UserStatus::Locked | UserStatus::Inactive) {
+            return Err(refusal(SignInError::Locked));
+        }
+        let methods = state
+            .provider
+            .auth_methods(user_id)
+            .await
+            .map_err(refusal)?;
+        if user.email_verified || methods.password {
+            return Err(invitation_accepted());
+        }
+        // The code is spent once it checks out, so a password the policy
+        // refuses is refused before it is checked.
+        let rules = state
+            .provider
+            .password_rules(user.organization_id.as_deref())
+            .await
+            .map_err(refusal)?;
+        if !meets_rules(rules, password) {
+            return Err(refusal(SignInError::WeakPassword));
+        }
+        let format = state.provider.code_format(CodeKind::Invitation).await;
+        state
+            .provider
+            .accept_invitation(user_id, &typed_code(code, format), password)
+            .await
+            .map_err(refusal)?;
+
+        // The account is set up. Signing in is a convenience: without a
+        // session the platform's sign-in screen asks for the new password.
+        let lifetime = session_lifetime(&state, user.organization_id.as_deref()).await;
+        let change = match first_session(&state, user_id, password, lifetime).await {
+            Ok(session) => {
+                await_verified(&state, user_id).await;
+                Change::Set(session, COOKIE_LIFETIME)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    code = error.code(),
+                    "invitation: accepted, but no session opened"
+                );
+                Change::Keep
+            }
+        };
+        let signed_in = matches!(change, Change::Set(..));
+        let accepted = json!({ "email": user.email, "signedIn": signed_in });
+        Ok((accepted, change))
+    }
+    .await;
+    match answer {
+        Ok((accepted, change)) => respond(&headers, Data(accepted), &change),
+        Err(error) => respond(&headers, error, &Change::Keep),
+    }
 }
 
 // ── POST /sign-out ──────────────────────────────────────────────────────────
