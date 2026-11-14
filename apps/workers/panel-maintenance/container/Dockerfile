@@ -4,8 +4,14 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-RUN pip install --no-cache-dir "pyiceberg[pyarrow]==0.9.1"
+# Wheels only: no package's setup script runs at build time. Every dependency
+# of pyiceberg[pyarrow] 0.9.1 ships a manylinux wheel for Python 3.12.
+RUN pip install --no-cache-dir --only-binary :all: "pyiceberg[pyarrow]==0.9.1"
 COPY maintenance.py server.py ./
+
+# Run as an unprivileged user; the job needs no write access to the image.
+RUN useradd --system --no-create-home --uid 10001 maintenance
+USER maintenance
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080

@@ -68,7 +68,10 @@ function StepBar({
 export function FunnelResultView({ result, spec, projectId, canWatch = false, compact = false }: Readonly<FunnelResultViewProps>) {
   const { t, language } = useI18n();
   const tf = t.weldpanel.analytics.funnels;
-  const watch = canWatch && !compact;
+  // The result can briefly belong to an earlier spec (the query keeps the previous data while a
+  // changed funnel loads): links built from a spec with other steps would point at the wrong
+  // events or past its last step, so they wait until both agree.
+  const watch = canWatch && !compact && spec.steps.length === result.steps.length;
 
   return (
     <div className="grid gap-4">

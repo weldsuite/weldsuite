@@ -102,7 +102,9 @@ export function isCustomEventName(name: unknown): name is string {
 
 /** A user id the collector accepts: trimmed, 1 to 255 characters, no control characters; else undefined. */
 export function cleanUserId(id: unknown): string | undefined {
-  const s = typeof id === 'number' && isFinite(id) ? String(id) : typeof id === 'string' ? id.trim() : '';
+  let s = '';
+  if (typeof id === 'number' && isFinite(id)) s = String(id);
+  else if (typeof id === 'string') s = id.trim();
   return USER_ID.test(s) ? s : undefined;
 }
 
@@ -142,6 +144,17 @@ export function profileKey(key: string): string {
   return key === 'email' || key === 'name' ? `$${key}` : key;
 }
 
+/** The profile keys an `unset` may name: valid, unique, at most {@link MAX_UNSET_KEYS}. */
+function unsetKeys(raws: unknown, onDrop?: (key: string, reason: string) => void): string[] {
+  const keys: string[] = [];
+  for (const raw of Array.isArray(raws) ? raws : []) {
+    const key = typeof raw === 'string' ? profileKey(raw) : '';
+    if (PROFILE_PROPERTY_KEY.test(key) && keys.indexOf(key) < 0 && keys.length < MAX_UNSET_KEYS) keys.push(key);
+    else onDrop?.(String(raw), 'invalid or repeated key');
+  }
+  return keys;
+}
+
 /**
  * The profile operation as the collector will accept it, or null when nothing
  * valid is left (bad user id, no valid property).
@@ -151,12 +164,7 @@ export function normalizePeopleOp(input: PeopleOpInput, onDrop?: (key: string, r
   if (!user_id) return null;
   const ts = isoTime(input.ts);
   if (input.op === 'unset') {
-    const keys: string[] = [];
-    for (const raw of Array.isArray(input.keys) ? input.keys : []) {
-      const key = typeof raw === 'string' ? profileKey(raw) : '';
-      if (PROFILE_PROPERTY_KEY.test(key) && keys.indexOf(key) < 0 && keys.length < MAX_UNSET_KEYS) keys.push(key);
-      else onDrop?.(String(raw), 'invalid or repeated key');
-    }
+    const keys = unsetKeys(input.keys, onDrop);
     return keys.length ? { op: 'unset', user_id, ts, keys } : null;
   }
   if (input.op !== 'set' && input.op !== 'set_once' && input.op !== 'increment') return null;

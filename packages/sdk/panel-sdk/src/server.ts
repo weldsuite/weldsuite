@@ -110,12 +110,31 @@ export interface PanelServer {
   flush(): Promise<PanelServerResult>;
 }
 
+let idCounter = 0;
+
 function eventId(): string {
   const c = (globalThis as { crypto?: Crypto }).crypto;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  // Node 18 without the global Web Crypto: an id only has to be unique, not secret.
-  const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-  return `${hex(8)}-${hex(4)}-4${hex(3)}-${'89ab'[Math.floor(Math.random() * 4)]}${hex(3)}-${hex(12)}`;
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
+  else {
+    // Node 18 without the global Web Crypto: an id only has to be unique, not secret.
+    // Wall clock, a counter, the monotonic clock and the process id.
+    let t = Date.now();
+    for (let i = 0; i < 6; i++, t = Math.floor(t / 256)) b[i] = t % 256;
+    idCounter = (idCounter + 1) % 65536;
+    b[6] = idCounter >> 8;
+    b[7] = idCounter & 255;
+    let m = Math.floor(performance.now() * 1000);
+    for (let i = 8; i < 14; i++, m = Math.floor(m / 256)) b[i] = m % 256;
+    const pid = (globalThis as { process?: { pid?: number } }).process?.pid ?? 0;
+    b[14] = pid >> 8;
+    b[15] = pid & 255;
+  }
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => (x < 16 ? '0' : '') + x.toString(16)).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 /** The event as the collector accepts it, or null when it can't be (bad name or distinct id). */

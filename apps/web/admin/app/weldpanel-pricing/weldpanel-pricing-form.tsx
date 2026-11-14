@@ -41,7 +41,7 @@ export function WeldpanelPricingForm({ pricing }: Readonly<{ pricing: WeldpanelP
       const result = await saveWeldpanelPricing({ eventsCreditsPer10k: events, recordingsCreditsPer100: recordings });
       if (result.ok) {
         toast.success(copy.saved);
-        router.refresh();
+        await router.refresh();
       } else {
         toast.error(result.error);
       }

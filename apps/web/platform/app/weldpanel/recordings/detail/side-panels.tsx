@@ -15,6 +15,11 @@ import { formatClock, type PageVisit, type TimelineMarker } from '../../lib/repl
 import { MARKER_STYLES } from '../player/timeline';
 import { SignalBadges } from '../signal-badges';
 
+function markerText(marker: TimelineMarker): string {
+  if (marker.kind === 'page' || marker.kind === 'click') return marker.label;
+  return marker.name === marker.label ? marker.name : `${marker.name}: ${marker.label}`;
+}
+
 export function PagesPanel({ visits, currentOffset, onJump }: Readonly<{ visits: readonly PageVisit[]; currentOffset: number; onJump: (ms: number) => void }>) {
   const { t, format } = useI18n();
   const tp = t.weldpanel.observe.session.pages;
@@ -76,7 +81,7 @@ export function EventsPanel({ markers, onJump }: Readonly<{ markers: readonly Ti
               >
                 <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', MARKER_STYLES[marker.kind])} aria-hidden />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{marker.kind === 'page' || marker.kind === 'click' ? marker.label : marker.name === marker.label ? marker.name : `${marker.name}: ${marker.label}`}</span>
+                  <span className="block truncate text-sm">{markerText(marker)}</span>
                   <span className="block text-xs text-muted-foreground">{te.kinds[marker.kind]}</span>
                 </span>
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{formatClock(marker.offsetMs)}</span>

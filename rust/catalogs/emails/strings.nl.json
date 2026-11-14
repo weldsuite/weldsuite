@@ -375,6 +375,32 @@
     "workspace": "Werkruimte",
     "workspaceId": "Werkruimte-id"
   },
+  "panel": {
+    "usage": {
+      "amount": "{used} van {allowance}",
+      "bodyEventsBlocked": "Je tegoed kan het volgende blok gebruik niet dekken en je zit meer dan 10% boven de bundel, dus nieuwe events en opnames worden niet opgeslagen tot de volgende maand, een opwaardering of een upgrade. Gemiste events zijn niet terug te halen.",
+      "bodyFull": "Gebruik boven de bundel wordt nu in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.",
+      "bodyNear": "Gebruik boven de bundel wordt in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.",
+      "bodyReplayBlocked": "Je tegoed kan het volgende blok gebruik niet dekken, dus er worden geen nieuwe opnames gemaakt. Events worden nog wel geteld. Waardeer je tegoed op of upgrade je abonnement om door te gaan.",
+      "button": "Bekijk gebruik",
+      "events": "Events",
+      "footer": "Je krijgt dit omdat je eigenaar van de werkruimte bent.",
+      "headingEventsBlocked": "Nieuwe events worden niet meer opgeslagen",
+      "headingFull": "Je hebt je maandelijkse bundel gebruikt",
+      "headingNear": "Je hebt 80% van je maandelijkse bundel gebruikt",
+      "headingReplayBlocked": "Nieuwe opnames zijn gestopt",
+      "kicker": "WeldPanel-gebruik",
+      "previewBlocked": "Je tegoed kan geen extra WeldPanel-gebruik meer dekken.",
+      "previewFull": "De bundel van deze maand is op: {events} events en {recordings} opnames.",
+      "previewNear": "{events} events en {recordings} opnames deze maand gebruikt.",
+      "recordings": "Opnames",
+      "resets": "De teller begint opnieuw op {date}.",
+      "subjectEventsBlocked": "WeldPanel laat events vallen voor {workspace}",
+      "subjectFull": "{workspace} heeft de WeldPanel-bundel van deze maand gebruikt",
+      "subjectNear": "{workspace} heeft 80% van de WeldPanel-bundel gebruikt",
+      "subjectReplayBlocked": "WeldPanel neemt geen sessies meer op voor {workspace}"
+    }
+  },
   "portal": {
     "expiresCode": "De code verloopt over {minutes} minuten.",
     "expiresLink": "De link en code verlopen over {minutes} minuten.",

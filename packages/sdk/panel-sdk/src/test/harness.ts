@@ -1,6 +1,7 @@
 /** Test helpers: a client on a fake network, and a clean page between tests. */
 
 import { vi } from 'vitest';
+import { resetSeqMemory } from '../storage';
 import { createClient, type Client, type ClientOptions } from '../client';
 import type { ClientConfig, EventBatch, WireEvent } from '../wire';
 
@@ -123,6 +124,7 @@ export function resetPage(): void {
   vi.restoreAllMocks();
   vi.useRealTimers();
   localStorage.clear();
+  resetSeqMemory();
   sessionStorage.clear();
   document.body.innerHTML = '';
   document.title = '';

@@ -53,6 +53,118 @@ function useCrmPerson(email: string | null) {
   return useMemo(() => (isInstalled ? (data?.data.find((p) => p.email?.toLowerCase() === address) ?? null) : null), [data, address, isInstalled]);
 }
 
+type PersonData = NonNullable<ReturnType<typeof useWeldPanelPerson>['data']>;
+
+function OverviewTab({ person }: Readonly<{ person: PersonData['person'] }>) {
+  const { t } = useI18n();
+  const tp = t.weldpanel.observe.person;
+  const properties = Object.entries(person.properties);
+  return (
+    <TabBody className="p-0">
+      <SectionCard title={tp.properties}>
+        {properties.length === 0 ? (
+          <EmptyText>{tp.noProperties}</EmptyText>
+        ) : (
+          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(8rem,14rem)_1fr]">
+            {properties.map(([key, value]) => (
+              <div key={key} className="contents">
+                <dt className="truncate text-muted-foreground">{key}</dt>
+                <dd className="min-w-0 break-words">{propertyText(value) || '–'}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </SectionCard>
+      <SectionCard title={tp.userId}>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(8rem,14rem)_1fr]">
+          <dt className="text-muted-foreground">{tp.userId}</dt>
+          <dd className="break-all font-mono text-xs">{person.userId}</dd>
+          <dt className="text-muted-foreground">{tp.anonIds}</dt>
+          <dd className="break-all font-mono text-xs">{person.anonIds.length === 0 ? tp.noAnonIds : person.anonIds.join(', ')}</dd>
+        </dl>
+      </SectionCard>
+    </TabBody>
+  );
+}
+
+function ActivityTab({ events }: Readonly<{ events: PersonData['recentEvents'] }>) {
+  const { t, language } = useI18n();
+  const tp = t.weldpanel.observe.person;
+  return (
+    <SectionCard title={tp.activity}>
+      {events.length === 0 ? (
+        <EmptyText>{tp.noActivity}</EmptyText>
+      ) : (
+        <ol className="grid gap-0 border-l pl-4">
+          {events.map((event) => (
+            <li key={event.eventId} className="relative pb-4 last:pb-0">
+              <span className="absolute -left-[1.3rem] top-1.5 size-2 rounded-full bg-primary" aria-hidden />
+              <p className="text-sm font-medium">{event.name}</p>
+              {(event.path ?? event.detail) && <p className="truncate text-sm text-muted-foreground">{[event.path, event.detail].filter(Boolean).join(' · ')}</p>}
+              <p className="text-xs text-muted-foreground">{formatDateTime(event.ts, language)}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </SectionCard>
+  );
+}
+
+function RecordingsTab({ data, projectId, canWatch }: Readonly<{ data: PersonData; projectId: string; canWatch: boolean }>) {
+  const { t, language } = useI18n();
+  const tp = t.weldpanel.observe.person;
+  const { person } = data;
+  return (
+    <SectionCard
+      title={tp.recordings}
+      action={
+        canWatch ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={personRecordingsHref(person.userId, projectId)}>{tp.allRecordings}</Link>
+          </Button>
+        ) : undefined
+      }
+    >
+      {data.sessions.length === 0 ? (
+        <EmptyText>{tp.noRecordings}</EmptyText>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t.weldpanel.observe.recordings.columns.started}</TableHead>
+                <TableHead>{t.weldpanel.observe.recordings.columns.duration}</TableHead>
+                <TableHead>{t.weldpanel.observe.recordings.columns.pages}</TableHead>
+                <TableHead>{t.weldpanel.observe.recordings.columns.signals}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.sessions.map((session) => (
+                <TableRow key={session.sessionId}>
+                  <TableCell className="whitespace-nowrap">{formatDateTime(session.startedAt, language)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDuration(session.durationSeconds)}</TableCell>
+                  <TableCell className="tabular-nums">{session.pageviews}</TableCell>
+                  <TableCell>
+                    <SignalBadges session={session} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {canWatch && session.hasRecording && (
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/weldpanel/recordings/${encodeURIComponent(session.sessionId)}?project=${encodeURIComponent(projectId)}`}>{tp.watch}</Link>
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 function Profile({ projectId, distinctId }: Readonly<{ projectId: string; distinctId: string }>) {
   const { t, language, format } = useI18n();
   const tp = t.weldpanel.observe.person;
@@ -89,7 +201,6 @@ function Profile({ projectId, distinctId }: Readonly<{ projectId: string; distin
   }
 
   const { person } = data;
-  const properties = Object.entries(person.properties);
 
   async function confirmErase() {
     try {
@@ -144,99 +255,15 @@ function Profile({ projectId, distinctId }: Readonly<{ projectId: string; distin
           </TabsList>
 
           <TabsContent value="overview">
-            <TabBody className="p-0">
-              <SectionCard title={tp.properties}>
-                {properties.length === 0 ? (
-                  <EmptyText>{tp.noProperties}</EmptyText>
-                ) : (
-                  <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(8rem,14rem)_1fr]">
-                    {properties.map(([key, value]) => (
-                      <div key={key} className="contents">
-                        <dt className="truncate text-muted-foreground">{key}</dt>
-                        <dd className="min-w-0 break-words">{propertyText(value) || '–'}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </SectionCard>
-              <SectionCard title={tp.userId}>
-                <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(8rem,14rem)_1fr]">
-                  <dt className="text-muted-foreground">{tp.userId}</dt>
-                  <dd className="break-all font-mono text-xs">{person.userId}</dd>
-                  <dt className="text-muted-foreground">{tp.anonIds}</dt>
-                  <dd className="break-all font-mono text-xs">{person.anonIds.length === 0 ? tp.noAnonIds : person.anonIds.join(', ')}</dd>
-                </dl>
-              </SectionCard>
-            </TabBody>
+            <OverviewTab person={person} />
           </TabsContent>
 
           <TabsContent value="activity">
-            <SectionCard title={tp.activity}>
-              {data.recentEvents.length === 0 ? (
-                <EmptyText>{tp.noActivity}</EmptyText>
-              ) : (
-                <ol className="grid gap-0 border-l pl-4">
-                  {data.recentEvents.map((event) => (
-                    <li key={event.eventId} className="relative pb-4 last:pb-0">
-                      <span className="absolute -left-[1.3rem] top-1.5 size-2 rounded-full bg-primary" aria-hidden />
-                      <p className="text-sm font-medium">{event.name}</p>
-                      {(event.path ?? event.detail) && <p className="truncate text-sm text-muted-foreground">{[event.path, event.detail].filter(Boolean).join(' · ')}</p>}
-                      <p className="text-xs text-muted-foreground">{formatDateTime(event.ts, language)}</p>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </SectionCard>
+            <ActivityTab events={data.recentEvents} />
           </TabsContent>
 
           <TabsContent value="recordings">
-            <SectionCard
-              title={tp.recordings}
-              action={
-                canWatch ? (
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={personRecordingsHref(person.userId, projectId)}>{tp.allRecordings}</Link>
-                  </Button>
-                ) : undefined
-              }
-            >
-              {data.sessions.length === 0 ? (
-                <EmptyText>{tp.noRecordings}</EmptyText>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t.weldpanel.observe.recordings.columns.started}</TableHead>
-                        <TableHead>{t.weldpanel.observe.recordings.columns.duration}</TableHead>
-                        <TableHead>{t.weldpanel.observe.recordings.columns.pages}</TableHead>
-                        <TableHead>{t.weldpanel.observe.recordings.columns.signals}</TableHead>
-                        <TableHead />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.sessions.map((session) => (
-                        <TableRow key={session.sessionId}>
-                          <TableCell className="whitespace-nowrap">{formatDateTime(session.startedAt, language)}</TableCell>
-                          <TableCell className="tabular-nums">{formatDuration(session.durationSeconds)}</TableCell>
-                          <TableCell className="tabular-nums">{session.pageviews}</TableCell>
-                          <TableCell>
-                            <SignalBadges session={session} />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {canWatch && session.hasRecording && (
-                              <Button asChild variant="ghost" size="sm">
-                                <Link href={`/weldpanel/recordings/${encodeURIComponent(session.sessionId)}?project=${encodeURIComponent(projectId)}`}>{tp.watch}</Link>
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </SectionCard>
+            <RecordingsTab data={data} projectId={projectId} canWatch={canWatch} />
           </TabsContent>
         </Tabs>
       </div>

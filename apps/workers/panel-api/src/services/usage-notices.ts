@@ -89,7 +89,7 @@ export async function planUsageNotice(
       notified = fresh?.notified ?? [];
       continue;
     }
-    const highest = unsent.reduce((a, b) => (NOTICE_MARKERS.indexOf(b) > NOTICE_MARKERS.indexOf(a) ? b : a));
+    const highest = unsent.reduce((a, b) => (NOTICE_MARKERS.indexOf(b) > NOTICE_MARKERS.indexOf(a) ? b : a), unsent[0]!);
     return {
       workspaceId: workspace.id,
       workspaceName: workspace.name,

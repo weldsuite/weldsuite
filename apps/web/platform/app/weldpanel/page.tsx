@@ -5,7 +5,6 @@ import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpane
 import type { PanelBreakdownRow, PanelFilter, PanelFilterColumn, PanelWebSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
-import { DashboardPage } from '@weldsuite/ui/components/page-layout';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { Switch } from '@weldsuite/ui/components/switch';
@@ -114,29 +113,32 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
     ? breakdownRows({ devices: result.devices, browsers: result.browsers, operatingSystems: result.operatingSystems }[devicesTab], DEVICE_COLUMN[devicesTab])
     : [];
 
+  // The page title row belongs to AnalyticsPage; the toolbar opens the body.
   const toolbar = (
-    <>
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <LiveVisitors projectId={project.id} />
       <DateRangePicker value={range} onChange={setRange} />
-    </>
+    </div>
   );
 
   if (unavailable) {
     return (
-      <DashboardPage title={to.title} description={to.description} actions={toolbar}>
+      <>
+        {toolbar}
         <QueryErrorState error={error} />
         <InstallStatus projectId={project.id} paused={project.status === 'paused'} showLink />
-      </DashboardPage>
+      </>
     );
   }
 
   // A project that never received an event: the install instructions, not a page of zeros.
   if (noTraffic && filters.length === 0 && !isFetching) {
     return (
-      <DashboardPage title={to.title} description={to.description} actions={toolbar}>
+      <>
+        {toolbar}
         <InstallStatus projectId={project.id} paused={project.status === 'paused'} showLink />
         <EmptyState icon={ChartSpline} title={to.waitingTitle} description={to.waitingDescription} />
-      </DashboardPage>
+      </>
     );
   }
 
@@ -155,7 +157,8 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
   const rowLabel = to.filterRow;
 
   return (
-    <DashboardPage title={to.title} description={to.description} actions={toolbar}>
+    <>
+      {toolbar}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FilterBuilder projectId={project.id} filters={filters} onChange={setFilters} />
         <div className="flex flex-wrap items-center gap-4">
@@ -192,7 +195,7 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
             >
               <BreakdownList
                 rows={pagesRows}
-                primaryLabel={pagesTab === 'top' ? to.columns.visitors : pagesTab === 'entry' ? to.pages.entries : to.pages.exits}
+                primaryLabel={{ top: to.columns.visitors, entry: to.pages.entries, exit: to.pages.exits }[pagesTab]}
                 secondaryLabel={pagesTab === 'top' ? to.columns.pageviews : undefined}
                 selectedKeys={selectedValues(filters, 'path')}
                 onSelect={pickFilter('path')}
@@ -256,7 +259,7 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
           </div>
         </>
       )}
-    </DashboardPage>
+    </>
   );
 }
 
@@ -282,7 +285,7 @@ export default function WeldPanelHome() {
   }
 
   if (projects.length > 0) {
-    return <AnalyticsPage title={t.weldpanel.analytics.overview.title}>{(project) => <Overview key={project.id} project={project} />}</AnalyticsPage>;
+    return <AnalyticsPage title={t.weldpanel.analytics.overview.title} description={t.weldpanel.analytics.overview.description}>{(project) => <Overview key={project.id} project={project} />}</AnalyticsPage>;
   }
 
   const steps = [

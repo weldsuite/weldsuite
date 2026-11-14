@@ -77,7 +77,9 @@ export class PanelMaintenanceWorkflow extends WorkflowEntrypoint<Env, Maintenanc
       }
       if (!result) throw new NonRetryableError('The maintenance job did not finish in time');
     } catch (error) {
-      await step.do('stop container after failure', async () => void (await job().stop()));
+      await step.do('stop container after failure', async () => {
+        await job().stop();
+      });
       throw error;
     }
 
@@ -98,7 +100,9 @@ export class PanelMaintenanceWorkflow extends WorkflowEntrypoint<Env, Maintenanc
       return { ids, projects };
     });
 
-    await step.do('stop container', async () => void (await job().stop()));
+    await step.do('stop container', async () => {
+        await job().stop();
+      });
     return { runId: spec.runId, erasedProjects: settled.projects, erasedIds: settled.ids, result: finished };
   }
 }

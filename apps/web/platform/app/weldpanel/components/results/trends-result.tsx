@@ -25,7 +25,9 @@ export function ChangeBadge({ current, previous, className }: Readonly<ChangePro
   const { language } = useI18n();
   const change = relativeChange(current, previous);
   if (change === null) return null;
-  const tone = change > 0 ? 'text-emerald-600 dark:text-emerald-400' : change < 0 ? 'text-destructive' : 'text-muted-foreground';
+  let tone = 'text-muted-foreground';
+  if (change > 0) tone = 'text-emerald-600 dark:text-emerald-400';
+  else if (change < 0) tone = 'text-destructive';
   return <span className={cn('tabular-nums', tone, className)}>{formatSignedPercent(change, language)}</span>;
 }
 
@@ -41,7 +43,7 @@ export function TrendsResultView({ result, chartType, className }: Readonly<Tren
   const other = t.weldpanel.analytics.common.other;
 
   const { data, series } = useMemo(() => {
-    const buckets = [...new Set(result.series.flatMap((s) => s.points.map((p) => p.bucket)))].sort();
+    const buckets = [...new Set(result.series.flatMap((s) => s.points.map((p) => p.bucket)))].sort((a, b) => a.localeCompare(b));
     const lines: ChartSeries[] = [];
     const rows: ChartDatum[] = buckets.map((bucket) => ({ label: formatBucket(bucket, result.interval, language) }));
     result.series.forEach((s, i) => {

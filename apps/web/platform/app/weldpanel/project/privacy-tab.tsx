@@ -178,7 +178,7 @@ function PrivacyForm({ project }: Readonly<{ project: PanelProjectDto }>) {
                 value={field.value}
                 onChange={field.onChange}
                 parse={parseIpFilter}
-                separator={/[s,]+/}
+                separator={/[\s,]+/}
                 max={MAX_IP_FILTERS}
                 placeholder={tp.ipFiltersPlaceholder}
                 invalidMessage={t.weldpanel.validation.ipInvalid}

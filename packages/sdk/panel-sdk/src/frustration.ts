@@ -124,31 +124,31 @@ function scriptUrl(url: unknown): string | undefined {
  * email addresses and long numbers masked, like element text), script, line
  * and column. Null for an event that carries no error.
  */
+interface RawException {
+  message: string;
+  source?: string;
+  line?: number;
+  col?: number;
+}
+
+function rejectionParts(reason: unknown): RawException {
+  if (!(reason instanceof Error)) return { message: `Unhandled rejection: ${typeof reason === 'string' ? reason : String(reason)}` };
+  const message = `${reason.name}: ${reason.message}`;
+  // The first frame with a URL: `at f (https://x/app.js:12:34)` or `f@https://x/app.js:12:34`.
+  const frame = /(https?:\/\/[^\s)]+?):(\d+):(\d+)/.exec(reason.stack || '');
+  return frame ? { message, source: frame[1], line: +frame[2], col: +frame[3] } : { message };
+}
+
+function errorParts(err: ErrorEvent): RawException {
+  let message = err.message;
+  if (!message && err.error instanceof Error) message = `${err.error.name}: ${err.error.message}`;
+  return { message: message || '', source: err.filename, line: err.lineno, col: err.colno };
+}
+
 export function exceptionInfo(e: Event): ExceptionInfo | null {
-  let message: string;
-  let source: string | undefined;
-  let line: number | undefined;
-  let col: number | undefined;
-  if (e.type === 'unhandledrejection') {
-    const reason = (e as PromiseRejectionEvent).reason as unknown;
-    if (reason instanceof Error) {
-      message = `${reason.name}: ${reason.message}`;
-      // The first frame with a URL: `at f (https://x/app.js:12:34)` or `f@https://x/app.js:12:34`.
-      const frame = /(https?:\/\/[^\s)]+?):(\d+):(\d+)/.exec(reason.stack || '');
-      if (frame) {
-        source = frame[1];
-        line = +frame[2];
-        col = +frame[3];
-      }
-    } else message = `Unhandled rejection: ${typeof reason === 'string' ? reason : String(reason)}`;
-  } else {
-    const err = e as ErrorEvent;
-    message = err.message || (err.error instanceof Error ? `${err.error.name}: ${err.error.message}` : '');
-    source = err.filename;
-    line = err.lineno;
-    col = err.colno;
-  }
-  message = maskText(message.replace(/\s+/g, ' ').trim()).slice(0, MAX_ERROR_MESSAGE);
+  const raw = e.type === 'unhandledrejection' ? rejectionParts((e as PromiseRejectionEvent).reason as unknown) : errorParts(e as ErrorEvent);
+  const { source, line, col } = raw;
+  const message = maskText(raw.message.replace(/\s+/g, ' ').trim()).slice(0, MAX_ERROR_MESSAGE);
   if (!message) return null;
   const info: ExceptionInfo = { message };
   const src = scriptUrl(source);
@@ -161,6 +161,12 @@ export function exceptionInfo(e: Event): ExceptionInfo | null {
 /** The de-duplication key: one `$exception` per message, script and line per session. */
 export function exceptionKey(info: ExceptionInfo): string {
   return `${info.message}|${info.source || ''}|${info.line || 0}`;
+}
+
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return String((input && input.url) || '');
 }
 
 /**
@@ -176,7 +182,7 @@ export function watchRequests(onRequest: (url: string) => void): () => void {
     const wrapped = function (this: unknown, ...args: Parameters<typeof fetch>) {
       try {
         const input = args[0];
-        onRequest(typeof input === 'string' ? input : input instanceof URL ? input.href : String((input && input.url) || ''));
+        onRequest(requestUrl(input));
       } catch {
         // Never in the way of the page's request.
       }

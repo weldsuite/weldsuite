@@ -49,14 +49,11 @@ export function UsageBanner() {
   if (!alert && (dismissed === key || wasDismissed(key))) return null;
 
   const what = 'what' in banner ? tb.what[banner.what] : '';
-  const message =
-    banner.kind === 'events_blocked'
-      ? tb.eventsBlocked
-      : banner.kind === 'replay_blocked'
-        ? tb.replayBlocked
-        : banner.kind === 'reached'
-          ? tb.reached100.replace('{what}', what)
-          : tb.warning80.replace('{percent}', formatPercent(banner.ratio, language, 0)).replace('{what}', what);
+  let message: string;
+  if (banner.kind === 'events_blocked') message = tb.eventsBlocked;
+  else if (banner.kind === 'replay_blocked') message = tb.replayBlocked;
+  else if (banner.kind === 'reached') message = tb.reached100.replace('{what}', what);
+  else message = tb.warning80.replace('{percent}', formatPercent(banner.ratio, language, 0)).replace('{what}', what);
 
   return (
     <div className="border-b px-4 py-2" data-testid="weldpanel-usage-banner">

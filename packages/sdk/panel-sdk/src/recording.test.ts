@@ -49,19 +49,30 @@ describe('starting the recorder', () => {
   });
 
   it('decides sampling once per session, and again for a new one', async () => {
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.9);
+    // The dice: a Uint32 draw, 0.9 or 0.1 of the range.
+    let roll = 0.9 * 4294967296;
+    const draws = vi.fn();
+    const real = crypto.getRandomValues.bind(crypto);
+    vi.spyOn(crypto, 'getRandomValues').mockImplementation(((array: ArrayBufferView) => {
+      if (array instanceof Uint32Array) {
+        draws();
+        array[0] = roll;
+        return array;
+      }
+      return real(array as Uint8Array);
+    }) as typeof crypto.getRandomValues);
     const { factory } = fakeRecorder();
     const { client } = setup({ ...RECORDING, recordingSampleRate: 0.5 }, { recorder: factory });
     client.api.track('One');
     client.api.track('Two');
     await settle();
-    expect(random).toHaveBeenCalledTimes(1);
+    expect(draws).toHaveBeenCalledTimes(1);
     expect(factory).not.toHaveBeenCalled();
     expect(JSON.parse(localStorage.getItem(recordingKey(TOKEN))!)).toMatchObject({ r: 0 });
     client.destroy();
 
     // The same session on the next page keeps the decision, even if the dice would say yes now.
-    random.mockReturnValue(0.1);
+    roll = 0.1 * 4294967296;
     const next = setup({ ...RECORDING, recordingSampleRate: 0.5 }, { recorder: factory });
     await settle();
     expect(factory).not.toHaveBeenCalled();

@@ -86,19 +86,21 @@ function seriesQuery(
 ): PanelSqlQuery {
   const scope = eventsScope(ctx, range, bounds, { filters: spec.filters });
   const bucket = bucketSql('e.ts', interval, range.offsetMinutes);
+  const pvWhere = scope.where(`e.name = ${PAGEVIEW}`);
   const sql =
     `SELECT ${bucket} AS bucket, COUNT(DISTINCT ${scope.person}) AS visitors, COUNT(*) AS pageviews ` +
-    `FROM ${scope.from} ${scope.where(`e.name = ${PAGEVIEW}`)} GROUP BY ${bucket} ORDER BY ${bucket} ASC`;
+    `FROM ${scope.from} ${pvWhere} GROUP BY ${bucket} ORDER BY ${bucket} ASC`;
   return { name, sql, columns: ['bucket', 'visitors', 'pageviews'] };
 }
 
 function entryExitQuery(ctx: PanelQueryContext, range: ResolvedRange, spec: ParsedWebSpec): PanelSqlQuery {
   const scope = eventsScope(ctx, range, range, { filters: spec.filters });
   const partition = 'COALESCE(session_id, anon_id)';
+  const pvWhere = scope.where(`e.name = ${PAGEVIEW}`);
   const sql =
     `WITH pv AS (SELECT e.path AS path, e.session_id AS session_id, e.anon_id AS anon_id, e.ts AS ts, e.event_id AS event_id, ` +
     `LAG(e.ts) OVER (PARTITION BY COALESCE(e.session_id, e.anon_id) ORDER BY e.ts, e.event_id) AS prev_ts ` +
-    `FROM ${scope.from} ${scope.where(`e.name = ${PAGEVIEW}`)}), ` +
+    `FROM ${scope.from} ${pvWhere}), ` +
     `seg AS (SELECT path, session_id, anon_id, ts, event_id, ` +
     `SUM(CASE WHEN prev_ts IS NULL OR to_unixtime(ts) - to_unixtime(prev_ts) > ${SESSION_GAP_SECONDS} THEN 1 ELSE 0 END) ` +
     `OVER (PARTITION BY ${partition} ORDER BY ts, event_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS seg_no FROM pv), ` +

@@ -46,7 +46,7 @@ app.get('/', requirePermission('panel_projects:manage'), async (c) => {
   const collectorState = parseQuotaState(await kv.get(quotaKvKey(workspaceId)));
   if ((quota !== 'ok' || collectorState !== 'ok')) {
     const settled = await settleUsage(
-      { masterDb, kv, now, notify: async (notice) => void (await sendUsageNotice({ env: c.env }, notice)) },
+      { masterDb, kv, now, notify: async (notice) => { await sendUsageNotice({ env: c.env }, notice); } },
       { workspaceId, month, events: usage.events, recordings: usage.recordings },
     );
     if (settled) {

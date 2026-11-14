@@ -7,9 +7,10 @@
  */
 
 import { correctTimestamp } from './rows';
+import { serverEventTime } from './server-rows';
 import { projectObjectStub, type PanelPeopleOp } from '@weldsuite/panel-domain/project-object';
 import type { PanelProjectRecord } from '@weldsuite/panel-domain/registry';
-import type { EventBatch, WirePeopleOp } from '@weldsuite/panel-domain/wire';
+import type { EventBatch, ServerEvent, WirePeopleOp } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
 import { warnOnce } from './warn';
 
@@ -68,6 +69,40 @@ export async function applyBatchPeople(env: Env, project: PanelProjectRecord, ba
       await stub.applyPeopleOps({ workspaceId: project.workspaceId, projectId: project.projectId, ops: toPeopleOps(ops) });
     } catch (error) {
       logFailure('People update', project, error);
+    }
+  }
+}
+
+/**
+ * `$identify` events of a server batch (`identify()` of the server SDK): the link goes to the
+ * project object like a browser's, so an erasure finds the anonymous id. An event outside the
+ * endpoint's time window was dropped from the rows and links nothing either.
+ */
+export async function applyServerIdentifies(
+  env: Env,
+  project: Pick<PanelProjectRecord, 'workspaceId' | 'projectId'>,
+  events: readonly ServerEvent[],
+  receivedAt: number,
+  maxAgeMs: number,
+): Promise<void> {
+  const identifies = events.filter((event) => event.name === '$identify' && event.anon_id && event.user_id);
+  if (identifies.length === 0) return;
+  const namespace = projectObject(env);
+  if (!namespace) return;
+  const stub = projectObjectStub(namespace, project.projectId);
+  for (const event of identifies) {
+    const at = serverEventTime(event.ts, receivedAt, maxAgeMs);
+    if (at === null) continue;
+    try {
+      await stub.identify({
+        workspaceId: project.workspaceId,
+        projectId: project.projectId,
+        anonId: event.anon_id!,
+        userId: event.user_id!,
+        ts: new Date(at).toISOString(),
+      });
+    } catch (error) {
+      logFailure('Identify', project, error);
     }
   }
 }

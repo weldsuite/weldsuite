@@ -108,33 +108,18 @@ export class PanelUsage extends DurableObject<Env> {
     const api = this.env.PANEL_API;
     if (!api) {
       // Feature off: no settlement without the binding, and no point retrying.
-      if (!warnedNoBinding) {
-        warnedNoBinding = true;
-        console.warn('[panel-ingest] PANEL_API binding is missing: usage is counted but never settled');
-      }
+      warnNoBindingOnce();
       return;
     }
 
-    const dirty = await this.ctx.storage.list<number>({ prefix: DIRTY_PREFIX });
-    const marks = new Map<string, number>();
-    for (const [key, mark] of dirty) marks.set(key.slice(DIRTY_PREFIX.length), mark);
-    const current = new Date().toISOString().slice(0, 7);
-    const lastQuota = parseQuotaState((await this.ctx.storage.get<string>(QUOTA_KEY)) ?? null);
-    const months = new Set(marks.keys());
-    if (lastQuota !== 'ok') months.add(current);
+    const { marks, months, current } = await this.pendingMonths();
 
     let again = false;
-    for (const month of [...months].sort()) {
+    for (const month of [...months].sort((a, b) => a.localeCompare(b))) {
       const usage = await this.month(month);
       let quota: string | null = null;
       try {
-        const response = await api.fetch(SETTLE_URL, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceId, month, events: usage.events, recordings: usage.recordings }),
-        });
-        if (!response.ok) throw new Error(`panel-api answered ${response.status}`);
-        quota = ((await response.json()) as { quota?: string }).quota ?? null;
+        quota = await settleMonth(api, workspaceId, month, usage);
       } catch (error) {
         console.error(`[panel-ingest] Usage settlement failed for workspace ${workspaceId}: ${error instanceof Error ? error.message : String(error)}`);
         again = true;
@@ -143,15 +128,31 @@ export class PanelUsage extends DurableObject<Env> {
 
       // Counts that arrived while panel-api worked stay marked, and go out next time.
       const mark = marks.get(month);
-      if (mark !== undefined) {
-        if ((await this.ctx.storage.get<number>(DIRTY_PREFIX + month)) === mark) await this.ctx.storage.delete(DIRTY_PREFIX + month);
-        else again = true;
-      }
+      if (mark !== undefined && !(await this.clearIfUnchanged(month, mark))) again = true;
       if (month === current) await this.ctx.storage.put(QUOTA_KEY, parseQuotaState(quota));
     }
 
     const quotaNow = parseQuotaState((await this.ctx.storage.get<string>(QUOTA_KEY)) ?? null);
     if (again || quotaNow !== 'ok') await this.ctx.storage.setAlarm(Date.now() + SETTLE_INTERVAL_MS);
+  }
+
+  /** The months to send: those with unsent counts, and the current one while the quota state is not `ok`. */
+  private async pendingMonths(): Promise<{ marks: Map<string, number>; months: Set<string>; current: string }> {
+    const dirty = await this.ctx.storage.list<number>({ prefix: DIRTY_PREFIX });
+    const marks = new Map<string, number>();
+    for (const [key, mark] of dirty) marks.set(key.slice(DIRTY_PREFIX.length), mark);
+    const current = new Date().toISOString().slice(0, 7);
+    const lastQuota = parseQuotaState((await this.ctx.storage.get<string>(QUOTA_KEY)) ?? null);
+    const months = new Set(marks.keys());
+    if (lastQuota !== 'ok') months.add(current);
+    return { marks, months, current };
+  }
+
+  /** Deletes the month's dirty mark when it is still `mark`; false when more counts arrived meanwhile. */
+  private async clearIfUnchanged(month: string, mark: number): Promise<boolean> {
+    if ((await this.ctx.storage.get<number>(DIRTY_PREFIX + month)) !== mark) return false;
+    await this.ctx.storage.delete(DIRTY_PREFIX + month);
+    return true;
   }
 
   /** Remembers that `day`'s month has counts panel-api has not seen, and makes sure an alarm is set. */
@@ -162,6 +163,23 @@ export class PanelUsage extends DurableObject<Env> {
     await storage.put(key, ((await storage.get<number>(key)) ?? 0) + 1);
     if ((await storage.getAlarm()) === null) await storage.setAlarm(Date.now() + SETTLE_INTERVAL_MS);
   }
+}
+
+function warnNoBindingOnce(): void {
+  if (warnedNoBinding) return;
+  warnedNoBinding = true;
+  console.warn('[panel-ingest] PANEL_API binding is missing: usage is counted but never settled');
+}
+
+/** Posts one month's counts to panel-api; resolves to the quota state it answered with. Throws when it did not accept them. */
+async function settleMonth(api: Fetcher, workspaceId: string, month: string, usage: { events: number; recordings: number }): Promise<string | null> {
+  const response = await api.fetch(SETTLE_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ workspaceId, month, events: usage.events, recordings: usage.recordings }),
+  });
+  if (!response.ok) throw new Error(`panel-api answered ${response.status}`);
+  return ((await response.json()) as { quota?: string }).quota ?? null;
 }
 
 /** Forgets that the missing binding was warned about. Tests only. */

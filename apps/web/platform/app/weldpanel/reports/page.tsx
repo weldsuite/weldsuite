@@ -130,15 +130,17 @@ function ReportsList({ projectId }: Readonly<{ projectId: string }>) {
         />
       </div>
 
-      {isLoading ? (
+      {isLoading && (
         <div className="grid gap-2">
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
         </div>
-      ) : !reports || reports.length === 0 ? (
+      )}
+      {!isLoading && (!reports || reports.length === 0) && (
         <EmptyState icon={BarChart3} title={filtered ? tr.noMatches : tr.emptyTitle} description={filtered ? undefined : tr.emptyDescription} />
-      ) : (
+      )}
+      {!isLoading && reports && reports.length > 0 && (
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>

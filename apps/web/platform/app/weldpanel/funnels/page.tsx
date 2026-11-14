@@ -52,7 +52,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
     () => ({ ...draft, projectId, dateRange: range, breakdown: isBreakdownComplete(draft.breakdown) ? draft.breakdown : undefined }),
     [draft, projectId, range],
   );
-  const { data, error, isLoading, isFetching, refetch } = useWeldPanelFunnel(spec, { enabled: ready });
+  const { data, error, isLoading, isFetching, isPlaceholderData, refetch } = useWeldPanelFunnel(spec, { enabled: ready });
 
   const updateStep = (index: number, patch: Partial<StepDraft>) =>
     setDraft((d) => ({ ...d, steps: d.steps.map((s, i) => (i === index ? { ...s, ...patch } : s)) }));
@@ -170,7 +170,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
       <ChartCard title={t.weldpanel.analytics.insights.resultsTitle} loading={ready && isLoading} error={ready ? error : undefined} onRetry={() => void refetch()} empty={!ready} emptyText={tf.completeHint}>
         {data && (
           <div className="grid gap-4">
-            <FunnelResultView result={data.result} spec={spec} projectId={projectId} canWatch={canWatch} />
+            <FunnelResultView result={data.result} spec={spec} projectId={projectId} canWatch={canWatch && !isPlaceholderData} />
             <FreshnessBadge dataAsOf={data.dataAsOf} cached={data.cached} fetching={isFetching} onRefresh={() => void refetch()} clampedToRetention={data.result.range.clampedToRetention} />
           </div>
         )}

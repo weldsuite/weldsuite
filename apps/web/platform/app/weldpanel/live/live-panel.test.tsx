@@ -31,8 +31,8 @@ describe('LivePanel', () => {
     expect(screen.getByText(tl.visitors).closest('[data-slot=card]')?.textContent).toContain('2');
     // Two sessions are on /pricing.
     expect(screen.getAllByText('/pricing').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Netherlands').length).toBe(2);
-    expect(screen.getAllByText('Germany').length).toBe(2);
+    expect(screen.getAllByText('Netherlands')).toHaveLength(2);
+    expect(screen.getAllByText('Germany')).toHaveLength(2);
     expect(screen.getByText('Mobile')).toBeTruthy();
   });
 

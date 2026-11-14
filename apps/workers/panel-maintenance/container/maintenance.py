@@ -11,9 +11,11 @@ over nothing commits nothing. Running the same spec twice is harmless.
 """
 
 import os
+import time
 from datetime import datetime, timezone
 
 from pyiceberg.catalog.rest import RestCatalog
+from pyiceberg.exceptions import CommitFailedException
 from pyiceberg.expressions import And, EqualTo, In, LessThan, Or
 from pyiceberg.types import TimestamptzType
 
@@ -21,6 +23,10 @@ NAMESPACE = os.environ.get("CATALOG_NAMESPACE", "panel")
 EVENTS, IDENTITIES, PEOPLE, REPLAY_CHUNKS = "events_v1", "identities_v1", "people_v1", "replay_chunks_v1"
 # Ids and projects go into a filter in slices, so one expression stays small.
 SLICE = 500
+# The pipelines keep appending to events_v1 and replay_chunks_v1, so a commit can lose the race:
+# a delete reloads the table first and retries a failed commit, waiting 1, 2, 4, 8 s between tries.
+COMMIT_ATTEMPTS = 5
+COMMIT_BACKOFF_SECONDS = 1.0
 
 
 def open_catalog(env=os.environ):
@@ -59,16 +65,32 @@ def timestamp_literal(table, column, moment):
     return moment.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
 
 
-def delete_where(table, expression):
-    """Deletes the rows matching `expression`; returns how many there were (no commit when none)."""
-    count = table.scan(row_filter=expression).count()
-    if count:
-        table.delete(delete_filter=expression)
-    return count
+def delete_where(table, expression, sleep=time.sleep):
+    """Deletes the rows matching `expression`; returns how many there were (no commit when none).
+
+    The table is refreshed before every try, so a commit made by a pipeline in
+    the meantime is part of the snapshot the delete builds on. A commit that
+    still fails (`CommitFailedException`) is retried with exponential backoff,
+    and raised after `COMMIT_ATTEMPTS` tries.
+    """
+    for attempt in range(COMMIT_ATTEMPTS):
+        table.refresh()
+        count = table.scan(row_filter=expression).count()
+        if not count:
+            return 0
+        try:
+            table.delete(delete_filter=expression)
+            return count
+        except CommitFailedException:
+            if attempt == COMMIT_ATTEMPTS - 1:
+                raise
+            sleep(COMMIT_BACKOFF_SECONDS * 2**attempt)
+    return 0
 
 
 def session_ids(table, expression):
     """The distinct session ids of the rows matching `expression`."""
+    table.refresh()
     rows = table.scan(row_filter=expression, selected_fields=("session_id",)).to_arrow()
     return {value for value in rows.column("session_id").to_pylist() if value}
 

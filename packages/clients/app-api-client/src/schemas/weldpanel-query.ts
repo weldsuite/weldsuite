@@ -413,9 +413,6 @@ export interface PanelResolvedRange {
   previousTo: string | null;
 }
 
-/** A bucket label in the spec's timezone: `2026-11-01` (day, week start, month start) or `2026-11-01T14:00` (hour). */
-export type PanelBucket = string;
-
 export interface PanelTotals {
   visitors: number;
   visits: number;
@@ -443,8 +440,8 @@ export interface PanelWebResult {
   interval: PanelInterval;
   totals: PanelTotals;
   previousTotals: PanelTotals | null;
-  series: { bucket: PanelBucket; visitors: number; pageviews: number }[];
-  previousSeries: { bucket: PanelBucket; visitors: number; pageviews: number }[] | null;
+  series: { bucket: string; visitors: number; pageviews: number }[];
+  previousSeries: { bucket: string; visitors: number; pageviews: number }[] | null;
   topPages: PanelBreakdownRow[];
   entryExitPages: PanelEntryExitRow[];
   sources: PanelBreakdownRow[];
@@ -458,7 +455,7 @@ export interface PanelWebResult {
 }
 
 export interface PanelTrendPoint {
-  bucket: PanelBucket;
+  bucket: string;
   value: number;
 }
 
@@ -507,7 +504,7 @@ export interface PanelFunnelResult {
 
 export interface PanelRetentionCohort {
   /** The cohort's bucket (first period), `YYYY-MM-DD`. */
-  cohort: PanelBucket;
+  cohort: string;
   /** People whose first event fell in this period. */
   size: number;
   /** `counts[n]`: how many of them came back in period n after the first (0 = the first period). */

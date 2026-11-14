@@ -23,7 +23,7 @@ import { keyKvKey, parseKeyRecord, type PanelKeyRecord } from '@weldsuite/panel-
 import { MAX_IMPORT_EVENTS, MAX_TRACK_EVENTS, parseServerBatch } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
 import { readTextLimited } from '../lib/body';
-import { applyServerPeople } from '../lib/profiles';
+import { applyServerIdentifies, applyServerPeople } from '../lib/profiles';
 import { quotaState } from '../lib/quota';
 import { touchSeen } from '../lib/seen';
 import { buildServerEventRows, IMPORT_MAX_AGE_MS, TRACK_MAX_AGE_MS } from '../lib/server-rows';
@@ -111,6 +111,7 @@ async function handle(c: ServerContext, endpoint: Endpoint): Promise<Response> {
       ? c.env.PANEL_USAGE.get(c.env.PANEL_USAGE.idFromName(key.workspaceId)).add(utcDate(receivedAt), rows.length, key.workspaceId)
       : Promise.resolve(),
     rows.length > 0 ? touchSeen(c.env.WORKSPACE_CACHE, key.projectId, receivedAt) : Promise.resolve(),
+    applyServerIdentifies(c.env, { projectId: key.projectId, workspaceId: key.workspaceId }, batch.events, receivedAt, endpoint.maxAgeMs),
     applyServerPeople(c.env, { projectId: key.projectId, workspaceId: key.workspaceId }, batch.people ?? []),
   ]).then((results) => {
     for (const result of results) {

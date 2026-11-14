@@ -53,6 +53,88 @@ function liveSummary(live: PanelLiveDto | undefined, deviceLabels: Record<string
   };
 }
 
+interface LiveBodyProps {
+  live: PanelLiveDto | undefined;
+  error: unknown;
+  isLoading: boolean;
+  onRetry: () => void;
+  summary: ReturnType<typeof liveSummary>;
+  compact: boolean;
+  canSeePeople: boolean;
+}
+
+function LiveBody({ live, error, isLoading, onRetry, summary, compact, canSeePeople }: Readonly<LiveBodyProps>) {
+  const { t, language } = useI18n();
+  const tl = t.weldpanel.observe.live;
+  if (error) {
+    return (
+      <ChartCard error={error} onRetry={onRetry}>
+        {null}
+      </ChartCard>
+    );
+  }
+  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  if (live && live.visitors === 0) {
+    return (
+      <ChartCard>
+        <div className="py-6 text-center">
+          <p className="text-sm font-medium">{tl.quiet}</p>
+          <p className="text-sm text-muted-foreground">{tl.quietHint}</p>
+        </div>
+      </ChartCard>
+    );
+  }
+  return (
+    <>
+      <div className={`grid gap-4 ${compact ? '' : 'md:grid-cols-3'}`}>
+        <Breakdown title={tl.currentPages} rows={summary.pages} />
+        <Breakdown title={tl.countries} rows={summary.countries} label={(code) => countryName(code, language)} />
+        <Breakdown title={tl.devices} rows={summary.devices} />
+      </div>
+      {!compact && live && <SessionsCard live={live} canSeePeople={canSeePeople} />}
+    </>
+  );
+}
+
+function SessionsCard({ live, canSeePeople }: Readonly<{ live: PanelLiveDto; canSeePeople: boolean }>) {
+  const { t, language } = useI18n();
+  const tl = t.weldpanel.observe.live;
+  const now = Date.now();
+  return (
+    <ChartCard title={tl.sessions}>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{tl.session}</TableHead>
+              <TableHead>{tl.page}</TableHead>
+              <TableHead>{tl.where}</TableHead>
+              <TableHead>{tl.since}</TableHead>
+              <TableHead className="text-right">{tl.pageviews}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {live.sessions.map((session) => (
+              <TableRow key={session.sessionId}>
+                <TableCell className="max-w-48 truncate font-medium">
+                  {canSeePeople ? session.distinctId : visitorLabel({ userId: null, distinctId: session.distinctId }, t.weldpanel.observe.common.anonymous)}
+                </TableCell>
+                <TableCell className="max-w-64 truncate" title={session.title ?? undefined}>
+                  {session.path}
+                </TableCell>
+                <TableCell>{session.country ? countryName(session.country, language) : '–'}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDuration(Math.max(0, (now - Date.parse(session.startedAt)) / 1000))}</TableCell>
+                <TableCell className="text-right tabular-nums">{session.pageviews}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {!canSeePeople && <p className="mt-2 text-xs text-muted-foreground">{tl.pseudonymised}</p>}
+    </ChartCard>
+  );
+}
+
 export function LivePanel({ projectId, compact = false }: Readonly<{ projectId: string; compact?: boolean }>) {
   const { t, language } = useI18n();
   const tl = t.weldpanel.observe.live;
@@ -60,8 +142,6 @@ export function LivePanel({ projectId, compact = false }: Readonly<{ projectId: 
   const { data: live, error, isLoading, refetch, dataUpdatedAt } = useWeldPanelLive(projectId);
   const summary = useMemo(() => liveSummary(live, t.weldpanel.observe.common.devices), [live, t.weldpanel.observe.common.devices]);
   const updated = dataUpdatedAt ? new Intl.DateTimeFormat(language, { timeStyle: 'medium' }).format(new Date(dataUpdatedAt)) : null;
-  const now = Date.now();
-
   return (
     <div className="grid gap-4" data-testid="live-panel">
       <div className="grid gap-4 sm:grid-cols-[minmax(0,16rem)_1fr] sm:items-start">
@@ -72,61 +152,7 @@ export function LivePanel({ projectId, compact = false }: Readonly<{ projectId: 
         </div>
       </div>
 
-      {error ? (
-        <ChartCard error={error} onRetry={() => void refetch()}>
-          {null}
-        </ChartCard>
-      ) : isLoading ? (
-        <Skeleton className="h-40 w-full" />
-      ) : live && live.visitors === 0 ? (
-        <ChartCard>
-          <div className="py-6 text-center">
-            <p className="text-sm font-medium">{tl.quiet}</p>
-            <p className="text-sm text-muted-foreground">{tl.quietHint}</p>
-          </div>
-        </ChartCard>
-      ) : (
-        <>
-          <div className={`grid gap-4 ${compact ? '' : 'md:grid-cols-3'}`}>
-            <Breakdown title={tl.currentPages} rows={summary.pages} />
-            <Breakdown title={tl.countries} rows={summary.countries} label={(code) => countryName(code, language)} />
-            <Breakdown title={tl.devices} rows={summary.devices} />
-          </div>
-          {!compact && live && (
-            <ChartCard title={tl.sessions}>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{tl.session}</TableHead>
-                      <TableHead>{tl.page}</TableHead>
-                      <TableHead>{tl.where}</TableHead>
-                      <TableHead>{tl.since}</TableHead>
-                      <TableHead className="text-right">{tl.pageviews}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {live.sessions.map((session) => (
-                      <TableRow key={session.sessionId}>
-                        <TableCell className="max-w-48 truncate font-medium">
-                          {canSeePeople ? session.distinctId : visitorLabel({ userId: null, distinctId: session.distinctId }, t.weldpanel.observe.common.anonymous)}
-                        </TableCell>
-                        <TableCell className="max-w-64 truncate" title={session.title ?? undefined}>
-                          {session.path}
-                        </TableCell>
-                        <TableCell>{session.country ? countryName(session.country, language) : '–'}</TableCell>
-                        <TableCell className="whitespace-nowrap tabular-nums">{formatDuration(Math.max(0, (now - Date.parse(session.startedAt)) / 1000))}</TableCell>
-                        <TableCell className="text-right tabular-nums">{session.pageviews}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {!canSeePeople && <p className="mt-2 text-xs text-muted-foreground">{tl.pseudonymised}</p>}
-            </ChartCard>
-          )}
-        </>
-      )}
+      <LiveBody live={live} error={error} isLoading={isLoading} onRetry={() => void refetch()} summary={summary} compact={compact} canSeePeople={canSeePeople} />
     </div>
   );
 }

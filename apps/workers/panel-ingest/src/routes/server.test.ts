@@ -132,6 +132,25 @@ describe.each(['/v1/track', '/v1/import'] as const)('POST %s', (path) => {
     expect(testEnv.projects.jurisdictions).toContain('eu');
   });
 
+  it('links the anonymous id to the user in the project object for an $identify event', async () => {
+    const testEnv = await withKey();
+    const res = await send(
+      testEnv,
+      path,
+      body([
+        serverEvent({ name: '$identify', event_id: 'evt-identify-1', distinct_id: 'user-1', user_id: 'user-1', anon_id: 'a-browser' }),
+        serverEvent({ name: '$identify', event_id: 'evt-identify-2', distinct_id: 'user-2', user_id: 'user-2' }),
+      ]),
+    );
+
+    expect(res.status).toBe(200);
+    expect(testEnv.identities.sent).toEqual([
+      { workspace_id: expect.any(String), project_id: PROJECT_ID, anon_id: 'a-browser', user_id: 'user-1', ts: expect.any(String) },
+    ]);
+    expect(await testEnv.projects.get(PROJECT_ID).getPerson('a-browser')).toMatchObject({ userId: 'user-1' });
+    expect(testEnv.projects.jurisdictions).toContain('eu');
+  });
+
   it('needs a readable event even when people operations come along', async () => {
     const testEnv = await withKey();
     const res = await send(testEnv, path, body([{ nope: true }], { people: [] }));

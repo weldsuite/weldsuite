@@ -112,7 +112,7 @@ describe('Recordings list', () => {
     expect(screen.getByText('3 Rage clicks')).toBeTruthy();
     expect(screen.getByText('1 Errors')).toBeTruthy();
     expect(screen.getByLabelText(tr.favorite)).toBeTruthy();
-    expect(screen.getAllByText('Desktop · Chrome · Netherlands').length).toBe(2);
+    expect(screen.getAllByText('Desktop · Chrome · Netherlands')).toHaveLength(2);
     expect(screen.getByRole('link', { name: tr.open.replace('{name}', 'user_42') }).getAttribute('href')).toBe('/weldpanel/recordings/a?project=wpp_1');
   });
 

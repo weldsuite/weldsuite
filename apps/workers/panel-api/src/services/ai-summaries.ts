@@ -364,6 +364,47 @@ async function settleInBatches<T, R>(items: readonly T[], size: number, fn: (ite
   return out;
 }
 
+/** The newest stored summary of each of `ids`, by session id. */
+async function knownSessionSummaries(deps: SummaryDeps, projectId: string, ids: string[]): Promise<Map<string, PanelSessionSummary>> {
+  const existing = await deps.tenantDb
+    .select()
+    .from(panelAiSummaries)
+    .where(and(eq(panelAiSummaries.projectId, projectId), eq(panelAiSummaries.scope, 'session'), inArray(panelAiSummaries.sessionId, ids)))
+    .orderBy(desc(panelAiSummaries.createdAt));
+  const known = new Map<string, PanelSessionSummary>();
+  for (const row of existing) {
+    if (row.sessionId && !known.has(row.sessionId)) known.set(row.sessionId, row.summary as unknown as PanelSessionSummary);
+  }
+  return known;
+}
+
+/** One events read and one model call per session; fills `known` and returns the credits spent. */
+async function summariseSessions(
+  deps: SummaryDeps,
+  ai: WeldAI,
+  ctx: Awaited<ReturnType<typeof sessionContext>>,
+  projectId: string,
+  todo: readonly PanelSessionRow[],
+  known: Map<string, PanelSessionSummary>,
+): Promise<number> {
+  if (todo.length === 0) return 0;
+  const runner = createRunner(basinExecutor(deps.env));
+  const eventRows = await runner.run(todo.map((s) => sessionEventsQuery(ctx, s.sessionId, SESSION_EVENT_LIMIT, false)));
+  const settled = await settleInBatches(todo.map((row, index) => ({ row, rows: eventRows[index] ?? [] })), SESSIONS_AT_ONCE, async ({ row, rows }) => {
+    const id = generateId('pna');
+    const generated = await callSessionModel(deps, ai, buildSessionTimeline(row, eventsOf(rows)), id);
+    await storeSessionSummary(deps, projectId, row.sessionId, id, generated);
+    known.set(row.sessionId, generated.summary);
+    return generated.credits;
+  });
+  let credits = 0;
+  for (const outcome of settled) if (outcome.status === 'fulfilled') credits += outcome.value;
+  // Out of credits (or another failure) part-way: what was made is kept, the call stops with the first error.
+  const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+  if (failed) throw failed.reason;
+  return credits;
+}
+
 /**
  * Summarises up to 20 sessions and groups them into themes. Cached by filter
  * for a day; each session's own summary is cached for good, so a repeat after
@@ -387,35 +428,11 @@ export async function summariseSet(deps: SummaryDeps, project: PanelProject, inp
 
   const ai = gateway(deps);
   const ctx = await sessionContext(deps, project.id);
-  const ids = sessions.map((s) => s.sessionId);
-  const existing = await deps.tenantDb
-    .select()
-    .from(panelAiSummaries)
-    .where(and(eq(panelAiSummaries.projectId, project.id), eq(panelAiSummaries.scope, 'session'), inArray(panelAiSummaries.sessionId, ids)))
-    .orderBy(desc(panelAiSummaries.createdAt));
-  const known = new Map<string, PanelSessionSummary>();
-  for (const row of existing) {
-    if (row.sessionId && !known.has(row.sessionId)) known.set(row.sessionId, row.summary as unknown as PanelSessionSummary);
-  }
+  const known = await knownSessionSummaries(deps, project.id, sessions.map((s) => s.sessionId));
 
   // Sessions without a summary yet (all of them on regenerate): one events read each, one model call each.
   const todo = input.regenerate ? sessions : sessions.filter((s) => !known.has(s.sessionId));
-  let credits = 0;
-  if (todo.length > 0) {
-    const runner = createRunner(basinExecutor(deps.env));
-    const eventRows = await runner.run(todo.map((s) => sessionEventsQuery(ctx, s.sessionId, SESSION_EVENT_LIMIT, false)));
-    const settled = await settleInBatches(todo.map((row, index) => ({ row, rows: eventRows[index] ?? [] })), SESSIONS_AT_ONCE, async ({ row, rows }) => {
-      const id = generateId('pna');
-      const generated = await callSessionModel(deps, ai, buildSessionTimeline(row, eventsOf(rows)), id);
-      await storeSessionSummary(deps, project.id, row.sessionId, id, generated);
-      known.set(row.sessionId, generated.summary);
-      return generated.credits;
-    });
-    for (const outcome of settled) if (outcome.status === 'fulfilled') credits += outcome.value;
-    // Out of credits (or another failure) part-way: what was made is kept, the call stops with the first error.
-    const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
-    if (failed) throw failed.reason;
-  }
+  let credits = await summariseSessions(deps, ai, ctx, project.id, todo, known);
 
   const readable = sessions.filter((s) => known.has(s.sessionId));
   const prompt = readable.map((row) => sessionBlock(row, known.get(row.sessionId) as PanelSessionSummary)).join('\n\n');

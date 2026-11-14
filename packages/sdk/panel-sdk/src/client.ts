@@ -511,7 +511,7 @@ export function createClient(options: ClientOptions): Client {
   const canCompress = (): boolean => typeof CompressionStream === 'function';
 
   function wantRecording(): boolean {
-    if (!config || !state || config.recordingBlocked || !(config.recordingSampleRate > 0) || !canCompress()) return false;
+    if (!config || !state || config.recordingBlocked || config.recordingSampleRate <= 0 || !canCompress()) return false;
     if (excluded(location.pathname)) return false;
     if (!sampled || sampled[0] !== state.s) sampled = [state.s, sampleSession(token, state.s, config.recordingSampleRate)];
     return sampled[1];

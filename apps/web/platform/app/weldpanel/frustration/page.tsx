@@ -51,6 +51,11 @@ export default function FrustrationPage() {
   );
 }
 
+function kindTone(kind: string, total: number): 'danger' | 'warning' | 'default' {
+  if (total <= 0) return 'default';
+  return kind === 'errors' ? 'danger' : 'warning';
+}
+
 function trendsSpec(projectId: string, range: PanelDateRange, events: string[], breakdown?: 'path' | 'el_selector'): PanelTrendsSpec {
   return {
     kind: 'trends',
@@ -131,7 +136,7 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
               icon={ICONS[kind]}
               loading={overview.isLoading}
               value={formatNumber(totalOf(kind), language)}
-              tone={kind === 'errors' && totalOf(kind) > 0 ? 'danger' : totalOf(kind) > 0 ? 'warning' : 'default'}
+              tone={kindTone(kind, totalOf(kind))}
             />
           </button>
         ))}

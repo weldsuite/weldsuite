@@ -14,6 +14,7 @@ import {
   PANEL_DEVICE_CLASSES,
   PANEL_HEATMAP_TYPES,
   type PanelDeviceClass,
+  type PanelHeatmapResult,
   type PanelHeatmapSpec,
   type PanelHeatmapType,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
@@ -46,7 +47,8 @@ import { LabeledField } from '../components/labeled-field';
 import { browserTimezone, useDateRange } from '../lib/date-range';
 import { formatNumber, formatPercent } from '../lib/format';
 import { averageFold, readSnapshot } from '../lib/heatmap';
-import { snapshotFailure } from '../lib/api-errors';
+import { snapshotFailure, type SnapshotFailure } from '../lib/api-errors';
+import type { ReplayEvent } from '../lib/replay';
 import { PageGroupDialog } from './page-group-dialog';
 import { SnapshotView } from './snapshot-view';
 
@@ -57,6 +59,50 @@ export default function HeatmapsPage() {
     <AnalyticsPage title={th.title} description={th.description}>
       {(project) => <Heatmaps key={project.id} project={project} />}
     </AnalyticsPage>
+  );
+}
+
+function interactionCount(result: PanelHeatmapResult, type: PanelHeatmapType): number {
+  return type === 'scroll' ? result.scroll.leaves : result.clicks;
+}
+
+interface SnapshotLayerProps {
+  result: PanelHeatmapResult;
+  type: PanelHeatmapType;
+  fold: number | null;
+  canSnapshot: boolean;
+  snapshot: { isLoading: boolean; data: ReplayEvent | undefined };
+  broken: boolean;
+  failure: SnapshotFailure | null;
+  deviceClass: PanelDeviceClass;
+  unresolved: number;
+  onUnresolved: (count: number) => void;
+  onBroken: () => void;
+}
+
+function SnapshotLayer({ result, type, fold, canSnapshot, snapshot, broken, failure, deviceClass, unresolved, onUnresolved, onBroken }: Readonly<SnapshotLayerProps>) {
+  const { t, format } = useI18n();
+  const th = t.weldpanel.observe.heatmaps;
+  return (
+    <div className="grid gap-3">
+      {type === 'scroll' && (
+        <p className="text-sm text-muted-foreground">{fold === null ? th.scrollAll : format(th.scrollSummary, { depth: fold })}</p>
+      )}
+      {!canSnapshot && <InfoBanner variant="neutral">{t.weldpanel.observe.common.noPermission}</InfoBanner>}
+      {canSnapshot && snapshot.isLoading && <Skeleton className="h-96 w-full" aria-label={th.snapshotLoading} />}
+      {snapshot.data && !broken && (
+        <SnapshotView snapshot={snapshot.data} deviceClass={deviceClass} heatmap={result} onUnresolved={onUnresolved} onBroken={onBroken} />
+      )}
+      {broken && <InfoBanner variant="danger">{th.snapshotBroken}</InfoBanner>}
+      {failure === 'requested' && (
+        <EmptyState icon={Camera} title={th.snapshotRequestedTitle} description={th.snapshotRequestedDescription} />
+      )}
+      {failure === 'unavailable' && (
+        <EmptyState icon={Camera} title={th.snapshotUnavailableTitle} description={th.snapshotUnavailableDescription} />
+      )}
+      {failure === 'failed' && <InfoBanner variant="danger">{th.snapshotFailed}</InfoBanner>}
+      {unresolved > 0 && <p className="text-xs text-muted-foreground">{format(th.unresolvedHint, { count: unresolved })}</p>}
+    </div>
   );
 }
 
@@ -144,7 +190,7 @@ function Heatmaps({ project }: Readonly<{ project: PanelProjectDto }>) {
   }
 
   const fold = result && type === 'scroll' ? averageFold(result.scroll.buckets) : null;
-  const noData = result && (type === 'scroll' ? result.scroll.leaves === 0 : result.clicks === 0);
+  const noData = result && interactionCount(result, type) === 0;
   const failure = snapshot.error ? snapshotFailure(snapshot.error) : null;
 
   return (
@@ -209,31 +255,25 @@ function Heatmaps({ project }: Readonly<{ project: PanelProjectDto }>) {
 
       <KpiGrid className="sm:grid-cols-3">
         <KpiCard label={th.stats.pageviews} loading={isLoading || !result} value={result ? formatNumber(result.pageviews, language) : ''} />
-        <KpiCard label={type === 'scroll' ? th.stats.leaves : th.stats.clicks} loading={isLoading || !result} value={result ? formatNumber(type === 'scroll' ? result.scroll.leaves : result.clicks, language) : ''} />
+        <KpiCard label={type === 'scroll' ? th.stats.leaves : th.stats.clicks} loading={isLoading || !result} value={result ? formatNumber(interactionCount(result, type), language) : ''} />
         <KpiCard label={th.stats.unresolved} loading={isLoading || !result} value={formatNumber(unresolved, language)} tone={unresolved > 0 ? 'warning' : 'default'} />
       </KpiGrid>
 
       <ChartCard title={th.layer} loading={isLoading && !!group} error={error} onRetry={() => void refetch()} empty={!!noData} emptyText={th.noData} skeletonClassName="h-96" actions={data && <FreshnessBadge dataAsOf={data.dataAsOf} cached={data.cached} fetching={isFetching} onRefresh={() => void refetch()} clampedToRetention={data.result.range.clampedToRetention} />}>
         {result && (
-          <div className="grid gap-3">
-            {type === 'scroll' && (
-              <p className="text-sm text-muted-foreground">{fold === null ? th.scrollAll : format(th.scrollSummary, { depth: fold })}</p>
-            )}
-            {!canSnapshot && <InfoBanner variant="neutral">{t.weldpanel.observe.common.noPermission}</InfoBanner>}
-            {canSnapshot && snapshot.isLoading && <Skeleton className="h-96 w-full" aria-label={th.snapshotLoading} />}
-            {snapshot.data && !broken && (
-              <SnapshotView snapshot={snapshot.data} deviceClass={deviceClass} heatmap={result} onUnresolved={setUnresolved} onBroken={() => setBroken(true)} />
-            )}
-            {broken && <InfoBanner variant="danger">{th.snapshotBroken}</InfoBanner>}
-            {failure === 'requested' && (
-              <EmptyState icon={Camera} title={th.snapshotRequestedTitle} description={th.snapshotRequestedDescription} />
-            )}
-            {failure === 'unavailable' && (
-              <EmptyState icon={Camera} title={th.snapshotUnavailableTitle} description={th.snapshotUnavailableDescription} />
-            )}
-            {failure === 'failed' && <InfoBanner variant="danger">{th.snapshotFailed}</InfoBanner>}
-            {unresolved > 0 && <p className="text-xs text-muted-foreground">{format(th.unresolvedHint, { count: unresolved })}</p>}
-          </div>
+          <SnapshotLayer
+            result={result}
+            type={type}
+            fold={fold}
+            canSnapshot={canSnapshot}
+            snapshot={snapshot}
+            broken={broken}
+            failure={failure}
+            deviceClass={deviceClass}
+            unresolved={unresolved}
+            onUnresolved={setUnresolved}
+            onBroken={() => setBroken(true)}
+          />
         )}
       </ChartCard>
 

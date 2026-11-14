@@ -25,6 +25,11 @@ interface SummaryPanelProps {
   aiEnabled: boolean;
 }
 
+export function failureVariant(failure: AiFailure): 'danger' | 'warning' | 'neutral' {
+  if (failure.kind === 'failed') return 'danger';
+  return failure.kind === 'credits' ? 'warning' : 'neutral';
+}
+
 export function failureText(failure: AiFailure, text: { noCredits: string; noCreditsGeneric: string; aiDisabled: string; noSessions: string; failed: string }): string {
   switch (failure.kind) {
     case 'credits':
@@ -47,6 +52,9 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
   const generate = useGenerateWeldPanelSessionSummary(projectId);
   const failure = generate.error ? aiFailure(generate.error) : null;
   const summary = saved?.summary;
+  let generateLabel = ts.generate;
+  if (generate.isPending) generateLabel = ts.generating;
+  else if (summary) generateLabel = ts.regenerate;
 
   return (
     <div className="grid gap-4">
@@ -95,7 +103,7 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
 
       {failure && (
         <InfoBanner
-          variant={failure.kind === 'credits' ? 'warning' : failure.kind === 'failed' ? 'danger' : 'neutral'}
+          variant={failureVariant(failure)}
           action={
             failure.kind === 'credits' ? (
               <Button asChild size="sm" variant="outline">
@@ -113,7 +121,7 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
           <div>
             <Button type="button" variant={summary ? 'outline' : 'default'} size="sm" disabled={generate.isPending} onClick={() => generate.mutate({ sessionId, regenerate: !!summary })}>
               {generate.isPending ? <InlineSpinner /> : <Sparkles />}
-              {generate.isPending ? ts.generating : summary ? ts.regenerate : ts.generate}
+              {generateLabel}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{summary ? ts.regenerateHint : ts.costHint}</p>

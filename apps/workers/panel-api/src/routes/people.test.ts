@@ -49,7 +49,7 @@ vi.mock('@weldsuite/worker-kit/db', async (orig) => {
 
 import peopleRoutes from './people';
 
-const { panelProjects, panelCohorts, panelSessionFavorites } = schema;
+const { panelProjects, panelCohorts, panelSessionFavorites, panelAiSummaries } = schema;
 
 const READ = ['panel_people:read'];
 const WITH_RECORDINGS = [...READ, 'panel_recordings:read'];
@@ -93,7 +93,7 @@ beforeAll(async () => {
 }, 120_000);
 
 beforeEach(async () => {
-  for (const table of [panelSessionFavorites, panelCohorts, panelProjects]) await db.delete(table);
+  for (const table of [panelSessionFavorites, panelAiSummaries, panelCohorts, panelProjects]) await db.delete(table);
   await db.insert(panelProjects).values([
     { id: PROJECT, name: 'Shop', token: 'wpk_a', settings: DEFAULT_PANEL_SETTINGS, createdByUserId: 'user_alice' },
     { id: 'pnp_b', name: 'Docs', token: 'wpk_b', settings: DEFAULT_PANEL_SETTINGS, createdByUserId: 'user_alice' },
@@ -310,6 +310,28 @@ describe('DELETE /api/panel/people/:distinctId (erasure)', () => {
     );
     const left = await db.select().from(panelSessionFavorites);
     expect(left.map((f) => f.sessionId)).toEqual(['ses_other']);
+  });
+
+  it('deletes the sessions’ AI summaries and the set summaries that mention them, and no others', async () => {
+    const base = { projectId: PROJECT, modelId: 'm', createdByUserId: 'user_alice' };
+    const set = (id: string, sessionIds: string[]) => ({
+      ...base,
+      id,
+      scope: 'set' as const,
+      filterHash: id,
+      summary: { overview: 'x', themes: [{ title: 't', description: 'd', sessionIds }], sessionsRead: sessionIds.length },
+    });
+    await db.insert(panelAiSummaries).values([
+      { ...base, id: 'pna_s1', scope: 'session', sessionId: 'ses_1', summary: { story: 'a' } },
+      { ...base, id: 'pna_s2', scope: 'session', sessionId: 'ses_2', summary: { story: 'b' } },
+      { ...base, id: 'pna_so', scope: 'session', sessionId: 'ses_other', summary: { story: 'c' } },
+      set('pna_set_hit', ['ses_other', 'ses_2']),
+      set('pna_set_miss', ['ses_other']),
+      { ...set('pna_set_foreign', ['ses_1']), projectId: 'pnp_b' },
+    ]);
+    await app(ERASE).request(url, { method: 'DELETE' });
+    const left = (await db.select().from(panelAiSummaries)).map((r) => r.id).sort();
+    expect(left).toEqual(['pna_set_foreign', 'pna_set_miss', 'pna_so']);
   });
 
   it('looks the sessions up without the erased-id exclusion, scoped to the workspace and project', async () => {

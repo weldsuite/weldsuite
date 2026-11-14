@@ -7,7 +7,7 @@
  *   2. the person's sessions are found in Basin (the object's list no longer
  *      hides them: the lookup runs with an empty exclusion on purpose) and their
  *      recording chunks, plus any `keep/` copy of a favourite, are deleted from R2;
- *   3. the favourites of those sessions are removed;
+ *   3. the favourites and AI summaries of those sessions are removed, and the set summaries that mention them;
  *   4. the erasure goes to the maintenance worker's queue, which rewrites the
  *      Iceberg rows (and then clears the ids from `erased`).
  *
@@ -75,9 +75,10 @@ async function sessionsOf(env: Env, base: PanelQueryContext, ids: readonly strin
   const range = resolveRange(fullRange(ctx.now), 'UTC', ctx);
   const scope = eventsScope(ctx, range, range);
   const list = inList(ids);
+  const idMatch = `(e.anon_id IN ${list} OR e.distinct_id IN ${list} OR COALESCE(e.user_id, '') IN ${list})`;
   const sql =
     `SELECT DISTINCT e.session_id AS session_id FROM ${scope.from} ` +
-    `${scope.where('e.session_id IS NOT NULL', `(e.anon_id IN ${list} OR e.distinct_id IN ${list} OR COALESCE(e.user_id, '') IN ${list})`)} ` +
+    `${scope.where('e.session_id IS NOT NULL', idMatch)} ` +
     `LIMIT ${MAX_SESSIONS}`;
   const [rows = []] = await createRunner(basinExecutor(env)).run([{ name: 'erasure.sessions', sql, columns: ['session_id'] }]);
   return rows.map((row) => textOf(row.session_id)).filter((id) => id !== '');
@@ -116,6 +117,31 @@ async function deleteFavorites(db: Database, projectId: string, sessionIds: read
   }
 }
 
+/**
+ * The AI summaries that quote the sessions: the sessions' own, and the project's set summaries
+ * whose themes (session ids, descriptions) mention any of them. A set summary is cheap to make
+ * again; one that outlives the erasure is personal data.
+ */
+async function deleteAiSummaries(db: Database, projectId: string, sessionIds: readonly string[]): Promise<void> {
+  const { panelAiSummaries } = schema;
+  for (const batch of batches(sessionIds, 500)) {
+    await db
+      .delete(panelAiSummaries)
+      .where(and(eq(panelAiSummaries.projectId, projectId), eq(panelAiSummaries.scope, 'session'), inArray(panelAiSummaries.sessionId, batch)));
+  }
+  const sets = await db
+    .select({ id: panelAiSummaries.id, summary: panelAiSummaries.summary })
+    .from(panelAiSummaries)
+    .where(and(eq(panelAiSummaries.projectId, projectId), eq(panelAiSummaries.scope, 'set')));
+  const doomed = sets.filter((row) => {
+    const text = JSON.stringify(row.summary);
+    return sessionIds.some((id) => text.includes(JSON.stringify(id).slice(1, -1)));
+  });
+  for (const batch of batches(doomed.map((row) => row.id), 500)) {
+    await db.delete(panelAiSummaries).where(and(eq(panelAiSummaries.projectId, projectId), inArray(panelAiSummaries.id, batch)));
+  }
+}
+
 async function enqueue(env: Env, workspaceId: string, projectId: string, ids: string[]): Promise<void> {
   if (!env.PANEL_MAINTENANCE) {
     console.warn('[panel-api] PANEL_MAINTENANCE is not bound: the Iceberg rewrite for an erasure was not queued');
@@ -149,6 +175,7 @@ export async function erasePerson(deps: QueryRunDeps, projectId: string, distinc
         await deleteKeys(env.PANEL_REPLAYS, [...keys, ...keys.map(keepCopyKey)]);
         result.recordingChunksDeleted = keys.length;
         await deleteFavorites(tenantDb, projectId, sessionIds);
+        await deleteAiSummaries(tenantDb, projectId, sessionIds);
       }
     }
   } catch (err) {

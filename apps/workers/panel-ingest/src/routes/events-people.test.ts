@@ -298,13 +298,14 @@ describe('POST /e: users, people and the new events', () => {
 
       expect((await call(testEnv)).status).toBe(204);
       expect((await call(testEnv)).status).toBe(204);
-      const kvReads = vi.mocked(testEnv.kv.get as unknown as (key: string) => Promise<string | null>).mock.calls.length;
+      const kvGet = vi.mocked(testEnv.kv.get as unknown as (key: string) => Promise<string | null>);
+      const kvReads = kvGet.mock.calls.length;
       const res = await call(testEnv, { body: '{not json' });
 
       expect(res.status).toBe(429);
       expect(res.headers.get('Retry-After')).toBe('10');
       expect(await res.json()).toEqual({ error: { code: 'rate_limited', message: 'Too many requests' } });
-      expect(vi.mocked(testEnv.kv.get as unknown as (key: string) => Promise<string | null>).mock.calls.length).toBe(kvReads);
+      expect(kvGet.mock.calls).toHaveLength(kvReads);
     });
 
     it('counts per client and never passes the address on', async () => {

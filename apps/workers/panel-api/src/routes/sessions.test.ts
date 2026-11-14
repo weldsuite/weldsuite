@@ -228,11 +228,10 @@ describe('GET /api/panel/sessions/:id/chunks/:seq', () => {
 
   it('finds the key through Basin once, then from the cached manifest', async () => {
     await app().request(`${BASE}/ses_1/chunks/0?${q}`);
-    const lookups = basin.sent.filter((sql) => sql.includes('replay_chunks_v1')).length;
-    expect(lookups).toBe(1);
+    expect(basin.sent.filter((sql) => sql.includes('replay_chunks_v1'))).toHaveLength(1);
     const second = await app().request(`${BASE}/ses_1/chunks/1?${q}`);
     expect(await gunzipText(await second.arrayBuffer())).toBe('[{"type":3}]');
-    expect(basin.sent.filter((sql) => sql.includes('replay_chunks_v1')).length).toBe(1);
+    expect(basin.sent.filter((sql) => sql.includes('replay_chunks_v1'))).toHaveLength(1);
   });
 
   it('never reads an object whose key belongs to another workspace, and 404s a chunk the session does not have', async () => {

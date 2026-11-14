@@ -48,21 +48,23 @@ export function heatmapQueries(spec: ParsedHeatmapSpec, ctx: PanelQueryContext, 
   const device = deviceCondition(spec.deviceClass);
   const click = [`e.name = ${lit('$autocapture')}`, `json_get_str(e.properties, '$action') = 'click'`, 'e.el_selector IS NOT NULL', page, device];
 
+  const pageviewWhere = scope.where(`e.name = ${lit('$pageview')}`, page, device);
   const pageviews: PanelSqlQuery = {
     name: 'heatmap.pageviews',
-    sql: `SELECT COUNT(*) AS pageviews FROM ${scope.from} ${scope.where(`e.name = ${lit('$pageview')}`, page, device)}`,
+    sql: `SELECT COUNT(*) AS pageviews FROM ${scope.from} ${pageviewWhere}`,
     columns: ['pageviews'],
   };
 
   if (spec.type === 'scroll') {
     const bucket = `FLOOR(e.scroll_depth / ${SCROLL_STEP}.0) * ${SCROLL_STEP}`;
+    const leaveWhere = scope.where(`e.name = ${lit('$pageleave')}`, 'e.scroll_depth IS NOT NULL', page, device);
     return [
       pageviews,
       {
         name: 'heatmap.scroll',
         sql:
           `SELECT ${bucket} AS depth, COUNT(*) AS leaves FROM ${scope.from} ` +
-          `${scope.where(`e.name = ${lit('$pageleave')}`, 'e.scroll_depth IS NOT NULL', page, device)} GROUP BY ${bucket} ORDER BY ${bucket} ASC`,
+          `${leaveWhere} GROUP BY ${bucket} ORDER BY ${bucket} ASC`,
         columns: ['depth', 'leaves'],
       },
     ];

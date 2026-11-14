@@ -47,24 +47,53 @@ function quoted(detail: string | null): string {
   return text === '' ? '(no visible text)' : `"${text}"`;
 }
 
+function counted(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+function signal(n: number, noun: string): string | null {
+  return n > 0 ? counted(n, noun) : null;
+}
+
 /** Header line: what kind of visit it was. No person, no ids. */
 function header(session: PanelSessionRow): string {
-  const parts = [
-    `Duration ${span(session.durationSeconds)}`,
-    `${session.pageviews} page${session.pageviews === 1 ? '' : 's'}`,
-    `${session.clicks} click${session.clicks === 1 ? '' : 's'}`,
-  ];
+  const parts = [`Duration ${span(session.durationSeconds)}`, counted(session.pageviews, 'page'), counted(session.clicks, 'click')];
   const signals = [
-    session.rageClicks > 0 ? `${session.rageClicks} rage click${session.rageClicks === 1 ? '' : 's'}` : null,
-    session.deadClicks > 0 ? `${session.deadClicks} dead click${session.deadClicks === 1 ? '' : 's'}` : null,
-    session.quickBacks > 0 ? `${session.quickBacks} quick back${session.quickBacks === 1 ? '' : 's'}` : null,
-    session.errors > 0 ? `${session.errors} error${session.errors === 1 ? '' : 's'}` : null,
+    signal(session.rageClicks, 'rage click'),
+    signal(session.deadClicks, 'dead click'),
+    signal(session.quickBacks, 'quick back'),
+    signal(session.errors, 'error'),
   ].filter((s): s is string => s !== null);
   if (signals.length > 0) parts.push(`signals: ${signals.join(', ')}`);
   const device = [session.deviceType, session.browser, session.os].filter((s): s is string => !!s).join(' / ');
   if (device) parts.push(`device: ${device}`);
   if (session.country) parts.push(`country: ${session.country}`);
   return parts.join(' · ');
+}
+
+/** The line for an event that is not a page view, or null when it is not worth a line. */
+function eventLine(event: PanelActivityEvent, stamp: string): string | null {
+  if (event.name === '$autocapture') {
+    const action = event.properties.$action === 'submit' ? 'Submitted a form via' : 'Clicked';
+    return `[${stamp}] ${action} ${quoted(event.detail)}`;
+  }
+  if (event.name === '$exception') return `[${stamp}] Error on the page: ${clip(event.detail ?? 'unknown error', MAX_ERROR)}`;
+  const label = FRUSTRATION_LABELS[event.name];
+  if (label) {
+    const target = event.name === '$rageclick' || event.name === '$deadclick' ? ` on ${quoted(event.detail)}` : '';
+    return `[${stamp}] Frustration: ${label}${target}`;
+  }
+  if (!event.name.startsWith('$')) return `[${stamp}] Event "${clip(event.name, MAX_TEXT)}"`;
+  return null;
+}
+
+/** Keeps the start and the end of a long timeline: how it began and where it ended matter most. */
+function limitLines(lines: string[]): string[] {
+  if (lines.length <= MAX_LINES) return lines;
+  const head = Math.floor(MAX_LINES * 0.6);
+  const tail = MAX_LINES - head;
+  const omitted = lines.length - MAX_LINES;
+  return [...lines.slice(0, head), `... ${omitted} events left out ...`, ...lines.slice(lines.length - tail)];
 }
 
 /**
@@ -88,45 +117,22 @@ export function buildSessionTimeline(session: PanelSessionRow, events: readonly 
 
   for (const event of ordered) {
     const when = Date.parse(event.ts);
-    switch (event.name) {
-      case '$pageview': {
-        closePage(when);
-        const title = event.title ? ` "${clip(event.title, MAX_TEXT)}"` : '';
-        lines.push(`[${at(event.ts)}] Opened ${event.path ?? '(unknown page)'}${title}`);
-        currentPage = { line: lines.length - 1, ts: when };
-        break;
-      }
-      case '$autocapture': {
-        const action = event.properties.$action === 'submit' ? 'Submitted a form via' : 'Clicked';
-        lines.push(`[${at(event.ts)}] ${action} ${quoted(event.detail)}`);
-        break;
-      }
-      case '$exception':
-        lines.push(`[${at(event.ts)}] Error on the page: ${clip(event.detail ?? 'unknown error', MAX_ERROR)}`);
-        break;
-      default:
-        if (FRUSTRATION_LABELS[event.name]) {
-          const target = event.name === '$rageclick' || event.name === '$deadclick' ? ` on ${quoted(event.detail)}` : '';
-          lines.push(`[${at(event.ts)}] Frustration: ${FRUSTRATION_LABELS[event.name]}${target}`);
-        } else if (!event.name.startsWith('$')) {
-          lines.push(`[${at(event.ts)}] Event "${clip(event.name, MAX_TEXT)}"`);
-        }
+    if (event.name === '$pageview') {
+      closePage(when);
+      const title = event.title ? ` "${clip(event.title, MAX_TEXT)}"` : '';
+      lines.push(`[${at(event.ts)}] Opened ${event.path ?? '(unknown page)'}${title}`);
+      currentPage = { line: lines.length - 1, ts: when };
+    } else {
+      const line = eventLine(event, at(event.ts));
+      if (line !== null) lines.push(line);
     }
   }
   closePage(Number.isNaN(end) ? Date.now() : end);
 
-  let body = lines;
-  let omitted = 0;
-  if (body.length > MAX_LINES) {
-    // Keep the start and the end: how it began and where it ended matter most.
-    const head = Math.floor(MAX_LINES * 0.6);
-    const tail = MAX_LINES - head;
-    omitted = body.length - MAX_LINES;
-    body = [...body.slice(0, head), `... ${omitted} events left out ...`, ...body.slice(body.length - tail)];
-  }
-  let text = body.join('\n');
+  let text = limitLines(lines).join('\n');
   if (text.length > MAX_CHARS) text = `${text.slice(0, MAX_CHARS)}\n... cut ...`;
 
   const ending = session.exitPage ? `The visitor's last page was ${session.exitPage}.` : 'The last page is unknown.';
-  return `${header(session)}\n${session.entryPage ? `Entry page: ${session.entryPage}\n` : ''}${ending}\n\nTimeline:\n${text || '(no events)'}`;
+  const entry = session.entryPage ? `Entry page: ${session.entryPage}\n` : '';
+  return `${header(session)}\n${entry}${ending}\n\nTimeline:\n${text || '(no events)'}`;
 }

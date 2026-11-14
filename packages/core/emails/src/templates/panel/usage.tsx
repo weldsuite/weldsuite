@@ -41,9 +41,10 @@ export default defineTemplate<PanelUsageEmailProps>({
     const blocked = kind === 'replay_blocked' || kind === 'events_blocked';
     const heading = { near: t.headingNear, full: t.headingFull, replay_blocked: t.headingReplayBlocked, events_blocked: t.headingEventsBlocked }[kind];
     const body = { near: t.bodyNear, full: t.bodyFull, replay_blocked: t.bodyReplayBlocked, events_blocked: t.bodyEventsBlocked }[kind];
+    const previewTemplate = kind === 'full' ? t.previewFull : t.previewNear;
     const preview = blocked
       ? t.previewBlocked
-      : fill(kind === 'full' ? t.previewFull : t.previewNear, { events: number.format(props.events.used), recordings: number.format(props.recordings.used) });
+      : fill(previewTemplate, { events: number.format(props.events.used), recordings: number.format(props.recordings.used) });
     const amount = (m: { used: number; allowance: number }) => fill(t.amount, { used: number.format(m.used), allowance: number.format(m.allowance) });
     return (
       <EmailLayout brand={brand} locale={locale} preview={preview} footer={t.footer}>

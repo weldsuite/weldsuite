@@ -61,7 +61,9 @@ export async function runCachedQuery(deps: QueryRunDeps, spec: ParsedPanelQueryS
   const { result, stats } = await runPanelQuery(spec, ctx, execute);
   // What the query scanned, to watch the cost of project mixing (docs/plans/weldpanel.md "Risks").
   if (stats.bytesScanned !== null) {
-    console.warn(`[panel-api] basin kind=${spec.kind} statements=${stats.queries} bytes_scanned=${stats.bytesScanned}`);
+    // The kind comes from the request (already validated); keep only letters so a log line can't be forged.
+    const kind = String(spec.kind).replaceAll(/[^a-z]/gi, '');
+    console.warn(`[panel-api] basin kind=${kind} statements=${stats.queries} bytes_scanned=${stats.bytesScanned}`);
   }
   const entry: CacheEntry = { result, dataAsOf: new Date().toISOString() };
   try {

@@ -147,6 +147,12 @@ describe('WeldPanel home', () => {
       expect(lastSpec()).toMatchObject({ kind: 'web', projectId: 'wpp_1', dateRange: { preset: '30d' }, compare: true, filters: [] });
     });
 
+    it('has one page title, not one per wrapper', () => {
+      setData();
+      render(<WeldPanelHome />);
+      expect(screen.getAllByRole('heading', { level: 1, name: to.title })).toHaveLength(1);
+    });
+
     it('shows the KPI tiles with the change against the previous period', () => {
       setData();
       render(<WeldPanelHome />);

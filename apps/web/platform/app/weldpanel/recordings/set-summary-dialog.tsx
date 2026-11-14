@@ -5,6 +5,7 @@
  * is short.
  */
 
+import { useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import type { PanelSessionsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { Button } from '@weldsuite/ui/components/button';
@@ -15,7 +16,7 @@ import { useSummariseWeldPanelSet } from '@/hooks/queries/use-weldpanel-queries'
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { aiFailure } from '../lib/api-errors';
-import { failureText } from './summary-panel';
+import { failureText, failureVariant } from './summary-panel';
 
 interface SetSummaryDialogProps {
   projectId: string;
@@ -28,8 +29,14 @@ export function SetSummaryDialog({ projectId, spec, open, onOpenChange }: Readon
   const { t, format } = useI18n();
   const ts = t.weldpanel.observe.recordings.summariseSet;
   const summarise = useSummariseWeldPanelSet();
+  const { reset } = summarise;
   const result = summarise.data;
   const failure = summarise.error ? aiFailure(summarise.error) : null;
+
+  // Whichever way the dialog closes, the next opening starts clean (the filters may have changed).
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
 
   function run() {
     summarise.mutate({ projectId, source: { type: 'sessions', spec }, limit: 20 });
@@ -38,10 +45,7 @@ export function SetSummaryDialog({ projectId, spec, open, onOpenChange }: Readon
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
-        if (!next) summarise.reset();
-        onOpenChange(next);
-      }}
+      onOpenChange={onOpenChange}
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
@@ -50,7 +54,7 @@ export function SetSummaryDialog({ projectId, spec, open, onOpenChange }: Readon
         </DialogHeader>
 
         {failure && (
-          <InfoBanner variant={failure.kind === 'failed' ? 'danger' : failure.kind === 'credits' ? 'warning' : 'neutral'}>
+          <InfoBanner variant={failureVariant(failure)}>
             {failureText(failure, {
               noCredits: ts.noCredits,
               noCreditsGeneric: ts.noCreditsGeneric,

@@ -45,12 +45,9 @@ export function formatBucket(bucket: string, interval: PanelInterval, locale: st
   const [y, m, d] = datePart.split('-').map(Number);
   if (!y || !m || !d) return bucket;
   const date = new Date(Date.UTC(y, m - 1, d, timePart ? Number(timePart.slice(0, 2)) : 0));
-  const options: Intl.DateTimeFormatOptions =
-    interval === 'hour'
-      ? { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }
-      : interval === 'month'
-        ? { month: 'short', year: 'numeric', timeZone: 'UTC' }
-        : { day: 'numeric', month: 'short', timeZone: 'UTC' };
+  let options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+  if (interval === 'hour') options = { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' };
+  else if (interval === 'month') options = { month: 'short', year: 'numeric', timeZone: 'UTC' };
   return new Intl.DateTimeFormat(locale, options).format(date);
 }
 

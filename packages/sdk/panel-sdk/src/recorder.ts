@@ -78,12 +78,13 @@ const stars = (text: string): string => text.replace(/\S/g, '*');
  */
 export function recordingOptions(level: ClientConfig['maskingLevel']): recordOptions<eventWithTime> {
   const strict = level !== 'balanced' && level !== 'relaxed';
+  const inputLevel = strict ? 'strict' : level;
   return {
     blockSelector: `${BLOCK},video,audio${strict ? ',img,picture,image' : ''}`,
     maskTextSelector: strict ? '*' : MASK,
     maskTextFn: (text, el) => (el && unmasked(el) ? text : stars(text)),
     maskAllInputs: true,
-    maskInputFn: (text, el) => (inputVisible(el, strict ? 'strict' : level) ? text : '*'.repeat(text.length)),
+    maskInputFn: (text, el) => (inputVisible(el, inputLevel) ? text : '*'.repeat(text.length)),
     recordCanvas: false,
     recordCrossOriginIframes: false,
     collectFonts: false,

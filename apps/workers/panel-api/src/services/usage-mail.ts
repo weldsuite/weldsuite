@@ -5,7 +5,7 @@
  * falls back to its admins. Mail never fails a settlement.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { resolveEmailLocale, sendSystemEmail, workspaceAppUrl, type EmailTransport } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';

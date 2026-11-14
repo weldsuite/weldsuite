@@ -130,15 +130,27 @@ export interface RecordingState {
 export function sampleSession(token: string, sessionId: string, rate: number): boolean {
   const v = readJson<RecordingState>(recordingKey(token));
   if (v && v.s === sessionId && (v.r === 0 || v.r === 1)) return v.r === 1;
-  const r = Math.random() < rate ? 1 : 0;
+  const r = crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296 < rate ? 1 : 0;
   writeJson(recordingKey(token), { s: sessionId, r, q: 0 });
   return r === 1;
 }
 
 /** The next chunk number of the session (0 for its first), counted across its tabs and pages. */
 export function nextSeq(token: string, sessionId: string): number {
-  const v = readJson<RecordingState>(recordingKey(token));
-  const q = v && v.s === sessionId && typeof v.q === 'number' ? v.q : 0;
-  writeJson(recordingKey(token), { s: sessionId, r: 1, q: q + 1 });
+  const key = recordingKey(token);
+  const v = readJson<RecordingState>(key);
+  const stored = v && v.s === sessionId && typeof v.q === 'number' ? v.q : 0;
+  // Storage may be unavailable or refuse writes: this page's own count still never repeats a number.
+  const m = memorySeq.get(key);
+  const q = Math.max(stored, m && m.s === sessionId ? m.q : 0);
+  memorySeq.set(key, { s: sessionId, q: q + 1 });
+  writeJson(key, { s: sessionId, r: 1, q: q + 1 });
   return q;
+}
+
+const memorySeq = new Map<string, { s: string; q: number }>();
+
+/** Forgets the in-memory chunk counters. Tests only. */
+export function resetSeqMemory(): void {
+  memorySeq.clear();
 }

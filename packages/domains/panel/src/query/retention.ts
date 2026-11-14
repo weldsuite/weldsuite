@@ -38,8 +38,9 @@ function periodIndexSql(spec: ParsedRetentionSpec, offsetMinutes: number): strin
 
 function firstEventCte(spec: ParsedRetentionSpec, ctx: PanelQueryContext, range: ResolvedRange): string {
   const scope = eventsScope(ctx, range, range, { filters: spec.filters });
+  const firstWhere = scope.where(`e.name = ${eventName(spec.firstEvent)}`);
   return (
-    `f AS (SELECT ${scope.person} AS person, MIN(e.ts) AS t0 FROM ${scope.from} ${scope.where(`e.name = ${eventName(spec.firstEvent)}`)} ` +
+    `f AS (SELECT ${scope.person} AS person, MIN(e.ts) AS t0 FROM ${scope.from} ${firstWhere} ` +
     `GROUP BY ${scope.person})`
   );
 }

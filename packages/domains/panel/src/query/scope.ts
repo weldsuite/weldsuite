@@ -153,29 +153,34 @@ function jsonExprs(column: string, key: string): ValueExprs {
 
 type FilterValue = string | number | boolean | (string | number)[];
 
+function inComparison(value: FilterValue, ex: ValueExprs): string {
+  if (!Array.isArray(value) || value.length === 0) throw new PanelQueryError('Use a list of values');
+  if (value.every((v) => typeof v === 'number') && ex.num) return `${ex.num} IN (${value.map((v) => num(v as number)).join(', ')})`;
+  return `${ex.str} IN ${inList(value.map(String))}`;
+}
+
+function containsComparison(operator: PanelFilterOperator, value: string | number | boolean, ex: ValueExprs): string {
+  const matches = `LOWER(${ex.str}) LIKE ${likeContains(String(value))}${LIKE_ESCAPE}`;
+  return operator === 'contains' ? matches : `(${ex.str} IS NULL OR NOT (${matches}))`;
+}
+
+function orderComparison(operator: PanelFilterOperator, value: string | number | boolean, ex: ValueExprs): string {
+  const sign = operator === 'gt' ? '>' : '<';
+  if (typeof value === 'number' && ex.num) return `${ex.num} ${sign} ${num(value)}`;
+  if (typeof value === 'boolean') throw new PanelQueryError('Use a number or text');
+  return `${ex.str} ${sign} ${lit(String(value))}`;
+}
+
 function comparison(operator: PanelFilterOperator, value: FilterValue | undefined, ex: ValueExprs): string {
   if (operator === 'is_set') return ex.isSet;
   if (operator === 'is_not_set') return `NOT ${ex.isSet}`;
   if (value === undefined) throw new PanelQueryError('A filter needs a value');
 
-  if (operator === 'in') {
-    if (!Array.isArray(value) || value.length === 0) throw new PanelQueryError('Use a list of values');
-    if (value.every((v) => typeof v === 'number') && ex.num) return `${ex.num} IN (${value.map((v) => num(v as number)).join(', ')})`;
-    return `${ex.str} IN ${inList(value.map(String))}`;
-  }
+  if (operator === 'in') return inComparison(value, ex);
   if (Array.isArray(value)) throw new PanelQueryError('Only `in` takes a list');
 
-  if (operator === 'contains' || operator === 'not_contains') {
-    const matches = `LOWER(${ex.str}) LIKE ${likeContains(String(value))}${LIKE_ESCAPE}`;
-    return operator === 'contains' ? matches : `(${ex.str} IS NULL OR NOT (${matches}))`;
-  }
-
-  if (operator === 'gt' || operator === 'lt') {
-    const sign = operator === 'gt' ? '>' : '<';
-    if (typeof value === 'number' && ex.num) return `${ex.num} ${sign} ${num(value)}`;
-    if (typeof value === 'boolean') throw new PanelQueryError('Use a number or text');
-    return `${ex.str} ${sign} ${lit(String(value))}`;
-  }
+  if (operator === 'contains' || operator === 'not_contains') return containsComparison(operator, value, ex);
+  if (operator === 'gt' || operator === 'lt') return orderComparison(operator, value, ex);
 
   // eq / neq
   let equal: string;
@@ -225,10 +230,12 @@ export function cohortMembership(cohort: ParsedPanelCohortFilter, ctx: PanelQuer
       to: now,
     };
     const inner = eventsScope(ctx, range, bounds, { filters: condition.filters });
+    const innerWhere = inner.where(`e.name = ${eventName(condition.event)}`);
     const subquery =
-      `SELECT ${inner.person} FROM ${inner.from} ${inner.where(`e.name = ${eventName(condition.event)}`)} ` +
+      `SELECT ${inner.person} FROM ${inner.from} ${innerWhere} ` +
       `GROUP BY ${inner.person} HAVING COUNT(*) >= ${int(condition.minCount ?? 1, 100000)}`;
-    return `${person} ${condition.negate ? 'NOT IN' : 'IN'} (${subquery})`;
+    const inOp = condition.negate ? 'NOT IN' : 'IN';
+    return `${person} ${inOp} (${subquery})`;
   });
   return parts.join(joiner);
 }

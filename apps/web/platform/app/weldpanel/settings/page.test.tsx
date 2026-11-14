@@ -46,7 +46,7 @@ describe('WeldPanel settings: usage', () => {
     render(<WeldPanelSettingsPage />);
     expect(screen.getByText('400,000 of 1,000,000')).toBeTruthy();
     expect(screen.getByText('1,000 of 5,000')).toBeTruthy();
-    expect(screen.getAllByText('40% of your allowance').length).toBe(1);
+    expect(screen.getAllByText('40% of your allowance')).toHaveLength(1);
     expect(screen.getByText('Marketing site')).toBeTruthy();
     expect(screen.getByText('Plan: business')).toBeTruthy();
     expect(screen.getByText('November 2026')).toBeTruthy();

@@ -82,7 +82,7 @@ async function accept(c: BlobContext, token: string): Promise<Response | Accepte
     isBotUserAgent(c.req.header('User-Agent') ?? '') ||
     cf?.botManagement?.verifiedBot === true ||
     matchesIpFilter(ip, project.settings.ipFilters) ||
-    !(project.settings.recordingSampleRate > 0) ||
+    project.settings.recordingSampleRate <= 0 ||
     (await quotaState(c.env.WORKSPACE_CACHE, project.workspaceId, Date.now())) !== 'ok';
   if (dropped) return c.body(null, 204);
 

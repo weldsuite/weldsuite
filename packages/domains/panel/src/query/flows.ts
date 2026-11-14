@@ -20,10 +20,12 @@ const LABEL = `CASE WHEN e.name = '$pageview' THEN e.path ELSE e.name END`;
 export function flowsQuery(spec: ParsedFlowsSpec, ctx: PanelQueryContext, range: ResolvedRange): PanelSqlQuery {
   const needsProfiles = spec.anchor.filters.some((f) => f.source === 'person');
   const scope = eventsScope(ctx, range, range, { filters: spec.filters, personProps: needsProfiles });
-  const anchor = `(${[`e.name = ${eventName(spec.anchor.event)}`, ...compileFilters(spec.anchor.filters, ctx, range, scope.person)].join(' AND ')})`;
+  const anchorConds = [`e.name = ${eventName(spec.anchor.event)}`, ...compileFilters(spec.anchor.filters, ctx, range, scope.person)];
+  const anchor = `(${anchorConds.join(' AND ')})`;
 
-  const inScope =
-    spec.scope === 'pageviews' ? `e.name = ${lit('$pageview')}` : spec.scope === 'custom' ? `e.name NOT LIKE '$%'` : null;
+  let inScope: string | null = null;
+  if (spec.scope === 'pageviews') inScope = `e.name = ${lit('$pageview')}`;
+  else if (spec.scope === 'custom') inScope = `e.name NOT LIKE '$%'`;
   const where = inScope ? scope.where(`(${inScope} OR ${anchor})`) : scope.where();
 
   const fn = spec.direction === 'after' ? 'LEAD' : 'LAG';

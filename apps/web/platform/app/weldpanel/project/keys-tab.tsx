@@ -162,13 +162,10 @@ export function KeysTab({ project }: Readonly<{ project: PanelProjectDto }>) {
         </Button>
       </div>
 
-      {error ? (
-        <ErrorState message={tk.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />
-      ) : isLoading ? (
-        <Skeleton className="h-32 w-full" />
-      ) : !keys || keys.length === 0 ? (
-        <EmptyState icon={KeyRound} title={tk.empty} description={tk.emptyHint} />
-      ) : (
+      {error && <ErrorState message={tk.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />}
+      {!error && isLoading && <Skeleton className="h-32 w-full" />}
+      {!error && !isLoading && (!keys || keys.length === 0) && <EmptyState icon={KeyRound} title={tk.empty} description={tk.emptyHint} />}
+      {!error && !isLoading && keys && keys.length > 0 && (
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>

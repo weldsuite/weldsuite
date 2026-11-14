@@ -52,7 +52,9 @@ export async function loadRetention(masterDb: AnyMasterDatabase): Promise<Retent
     const months = panelPlanLimits(row.slug, row.features).eventRetentionMonths;
     groups.set(months, [...(groups.get(months) ?? []), row.projectId]);
   }
-  return [...groups.entries()].sort(([a], [b]) => a - b).map(([months, projectIds]) => ({ months, projectIds: projectIds.sort() }));
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([months, projectIds]) => ({ months, projectIds: projectIds.sort((a, b) => a.localeCompare(b)) }));
 }
 
 export function buildSpec(input: {

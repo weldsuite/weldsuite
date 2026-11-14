@@ -29,7 +29,10 @@ export function usageBanner(usage: PanelUsageDto): UsageBanner | null {
   if (usage.quota === 'replay_blocked') return { kind: 'replay_blocked' };
   const events = usageRatio(usage.events);
   const recordings = usageRatio(usage.recordings);
-  const what = (a: boolean, b: boolean): 'events' | 'recordings' | 'both' => (a && b ? 'both' : a ? 'events' : 'recordings');
+  const what = (a: boolean, b: boolean): 'events' | 'recordings' | 'both' => {
+    if (a && b) return 'both';
+    return a ? 'events' : 'recordings';
+  };
   if (events >= 1 || recordings >= 1) return { kind: 'reached', what: what(events >= 1, recordings >= 1) };
   if (events >= WARN_AT || recordings >= WARN_AT) return { kind: 'warning', what: what(events >= WARN_AT, recordings >= WARN_AT), ratio: Math.max(events, recordings) };
   return null;

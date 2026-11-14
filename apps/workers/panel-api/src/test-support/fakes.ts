@@ -58,7 +58,8 @@ export class FakeBasin {
         callLog.push('basin');
         if (this.status !== 200) return new Response('boom', { status: this.status });
         const rule = this.rules.find((r) => r.match.test(query));
-        const rows = rule ? (typeof rule.rows === 'function' ? rule.rows(query) : rule.rows) : [];
+        let rows: unknown = [];
+        if (rule) rows = typeof rule.rows === 'function' ? rule.rows(query) : rule.rows;
         return Response.json({ result: { rows, metrics: { bytes_scanned: 1024 } } });
       }),
     );

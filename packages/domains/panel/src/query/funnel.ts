@@ -39,7 +39,8 @@ import { toResolvedRange } from './result-range';
 type StepSpec = ParsedFunnelSpec['steps'][number];
 
 function stepCondition(step: StepSpec, scope: EventsScope, ctx: PanelQueryContext, range: ResolvedRange): string {
-  return `(${[`e.name = ${eventName(step.event)}`, ...compileFilters(step.filters, ctx, range, scope.person)].join(' AND ')})`;
+  const conds = [`e.name = ${eventName(step.event)}`, ...compileFilters(step.filters, ctx, range, scope.person)];
+  return `(${conds.join(' AND ')})`;
 }
 
 function windowInterval(spec: ParsedFunnelSpec): string {
@@ -81,14 +82,19 @@ export function funnelQuery(spec: ParsedFunnelSpec, ctx: PanelQueryContext, rang
     ...(strict ? [`LEAD(e.event_id) OVER (PARTITION BY ${scope.person} ORDER BY e.ts, e.event_id) AS next_id`] : []),
   ];
   // Loose order only needs the step events; strict needs every event to know what came next.
-  const seq = `seq AS (SELECT ${seqSelect.join(', ')} FROM ${scope.from} ${strict ? scope.where() : scope.where(`(${conds.join(' OR ')})`)})`;
+  const seqWhere = strict ? scope.where() : scope.where(`(${conds.join(' OR ')})`);
+  const seq = `seq AS (SELECT ${seqSelect.join(', ')} FROM ${scope.from} ${seqWhere})`;
 
   const ctes: string[] = [seq];
-  const bdSelect = bd ? 'bd' : `'' AS bd`;
+  // One breakdown value per person: the one on their first step-1 event, so a person who hits two
+  // values is counted in one group, and `stepsFrom` can add the groups up without counting them twice.
+  const emptyBd = `'' AS bd`;
+  const firstBd = bd ? 'FIRST_VALUE(bd) OVER (PARTITION BY person ORDER BY ts ASC, event_id ASC) AS bd' : emptyBd;
+  const firstBdAgg = bd ? 'FIRST_VALUE(bd ORDER BY ts ASC, event_id ASC) AS bd' : emptyBd;
   ctes.push(
     strict
-      ? `s1 AS (SELECT person, ts AS t1, ts AS t, ts AS tp, next_id, ${bdSelect} FROM seq WHERE m1 = 1)`
-      : `s1 AS (SELECT person, MIN(ts) AS t1, MIN(ts) AS t, MIN(ts) AS tp, ${bd ? 'MIN(bd) AS bd' : `'' AS bd`} FROM seq WHERE m1 = 1 GROUP BY person)`,
+      ? `s1 AS (SELECT person, ts AS t1, ts AS t, ts AS tp, next_id, ${firstBd} FROM seq WHERE m1 = 1)`
+      : `s1 AS (SELECT person, MIN(ts) AS t1, MIN(ts) AS t, MIN(ts) AS tp, ${firstBdAgg} FROM seq WHERE m1 = 1 GROUP BY person)`,
   );
   for (let k = 2; k <= spec.steps.length; k += 1) {
     const prev = `s${k - 1}`;
@@ -126,12 +132,14 @@ function stepsFrom(spec: ParsedFunnelSpec, rows: Row[]): { steps: PanelFunnelSte
     const count = stepRows.reduce((sum, r) => sum + toNumber(r.persons), 0);
     // Weighted by people: the average over the breakdown groups.
     const secs = count > 0 ? stepRows.reduce((sum, r) => sum + toNumber(r.avg_secs) * toNumber(r.persons), 0) / count : null;
+    let fromPrevious = 1;
+    if (i > 0) fromPrevious = previousCount > 0 ? count / previousCount : 0;
     const result: PanelFunnelStepResult = {
       index: i,
       event: step.event,
       label: step.label?.trim() || step.event,
       count,
-      conversionFromPrevious: i === 0 ? 1 : previousCount > 0 ? count / previousCount : 0,
+      conversionFromPrevious: fromPrevious,
       conversionFromFirst: first > 0 ? count / first : 0,
       droppedOff: i === 0 ? 0 : Math.max(previousCount - count, 0),
       avgSecondsFromPrevious: i === 0 || count === 0 || secs === null ? null : Math.round(secs),

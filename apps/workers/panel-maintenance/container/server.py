@@ -9,6 +9,7 @@
 """
 
 import json
+import re
 import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,9 @@ import maintenance
 PORT = 8080
 JOBS = {}
 LOCK = threading.Lock()
+# A Workflow run id: letters, digits, dash and underscore. Anything else is refused,
+# so nothing a caller sends is ever echoed back unchecked.
+RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 def run_job(run_id, spec):
@@ -36,6 +40,7 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("content-type", "application/json")
+        self.send_header("x-content-type-options", "nosniff")
         self.send_header("content-length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -54,11 +59,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {"error": "not found"})
         try:
             spec = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))))
-            run_id = spec["runId"]
+            match = RUN_ID.fullmatch(str(spec["runId"]))
             for key in ("erasures", "retention", "maxRetentionMonths", "now"):
                 spec[key]  # a missing key is a bad spec
         except (ValueError, KeyError, TypeError):
             return self.reply(400, {"error": "not a maintenance spec"})
+        if match is None:
+            return self.reply(400, {"error": "not a maintenance spec"})
+        run_id = match.group(0)
         with LOCK:
             if run_id in JOBS:
                 return self.reply(200, {"jobId": run_id})

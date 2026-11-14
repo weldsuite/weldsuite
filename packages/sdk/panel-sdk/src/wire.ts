@@ -144,7 +144,8 @@ export type DeviceClass = 'desktop' | 'tablet' | 'mobile';
 
 /** < 768 px mobile, < 1024 px tablet, else desktop: the same split as the collector's `deviceClassFromViewport`. */
 export function deviceClassFromViewport(width: number): DeviceClass {
-  return width < 768 ? 'mobile' : width < 1024 ? 'tablet' : 'desktop';
+  if (width < 768) return 'mobile';
+  return width < 1024 ? 'tablet' : 'desktop';
 }
 
 /** `GET /c/:token`: what the SDK needs before it collects anything. */

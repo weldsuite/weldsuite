@@ -34,6 +34,11 @@ function LexiconRow({ kind, entry, canEdit, onChange }: Readonly<LexiconRowProps
     setDescription(entry.description ?? '');
   }
 
+  let seenText = tl.notSeen;
+  if (entry.seen) {
+    seenText = kind === 'event' && entry.count30d !== null ? tl.seenCount.replace('{count}', formatNumber(entry.count30d, language)) : tl.seenProperty;
+  }
+
   return (
     <TableRow className={entry.hidden ? 'opacity-60' : undefined}>
       <TableCell className="max-w-64">
@@ -42,7 +47,7 @@ function LexiconRow({ kind, entry, canEdit, onChange }: Readonly<LexiconRowProps
         </p>
       </TableCell>
       <TableCell className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">
-        {entry.seen ? (kind === 'event' && entry.count30d !== null ? tl.seenCount.replace('{count}', formatNumber(entry.count30d, language)) : tl.seenProperty) : tl.notSeen}
+        {seenText}
       </TableCell>
       <TableCell className="min-w-48">
         {canEdit ? (
@@ -121,13 +126,10 @@ function Lexicon({ projectId }: Readonly<{ projectId: string }>) {
       </div>
       <p className="text-xs text-muted-foreground">{canEdit ? tl.hiddenNote : tl.needsPermission}</p>
 
-      {isLoading ? (
-        <Skeleton className="h-48 w-full" />
-      ) : (entries ?? []).length === 0 ? (
-        <EmptyState icon={BookOpen} title={tl.emptyTitle} description={tl.emptyDescription} />
-      ) : visible.length === 0 ? (
-        <EmptyState icon={BookOpen} title={tl.noMatches} />
-      ) : (
+      {isLoading && <Skeleton className="h-48 w-full" />}
+      {!isLoading && (entries ?? []).length === 0 && <EmptyState icon={BookOpen} title={tl.emptyTitle} description={tl.emptyDescription} />}
+      {!isLoading && (entries ?? []).length > 0 && visible.length === 0 && <EmptyState icon={BookOpen} title={tl.noMatches} />}
+      {!isLoading && visible.length > 0 && (
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>

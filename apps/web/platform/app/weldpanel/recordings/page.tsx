@@ -47,8 +47,49 @@ export default function RecordingsPage() {
   );
 }
 
-function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto; search: RecordingsSearch }>) {
+function whereText(session: PanelSessionRow, devices: Record<string, string>, language: string): string {
+  return (
+    [session.deviceType ? devices[session.deviceType] : null, session.browser, session.country ? countryName(session.country, language) : null].filter(Boolean).join(' · ') || '–'
+  );
+}
+
+function RecordingRow({ session, projectId, onOpen }: Readonly<{ session: PanelSessionRow; projectId: string; onOpen: (session: PanelSessionRow) => void }>) {
   const { t, language, format } = useI18n();
+  const to = t.weldpanel.observe.recordings;
+  const name = visitorLabel(session, t.weldpanel.observe.common.anonymous);
+  return (
+    <TableRow className="cursor-pointer" onClick={() => onOpen(session)}>
+      <TableCell>
+        {session.favorite ? <Star className="size-4 fill-amber-400 text-amber-500" aria-label={to.favorite} /> : null}
+      </TableCell>
+      <TableCell className="max-w-56 font-medium">
+        <Link
+          href={`/weldpanel/recordings/${encodeURIComponent(session.sessionId)}?project=${encodeURIComponent(projectId)}`}
+          className="block truncate hover:underline"
+          aria-label={format(to.open, { name })}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {name}
+        </Link>
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(session.startedAt, language)}</TableCell>
+      <TableCell className="whitespace-nowrap tabular-nums">{formatDuration(session.durationSeconds)}</TableCell>
+      <TableCell className="tabular-nums">{session.pageviews}</TableCell>
+      <TableCell>
+        <SignalBadges session={session} />
+      </TableCell>
+      <TableCell className="max-w-48 truncate text-muted-foreground" title={session.entryPage ?? undefined}>
+        {session.entryPage ?? '–'}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-muted-foreground">
+        {whereText(session, t.weldpanel.observe.common.devices, language)}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto; search: RecordingsSearch }>) {
+  const { t, format } = useI18n();
   const to = t.weldpanel.observe.recordings;
   const router = useRouter();
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -59,6 +100,8 @@ function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto
   const filterCount = activeFilterCount(search);
   const sessions = data?.sessions ?? [];
   const canSummarise = project.settings.aiEnabled;
+  const emptyCopy =
+    filterCount > 0 ? { title: to.emptyFilteredTitle, description: to.emptyFilteredDescription } : { title: to.emptyTitle, description: to.emptyDescription };
 
   const update = (next: RecordingsSearch) => router.replace(recordingsHref(cleanSearch(next)));
   const open = (session: PanelSessionRow) => router.push(`/weldpanel/recordings/${encodeURIComponent(session.sessionId)}?project=${encodeURIComponent(project.id)}`);
@@ -96,21 +139,16 @@ function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto
         </div>
       </div>
 
-      {error ? (
-        <QueryErrorState error={error} onRetry={() => void refetch()} />
-      ) : isLoading ? (
+      {error && <QueryErrorState error={error} onRetry={() => void refetch()} />}
+      {!error && isLoading && (
         <div className="grid gap-2" role="status" aria-label={t.common.labels.loading}>
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
-      ) : sessions.length === 0 ? (
-        <EmptyState
-          icon={MonitorPlay}
-          title={filterCount > 0 ? to.emptyFilteredTitle : to.emptyTitle}
-          description={filterCount > 0 ? to.emptyFilteredDescription : to.emptyDescription}
-        />
-      ) : (
+      )}
+      {!error && !isLoading && sessions.length === 0 && <EmptyState icon={MonitorPlay} title={emptyCopy.title} description={emptyCopy.description} />}
+      {!error && !isLoading && sessions.length > 0 && (
         <>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
@@ -127,40 +165,9 @@ function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessions.map((session) => {
-                  const name = visitorLabel(session, t.weldpanel.observe.common.anonymous);
-                  return (
-                    <TableRow key={session.sessionId} className="cursor-pointer" onClick={() => open(session)}>
-                      <TableCell>
-                        {session.favorite ? <Star className="size-4 fill-amber-400 text-amber-500" aria-label={to.favorite} /> : null}
-                      </TableCell>
-                      <TableCell className="max-w-56 font-medium">
-                        <Link
-                          href={`/weldpanel/recordings/${encodeURIComponent(session.sessionId)}?project=${encodeURIComponent(project.id)}`}
-                          className="block truncate hover:underline"
-                          aria-label={format(to.open, { name })}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(session.startedAt, language)}</TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums">{formatDuration(session.durationSeconds)}</TableCell>
-                      <TableCell className="tabular-nums">{session.pageviews}</TableCell>
-                      <TableCell>
-                        <SignalBadges session={session} />
-                      </TableCell>
-                      <TableCell className="max-w-48 truncate text-muted-foreground" title={session.entryPage ?? undefined}>
-                        {session.entryPage ?? '–'}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">
-                        {[session.deviceType ? t.weldpanel.observe.common.devices[session.deviceType] : null, session.browser, session.country ? countryName(session.country, language) : null]
-                          .filter(Boolean)
-                          .join(' · ') || '–'}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {sessions.map((session) => (
+                  <RecordingRow key={session.sessionId} session={session} projectId={project.id} onOpen={open} />
+                ))}
               </TableBody>
             </Table>
           </div>

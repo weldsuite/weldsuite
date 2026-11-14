@@ -375,6 +375,32 @@
     "workspace": "Workspace",
     "workspaceId": "Workspace id"
   },
+  "panel": {
+    "usage": {
+      "amount": "{used} of {allowance}",
+      "bodyEventsBlocked": "Your credit wallet cannot cover the next block of usage and events are more than 10% over the allowance, so new events and recordings are dropped until the next month, a top-up or a plan upgrade. Dropped events cannot be recovered.",
+      "bodyFull": "Usage above the allowance is now charged from your credit wallet in blocks, so tracking keeps running.",
+      "bodyNear": "Usage above the allowance is charged from your credit wallet in blocks, so tracking keeps running.",
+      "bodyReplayBlocked": "Your credit wallet cannot cover the next block of usage, so no new recordings are made. Events are still counted. Top up your credits or upgrade your plan to continue.",
+      "button": "View usage",
+      "events": "Events",
+      "footer": "You get this because you are an owner of the workspace.",
+      "headingEventsBlocked": "New events are being dropped",
+      "headingFull": "You have used your monthly allowance",
+      "headingNear": "You have used 80% of your monthly allowance",
+      "headingReplayBlocked": "New recordings have stopped",
+      "kicker": "WeldPanel usage",
+      "previewBlocked": "Your credit wallet cannot cover more WeldPanel usage.",
+      "previewFull": "The allowance for this month is used: {events} events and {recordings} recordings.",
+      "previewNear": "{events} events and {recordings} recordings used this month.",
+      "recordings": "Recordings",
+      "resets": "The count starts again on {date}.",
+      "subjectEventsBlocked": "WeldPanel is dropping events for {workspace}",
+      "subjectFull": "{workspace} has used its WeldPanel allowance for this month",
+      "subjectNear": "{workspace} has used 80% of its WeldPanel allowance",
+      "subjectReplayBlocked": "WeldPanel stopped recording sessions for {workspace}"
+    }
+  },
   "portal": {
     "expiresCode": "The code expires in {minutes} minutes.",
     "expiresLink": "The link and code expire in {minutes} minutes.",

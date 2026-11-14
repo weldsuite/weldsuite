@@ -15,16 +15,33 @@ export class PanelQueryError extends Error {
   }
 }
 
-/** Control characters and backslashes: engines disagree on how a backslash escapes, so none get through. */
+/**
+ * Control characters and backslashes: engines disagree on how a backslash
+ * escapes, so none is written into a literal. They are built with `chr(n)`
+ * and joined with `||` instead (ids may contain a backslash, `CORP\jdoe`).
+ */
 // eslint-disable-next-line no-control-regex
-const FORBIDDEN_IN_LITERAL = /[\u0000-\u001f\u007f\\]/;
+const SPECIAL_IN_LITERAL = /[\u0001-\u001f\u007f\\]/;
+// eslint-disable-next-line no-control-regex
+const SPLIT_SPECIAL = /([\u0001-\u001f\u007f\\])/;
 
-/** A string literal: single quotes doubled, control characters and backslashes refused. */
+/**
+ * A string literal: single quotes doubled. A backslash or control character
+ * becomes a `chr(n)` piece, `('CORP' || chr(92) || 'jdoe')`; plain text stays a
+ * plain literal. NUL is refused (no engine takes it in a string).
+ */
 export function lit(value: string): string {
   if (typeof value !== 'string') throw new PanelQueryError('Expected text');
-  if (FORBIDDEN_IN_LITERAL.test(value)) {
-    throw new PanelQueryError('Values cannot contain backslashes or control characters');
-  }
+  if (value.includes('\u0000')) throw new PanelQueryError('Values cannot contain a null character');
+  if (!SPECIAL_IN_LITERAL.test(value)) return quoted(value);
+  const pieces = value
+    .split(SPLIT_SPECIAL)
+    .filter((part) => part !== '')
+    .map((part) => (part.length === 1 && SPECIAL_IN_LITERAL.test(part) ? `chr(${part.charCodeAt(0)})` : quoted(part)));
+  return `(${pieces.join(' || ')})`;
+}
+
+function quoted(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 

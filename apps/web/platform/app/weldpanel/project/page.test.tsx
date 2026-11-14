@@ -310,6 +310,19 @@ describe('WeldPanel project page', () => {
       );
     });
 
+    it('splits several IP filters pasted with commas or spaces, not at the letter s', async () => {
+      state.updateSettings.mockResolvedValue(makeProject());
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      await user.type(screen.getByPlaceholderText(en.weldpanel.privacy.ipFiltersPlaceholder), '203.0.113.0/24, 198.51.100.7 192.0.2.1{Enter}');
+      await user.click(screen.getByRole('button', { name: en.weldpanel.privacy.save }));
+      await waitFor(() =>
+        expect(state.updateSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ settings: expect.objectContaining({ ipFilters: ['203.0.113.0/24', '198.51.100.7', '192.0.2.1'] }) }),
+        ),
+      );
+    });
+
     it('refuses an IP filter that is not an address or range', async () => {
       const { user } = show();
       await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));

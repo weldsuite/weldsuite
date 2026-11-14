@@ -201,13 +201,19 @@ async function findSnapshotChunks(env: Env, ctx: PanelQueryContext, pattern: str
   const range = resolveRange({ preset: '30d' }, 'UTC', ctx);
   const scope = eventsScope(ctx, range, range);
   const runner = createRunner(basinExecutor(env));
-  const likePattern = lit(pattern.split('*').map((part) => part.replace(/[!%_]/g, (ch) => `!${ch}`)).join('%'));
+  const likePattern = lit(pattern.split('*').map((part) => part.replace(/[!%_]/g, (ch) => '!' + ch)).join('%'));
+  const visitWhere = scope.where(
+    `e.name = ${lit('$pageview')}`,
+    'e.session_id IS NOT NULL',
+    `e.path LIKE ${likePattern} ESCAPE '!'`,
+    deviceCondition(deviceClass),
+  );
   const [visits = []] = await runner.run([
     {
       name: 'heatmaps.snapshot.visits',
       sql:
         `SELECT e.session_id AS session_id, MIN(e.ts) AS visited_at FROM ${scope.from} ` +
-        `${scope.where(`e.name = ${lit('$pageview')}`, 'e.session_id IS NOT NULL', `e.path LIKE ${likePattern} ESCAPE '!'`, deviceCondition(deviceClass))} ` +
+        `${visitWhere} ` +
         `GROUP BY e.session_id ORDER BY MIN(e.ts) DESC LIMIT ${CANDIDATE_SESSIONS}`,
       columns: ['session_id', 'visited_at'],
     },

@@ -13,6 +13,7 @@ import {
   type ParsedPanelQuerySpec,
   type PanelQuerySpec,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import { breakdownLimitedExpr } from './scope';
 import { runPanelQuery, PanelQueryError, type PanelQueryContext, type PanelSqlQuery, type RawRow } from './index';
 
 const NOW = new Date('2026-11-14T12:00:00Z');
@@ -432,12 +433,33 @@ describe('values reach SQL only through the escaping function', () => {
     }
   });
 
-  it('refuses backslashes and control characters in values', async () => {
-    for (const value of ['a\\b', 'a\u0000b', 'a\nb', 'a\u007fb']) {
-      await expect(
-        compile({ kind: 'web', projectId: PROJECT_ID, filters: [{ source: 'column', field: 'path', operator: 'eq', value }] }),
-      ).rejects.toThrow(PanelQueryError);
+  it('writes backslashes and control characters in values as chr() pieces, and refuses NUL', async () => {
+    const cases: Array<[string, string]> = [
+      ['a\\b', "('a' || chr(92) || 'b')"],
+      ['CORP\\jdoe', "('CORP' || chr(92) || 'jdoe')"],
+      ['a\nb', "('a' || chr(10) || 'b')"],
+      ['\\', '(chr(92))'],
+      ["it's\\", "('it''s' || chr(92))"],
+      ['a\u007fb', "('a' || chr(127) || 'b')"],
+    ];
+    for (const [value, expected] of cases) {
+      const sent = await compile({ kind: 'web', projectId: PROJECT_ID, filters: [{ source: 'column', field: 'path', operator: 'eq', value }] });
+      expect(sent[0]?.sql).toContain(expected);
     }
+    await expect(
+      compile({ kind: 'web', projectId: PROJECT_ID, filters: [{ source: 'column', field: 'path', operator: 'eq', value: 'a\u0000b' }] }),
+    ).rejects.toThrow(PanelQueryError);
+  });
+
+  it('keeps an erased id with a backslash from breaking every query', async () => {
+    const sent = await compile({ kind: 'web', projectId: PROJECT_ID }, ctxWith({ erasedIds: ['CORP\\jdoe'] }));
+    expect(sent[0]?.sql).toContain("('CORP' || chr(92) || 'jdoe')");
+  });
+
+  it('writes breakdown values with a backslash or newline as chr() pieces', () => {
+    const expr = breakdownLimitedExpr({ source: 'column', field: 'path', limit: 10 }, ['C:\\x', 'a\nb']);
+    expect(expr).toContain("('C:' || chr(92) || 'x')");
+    expect(expr).toContain("('a' || chr(10) || 'b')");
   });
 
   it('escapes LIKE wildcards in contains filters and url patterns', async () => {
@@ -540,6 +562,26 @@ describe('representative SQL', () => {
     expect(sql).toContain('JOIN seq q ON q.event_id = p.next_id AND q.person = p.person WHERE q.m2 = 1');
     // Two steps of the same event are not allowed to match the same event.
     expect(sql).not.toContain("(e.name = 'Signed up') OR");
+  });
+
+  it('funnel with a breakdown: each person gets the value of their first step-1 event, strict and loose', async () => {
+    for (const order of ['strict', 'loose'] as const) {
+      const sent = await compile(
+        { kind: 'funnel', projectId: PROJECT_ID, order, steps: [{ event: 'A' }, { event: 'B' }], breakdown: { source: 'column', field: 'country' } },
+        ctxWith(),
+        { 'funnel.breakdownValues': [{ value: 'NL', n: 2 }, { value: 'BE', n: 1 }] },
+      );
+      const sql = sent.find((q) => q.name === 'funnel.steps')?.sql as string;
+      const s1 = /s1 AS \(.*? FROM seq WHERE m1 = 1[^)]*\)/.exec(sql)?.[0] ?? '';
+      if (order === 'strict') {
+        expect(s1).toContain('FIRST_VALUE(bd) OVER (PARTITION BY person ORDER BY ts ASC, event_id ASC) AS bd');
+      } else {
+        expect(s1).toContain('FIRST_VALUE(bd ORDER BY ts ASC, event_id ASC) AS bd');
+        expect(s1).not.toContain('MIN(bd)');
+      }
+      // Later steps carry the person's value along, never the event's own.
+      expect(sql).toContain(order === 'strict' ? 'p.bd AS bd' : 'MIN(p.bd) AS bd');
+    }
   });
 
   it('funnel: same event twice in a row needs a later event', async () => {

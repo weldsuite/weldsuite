@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
+import type { PanelPersonDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -42,6 +43,30 @@ export default function UsersPage() {
   );
 }
 
+function PersonRow({ person, projectId, onOpen }: Readonly<{ person: PanelPersonDto; projectId: string; onOpen: (userId: string) => void }>) {
+  const { t, language, format } = useI18n();
+  const tu = t.weldpanel.observe.users;
+  const name = personDisplayName(person);
+  return (
+    <TableRow className="cursor-pointer" onClick={() => onOpen(person.userId)}>
+      <TableCell className="max-w-64 font-medium">
+        <Link
+          href={`/weldpanel/users/${encodeURIComponent(person.userId)}?project=${encodeURIComponent(projectId)}`}
+          className="block truncate hover:underline"
+          aria-label={format(tu.openProfile, { name })}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {name}
+        </Link>
+      </TableCell>
+      <TableCell className="max-w-64 truncate text-muted-foreground">{person.email ?? '–'}</TableCell>
+      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(person.lastSeen, language)}</TableCell>
+      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(person.firstSeen, language)}</TableCell>
+      <TableCell className="text-right tabular-nums">{Object.keys(person.properties).length}</TableCell>
+    </TableRow>
+  );
+}
+
 function UsersList({ project }: Readonly<{ project: PanelProjectDto }>) {
   const { t, language, format } = useI18n();
   const tu = t.weldpanel.observe.users;
@@ -54,6 +79,7 @@ function UsersList({ project }: Readonly<{ project: PanelProjectDto }>) {
   const { data, error, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } = useWeldPanelPeople(params);
   const people = data?.people ?? [];
   const filtered = debounced !== '' || cohortId !== ALL;
+  const emptyCopy = filtered ? { title: tu.emptySearchTitle, description: tu.emptySearchDescription } : { title: tu.emptyTitle, description: tu.emptyDescription };
 
   const openProfile = (userId: string) => router.push(`/weldpanel/users/${encodeURIComponent(userId)}?project=${encodeURIComponent(project.id)}`);
 
@@ -79,17 +105,16 @@ function UsersList({ project }: Readonly<{ project: PanelProjectDto }>) {
         {data && <span className="ml-auto text-sm text-muted-foreground">{format(tu.count, { count: formatNumber(data.totalCount, language) })}</span>}
       </div>
 
-      {error ? (
-        <QueryErrorState error={error} onRetry={() => void refetch()} />
-      ) : isLoading ? (
+      {error && <QueryErrorState error={error} onRetry={() => void refetch()} />}
+      {!error && isLoading && (
         <div className="grid gap-2" role="status" aria-label={t.common.labels.loading}>
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
-      ) : people.length === 0 ? (
-        <EmptyState icon={Users} title={filtered ? tu.emptySearchTitle : tu.emptyTitle} description={filtered ? tu.emptySearchDescription : tu.emptyDescription} />
-      ) : (
+      )}
+      {!error && !isLoading && people.length === 0 && <EmptyState icon={Users} title={emptyCopy.title} description={emptyCopy.description} />}
+      {!error && !isLoading && people.length > 0 && (
         <>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
@@ -103,27 +128,9 @@ function UsersList({ project }: Readonly<{ project: PanelProjectDto }>) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {people.map((person) => {
-                  const name = personDisplayName(person);
-                  return (
-                    <TableRow key={person.userId} className="cursor-pointer" onClick={() => openProfile(person.userId)}>
-                      <TableCell className="max-w-64 font-medium">
-                        <Link
-                          href={`/weldpanel/users/${encodeURIComponent(person.userId)}?project=${encodeURIComponent(project.id)}`}
-                          className="block truncate hover:underline"
-                          aria-label={format(tu.openProfile, { name })}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="max-w-64 truncate text-muted-foreground">{person.email ?? '–'}</TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(person.lastSeen, language)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(person.firstSeen, language)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{Object.keys(person.properties).length}</TableCell>
-                    </TableRow>
-                  );
-                })}
+                {people.map((person) => (
+                  <PersonRow key={person.userId} person={person} projectId={project.id} onOpen={openProfile} />
+                ))}
               </TableBody>
             </Table>
           </div>

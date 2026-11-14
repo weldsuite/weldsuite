@@ -30,7 +30,10 @@ export interface ActivityOptions {
 const ACTIVITY_COLUMNS = ['event_id', 'name', 'ts', 'path', 'url', 'title', 'session_id', 'el_text', 'error_message', 'properties'] as const;
 
 function windowFor(ctx: PanelQueryContext, days: number | undefined): ResolvedRange {
-  const preset = (days ?? 90) <= 30 ? '30d' : (days ?? 90) <= 90 ? '90d' : '12m';
+  const d = days ?? 90;
+  let preset: '30d' | '90d' | '12m' = '12m';
+  if (d <= 30) preset = '30d';
+  else if (d <= 90) preset = '90d';
   return resolveRange({ preset }, 'UTC', ctx);
 }
 
@@ -52,9 +55,10 @@ export function activityQuery(ctx: PanelQueryContext, options: ActivityOptions):
 export function activityCountQuery(ctx: PanelQueryContext, distinctId: string, days = 90): PanelSqlQuery {
   const range = windowFor(ctx, days);
   const scope = eventsScope(ctx, range, range);
+  const personIs = `${scope.person} = ${lit(distinctId)}`;
   return {
     name: 'activity.count',
-    sql: `SELECT COUNT(*) AS n FROM ${scope.from} ${scope.where(`${scope.person} = ${lit(distinctId)}`)}`,
+    sql: `SELECT COUNT(*) AS n FROM ${scope.from} ${scope.where(personIs)}`,
     columns: ['n'],
   };
 }
@@ -113,6 +117,7 @@ function validKey(key: string): boolean {
 export function lexiconQueries(ctx: PanelQueryContext): PanelSqlQuery[] {
   const range = resolveRange({ preset: '30d' }, 'UTC', ctx);
   const scope = eventsScope(ctx, range, range);
+  const propsWhere = scope.where(`e.properties <> '{}'`);
   return [
     {
       name: 'lexicon.events',
@@ -122,7 +127,7 @@ export function lexiconQueries(ctx: PanelQueryContext): PanelSqlQuery[] {
     {
       name: 'lexicon.eventProperties',
       sql:
-        `SELECT e.properties AS properties, COUNT(*) AS n FROM ${scope.from} ${scope.where(`e.properties <> '{}'`)} ` +
+        `SELECT e.properties AS properties, COUNT(*) AS n FROM ${scope.from} ${propsWhere} ` +
         `GROUP BY e.properties ORDER BY COUNT(*) DESC LIMIT ${int(MAX_PROPERTY_SAMPLES, MAX_PROPERTY_SAMPLES)}`,
       columns: ['properties', 'n'],
     },
@@ -142,7 +147,7 @@ export function lexiconFromRows(eventRows: Row[], propertyRows: Row[], personRow
   for (const row of [...propertyRows, ...personRows]) {
     for (const key of Object.keys(scalarProperties(row.properties))) if (validKey(key)) keys.add(key);
   }
-  return { events, properties: [...keys].sort() };
+  return { events, properties: [...keys].sort((a, b) => a.localeCompare(b)) };
 }
 
 export function lexiconWindowDays(): number {

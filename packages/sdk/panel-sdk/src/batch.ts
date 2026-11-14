@@ -65,24 +65,25 @@ export function buildBatches(input: BatchInput): EventBatch[] {
   }
 
   if (input.consent && input.people) {
-    for (const raw of input.people) {
-      const op = normalizePeopleOp(raw as PeopleOpInput);
-      if (!op) continue;
-      const n = utf8Length(JSON.stringify(op));
-      for (let i = 0; i < batches.length; i++) {
-        const people = batches[i].people;
-        // `,"people":[` + `]` the first time, a comma after that.
-        const extra = people ? n + 1 : n + 12;
-        if ((people ? people.length : 0) < MAX_PEOPLE_OPS_PER_BATCH && sizes[i] + extra <= MAX_BATCH_BYTES) {
-          if (people) people.push(op);
-          else batches[i].people = [op];
-          sizes[i] += extra;
-          break;
-        }
-      }
-    }
+    for (const raw of input.people) addPeopleOp(batches, sizes, normalizePeopleOp(raw as PeopleOpInput));
   }
   return batches;
+}
+
+/** Puts a profile operation in the first batch with room for it; `sizes` tracks each batch's JSON bytes. */
+function addPeopleOp(batches: EventBatch[], sizes: number[], op: WirePeopleOp | null): void {
+  if (!op) return;
+  const n = utf8Length(JSON.stringify(op));
+  for (let i = 0; i < batches.length; i++) {
+    const people = batches[i].people;
+    // `,"people":[` + `]` the first time, a comma after that.
+    const extra = people ? n + 1 : n + 12;
+    if ((people?.length ?? 0) >= MAX_PEOPLE_OPS_PER_BATCH || sizes[i] + extra > MAX_BATCH_BYTES) continue;
+    if (people) people.push(op);
+    else batches[i].people = [op];
+    sizes[i] += extra;
+    return;
+  }
 }
 
 /**

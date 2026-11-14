@@ -66,7 +66,8 @@ function havingConditions(spec: ParsedSessionsSpec): string[] {
   if (spec.minDurationSeconds !== undefined) having.push(`${DURATION} >= ${num(spec.minDurationSeconds)}`);
   if (spec.maxDurationSeconds !== undefined) having.push(`${DURATION} <= ${num(spec.maxDurationSeconds)}`);
   for (const page of spec.pagesVisited ?? []) {
-    having.push(`${count(`name = ${lit('$pageview')} AND LOWER(path) LIKE ${likeContains(page)}${LIKE_ESCAPE}`)} > 0`);
+    const visited = `name = ${lit('$pageview')} AND LOWER(path) LIKE ${likeContains(page)}${LIKE_ESCAPE}`;
+    having.push(`${count(visited)} > 0`);
   }
   if (spec.entryPage) having.push(`MAX(CASE WHEN rn_first = 1 THEN LOWER(path) END) LIKE ${likeContains(spec.entryPage)}${LIKE_ESCAPE}`);
   if (spec.exitPage) having.push(`MAX(CASE WHEN rn_last = 1 THEN LOWER(path) END) LIKE ${likeContains(spec.exitPage)}${LIKE_ESCAPE}`);
@@ -91,7 +92,7 @@ function orderBy(spec: ParsedSessionsSpec): string {
     case 'pages_desc':
       return `${count(named('$pageview'))} DESC`;
     case 'frustration_desc':
-      return `${count(`name IN ${inList(Object.values(FRUSTRATION_NAMES))}`)} DESC, MIN(ts) DESC`;
+      return `${count('name IN ' + inList(Object.values(FRUSTRATION_NAMES)))} DESC, MIN(ts) DESC`;
     case 'errors_desc':
       return `${count(named('$exception'))} DESC, MIN(ts) DESC`;
     default:
@@ -141,16 +142,18 @@ export function sessionsQuery(spec: ParsedSessionsSpec, ctx: PanelQueryContext, 
     `FROM ${scope.from} ${scope.where(...extra)}`;
 
   const having = havingConditions(spec);
+  const havingSql = having.length > 0 ? ` HAVING ${having.join(' AND ')}` : '';
+  const clicks = count(`${named('$autocapture')} AND act = 'click'`);
   const sql =
     `SELECT session_id, MIN(ts) AS started, MAX(ts) AS ended, ${DURATION} AS duration_seconds, ` +
     `${count(named('$pageview'))} AS pageviews, ` +
-    `${count(`${named('$autocapture')} AND act = 'click'`)} AS clicks, COUNT(*) AS events, ` +
+    `${clicks} AS clicks, COUNT(*) AS events, ` +
     `${count(named('$rageclick'))} AS rage, ${count(named('$deadclick'))} AS dead, ${count(named('$quickback'))} AS quickback, ` +
     `${count(named('$excessivescroll'))} AS excessive, ${count(named('$exception'))} AS errors, ` +
     `MAX(CASE WHEN rn_first = 1 THEN path END) AS entry_page, MAX(CASE WHEN rn_last = 1 THEN path END) AS exit_page, ` +
     `MAX(device_type) AS device, MAX(browser) AS browser, MAX(os) AS os, MAX(country) AS country, MAX(person) AS person, MAX(user_id) AS user_id ` +
     `FROM (${inner}) AS ev GROUP BY session_id` +
-    `${having.length > 0 ? ` HAVING ${having.join(' AND ')}` : ''} ` +
+    `${havingSql} ` +
     `ORDER BY ${orderBy(spec)} LIMIT ${int(offset + spec.limit + 1, MAX_SESSIONS_REACH + 1)}`;
   return { name: 'sessions.list', sql, columns: COLUMNS };
 }

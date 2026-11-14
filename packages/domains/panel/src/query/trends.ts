@@ -112,11 +112,13 @@ function mainQueries(
   const bd = spec.breakdown ? breakdownLimitedExpr(spec.breakdown, values) : null;
   const where = scope.where(namesCondition(spec));
 
+  const bdSelect = bd ? `${bd} AS bd, ` : '';
+  const bdGroup = bd ? `, ${bd}` : '';
   const seriesSql =
-    `SELECT ${bucket} AS bucket, ${bd ? `${bd} AS bd, ` : ''}${aggregates.join(', ')} FROM ${scope.from} ${where} ` +
-    `GROUP BY ${bucket}${bd ? `, ${bd}` : ''} ORDER BY ${bucket} ASC`;
+    `SELECT ${bucket} AS bucket, ${bdSelect}${aggregates.join(', ')} FROM ${scope.from} ${where} ` +
+    `GROUP BY ${bucket}${bdGroup} ORDER BY ${bucket} ASC`;
   const totalsSql =
-    `SELECT ${bd ? `${bd} AS bd, ` : ''}${aggregates.join(', ')} FROM ${scope.from} ${where}` + (bd ? ` GROUP BY ${bd}` : '');
+    `SELECT ${bdSelect}${aggregates.join(', ')} FROM ${scope.from} ${where}` + (bd ? ` GROUP BY ${bd}` : '');
   return [
     { name: `trends.series${suffix}`, sql: seriesSql, columns: ['bucket', ...(bd ? ['bd'] : []), ...columns] },
     { name: `trends.totals${suffix}`, sql: totalsSql, columns: [...(bd ? ['bd'] : []), ...columns] },

@@ -158,45 +158,65 @@ export async function settleUsage(deps: SettlementDeps, input: SettlementInput):
 
   let usage = stored;
   if (eventsNeeded > stored.eventBlocksCharged || recordingsNeeded > stored.recordingBlocksCharged) {
-    const events = await chargeBlocks(deps, input, 'events', eventsNeeded, stored.eventBlocksCharged, pricing.eventsCreditsPer10k);
-    const recordings = await chargeBlocks(deps, input, 'recordings', recordingsNeeded, stored.recordingBlocksCharged, pricing.recordingsCreditsPer100);
-    // `greatest` keeps two settlements running at once from undoing each other; credits are the
-    // row's value at the start plus what this call charged, so both writing the same block agree.
-    const [updated] = await deps.masterDb
-      .update(panelUsageMonthly)
-      .set({
-        eventBlocksCharged: sql`greatest(${panelUsageMonthly.eventBlocksCharged}, ${events.charged})`,
-        recordingBlocksCharged: sql`greatest(${panelUsageMonthly.recordingBlocksCharged}, ${recordings.charged})`,
-        eventCreditsCharged: sql`greatest(${panelUsageMonthly.eventCreditsCharged}, ${stored.eventCreditsCharged + events.credits})`,
-        recordingCreditsCharged: sql`greatest(${panelUsageMonthly.recordingCreditsCharged}, ${stored.recordingCreditsCharged + recordings.credits})`,
-        updatedAt: now,
-      })
-      .where(eq(panelUsageMonthly.id, stored.id))
-      .returning();
-    usage = updated ?? stored;
+    usage = await chargeOverage(deps, input, stored, { eventsNeeded, recordingsNeeded }, pricing, now);
   }
 
   const quota = quotaFor(workspace.limits, usage);
 
   // Only the current month decides what the collector does; a late report for an old month charges but stays out of KV.
-  if (input.month === monthOf(now)) {
-    await writeQuotaState(deps.kv, input.workspaceId, quota);
-    try {
-      await applyReplayTier({ masterDb: deps.masterDb, kv: deps.kv }, input.workspaceId, workspace.limits.replayTier);
-    } catch (error) {
-      console.error(`[panel-api] replay tier refresh for workspace ${input.workspaceId} failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (deps.notify) {
-      try {
-        const notice = await planUsageNotice(deps.masterDb, workspace, usage, quota);
-        if (notice) await deps.notify(notice);
-      } catch (error) {
-        console.error(`[panel-api] usage notice for workspace ${input.workspaceId} failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
+  if (input.month === monthOf(now)) await refreshCollector(deps, input, workspace, usage, quota);
 
   return { month: input.month, workspace, usage, quota, pricing };
+}
+
+/** Charges the blocks the row is behind on and stores what was charged; returns the updated row. */
+async function chargeOverage(
+  deps: SettlementDeps,
+  input: SettlementInput,
+  stored: PanelUsageMonth,
+  needed: { eventsNeeded: number; recordingsNeeded: number },
+  pricing: SettlementResult['pricing'],
+  now: Date,
+): Promise<PanelUsageMonth> {
+  const events = await chargeBlocks(deps, input, 'events', needed.eventsNeeded, stored.eventBlocksCharged, pricing.eventsCreditsPer10k);
+  const recordings = await chargeBlocks(deps, input, 'recordings', needed.recordingsNeeded, stored.recordingBlocksCharged, pricing.recordingsCreditsPer100);
+  // `greatest` keeps two settlements running at once from undoing each other; credits are the
+  // row's value at the start plus what this call charged, so both writing the same block agree.
+  const [updated] = await deps.masterDb
+    .update(panelUsageMonthly)
+    .set({
+      eventBlocksCharged: sql`greatest(${panelUsageMonthly.eventBlocksCharged}, ${events.charged})`,
+      recordingBlocksCharged: sql`greatest(${panelUsageMonthly.recordingBlocksCharged}, ${recordings.charged})`,
+      eventCreditsCharged: sql`greatest(${panelUsageMonthly.eventCreditsCharged}, ${stored.eventCreditsCharged + events.credits})`,
+      recordingCreditsCharged: sql`greatest(${panelUsageMonthly.recordingCreditsCharged}, ${stored.recordingCreditsCharged + recordings.credits})`,
+      updatedAt: now,
+    })
+    .where(eq(panelUsageMonthly.id, stored.id))
+    .returning();
+  return updated ?? stored;
+}
+
+/** Writes the collector's quota state, refreshes the replay tier and sends the notice that is due. Never throws on the last two. */
+async function refreshCollector(
+  deps: SettlementDeps,
+  input: SettlementInput,
+  workspace: NonNullable<Awaited<ReturnType<typeof loadWorkspacePlan>>>,
+  usage: PanelUsageMonth,
+  quota: ReturnType<typeof quotaFor>,
+): Promise<void> {
+  await writeQuotaState(deps.kv, input.workspaceId, quota);
+  try {
+    await applyReplayTier({ masterDb: deps.masterDb, kv: deps.kv }, input.workspaceId, workspace.limits.replayTier);
+  } catch (error) {
+    console.error(`[panel-api] replay tier refresh for workspace ${input.workspaceId} failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!deps.notify) return;
+  try {
+    const notice = await planUsageNotice(deps.masterDb, workspace, usage, quota);
+    if (notice) await deps.notify(notice);
+  } catch (error) {
+    console.error(`[panel-api] usage notice for workspace ${input.workspaceId} failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /** The stored row of a workspace's month, if any. */

@@ -163,22 +163,28 @@ describe('POST /r', () => {
   describe('dropping with a 204', () => {
     const dropped = async (testEnv: ReturnType<typeof makeEnv>, headers: Record<string, string> = {}) => {
       const res = await post(testEnv, chunkPath(), CHUNK, headers);
-      expect(res.status).toBe(204);
-      expect(testEnv.replays.objects.size).toBe(0);
-      expect(testEnv.replayChunks.sent).toEqual([]);
-      expect((await testEnv.usage.get(WORKSPACE_ID).month('2026-10')).recordings).toBe(0);
+      return {
+        status: res.status,
+        stored: testEnv.replays.objects.size,
+        sent: testEnv.replayChunks.sent,
+        recordings: (await testEnv.usage.get(WORKSPACE_ID).month('2026-10')).recordings,
+      };
     };
+    const NOTHING = { status: 204, stored: 0, sent: [], recordings: 0 };
 
-    it('for a paused project', () => dropped(makeEnv(projectRecord({ status: 'paused' }))));
-    it('for a site that is not an allowed domain', () => dropped(makeEnv(projectRecord({ allowedDomains: ['example.com'] })), { Origin: 'https://evil.test' }));
-    it('for a bot', () => dropped(makeEnv(), { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }));
-    it('for a filtered address', () => dropped(makeEnv(projectRecord({ settings: { ...projectRecord().settings, ipFilters: ['203.0.113.0/24'] } }))));
-    it('when recordings are off for the project', () => dropped(makeEnv(projectRecord({ settings: { ...projectRecord().settings, recordingSampleRate: 0 } }))));
+    it('for a paused project', async () => expect(await dropped(makeEnv(projectRecord({ status: 'paused' })))).toEqual(NOTHING));
+    it('for a site that is not an allowed domain', async () =>
+      expect(await dropped(makeEnv(projectRecord({ allowedDomains: ['example.com'] })), { Origin: 'https://evil.test' })).toEqual(NOTHING));
+    it('for a bot', async () => expect(await dropped(makeEnv(), { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' })).toEqual(NOTHING));
+    it('for a filtered address', async () =>
+      expect(await dropped(makeEnv(projectRecord({ settings: { ...projectRecord().settings, ipFilters: ['203.0.113.0/24'] } })))).toEqual(NOTHING));
+    it('when recordings are off for the project', async () =>
+      expect(await dropped(makeEnv(projectRecord({ settings: { ...projectRecord().settings, recordingSampleRate: 0 } })))).toEqual(NOTHING));
 
-    it.each(['replay_blocked', 'events_blocked'])('when the workspace is %s', (state) => {
+    it.each(['replay_blocked', 'events_blocked'])('when the workspace is %s', async (state) => {
       const testEnv = makeEnv();
       testEnv.kv.store.set(quotaKvKey(WORKSPACE_ID), state);
-      return dropped(testEnv);
+      expect(await dropped(testEnv)).toEqual(NOTHING);
     });
 
     it('does not drop when the origin is an allowed subdomain', async () => {
