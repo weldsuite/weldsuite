@@ -10,14 +10,22 @@
 //! own role.
 //!
 //! What the EU registry has and has not ported is listed in [`PORTED`] and
-//! [`LEFT_OUT`]. A tool whose module is not in Rust, or that needs the sandbox
-//! or the browser (`agent-sandbox`), is not in the catalog, so the builder
-//! never offers a tool that can't work.
+//! [`LEFT_OUT`]. A tool whose module is not in Rust is not in the catalog, so
+//! the builder never offers a tool that can't work. The sandbox and web tools
+//! (`sandbox_tools`, `weldsuite-sandbox`) are registered behind their grants
+//! (`computer:use`, `browser:use`), which are grantable only when the install
+//! has a sandbox (`agent-sandbox`); they run through [`execute_tool_with`].
 
 mod agent_tools;
 mod chat_tools;
 mod data_tools;
+mod sandbox_tools;
 pub mod schema;
+
+pub use sandbox_tools::{
+    SandboxAccess, is_sandbox_tool, model_can_use_computer, tool_result_messages,
+};
+pub use weldsuite_sandbox::ToolOutput;
 
 use std::sync::LazyLock;
 
@@ -109,6 +117,7 @@ pub fn platform_tools() -> &'static [ToolSpec] {
         let mut tools = agent_tools::specs();
         tools.extend(data_tools::specs());
         tools.extend(chat_tools::specs());
+        tools.extend(sandbox_tools::specs());
         tools
     });
     &TOOLS
@@ -221,6 +230,10 @@ pub fn resolve_agent_tools(
         .iter()
         .filter(|tool| {
             if !can_edit && AGENT_EDIT_TOOL_IDS.contains(&tool.id) {
+                return false;
+            }
+            // The desktop depends on the turn's model: `offered_tools` adds it.
+            if sandbox_tools::is_computer_use(tool.id) {
                 return false;
             }
             if ALWAYS_ON.contains(&tool.id) {
@@ -401,8 +414,63 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
     match tool.id {
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
         id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
+        // Needs the turn's sandbox: `execute_tool_with`.
+        id if sandbox_tools::is_sandbox_tool(id) => Err(sandbox_tools::unavailable()),
         id => data_tools::execute(ctx, id, &args).await,
     }
+}
+
+/// The tools to offer the model for a turn: [`resolve_agent_tools`] on the
+/// agent's grants narrowed to the actor, without the sandbox and web tools
+/// when the turn has no sandbox, and with `computer_use` only when the
+/// turn's model can use a computer ([`SandboxAccess::computer_use`]).
+pub fn offered_tools(ctx: &ToolContext, sandbox: Option<&SandboxAccess>) -> Vec<&'static ToolSpec> {
+    let permissions =
+        effective_agent_permissions(&ctx.agent_permissions, ctx.actor_permissions.as_deref());
+    let can_edit = ctx.actor_can_edit != Some(false);
+    let mut tools: Vec<&'static ToolSpec> =
+        resolve_agent_tools(&permissions, &ctx.enabled_tools, can_edit)
+            .into_iter()
+            .filter(|tool| sandbox.is_some() || !sandbox_tools::is_sandbox_tool(tool.id))
+            .collect();
+    if sandbox.is_some_and(|access| access.computer_use) {
+        let allow = explicit_tool_allow_list(&ctx.enabled_tools);
+        tools.extend(platform_tools().iter().filter(|tool| {
+            sandbox_tools::is_computer_use(tool.id)
+                && (allow.is_empty() || allow.contains(&tool.id))
+                && agent_has_grants(&permissions, tool.required_permissions)
+        }));
+    }
+    tools
+}
+
+/// [`execute_tool`] for a turn that may have a sandbox: the tool must be one
+/// [`offered_tools`] offers for it, and the sandbox and web tools run in
+/// `sandbox`. Screenshots come back as images ([`ToolOutput::images`]); the
+/// loop answers the call with [`tool_result_messages`].
+///
+/// # Errors
+///
+/// [`ToolError`], as [`execute_tool`].
+pub async fn execute_tool_with(
+    ctx: &ToolContext,
+    sandbox: Option<&SandboxAccess>,
+    name: &str,
+    args: &Value,
+) -> Result<ToolOutput, ToolError> {
+    let tool = offered_tools(ctx, sandbox)
+        .into_iter()
+        .find(|tool| tool.name == name)
+        .ok_or_else(|| ToolError::UnknownTool(name.to_owned()))?;
+    if !sandbox_tools::is_sandbox_tool(tool.id) {
+        let value = execute_tool(ctx, name, args).await?;
+        return Ok(ToolOutput {
+            value,
+            images: Vec::new(),
+        });
+    }
+    let args = schema::validate(&tool.parameters, args).map_err(ToolError::InvalidArguments)?;
+    sandbox_tools::execute(sandbox, tool.id, &args).await
 }
 
 #[cfg(test)]

@@ -74,6 +74,7 @@ weldsuite-sign = { workspace = true }
 weldsuite-staff-domain = { workspace = true }
 weldsuite-reach = { workspace = true }
 weldsuite-reach-domain = { workspace = true }
+weldsuite-sandbox = { workspace = true }
 weldsuite-social = { workspace = true }
 weldsuite-stash = { workspace = true }
 weldsuite-personal = { workspace = true }

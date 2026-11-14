@@ -41,6 +41,7 @@ mod mta;
 mod reach;
 mod realtime;
 mod routes;
+mod sandbox;
 mod server;
 mod spa;
 mod telemetry;
@@ -69,7 +70,8 @@ commands:
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
-             moneybird-push, merge-digest-sweep, forms-reminders, forms-digest
+             moneybird-push, merge-digest-sweep, forms-reminders, forms-digest,
+             sandbox-cleanup
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue
@@ -197,6 +199,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let sign_in = sign_in_screens(&config, infra.cache.clone())?;
     let ai = ai::for_app(&config.ai, infra.cache.clone())?;
+    let sandboxes = sandbox::build(config.sandbox.as_ref())?;
 
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
@@ -236,6 +239,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_in,
         realtime: realtime::PublicRealtime::from_config(&config),
         ai,
+        sandboxes,
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]

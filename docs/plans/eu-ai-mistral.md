@@ -588,23 +588,84 @@ agent has no model id of its own unless the admin picks one. Stored Claude ids
 on an agent that moved from Global keep working when the admin has enabled
 Anthropic, and fall back to the default otherwise.
 
-**What is hidden on EU.** `agent-sandbox`, a new entry in
-`UNAVAILABLE_FEATURES` and `EDITION_FEATURES`, always unavailable on the
-Kubernetes editions. It hides the sandbox (`computer:use`), web search and fetch
-(`browser:use`), the browser tools and the toggles for them in the builder.
-The agent create route does not add those two grants on EU, and `grantable
-permissions` does not list them.
-- The sandbox and computer use need a code-execution environment. Anthropic's
-  runs the sandbox on Global. A safe EU equivalent is a separate project
-  (isolated pods with no cluster access, egress rules, per-run lifetime), and
-  is not part of this pull request.
-- Web browsing could be done with a fetch tool in the backend, but the outbound
-  request would carry a model-chosen URL from inside the cluster. That needs
-  the same egress rules, an allow-list of ports, and a sanitiser for the page
-  text before it reaches the model. We leave it out until that exists.
-- Open question for Gert: whether a read-only `fetch_url` tool (public hosts
-  only, through `OutboundHttp`'s public-only client, text only) is wanted on EU
-  in a later step.
+**The EU sandbox** (decided 2026-11-13). Code execution, web search and
+fetch, the browser tools and computer use run on the install's own cluster,
+not at Anthropic: `rust/crates/sandbox` (`weldsuite-sandbox`), the image
+`rust/deploy/sandbox`, and the chart's `sandbox` and `searxng` sections.
+
+- **Edition flag.** `agent-sandbox` is no longer static: it is listed only
+  while the install has no sandbox (`SANDBOX_ENABLED`, the chart's
+  `sandbox.enabled`). With one, the builder shows the sandbox and browsing
+  toggles, the create route adds `computer:use` and `browser:use` when the
+  creator holds them (as on Global), and `grantable permissions` lists them.
+- **Pods.** One sandbox pod per agent conversation (chat turns share it, so
+  files and the browser survive between turns) or per run, named from the
+  workspace, agent and session, so every replica finds the same pod. They
+  run in the `weldsuite-sandbox` namespace (Pod Security `restricted`) under
+  gVisor (`RuntimeClass gvisor`, handler `runsc`; on Talos the
+  `siderolabs/gvisor` system extension), with no service-account token, a
+  read-only root filesystem, CPU, memory and disk limits, the public
+  resolvers instead of the cluster's DNS, an idle timeout (the agent in the
+  pod exits, 15 minutes) and a hard lifetime (`activeDeadlineSeconds`, one
+  hour). Limits per workspace (2) and per install (40, also a
+  `ResourceQuota`).
+- **Who may start them.** The server (`serve`, `consume` and the cron jobs
+  that run agents) talks to the Kubernetes REST API with its pod's
+  service-account token. The chart's `Role` lets that account get, list,
+  create and delete pods in the sandbox namespace and nothing else, and a
+  `ValidatingAdmissionPolicy` admits only pods of the sandbox's shape there
+  (gVisor, the sandbox image, no token, no host namespaces or paths, no
+  privilege, a hard lifetime). A server that is taken over can start
+  sandboxes, nothing more.
+- **Network.** A default-deny `NetworkPolicy` in the namespace; the pods may
+  reach the public internet on TCP 80 and 443 and their resolvers on 53,
+  never a private, link-local, metadata or reserved range (nor the
+  addresses in `sandbox.deniedCidrs`, for the nodes' public IPs), and only the
+  server's pods may reach them, on 8080. **Fail closed:** before the first
+  sandbox of a process (and hourly after) is handed out, the agent in it
+  tries to reach the metadata service (`169.254.169.254:80`) and the
+  Kubernetes API; if either answers, the policy isn't enforced (Flannel, the
+  Talos default, doesn't enforce NetworkPolicy), the pod is deleted and no
+  sandbox is handed out. `weldsuite doctor` runs the same check.
+- **The agent in the pod** answers the server on port 8080, behind a
+  per-pod token (`HMAC(SANDBOX_TOKEN_SECRET, pod name)`; the pod holds only
+  its SHA-256): commands with a timeout and output caps, files under
+  `/workspace`, Python and JavaScript, page fetches as text, Chromium over
+  the DevTools protocol, an X desktop (Xvfb, xdotool, screenshots), and the
+  isolation self-test.
+- **Tools** (registered in `weldsuite-agent` behind the existing grants,
+  Global's names where they exist):
+
+  | Tool | Grant | Runs |
+  |---|---|---|
+  | `computer_exec`, `computer_read_file`, `computer_write_file`, `computer_list_files`, `computer_run_code` | `computer:use` | the sandbox (agent-runtime's `/v1/computer/*` names, which the approval rules already treat as high risk) |
+  | `computer_use` | `computer:use` and a model with `computer_use` | the sandbox's desktop |
+  | `web_search` | `browser:use` | SearXNG in the cluster |
+  | `web_fetch`, `browser_open`, `browser_act`, `browser_close` | `browser:use` | the sandbox, never the server's pod |
+
+  The loop offers them with `tools::offered_tools(ctx, Some(&access))` and
+  runs them with `tools::execute_tool_with`, where
+  `tools::SandboxAccess::for_turn` gives the turn its sandbox; a turn without
+  one gets none of them. Outputs are data: cleaned (hidden characters
+  removed), capped, web text marked as untrusted, and screenshots returned
+  as images after the tool result (`tools::tool_result_messages`), never as
+  base64 text.
+- **Computer use only on opted-in models.** `computer_use` is offered only
+  when the turn's resolved model has the `computer_use` capability in the
+  catalog (`packages/core/ai/src/catalog.ts`): the Claude 5.5 models and
+  GPT-5, which a workspace admin enabled outside the EU. On Mistral (and a
+  compat model) it is hidden, and a call to it is an unknown tool. Its
+  clicks and keystrokes are high risk (they ask first, like `browser_act`'s)
+  and never auto-reviewed.
+- **Web search.** A SearXNG in the release's namespace, asked only by the
+  server's pods: JSON on, debug and metrics off, the limiter on with a Valkey
+  of its own, and the engines Qwant, Startpage, Mojeek and Wikipedia. Only
+  the query leaves the cluster, sent in a POST body, to those engines (each
+  a company outside WeldSuite; Startpage forwards it to Google without the
+  user, Wikipedia is in the US).
+- **Cleanup.** `weldsuite cron sandbox-cleanup` (every 5 minutes) deletes
+  finished pods (idle exit, lifetime), pods past their lifetime and pods
+  that never started.
 
 **What stays on Global only.** Claude Managed Agents sessions, the agent-object
 sync and its columns, the `WeldAgentJob` Workflow (a long run on EU is one
@@ -620,6 +681,7 @@ Restate job through the existing jobs port), and `agent-runtime`.
 | Loop | `run.rs` (`run_agent`, `agent_turn`) | `run.ts`, `executor.ts`, `complete-turn.ts` |
 | Rooms | `rooms.rs` | `agent-mention-dispatch.ts` |
 | Routines, events | `routines.rs`, wired in `weldsuite cron` and `weldsuite consume` | `cron/weldagent-routines.ts`, `queue/entity-agents-consumer.ts` |
+| Sandbox, web and browser tools | `rust/crates/sandbox` (pods, agent client, SearXNG, tools), `tools/sandbox_tools.rs`, `rust/deploy/sandbox` (image and agent), the chart's `sandbox` and `searxng` | Managed Agents' toolset, `computer-client.ts`, `apps/workers/agent-runtime` |
 
 The module is `agent` in `packages/core/api-modules` (prefixes `/api/ai`,
 `/api/ai-models`, `/api/chat-agent`, `/api/weldagent`). It is added to
@@ -679,7 +741,10 @@ approvals; room policy and loop guards; routines and event subscriptions; the
 tool names and result shapes the model sees; entity events.
 
 Different on EU, and said so in the UI:
-- no sandbox, computer use or browsing (`agent-sandbox`);
+- the sandbox, computer use and browsing run on the install's own sandbox
+  pods and SearXNG, not at Anthropic; `agent-sandbox` hides them on an
+  install without one, and computer use needs a Claude or GPT-5 model the
+  workspace enabled;
 - no sub-agent roster at Anthropic: a sub-agent is a nested run of the same
   loop (one level deep, as AGENT-013 requires), with the sandbox and web
   grants never inherited;
@@ -705,6 +770,16 @@ Different on EU, and said so in the UI:
   the shared mock-model helper (an OpenAI-compatible `/chat/completions`
   answer over the harness's fetch stub) covers them, and are covered by the
   Rust loop tests above until then.
+- **The sandbox** (`weldsuite-sandbox` and the agent crate's
+  `sandbox_tools`): the Kubernetes API requests and the pod's shape on a
+  recording HTTP client, start/reuse/replace/limits/fail-closed/cleanup on
+  an in-memory pod API, each tool's shape, caps and sanitising against a
+  faked agent, the grants and the desktop hidden without the model's
+  capability (Mistral). The agent in the pod has its own `node --test`
+  suite (auth, paths, caps, addresses, page text, desktop actions, the HTTP
+  server on a temporary workspace); CI builds the image and checks its
+  tools. Not tested in CI: gVisor itself and the NetworkPolicy, which need a
+  real cluster; the isolation check and `weldsuite doctor` cover them there.
 
 ## Schema (needs approval before any migration)
 

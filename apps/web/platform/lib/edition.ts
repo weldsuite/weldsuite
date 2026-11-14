@@ -101,8 +101,12 @@ export const EDITION_FEATURES = [
    */
   'assistant-ai',
   /**
-   * WeldAgent's sandbox, computer use and web browsing. They run at Anthropic
-   * on Global; a Kubernetes install offers them with its own sandbox service.
+   * WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
+   * `browser:use` toggles). They run at Anthropic on Global; a Kubernetes
+   * install runs them on its own gVisor sandbox pods and SearXNG
+   * (`rust/crates/sandbox`), and lists this as unavailable without one
+   * (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`). The desktop (computer
+   * use) is offered there only to a Claude or GPT-5 model the workspace enabled.
    */
   'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */

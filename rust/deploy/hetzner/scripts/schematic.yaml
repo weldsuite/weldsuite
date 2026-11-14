@@ -1,2 +1,11 @@
-# Talos Image Factory schematic: the stock image, no extensions.
-customization: {}
+# Talos Image Factory schematic: the stock image plus gVisor, the runtime
+# WeldAgent's sandbox pods run under (the weldsuite chart's sandbox,
+# RuntimeClass gvisor, handler runsc). The extension's version follows the
+# Talos release. Nodes running an image without it can't start sandbox pods
+# (they stay Pending with "no runtime for gvisor"); upgrade them with
+# `talosctl upgrade --image factory.talos.dev/installer/<schematic>:<version>`
+# (README, "Agent sandbox").
+customization:
+  systemExtensions:
+    officialExtensions:
+      - siderolabs/gvisor

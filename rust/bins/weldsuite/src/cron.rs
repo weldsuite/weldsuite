@@ -76,6 +76,10 @@
 //!   (`workspace-worker/src/services/deletion-sweep.ts`).
 //! - `workspace-teardown` (hourly): deleted workspaces whose database
 //!   teardown never finished (`services/teardown-sweep.ts`).
+//! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
+//!   that are done: their agent exited when idle, Kubernetes stopped them at
+//!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
+//!   Nothing without `SANDBOX_ENABLED`.
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -133,7 +137,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -170,7 +174,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "merge-digest-sweep"
         | "forms-reminders"
         | "forms-digest"
-        | "weldagent-routines"),
+        | "weldagent-routines"
+        | "sandbox-cleanup"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -227,6 +232,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "merge-digest-sweep" => merge_digest_sweep(config).await,
             "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
             "weldagent-routines" => weldagent_routines(config).await,
+            "sandbox-cleanup" => sandbox_cleanup(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -418,6 +424,25 @@ async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Er
             "job": "weldagent-routines",
             "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
         })
+    );
+    Ok(())
+}
+
+/// `weldsuite cron sandbox-cleanup`: deletes WeldAgent's sandbox pods that
+/// are done (their agent exited when idle, Kubernetes stopped them at their
+/// lifetime, or they never started). Nothing without `SANDBOX_ENABLED`.
+async fn sandbox_cleanup(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sandboxes) = crate::sandbox::build(config.sandbox.as_ref())? else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "sandbox-cleanup", "result": { "skipped": "no sandbox" } })
+        );
+        return Ok(());
+    };
+    let report = sandboxes.cleanup(time::OffsetDateTime::now_utc()).await?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "sandbox-cleanup", "result": report.to_json() })
     );
     Ok(())
 }

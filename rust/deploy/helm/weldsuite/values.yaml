@@ -390,7 +390,8 @@ secret:
   # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET, AI_KEYS_ENCRYPTION_KEY (64 hex characters each),
   # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
   # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
-  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET, and the
+  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET,
+  # SANDBOX_TOKEN_SECRET (WeldAgent's sandbox pods' tokens), and the
   # bundled dependencies' credentials (bundle below). Every pod reads it before
   # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
   # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
@@ -1195,6 +1196,12 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldAgent's sandbox: deletes finished, expired and stuck sandbox pods.
+    # Runs whenever sandbox.enabled is on, whatever this says.
+    sandbox-cleanup:
+      enabled: false
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 240
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.
@@ -1330,3 +1337,111 @@ cron:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# WeldAgent's sandbox (ADR AI-012 phase 5, rust/crates/sandbox): code
+# execution, files, web fetches, a browser and a desktop for computer use, in
+# pods of their own that the server starts per agent conversation or run.
+# Without it the agent-sandbox edition feature is unavailable and the
+# builder hides the sandbox and browsing toggles.
+#
+# Each pod runs under gVisor (runtimeClass), with no service-account token,
+# a read-only root filesystem, CPU/memory/disk limits, an idle timeout and a
+# hard lifetime, in a namespace whose NetworkPolicy lets it reach only the
+# public internet on egressPorts and only the server's pods reach it. The
+# server manages them through the Kubernetes API: the server, consume and
+# the sandbox-cleanup CronJob get their pod's service-account token, and a
+# Role allows pods get/list/create/delete in that namespace only; an
+# admission policy there admits nothing but pods of the sandbox's shape.
+# Before handing out a sandbox the server checks from inside one that the
+# metadata service and the Kubernetes API are out of reach, and refuses
+# while they aren't: the NetworkPolicy needs a CNI that enforces it (Flannel
+# alone doesn't; rust/deploy/hetzner/README.md, "Agent sandbox").
+sandbox:
+  enabled: false
+  # The namespace the pods run in. Pod Security `restricted` there; create
+  # it with the chart (createNamespace) or beforehand (the Flux clusters).
+  namespace: weldsuite-sandbox
+  createNamespace: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    # Defaults to the chart's appVersion.
+    tag: ""
+  # A pull secret in the sandbox namespace, for a private registry.
+  imagePullSecret: ""
+  runtimeClass:
+    # The RuntimeClass the pods run under; empty: the node's default runtime
+    # (a development cluster without gVisor only).
+    name: gvisor
+    # Create it (cluster-scoped). Its handler is runsc, the name Talos'
+    # gvisor extension and the gVisor packages give it.
+    create: true
+    handler: runsc
+  resources:
+    cpu: "1"
+    cpuRequest: 250m
+    memory: 2Gi
+    # The /workspace volume and the container's own writes.
+    disk: 2Gi
+  # The agent in a pod exits after this long without a call, and the pod ends.
+  idleTimeoutSeconds: 900
+  # Kubernetes stops a pod this long after it started, whatever it does.
+  maxLifetimeSeconds: 3600
+  maxPerWorkspace: 2
+  maxTotal: 40
+  # The resolvers the pods use (public: they never ask the cluster's DNS).
+  dns: ["9.9.9.9", "149.112.112.112"]
+  # The ports the pods may reach on the public internet, besides DNS on the
+  # resolvers above. 80 and 443 cover the web, git over https, pip and npm;
+  # anything else (mail on 25, ssh) stays shut.
+  egressPorts: [80, 443]
+  # Addresses on the public internet the pods may never reach: the cluster's
+  # own nodes' public addresses (a pod reaches its node's host ports on them),
+  # and anything else of the install's. The private, link-local, metadata and
+  # reserved ranges are always shut.
+  deniedCidrs: []
+  # More host:port the isolation check must find unreachable (a database
+  # service, a node's private address).
+  egressProbes: []
+  # The admission policy that admits only pods of the sandbox's shape in the
+  # namespace (ValidatingAdmissionPolicy, Kubernetes 1.30+).
+  admissionPolicy:
+    enabled: true
+  # Run the pods on these nodes only (a pool of their own keeps them off the
+  # database and mail nodes): SANDBOX_NODE_SELECTOR and SANDBOX_TOLERATIONS.
+  nodeSelector: {}
+  tolerations: []
+  # Development clusters only: hand out sandboxes without the isolation check.
+  requireIsolation: true
+  # The cleanup is the CronJob cron.jobs.sandbox-cleanup, which runs whenever
+  # the sandbox is on.
+
+# Web search for WeldAgent's web_search tool: a SearXNG in the release's
+# namespace, reached only by the server's pods (SEARXNG_URL). Only the query
+# leaves the cluster, to the engines below; no account, cookie or profile
+# goes with it, the server sends it in a POST body (so it is in no access
+# log), SearXNG keeps no query log (debug off, no metrics), and its limiter
+# runs on a Valkey of its own in the pod. The engines are companies outside
+# WeldSuite: each gets the queries routed to it.
+searxng:
+  enabled: false
+  image:
+    repository: docker.io/searxng/searxng
+    tag: "2026.10.28-c360868e5"
+  valkey:
+    image:
+      repository: docker.io/valkey/valkey
+      tag: "9.1.2-alpine"
+  # The engines asked, from SearXNG's own list. The default leans on the EU:
+  # Qwant (France), Startpage (the Netherlands; Google's results, without the
+  # user), Mojeek (the UK, its own index) and Wikipedia (Wikimedia, US).
+  # duckduckgo and brave can be added; both are US companies.
+  engines: [qwant, startpage, mojeek, wikipedia]
+  # Who may skip the limiter: the server's pods (the cluster's pod network).
+  passCidrs: ["10.244.0.0/16"]
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

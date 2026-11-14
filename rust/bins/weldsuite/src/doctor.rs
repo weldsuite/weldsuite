@@ -12,6 +12,10 @@
 //!   holds (a model list, which costs nothing), and that the install
 //!   provider's default chat models answer: one completion of one token each,
 //!   unmetered (no workspace pays for it). `--no-model-calls` skips those.
+//! - WeldAgent's sandbox: the Kubernetes API answers with the service
+//!   account's rights, `SearXNG` answers, and a new sandbox can't reach the
+//!   metadata service or the Kubernetes API (it is started and deleted
+//!   again). `--no-sandbox-probe` starts none.
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -25,13 +29,14 @@ use crate::config::Config;
 use crate::edition::Edition;
 
 const USAGE: &str = "\
-usage: weldsuite doctor [--no-model-calls]
+usage: weldsuite doctor [--no-model-calls] [--no-sandbox-probe]
 
 Checks the configuration (the same environment as `serve`) and what it points
 at: the master database, the AI providers' keys and the install provider's
 default models. One line per check; exits 1 when one fails.
 
-  --no-model-calls  check the AI keys but call no model";
+  --no-model-calls    check the AI keys but call no model
+  --no-sandbox-probe  check the sandbox's API and search but start no sandbox";
 
 /// How long one provider may take to answer a check.
 const KEY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -90,9 +95,11 @@ impl std::fmt::Display for Check {
 /// `weldsuite doctor`.
 pub(crate) fn run(args: &[String]) -> ExitCode {
     let mut model_calls = true;
+    let mut sandbox_probe = true;
     for arg in args {
         match arg.as_str() {
             "--no-model-calls" => model_calls = false,
+            "--no-sandbox-probe" => sandbox_probe = false,
             "--help" | "-h" | "help" => {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
@@ -122,7 +129,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let checks = runtime.block_on(checks(&config, model_calls));
+    let checks = runtime.block_on(checks(&config, model_calls, sandbox_probe));
     for check in &checks {
         println!("{check}");
     }
@@ -133,7 +140,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     }
 }
 
-async fn checks(config: &Config, model_calls: bool) -> Vec<Check> {
+async fn checks(config: &Config, model_calls: bool, sandbox_probe: bool) -> Vec<Check> {
     let mut out = vec![Check::new(Status::Pass, "config", "valid")];
     out.extend(
         config
@@ -156,6 +163,97 @@ async fn checks(config: &Config, model_calls: bool) -> Vec<Check> {
     let ai = (model_calls && config.ai.default_provider.is_some())
         .then(|| Ai::new(config.ai.clone(), http.clone(), None));
     out.extend(ai_checks(&config.ai, config.edition.edition, &http, ai.as_ref()).await);
+    out.extend(sandbox_checks(config, sandbox_probe).await);
+    out
+}
+
+/// WeldAgent's sandbox: the Kubernetes API answers with the service
+/// account's rights, `SearXNG` answers, and, with `probe`, a new sandbox can't
+/// reach the metadata service or the Kubernetes API (it is started and
+/// deleted again).
+async fn sandbox_checks(config: &Config, probe: bool) -> Vec<Check> {
+    let Some(sandbox) = config.sandbox.as_ref() else {
+        let status = if config.edition.edition == Edition::Eu {
+            Status::Warn
+        } else {
+            Status::Skip
+        };
+        return vec![Check::new(
+            status,
+            "sandbox",
+            "off: SANDBOX_ENABLED is not set, so WeldAgent has no sandbox, computer use or browsing \
+             (the chart's sandbox.enabled)",
+        )];
+    };
+    let sandboxes = match crate::sandbox::build(Some(sandbox)) {
+        Ok(Some(sandboxes)) => sandboxes,
+        Ok(None) => return Vec::new(),
+        Err(error) => return vec![Check::new(Status::Fail, "sandbox", error.to_string())],
+    };
+    let mut out = vec![match sandboxes.pods().await {
+        Ok(pods) => Check::new(
+            Status::Pass,
+            "sandbox",
+            format!(
+                "the Kubernetes API answers; {} sandbox pods in {}",
+                pods.len(),
+                sandbox.namespace
+            ),
+        ),
+        Err(error) => Check::new(
+            Status::Fail,
+            "sandbox",
+            format!(
+                "{error} (the service account needs pods get/list/create/delete in {}: the chart's \
+                 sandbox Role)",
+                sandbox.namespace
+            ),
+        ),
+    }];
+    out.push(match sandboxes.search() {
+        None => Check::new(
+            Status::Warn,
+            "web search",
+            "SEARXNG_URL is not set: web_search answers that search is not configured",
+        ),
+        Some(search) => match search.search("weldsuite", 1, None).await {
+            Ok(hits) => Check::new(
+                Status::Pass,
+                "web search",
+                format!("SearXNG answers ({} results)", hits.len()),
+            ),
+            Err(error) => Check::new(Status::Fail, "web search", error.to_string()),
+        },
+    });
+    if !probe {
+        out.push(Check::new(
+            Status::Skip,
+            "sandbox isolation",
+            "--no-sandbox-probe: no sandbox was started",
+        ));
+        return out;
+    }
+    out.push(match sandboxes.check_isolation().await {
+        Ok(reached) if reached.is_empty() => Check::new(
+            Status::Pass,
+            "sandbox isolation",
+            format!(
+                "a new sandbox can't reach {}",
+                sandbox.egress_probes.join(", ")
+            ),
+        ),
+        Ok(reached) => Check::new(
+            Status::Fail,
+            "sandbox isolation",
+            format!(
+                "a new sandbox reached {}: the sandbox namespace's NetworkPolicy is not enforced, \
+                 so no sandbox is handed out (install a NetworkPolicy controller: \
+                 rust/deploy/hetzner/README.md, \"Agent sandbox\")",
+                reached.join(", ")
+            ),
+        ),
+        Err(error) => Check::new(Status::Fail, "sandbox isolation", error.to_string()),
+    });
     out
 }
 
