@@ -106,7 +106,7 @@ export function setup(
   options: NetworkOptions & Partial<ClientOptions> = {},
 ): { client: Client; net: Network } {
   const net = installNetwork(options);
-  const client = createClient({ token: TOKEN, host: HOST, debug: options.debug });
+  const client = createClient({ token: TOKEN, host: HOST, debug: options.debug, recorder: options.recorder });
   cleanups.push(() => client.destroy());
   client.start({ autocapture: true, consentMode: 'required', maskingLevel: 'balanced', excludedUrls: [], ...config });
   return { client, net };

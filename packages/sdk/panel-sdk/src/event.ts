@@ -8,16 +8,22 @@
 import { version } from '../package.json';
 import {
   CUSTOM_EVENT_NAME,
+  EVENT_PROPERTY_KEY,
   MAX_ELEMENT_TEXT,
+  MAX_ERROR_MESSAGE,
   MAX_ID,
   MAX_PROPERTIES,
   MAX_STRING,
   MAX_TITLE,
+  MAX_UNSET_KEYS,
+  PROFILE_PROPERTY_KEY,
   PROPERTY_KEY,
   SYSTEM_EVENTS,
+  USER_ID,
   type Properties,
   type WireElement,
   type WireEvent,
+  type WirePeopleOp,
 } from './wire';
 
 export const LIB_VERSION: string = version;
@@ -32,15 +38,24 @@ export interface EventInput {
   ts?: string | number | Date;
   anon_id?: string;
   session_id?: string;
+  user_id?: string;
   title?: string;
   referrer?: string;
   viewport_w?: number;
   el?: WireElement;
   x?: number;
   y?: number;
+  rel_x?: number;
+  rel_y?: number;
   scroll_depth?: number;
+  error_message?: string;
   props?: Record<string, unknown>;
 }
+
+/** What {@link normalizePeopleOp} takes: `email` and `name` become `$email` and `$name`. */
+export type PeopleOpInput =
+  | { op: 'set' | 'set_once' | 'increment'; user_id: string; ts?: string | number | Date; props: Record<string, unknown> }
+  | { op: 'unset'; user_id: string; ts?: string | number | Date; keys: string[] };
 
 export function uuid(): string {
   // randomUUID only exists in secure contexts; plain-http sites still get a v4
@@ -85,14 +100,23 @@ export function isCustomEventName(name: unknown): name is string {
   return typeof name === 'string' && CUSTOM_EVENT_NAME.test(name);
 }
 
+/** A user id the collector accepts: trimmed, 1 to 255 characters, no control characters; else undefined. */
+export function cleanUserId(id: unknown): string | undefined {
+  const s = typeof id === 'number' && isFinite(id) ? String(id) : typeof id === 'string' ? id.trim() : '';
+  return USER_ID.test(s) ? s : undefined;
+}
+
 /**
  * Keeps the flat, primitive properties the collector accepts. Long strings are
  * cut to {@link MAX_STRING}; anything else invalid is dropped and reported to
- * `onDrop` (the client warns about it in debug mode).
+ * `onDrop` (the client warns about it in debug mode). `keys` is the key
+ * pattern: {@link PROPERTY_KEY} for what callers pass to `track()`.
  */
 export function cleanProps(
   props: Record<string, unknown> | null | undefined,
   onDrop?: (key: string, reason: string) => void,
+  keys: RegExp = PROPERTY_KEY,
+  numbersOnly = false,
 ): Properties | undefined {
   if (!props || typeof props !== 'object') return undefined;
   const out: Properties = {};
@@ -100,16 +124,51 @@ export function cleanProps(
   for (const key of Object.keys(props)) {
     const v = props[key];
     let reason = '';
-    if (!PROPERTY_KEY.test(key)) reason = 'invalid key';
+    if (!keys.test(key)) reason = 'invalid key';
     else if (n >= MAX_PROPERTIES) reason = `more than ${MAX_PROPERTIES} properties`;
+    else if (typeof v === 'number' && isFinite(v)) out[key] = v;
+    else if (numbersOnly) reason = 'value must be a finite number';
     else if (v === null || typeof v === 'boolean') out[key] = v;
     else if (typeof v === 'string') out[key] = v.slice(0, MAX_STRING);
-    else if (typeof v === 'number' && isFinite(v)) out[key] = v;
     else reason = 'value must be a string, finite number, boolean or null';
     if (reason) onDrop?.(key, reason);
     else n++;
   }
   return n ? out : undefined;
+}
+
+/** `email` and `name` are the profile's own `$email` and `$name`. */
+export function profileKey(key: string): string {
+  return key === 'email' || key === 'name' ? `$${key}` : key;
+}
+
+/**
+ * The profile operation as the collector will accept it, or null when nothing
+ * valid is left (bad user id, no valid property).
+ */
+export function normalizePeopleOp(input: PeopleOpInput, onDrop?: (key: string, reason: string) => void): WirePeopleOp | null {
+  const user_id = input && cleanUserId(input.user_id);
+  if (!user_id) return null;
+  const ts = isoTime(input.ts);
+  if (input.op === 'unset') {
+    const keys: string[] = [];
+    for (const raw of Array.isArray(input.keys) ? input.keys : []) {
+      const key = typeof raw === 'string' ? profileKey(raw) : '';
+      if (PROFILE_PROPERTY_KEY.test(key) && keys.indexOf(key) < 0 && keys.length < MAX_UNSET_KEYS) keys.push(key);
+      else onDrop?.(String(raw), 'invalid or repeated key');
+    }
+    return keys.length ? { op: 'unset', user_id, ts, keys } : null;
+  }
+  if (input.op !== 'set' && input.op !== 'set_once' && input.op !== 'increment') return null;
+  const mapped: Record<string, unknown> = {};
+  if (input.props && typeof input.props === 'object') {
+    for (const key of Object.keys(input.props)) mapped[profileKey(key)] = input.props[key];
+  }
+  const props = cleanProps(mapped, onDrop, PROFILE_PROPERTY_KEY, input.op === 'increment');
+  if (!props) return null;
+  return input.op === 'increment'
+    ? { op: 'increment', user_id, ts, props: props as Record<string, number> }
+    : { op: input.op, user_id, ts, props };
 }
 
 /** The URL as sent: at most {@link MAX_STRING} characters, losing the hash, then the query, before cutting. */
@@ -132,7 +191,12 @@ function int(v: unknown, max: number): number | undefined {
   return typeof v === 'number' && isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : undefined;
 }
 
-function str(v: unknown, max: number): string | undefined {
+/** 0 to 1, four decimals: plenty for a position inside an element. */
+function fraction(v: unknown): number | undefined {
+  return typeof v === 'number' && isFinite(v) ? Math.min(1, Math.max(0, Math.round(v * 1e4) / 1e4)) : undefined;
+}
+
+export function str(v: unknown, max: number): string | undefined {
   return typeof v === 'string' && v ? v.slice(0, max) : undefined;
 }
 
@@ -160,14 +224,18 @@ function optionalFields(e: EventInput): Partial<WireEvent> {
   const fields: Partial<WireEvent> = {
     anon_id: str(e.anon_id, MAX_ID),
     session_id: str(e.session_id, MAX_ID),
+    user_id: cleanUserId(e.user_id),
     title: str(e.title, MAX_TITLE),
     referrer: str(e.referrer, MAX_STRING),
     viewport_w: int(e.viewport_w, 20000),
     el: normalizeElement(e.el),
     x: int(e.x, 100000),
     y: int(e.y, 1000000),
+    rel_x: fraction(e.rel_x),
+    rel_y: fraction(e.rel_y),
     scroll_depth: int(e.scroll_depth, 100),
-    props: cleanProps(e.props),
+    error_message: str(e.error_message, MAX_ERROR_MESSAGE),
+    props: cleanProps(e.props, undefined, EVENT_PROPERTY_KEY),
   };
   for (const key of Object.keys(fields) as (keyof WireEvent)[]) {
     if (fields[key] === undefined) delete fields[key];
