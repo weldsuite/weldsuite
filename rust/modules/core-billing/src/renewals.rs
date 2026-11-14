@@ -293,6 +293,25 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
             next_anchor,
         )
         .await?;
+        // The comp covers the period that ends on this anchor: move it on
+        // the grid as a paid renewal would, so the subscription keeps
+        // running through the comp and the first charge after it bills the
+        // period that starts then, not one the comp already covered.
+        if let Some((_, end)) = workspace.period()
+            && end <= anchor_at + time::Duration::minutes(1)
+        {
+            let renewed = add_months_on_anchor(end, workspace.cycle().months(), anchor);
+            sqlx::query(
+                "update workspaces set subscription_current_period_start = $2::timestamp,
+                     subscription_current_period_end = $3::timestamp, updated_at = now()
+                 where id = $1",
+            )
+            .bind(&workspace_id)
+            .bind(iso(end))
+            .bind(iso(renewed))
+            .execute(&mut *tx)
+            .await?;
+        }
         account::set_next_charge(&mut tx, &workspace_id, Some(next_anchor)).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::CreditedOnly));

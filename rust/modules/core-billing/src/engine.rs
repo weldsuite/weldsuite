@@ -568,12 +568,15 @@ pub(crate) async fn change(
     // of charging the proration twice.
     let today = iso(now);
     let change_key = format!(
-        "change:{}:{}:{}:{current_seats}:{}:{seats}:{}",
+        "change:{}:{}:{}:{current_seats}:{}:{seats}:{}:{}",
         workspace.id,
         iso(start),
         workspace.plan_id.as_deref().unwrap_or("-"),
         plan.id,
         &today[..10.min(today.len())],
+        // The amount too: a retry the same day with other VAT (VIES back,
+        // billing details fixed) is another charge, not the stored row.
+        charge.gross,
     );
     let row = ChargeRow::create(
         master,

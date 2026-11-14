@@ -90,6 +90,12 @@ pub async fn settle_payment(
     let Some(meta) = row.meta() else {
         return Ok(Settled::Ignored("the row has no metadata"));
     };
+    // A duplicate checkout is settled for good: refunded, never applied.
+    // Mollie calls again (when the refund goes through, say); that changes
+    // nothing, and asks for no second refund.
+    if row.status == "duplicate" {
+        return Ok(Settled::Recorded("duplicate"));
+    }
     if row.provider_payment_id.is_none() {
         sqlx::query("update billing_payments set provider_payment_id = $2 where id = $1")
             .bind(&row.id)
