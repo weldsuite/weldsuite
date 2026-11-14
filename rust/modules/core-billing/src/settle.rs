@@ -343,6 +343,8 @@ async fn paid(
             )
             .await?;
             save_mandate(tx, workspace_id, payment).await?;
+            // Inboxes paused when an earlier plan ended send again.
+            crate::addons::resume_inboxes(tx, workspace_id).await?;
             let plan = Plan::load(&state.master, &plan_id).await?;
             let plan_credits = plan
                 .as_ref()

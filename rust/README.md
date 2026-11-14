@@ -1220,8 +1220,9 @@ WeldReach inboxes ride on the plan's charge (`modules/core-billing/src/addons.rs
 handed to the reach module as its `InboxBilling`, and to the renewal job as
 its `AddonSource`): €8.00 each per month before VAT, every live inbox on each
 anchor, one added between anchors at once for the rest of the month, none
-refunded, and only with a paid plan (402 `PAID_PLAN_REQUIRED`). Not yet on
-Mollie: domains, phone numbers, paid apps and the SSO add-on.
+refunded, and only with a paid plan (402 `PAID_PLAN_REQUIRED`). When the plan
+ends they pause (WeldReach's billing status `canceled`) until a paid plan or a
+comp resumes them. Not yet on Mollie: domains, phone numbers, paid apps and the SSO add-on.
 
 ## Inbound mail
 

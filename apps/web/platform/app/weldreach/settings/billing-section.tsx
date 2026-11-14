@@ -8,6 +8,7 @@
  */
 
 import { CreditCard, Loader2 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -35,9 +36,11 @@ export function BillingSection() {
   const canUpdate = can('reach_settings:update');
   const billing = useReachBilling(can('reach_settings:read'));
   const paymentSetup = usePaymentMethodSetup(REACH_SETTINGS_PATH);
+  const navigate = useNavigate();
 
   if (billing.data === null) return null;
-  const description = inboxPrice().withPlan ? 'reach.settings.billing.descriptionWithPlan' : 'reach.settings.billing.description';
+  const withPlan = inboxPrice().withPlan;
+  const description = withPlan ? 'reach.settings.billing.descriptionWithPlan' : 'reach.settings.billing.description';
 
   return (
     <SectionCard title={t('reach.settings.billing.title')} description={t(description)}>
@@ -50,6 +53,14 @@ export function BillingSection() {
       {billing.isError && <ErrorState onRetry={() => void billing.refetch()} />}
       {billing.data && (
         <div className="space-y-5">
+          {withPlan && billing.data.status === 'canceled' && (
+            <InfoBanner variant="warning" title={t('reach.settings.billing.pausedTitle')}>
+              <p>{t('reach.settings.billing.pausedDescription')}</p>
+              <Button size="sm" className="mt-2" onClick={() => void navigate({ to: '/settings/plans' })}>
+                {t('reach.mailboxes.create.seePlans')}
+              </Button>
+            </InfoBanner>
+          )}
           {billing.data.status === 'past_due' && (
             <InfoBanner variant="warning" title={t('reach.settings.billing.pastDueTitle')}>
               {t('reach.settings.billing.pastDueDescription')}

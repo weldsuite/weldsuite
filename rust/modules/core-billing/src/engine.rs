@@ -1037,6 +1037,8 @@ pub async fn end_subscription(
         return Ok(Ended::SkippedPartner);
     }
     account::end(&mut tx, workspace_id).await?;
+    // Unbilled from here on: WeldReach's inboxes pause until a paid plan.
+    crate::addons::pause_inboxes(&mut tx, workspace_id).await?;
     if workspace.paid_plan_required {
         if !workspace.is_active {
             tx.commit().await?;

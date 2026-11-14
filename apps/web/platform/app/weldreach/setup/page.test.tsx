@@ -232,6 +232,14 @@ describe('Setup wizard', () => {
       expect(router.navigate).toHaveBeenCalledWith({ to: '/settings/plans' });
     });
 
+    it('asks for a plan again once the last one ended', async () => {
+      api.reach.billing.mockResolvedValue({ data: { ...noBilling, status: 'canceled', currency: 'eur' } });
+      renderWizard('payment');
+
+      expect(await screen.findByText('Mailboxes are billed with your plan. Subscribe to a paid plan first.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'See plans' })).toBeInTheDocument();
+    });
+
     it('is done for a paid plan with its payment method', async () => {
       api.reach.billing.mockResolvedValue({ data: { ...noBilling, status: 'active', hasPaymentMethod: true, currency: 'eur' } });
       renderWizard('payment');

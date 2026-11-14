@@ -573,6 +573,8 @@ export const reach = {
       title: 'Facturering',
       description: 'Mailboxen worden maandelijks op je betaalmethode afgerekend.',
       descriptionWithPlan: 'Mailboxen komen bij de maandelijkse afschrijving van je abonnement. Bedragen zijn exclusief btw.',
+      pausedTitle: 'Je mailboxen staan stil',
+      pausedDescription: 'Je abonnement is afgelopen, dus je mailboxen versturen niets. Neem een betaald abonnement om ze te hervatten.',
       status: 'Abonnement',
       inboxes: 'Mailboxen',
       inboxesValue: '{count} × {price}',

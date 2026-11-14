@@ -76,7 +76,8 @@ pub enum InboxCharge {
 /// What `GET /api/reach/billing/status` says about inbox billing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboxBilling {
-    /// `none` (no paid plan), `active` or `past_due`.
+    /// `none` (never on a paid plan), `active`, `past_due`, or `canceled`
+    /// (the plan ended: the inboxes are paused).
     pub status: &'static str,
     pub has_payment_method: bool,
     /// The next anchor, when the inboxes are next billed.
@@ -92,19 +93,26 @@ fn paid_plan_required() -> BillingError {
     .into()
 }
 
-/// The workspace's running Mollie subscription, or why it has none.
-async fn running(
+/// The workspace and its Mollie account, as stored (a plan that ended keeps
+/// its account, without a next charge).
+async fn load(
     state: &BillingState,
     workspace_id: &str,
-    now: OffsetDateTime,
 ) -> BillingResult<(Workspace, Option<Account>)> {
     let Some(workspace) = Workspace::load(&state.master, workspace_id).await? else {
         return Err(ApiError::not_found("Workspace", None).into());
     };
-    let account = Account::load(&state.master, &workspace.id)
-        .await?
-        .filter(|a| a.next_charge_at.is_some() && workspace.has_running_subscription(now));
+    let account = Account::load(&state.master, &workspace.id).await?;
     Ok((workspace, account))
+}
+
+/// The account of a subscription running now.
+fn running(
+    workspace: &Workspace,
+    account: Option<Account>,
+    now: OffsetDateTime,
+) -> Option<Account> {
+    account.filter(|a| a.next_charge_at.is_some() && workspace.has_running_subscription(now))
 }
 
 /// Inbox billing at a glance, for the WeldReach settings.
@@ -113,9 +121,10 @@ pub async fn inbox_billing(
     workspace_id: &str,
     now: OffsetDateTime,
 ) -> BillingResult<InboxBilling> {
-    let (workspace, account) = running(state, workspace_id, now).await?;
+    let (workspace, account) = load(state, workspace_id).await?;
     let free = workspace.is_partner() || workspace.comp_active(now);
-    Ok(match account {
+    let ever_paid = account.is_some();
+    Ok(match running(&workspace, account, now) {
         Some(account) => InboxBilling {
             status: if account.past_due_payment_id.is_some() {
                 "past_due"
@@ -126,7 +135,11 @@ pub async fn inbox_billing(
             period_end: account.next_charge().map(iso),
         },
         None => InboxBilling {
-            status: if free { "active" } else { "none" },
+            status: match (free, ever_paid) {
+                (true, _) => "active",
+                (false, true) => "canceled",
+                (false, false) => "none",
+            },
             has_payment_method: false,
             period_end: None,
         },
@@ -178,11 +191,11 @@ pub async fn charge_inbox_added(
     inboxes_after: i64,
     now: OffsetDateTime,
 ) -> BillingResult<InboxCharge> {
-    let (workspace, account) = running(state, workspace_id, now).await?;
+    let (workspace, account) = load(state, workspace_id).await?;
     if workspace.is_partner() || workspace.comp_active(now) {
         return Ok(InboxCharge::NotBilled);
     }
-    let Some(account) = account else {
+    let Some(account) = running(&workspace, account, now) else {
         return Err(paid_plan_required());
     };
     if account.past_due_payment_id.is_some() {
@@ -321,6 +334,47 @@ async fn collect(
     if payment.status == PaymentStatus::Paid {
         crate::settle::settle_payment(state, &payment, now).await?;
     }
+    Ok(())
+}
+
+/// WeldReach's app code (`workspace_app_access.app_code`).
+const WELDREACH_APP: &str = "weldreach";
+
+/// The plan ended: the workspace's inboxes pause (owner decision 2026-11-14).
+/// While its WeldReach billing status is `canceled`, WeldReach sends nothing
+/// and takes no new inbox, as on Global when the inbox subscription ends; the
+/// inboxes themselves stay, unbilled, until a paid plan resumes them.
+pub(crate) async fn pause_inboxes(
+    tx: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update workspace_app_access set billing_status = 'canceled', billing_status_at = now(),
+             updated_at = now()
+         where workspace_id = $1 and app_code = $2 and billing_status <> 'canceled'",
+    )
+    .bind(workspace_id)
+    .bind(WELDREACH_APP)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// A paid plan (or a comp) started: inboxes paused when the last one ended
+/// send again.
+pub async fn resume_inboxes(
+    tx: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update workspace_app_access set billing_status = 'active', billing_status_at = now(),
+             updated_at = now()
+         where workspace_id = $1 and app_code = $2 and billing_status = 'canceled'",
+    )
+    .bind(workspace_id)
+    .bind(WELDREACH_APP)
+    .execute(&mut *tx)
+    .await?;
     Ok(())
 }
 

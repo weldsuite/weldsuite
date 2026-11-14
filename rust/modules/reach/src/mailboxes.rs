@@ -429,7 +429,9 @@ async fn create_mailbox(
         )
         .with_details(json!({ "limit": limits.max_mailboxes, "current": existing })));
     }
-    if billing_status == "canceled" && existing > 0 {
+    // With inboxes on the plan's charge, `canceled` means the plan ended:
+    // plan billing refuses the inbox itself (402 `PAID_PLAN_REQUIRED`).
+    if billing_status == "canceled" && existing > 0 && state.inbox_billing.is_none() {
         return Err(ReachError::new(
             402,
             "BILLING_CANCELED",

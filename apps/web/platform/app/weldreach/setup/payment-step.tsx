@@ -26,8 +26,9 @@ export function PaymentStep({
   const paymentSetup = usePaymentMethodSetup('/weldreach/setup', { step: 'payment' });
   const navigate = useNavigate();
   const unitPrice = inboxPrice();
-  // Inboxes on the plan's Mollie charge (EU) need a paid plan, not a card.
-  const needsPlan = unitPrice.withPlan && billing.status === 'none';
+  // Inboxes on the plan's Mollie charge (EU) need a paid plan, not a card:
+  // none yet, or the last one ended (its inboxes are paused).
+  const needsPlan = unitPrice.withPlan && (billing.status === 'none' || billing.status === 'canceled');
   let buttonLabel = t('reach.setup.payment.add');
   if (paymentSetup.isPending) buttonLabel = t('reach.setup.payment.redirecting');
   else if (billing.hasPaymentMethod) buttonLabel = t('reach.settings.billing.update');

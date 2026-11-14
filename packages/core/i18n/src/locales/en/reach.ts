@@ -583,6 +583,8 @@ export const reach = {
       title: 'Billing',
       description: 'Mailboxes are billed monthly to your payment method.',
       descriptionWithPlan: 'Mailboxes are added to your plan\'s monthly charge. Amounts exclude VAT.',
+      pausedTitle: 'Your mailboxes are paused',
+      pausedDescription: 'Your plan ended, so your mailboxes send nothing. Subscribe to a paid plan to resume them.',
       status: 'Subscription',
       inboxes: 'Mailboxes',
       inboxesValue: '{count} × {price}',

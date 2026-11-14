@@ -195,6 +195,7 @@ async fn reset(master: &PgPool, tenant: &PgPool) {
         "delete from credit_transactions where workspace_id = $1",
         "delete from workspace_credits where workspace_id = $1",
         "delete from user_workspaces where workspace_id = $1",
+        "delete from workspace_app_access where workspace_id = $1",
         "delete from workspaces where id = $1",
     ] {
         exec(master, sql, &[WS]).await;
@@ -235,6 +236,14 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
         "insert into workspaces (id, clerk_org_id, name, slug, plan_id, is_active, paid_plan_required)
          values ($1, $2, 'Billing DB', 'billing-db-test', (select id from plans where slug = 'free'), true, false)",
         &[WS, ORG],
+    )
+    .await;
+    // WeldReach, approved: its billing status follows the plan.
+    exec(
+        master,
+        "insert into workspace_app_access (id, workspace_id, app_code, status)
+         values ('waa_billingdb1', $1, 'weldreach', 'approved')",
+        &[WS],
     )
     .await;
     exec(
@@ -298,6 +307,17 @@ async fn workspace(master: &PgPool) -> Value {
     .fetch_one(master)
     .await
     .expect("workspace")
+}
+
+/// WeldReach's billing status for the workspace.
+async fn reach_billing(master: &PgPool) -> String {
+    sqlx::query_scalar(
+        "select billing_status from workspace_app_access where workspace_id = $1 and app_code = 'weldreach'",
+    )
+    .bind(WS)
+    .fetch_one(master)
+    .await
+    .expect("app access")
 }
 
 async fn account(master: &PgPool) -> Value {
@@ -544,11 +564,19 @@ async fn a_subscription_from_checkout_to_free() {
         .expect("free");
     assert_eq!(ws["plan"], free);
     assert!(account(&master).await["next_charge_at"].is_null());
-    // On Free, inboxes need a paid plan again.
+    // On Free, inboxes need a paid plan again, and the ones there pause.
     assert!(matches!(
         charge_inbox_added(&state, WS, None, "rmbx_5", 2, t4).await,
         Err(BillingError::Api(_))
     ));
+    assert_eq!(reach_billing(&master).await, "canceled");
+    // A new paid plan (or a comp) resumes them.
+    let mut connection = master.acquire().await.expect("connection");
+    weldsuite_core_billing::addons::resume_inboxes(&mut connection, WS)
+        .await
+        .expect("resumed");
+    drop(connection);
+    assert_eq!(reach_billing(&master).await, "active");
 
     // 8. A credit top-up: its €10 price is before VAT, so €12.10 is charged,
     // and once paid it is invoiced like a plan charge (no plan needed).

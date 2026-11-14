@@ -280,6 +280,9 @@ pub(crate) async fn execute(
             .bind(seats.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
             .execute(&mut *tx)
             .await?;
+            // A comped workspace's inboxes run, unbilled: resume any a past
+            // plan's end paused.
+            weldsuite_core_billing::addons::resume_inboxes(&mut tx, &found.id).await?;
             // A comp pays what is open: nothing stays past due under it.
             sqlx::query(
                 "update billing_accounts set past_due_since = null, past_due_payment_id = null,
