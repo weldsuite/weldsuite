@@ -1,11 +1,52 @@
-import { describe, expect, it } from 'vitest';
-import { decide, roleOf } from './staff-roster';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { decide, roleOf, staffIdentity } from './staff-roster';
 import type { StaffSession } from './oidc';
+import type { AdminRole } from '../roles';
+
+/**
+ * The master database as `staffIdentity` uses it: each `select … limit` answers
+ * the next of `selects`, each `update … returning` the next of `returning`,
+ * and every `update … set` is recorded.
+ */
+const fake = vi.hoisted(() => {
+  const state = { selects: [] as unknown[][], returning: [] as unknown[][], sets: [] as Record<string, unknown>[], reads: 0 };
+  const db = {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => {
+            state.reads += 1;
+            return state.selects.shift() ?? [];
+          },
+        }),
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        state.sets.push(values);
+        const updated = {
+          returning: async () => state.returning.shift() ?? [],
+          then: (resolve: (value: undefined) => void) => resolve(undefined),
+        };
+        return { where: () => updated };
+      },
+    }),
+  };
+  return { state, db };
+});
+
+vi.mock('../db', async () => ({
+  masterSchema: await import('@weldsuite/db/schema/master'),
+  getMasterDb: () => fake.db,
+}));
 
 const STAFF_ORG = 'org-staff';
 /** Ann's account in the staff organization: who the console is for. */
 const session: StaffSession = { sub: 'sub-ann-staff', email: 'ann@weldsuite.test', emailVerified: true, name: 'Ann', org: STAFF_ORG };
-const row = (consoleSubject: string | null, { role = 'admin' as const, isActive = true } = {}) => ({
+const row = (
+  consoleSubject: string | null,
+  { role = 'admin', isActive = true }: { role?: AdminRole; isActive?: boolean } = {},
+) => ({
   email: 'ann@weldsuite.test',
   name: null,
   role,
@@ -66,6 +107,60 @@ describe('decide', () => {
   it('refuses someone with no row', () => {
     expect(decide(session, STAFF_ORG, undefined, undefined)).toBeNull();
     expect(decide({ ...session, email: null }, STAFF_ORG, undefined, row(null))).toBeNull();
+  });
+});
+
+describe('staffIdentity', () => {
+  beforeEach(() => {
+    fake.state.selects = [];
+    fake.state.returning = [];
+    fake.state.sets = [];
+    fake.state.reads = 0;
+  });
+
+  it('lets in the bound staff account and notes the sign-in', async () => {
+    fake.state.selects = [[row('sub-ann-staff', { role: 'superadmin' })]];
+    await expect(staffIdentity(session, { staffOrgId: STAFF_ORG, signingIn: true })).resolves.toEqual({
+      userId: 'sub-ann-staff',
+      email: 'ann@weldsuite.test',
+      name: 'Ann',
+      role: 'superadmin',
+      isSuperAdmin: true,
+    });
+    expect(fake.state.reads).toBe(1);
+    expect(Object.keys(fake.state.sets[0]!)).toEqual(['lastLoginAt']);
+  });
+
+  it('binds an unbound row to the staff account, never touching user_id', async () => {
+    fake.state.selects = [[], [row(null)]];
+    fake.state.returning = [[{ email: 'ann@weldsuite.test' }]];
+    const identity = await staffIdentity(session, { staffOrgId: STAFF_ORG, signingIn: true });
+    expect(identity?.role).toBe('admin');
+    expect(fake.state.sets[0]).toMatchObject({ consoleSubject: 'sub-ann-staff', name: 'Ann' });
+    expect(fake.state.sets[0]).not.toHaveProperty('userId');
+  });
+
+  it('refuses when another sign-in bound the row first', async () => {
+    fake.state.selects = [[], [row(null)]];
+    fake.state.returning = [[]];
+    await expect(staffIdentity(session, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
+  });
+
+  it("refuses a removed person's account without looking up the email", async () => {
+    fake.state.selects = [[row('sub-ann-staff', { isActive: false })]];
+    await expect(staffIdentity(session, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
+    expect(fake.state.reads).toBe(1);
+    expect(fake.state.sets).toEqual([]);
+  });
+
+  it('refuses an account of another organization before reading the roster', async () => {
+    await expect(staffIdentity({ ...session, org: 'org-platform' }, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
+    expect(fake.state.reads).toBe(0);
+  });
+
+  it('refuses a row whose role is unknown', async () => {
+    fake.state.selects = [[{ ...row('sub-ann-staff'), role: 'owner' }]];
+    await expect(staffIdentity(session, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
   });
 });
 
