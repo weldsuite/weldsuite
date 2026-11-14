@@ -52,6 +52,7 @@ export type SignInErrorCode =
   | 'WEAK_PASSWORD'
   | 'SIGN_UP_DISABLED'
   | 'NO_SESSION'
+  | 'INVITATION_ACCEPTED'
   | 'VALIDATION_ERROR'
   | 'UNAVAILABLE';
 
@@ -64,6 +65,7 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<SignInErrorCode>([
   'WEAK_PASSWORD',
   'SIGN_UP_DISABLED',
   'NO_SESSION',
+  'INVITATION_ACCEPTED',
   'VALIDATION_ERROR',
 ]);
 
@@ -173,6 +175,28 @@ export interface PasswordResetInput {
 
 export function confirmPasswordReset(input: PasswordResetInput): Promise<void> {
   return call('POST', '/password-reset/confirm', input);
+}
+
+export interface AcceptInvitationInput {
+  /** The account the provider made for the invitee, and the code, from the emailed link. */
+  userId: string;
+  code: string;
+  password: string;
+}
+
+export interface AcceptedInvitation {
+  email: string | null;
+  /** The backend opened a provider session: the sign-in that follows needs no password. */
+  signedIn: boolean;
+}
+
+/**
+ * Accept an invitation: the code proves the address and the person's first
+ * password is set. `INVALID_CODE` for a wrong or expired code,
+ * `INVITATION_ACCEPTED` when the account accepted before.
+ */
+export function acceptInvitation(input: AcceptInvitationInput): Promise<AcceptedInvitation> {
+  return call('POST', '/invitation/accept', input);
 }
 
 /** Forget the provider session (the cookie, and the session at the provider). Never rejects. */

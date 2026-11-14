@@ -588,6 +588,91 @@ async fn a_password_reset_says_nothing_about_which_addresses_have_accounts() {
 }
 
 #[tokio::test]
+async fn an_invitation_sets_the_first_password_and_the_sign_in_goes_straight_through() {
+    let h = harness();
+    let user = h.provider.add_invited_user("new@acme.test");
+    let accept =
+        |code: &str, password: &str| json!({ "userId": user, "code": code, "password": password });
+
+    // A password the policy refuses is refused before the code is spent.
+    let weak = h
+        .post(
+            "/invitation/accept",
+            None,
+            accept(MemorySignIn::CODE, "weakpass"),
+        )
+        .await;
+    assert_eq!(weak.status, StatusCode::BAD_REQUEST);
+    assert_eq!(weak.error(), "WEAK_PASSWORD");
+    let wrong = h
+        .post("/invitation/accept", None, accept("WRONG1", "Welcome123"))
+        .await;
+    assert_eq!(wrong.error(), "INVALID_CODE");
+    let nobody = h
+        .post(
+            "/invitation/accept",
+            None,
+            json!({ "userId": "user_404", "code": MemorySignIn::CODE, "password": "Welcome123" }),
+        )
+        .await;
+    assert_eq!(nobody.body, wrong.body);
+
+    // The code as typed into a link by hand: lower case reads the same.
+    let accepted = h
+        .post("/invitation/accept", None, accept("abc123", "Welcome123"))
+        .await;
+    assert_eq!(accepted.status, StatusCode::OK, "{}", accepted.body);
+    assert_eq!(
+        accepted.body["data"],
+        json!({ "email": "new@acme.test", "signedIn": true })
+    );
+    let cookie = accepted.cookie.expect("session cookie");
+    let account = h.provider.user_by_email("new@acme.test").expect("account");
+    assert!(account.user.email_verified);
+    assert_eq!(account.password, "Welcome123");
+
+    // The platform then starts its sign-in: no form, no code.
+    let request = h.provider.add_auth_request(&[]);
+    let signed_in = h
+        .get(&format!("/request?authRequest={request}"), Some(&cookie))
+        .await;
+    assert_eq!(signed_in.step(), "complete");
+    assert_eq!(h.provider.completed_for(&request), Some(user.clone()));
+
+    // The link opened again.
+    let again = h
+        .post(
+            "/invitation/accept",
+            None,
+            accept(MemorySignIn::CODE, "Another456"),
+        )
+        .await;
+    assert_eq!(again.status, StatusCode::CONFLICT);
+    assert_eq!(again.error(), "INVITATION_ACCEPTED");
+}
+
+#[tokio::test]
+async fn an_invitation_never_sets_the_password_of_an_account_that_has_one() {
+    let h = harness();
+    let user = h.provider.add_user("jane@acme.test", PASSWORD);
+
+    let taken = h
+        .post(
+            "/invitation/accept",
+            None,
+            json!({ "userId": user, "code": MemorySignIn::CODE, "password": "Takeover123" }),
+        )
+        .await;
+    assert_eq!(taken.error(), "INVITATION_ACCEPTED");
+    assert!(taken.cookie.is_none());
+    let request = h.provider.add_auth_request(&[]);
+    assert_eq!(
+        h.sign_in(&request, "jane@acme.test", PASSWORD).await.step(),
+        "complete"
+    );
+}
+
+#[tokio::test]
 async fn a_cookie_that_names_no_session_is_dropped_and_the_form_is_shown() {
     let h = harness();
     h.provider.add_user("jane@acme.test", PASSWORD);

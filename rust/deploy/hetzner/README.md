@@ -345,10 +345,12 @@ default) organisation:
    forgotten password. For anything else (a passkey, a security key, a code
    by SMS, a forced password change, setting up a second factor the policy
    demands) they hand that one sign-in to Zitadel's page, which is why the
-   `login` ingress stays. Invitations still open Zitadel's page
-   (`config.identity.zitadel.inviteUrlTemplate`), and the emails for
-   verifying an address and resetting a password link to the platform
-   (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
+   `login` ingress stays. Invitations open the platform too: the link goes
+   to `https://app.<domain>/invite`, where the invitee chooses a password on
+   WeldSuite's "Complete your account" screen and is signed straight in
+   (`config.identity.zitadel.inviteUrlTemplate`, when set, overrides that
+   link). The emails for verifying an address and resetting a password link
+   to the platform as well (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
    policy (Default settings → Lockout) applies on top when it is set.
 
 The server sends those emails itself (sign-up codes, password resets,
