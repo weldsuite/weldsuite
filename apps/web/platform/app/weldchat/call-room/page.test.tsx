@@ -8,38 +8,51 @@ const rtk = vi.hoisted(() => ({
   self: { audioEnabled: true, videoEnabled: true },
 }));
 
-vi.mock('@cloudflare/realtimekit', () => ({
-  default: {
-    init: vi.fn(async () => ({
-      self: {
-        name: 'Me',
-        get audioEnabled() {
-          return rtk.self.audioEnabled;
-        },
-        get videoEnabled() {
-          return rtk.self.videoEnabled;
-        },
-        on: (event: string, handler: Handler) => {
-          rtk.handlers.set(event, handler);
-        },
-        enableAudio: vi.fn(async () => {
-          rtk.self.audioEnabled = true;
-        }),
-        disableAudio: vi.fn(async () => {
-          rtk.self.audioEnabled = false;
-        }),
-        enableVideo: vi.fn(async () => {
-          rtk.self.videoEnabled = true;
-        }),
-        disableVideo: vi.fn(async () => {
-          rtk.self.videoEnabled = false;
-        }),
+/** A meeting client: what `RealtimeKitClient.init` and `initLiveKitMeeting` both return. */
+function meetingClient() {
+  return {
+    self: {
+      name: 'Me',
+      get audioEnabled() {
+        return rtk.self.audioEnabled;
       },
-      participants: { joined: { on: vi.fn(), toArray: () => [] } },
-      join: vi.fn(async () => undefined),
-      leave: vi.fn(async () => undefined),
-    })),
-  },
+      get videoEnabled() {
+        return rtk.self.videoEnabled;
+      },
+      on: (event: string, handler: Handler) => {
+        rtk.handlers.set(event, handler);
+      },
+      enableAudio: vi.fn(async () => {
+        rtk.self.audioEnabled = true;
+      }),
+      disableAudio: vi.fn(async () => {
+        rtk.self.audioEnabled = false;
+      }),
+      enableVideo: vi.fn(async () => {
+        rtk.self.videoEnabled = true;
+      }),
+      disableVideo: vi.fn(async () => {
+        rtk.self.videoEnabled = false;
+      }),
+    },
+    participants: { joined: { on: vi.fn(), toArray: () => [] } },
+    join: vi.fn(async () => undefined),
+    leave: vi.fn(async () => undefined),
+  };
+}
+
+vi.mock('@cloudflare/realtimekit', () => ({
+  default: { init: vi.fn(async () => meetingClient()) },
+}));
+
+/** Which provider the deployment's runtime config names (none = Global's RealtimeKit). */
+const video = vi.hoisted(() => ({
+  target: { provider: 'realtimekit' } as { provider: 'realtimekit' } | { provider: 'livekit'; url: string },
+  init: vi.fn(),
+}));
+vi.mock('@/lib/video-provider', () => ({ videoJoin: () => video.target }));
+vi.mock('@weldsuite/weldmeet-ui/providers/livekit', () => ({
+  initLiveKitMeeting: (options: unknown) => video.init(options),
 }));
 
 vi.mock('@/lib/i18n/provider', () => ({
@@ -80,6 +93,8 @@ async function renderJoinedRoom() {
 }
 
 beforeEach(() => {
+  video.target = { provider: 'realtimekit' };
+  video.init.mockReset();
   rtk.handlers.clear();
   rtk.self.audioEnabled = true;
   rtk.self.videoEnabled = false;
@@ -156,5 +171,46 @@ describe('CallRoomPage · controls', () => {
     await renderJoinedRoom();
 
     expect(screen.queryByTestId('call-room-video')).toBeNull();
+  });
+});
+
+describe('CallRoomPage · provider', () => {
+  it('joins a LiveKit call with the LiveKit client and the token of the link', async () => {
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.mocked(RTK.init).mockClear();
+    video.target = { provider: 'livekit', url: 'wss://lk.test' };
+    video.init.mockImplementation(() => meetingClient());
+    window.history.replaceState({}, '', '/weldchat/call-room?token=lk_tok&type=video');
+
+    await renderJoinedRoom();
+
+    expect(video.init).toHaveBeenCalledWith({
+      url: 'wss://lk.test',
+      token: 'lk_tok',
+      defaults: { audio: true, video: true },
+    });
+    expect(RTK.init).not.toHaveBeenCalled();
+    expect(screen.getByTestId('call-room')).toBeTruthy();
+  });
+
+  it('shows the error state when LiveKit is the provider but has no server URL', async () => {
+    video.target = { provider: 'livekit', url: 'wss://lk.test' };
+    video.init.mockImplementation(() => {
+      throw new Error('LiveKit is the video provider, but no LiveKit server URL is configured');
+    });
+
+    render(<CallRoomPage />);
+
+    await screen.findByTestId('call-room-error');
+  });
+
+  it('keeps joining with RealtimeKit on Global', async () => {
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.mocked(RTK.init).mockClear();
+
+    await renderJoinedRoom();
+
+    expect(RTK.init).toHaveBeenCalledWith({ authToken: 'tok_1', defaults: { audio: true, video: false } });
+    expect(video.init).not.toHaveBeenCalled();
   });
 });

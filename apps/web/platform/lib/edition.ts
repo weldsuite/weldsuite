@@ -54,7 +54,11 @@ export const EDITION_FEATURES = [
   'mail-free-addresses',
   /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
   'mail-ai',
-  /** WeldChat voice and video calls (`/api/chat-calls`, Cloudflare RealtimeKit). */
+  /**
+   * WeldChat voice and video calls (`/api/chat-calls`). Served on every
+   * edition (LiveKit on Kubernetes); unavailable only when the deployment has
+   * no video provider configured.
+   */
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',

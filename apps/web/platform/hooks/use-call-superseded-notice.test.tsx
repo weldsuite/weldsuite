@@ -178,6 +178,15 @@ describe('rtkParticipantIds', () => {
     expect(rtkParticipantIds(client as Parameters<typeof rtkParticipantIds>[0])).toEqual(['peer_1', 'user_1']);
   });
 
+  it('gives a LiveKit client its identity, which is the cfSessionId the server stored', async () => {
+    const { initLiveKitMeeting } = await import('@weldsuite/weldmeet-ui/providers/livekit');
+    const part = (value: unknown) =>
+      btoa(JSON.stringify(value)).replace(/=+$/, '').replaceAll('+', '-').replaceAll('/', '_');
+    const token = `${part({ alg: 'HS256' })}.${part({ sub: 'user_me~a1b2', video: { room: 'r', roomJoin: true } })}.sig`;
+    const client = initLiveKitMeeting<Parameters<typeof rtkParticipantIds>[0]>({ url: 'wss://lk.test', token });
+    expect(rtkParticipantIds(client)).toEqual(['user_me~a1b2']);
+  });
+
   it('is empty for a client that is gone or has no ids', () => {
     expect(rtkParticipantIds(null)).toEqual([]);
     expect(rtkParticipantIds({ self: {} } as Parameters<typeof rtkParticipantIds>[0])).toEqual([]);

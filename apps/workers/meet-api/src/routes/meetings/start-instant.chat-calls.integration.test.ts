@@ -5,9 +5,10 @@
  * chat call they are still in (a leave, never an end for everyone), after the
  * response and without ever touching the meeting that was just started.
  *
- * TypeScript only, outside the Rust conformance suite: the Kubernetes editions
- * have no WeldChat calls (`chat-calls` is unavailable there). The meeting
- * side runs on both backends in ./start-instant.integration.test.ts.
+ * TypeScript only, outside the Rust conformance suite: these tests mock
+ * `@weldsuite/cloudflare-realtime` with `vi.mock`, which can't reach the Rust
+ * server (its chat half is `rust/modules/meet/src/chat_calls.rs`). The
+ * meeting side runs on both backends in ./start-instant.integration.test.ts.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';

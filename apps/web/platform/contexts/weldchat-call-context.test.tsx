@@ -100,6 +100,21 @@ vi.mock('@cloudflare/realtimekit', () => ({
   },
 }));
 
+/** Which provider the deployment's runtime config names (none = Global's RealtimeKit). */
+const video = vi.hoisted(() => ({
+  target: { provider: 'realtimekit' } as { provider: 'realtimekit' } | { provider: 'livekit'; url: string },
+  /** What `initLiveKitMeeting` returns: a client with the same surface as RealtimeKit's. */
+  init: vi.fn(),
+}));
+
+vi.mock('@/lib/video-provider', () => ({
+  isLiveKit: () => video.target.provider === 'livekit',
+  videoJoin: () => video.target,
+}));
+vi.mock('@weldsuite/weldmeet-ui/providers/livekit', () => ({
+  initLiveKitMeeting: (options: unknown) => video.init(options),
+}));
+
 vi.mock('@weldsuite/df3-noise-suppression', () => ({
   createRnnoiseSuppressor: () => ({ dispose: async () => undefined, warm: () => undefined }),
   installGetUserMediaPatch: () => () => undefined,
@@ -283,6 +298,7 @@ async function startConnectedCall(options: MountOptions = {}) {
 }
 
 beforeEach(() => {
+  video.target = { provider: 'realtimekit' };
   realtime.subscribers.clear();
   rtk.handlers.clear();
   rtk.log.length = 0;
@@ -1227,5 +1243,146 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
 
     act(() => vi.advanceTimersByTime(10_000));
     expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A client as the LiveKit adapter hands it out: the same surface, ids are the identity. */
+function liveKitClient(identity: string) {
+  return {
+    self: {
+      id: identity,
+      userId: identity,
+      get audioEnabled() {
+        return rtk.self.audioEnabled;
+      },
+      get videoEnabled() {
+        return rtk.self.videoEnabled;
+      },
+      on: (event: string, handler: Handler) => {
+        rtk.handlers.set(event, handler);
+      },
+      off: vi.fn(),
+      enableAudio: vi.fn(async () => undefined),
+      disableAudio: vi.fn(async () => undefined),
+      enableVideo: vi.fn(async () => undefined),
+      disableVideo: vi.fn(async () => undefined),
+      disableScreenShare: vi.fn(async () => undefined),
+    },
+    join: vi.fn(() => rtk.join()),
+    leave: vi.fn(async () => {
+      rtk.log.push('livekit:leave');
+      rtk.handlers.get('roomLeft')?.({ state: 'left' });
+    }),
+  };
+}
+
+describe('WeldChatCallProvider · on LiveKit (the Kubernetes editions)', () => {
+  const IDENTITY = 'user_me~n1';
+
+  beforeEach(() => {
+    video.target = { provider: 'livekit', url: 'wss://lk.test' };
+    video.init.mockReset();
+    video.init.mockImplementation(() => liveKitClient(IDENTITY));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    api.post.mockImplementation(async () => ({
+      data: { callId: 'call_1', authToken: 'lk_token_1', callType: 'video' },
+    }));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('joins with the LiveKit client and the token the API handed out, not RealtimeKit', async () => {
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.mocked(RTK.init).mockClear();
+
+    await startConnectedCall();
+
+    expect(video.init).toHaveBeenCalledTimes(1);
+    expect(video.init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'wss://lk.test',
+        token: 'lk_token_1',
+        defaults: { audio: true, video: true },
+        // RNNoise runs on the microphone (getUserMedia patch), so the browser's own is off.
+        noiseSuppression: false,
+      }),
+    );
+    expect(RTK.init).not.toHaveBeenCalled();
+    expect(call.status).toBe('connected');
+  });
+
+  it('fails the start, with the usual message, when no LiveKit server is configured', async () => {
+    video.target = { provider: 'livekit', url: 'wss://lk.test' };
+    video.init.mockImplementation(() => {
+      throw new Error('LiveKit is the video provider, but no LiveKit server URL is configured');
+    });
+    mountChat();
+
+    await act(async () => {
+      await call.startCall('ch_1', 'video').catch(() => undefined);
+    });
+
+    expect(call.status).toBe('idle');
+    expect(toast.error).toHaveBeenCalledWith("Couldn't start the call. Please try again.");
+  });
+
+  it('recognises its own identity (the stored cfSessionId) in call_superseded', async () => {
+    await startConnectedCall();
+    publish('call_superseded', { kind: 'chat', id: 'call_1', cfSessionId: IDENTITY });
+
+    emit('roomLeft', { state: 'kicked' });
+
+    expect(toast.info).toHaveBeenCalledWith('You left this call because you joined another call or meeting.');
+    expect(call.status).toBe('ended');
+  });
+
+  it('ignores a call_superseded naming another connection of the same user (another tab)', async () => {
+    await startConnectedCall();
+    publish('call_superseded', { kind: 'chat', id: 'call_1', cfSessionId: 'user_me~other_tab' });
+
+    emit('roomLeft', { state: 'kicked' });
+
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it('rejoins with a new LiveKit client when the connection gives up ("failed")', async () => {
+    await startConnectedCall();
+    vi.useFakeTimers();
+
+    emit('roomLeft', { state: 'failed' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(video.init).toHaveBeenCalledTimes(2);
+    expect(video.init).toHaveBeenLastCalledWith(expect.objectContaining({ token: 'lk_token_1', url: 'wss://lk.test' }));
+    emit('roomJoined', {});
+    expect(call.status).toBe('connected');
+    expect(call.callId).toBe('call_1');
+  });
+
+  it('leaves the LiveKit room on hang-up and tells the backend', async () => {
+    await startConnectedCall();
+
+    await act(async () => {
+      await call.leaveCall();
+    });
+
+    expect(rtk.log).toContain('livekit:leave');
+    expect(call.endReason).toBe('left');
+  });
+});
+
+describe('WeldChatCallProvider · on Global (no runtime config)', () => {
+  it('keeps joining with RealtimeKit and never touches the LiveKit client', async () => {
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.mocked(RTK.init).mockClear();
+    video.init.mockClear();
+
+    await startConnectedCall();
+
+    expect(RTK.init).toHaveBeenCalledWith(expect.objectContaining({ authToken: 'tok_1' }));
+    expect(video.init).not.toHaveBeenCalled();
   });
 });

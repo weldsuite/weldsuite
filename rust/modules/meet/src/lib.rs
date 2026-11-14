@@ -27,6 +27,7 @@
 
 mod attendees;
 mod billing;
+mod chat_calls;
 mod invitations;
 mod js;
 mod lifecycle;
@@ -72,6 +73,8 @@ use weldsuite_ports::{
     HttpRequest, HttpResponse, ObjectInfo, OutboundHttp, PortError, RequestCache, StorageBuckets,
 };
 use weldsuite_video_rooms::{DynVideoRooms, RealtimeKit, RealtimeKitConfig};
+
+pub use chat_calls::leave_meeting_sessions;
 
 /// A workspace's tenant database, by the id a webhook mapping carries (the
 /// Clerk org id; `getTenantDbForWorkspace`).

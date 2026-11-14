@@ -137,6 +137,25 @@ describe('meeting.ended for a call', () => {
     expect(kickAllParticipants).not.toHaveBeenCalled();
   });
 
+  // A DM's room outlives the call, so its session ends after the call was
+  // already ended as missed or declined: ending it again posted a second
+  // notice and sent a second missed-call push.
+  it.each(['missed', 'declined'] as const)('leaves a %s call alone', async (status) => {
+    const { callId, cfAppId, mapping } = await seed(`already_${status}`, [participant(ALICE)]);
+    const endedAt = new Date('2026-10-02T10:30:00.000Z');
+    await state.db
+      .update(schema.chatCalls)
+      .set({ status, endedAt })
+      .where(eq(schema.chatCalls.id, callId));
+
+    await handleMeetingEnded(env, mapping, cfAppId);
+
+    const call = await readCall(callId);
+    expect(call.status).toBe(status);
+    expect(call.endedAt).toEqual(endedAt);
+    expect(getLiveParticipantCount).not.toHaveBeenCalled();
+  });
+
   // A DM keeps one RealtimeKit room for all its calls, so by the time the
   // previous call's session ends the mapping already points at the next call.
   describe("a DM room's earlier session", () => {

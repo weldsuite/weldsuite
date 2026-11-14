@@ -26,6 +26,7 @@ import {
   recordInventory,
   recordOnlyRequest,
   recordOnlyTarget,
+  type SideEffects,
 } from './conformance';
 
 export { conformanceMasterDb, conformanceTenantDb } from './conformance';
@@ -114,6 +115,12 @@ export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
    * conformance mode) sees what a client of the worker would.
    */
   moduleApiErrors?: boolean;
+  /**
+   * Conformance mode: masks, in both runs' side effects, what differs between
+   * the backends by construction for these routes (the order in which
+   * concurrent background work publishes, say).
+   */
+  normalizeEffects?: (effects: SideEffects) => SideEffects;
 }
 
 /**
@@ -287,6 +294,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
             ),
           sideEffects: sideEffects!,
           rustBasePath: options.rustBasePath,
+          normalizeEffects: options.normalizeEffects,
         });
       }
       if (recorder) {

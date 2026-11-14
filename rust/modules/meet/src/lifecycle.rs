@@ -4,10 +4,10 @@
 //! the room empty, drop a user from every other session they are in, and
 //! drop their older connection to the session they joined again.
 //!
-//! The worker also leaves the user's WeldChat calls
-//! (`@weldsuite/chat-domain/call-participants`). The Kubernetes editions have
-//! no WeldChat calls (`chat-calls` is unavailable there), so there is never
-//! a ringing or active call to leave and that half is not ported.
+//! Joining a session also leaves the user's WeldChat calls
+//! (`crate::chat_calls`, on `weldsuite_chat_domain::calls`), and joining a
+//! WeldChat call leaves their sessions (`leave_meeting_sessions`, which the
+//! app hands to the chat module).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

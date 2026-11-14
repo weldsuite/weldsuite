@@ -4,6 +4,12 @@
  * Global provider for voice/video call state management.
  * Uses Cloudflare RealtimeKit SDK — the SDK handles all WebRTC internally.
  * The backend only creates meetings and returns auth tokens.
+ *
+ * The Kubernetes editions (`/config.json` says `videoProvider: "livekit"`) run
+ * calls on LiveKit instead: the `authToken` is then a LiveKit join token, and
+ * the LiveKit client of `@weldsuite/weldmeet-ui/providers/livekit` answers to
+ * the same client surface, as in the WeldMeet call context. Global serves no
+ * config and takes the RealtimeKit path.
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -33,6 +39,7 @@ import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
 import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 import { publicEnv } from '@/lib/runtime-config';
+import { isLiveKit, videoJoin } from '@/lib/video-provider';
 
 const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
@@ -55,6 +62,21 @@ function loadRealtimeKit(): Promise<typeof import('@cloudflare/realtimekit')> {
   return realtimeKit;
 }
 
+let liveKitClient: Promise<typeof import('@weldsuite/weldmeet-ui/providers/livekit')> | null = null;
+
+/**
+ * The LiveKit client chunk, loaded once and shared by the prefetch and every
+ * call. Only the Kubernetes editions ever load it; Global never fetches
+ * livekit-client.
+ */
+function loadLiveKit(): Promise<typeof import('@weldsuite/weldmeet-ui/providers/livekit')> {
+  liveKitClient ??= import('@weldsuite/weldmeet-ui/providers/livekit').catch((err: unknown) => {
+    liveKitClient = null;
+    throw err;
+  });
+  return liveKitClient;
+}
+
 let callAssetsRequested = false;
 
 /**
@@ -65,7 +87,8 @@ let callAssetsRequested = false;
  * and again as soon as a call rings or starts in case idle never came).
  */
 function prefetchCallAssets(): void {
-  loadRealtimeKit().catch(() => undefined);
+  // The SDK this deployment joins with: LiveKit on the Kubernetes editions.
+  (isLiveKit() ? loadLiveKit() : loadRealtimeKit()).catch(() => undefined);
   if (callAssetsRequested || !NOISE_SUPPRESSION_ENABLED) return;
   callAssetsRequested = true;
   for (const url of [rnnoiseWorkerUrl, NOISE_WORKLET_URL]) {
@@ -184,7 +207,7 @@ function describeChannelCall(
  */
 /**
  * RealtimeKit's public `Self` type doesn't expose these fields/methods, but
- * the SDK's runtime object does. Used for hardware track cleanup and
+ * the SDK's runtime object does (the LiveKit client's `self` has them too). Used for hardware track cleanup and
  * screen-share quality tuning that has no first-class typed API.
  */
 interface RealtimeKitSelfInternal {
@@ -899,17 +922,33 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
     let m: RealtimeKitClient;
     try {
-      const { default: RTK } = await loadRealtimeKit();
-      m = await RTK.init({
-        authToken,
-        defaults: {
-          audio: audioOn,
-          video: videoOn ?? (type === 'video'),
-          mediaConfiguration: {
-            audio: { noiseSupression: !useNoiseSuppression },
+      // The Kubernetes editions run calls on LiveKit (`lib/video-provider`):
+      // the token is a LiveKit one, and the LiveKit client answers to the same
+      // client surface. Global (no runtime config) takes the RealtimeKit path.
+      const join = videoJoin();
+      if (join.provider === 'livekit') {
+        const { initLiveKitMeeting } = await loadLiveKit();
+        m = initLiveKitMeeting<RealtimeKitClient>({
+          url: join.url,
+          token: authToken,
+          defaults: { audio: audioOn, video: videoOn ?? (type === 'video') },
+          // LiveKit's capture goes through getUserMedia, so the RNNoise patch
+          // covers it; the browser's own suppression is off then.
+          noiseSuppression: !useNoiseSuppression,
+        });
+      } else {
+        const { default: RTK } = await loadRealtimeKit();
+        m = await RTK.init({
+          authToken,
+          defaults: {
+            audio: audioOn,
+            video: videoOn ?? (type === 'video'),
+            mediaConfiguration: {
+              audio: { noiseSupression: !useNoiseSuppression },
+            },
           },
-        },
-      });
+        });
+      }
     } catch (err) {
       if (!rejoin) releaseSuppressor();
       throw err;

@@ -368,6 +368,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldChat: a channel's live call, a stale one ended once the video
+  // provider confirms its room is empty.
+  /^\/api\/chat-calls\/active\/[^/?]+(\?|$)/,
   // WeldData: the Lemlist filter catalog, cached in KV on a miss.
   /^\/api\/welddata\/filters(\?|$)/,
   // WeldData: a list's cells, its stuck running ones timed out first.

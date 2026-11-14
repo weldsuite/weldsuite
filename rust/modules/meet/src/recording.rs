@@ -456,6 +456,7 @@ async fn try_reconcile(
         kind: "session".to_owned(),
         session_id: text(session, "id").map(str::to_owned),
         meeting_id: text(session, "meetingId").map(str::to_owned),
+        call_id: None,
     };
     let parts = session["recordingParts"]
         .as_array()

@@ -4028,6 +4028,7 @@ dependencies = [
  "weldsuite-merge",
  "weldsuite-migrations",
  "weldsuite-mta",
+ "weldsuite-notifications",
  "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -4469,9 +4470,12 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
+ "hmac",
  "http",
+ "icu_collator",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "time",
  "tokio",
@@ -4485,6 +4489,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-video-rooms",
 ]
 
 [[package]]
@@ -5367,6 +5372,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mail-domain",
+ "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-video-rooms",

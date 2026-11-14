@@ -1072,6 +1072,24 @@ fn meet_public(state: &AppState) -> Router<AppState> {
     router
 }
 
+/// The video provider WeldMeet's sessions and WeldChat's calls share
+/// (`VIDEO_PROVIDER`, `LIVEKIT_*`, `CF_REALTIME_*`:
+/// `weldsuite_video_rooms::from_env`), built once. Conformance builds have
+/// none: they use `RealtimeKit` with the test's credentials per request.
+fn video_rooms() -> Option<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> {
+    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    Some(Arc::clone(VIDEO.get_or_init(|| {
+        weldsuite_video_rooms::from_env(
+            |name| std::env::var(name).ok(),
+            shared_outbound()
+                .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
+        )
+    })))
+}
+
 /// WeldMeet's handle on the app: events, the cache (webhook mappings,
 /// recording tokens), the master database (credits, the AI price list), the
 /// realtime publisher, the video provider (`VIDEO_PROVIDER`, `LIVEKIT_*`,
@@ -1082,18 +1100,9 @@ fn meet_public(state: &AppState) -> Router<AppState> {
 /// Conformance builds take the test's KV, master database, fetch stub,
 /// buckets and Workflow fakes per request.
 fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
-    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
     let conformance = cfg!(feature = "conformance");
     let http = shared_outbound();
-    let video = (!conformance).then(|| {
-        Arc::clone(VIDEO.get_or_init(|| {
-            weldsuite_video_rooms::from_env(
-                |name| std::env::var(name).ok(),
-                http.clone()
-                    .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
-            )
-        }))
-    });
+    let video = video_rooms();
     let workspaces = Arc::clone(&state.workspaces);
     let tenants: weldsuite_meet::TenantDatabases = Arc::new(move |reference: String| {
         let workspaces = Arc::clone(&workspaces);
@@ -1690,6 +1699,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(social_public(state))
         .merge(call_public(state))
         .merge(meet_public(state))
+        .merge(chat_public(state))
         .merge(reach_public(state))
         .merge(books::public(state))
         .merge(host::public(state))
@@ -2193,8 +2203,32 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             tenants: chat_tenants(state),
             realtime: state.infra.realtime.clone(),
         });
+    // A DM call nobody answered ends as missed once its ring times out.
+    if let Some(video) = chat.video.clone() {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_chat::CallRingTimeoutJob {
+                tenants: chat_tenants(state),
+                video,
+                cache: chat.cache.clone(),
+                realtime: state.infra.realtime.clone(),
+                notifier: weldsuite_notifications::Notifier {
+                    realtime: state.infra.realtime.clone(),
+                    presence: None,
+                    mail: None,
+                    http: chat.http.clone(),
+                    apns: weldsuite_notifications::ApnsConfig::from_values(
+                        chat.env.get("APNS_KEY_ID").map(String::as_str),
+                        chat.env.get("APNS_TEAM_ID").map(String::as_str),
+                        chat.env.get("APNS_PRIVATE_KEY").map(String::as_str),
+                    ),
+                },
+            });
+    }
     let gate = &state.permissions;
     router
+        .nest("/chat-calls", weldsuite_chat::calls(chat.clone(), gate))
         .nest(
             "/channel-members",
             weldsuite_chat::channel_members(chat.clone(), gate),
@@ -2284,7 +2318,52 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         presence: None,
         env: Arc::clone(env),
+        video: video_rooms(),
+        leave_meetings: mounts("meet").then(|| meeting_sessions_leaver(state)),
+        // The worker's tests mock the ring timeout.
+        ring_jobs: !cfg!(feature = "conformance"),
+        tenants: Some(chat_tenants(state)),
     }
+}
+
+/// WeldMeet's half of "one live call at a time" for WeldChat's calls: the
+/// user's other meeting sessions are left with the call request's provider
+/// and cache.
+fn meeting_sessions_leaver(state: &AppState) -> weldsuite_chat::MeetingSessionsLeaver {
+    let meet = meet_state(state);
+    Arc::new(move |leave: weldsuite_chat::LeaveMeetings| {
+        let meet = meet.clone();
+        Box::pin(async move {
+            weldsuite_meet::leave_meeting_sessions(
+                &meet,
+                leave.video,
+                leave.cache,
+                &leave.db,
+                &leave.org_id,
+                &leave.user_id,
+                leave.triggered_at,
+            )
+            .await;
+        })
+    })
+}
+
+/// `/public/chat-calls`, ahead of the session (the ring token is the
+/// credential). Conformance builds open the test's tenant database.
+fn chat_public(state: &AppState) -> Router<AppState> {
+    if !mounts("chat") {
+        return Router::new();
+    }
+    let router = Router::new().nest(
+        "/public/chat-calls",
+        weldsuite_chat::public_calls(chat_state(state)),
+    );
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::meet_public,
+    ));
+    router
 }
 
 /// Another workspace's tenant database and its suspension, for WeldMail's

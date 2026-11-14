@@ -1010,55 +1010,29 @@
         "rust/modules/chat/",
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: calls",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-calls/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/",
+        "rust/crates/video-rooms/"
       ],
       "excludedRoutes": [
         {
-          "route": "GET /api/chat-calls/:callId",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/active",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/active/:channelId",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/history",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/decline",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/end",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/join",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/leave",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/prepare",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/start-and-join",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
           "route": "POST /public/chat-calls/decline",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+          "reason": "The phone lock screen's Decline, credentialed by a ring token signed with CALL_RING_SECRET that expires two minutes after the ring, so its push payload differs per run; served by both backends, and Rust tests the token (rust/modules/chat/src/calls/ring.rs) and the decline the signed-in route shares (POST /api/chat-calls/:callId/decline, compared here). public-decline.integration.test.ts covers it on the worker."
         }
       ]
     },

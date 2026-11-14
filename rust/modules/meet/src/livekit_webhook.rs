@@ -10,10 +10,12 @@
 //! - deliveries are de-duplicated by the event's `id`
 //!   (`livekit-webhook-delivery:<id>`, 7 days);
 //! - `room_finished` is `meeting.ended` (the room's name is the session's
-//!   `cfAppId`), `participant_joined` / `participant_left` are the
-//!   participant events: the participant's identity is the id the join
-//!   stored (`cfSessionId`, `<userId>~<nonce>`), the part before `~` the
-//!   app's id, and the connection is the participant's `sid`;
+//!   or the WeldChat call's `cfAppId`; the room's `creationTime` and the
+//!   event's `createdAt` stand for the session's start and end),
+//!   `participant_joined` / `participant_left` are the participant events:
+//!   the participant's identity is the id the join stored (`cfSessionId`,
+//!   `<userId>~<nonce>`), the part before `~` the app's id, and the
+//!   connection is the participant's `sid`;
 //! - `egress_*` (`LiveKit`'s recorder) and everything else are acknowledged
 //!   and ignored: recordings, transcripts and summaries are unavailable on
 //!   Kubernetes (`meet-recordings`, `meet-transcription`). Recording on
@@ -21,8 +23,8 @@
 //!   recordings bucket) and its `egress_ended` event in place of
 //!   `recording.statusUpdate`.
 //!
-//! The session handling itself is `crate::webhook`'s, so both providers end
-//! sessions and track presence the same way.
+//! The session and call handling itself is `crate::webhook`'s, so both
+//! providers end sessions and calls and track presence the same way.
 
 use std::time::Duration;
 
@@ -35,6 +37,7 @@ use http::StatusCode;
 use serde_json::{Value, json};
 use weldsuite_video_rooms::verify_livekit_webhook;
 
+use crate::chat_calls::SessionTimes;
 use crate::js::{iso_of_ms, text};
 use crate::webhook::{self, Joined, LeftIds, Mapping};
 use crate::{MeetState, RequestParts};
@@ -150,7 +153,14 @@ async fn handle(state: &MeetState, parts: &RequestParts, event: &Value) -> Resul
         .to_owned();
     let sid = text(&participant, "sid").map(str::to_owned);
     match kind {
-        "room_finished" => webhook::meeting_ended(state, parts, &mapping, room).await?,
+        "room_finished" => {
+            // The room's session: from its creation to this event.
+            let times = SessionTimes {
+                started_at: seconds_iso(event.pointer("/room/creationTime")),
+                ended_at: seconds_iso(event.get("createdAt")),
+            };
+            webhook::meeting_ended(state, parts, &mapping, room, &times).await?;
+        }
         "participant_joined" if !identity.is_empty() => {
             let ids = Joined {
                 custom_id: Some(custom_id(&identity)),
@@ -179,17 +189,10 @@ async fn handle(state: &MeetState, parts: &RequestParts, event: &Value) -> Resul
     Ok(())
 }
 
-/// The `rtk-meeting:` mapping the session start wrote (the same key for
-/// either provider).
+/// The `rtk-meeting:` mapping the session start or the call start wrote
+/// (the same key for either provider).
 fn mapping_of(value: &Value) -> Option<Mapping> {
-    let object = value.as_object()?;
-    let field = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_owned);
-    Some(Mapping {
-        org_id: field("orgId").unwrap_or_default(),
-        kind: field("type").unwrap_or_default(),
-        session_id: field("sessionId"),
-        meeting_id: field("meetingId"),
-    })
+    Mapping::of(value, None)
 }
 
 #[cfg(test)]

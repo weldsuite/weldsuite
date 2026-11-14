@@ -14,6 +14,7 @@ export { LiveKitRoomService } from './room-service';
 export {
   CUSTOM_ID_ATTRIBUTE,
   WAITING_ATTRIBUTE,
+  customIdFromIdentity,
   liveKitApiBase,
   readLiveKitToken,
   type LiveKitTokenClaims,

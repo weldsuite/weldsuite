@@ -36,11 +36,17 @@ export interface SupersedeTarget {
   participantIds: string[];
 }
 
-/** The RealtimeKit participant ids of this tab, whichever one the server stored. */
+/**
+ * The participant ids of this tab, whichever one the server stored. On
+ * RealtimeKit those are `self.id` (the peer) and `self.userId`; on LiveKit the
+ * adapter answers both with the participant identity (`<userId>~<nonce>`), the
+ * very id the server stored as `cfSessionId`.
+ */
 export function rtkParticipantIds(client: RealtimeKitClient | null | undefined): string[] {
   try {
     const self = client?.self;
-    return [self?.id, self?.userId].filter((id): id is string => typeof id === 'string' && id !== '');
+    const ids = [self?.id, self?.userId].filter((id): id is string => typeof id === 'string' && id !== '');
+    return [...new Set(ids)];
   } catch {
     return [];
   }

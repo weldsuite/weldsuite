@@ -215,6 +215,39 @@ impl Realtime {
         payload.extend(data);
         self.chat(channel_id, Value::Object(payload)).await;
     }
+
+    /// `chatCallIncoming(workspaceId, userId, data)`: the ring, `call_incoming`
+    /// on the user's topic (`{ callId, channelId, callType, callerName,
+    /// callerAvatar? }`).
+    pub async fn call_incoming(&self, workspace_id: &str, user_id: &str, data: Map<String, Value>) {
+        self.chat_user(workspace_id, user_id, "call_incoming", Value::Object(data))
+            .await;
+    }
+
+    /// `chatCallAnswered(workspaceId, userId, { callId, channelId })`: the
+    /// user's other tabs and devices stop ringing.
+    pub async fn call_answered(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        call_id: &str,
+        channel_id: &str,
+    ) {
+        self.chat_user(
+            workspace_id,
+            user_id,
+            "call_answered",
+            json!({ "callId": call_id, "channelId": channel_id }),
+        )
+        .await;
+    }
+
+    /// `chatCallSuperseded(workspaceId, userId, data)`: the user was dropped
+    /// from a live call because they joined another one (`CallSupersededEvent`).
+    pub async fn call_superseded(&self, workspace_id: &str, user_id: &str, data: Value) {
+        self.chat_user(workspace_id, user_id, "call_superseded", data)
+            .await;
+    }
 }
 
 /// An object from `(key, value)` pairs, leaving out the `None`s

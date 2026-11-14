@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConnectionQuality, DisconnectReason, RoomEvent, Track, type Room } from 'livekit-client';
 import { BROADCAST_TOPIC, LiveKitMeeting, roomLeftState } from './client';
 import { Emitter } from './emitter';
-import { WAITING_ATTRIBUTE, liveKitApiBase, readLiveKitToken } from './token';
+import { WAITING_ATTRIBUTE, customIdFromIdentity, liveKitApiBase, readLiveKitToken } from './token';
 
 /** An unsigned token with these claims (the client only reads them). */
 function token(claims: Record<string, unknown>): string {
@@ -175,6 +175,71 @@ describe('LiveKitMeeting', () => {
     room.emit(RoomEvent.ParticipantDisconnected, ann);
     expect(onLeft).toHaveBeenCalledWith(peer);
     expect(m.participants.joined.size).toBe(0);
+  });
+
+  it('names a person by the id in their identity when the token carries no custom id', async () => {
+    const bare = token({
+      sub: 'user_m~b2',
+      video: { room: 'ws-room', roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: true },
+    });
+    const room = new FakeRoom('user_m~b2');
+    const m = meeting(bare, room);
+    await m.join();
+    expect(m.self.customParticipantId).toBe('user_m');
+
+    // A rejoin gives the same person a new identity and the same id.
+    room.arrive(participant('user_ann~d4'));
+    room.arrive(participant('user_ann~e5'));
+    const peers = m.participants.joined.toArray();
+    expect(peers.map((p) => p.customParticipantId)).toEqual(['user_ann', 'user_ann']);
+    expect(customIdFromIdentity('guest:a~b~c')).toBe('guest:a~b');
+    expect(customIdFromIdentity('plain')).toBeUndefined();
+  });
+
+  it('answers the surface of the chat call UI: every event it subscribes to, on both emitters', async () => {
+    const room = new FakeRoom('user_m~b2');
+    const m = meeting(MEMBER, room);
+    const seen: string[] = [];
+    const joined = m.participants.joined;
+    for (const event of ['participantJoined', 'participantLeft', 'participantsCleared', 'audioUpdate', 'videoUpdate', 'screenShareUpdate']) {
+      joined.on(event, () => seen.push(`joined:${event}`));
+    }
+    for (const event of ['roomJoined', 'roomLeft', 'audioUpdate', 'videoUpdate', 'screenShareUpdate']) {
+      m.self.on(event, () => seen.push(`self:${event}`));
+    }
+    await m.join();
+
+    const ann = participant('user_ann~d4');
+    room.arrive(ann);
+    ann.pubs.set(Track.Source.Camera, pub(Track.Source.Camera));
+    room.emit(RoomEvent.TrackSubscribed, {}, ann.pubs.get(Track.Source.Camera), ann);
+    ann.pubs.set(Track.Source.ScreenShare, pub(Track.Source.ScreenShare));
+    room.emit(RoomEvent.TrackSubscribed, {}, ann.pubs.get(Track.Source.ScreenShare), ann);
+    await m.self.enableVideo();
+    await m.self.enableScreenShare();
+    room.emit(RoomEvent.ParticipantDisconnected, ann);
+    await m.leave();
+
+    expect(new Set(seen)).toEqual(
+      new Set([
+        'joined:participantJoined',
+        'joined:participantLeft',
+        'joined:participantsCleared',
+        'joined:videoUpdate',
+        'joined:screenShareUpdate',
+        'self:roomJoined',
+        'self:roomLeft',
+        'self:audioUpdate',
+        'self:videoUpdate',
+        'self:screenShareUpdate',
+      ]),
+    );
+    // The widget unsubscribes through the aliases.
+    const tick = vi.fn();
+    const before = joined.listenerCount('audioUpdate');
+    joined.on('audioUpdate', tick);
+    joined.removeListener('audioUpdate', tick);
+    expect(joined.listenerCount('audioUpdate')).toBe(before);
   });
 
   it('broadcasts over reliable data packets and hands received ones to the UI', async () => {

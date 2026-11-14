@@ -58,6 +58,23 @@ pub fn from_env(
     }
 }
 
+/// Whether the provider [`from_env`] picks can serve rooms: `LiveKit` with
+/// its URL and key pair, or `RealtimeKit` with its account and app
+/// credentials. Without, every call fails, so the frontends hide WeldChat
+/// calls (`chat-calls` in `/config.json`'s `unavailableFeatures`).
+pub fn is_configured(get: impl Fn(&str) -> Option<String>) -> bool {
+    if selects_livekit(&get) {
+        return LiveKitConfig::from_env(&get).is_some();
+    }
+    [
+        "CF_ACCOUNT_ID",
+        "CF_REALTIME_APP_ID",
+        "CF_REALTIME_APP_SECRET",
+    ]
+    .iter()
+    .all(|name| get(name).is_some_and(|value| !value.is_empty()))
+}
+
 /// Whether the environment picks `LiveKit` (see the table above).
 fn selects_livekit(get: &impl Fn(&str) -> Option<String>) -> bool {
     let value = |name: &str| get(name).filter(|value| !value.is_empty());
@@ -322,5 +339,33 @@ mod tests {
         let no_url = client_settings(env(&[("VIDEO_PROVIDER", "livekit")]));
         assert_eq!(no_url.provider, ClientProvider::LiveKit);
         assert_eq!(no_url.url, None);
+    }
+
+    #[test]
+    fn knows_whether_a_provider_is_configured() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        assert!(!is_configured(env(&[])));
+        assert!(is_configured(env(&[
+            ("CF_ACCOUNT_ID", "acc"),
+            ("CF_REALTIME_APP_ID", "app"),
+            ("CF_REALTIME_APP_SECRET", "secret"),
+        ])));
+        // LiveKit without its key pair serves nothing.
+        assert!(!is_configured(env(&[(
+            "LIVEKIT_URL",
+            "wss://lk.example.eu"
+        )])));
+        assert!(is_configured(env(&[
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ])));
     }
 }

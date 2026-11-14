@@ -6,9 +6,10 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here. One entry
-//!   follows the deployment instead: [`COLLAB_ROOMS_FEATURE`], when no
-//!   collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
+//!   both follow the code, and a port removes its entry here. Two entries
+//!   follow the deployment instead: [`COLLAB_ROOMS_FEATURE`], when no
+//!   collab-rooms service is configured (`COLLAB_ROOMS_URLS`), and
+//!   [`CHAT_CALLS_FEATURE`], when no video provider is (`LIVEKIT_*`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -75,10 +76,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "mail-free-addresses",
     // WeldMail AI (`/api/mail-ai`): the Rust backend has no AI port yet.
     "mail-ai",
-    // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
-    // RealtimeKit, its API and the call UI's client SDK alike; they come with
-    // LiveKit in the call UI.
-    "chat-calls",
     // WeldDesk help center custom domains: attaching one writes a CNAME into a
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
@@ -140,6 +137,13 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
 /// engine answers 503, so the platform hides the three apps.
 pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
 
+/// WeldChat voice and video calls (`/api/chat-calls`) run on the video
+/// provider (`LiveKit` on Kubernetes). Without one configured
+/// (`weldsuite_video_rooms::is_configured`: `LIVEKIT_URL` and its key pair,
+/// or `RealtimeKit`'s credentials) every call answers 500, so the platform
+/// hides calls.
+pub(crate) const CHAT_CALLS_FEATURE: &str = "chat-calls";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -167,6 +171,8 @@ pub(crate) struct EditionConfig {
     pub(crate) video: ClientSettings,
     /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
     pub(crate) live_editing: bool,
+    /// A video provider is configured, so WeldChat calls work.
+    pub(crate) calls: bool,
 }
 
 impl Default for EditionConfig {
@@ -176,6 +182,7 @@ impl Default for EditionConfig {
             public_env: BTreeMap::new(),
             video: ClientSettings::default(),
             live_editing: false,
+            calls: false,
         }
     }
 }
@@ -206,6 +213,7 @@ impl EditionConfig {
             video: weldsuite_video_rooms::client_settings(lookup),
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
+            calls: weldsuite_video_rooms::is_configured(lookup),
         }
     }
 
@@ -225,9 +233,13 @@ impl EditionConfig {
 }
 
 impl EditionConfig {
-    /// [`UNAVAILABLE_FEATURES`], and live editing when it isn't configured.
+    /// [`UNAVAILABLE_FEATURES`], and calls and live editing when they aren't
+    /// configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if !self.calls {
+            features.push(CHAT_CALLS_FEATURE);
+        }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
         }
@@ -291,7 +303,12 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + 1
+            UNAVAILABLE_FEATURES.len() + 2
+        );
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|f| f.contains(&json!(CHAT_CALLS_FEATURE)))
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -311,7 +328,9 @@ mod tests {
         assert!(config.live_editing);
         let mut body = json!({});
         config.describe(&mut body);
-        assert_eq!(body["unavailableFeatures"], json!(UNAVAILABLE_FEATURES));
+        let mut expected = UNAVAILABLE_FEATURES.to_vec();
+        expected.push(CHAT_CALLS_FEATURE);
+        assert_eq!(body["unavailableFeatures"], json!(expected));
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
         assert!(!blank.live_editing);
@@ -353,6 +372,28 @@ mod tests {
     }
 
     #[test]
+    fn offers_calls_once_a_video_provider_is_configured() {
+        let calls_hidden = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config.unavailable_features().contains(&CHAT_CALLS_FEATURE)
+        };
+        assert!(calls_hidden(&[]));
+        // LiveKit without its key pair can't mint a join token.
+        assert!(calls_hidden(&[("LIVEKIT_URL", "wss://lk.example.eu")]));
+        assert!(!calls_hidden(&[
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ]));
+        assert!(!calls_hidden(&[
+            ("CF_ACCOUNT_ID", "acc"),
+            ("CF_REALTIME_APP_ID", "app"),
+            ("CF_REALTIME_APP_SECRET", "secret"),
+        ]));
+    }
+
+    #[test]
     fn refuses_anything_but_the_listed_public_settings() {
         let (config, problems) = read(&[
             ("EDITION", "global"),
@@ -382,7 +423,10 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES.iter().chain([&COLLAB_ROOMS_FEATURE]) {
+        for feature in UNAVAILABLE_FEATURES
+            .iter()
+            .chain([&COLLAB_ROOMS_FEATURE, &CHAT_CALLS_FEATURE])
+        {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{feature}"

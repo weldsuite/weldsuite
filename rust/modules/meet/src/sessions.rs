@@ -431,6 +431,7 @@ pub(crate) fn leave_other_calls_later(
 ) {
     let state = state.clone();
     let env = lifecycle_env(&state, caller);
+    let call_ports = crate::chat_calls::call_ports(&state, &caller.parts);
     let db = caller.db.clone();
     let org = org.to_owned();
     let user = caller.user_id.clone();
@@ -449,6 +450,8 @@ pub(crate) fn leave_other_calls_later(
             triggered_at,
         )
         .await;
+        // The joined call is a meeting session, so no chat call is spared.
+        crate::chat_calls::leave_chat_calls(&db, &call_ports, &org, &user, triggered_at).await;
     });
 }
 

@@ -2,13 +2,16 @@
 //! (`packages/domains/chat`): who may read a channel ([`access`]), the record
 //! chat providers that decide it for record chats ([`entity`]), channel
 //! creation and membership ([`members`]), the multi-agent room policy
-//! ([`policy`]), and the realtime payloads WeldChat publishes ([`publish`]).
+//! ([`policy`]), the realtime payloads WeldChat publishes ([`publish`]), and
+//! the call lifecycle chat-api's call routes and meet's video webhooks share
+//! ([`calls`]).
 //!
 //! chat-api (`weldsuite-chat`) is built on all of it; meet, connect, agent
 //! and app-api read the access rules and the publishers when they are ported.
 
 pub mod access;
 pub mod agents;
+pub mod calls;
 pub mod entity;
 mod flow;
 pub mod members;
