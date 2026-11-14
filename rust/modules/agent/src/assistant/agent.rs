@@ -92,6 +92,7 @@ struct Prepared {
     history: Vec<ChatMsg>,
     tools: Vec<&'static crate::tools::ToolSpec>,
     reference: String,
+    sandbox: Option<crate::tools::SandboxAccess>,
 }
 
 async fn prepare(ai: &Ai, chat: &AgentChat) -> Prepared {
@@ -108,7 +109,14 @@ async fn prepare(ai: &Ai, chat: &AgentChat) -> Prepared {
     );
     let history = history(&chat.messages);
     let user_turns = history.iter().filter(|m| m.role == Role::User).count();
-    let tools = tools_for(&agent, &ctx, user_turns);
+    let session = agent["id"].as_str().unwrap_or_default().to_owned();
+    let sandbox = crate::run::turn_sandbox(&chat.env, ai, &agent, &ctx, &session).await;
+    let tools = crate::agent_loop::with_sandbox_tools(
+        &agent,
+        &ctx,
+        sandbox.as_ref(),
+        tools_for(&agent, &ctx, user_turns),
+    );
     let system = build_system(
         &chat.db,
         &agent,
@@ -124,6 +132,7 @@ async fn prepare(ai: &Ai, chat: &AgentChat) -> Prepared {
         history: crate::agent_loop::trim_history(history),
         tools,
         reference,
+        sandbox,
     }
 }
 
@@ -148,6 +157,7 @@ pub async fn chat_once(ai: Option<&Ai>, chat: AgentChat) -> Result<Value, RunErr
         tools: p.tools,
         skip_approvals: false,
         reference: p.reference,
+        sandbox: p.sandbox,
     })
     .await
     .map_err(RunError::Ai)?;
@@ -198,6 +208,7 @@ pub async fn chat_stream(
                 tools: p.tools.clone(),
                 skip_approvals: false,
                 reference: p.reference.clone(),
+                sandbox: p.sandbox.clone(),
             },
             out,
         )

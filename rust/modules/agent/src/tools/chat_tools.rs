@@ -190,6 +190,7 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
                     master: ctx.master.clone(),
                     realtime: ctx.realtime.clone(),
                     sandbox: ctx.sandbox,
+                    sandboxes: None,
                 },
                 org_id: ctx.workspace_id.clone(),
                 invoker_user_id: ctx.actor_user_id.clone(),

@@ -415,6 +415,7 @@ async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Er
         &master,
         &tenants,
         Some(&ai),
+        crate::sandbox::build(config.sandbox.as_ref())?,
         time::OffsetDateTime::now_utc(),
     )
     .await;

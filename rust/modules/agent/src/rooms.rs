@@ -26,10 +26,10 @@ use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, Job, JobContext, JobError};
 use weldsuite_subscribers::Tenants;
 
-use crate::agent_loop::{ChatMsg, TurnInput, build_system, run_turn, tools_for};
+use crate::agent_loop::{ChatMsg, TurnInput, build_system, run_turn, tools_for, with_sandbox_tools};
 use crate::agents::get_agent;
 use crate::approvals::approval_label;
-use crate::run::{RunEnv, tool_context};
+use crate::run::{RunEnv, tool_context, turn_sandbox};
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
 use crate::tools::EventSink;
 
@@ -653,8 +653,20 @@ async fn reply_as_agent(
     tool_ctx.channel_id = Some(input.channel_id.clone());
     tool_ctx.agent_hop = input.hop;
     tool_ctx.max_agent_hops = input.max_hops;
-    let tools = tools_for(&room_agent, &tool_ctx, 2);
-    let system = build_system(db, &room_agent, false, Some(&extra_system)).await;
+    let sandbox = turn_sandbox(&ctx.env, ai, &room_agent, &tool_ctx, &input.channel_id).await;
+    let tools = with_sandbox_tools(
+        &room_agent,
+        &tool_ctx,
+        sandbox.as_ref(),
+        tools_for(&room_agent, &tool_ctx, 2),
+    );
+    let system = build_system(
+        db,
+        &room_agent,
+        crate::run::has_sandbox_tools(&tools),
+        Some(&extra_system),
+    )
+    .await;
     let mut history: Vec<ChatMsg> = recent.to_vec();
     history.push(ChatMsg::user(format!(
         "[{}]: {}",
@@ -670,6 +682,7 @@ async fn reply_as_agent(
         tools,
         skip_approvals: false,
         reference: input.channel_id.clone(),
+        sandbox,
     })
     .await;
     typing(ctx.env.realtime.as_ref(), &input.channel_id, &who, false).await;

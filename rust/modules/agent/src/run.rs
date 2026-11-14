@@ -19,7 +19,7 @@ use weldsuite_ports::DynRealtimePublisher;
 use crate::access::{AgentAccess, agent_viewer_for, can_access_agent};
 use crate::agent_loop::{
     ChatMsg, TurnInput, actor_may_edit, build_system, load_history, run_turn, to_model_history,
-    tools_for, trim_history,
+    tools_for, trim_history, with_sandbox_tools,
 };
 use crate::agents::get_agent;
 use crate::approvals::persist_assistant_message;
@@ -57,6 +57,30 @@ pub struct RunEnv {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// Whether the sandbox and web grants exist (see `AgentState::sandbox`).
     pub sandbox: bool,
+    /// The install's sandbox, where a turn's sandbox and web tools run
+    /// ([`turn_sandbox`]). `None` without one.
+    pub sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+}
+
+/// The sandbox of one turn ([`SandboxAccess::for_turn`]) for the session
+/// `session_id`: the conversation (chat) or run id. `None` without a sandbox
+/// on the install.
+pub(crate) async fn turn_sandbox(
+    env: &RunEnv,
+    ai: &Ai,
+    agent: &Value,
+    ctx: &ToolContext,
+    session_id: &str,
+) -> Option<crate::tools::SandboxAccess> {
+    let call = crate::agent_loop::agent_call(agent, ctx, session_id);
+    crate::tools::SandboxAccess::for_turn(
+        env.sandboxes.as_ref(),
+        Some(ai),
+        &call,
+        agent["id"].as_str().unwrap_or_default(),
+        session_id,
+    )
+    .await
 }
 
 impl std::fmt::Debug for RunEnv {
@@ -338,7 +362,9 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         params.actor_permissions.clone(),
         params.events.clone(),
     );
-    let tools = tools_for(&agent, &ctx, 2);
+    // A run has its own sandbox session, released when the run ends.
+    let sandbox = turn_sandbox(&params.env, ai, &agent, &ctx, &run_id).await;
+    let tools = with_sandbox_tools(&agent, &ctx, sandbox.as_ref(), tools_for(&agent, &ctx, 2));
     let system = build_system(
         db,
         &agent,
@@ -346,6 +372,9 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         params.extra_system.as_deref(),
     )
     .await;
+    let session = sandbox
+        .as_ref()
+        .map(|access| (access.sandboxes.clone(), access.session.clone()));
     let turn = run_turn(TurnInput {
         ai,
         agent: &agent,
@@ -355,8 +384,14 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         tools,
         skip_approvals: params.skip_approvals,
         reference: run_id.clone(),
+        sandbox,
     })
     .await;
+    if let Some((sandboxes, key)) = session
+        && let Err(error) = sandboxes.release(&key).await
+    {
+        tracing::warn!(%error, run_id, "[weldagent] releasing the run's sandbox failed");
+    }
 
     let routine = match (
         &params.routine_run_id,
@@ -503,7 +538,21 @@ async fn finish_turn(ai: &Ai, params: &TurnParams, accepted: &Accepted) -> Value
         ctx.user_timezone.clone_from(&params.timezone);
         ctx
     };
-    let tools = tools_for(&accepted.agent, &ctx, accepted.user_turns);
+    // A conversation keeps one sandbox session; the idle sweep ends it.
+    let sandbox = turn_sandbox(
+        &params.env,
+        ai,
+        &accepted.agent,
+        &ctx,
+        &accepted.conversation_id,
+    )
+    .await;
+    let tools = with_sandbox_tools(
+        &accepted.agent,
+        &ctx,
+        sandbox.as_ref(),
+        tools_for(&accepted.agent, &ctx, accepted.user_turns),
+    );
     let extra = params.timezone.as_deref().map(|tz| {
         format!("The user's timezone is {tz}. Read and schedule times (routines included) in it unless they say otherwise.")
     });
@@ -523,6 +572,7 @@ async fn finish_turn(ai: &Ai, params: &TurnParams, accepted: &Accepted) -> Value
         tools,
         skip_approvals: false,
         reference: accepted.conversation_id.clone(),
+        sandbox,
     })
     .await;
     let (text, invocations, credits, success, error) = match turn {

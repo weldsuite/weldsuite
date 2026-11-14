@@ -412,10 +412,13 @@ pub async fn run_routine_sweep(
     master: &PgPool,
     tenants: &dyn weldsuite_subscribers::Tenants,
     ai: Option<&weldsuite_ai::Ai>,
+    sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     now: OffsetDateTime,
 ) -> weldsuite_db::due_index::SweepResult {
     let env = &crate::run::RunEnv {
         master: Some(master.clone()),
+        sandbox: sandboxes.is_some(),
+        sandboxes,
         ..crate::run::RunEnv::default()
     };
     weldsuite_db::due_index::run_sweep(

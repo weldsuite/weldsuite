@@ -502,7 +502,8 @@ fn handlers(
                     weldsuite_agent::run::RunEnv {
                         master: Some(master.clone()),
                         realtime: services.realtime.clone(),
-                        sandbox: false,
+                        sandbox: services.sandboxes.is_some(),
+                        sandboxes: services.sandboxes.clone(),
                     },
                 ))
             }
@@ -560,6 +561,8 @@ struct Services {
         reason = "the AI subscribers (search index, WeldReach and inbound mail labels) take it as they are ported"
     )]
     ai: Option<weldsuite_ai::Ai>,
+    /// WeldAgent's sandbox (`crate::sandbox`), for the weldagent subscriber.
+    sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     http: WebhookHttp,
     /// Audit log streams go out under the webhooks' private-network rule.
     streams: AuditStreamSender,
@@ -699,6 +702,7 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         realtime,
         embeddings,
         ai,
+        sandboxes: crate::sandbox::build(config.sandbox.as_ref())?,
         http: WebhookHttp::new(config.webhook_allow_private)?,
         streams: AuditStreamSender::new(config.webhook_allow_private)?,
         stream_flushes: PendingStreamFlushes::default(),

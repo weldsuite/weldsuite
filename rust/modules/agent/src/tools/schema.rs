@@ -32,6 +32,23 @@ fn kind(value: &Value) -> &'static str {
 
 #[allow(clippy::too_many_lines)] // one arm per JSON type
 fn check(schema: &Value, value: &Value, path: &str) -> Result<Value, String> {
+    // A union such as `["string", "number", "boolean", "null"]` (a cell
+    // value): the value must be one of the kinds.
+    if let Some(kinds) = schema.get("type").and_then(Value::as_array) {
+        let actual = kind(value);
+        let matches = kinds.iter().filter_map(Value::as_str).any(|k| {
+            k == actual || (k == "integer" && value.as_f64().is_some_and(|n| n.fract() == 0.0))
+        });
+        return if matches {
+            Ok(value.clone())
+        } else {
+            let names: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
+            Err(format!(
+                "{path} must be one of the kinds: {}",
+                names.join(", ")
+            ))
+        };
+    }
     let expected = schema
         .get("type")
         .and_then(Value::as_str)
@@ -49,7 +66,15 @@ fn check(schema: &Value, value: &Value, path: &str) -> Result<Value, String> {
             let mut out = Map::new();
             if let Some(properties) = properties {
                 for (key, property) in properties {
+                    let nullable = property
+                        .get("type")
+                        .and_then(Value::as_array)
+                        .is_some_and(|kinds| kinds.iter().any(|k| k == "null"));
                     match fields.get(key) {
+                        // `null` is a value (clears a field) where the type allows it.
+                        Some(Value::Null) if nullable => {
+                            out.insert(key.clone(), Value::Null);
+                        }
                         None | Some(Value::Null) => {
                             if let Some(default) = property.get("default") {
                                 out.insert(key.clone(), default.clone());

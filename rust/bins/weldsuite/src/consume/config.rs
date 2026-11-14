@@ -208,6 +208,9 @@ pub(crate) struct ConsumeConfig {
     pub(crate) master_db_flags: Option<Duration>,
     /// The install's AI settings, as for `serve`.
     pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*`, as for `serve`: the sandbox of the agents the weldagent
+    /// subscriber runs.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 impl fmt::Debug for ConsumeConfig {
@@ -434,6 +437,7 @@ impl ConsumeConfig {
             }
         };
         let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
         let flags_refresh = match lookup("FEATURE_FLAGS_REFRESH_SECONDS") {
             None => 30,
             Some(value) => value.parse::<u64>().unwrap_or_else(|_| {
@@ -491,6 +495,7 @@ impl ConsumeConfig {
             mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
             ai,
+            sandbox,
         })
     }
 }

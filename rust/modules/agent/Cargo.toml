@@ -16,9 +16,11 @@ weldsuite-chat-domain = { workspace = true }
 weldsuite-connect = { workspace = true }
 weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
+weldsuite-desk-domain = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-flow-domain = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-notifications = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 weldsuite-sandbox = { workspace = true }

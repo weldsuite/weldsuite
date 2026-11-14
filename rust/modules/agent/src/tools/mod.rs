@@ -20,6 +20,7 @@ mod agent_tools;
 mod chat_tools;
 mod data_tools;
 mod sandbox_tools;
+mod ticket_tools;
 pub mod schema;
 
 pub use sandbox_tools::{
@@ -116,6 +117,7 @@ pub fn platform_tools() -> &'static [ToolSpec] {
     static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         let mut tools = agent_tools::specs();
         tools.extend(data_tools::specs());
+        tools.extend(ticket_tools::specs());
         tools.extend(chat_tools::specs());
         tools.extend(sandbox_tools::specs());
         tools
@@ -414,6 +416,7 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
     match tool.id {
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
         id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
+        id if id.starts_with("tickets.") => ticket_tools::execute(ctx, id, &args).await,
         // Needs the turn's sandbox: `execute_tool_with`.
         id if sandbox_tools::is_sandbox_tool(id) => Err(sandbox_tools::unavailable()),
         id => data_tools::execute(ctx, id, &args).await,

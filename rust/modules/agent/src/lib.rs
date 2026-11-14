@@ -109,6 +109,7 @@ impl AgentState {
             master: self.master.clone(),
             realtime: self.realtime.clone(),
             sandbox: self.sandbox,
+            sandboxes: self.sandboxes.clone(),
         }
     }
 }
