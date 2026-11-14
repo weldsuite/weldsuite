@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceClientMaybe } from './provider';
+import { resolveSyncTopic } from '../topics';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,7 +138,11 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
     const map = syncMapRef.current;
 
     for (const [topic, entityConfig] of Object.entries(map)) {
-      const unsub = client.on(topic, (event) => {
+      // A bare personal topic (`notification`) is subscribed as `notification.<userId>`,
+      // and skipped until the user is known.
+      const subscribeTopic = resolveSyncTopic(topic, currentUserId);
+      if (!subscribeTopic) continue;
+      const unsub = client.on(subscribeTopic, (event) => {
         const isOwnEvent =
           Boolean(userIdRef.current) && event.userId === userIdRef.current;
         const entityId = (event.data as Record<string, unknown>)?.id as string | undefined;
@@ -187,7 +192,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
         unsub();
       }
     };
-  }, [client, queryClient, scheduleInvalidation]);
+  }, [client, queryClient, scheduleInvalidation, currentUserId]);
 
   // ---- Reconnection ----
   //

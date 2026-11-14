@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { useAccountingCustomer, useAccountingCustomers, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
-import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { QuickAddContactDialog } from '@/app/weldbooks/customers/components/quick-add-contact-dialog';
 import {
   useCreateRecurringInvoice,
   useUpdateRecurringInvoice,
@@ -150,11 +151,16 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const { t } = useI18n();
   const tbd = t.weldbooksBr.document;
 
-  const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
   const contacts = contactsData?.data ?? [];
+  // Customers have loaded and there are none: the picker offers to add the first one instead.
+  const noCustomers = !contactsLoading && !!contactsData && contacts.length === 0;
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   // A recurring invoice takes sales (and both) rates only.
   const taxRates = taxRatesFor(taxRatesData?.data ?? [], 'sales');
+  // New lines start with the workspace's default rate, except on US sales tax (the server works the tax out there).
+  const defaultRateId = salesTax ? null : defaultTaxRateId(taxRatesData?.data, 'sales');
 
   const schema = useMemo(
     () =>
@@ -218,8 +224,18 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
     },
   });
 
-  const { fields, append, remove } = useFieldArray({ control: form.control, name: 'items' });
+  const { fields, append, remove, update } = useFieldArray({ control: form.control, name: 'items' });
   const watched = form.watch();
+
+  // A new template's untouched lines take the default rate once the rates have loaded.
+  const defaultRateApplied = useRef(false);
+  useEffect(() => {
+    if (mode !== 'add' || !defaultRateId || defaultRateApplied.current) return;
+    defaultRateApplied.current = true;
+    form.getValues('items').forEach((item, index) => {
+      if (!item.taxRateId) update(index, { ...item, taxRateId: defaultRateId });
+    });
+  }, [mode, defaultRateId, form, update]);
   const { data: contactData } = useAccountingCustomer(watched.contactId);
   const customerUse = (contactData?.data as { taxUse?: TaxUse | null } | undefined)?.taxUse ?? null;
 
@@ -273,11 +289,15 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
+    <>
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{mode === 'add' ? tr.pageTitle : tr.editTitle}</CardTitle>
-        </CardHeader>
+        {/* A new template has its title in the page header; only the edit form (in a panel) needs one. */}
+        {mode === 'edit' && (
+          <CardHeader>
+            <CardTitle className="text-base">{tr.editTitle}</CardTitle>
+          </CardHeader>
+        )}
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="recurring-name">{tr.name}</Label>
@@ -285,21 +305,30 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
           </div>
           <div className="space-y-2">
             <Label htmlFor="recurring-contact">{tr.customer}</Label>
-            <Select
-              value={watched.contactId}
-              onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true, shouldDirty: true })}
-            >
-              <SelectTrigger id="recurring-contact">
-                <SelectValue placeholder={tr.selectCustomer} />
-              </SelectTrigger>
-              <SelectContent>
-                {contacts.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name || c.email || c.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {noCustomers ? (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-1.5">
+                <span className="text-sm text-muted-foreground">{t.accounting.contacts.noCustomersYet}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddCustomerOpen(true)}>
+                  {t.accounting.contacts.addCustomerTitle}
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={watched.contactId}
+                onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true, shouldDirty: true })}
+              >
+                <SelectTrigger id="recurring-contact">
+                  <SelectValue placeholder={tr.selectCustomer} />
+                </SelectTrigger>
+                <SelectContent>
+                  {contacts.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name || c.email || c.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {form.formState.errors.contactId && (
               <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>
             )}
@@ -387,7 +416,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">{tr.lineItems}</CardTitle>
-          <Button type="button" variant="outline" size="sm" onClick={() => append({ ...emptyLine })}>
+          <Button type="button" variant="outline" size="sm" onClick={() => append({ ...emptyLine, taxRateId: defaultRateId })}>
             <Plus className="h-4 w-4 mr-1" />
             {tr.addLine}
           </Button>
@@ -466,7 +495,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
                           <SelectItem value={NO_TAX_RATE}>{labels.noTax}</SelectItem>
                           {taxRates.map((rate) => (
                             <SelectItem key={rate.id} value={rate.id}>
-                              {rate.name ?? `${Number(rate.rate)}%`}
+                              {taxRateLabel(rate)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -545,5 +574,14 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
         </Button>
       </div>
     </form>
+    {/* Outside the form: a submit inside the popup must not bubble into the template's own. */}
+    <QuickAddContactDialog
+      open={addCustomerOpen}
+      onOpenChange={setAddCustomerOpen}
+      role="customer"
+      onCreated={(id) => id && form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+      onOpenExisting={(id) => form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+    />
+    </>
   );
 }

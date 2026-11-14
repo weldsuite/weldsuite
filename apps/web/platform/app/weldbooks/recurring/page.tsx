@@ -98,7 +98,7 @@ export default function RecurringInvoicesPage() {
     {
       id: 'name',
       header: trp.colName,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (rec) => (
         <RowTitle chips={<RowChip icon={<Repeat />}>{rec.frequencyLabel}</RowChip>}>{rec.title}</RowTitle>
       ),
@@ -106,25 +106,25 @@ export default function RecurringInvoicesPage() {
     {
       id: 'contact',
       header: trp.colContact,
-      width: 'w-[200px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
       render: (rec) => <ContactCell name={rec.contactName} />,
     },
     {
       id: 'nextDate',
       header: trp.colNextDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (rec) => <RowDate>{rec.status === 'completed' ? null : formatDate(rec.nextIssueDate)}</RowDate>,
     },
     {
       id: 'amount',
       header: trp.colAmount,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (rec) => <RowAmount>{formatMoney(rec.amount, rec.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: trp.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (rec) => <StatusChip status={rec.status}>{statusLabels[rec.status] ?? rec.status}</StatusChip>,
     },
   ];

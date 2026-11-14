@@ -45,11 +45,14 @@ export default function EditContactPage() {
   return (
     <div className="p-4 sm:p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/weldbooks/customers/$id" params={{ id }}>
-          <Button variant="ghost" size="icon" aria-label={tc.cancel}>
+        <Button asChild variant="ghost" size="icon">
+          <Link
+            to={contact.role === 'supplier' ? '/weldbooks/suppliers' : '/weldbooks/customers'}
+            aria-label={contact.role === 'supplier' ? tc.backToSuppliers : tc.backToCustomers}
+          >
             <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <h1 className="text-2xl font-semibold">{tc.editContact}</h1>
       </div>
 

@@ -51,16 +51,20 @@ describe('VatReturnsPage', () => {
     expect(row).toHaveTextContent('Calculated');
   });
 
-  it('shows a zero total in a neutral colour and a payable total in red', () => {
+  it('shows a zero or payable total in a neutral colour and only a refund in green', () => {
     returns.data = [
       { id: 'vr_1', periodType: 'quarterly', periodStart: '2026-01-01', periodEnd: '2026-03-31', periodLabel: 'Q1 2026', status: 'calculated', rubrieken: { r5a: 30, r5b: 30, r5g: 0 } },
       { id: 'vr_2', periodType: 'quarterly', periodStart: '2026-04-01', periodEnd: '2026-06-30', periodLabel: 'Q2 2026', status: 'calculated', rubrieken: { r5a: 150, r5b: 30, r5g: 120 } },
+      { id: 'vr_3', periodType: 'quarterly', periodStart: '2026-07-01', periodEnd: '2026-09-30', periodLabel: 'Q3 2026', status: 'calculated', rubrieken: { r5a: 10, r5b: 60, r5g: -50 } },
     ] as typeof returns.data;
     renderWithProviders(<VatReturnsPage />);
     const zero = screen.getByText('Q1 2026').closest('div.group') as HTMLElement;
     const payable = screen.getByText('Q2 2026').closest('div.group') as HTMLElement;
+    const refund = screen.getByText('Q3 2026').closest('div.group') as HTMLElement;
     expect(within(zero).getByText('€0.00')).not.toHaveClass('text-red-600');
-    expect(within(payable).getByText('€120.00')).toHaveClass('text-red-600');
+    expect(within(payable).getByText('€120.00')).not.toHaveClass('text-red-600');
+    expect(within(payable).getByText('€120.00')).not.toHaveClass('text-green-600');
+    expect(within(refund).getByText('€-50.00')).toHaveClass('text-green-600');
   });
 
   it('fills in the last finished quarter and flags dates that are not a whole quarter', async () => {
@@ -68,15 +72,15 @@ describe('VatReturnsPage', () => {
     try {
       const user = userEvent.setup();
       renderWithProviders(<VatReturnsPage />);
-      await user.click(screen.getByRole('button', { name: 'Calculate New Return' }));
+      await user.click(screen.getByRole('button', { name: 'Calculate new return' }));
 
-      expect(screen.getByLabelText('Period Start')).toHaveValue('2026-07-01');
-      expect(screen.getByLabelText('Period End')).toHaveValue('2026-09-30');
+      expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-01');
+      expect(screen.getByLabelText('Period end')).toHaveValue('2026-09-30');
       expect(screen.getByLabelText('Period Label (optional)')).toHaveValue('Q3 2026');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-      await user.clear(screen.getByLabelText('Period End'));
-      await user.type(screen.getByLabelText('Period End'), '2026-10-31');
+      await user.clear(screen.getByLabelText('Period end'));
+      await user.type(screen.getByLabelText('Period end'), '2026-10-31');
       expect(screen.getByRole('alert')).toHaveTextContent('A quarterly period runs from the first to the last day of one quarter');
       expect(screen.getByRole('button', { name: 'Calculate' })).toBeDisabled();
     } finally {

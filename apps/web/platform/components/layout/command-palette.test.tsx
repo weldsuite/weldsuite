@@ -51,6 +51,14 @@ vi.mock('@weldsuite/permissions/react', () => ({
   }),
 }));
 
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
+  useCurrentJurisdiction: () => ({
+    features: { vatReturn: false, gstReturn: false, brTaxReturn: false, fiscalDocuments: false, form1099: false, salesTax: false },
+    isResolved: true,
+    isError: false,
+  }),
+}));
+
 vi.mock('@/hooks/use-installed-apps', () => ({
   useInstalledApps: () => ({
     data: installedState.apps,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -22,10 +22,12 @@ import {
 } from '@weldsuite/ui/components/select';
 import {
   useBankAccounts,
+  useRecordBillPaymentWithTarget,
   useRecordInvoicePaymentWithTarget,
 } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { depositBankAccounts } from '@/app/weldbooks/deposits/deposit-math';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
+import { Link } from '@/lib/router';
 import { maskedAccountNumber } from '@/app/weldbooks/banking/components/routing-number';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -49,7 +51,7 @@ function createPaymentSchema(st: (key: string) => string) {
       .refine((value: string): boolean => isPaymentMethod(value), st('sweep.weldbooks.recordPayment.paymentMethodRequired')),
     checkNumber: z.string().max(30).optional(),
     reference: z.string().optional(),
-    /** US: `undeposited` (Undeposited Funds) or the id of the bank account the money goes into. */
+    /** `undeposited` (US Undeposited Funds) or the id of the bank account; empty = the default one. */
     depositTo: z.string().optional(),
     /** Foreign-currency invoice: the rate of the payment; empty = the rate of the payment date. */
     exchangeRate: z.string().optional(),
@@ -61,8 +63,85 @@ const UNDEPOSITED = 'undeposited';
 
 type PaymentFormValues = z.infer<ReturnType<typeof createPaymentSchema>>;
 
+/** The account the money goes to (or comes from): the chosen one, else Undeposited Funds or the default account. */
+function resolveDepositTo(chosen: string | undefined, offerUndeposited: boolean, defaultBankAccountId: string | undefined): string {
+  if (chosen && (chosen !== UNDEPOSITED || offerUndeposited)) return chosen;
+  if (offerUndeposited) return UNDEPOSITED;
+  return defaultBankAccountId ?? '';
+}
+
+type DepositAccount = ReturnType<typeof depositBankAccounts>[number];
+
+/** The "deposit to" / "pay from" choice, or a hint to add a bank account when there is none. */
+function DepositToField({
+  control,
+  label,
+  accounts,
+  value,
+  offerUndeposited,
+}: Readonly<{
+  control: Control<PaymentFormValues>;
+  label: string;
+  accounts: DepositAccount[];
+  value: string;
+  offerUndeposited: boolean;
+}>) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  const tu = t.weldbooksUs.banking.recordPayment;
+  const noBankAccounts = accounts.length === 0;
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="depositTo">{label}</Label>
+      {noBankAccounts && !offerUndeposited ? (
+        <p className="text-xs text-muted-foreground" data-testid="no-bank-account-hint">
+          {st('sweep.weldbooks.records.noBankAccountHint')}{' '}
+          <Link href="/weldbooks/banking" className="font-medium text-primary underline-offset-4 hover:underline">
+            {st('sweep.weldbooks.records.addBankAccount')}
+          </Link>
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <Controller
+            control={control}
+            name="depositTo"
+            render={({ field }) => (
+              <Select value={value} onValueChange={field.onChange}>
+                <SelectTrigger id="depositTo" data-testid="deposit-to">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {offerUndeposited ? <SelectItem value={UNDEPOSITED}>{tu.undepositedFunds}</SelectItem> : null}
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                      {account.accountNumberLast4 ? ` · ${maskedAccountNumber(account.accountNumberLast4)}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {offerUndeposited ? (
+            <p className="text-xs text-muted-foreground">
+              {value === UNDEPOSITED ? tu.undepositedHint : tu.bankHint}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What the payment is recorded against: an invoice (money in) or a bill (money out). */
+export interface RecordPaymentTarget {
+  type: 'invoice' | 'bill';
+  id: string;
+}
+
 interface RecordPaymentDialogProps {
-  invoiceId: string;
+  target: RecordPaymentTarget;
   balanceDue: string;
   /** The invoice's currency: a foreign one can be paid at a rate of its own. */
   currency?: string | null;
@@ -73,14 +152,17 @@ interface RecordPaymentDialogProps {
 }
 
 export function RecordPaymentDialog({
-  invoiceId,
+  target,
   balanceDue,
   currency,
   open,
   onOpenChange,
   refund = false,
 }: Readonly<RecordPaymentDialogProps>) {
-  const recordPayment = useRecordInvoicePaymentWithTarget();
+  const recordInvoicePayment = useRecordInvoicePaymentWithTarget();
+  const recordBillPayment = useRecordBillPaymentWithTarget();
+  const isBill = target.type === 'bill';
+  const isPending = isBill ? recordBillPayment.isPending : recordInvoicePayment.isPending;
   const { t } = useI18n();
   const st = useTranslations();
   const tr = t.accounting.recordPayment;
@@ -91,8 +173,9 @@ export function RecordPaymentDialog({
   const foreignCurrency = isForeignCurrency(entityCurrency, currency);
   const { code: jurisdictionCode } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(jurisdictionCode);
-  const { data: bankAccountsRes } = useBankAccounts(undefined, { enabled: isUs && open });
+  const { data: bankAccountsRes } = useBankAccounts(undefined, { enabled: open });
   const depositAccounts = depositBankAccounts(bankAccountsRes?.data ?? []);
+  const defaultBankAccountId = (depositAccounts.find((account) => account.isDefault) ?? depositAccounts[0])?.id;
 
   const defaults = useMemo<PaymentFormValues>(
     () => ({
@@ -101,7 +184,7 @@ export function RecordPaymentDialog({
       paymentMethod: defaultPaymentMethod(jurisdictionCode),
       checkNumber: '',
       reference: '',
-      depositTo: UNDEPOSITED,
+      depositTo: '',
       exchangeRate: '',
     }),
     [balanceDue, today, jurisdictionCode],
@@ -126,9 +209,15 @@ export function RecordPaymentDialog({
 
   const paymentMethod = watch('paymentMethod');
   const methods = paymentMethodsFor(jurisdictionCode, paymentMethod);
-  const isCheck = paymentMethod === 'check';
-  // A check or cash payment received on a US entity waits in Undeposited Funds, unless it goes straight to a bank account.
-  const showDepositTo = !refund && isUs && (paymentMethod === 'check' || paymentMethod === 'cash');
+  const isCheck = paymentMethod === 'check' && !isBill;
+  // A check or cash payment received on a US entity can wait in Undeposited Funds, unless it goes straight to a bank account.
+  const offerUndeposited = !isBill && !refund && isUs && (paymentMethod === 'check' || paymentMethod === 'cash');
+  // The money always goes to (or comes from) a bank account: the chosen one, else Undeposited Funds or the default account.
+  const chosenDepositTo = watch('depositTo');
+  const depositTo = resolveDepositTo(chosenDepositTo, offerUndeposited, defaultBankAccountId);
+  let submitLabel = tr.recordPayment;
+  if (isPending) submitLabel = tr.recording;
+  else if (refund) submitLabel = tr.refundTitle;
 
   const onSubmit = (data: PaymentFormValues) => {
     if (!isPaymentMethod(data.paymentMethod)) return;
@@ -137,28 +226,38 @@ export function RecordPaymentDialog({
       toast.error(t.accounting.documentCurrency.exchangeRateInvalid);
       return;
     }
-    recordPayment.mutate(
+    const bankAccountId = depositTo && depositTo !== UNDEPOSITED ? depositTo : undefined;
+    const reference = data.reference?.trim() ? data.reference.trim() : undefined;
+    const callbacks = {
+      onSuccess: () => {
+        toast.success(refund ? tr.refundRecorded : tr.recorded);
+        onOpenChange(false);
+      },
+      onError: (err: unknown) => {
+        toast.error(refund ? tr.refundFailed : tr.failed, { description: err instanceof Error ? err.message : undefined });
+      },
+    };
+    if (isBill) {
+      recordBillPayment.mutate(
+        { id: target.id, data: { amount: data.amount, date: data.date, paymentMethod: data.paymentMethod, reference, bankAccountId } },
+        callbacks,
+      );
+      return;
+    }
+    recordInvoicePayment.mutate(
       {
-        id: invoiceId,
+        id: target.id,
         data: {
           amount: data.amount,
           date: data.date,
           paymentMethod: data.paymentMethod,
           checkNumber: data.paymentMethod === 'check' && data.checkNumber?.trim() ? data.checkNumber.trim() : undefined,
-          reference: data.reference?.trim() ? data.reference.trim() : undefined,
+          reference,
           exchangeRate: rate ? String(rate) : undefined,
-          bankAccountId: showDepositTo && data.depositTo && data.depositTo !== UNDEPOSITED ? data.depositTo : undefined,
+          bankAccountId,
         },
       },
-      {
-        onSuccess: () => {
-          toast.success(refund ? tr.refundRecorded : tr.recorded);
-          onOpenChange(false);
-        },
-        onError: (err) => {
-          toast.error(refund ? tr.refundFailed : tr.failed, { description: err instanceof Error ? err.message : undefined });
-        },
-      },
+      callbacks,
     );
   };
 
@@ -230,34 +329,13 @@ export function RecordPaymentDialog({
             </div>
           )}
 
-          {showDepositTo && (
-            <div className="space-y-2">
-              <Label htmlFor="depositTo">{tu.depositTo}</Label>
-              <Controller
-                control={control}
-                name="depositTo"
-                render={({ field }) => (
-                  <Select value={field.value ?? UNDEPOSITED} onValueChange={field.onChange}>
-                    <SelectTrigger id="depositTo" data-testid="deposit-to">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNDEPOSITED}>{tu.undepositedFunds}</SelectItem>
-                      {depositAccounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name}
-                          {account.accountNumberLast4 ? ` · ${maskedAccountNumber(account.accountNumberLast4)}` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <p className="text-xs text-muted-foreground">
-                {watch('depositTo') === UNDEPOSITED || !watch('depositTo') ? tu.undepositedHint : tu.bankHint}
-              </p>
-            </div>
-          )}
+          <DepositToField
+            control={control}
+            label={isBill || refund ? st('sweep.weldbooks.records.payFrom') : tu.depositTo}
+            accounts={depositAccounts}
+            value={depositTo}
+            offerUndeposited={offerUndeposited}
+          />
 
           {foreignCurrency && (
             <div className="space-y-2">
@@ -289,8 +367,8 @@ export function RecordPaymentDialog({
             >
               {tr.cancel}
             </Button>
-            <Button type="submit" disabled={recordPayment.isPending}>
-              {recordPayment.isPending ? tr.recording : refund ? tr.refundTitle : tr.recordPayment}
+            <Button type="submit" disabled={isPending}>
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>

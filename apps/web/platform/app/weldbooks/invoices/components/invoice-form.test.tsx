@@ -10,16 +10,20 @@ const env = vi.hoisted(() => ({
   updateMutate: vi.fn(),
   createMutate: vi.fn(),
   sendMutate: vi.fn(),
+  deleteMutate: vi.fn(),
+  push: vi.fn(),
+  /** The customers the picker lists. */
+  customers: [{ id: 'cus_1', name: 'Globex' }] as Array<{ id: string; name: string }>,
   customerEmail: null as string | null,
   /** The company details an invoice needs that the entity lacks. */
   missingDetails: [] as string[],
   previewState: null as unknown,
   requests: [] as unknown[],
   taxRates: [
-    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' },
-    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales' },
-    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase' },
-  ] as Array<{ id: string; name: string; rate: string; type: string }>,
+    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both', isDefault: false },
+    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales', isDefault: false },
+    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase', isDefault: false },
+  ] as Array<{ id: string; name: string; rate: string; type: string; isDefault: boolean }>,
 }));
 
 // The live PDF preview has its own data and is not what these tests cover.
@@ -27,7 +31,7 @@ vi.mock('./invoice-preview', () => ({ InvoicePreview: () => null }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/router', async () => {
   const { HrefLink } = await import('./test-utils');
-  return { Link: HrefLink, useRouter: () => ({ push: vi.fn(), back: vi.fn() }) };
+  return { Link: HrefLink, useRouter: () => ({ push: env.push, back: vi.fn() }) };
 });
 vi.mock('@tanstack/react-router', async () => {
   const { RouteLink } = await import('./test-utils');
@@ -36,12 +40,13 @@ vi.mock('@tanstack/react-router', async () => {
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useCreateInvoice: () => ({ mutateAsync: env.createMutate }),
   useSendInvoice: () => ({ mutateAsync: env.sendMutate }),
+  useDeleteInvoice: () => ({ mutateAsync: env.deleteMutate, isPending: false }),
   useUpdateInvoice: () => ({ mutateAsync: env.updateMutate }),
   useUpdateAccountingEntity: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAccountingCustomer: () => ({
     data: { data: { id: 'cus_1', name: 'Globex', email: env.customerEmail, paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
   }),
-  useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Globex' }] } }),
+  useAccountingCustomers: () => ({ data: { data: env.customers }, isLoading: false }),
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useDimensionValues: () => ({
     data: [
@@ -49,6 +54,15 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
       { id: 'dim_l1', entityId: 'e', dimension: 'location', name: 'Austin', code: null, parentId: null, isActive: true },
     ],
   }),
+}));
+// The popup has its own tests; here it only hands back the customer it "created".
+vi.mock('@/app/weldbooks/customers/components/quick-add-contact-dialog', () => ({
+  QuickAddContactDialog: ({ open, onCreated }: { open: boolean; onCreated: (id: string) => void }) =>
+    open ? (
+      <button type="button" onClick={() => onCreated('cus_new')}>
+        quick add customer saved
+      </button>
+    ) : null,
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
   const labels = { tax: 'Tax', taxRate: 'Tax rate', noTax: 'No tax', creditNote: 'Credit memo' };
@@ -154,7 +168,7 @@ function invoice(overrides: Record<string, unknown> = {}): InvoiceDetail {
 
 const lastRequest = () => env.requests.at(-1) as TaxPreviewRequest | null;
 
-async function submit(user: ReturnType<typeof userEvent.setup>, name = 'Update Invoice') {
+async function submit(user: ReturnType<typeof userEvent.setup>, name = 'Update invoice') {
   await user.click(screen.getByRole('button', { name }));
 }
 
@@ -165,6 +179,10 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
     env.updateMutate.mockReset().mockResolvedValue({});
     env.createMutate.mockReset().mockResolvedValue({});
     env.sendMutate.mockReset().mockResolvedValue({});
+    env.deleteMutate.mockReset().mockResolvedValue({});
+    env.push.mockReset();
+    env.customers = [{ id: 'cus_1', name: 'Globex' }];
+    for (const rate of env.taxRates) rate.isDefault = false;
     env.customerEmail = null;
     env.missingDetails = [];
     env.previewState = previewState();
@@ -289,7 +307,7 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
 
       await user.click(screen.getByRole('button', { name: 'pick product' }));
       expect(screen.getByLabelText('Description')).toHaveValue('Hosting');
-      expect(screen.getByLabelText('Unit Price')).toHaveValue(49);
+      expect(screen.getByLabelText('Unit price')).toHaveValue(49);
 
       await submit(user);
       await waitFor(() => expect(env.updateMutate).toHaveBeenCalledTimes(1));
@@ -357,9 +375,14 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(screen.getByText('Edit credit memo')).toBeInTheDocument();
       expect(screen.getAllByText('The tax of this line follows the original invoice.')).toHaveLength(2);
       expect(screen.queryByRole('button', { name: /Sales tax options/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Add Item' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add line' })).not.toBeInTheDocument();
+      // Back and the way out of the editor lead to the credit notes list, with the note's panel open.
+      expect(screen.getByRole('link', { name: 'Back to credit notes' })).toHaveAttribute(
+        'href',
+        '/weldbooks/credit-notes?stack=invoice:inv_1',
+      );
 
-      // A credit note saves as "Update credit memo" (the jurisdiction's name for it), not "Update Invoice".
+      // A credit note saves as "Update credit memo" (the jurisdiction's name for it), not "Update invoice".
       await submit(user, 'Update credit memo');
       await waitFor(() => expect(env.updateMutate).toHaveBeenCalledTimes(1));
       const { data } = env.updateMutate.mock.calls[0][0];
@@ -404,11 +427,50 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(screen.queryByRole('option', { name: 'BTW inkoop 21%' })).not.toBeInTheDocument();
     });
 
+    it('shows the line total without tax, as the line total of a VAT document', () => {
+      renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
+      expect(screen.getByText('$100.00', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.queryByText('$108.25', { selector: 'span.ml-1' })).not.toBeInTheDocument();
+    });
+
+    it('starts a new line on the default sales rate, and so does an added line', async () => {
+      env.taxRates.find((rate) => rate.id === 'tax_21')!.isDefault = true;
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="add" />);
+
+      await waitFor(() => expect(screen.getByLabelText('Tax rate')).toHaveTextContent('BTW 21%'));
+      await user.click(screen.getByRole('button', { name: 'Add line' }));
+      const pickers = screen.getAllByLabelText('Tax rate');
+      expect(pickers).toHaveLength(2);
+      expect(pickers[1]).toHaveTextContent('BTW 21%');
+    });
+
+    it('leaves a new line without a rate when the default is a purchase rate', () => {
+      env.taxRates.find((rate) => rate.id === 'tax_purchase')!.isDefault = true;
+      renderWithProviders(<InvoiceForm mode="add" />);
+      expect(screen.getByLabelText('Tax rate')).toHaveTextContent('No tax');
+    });
+
+    it('offers to add the first customer when there are none, and selects the new one', async () => {
+      env.customers = [];
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="add" />);
+
+      expect(screen.getByText('No customers yet')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Add customer' }));
+      await user.click(await screen.findByRole('button', { name: 'quick add customer saved' }));
+      // The saved customer is chosen, so the form stops asking for one.
+      await user.type(screen.getByPlaceholderText('Item description'), 'Consulting');
+      await user.click(screen.getByRole('button', { name: 'Create draft' }));
+      await waitFor(() => expect(env.createMutate).toHaveBeenCalledTimes(1));
+      expect(env.createMutate.mock.calls[0][0].contactId).toBe('cus_new');
+    });
+
     it('names the remove button of a line "Remove line", not "Item 2"', async () => {
       const user = userEvent.setup();
       renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
 
-      await user.click(screen.getByRole('button', { name: 'Add Item' }));
+      await user.click(screen.getByRole('button', { name: 'Add line' }));
       expect(screen.getAllByRole('button', { name: 'Remove line' })).toHaveLength(2);
       expect(screen.queryByRole('button', { name: 'Item 2' })).not.toBeInTheDocument();
     });
@@ -497,5 +559,59 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(within(dialog).queryByLabelText('KvK number')).not.toBeInTheDocument();
       expect(env.createMutate).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('InvoiceForm: discarding a credit note draft', { timeout: 30_000 }, () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    env.salesTax = true;
+    env.deleteMutate.mockReset().mockResolvedValue({});
+    env.push.mockReset();
+    env.previewState = previewState();
+    env.requests = [];
+  });
+
+  const memo = (overrides: Record<string, unknown> = {}) =>
+    invoice({
+      type: 'credit_note',
+      invoiceNumber: 'CN-0003',
+      creditNoteForInvoiceId: 'inv_0',
+      items: [{ ...invoice().items[0], originalLineId: 'ili_orig_1' }],
+      ...overrides,
+    });
+
+  it('deletes the draft after a confirmation that says the number stays used, then reopens the original invoice', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<InvoiceForm mode="edit" invoice={memo()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Draft CN-0003 will be deleted. The number stays used');
+    expect(env.deleteMutate).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Discard draft' }));
+    await waitFor(() => expect(env.deleteMutate).toHaveBeenCalledWith('inv_1'));
+    await waitFor(() => expect(env.push).toHaveBeenCalledWith('/weldbooks/invoices?stack=invoice:inv_0'));
+  });
+
+  it('stays in the editor when the draft cannot be deleted', async () => {
+    env.deleteMutate.mockRejectedValue(new Error('Already finalized'));
+    const user = userEvent.setup();
+    renderWithProviders(<InvoiceForm mode="edit" invoice={memo()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Discard draft' }));
+    await waitFor(() => expect(env.deleteMutate).toHaveBeenCalledTimes(1));
+    expect(env.push).not.toHaveBeenCalled();
+  });
+
+  it('is not offered for a finalized credit note or for an invoice', () => {
+    const { unmount } = renderWithProviders(<InvoiceForm mode="edit" invoice={memo({ status: 'finalized' })} />);
+    expect(screen.queryByRole('button', { name: 'Discard draft' })).not.toBeInTheDocument();
+    unmount();
+    renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
+    expect(screen.queryByRole('button', { name: 'Discard draft' })).not.toBeInTheDocument();
   });
 });

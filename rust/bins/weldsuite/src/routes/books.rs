@@ -146,7 +146,7 @@ pub(crate) async fn sweep_tenant(
     let at = weldsuite_events::iso_timestamp(now);
     let overdue: Vec<String> = sqlx::query_scalar(
         "update invoices set status = 'overdue', updated_at = $1::timestamp \
-         where status in ('sent', 'finalized') and deleted_at is null and due_date < $1::timestamp \
+         where status in ('sent', 'finalized', 'partial') and deleted_at is null and due_date < $1::timestamp \
          and coalesce(balance_due, '0')::numeric > 0 and type in ('standard', 'correction') \
          returning id",
     )

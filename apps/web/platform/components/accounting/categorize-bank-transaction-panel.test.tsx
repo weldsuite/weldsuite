@@ -47,6 +47,18 @@ describe('ledgerCategoryAccounts', () => {
   });
 });
 
+describe('ledgerCategoryAccounts for money out', () => {
+  it('also offers liability accounts, such as taxes payable, for a tax payment', () => {
+    const accounts = [
+      account({ id: 'a_tax', code: '2200', name: 'Taxes payable', type: 'liability' }),
+      account({ id: 'a_fees', code: '4650', name: 'Bank fees', type: 'expense' }),
+      account({ id: 'a_old', code: '2210', name: 'Old tax', type: 'liability', isActive: false }),
+    ];
+    expect(ledgerCategoryAccounts(accounts).map((a) => a.id)).toEqual(['a_fees']);
+    expect(ledgerCategoryAccounts(accounts, { includeLiabilities: true }).map((a) => a.id)).toEqual(['a_tax', 'a_fees']);
+  });
+});
+
 describe('CategorizeBankTransactionPanel', () => {
   it('keeps Categorize disabled until an account is chosen', () => {
     const onCategorize = vi.fn();

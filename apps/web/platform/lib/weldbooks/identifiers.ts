@@ -272,3 +272,12 @@ export function normalizeCep(value: string): string | undefined {
 export function isValidMunicipalityCode(value: string): boolean {
   return /^\d{7}$/.test(value.trim());
 }
+
+// ---------------------------------------------------------------------------
+// Dutch Chamber of Commerce (KvK) number
+// ---------------------------------------------------------------------------
+
+/** A KvK number is eight digits; people type it with spaces, which are ignored. */
+export function isValidKvk(raw: string): boolean {
+  return /^\d{8}$/.test(raw.replace(/\s/g, ''));
+}

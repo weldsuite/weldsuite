@@ -246,6 +246,103 @@ describe('rejecting', () => {
   });
 });
 
+describe('POST /:id/record-payment', () => {
+  const pay = (id: string, body: unknown, perms = ['banking:create']) =>
+    app(perms).request(`/api/bills/${id}/record-payment`, json('POST', body));
+  const approve = (id: string) => app(['bills:update']).request(`/api/bills/${id}/approve`, { method: 'PATCH' });
+  const detail = async (id: string) =>
+    ((await (await app(['bills:read']).request(`/api/bills/${id}`)).json()) as {
+      data: { status: string; amountPaid: string; balanceDue: string; payments: Array<{ id: string; allocatedAmount: string }> };
+    }).data;
+
+  it('pays an approved bill in two parts: partial, then paid, the payments listed on the bill', async () => {
+    const bill = await newBill();
+    expect((await approve(bill.id)).status).toBe(200);
+
+    const part = await pay(bill.id, { amount: '40.00', date: '2026-03-20', paymentMethod: 'bank_transfer', reference: 'INV-1' });
+    expect(part.status).toBe(201);
+    const first = ((await part.json()) as { data: { paymentId: string; journalEntryId: string; amountPaid: string; balanceDue: string; status: string } }).data;
+    expect(first).toMatchObject({ amountPaid: '40.00', balanceDue: '81.00', status: 'partial' });
+    expect(first.paymentId).toBeTruthy();
+    expect(first.journalEntryId).toBeTruthy();
+
+    const rest = await pay(bill.id, { amount: '81.00', date: '2026-03-25' });
+    expect(rest.status).toBe(201);
+    expect(((await rest.json()) as { data: unknown }).data).toMatchObject({ amountPaid: '121.00', balanceDue: '0.00', status: 'paid' });
+
+    // The payments reach the bill through their allocations (the payment itself carries no bill id when it covers several documents).
+    const read = await detail(bill.id);
+    expect(read).toMatchObject({ status: 'paid', amountPaid: '121.00' });
+    expect(read.payments.map((p) => p.allocatedAmount).sort()).toEqual(['40.00', '81.00']);
+
+    // Dr 1600 payable / Cr bank.
+    const lines = await db
+      .select({ code: schema.accounts.code, debit: schema.journalLines.debit, credit: schema.journalLines.credit })
+      .from(schema.journalLines)
+      .innerJoin(schema.accounts, eq(schema.journalLines.accountId, schema.accounts.id))
+      .where(eq(schema.journalLines.journalEntryId, first.journalEntryId));
+    expect(lines).toHaveLength(2);
+    expect(lines.find((l) => l.code === '1600')).toMatchObject({ debit: '40.00' });
+    expect(lines.find((l) => l.code !== '1600')).toMatchObject({ credit: '40.00' });
+  });
+
+  it('refuses to pay more than is open, a draft, a cancelled bill, an unknown bill and a caller without banking:create', async () => {
+    const bill = await newBill();
+    const draft = await pay(bill.id, { amount: '10.00', date: '2026-03-20' });
+    expect(draft.status).toBe(400);
+    expect(((await draft.json()) as { error: { message: string } }).error.message).toMatch(/must be approved before it can be paid/);
+
+    expect((await approve(bill.id)).status).toBe(200);
+    const over = await pay(bill.id, { amount: '121.01', date: '2026-03-20' });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { message: string } }).error.message).toMatch(/more than its open balance/);
+    expect((await detail(bill.id)).amountPaid).toBe('0.00');
+
+    const rejected = await newBill();
+    await app(['bills:update']).request(`/api/bills/${rejected.id}/reject`, json('PATCH', { reason: 'Duplicate' }));
+    expect((await pay(rejected.id, { amount: '10.00', date: '2026-03-20' })).status).toBe(400);
+
+    expect((await pay('bil_nobody', { amount: '10.00', date: '2026-03-20' })).status).toBe(404);
+    expect((await pay(bill.id, { amount: '10.00', date: '2026-03-20' }, ['bills:update'])).status).toBe(403);
+    expect((await pay(bill.id, { date: '2026-03-20' })).status).toBe(400);
+  });
+});
+
+describe('the account a bill line without an account posts to', () => {
+  const defaultFor = async (contactId?: string) => {
+    const res = await app(['bills:read']).request(
+      `/api/bills/default-expense-account${contactId ? `?contactId=${contactId}` : ''}`,
+      { headers: { 'X-Accounting-Entity-Id': entityId } },
+    );
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { data: { defaultExpenseAccount: { id: string; code: string; name: string } | null } }).data.defaultExpenseAccount;
+  };
+
+  it("is the entity's general expense account, until the supplier has a default of its own", async () => {
+    const general = await defaultFor();
+    expect(general).toMatchObject({ code: '4600' });
+
+    const bill = await newBill();
+    const read = await app(['bills:read']).request(`/api/bills/${bill.id}`);
+    expect(((await read.json()) as { data: { defaultExpenseAccount: unknown } }).data.defaultExpenseAccount).toEqual(general);
+
+    const [supplierAccount] = (await db.select().from(schema.accounts).where(eq(schema.accounts.entityId, entityId))).filter(
+      (a) => a.type === 'expense' && a.code !== '4600',
+    );
+    await db.update(schema.parties).set({ defaultExpenseAccountId: supplierAccount!.id }).where(eq(schema.parties.id, 'acn_bill_vendor'));
+    const own = { id: supplierAccount!.id, code: supplierAccount!.code, name: supplierAccount!.name };
+    expect(await defaultFor('acn_bill_vendor')).toEqual(own);
+    expect(await defaultFor('acn_bill_other')).toEqual(general);
+    const again = await app(['bills:read']).request(`/api/bills/${bill.id}`);
+    expect(((await again.json()) as { data: { defaultExpenseAccount: unknown } }).data.defaultExpenseAccount).toEqual(own);
+    await db.update(schema.parties).set({ defaultExpenseAccountId: null }).where(eq(schema.parties.id, 'acn_bill_vendor'));
+  });
+
+  it('needs bills:read', async () => {
+    expect((await app([]).request('/api/bills/default-expense-account', { headers: { 'X-Accounting-Entity-Id': entityId } })).status).toBe(403);
+  });
+});
+
 describe('POST /from-document/:documentId', () => {
   it('pre-fills a bill from a processed document', async () => {
     await db.insert(schema.documents).values({

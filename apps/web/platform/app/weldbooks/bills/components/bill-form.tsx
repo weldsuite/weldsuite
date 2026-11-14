@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, type FocusEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { Controller, useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,6 +29,7 @@ import {
   useAccountingCustomers,
   useAccountingTaxRates,
   useAccountingAccounts,
+  useBillDefaultExpenseAccount,
 } from '@/hooks/queries/use-accounting-queries';
 import type { BillDetail } from '@/lib/api/domains/weldbooks';
 import type { BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -48,11 +49,13 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { addDaysToIsoDate, toCalendarDate } from '@/lib/weldbooks/format';
 import { FORM_1099_ACCOUNT_BOXES, FORM_1099_OMIT, form1099BoxName } from '@/lib/weldbooks/form-1099';
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
-import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import { isForeignCurrency } from '@/lib/weldbooks/currencies';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { WELD_TAX_CODES } from '@/lib/weldbooks/tax-codes';
 import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
+import { QuickAddContactDialog } from '@/app/weldbooks/customers/components/quick-add-contact-dialog';
+import { AccountCombobox } from '@/app/weldbooks/journal/components/account-combobox';
 import { ProjectSelect } from '@/components/weldflow/project-select';
 import { DocumentTaxPanel } from '@/app/weldbooks/invoices/components/document-tax-panel';
 import { GstTaxSplit } from '@/app/weldbooks/invoices/components/gst-fields';
@@ -191,6 +194,83 @@ const emptyItem = {
 /** Select value of the default tax code / 1099 box; never stored. */
 const DEFAULT = '__default__';
 
+/** The lines of an invoice read by the scanner, as form lines; null when it found none. */
+function prefilledItemsOf(items: BillPrefill['items']) {
+  if (!items || items.length === 0) return null;
+  return items.map((item) => ({
+    ...emptyItem,
+    description: item.description ?? '',
+    quantity: Number(item.quantity ?? 1),
+    unitPrice: Number(item.unitPrice ?? 0),
+  }));
+}
+
+/** The form's lines as the tax preview takes them; Brazil adds the fiscal details of each line. */
+function billTaxLines<
+  T extends Parameters<typeof toTaxFormLine>[0] & {
+    description: string;
+    quantity?: number;
+    unitPrice?: number;
+    discountPercent?: number;
+    vendorTaxRate?: string;
+    taxCode?: string;
+    accrueUseTax?: boolean;
+  },
+>(items: readonly T[] | undefined, br: boolean) {
+  return (items ?? []).map((item) => {
+    const fiscal = br ? toTaxFormLine(item) : null;
+    return {
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discountPercent: item.discountPercent,
+      taxRateId: item.taxRateId,
+      vendorTaxRate: item.vendorTaxRate,
+      taxCode: item.taxCode,
+      accrueUseTax: item.accrueUseTax,
+      ...(fiscal ? { ncm: fiscal.ncm, cfop: fiscal.cfop, fiscalData: fiscal.fiscalData } : {}),
+    };
+  });
+}
+
+/** The account picker's placeholder: names the account a line without one is booked to, if there is one. */
+function defaultAccountPlaceholder(
+  account: { code: string; name: string } | null,
+  template: string,
+  none: string,
+): string {
+  return account ? template.replace('{account}', `${account.code} — ${account.name}`) : none;
+}
+
+/** A list that has finished loading and came back empty. */
+function isEmptyLoadedList(loading: boolean, data: unknown, items: readonly unknown[]): boolean {
+  return !loading && !!data && items.length === 0;
+}
+
+type StoredBillItem = NonNullable<BillWithTax['items']>[number];
+
+/** A stored bill line as form values. */
+function storedItemValues(item: StoredBillItem) {
+  return {
+    description: item.description,
+    quantity: Number(item.quantity ?? 1),
+    unitPrice: Number(item.unitPrice ?? 0),
+    unit: item.unit ?? '',
+    discountPercent: Number(item.discountPercent ?? 0),
+    taxRateId: item.taxRateId ?? '',
+    // A US bill keeps the vendor's tax as a plain rate on the line.
+    vendorTaxRate: !item.taxRateId && Number(item.taxRate ?? 0) > 0 ? String(Number(item.taxRate)) : '',
+    accountId: item.accountId ?? '',
+    taxCode: item.taxCode ?? '',
+    accrueUseTax: Boolean(item.accrueUseTax),
+    form1099Box: item.form1099Box ?? '',
+    classId: item.classId ?? '',
+    locationId: item.locationId ?? '',
+    projectId: item.projectId ?? '',
+    ...brLineValuesFromStored(item),
+  };
+}
+
 export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -210,28 +290,28 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const billFormSchema = useMemo(() => createBillFormSchema(st, brMessages), [st, brMessages]);
   // Brazil: NCM / CFOP and fiscal details per line, withholdings and the NF-e access key per bill.
   const br = features.brTaxReturn;
-  const { data: contactsData } = useAccountingCustomers({ role: 'supplier' });
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'supplier' });
   const { data: taxRatesData } = useAccountingTaxRates();
   const { data: accountsData } = useAccountingAccounts({ type: 'expense' });
 
   const contacts = contactsData?.data ?? [];
+  // Suppliers have loaded and there are none: the picker offers to add the first one instead.
+  const noSuppliers = isEmptyLoadedList(contactsLoading, contactsData, contacts);
+  const [addSupplierOpen, setAddSupplierOpen] = useState(false);
   // A bill takes purchase (and both) rates only.
   const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'purchase'), [taxRatesData]);
+  // New lines start with the workspace's default rate (a purchase twin of it), except on US sales tax.
+  const defaultRateId = useMemo(
+    () => (features.salesTax ? null : defaultTaxRateId(taxRatesData?.data, 'purchase')),
+    [features.salesTax, taxRatesData],
+  );
   const accounts = accountsData?.data ?? [];
 
   const stored = bill as unknown as BillWithTax | undefined;
   const today = localToday();
   const defaultDue = addDaysToIsoDate(today, 30);
 
-  const prefilledItems =
-    prefill?.items && prefill.items.length > 0
-      ? prefill.items.map((item) => ({
-          ...emptyItem,
-          description: item.description ?? '',
-          quantity: Number(item.quantity ?? 1),
-          unitPrice: Number(item.unitPrice ?? 0),
-        }))
-      : null;
+  const prefilledItems = prefilledItemsOf(prefill?.items);
 
   const deliveryStored = normalizeAccountingAddress(stored?.deliveryAddress);
 
@@ -252,35 +332,28 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       deliveryAddress: toPostalAddressFormValue(deliveryStored),
       ...brDocumentValuesFromStored(stored?.fiscalData),
       items: stored?.items?.length
-        ? stored.items.map((item) => ({
-            description: item.description,
-            quantity: Number(item.quantity ?? 1),
-            unitPrice: Number(item.unitPrice ?? 0),
-            unit: item.unit ?? '',
-            discountPercent: Number(item.discountPercent ?? 0),
-            taxRateId: item.taxRateId ?? '',
-            // A US bill keeps the vendor's tax as a plain rate on the line.
-            vendorTaxRate: !item.taxRateId && Number(item.taxRate ?? 0) > 0 ? String(Number(item.taxRate)) : '',
-            accountId: item.accountId ?? '',
-            taxCode: item.taxCode ?? '',
-            accrueUseTax: Boolean(item.accrueUseTax),
-            form1099Box: item.form1099Box ?? '',
-            classId: item.classId ?? '',
-            locationId: item.locationId ?? '',
-            projectId: item.projectId ?? '',
-            ...brLineValuesFromStored(item),
-          }))
+        ? stored.items.map(storedItemValues)
         : prefilledItems ?? [{ ...emptyItem }],
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: 'items',
   });
 
   /** The user typed in (or emptied) the exchange rate: an emptied one resets it to the rate of the issue date. */
   const rateEdited = useRef(false);
+
+  // A new bill's untouched lines take the default rate once the rates have loaded.
+  const defaultRateApplied = useRef(false);
+  useEffect(() => {
+    if (mode !== 'add' || !defaultRateId || defaultRateApplied.current) return;
+    defaultRateApplied.current = true;
+    form.getValues('items').forEach((item, index) => {
+      if (!item.taxRateId) update(index, { ...item, taxRateId: defaultRateId });
+    });
+  }, [mode, defaultRateId, form, update]);
 
   const watched = form.watch();
   const watchedItems = watched.items;
@@ -295,19 +368,13 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     currency: displayCurrency ?? undefined,
     billingAddress: watched.vendorAddress,
     deliveryAddress: watched.deliveryDifferent ? watched.deliveryAddress : null,
-    lines: (watchedItems ?? []).map((item) => ({
-      description: item.description,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      discountPercent: item.discountPercent,
-      taxRateId: item.taxRateId,
-      vendorTaxRate: item.vendorTaxRate,
-      taxCode: item.taxCode,
-      accrueUseTax: item.accrueUseTax,
-      ...(br ? { ncm: toTaxFormLine(item).ncm, cfop: toTaxFormLine(item).cfop, fiscalData: toTaxFormLine(item).fiscalData } : {}),
-    })),
+    lines: billTaxLines(watchedItems, br),
     fiscalData: br ? brDocumentPayload(watched, { bill: true }) : undefined,
   });
+  // The account a line without one of its own is booked to: the bill's own (when it exists), else the supplier's.
+  const { data: fetchedDefaultAccount } = useBillDefaultExpenseAccount(watched.contactId, { enabled: mode === 'add' });
+  const defaultAccount = stored?.defaultExpenseAccount ?? fetchedDefaultAccount ?? null;
+  const accountPlaceholder = defaultAccountPlaceholder(defaultAccount, tb.defaultAccount, tb.none);
   // Every line can carry a WeldFlow project (FLOW-019), so the options row is always there.
   const showLineOptions = true;
 
@@ -354,6 +421,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const lineCostLabel = salesTax ? td.bill.lineCostWithTax : tb.lineTotal;
 
   return (
+    <>
     <form onSubmit={form.handleSubmit(submit)} className="space-y-6">
       <Card>
         <CardHeader>
@@ -362,21 +430,30 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="contactId">{labels.supplier}</Label>
-            <Select
-              value={form.watch('contactId')}
-              onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
-            >
-              <SelectTrigger id="contactId">
-                <SelectValue placeholder={tb.selectSupplier} />
-              </SelectTrigger>
-              <SelectContent>
-                {contacts.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {noSuppliers ? (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-1.5">
+                <span className="text-sm text-muted-foreground">{t.accounting.contacts.noSuppliersYet}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddSupplierOpen(true)}>
+                  {t.accounting.contacts.addSupplierTitle}
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={form.watch('contactId')}
+                onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
+              >
+                <SelectTrigger id="contactId">
+                  <SelectValue placeholder={tb.selectSupplier} />
+                </SelectTrigger>
+                <SelectContent>
+                  {contacts.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {form.formState.errors.contactId && (
               <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>
             )}
@@ -487,7 +564,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => append({ ...emptyItem })}
+            onClick={() => append({ ...emptyItem, taxRateId: defaultRateId ?? '' })}
           >
             <Plus className="h-4 w-4 mr-1" />
             {tb.addLine}
@@ -593,7 +670,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           <Select
                             value={form.watch(`items.${index}.taxRateId`) || NO_TAX_RATE}
                             onValueChange={(val) =>
-                              form.setValue(`items.${index}.taxRateId`, val === NO_TAX_RATE ? '' : val)
+                              form.setValue(`items.${index}.taxRateId`, val === NO_TAX_RATE ? '' : val, { shouldDirty: true })
                             }
                           >
                             <SelectTrigger className={LINE_SELECT_TRIGGER} aria-label={labels.taxRate}>
@@ -603,7 +680,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                               <SelectItem value={NO_TAX_RATE}>{labels.noTax}</SelectItem>
                               {taxRates.map((tr) => (
                                 <SelectItem key={tr.id} value={tr.id}>
-                                  {tr.name} ({Number(tr.rate)}%)
+                                  {taxRateLabel(tr)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -611,27 +688,17 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                         )}
                       </TableCell>
                       <TableCell>
-                        <Select
-                          value={form.watch(`items.${index}.accountId`) || '__none__'}
-                          onValueChange={(val) =>
-                            form.setValue(
-                              `items.${index}.accountId`,
-                              val === '__none__' ? '' : val,
-                            )
-                          }
-                        >
-                          <SelectTrigger className={LINE_SELECT_TRIGGER} aria-label={tb.account}>
-                            <SelectValue placeholder={tb.none} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">{tb.none}</SelectItem>
-                            {accounts.map((acc) => (
-                              <SelectItem key={acc.id} value={acc.id}>
-                                {acc.code} - {acc.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <AccountCombobox
+                          accounts={accounts}
+                          aria-label={tb.account}
+                          value={line?.accountId ?? ''}
+                          onChange={(accountId) => form.setValue(`items.${index}.accountId`, accountId, { shouldDirty: true })}
+                          placeholder={accountPlaceholder}
+                          clearLabel={accountPlaceholder}
+                          searchPlaceholder={t.accounting.journalEntry.searchAccount}
+                          emptyText={t.accounting.journalEntry.noAccountFound}
+                          className={LINE_SELECT_TRIGGER}
+                        />
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatMoney(lineTotal ?? 0, displayCurrency)}
@@ -858,5 +925,14 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
         </Button>
       </div>
     </form>
+    {/* Outside the form: a submit inside the popup must not bubble into the bill's own. */}
+    <QuickAddContactDialog
+      open={addSupplierOpen}
+      onOpenChange={setAddSupplierOpen}
+      role="supplier"
+      onCreated={(id) => id && form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+      onOpenExisting={(id) => form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+    />
+    </>
   );
 }

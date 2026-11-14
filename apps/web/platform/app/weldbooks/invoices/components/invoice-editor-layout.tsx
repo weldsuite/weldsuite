@@ -34,6 +34,8 @@ interface InvoiceEditorLayoutProps {
   primaryAction?: { label: string; pendingText: string; pending: boolean; disabled?: boolean; title?: string; onClick: () => void };
   backLink: string;
   backText: string;
+  /** Extra actions at the left of the bar's buttons (e.g. "Discard draft" on a credit note draft). */
+  headerActions?: ReactNode;
 }
 
 export function InvoiceEditorLayout({
@@ -52,6 +54,7 @@ export function InvoiceEditorLayout({
   primaryAction,
   backLink,
   backText,
+  headerActions,
 }: Readonly<InvoiceEditorLayoutProps>) {
   const t = useTranslations();
 
@@ -65,6 +68,7 @@ export function InvoiceEditorLayout({
         </Button>
         <h1 className="min-w-0 truncate text-[15px] font-medium text-foreground">{title}</h1>
         <div className="ml-auto flex items-center gap-2">
+          {headerActions}
           <Button asChild type="button" variant="outline" size="sm" className="shadow-none">
             <Link href={backLink} aria-disabled={isPending}>
               {t('sweep.entities.cancel')}

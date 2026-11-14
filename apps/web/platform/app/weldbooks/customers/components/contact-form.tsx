@@ -13,8 +13,8 @@ import type { ContactKind, Customer } from '@/lib/api/domains/weldbooks';
 import type { VendorTaxPayload, VendorTaxView } from '@/lib/api/domains/weldbooks-1099';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
-import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
-import { checkVatNumberFormat, isValidIban } from '@/lib/weldbooks/identifiers';
+import { contactIdKinds, contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
+import { checkVatNumberFormat, isValidIban, isValidKvk } from '@/lib/weldbooks/identifiers';
 import { contactTaxIdError, ieError } from '@/lib/weldbooks/br-entity';
 import {
   brContactMunicipalityError,
@@ -68,6 +68,8 @@ interface IdentifierMessages {
   /** `{country}` and `{example}` are filled in. */
   vatNumber: string;
   iban: string;
+  /** A Dutch contact's KvK number is not eight digits. */
+  kvk: string;
   /** Brazil: CNPJ / CPF, state registration and municipality code. */
   br: Record<'cnpj' | 'cpf' | 'cnpjChecksum' | 'cpfChecksum' | 'ie' | 'municipalityCode', string>;
 }
@@ -119,6 +121,7 @@ function createContactSchema(
       } else if (values.kind === 'company') {
         // A person has no VAT number (outside Brazil, where the field holds their CPF).
         checkVatNumber(values, ctx, identifierMessages.vatNumber);
+        checkKvkNumber(values, ctx, identifierMessages.kvk);
       }
       const iban = values.iban?.trim();
       if (iban && !isValidIban(iban)) {
@@ -181,6 +184,13 @@ function checkVatNumber(values: CheckedValues, ctx: z.RefinementCtx, message: st
     path: ['vatNumber'],
     message: message.replace('{country}', check.prefix ?? '').replace('{example}', check.example ?? ''),
   });
+}
+
+/** A Dutch company's KvK number has eight digits. */
+function checkKvkNumber(values: CheckedValues, ctx: z.RefinementCtx, message: string): void {
+  const kvk = values.registrationNumber?.trim();
+  if (!kvk || contactIdKinds(values.billingAddress?.country).registrationId !== 'kvk') return;
+  if (!isValidKvk(kvk)) ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message });
 }
 
 export type ContactFormValues = z.infer<ReturnType<typeof createContactSchema>>;
@@ -249,10 +259,14 @@ function guessKind(contact: ContactFormContact | undefined): ContactKind {
   return 'company';
 }
 
-function initialValues(contact: ContactFormContact | undefined, defaultCountry: string | null): ContactFormValues {
+function initialValues(
+  contact: ContactFormContact | undefined,
+  defaultCountry: string | null,
+  defaultRole: 'customer' | 'supplier',
+): ContactFormValues {
   const billing = normalizeAccountingAddress(contact?.billingAddress);
   const shipping = normalizeAccountingAddress(contact?.shippingAddress);
-  const role = contact?.role === 'supplier' || contact?.role === 'both' ? contact.role : 'customer';
+  const role = contact?.role === 'supplier' || contact?.role === 'both' ? contact.role : defaultRole;
   const kind = guessKind(contact);
   const name = contact?.name ?? '';
   // A contact without an identity yet has only its name to go on.
@@ -321,6 +335,8 @@ function contactPersonPayload(
 interface ContactFormProps {
   mode: 'add' | 'edit';
   contact?: ContactFormContact;
+  /** The role a new contact starts with; a customer unless this says supplier. */
+  defaultRole?: 'customer' | 'supplier';
   isPending: boolean;
   onSubmit: (payload: ContactPayload) => void | Promise<void>;
   onCancel: () => void;
@@ -454,10 +470,21 @@ function companyIdOf(choosesIdentity: boolean, crmLinkId: string | undefined, co
   return choosesIdentity ? crmLinkId : contact?.companyId;
 }
 
-function FormActions({ mode, isPending, onCancel }: Readonly<Pick<ContactFormProps, 'mode' | 'isPending' | 'onCancel'>>) {
+/** The submit label of a new contact follows its role: "Create customer", "Create supplier", else "Create contact". */
+function createLabel(tc: { createCustomer: string; createSupplier: string; createContact: string }, role: ContactFormValues['role']) {
+  if (role === 'customer') return tc.createCustomer;
+  return role === 'supplier' ? tc.createSupplier : tc.createContact;
+}
+
+function FormActions({
+  mode,
+  role,
+  isPending,
+  onCancel,
+}: Readonly<Pick<ContactFormProps, 'mode' | 'isPending' | 'onCancel'> & { role: ContactFormValues['role'] }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
-  const submitLabel = mode === 'add' ? tc.createContact : tc.saveChanges;
+  const submitLabel = mode === 'add' ? createLabel(tc, role) : tc.saveChanges;
   const pendingLabel = mode === 'add' ? tc.creating : tc.saving;
   return (
     <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
@@ -480,7 +507,7 @@ function FormActions({ mode, isPending, onCancel }: Readonly<Pick<ContactFormPro
  * follow the contact's country and the entity's jurisdiction (VAT number /
  * GSTIN / EIN, KvK / PAN / …).
  */
-export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Readonly<ContactFormProps>) {
+export function ContactForm({ mode, contact, defaultRole = 'customer', isPending, onSubmit, onCancel }: Readonly<ContactFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.accounting.contacts;
@@ -498,15 +525,15 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
           personNameRequired: tc.personNameRequired,
         },
         tvx.errors,
-        { vatNumber: tc.vatNumberInvalid, iban: tc.ibanInvalid, br: tbc.errors },
+        { vatNumber: tc.vatNumberInvalid, iban: tc.ibanInvalid, kvk: tc.kvkInvalid, br: tbc.errors },
         brazilianBooks,
       ),
-    [st, tc.companyNameRequired, tc.personNameRequired, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid, tbc.errors, brazilianBooks],
+    [st, tc.companyNameRequired, tc.personNameRequired, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid, tc.kvkInvalid, tbc.errors, brazilianBooks],
   );
 
   const defaults = useMemo(
-    () => initialValues(contact, jurisdictionCode),
-    [contact, jurisdictionCode],
+    () => initialValues(contact, jurisdictionCode, defaultRole),
+    [contact, jurisdictionCode, defaultRole],
   );
 
   const form = useForm<ContactFormValues>({
@@ -549,7 +576,7 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
         {scope.bank ? <VendorBankSection contact={contact} /> : null}
         <PaymentCard />
         <NotesCard />
-        <FormActions mode={mode} isPending={isPending} onCancel={onCancel} />
+        <FormActions mode={mode} role={form.watch('role')} isPending={isPending} onCancel={onCancel} />
       </form>
     </FormProvider>
   );

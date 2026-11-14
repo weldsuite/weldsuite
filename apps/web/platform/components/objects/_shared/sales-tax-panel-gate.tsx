@@ -11,9 +11,12 @@
 
 import type { ReactNode } from 'react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
+import { JurisdictionUnavailable } from '@/components/accounting/jurisdiction-gate';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
 import { useSalesTaxSetupGate } from '@/app/weldbooks/sales-tax/setup/setup-gate';
 import { useSetupTexts } from '@/app/weldbooks/sales-tax/setup/setup-texts';
+import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 export function SalesTaxPanelGate({
   panelProps,
@@ -44,11 +47,13 @@ function GatedPanel({
   status: Exclude<ReturnType<typeof useSalesTaxSetupGate>, 'ready'>;
 }>) {
   const { t } = useSetupTexts();
+  const { t: ti } = useI18n();
+  const { jurisdiction } = useCurrentJurisdiction();
   const shell = useObjectPanelShell({ ...panelProps, width, loading: status === 'loading' });
   const messages = {
     loading: null,
     'load-error': t.common.loadError,
-    'us-only': t.common.usOnly,
+    'us-only': null,
     'no-access': t.common.noAccess,
   } as const;
   return (
@@ -56,9 +61,13 @@ function GatedPanel({
       {...shell.entityDetailViewProps}
       title={<span className="relative top-px truncate text-[15px] font-medium text-foreground">{title}</span>}
     >
-      <p className="p-6 text-sm text-muted-foreground" role={status === 'load-error' ? 'alert' : undefined}>
-        {messages[status]}
-      </p>
+      {status === 'us-only' ? (
+        <JurisdictionUnavailable feature={ti.accounting.header.salesTax} country={jurisdiction?.name} />
+      ) : (
+        <p className="p-6 text-sm text-muted-foreground" role={status === 'load-error' ? 'alert' : undefined}>
+          {messages[status]}
+        </p>
+      )}
     </EntityDetailView>
   );
 }

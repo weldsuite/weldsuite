@@ -6,6 +6,8 @@ import type { BankLine, MatchSuggestion, UsBankAccount } from '@/lib/api/domains
 const matchPaymentMutate = vi.fn();
 const matchDepositMutate = vi.fn();
 const reconcileMutate = vi.fn();
+/** What every `useMutation` of the page reports: the last refusal and the variables it was sent with. */
+const mutationState = { error: null as Error | null, variables: undefined as unknown };
 const permissions = new Set(['banking:update']);
 const jurisdiction = { code: 'US' as string | null };
 
@@ -48,7 +50,14 @@ vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({ useAccountingAccounts: () => ({ data: { data: [] } }) }));
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-query')>()),
-  useMutation: () => ({ mutate: reconcileMutate, isPending: false, isSuccess: false, error: null, data: undefined }),
+  useMutation: () => ({
+    mutate: reconcileMutate,
+    isPending: false,
+    isSuccess: false,
+    error: mutationState.error,
+    variables: mutationState.variables,
+    data: undefined,
+  }),
 }));
 vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
   useBankAccounts: () => ({ data: { data: bankAccounts } }),
@@ -77,6 +86,8 @@ describe('Bank reconciliation page', () => {
     matchPaymentMutate.mockReset();
     matchDepositMutate.mockReset();
     reconcileMutate.mockReset();
+    mutationState.error = null;
+    mutationState.variables = undefined;
     permissions.clear();
     permissions.add('banking:update');
     jurisdiction.code = 'US';
@@ -123,6 +134,47 @@ describe('Bank reconciliation page', () => {
     expect(within(suggestion).getByText('Matches a reconciliation rule')).toBeInTheDocument();
     await user.click(screen.getByTestId('match-rule'));
     expect(reconcileMutate.mock.calls[0][0]).toEqual({ txnId: 'bt_3', data: { type: 'manual', ruleId: 'rr_rent' } });
+  });
+
+  it('words the categorize box for money out as a bank fee or a tax payment, not as a customer payment', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+
+    // Money in (the deposit): the invoice wording.
+    await user.click(screen.getByTestId('reconcile-line-bt_2'));
+    expect(await screen.findByText('Not an invoice?')).toBeInTheDocument();
+    expect(screen.queryByText('Not a bill?')).not.toBeInTheDocument();
+
+    // Money out (the check): the bill wording.
+    await user.click(screen.getByTestId('reconcile-line-bt_1'));
+    expect(await screen.findByText('Not a bill?')).toBeInTheDocument();
+    expect(screen.getByText(/bank fees, card charges, tax payments, owner withdrawals/)).toBeInTheDocument();
+    expect(screen.getByText('Typical accounts: Bank fees, Taxes payable, Owner drawings.')).toBeInTheDocument();
+    expect(screen.queryByText('Not an invoice?')).not.toBeInTheDocument();
+  });
+
+  it('shows a refused categorize once, in the categorize box', async () => {
+    const user = userEvent.setup();
+    mutationState.error = new Error('This bank account is not linked to a ledger account.');
+    mutationState.variables = { txnId: 'bt_1', data: { type: 'manual', categoryAccountId: 'acc_fees' } };
+    renderWithProviders(<BankReconciliationPage />);
+    await user.click(screen.getByTestId('reconcile-line-bt_1'));
+
+    expect(await screen.findByTestId('categorize-error')).toHaveTextContent('not linked to a ledger account');
+    expect(screen.queryByTestId('match-error')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not linked to a ledger account/)).toHaveLength(1);
+  });
+
+  it('shows a refused match once, under the suggestions', async () => {
+    const user = userEvent.setup();
+    mutationState.error = new Error('This bank account is not linked to a ledger account.');
+    mutationState.variables = { txnId: 'bt_3', data: { type: 'manual', ruleId: 'rr_rent' } };
+    renderWithProviders(<BankReconciliationPage />);
+    await user.click(screen.getByTestId('reconcile-line-bt_3'));
+
+    expect(await screen.findByTestId('match-error')).toHaveTextContent('not linked to a ledger account');
+    expect(screen.queryByTestId('categorize-error')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not linked to a ledger account/)).toHaveLength(1);
   });
 
   it('shows the check number and the source of each bank line', async () => {

@@ -12,6 +12,15 @@ function existingContactId(err: unknown): string | null {
   return typeof details?.contactId === 'string' ? details.contactId : null;
 }
 
+/** "Customer created", "Supplier created", or "Contact created" for one that is both. */
+function createdMessage(
+  tc: { customerCreated: string; supplierCreated: string; contactCreated: string },
+  role: ContactPayload['role'],
+): string {
+  if (role === 'customer') return tc.customerCreated;
+  return role === 'supplier' ? tc.supplierCreated : tc.contactCreated;
+}
+
 /**
  * Creating a customer or supplier, shared by the full add page and the quick
  * add dialog: the create call, the "a person with this email already exists"
@@ -38,7 +47,7 @@ export function useCreateContact({
     try {
       const res = await createContact.mutateAsync({ ...payload, ...choice });
       setConflict(null);
-      toast.success(tc.contactCreated);
+      toast.success(createdMessage(tc, payload.role));
       const created = (res as { data?: { id?: unknown } } | undefined)?.data?.id;
       onCreated(typeof created === 'string' ? created : null);
     } catch (err) {

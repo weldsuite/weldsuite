@@ -138,7 +138,7 @@ describe('the BTW-aangifte of a quarter', () => {
   it('files it: the ledger rows are stamped, the tax lock date moves to the quarter end', async () => {
     const res = await vat(`/${returnId}/file`, 'POST');
     expect(res.status).toBe(200);
-    expect(res.data).toMatchObject({ id: returnId, status: 'filed', digipoortSuccess: true, message: 'BTW-aangifte submitted to Digipoort' });
+    expect(res.data).toMatchObject({ id: returnId, status: 'filed', digipoortSuccess: true, simulated: true, message: 'BTW-aangifte recorded as filed; the Digipoort submission was simulated and nothing was sent' });
     expect(res.data.kenmerk).toMatch(/^WS-/);
 
     const [entity] = await db.select().from(schema.entities).where(eq(schema.entities.id, entityId));
@@ -194,6 +194,34 @@ describe('the BTW-aangifte of a quarter', () => {
     expect((await vat(`/${other.data.id}/file`, 'POST')).error?.message).toBe('VAT/BTW number is not configured on this entity');
     expect((await vat(`/${other.data.id}/xml`)).status).toBe(400);
     await db.update(schema.entities).set({ taxIdentifiers: { vatNumber: 'NL123456789B01', registrationNumber: '12345678' } }).where(eq(schema.entities.id, entityId));
+  });
+
+  it('marks a return filed without Digipoort: reference and day kept, the period stamped, a second time refused', async () => {
+    await ledger('hoog', 'sales', '2026-05-10', 100, 21);
+    const may = await vat('/calculate', 'POST', { periodType: 'monthly', periodStart: '2026-05-01', periodEnd: '2026-05-31' });
+    expect(may.status).toBe(201);
+    const id = may.data.id as string;
+
+    // No telephone number or BTW number needed: nothing is generated or sent.
+    await db.update(schema.entities).set({ contact: {}, taxIdentifiers: { registrationNumber: '12345678' } }).where(eq(schema.entities.id, entityId));
+    expect((await vat(`/${id}/mark-filed`, 'POST', { filedAt: '31-05-2026' })).status).toBe(400);
+    expect((await vat('/vat_missing/mark-filed', 'POST', {})).status).toBe(404);
+
+    const res = await vat(`/${id}/mark-filed`, 'POST', { filingReference: 'MB-2026-05', filedAt: '2026-06-02' });
+    await db.update(schema.entities).set({ contact: { phone: '+31 20 123 4567' }, taxIdentifiers: { vatNumber: 'NL123456789B01', registrationNumber: '12345678' } }).where(eq(schema.entities.id, entityId));
+    expect(res.status).toBe(200);
+    expect(res.data).toEqual({ id, status: 'filed', filingReference: 'MB-2026-05', filedAt: '2026-06-02T00:00:00.000Z' });
+
+    const detail = await vat(`/${id}`);
+    expect(detail.data).toMatchObject({ status: 'filed', filingReference: 'MB-2026-05', filedBy: 'user_test_default' });
+    expect(detail.data.filedAt).toMatch(/^2026-06-02/);
+    const stamped = await db.select().from(schema.taxLines).where(eq(schema.taxLines.taxReturnId, id));
+    expect(stamped).toHaveLength(1);
+    const [entity] = await db.select().from(schema.entities).where(eq(schema.entities.id, entityId));
+    expect(entity.taxLockDate).toBe('2026-05-31');
+
+    expect((await vat(`/${id}/mark-filed`, 'POST', {})).error?.message).toMatch(/already been filed/);
+    expect((await vat(`/${id}/file`, 'POST')).error?.message).toMatch(/already been filed/);
   });
 });
 

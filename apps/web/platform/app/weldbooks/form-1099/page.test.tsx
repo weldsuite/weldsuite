@@ -142,7 +142,7 @@ describe('1099 Center', () => {
   it('is for US entities: another jurisdiction gets a notice and no request', async () => {
     jurisdiction.value = { isResolved: true, isError: false, features: { form1099: false } };
     renderPage();
-    expect(await screen.findByTestId('form1099-unavailable')).toBeTruthy();
+    expect(await screen.findByText(/isn't available for/)).toBeTruthy();
     expect(api.get).not.toHaveBeenCalled();
   });
 
@@ -156,7 +156,7 @@ describe('1099 Center', () => {
   it('waits for the jurisdiction before deciding', () => {
     jurisdiction.value = { isResolved: false, isError: false, features: { form1099: false } };
     renderPage();
-    expect(screen.queryByTestId('form1099-unavailable')).toBeNull();
+    expect(screen.queryByText(/isn't available for/)).toBeNull();
     expect(api.get).not.toHaveBeenCalled();
   });
 

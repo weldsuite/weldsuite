@@ -138,6 +138,7 @@ export function useInvoiceDocuments({
             br,
           });
       downloadPdf(bytes, (invoice.invoiceNumber || 'invoice') + '.pdf');
+      toast.success(st('sweep.weldbooks.records.pdfDownloaded'));
     } catch {
       toast.error(ti.failedToPdf);
     } finally {

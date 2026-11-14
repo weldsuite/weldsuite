@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   jurisdiction: { code: 'US' as string | null, form1099: true },
   createAccount: vi.fn(),
   navigate: vi.fn(),
+  toastError: vi.fn(),
 }));
+
+vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => mocks.toastError(...args), success: vi.fn() } }));
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mocks.navigate,
@@ -69,6 +72,22 @@ describe('AddAccountPage tax reporting', () => {
     mocks.jurisdiction.form1099 = true;
     mocks.createAccount.mockReset().mockResolvedValue({ data: { id: 'acc_new' } });
     mocks.navigate.mockReset();
+    mocks.toastError.mockReset();
+  });
+
+  it('stays on the page and toasts the reason when the account cannot be created', async () => {
+    mocks.createAccount.mockRejectedValue(new Error('Code already in use'));
+    const user = userEvent.setup();
+    render(<AddAccountPage />);
+    await fillBasics(user);
+    await user.click(screen.getByRole('button', { name: /Create Account/i }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith('The account could not be created', {
+        description: 'Code already in use',
+      }),
+    );
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it('asks a US entity for the tax line and the 1099 box', async () => {

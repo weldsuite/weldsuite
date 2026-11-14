@@ -13,7 +13,7 @@ vi.mock('@tanstack/react-router', () => ({
   useSearch: () => ({}),
 }));
 const entity = vi.hoisted(() => ({ jurisdiction: 'US' }));
-vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: entity.jurisdiction, isError: false }) }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: entity.jurisdiction, isError: false, isResolved: true }) }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
@@ -150,7 +150,7 @@ describe('Make deposit page', () => {
     entity.jurisdiction = 'NL';
     try {
       renderWithProviders(<MakeDepositPage />);
-      expect(screen.getByText('Deposits are for US entities')).toBeInTheDocument();
+      expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
       expect(screen.queryByTestId('make-deposit')).not.toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Back to the dashboard' })).toHaveAttribute('href', '/weldbooks/dashboard');
     } finally {

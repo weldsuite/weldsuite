@@ -23,6 +23,8 @@ import {
   CardTitle,
 } from '@weldsuite/ui/components/card';
 import { ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
+import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -89,6 +91,7 @@ export default function AddAccountPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.accounting.accounts;
+  const describeError = useDescribeError();
   const { entityCurrency } = useCurrentEntityCurrency();
   const { code: jurisdictionCode, features } = useCurrentJurisdiction();
   const isUs = jurisdictionCode === 'US';
@@ -123,22 +126,27 @@ export default function AddAccountPage() {
     // The tax line and the 1099 box exist for US entities only.
     const { taxLine, form1099Box, ...rest } = values;
     // An empty currency is left out so the API falls back to the entity's.
-    await createAccount.mutateAsync({
-      ...rest,
-      currency: values.currency || undefined,
-      ...(isUs ? { taxLine: taxLine || null, form1099Box: features.form1099 ? form1099Box || null : undefined } : {}),
-    } as Record<string, unknown>);
+    try {
+      await createAccount.mutateAsync({
+        ...rest,
+        currency: values.currency || undefined,
+        ...(isUs ? { taxLine: taxLine || null, form1099Box: features.form1099 ? form1099Box || null : undefined } : {}),
+      } as Record<string, unknown>);
+    } catch (err) {
+      toast.error(ta.createFailed, { description: describeError(err) });
+      return;
+    }
     navigate({ to: '/weldbooks/accounts' });
   };
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/weldbooks/accounts">
-          <Button variant="ghost" size="icon">
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/weldbooks/accounts" aria-label={ta.backToAccounts}>
             <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <h1 className="text-2xl font-semibold">{ta.newAccount}</h1>
       </div>
 

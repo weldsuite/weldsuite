@@ -10,6 +10,10 @@
  *
  * A point without a value is a gap, so a running total stops at "now".
  *
+ * `sample` draws the example trend of a workspace with nothing booked yet: muted
+ * dashed lines, no y labels (the values are made up), no tooltip, no hover dot,
+ * and a "Sample data" caption underneath.
+ *
  * A user's own overview chart can also draw the period as an `area` (the line
  * over a soft fill) or as `bar`s, in one of the theme's chart colours. Bars
  * keep the dashed comparison line, drawn over them, so each month is one wide
@@ -17,6 +21,7 @@
  */
 
 import { useId, useMemo } from 'react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { Area, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
 import { niceTicks, type SeriesPoint } from './dashboard-series';
@@ -68,6 +73,8 @@ type Props = Readonly<{
   shape?: 'line' | 'area' | 'bar';
   /** The period's colour; the dashboard's chart colour by default. */
   color?: string;
+  /** The points are an example, not the workspace's figures. */
+  sample?: boolean;
 }>;
 
 export function ComparisonLineChart({
@@ -78,8 +85,11 @@ export function ComparisonLineChart({
   formatTick,
   className,
   shape = 'line',
-  color = CURRENT_COLOR,
+  color: periodColor = CURRENT_COLOR,
+  sample = false,
 }: Props) {
+  const st = useTranslations();
+  const color = sample ? COMPARISON_COLOR : periodColor;
   const format = useChartFormat();
   const fillId = `fill-${useId().replace(/:/g, '')}`;
   const config = {
@@ -105,6 +115,7 @@ export function ComparisonLineChart({
   };
 
   return (
+    <>
     <ChartContainer config={config} className={className}>
       <ComposedChart
         accessibilityLayer
@@ -115,9 +126,9 @@ export function ComparisonLineChart({
       >
         <CartesianGrid vertical={false} stroke="var(--border)" horizontalCoordinatesGenerator={gridLines} />
         <YAxis
-          hide={!card}
+          hide={!card || sample}
           orientation="right"
-          width={card ? yLabelWidth + Y_LABEL_OFFSET : 0}
+          width={card && !sample ? yLabelWidth + Y_LABEL_OFFSET : 0}
           ticks={card ? ticks : undefined}
           interval={0}
           tickLine={false}
@@ -145,6 +156,7 @@ export function ComparisonLineChart({
             </text>
           )}
         />
+        {!sample && (
         <ChartTooltip
           {...FOLLOWING_TOOLTIP_PROPS}
           cursor={shape === 'bar' ? { fill: 'var(--muted)', opacity: 0.6 } : { stroke: 'var(--border)' }}
@@ -172,6 +184,7 @@ export function ComparisonLineChart({
             </FollowingTooltip>
           )}
         />
+        )}
         {shape === 'area' && (
           <defs>
             <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
@@ -190,8 +203,9 @@ export function ComparisonLineChart({
             stroke="var(--color-compareValue)"
             strokeWidth={1.5}
             strokeDasharray="4 4"
+            strokeOpacity={sample ? 0.5 : 1}
             dot={false}
-            activeDot={{ r: 3, fill: COMPARISON_COLOR, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={sample ? false : { r: 3, fill: COMPARISON_COLOR, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
@@ -201,9 +215,10 @@ export function ComparisonLineChart({
             type="linear"
             stroke="var(--color-value)"
             strokeWidth={2}
+            strokeDasharray={sample ? '4 4' : undefined}
             fill={`url(#${fillId})`}
             dot={false}
-            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={sample ? false : { r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
@@ -213,12 +228,19 @@ export function ComparisonLineChart({
             type="linear"
             stroke="var(--color-value)"
             strokeWidth={2}
+            strokeDasharray={sample ? '4 4' : undefined}
             dot={false}
-            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={sample ? false : { r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
       </ComposedChart>
     </ChartContainer>
+    {sample ? (
+      <p className="mt-2 text-xs text-muted-foreground" data-testid="sample-caption">
+        {st('sweep.weldbooks.records.sampleData')}
+      </p>
+    ) : null}
+    </>
   );
 }
