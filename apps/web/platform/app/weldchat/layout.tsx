@@ -6,19 +6,11 @@ import { ChatLayoutClient } from './components/chat-layout-client';
 import { useRememberWeldChatPage } from './hooks/use-last-weldchat-page';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ensureNotificationPermission } from '@/lib/desktop-notifications';
-import { isLiveKit } from '@/lib/video-provider';
+import { prefetchCallSdk } from './lib/prefetch-call-sdk';
 
-// Eagerly preload the call SDK so it's ready when a call starts.
-// This import runs once when the WeldChat layout module is loaded and
-// warms the chunk in the browser cache, avoiding a lazy-load delay at call time.
-// The Kubernetes editions (runtime config says LiveKit; it is read before the
-// app boots) join calls with the LiveKit client instead. Global loads
-// RealtimeKit exactly as before and never fetches livekit-client.
-if (isLiveKit()) {
-  import('@weldsuite/weldmeet-ui/providers/livekit').catch(() => {});
-} else {
-  import('@cloudflare/realtimekit').catch(() => {});
-}
+// Eagerly preload the call SDK (LiveKit's or RealtimeKit's) so it's ready when
+// a call starts: this runs once when the WeldChat layout module is loaded.
+void prefetchCallSdk();
 
 export default function ChatLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { t } = useI18n();
