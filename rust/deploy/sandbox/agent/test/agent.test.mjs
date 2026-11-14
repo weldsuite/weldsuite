@@ -12,13 +12,16 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import zlib from 'node:zlib';
 
-import { plan } from '../lib/desktop.mjs';
+import { waitMs } from '../lib/browser.mjs';
+import { pauseMs, plan } from '../lib/desktop.mjs';
 import { egress } from '../lib/egress.mjs';
+import { commandTimeoutMs } from '../lib/exec.mjs';
 import { checkUrl, fetchPage, htmlToText, parseUrl } from '../lib/fetch.mjs';
 import { createProxy } from '../lib/proxy.mjs';
 import {
   BadRequest,
   Capped,
+  bounded,
   cap,
   checkedLookup,
   isPublicIp,
@@ -330,6 +333,30 @@ describe('the browser proxy', () => {
       tunnel.socket.write(`GET / HTTP/1.1\r\nhost: tunnelled\r\nconnection: close\r\n\r\n`);
     });
     assert.match(reply, /^HTTP\/1\.1 200[\s\S]*hello tunnelled$/);
+  });
+});
+
+describe('timers', () => {
+  it('holds every duration a caller sets between its bounds', () => {
+    assert.equal(bounded(undefined, 5, 1, 10), 5);
+    assert.equal(bounded('abc', 5, 1, 10), 5);
+    assert.equal(bounded(0, 5, 1, 10), 5);
+    assert.equal(bounded(7, 5, 1, 10), 7);
+    assert.equal(bounded(-3, 5, 1, 10), 1);
+    assert.equal(bounded(1e15, 5, 1, 10), 10);
+    assert.equal(bounded('Infinity', 5, 1, 10), 10);
+    assert.equal(bounded('-Infinity', 5, 1, 10), 1);
+    assert.equal(commandTimeoutMs(undefined), 60_000);
+    assert.equal(commandTimeoutMs(5_000), 5_000);
+    assert.equal(commandTimeoutMs(1), 1_000);
+    assert.equal(commandTimeoutMs(2 ** 40), 120_000);
+    assert.equal(waitMs(undefined), 1000);
+    assert.equal(waitMs(-50), 0);
+    assert.equal(waitMs(2 ** 40), 30_000);
+    assert.equal(pauseMs(undefined), 1000);
+    assert.equal(pauseMs(2.5), 2500);
+    assert.equal(pauseMs(-1), 0);
+    assert.equal(pauseMs(1e12), 10_000);
   });
 });
 

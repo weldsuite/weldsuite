@@ -10,11 +10,16 @@ import { spawn } from 'node:child_process';
 import { DISPLAY, HEIGHT, WIDTH, ensureDesktop } from './desktop.mjs';
 import { checkUrl } from './fetch.mjs';
 import { proxyUrl } from './proxy.mjs';
-import { BadRequest, cap } from './util.mjs';
+import { BadRequest, bounded, cap } from './util.mjs';
 
 const DEBUG_PORT = 9222;
 const PAGE_TEXT = 8000;
 const SHOT_BASE64 = 1_500_000;
+
+/** The `wait` action's pause: 1 s unless asked, at most 30 s. */
+export function waitMs(value) {
+  return bounded(value, 1000, 0, 30_000);
+}
 
 /** A DevTools connection: commands by id, events by name. */
 export class Cdp {
@@ -264,7 +269,7 @@ export async function act(body) {
       await settle(10_000);
       break;
     case 'wait':
-      await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(Number(body.waitMs) || 1000, 0), 30_000)));
+      await new Promise((resolve) => setTimeout(resolve, waitMs(body.waitMs)));
       break;
     case 'screenshot':
     case 'extract':

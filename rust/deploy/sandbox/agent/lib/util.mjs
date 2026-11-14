@@ -49,6 +49,18 @@ export class Capped {
   }
 }
 
+/**
+ * A number the caller chose (a timeout, a wait) held between `min` and
+ * `max`; `fallback` when it is missing, zero or not a number. Every timer a
+ * request can set takes its duration from here, so none outlasts its route.
+ */
+export function bounded(value, fallback, min, max) {
+  const number = Number(value) || fallback;
+  if (number > max) return max;
+  if (number < min) return min;
+  return number;
+}
+
 /** The sandbox's working directory (`SANDBOX_WORKSPACE`, tests only). */
 export function workspaceRoot() {
   return process.env.SANDBOX_WORKSPACE || '/workspace';
