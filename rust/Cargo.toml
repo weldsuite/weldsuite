@@ -190,3 +190,14 @@ debug = "line-tables-only"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# The image `Rust · image and chart` builds on a pull request (ci.yml, the
+# CARGO_PROFILE build argument of rust/Dockerfile). Thin LTO with one codegen
+# unit made that build 20 to 40 minutes whenever the Rust layer missed the
+# cache; a pull request's image only has to deploy and pass the kind smoke
+# test. Pushes to main still build `release`, the profile that ships.
+[profile.ci-image]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 1

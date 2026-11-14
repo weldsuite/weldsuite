@@ -14,13 +14,19 @@ name: CI
 #
 # On a pull request most jobs run only when the PR touches what they check:
 # the "changes" job maps the changed files onto areas (api, platform, desktop,
-# packages, rust, image, conformance, workers; see .github/scripts/ci-changes.mjs) and
+# packages, rust, image, crossbuild, deploy, conformance, workers; see
+# .github/scripts/ci-changes.mjs) and
 # each job skips when its area is "false". A job skipped by its `if:` counts as
 # passed for branch protection, and the aggregating jobs accept "skipped" too.
 # Never gate this workflow with `on.pull_request.paths`: a workflow that does
 # not start leaves its required checks pending forever.
 # Gated jobs run when the area is anything but "false", so if "changes" itself
 # fails they all run. Pushes to main run everything.
+#
+# Caches are saved by pushes to main only; a pull request restores them and
+# saves nothing (setup-monorepo, `save-if` on rust-cache, `cache-to` on the
+# image builds). The Actions cache holds 10 GB, and pull requests saving their
+# own copies evicted main's, so most jobs started cold.
 
 on:
   workflow_dispatch:
@@ -54,6 +60,8 @@ jobs:
       packages: ${{ steps.areas.outputs.packages }}
       rust: ${{ steps.areas.outputs.rust }}
       image: ${{ steps.areas.outputs.image }}
+      crossbuild: ${{ steps.areas.outputs.crossbuild }}
+      deploy: ${{ steps.areas.outputs.deploy }}
       conformance: ${{ steps.areas.outputs.conformance }}
       workers: ${{ steps.areas.outputs.workers }}
     steps:
@@ -173,6 +181,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          save-if: ${{ github.event_name != 'pull_request' }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
@@ -198,23 +207,32 @@ jobs:
         working-directory: rust
         run: cargo deny check
 
-  # The image (amd64, and the arm64 cross-build) with the platform SPA, the
+  # The amd64 image with the platform SPA, the
   # sign portal's image, and the Helm chart, deployed into kind with Postgres,
   # Valkey and NATS: the full authenticated pipeline, the SPA and the portal
   # (rust/deploy/kind/smoke-test.sh). The build context is the repo root
-  # (rust/Dockerfile.dockerignore keeps it small).
-  # Cached, the builds take minutes; when a change misses the cache, the
-  # release build (LTO, one codegen unit, every module) takes about 40
-  # minutes for amd64 and again for the arm64 cross-build.
+  # (rust/Dockerfile.dockerignore keeps it small). The arm64 cross-build is
+  # its own job (rust-image-arm64), so the two no longer run one after the
+  # other.
   # On a PR it runs only when a file the image alone reads changes (the
-  # "image" area, IMAGE_PATHS in ci-changes.mjs); every push to main and
-  # main builds it.
+  # "image" area, IMAGE_PATHS in ci-changes.mjs); every push to main builds it.
+  # A push to main builds the `release` profile, the one that ships (thin LTO,
+  # one codegen unit: 20 to 40 minutes when the Rust layer misses the cache,
+  # which it does whenever main's Rust code moved). A PR builds `ci-image`
+  # (rust/Cargo.toml: no LTO, 16 codegen units, opt-level 1) when its backend
+  # would miss the cache anyway: its image only has to deploy and pass the
+  # smoke test, and a break that only the release settings show turns main
+  # red, not the PR. See "Pick the Cargo profile".
   rust-image:
     name: Rust · image and chart
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.image != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      # Main's newest green CI run, for "Pick the Cargo profile".
+      actions: read
     steps:
       # A build that misses the layer cache (a changed Cargo.lock or
       # pnpm-lock.yaml) compiles every crate and installs the SPA's
@@ -227,7 +245,38 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h /
       - uses: actions/checkout@v4
+      # The backend layer's cache key includes CARGO_PROFILE, and only pushes
+      # to main save layers, built `release`. A PR whose backend inputs match
+      # main's newest green CI run builds `release` too and takes that layer
+      # from the cache in minutes (a chart-only change, say). Any other PR
+      # would compile the backend anyway, and builds the cheaper `ci-image`.
+      - name: Pick the Cargo profile
+        id: profile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          profile=release
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            profile=ci-image
+            # What rust/Dockerfile's `build` stage copies, and the file itself.
+            inputs=(rust/Dockerfile rust/Dockerfile.dockerignore rust/rust-toolchain.toml rust/Cargo.toml
+              rust/Cargo.lock rust/clippy.toml rust/.cargo rust/catalogs rust/crates rust/modules rust/bins
+              packages/core/db/drizzle)
+            sha="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' || true)"
+            if [ -n "$sha" ] && git fetch --quiet --depth=1 origin "$sha" && git diff --quiet "$sha" HEAD -- "${inputs[@]}"; then
+              profile=release
+              echo "The backend's inputs match main's ${sha::12}, whose release layer is cached."
+            fi
+          fi
+          echo "Cargo profile: $profile"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+      # Its post step, which removes the builder and its gigabytes of layers,
+      # took two to three minutes; the runner is thrown away anyway.
       - uses: docker/setup-buildx-action@v3
+        with:
+          cleanup: false
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
@@ -235,8 +284,9 @@ jobs:
           file: rust/Dockerfile
           load: true
           tags: weldsuite:dev
+          build-args: CARGO_PROFILE=${{ steps.profile.outputs.profile }}
           cache-from: type=gha,scope=rust-image
-          cache-to: type=gha,mode=max,scope=rust-image
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-image' || '' }}
       - name: Build the sign portal's image
         uses: docker/build-push-action@v6
         with:
@@ -284,7 +334,7 @@ jobs:
           load: true
           tags: weldsuite-haraka:dev
           cache-from: type=gha,scope=rust-haraka
-          cache-to: type=gha,mode=max,scope=rust-haraka
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-haraka' || '' }}
       # WeldAgent's sandbox pods (ADR AI-012 phase 5): the agent's own tests,
       # then the image, which must have what the agent drives.
       - uses: actions/setup-node@v4
@@ -300,7 +350,7 @@ jobs:
           load: true
           tags: weldsuite-sandbox:dev
           cache-from: type=gha,scope=rust-sandbox
-          cache-to: type=gha,mode=max,scope=rust-sandbox
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-sandbox' || '' }}
       - name: The sandbox image has its tools
         run: |
           set -euo pipefail
@@ -312,21 +362,8 @@ jobs:
           version="$(docker run --rm weldsuite:dev version)"
           echo "$version"
           case "$version" in
-            *conformance*) echo "the release image was built with the test-only conformance feature" >&2; exit 1 ;;
+            *conformance*) echo "the image was built with the test-only conformance feature" >&2; exit 1 ;;
           esac
-      # The SPA stages run on the build machine's platform: their layers come
-      # from the amd64 build's cache.
-      - name: Cross-build the arm64 image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: rust/Dockerfile
-          platforms: linux/arm64
-          outputs: type=cacheonly
-          cache-from: |
-            type=gha,scope=rust-image-arm64
-            type=gha,scope=rust-image
-          cache-to: type=gha,mode=max,scope=rust-image-arm64
       - uses: azure/setup-helm@v4
       - name: Lint the chart
         run: |
@@ -342,13 +379,51 @@ jobs:
           KEEP_CLUSTER: "1"
         run: rust/deploy/kind/smoke-test.sh
 
+  # The backend cross-compiled for linux/arm64 (the image's `build` stage: the
+  # C dependencies through the cross toolchain, the target's linker). The rest
+  # of the image is JavaScript built on the build machine's platform, the same
+  # for both architectures, so rust-image covers it. It ran after the amd64
+  # build in rust-image, and the two release builds made that job an hour.
+  # On a PR it runs only when the Dockerfile, the toolchain or the Cargo
+  # manifest or lockfile changes (the "crossbuild" area), with the PR profile;
+  # every push to main builds `release`.
+  rust-image-arm64:
+    name: Rust · image arm64
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.crossbuild != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+        with:
+          cleanup: false
+      - name: Cross-build the backend for arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: build
+          platforms: linux/arm64
+          outputs: type=cacheonly
+          build-args: CARGO_PROFILE=${{ github.event_name == 'pull_request' && 'ci-image' || 'release' }}
+          cache-from: type=gha,scope=rust-image-arm64
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-image-arm64' || '' }}
+
   # The EU deploy configuration (rust/deploy): OpenTofu for Hetzner validated,
   # every Flux layer built and schema-checked, every pinned chart rendered with
-  # its values. No cloud account involved.
+  # its values. No cloud account involved. On a PR it runs when rust/deploy/
+  # changes (the "deploy" area); nothing else it reads lives outside it.
   rust-deploy:
     name: Rust · deploy config
     needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.deploy != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -368,13 +443,15 @@ jobs:
 
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
-  # schemas, side effects). On a PR only the suites its changes touch; on
-  # main all of them. The route coverage of the changed workers
-  # runs on its own runner (rust-conformance-coverage).
+  # schemas, side effects). On a PR only the suites its changes touch (a change
+  # inside one rust/modules crate runs that module's suites, see selectSuites
+  # in scripts/rust-conformance.ts); on main all of them. The route coverage
+  # of the changed workers runs on its own runner (rust-conformance-coverage).
   # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
-  # the suites are dealt over eight runners (four took up to 36 minutes at 62
-  # suites; the ported wave 3 modules made it 76, and six still came within
-  # five minutes of the limit). "Rust · conformance" stays
+  # the suites are dealt over eight runners by their number of test files
+  # (about 8 seconds each), so the shards finish within a minute of each
+  # other: 159 suites are about 86 minutes, 11 per shard plus the build.
+  # "Rust · conformance" stays
   # the check that fails unless every shard succeeded. Keep --shard's n equal
   # to the matrix length.
   rust-conformance-shards:
@@ -399,6 +476,7 @@ jobs:
         with:
           workspaces: rust
           key: conformance
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Conformance suites
         run: |
           set -euo pipefail
@@ -459,7 +537,7 @@ jobs:
 
   rust-all:
     name: Rust
-    needs: [rust-checks, rust-image, rust-deploy, rust-conformance]
+    needs: [rust-checks, rust-image, rust-image-arm64, rust-deploy, rust-conformance]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -471,6 +549,7 @@ jobs:
           ok() { echo "$1: $2"; test "$2" = "success" || test "$2" = "skipped"; }
           ok "checks" "${{ needs.rust-checks.result }}"
           ok "image and chart" "${{ needs.rust-image.result }}"
+          ok "image arm64" "${{ needs.rust-image-arm64.result }}"
           ok "deploy config" "${{ needs.rust-deploy.result }}"
           ok "conformance" "${{ needs.rust-conformance.result }}"
 
@@ -497,7 +576,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Restore TypeScript incremental cache
-        uses: actions/cache@v4
+        id: tsc-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             apps/workers/*/tsconfig.tsbuildinfo
@@ -527,6 +607,17 @@ jobs:
           # --incremental writes tsconfig.tsbuildinfo (gitignored). The cache
           # above restores it, so a later run rechecks changed files.
           pnpm "${args[@]}" exec tsc --noEmit --incremental --pretty false
+      # Pushes to main only, like every cache in this file.
+      - name: Save TypeScript incremental cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/workers/*/tsconfig.tsbuildinfo
+            packages/domains/*/tsconfig.tsbuildinfo
+            packages/core/api-modules/tsconfig.tsbuildinfo
+            packages/core/worker-*/tsconfig.tsbuildinfo
+          key: ${{ steps.tsc-cache.outputs.cache-primary-key }}
 
   type-check-api:
     name: Type Check · app-api
@@ -560,7 +651,8 @@ jobs:
       # Platform tsconfig already sets incremental. Persist the build info
       # so a later run rechecks changed files instead of the whole app.
       - name: Restore platform TypeScript cache
-        uses: actions/cache@v4
+        id: platform-tsc-cache
+        uses: actions/cache/restore@v4
         with:
           path: apps/web/platform/tsconfig.tsbuildinfo
           key: platform-tsc-${{ runner.os }}-${{ hashFiles('apps/web/platform/tsconfig.json', 'pnpm-lock.yaml') }}-${{ github.sha }}
@@ -569,6 +661,13 @@ jobs:
       - name: Type-check platform
         working-directory: apps/web/platform
         run: pnpm type-check
+      # Pushes to main only, like every cache in this file.
+      - name: Save platform TypeScript cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/web/platform/tsconfig.tsbuildinfo
+          key: ${{ steps.platform-tsc-cache.outputs.cache-primary-key }}
 
   # ────────────────────────────────────────────
   # Desktop shell. Type-check + bundle only — NOT packaging: electron-builder
@@ -626,23 +725,34 @@ jobs:
             pnpm --filter "$w" test
           done
 
+  # app-api's own tests and the worker packages' ran one after the other on
+  # one runner (about 14.5 minutes on main by November 2026); on two they
+  # take about 7 each.
   unit-api-core:
     name: Unit · app-api core
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
-    # app-api plus every worker package, one after another: about 14.5 minutes
-    # on main by November 2026, so 15 left no room for new tests.
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/workers/app-api
         run: pnpm test
-      # Includes the module ownership test: every app-api mount must belong to
-      # exactly one module in @weldsuite/api-modules, and API workers may not
-      # import from each other. Also the WeldBoard engine (board-api runs it).
+
+  # Includes the module ownership test: every app-api mount must belong to
+  # exactly one module in @weldsuite/api-modules, and API workers may not
+  # import from each other. Also the WeldBoard engine (board-api runs it).
+  unit-api-packages:
+    name: Unit · worker packages
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest · worker packages
         run: |
           set -euo pipefail
@@ -650,19 +760,22 @@ jobs:
 
   unit-api:
     name: Unit · app-api
-    needs: [unit-api-core, unit-api-modules]
+    needs: [unit-api-core, unit-api-packages, unit-api-modules]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require app-api and module-worker tests
+      - name: Require app-api, worker-package and module-worker tests
         run: |
           set -euo pipefail
           core="${{ needs.unit-api-core.result }}"
+          packages="${{ needs.unit-api-packages.result }}"
           modules="${{ needs.unit-api-modules.result }}"
-          echo "app-api + packages: $core"
+          echo "app-api: $core"
+          echo "worker packages: $packages"
           echo "module API workers: $modules"
           test "$core" = "success" || test "$core" = "skipped"
+          test "$packages" = "success" || test "$packages" = "skipped"
           test "$modules" = "success" || test "$modules" = "skipped"
 
   unit-personal-api:
@@ -722,18 +835,40 @@ jobs:
         working-directory: apps/workers/audit-log-worker
         run: pnpm test
 
-  unit-platform:
-    name: Unit · platform
+  # The platform's Vitest run took 9 to 11 minutes on one runner; Vitest's
+  # own --shard splits the test files over two. "Unit · platform" is the
+  # required check and fails unless both shards succeeded. Keep --shard's n
+  # equal to the matrix length.
+  unit-platform-shards:
+    name: Unit · platform (${{ matrix.shard }}/2)
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.platform != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/web/platform
-        run: pnpm test
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
+
+  unit-platform:
+    name: Unit · platform
+    needs: [unit-platform-shards]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every platform test shard
+        run: |
+          set -euo pipefail
+          result="${{ needs.unit-platform-shards.result }}"
+          echo "shards: $result"
+          test "$result" = "success" || test "$result" = "skipped"
 
   # Full-graph build. Blocking as of #66. The name "Build" is the
   # required check. Platform's Vite bundle (~3 min) and the rest of the
