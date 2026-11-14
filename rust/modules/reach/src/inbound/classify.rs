@@ -99,6 +99,28 @@ fn classify_prompt(subject: &str, text: &str) -> String {
     )
 }
 
+/// `workspaces.id` for an org id (either id resolves); the reference itself
+/// without a master database or when the lookup fails.
+async fn workspace_id_of(master: Option<&PgPool>, reference: &str) -> String {
+    let Some(master) = master else {
+        return reference.to_owned();
+    };
+    match sqlx::query_scalar::<_, String>(
+        "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
+    )
+    .bind(reference)
+    .fetch_optional(master)
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => reference.to_owned(),
+        Err(error) => {
+            tracing::warn!(%error, "[reach-classify] workspace lookup failed");
+            reference.to_owned()
+        }
+    }
+}
+
 /// `classifyReplyText`: one metered model call; never fails. `tenant` holds
 /// the workspace's AI settings (WeldReach may be routed to a provider it
 /// opted in to); without it the install's defaults apply.
@@ -114,7 +136,10 @@ pub async fn classify_reply_text(
     if reply.is_empty() {
         return Err(NotClassified::Empty);
     }
-    let mut call = AiCall::new(clerk_org_id, Feature::Reach, Task::Classify, Tier::Quality)
+    // The inbound path carries the Clerk (or OIDC) org id; the AI settings, the
+    // settings cache and a workspace's own keys are keyed by `workspaces.id`.
+    let workspace_id = workspace_id_of(classifier.master.as_ref(), clerk_org_id).await;
+    let mut call = AiCall::new(workspace_id, Feature::Reach, Task::Classify, Tier::Quality)
         .user("system")
         .master(classifier.master.clone())
         .op(CLASSIFY_OP)

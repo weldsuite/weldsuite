@@ -47,6 +47,9 @@ use crate::js::{as_text, coalesce, js_number, js_string};
 /// The ledger ops (`chargeUsage({ op })`).
 const OP_GENERATE: &str = "ai_generate";
 const OP_CLASSIFY: &str = "ai_classify";
+/// `credit_transactions.reference_type` of an AI step's charge, as
+/// workflow-worker books it: the run's cap sums these.
+const STEP_REFERENCE_TYPE: &str = "workflow_step";
 
 /// Rough characters per token, for the cap's estimate only.
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
@@ -122,7 +125,7 @@ impl Scope {
             .reference(&self.execution_id)
             // `chargeStepUsage`: booked against the step, once per attempt.
             .ledger(LedgerTag {
-                reference_type: "workflow_step".to_owned(),
+                reference_type: STEP_REFERENCE_TYPE.to_owned(),
                 idempotency_key: Some(format!("wf:{}:{}:{op}", self.execution_id, self.step_id)),
                 label: "Workflow AI".to_owned(),
             });
@@ -201,11 +204,12 @@ async fn charged_this_run(
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         "select coalesce(sum(abs(amount)), 0)::bigint from credit_transactions
-         where workspace_id = $1 and reference_id = $2 and reference_type = 'ai'
+         where workspace_id = $1 and reference_id = $2 and reference_type = $3
            and service_type = 'ai_tokens'",
     )
     .bind(workspace_id)
     .bind(execution_id)
+    .bind(STEP_REFERENCE_TYPE)
     .fetch_one(master)
     .await
 }
@@ -559,7 +563,7 @@ mod tests {
         assert_eq!(
             call.ledger,
             Some(LedgerTag {
-                reference_type: "workflow_step".to_owned(),
+                reference_type: STEP_REFERENCE_TYPE.to_owned(),
                 idempotency_key: Some("wf:wex_1:step_1:ai_generate".to_owned()),
                 label: "Workflow AI".to_owned(),
             })

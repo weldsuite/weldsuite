@@ -85,7 +85,7 @@ describe('edition flags', () => {
     setRuntimeConfig({
       backend: 'rust',
       modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-      unavailableFeatures: ['sso-connections', 'billing'],
+      unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up'],
     });
     const hrefs = settingsCommands(en, new Set(['weldcrm'])).map((command) => command.href);
     expect(hrefs).toContain('/settings/team');
@@ -93,6 +93,17 @@ describe('edition flags', () => {
     for (const hidden of ['/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
       expect(hrefs, hidden).not.toContain(hidden);
     }
+  });
+
+  it('keeps the billing page for the credit top-up when Stripe billing is unavailable', () => {
+    setRuntimeConfig({
+      backend: 'rust',
+      modules: ['core'],
+      unavailableFeatures: ['sso-connections', 'billing'],
+    });
+    const hrefs = settingsCommands(en, new Set()).map((command) => command.href);
+    expect(hrefs).toContain('/settings/billing');
+    expect(hrefs).not.toContain('/settings/plans');
   });
 
   it('keeps every settings page on Global', () => {
