@@ -7,6 +7,9 @@
 
 import workspaceDeletion from './admin/workspace-deletion';
 import aiProviderEnabled from './ai/provider-enabled';
+import authPasswordReset from './auth/password-reset';
+import authSignInCode from './auth/sign-in-code';
+import authVerifyEmail from './auth/verify-email';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
 import deskReport from './desk/report';
@@ -45,6 +48,9 @@ export const templates = {
   'meet.invitation': meetInvitation,
   booking,
   'workspace.invitation': workspaceInvitation,
+  'auth.verify-email': authVerifyEmail,
+  'auth.sign-in-code': authSignInCode,
+  'auth.password-reset': authPasswordReset,
   notification,
   'task.assigned': taskAssigned,
   'desk.report': deskReport,

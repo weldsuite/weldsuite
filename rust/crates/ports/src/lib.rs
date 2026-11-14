@@ -68,9 +68,10 @@ pub use files::{
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
     ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
-    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
-    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
-    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
+    IdentityResult, Invitation, InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser,
+    Membership, MemoryIdentity, NewInvitation, NewMembership, NewOrganization, Organization,
+    OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata,
+    with_identity,
 };
 pub use imap::{
     ImapConfig, ImapConnector, ImapError, ImapErrorKind, ImapSession, MailboxInfo, MemoryImap,
@@ -95,9 +96,9 @@ pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
 pub use sign_in::{
-    AuthMethods, AuthRequest, CodeFormat, CodeKind, LinkTemplate, MemorySignIn, MemoryUser,
-    NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError, SignInProvider,
-    SignInResult, SignInSettings, SignInUser, UserStatus,
+    AuthMethods, AuthRequest, CodeDelivery, CodeFormat, CodeKind, LinkTemplate, MemorySignIn,
+    MemoryUser, NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError,
+    SignInProvider, SignInResult, SignInSettings, SignInUser, UserStatus,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

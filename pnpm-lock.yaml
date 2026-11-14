@@ -8297,6 +8297,9 @@ importers:
       '@types/react-dom':
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.7)
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config

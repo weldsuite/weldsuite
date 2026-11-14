@@ -129,7 +129,7 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   }, [activateOrgId, setActive, orgId, pendingOrgId]);
 
   return {
-    status: gateStatus(decision, failed, activeRef),
+    status: gateStatus(decision, failed, activeRef, orgId),
     ownsActivation: enabled && urlRef !== null,
     memberships,
     target,
@@ -140,12 +140,16 @@ function gateStatus(
   decision: WorkspaceUrlDecision | null,
   failed: boolean,
   activeRef: string | null,
+  orgId: string | null | undefined,
 ): WorkspaceUrlGateStatus {
   if (!decision || decision.kind === 'skip') return 'off';
   if (failed) return 'error';
   if (decision.kind === 'not-found') return 'not-found';
   if (decision.kind === 'follow') return 'ready'; // already rendered; the page navigates away
-  // Links must carry the workspace before anything renders.
-  if (decision.kind === 'ready' && activeRef === decision.ref) return 'ready';
+  // Links must carry the workspace before anything renders. Its id carries it
+  // as well as its slug: with OIDC sign-in the slug arrives after the page has
+  // rendered under the id, and blocking for that rename would remount the page
+  // (a bank feed's callback would run its one-time code twice).
+  if (decision.kind === 'ready' && (activeRef === decision.ref || (!!orgId && activeRef === orgId))) return 'ready';
   return 'blocked';
 }

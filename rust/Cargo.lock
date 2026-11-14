@@ -4266,6 +4266,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "url",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",
@@ -5033,6 +5034,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "weldsuite-emails",
  "weldsuite-kit",
  "weldsuite-ports",
 ]

@@ -35,22 +35,28 @@
 //! ([`limits`]). The provider session is kept in an `HttpOnly` cookie
 //! ([`cookie`]); passwords and codes pass through to the provider and are
 //! never stored or logged.
+//!
+//! The codes are emailed in WeldSuite's own templates when the server has
+//! system mail and the platform's address; otherwise the provider sends its
+//! own ([`mail`]).
 
 mod cookie;
 mod flow;
 mod limits;
+mod mail;
 mod routes;
 
 use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use weldsuite_ports::{DynCache, SignInProvider};
+use weldsuite_ports::{DynCache, DynSystemMail, SignInProvider};
 
 use crate::limits::Limits;
 
-/// Where the links in the provider's emails point: the platform's pages.
-/// `{user}` and `{code}` are the provider's to fill in.
+/// Where the links in the sign-in emails point: the platform's pages.
+/// `{user}` and `{code}` are the provider's to fill in, or ours when
+/// WeldSuite sends the email.
 #[derive(Debug, Default)]
 struct Links {
     verification: Option<String>,
@@ -89,6 +95,36 @@ impl Links {
     fn password_reset(&self) -> Option<&str> {
         self.password_reset.as_deref()
     }
+
+    /// The verification link for `user` and `code`.
+    fn verification_for(&self, user: &str, code: &str) -> Option<String> {
+        Some(fill(self.verification()?, user, code))
+    }
+
+    /// The reset link for `user` and `code`.
+    fn password_reset_for(&self, user: &str, code: &str) -> Option<String> {
+        Some(fill(self.password_reset()?, user, code))
+    }
+}
+
+/// A link template with the account's id and the code written in.
+fn fill(template: &str, user: &str, code: &str) -> String {
+    template
+        .replace("{user}", &percent(user))
+        .replace("{code}", &percent(code))
+}
+
+/// Percent-encodes everything but unreserved characters.
+fn percent(value: &str) -> String {
+    use std::fmt::Write as _;
+    value.bytes().fold(String::new(), |mut out, byte| {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+        out
+    })
 }
 
 /// What the routes run on.
@@ -97,6 +133,8 @@ pub struct SignInState {
     provider: Arc<dyn SignInProvider>,
     limits: Limits,
     links: Arc<Links>,
+    /// The system mail, when WeldSuite emails the codes itself.
+    mail: Option<Arc<dyn DynSystemMail>>,
 }
 
 impl SignInState {
@@ -115,7 +153,17 @@ impl SignInState {
             provider,
             limits: Limits::new(cache, trusted_proxies),
             links: Arc::new(Links::new(platform_url)),
+            mail: None,
         }
+    }
+
+    /// Email the codes in WeldSuite's templates through `mail` (with a
+    /// platform address for the links); without it the provider sends its
+    /// own.
+    #[must_use]
+    pub fn with_mail(mut self, mail: Option<Arc<dyn DynSystemMail>>) -> Self {
+        self.mail = mail;
+        self
     }
 }
 
@@ -123,6 +171,7 @@ impl std::fmt::Debug for SignInState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignInState")
             .field("links", &self.links)
+            .field("mail", &self.mail.is_some())
             .finish_non_exhaustive()
     }
 }
