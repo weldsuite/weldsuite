@@ -88,16 +88,14 @@ export interface CreditsSummary {
   transactions: CreditTransactionRow[];
 }
 
-/**
- * Who issued an invoice: 'stripe' on Global, 'weldbooks' on the EU edition
- * (ADR BILL-014). Payments are 'stripe' or 'mollie'. Kept as a string so a
- * new provider reads as "not Stripe" instead of failing.
- */
-export type BillingProvider = string;
-
 export interface InvoiceRow {
   id: string;
-  provider: BillingProvider;
+  /**
+   * Who issued the invoice: 'stripe' on Global, 'weldbooks' on the EU edition
+   * (ADR BILL-014). A plain string, so a new provider reads as "not Stripe"
+   * instead of failing.
+   */
+  provider: string;
   /** The Mollie payment (`tr_…`) a WeldBooks invoice was issued for; null on Stripe rows. */
   providerPaymentId: string | null;
   number: string | null;
@@ -112,7 +110,8 @@ export interface InvoiceRow {
 
 export interface PaymentRow {
   id: string;
-  provider: BillingProvider;
+  /** 'stripe' on Global, 'mollie' on the EU edition. */
+  provider: string;
   /** The Mollie payment (`tr_…`); null on Stripe rows. */
   providerPaymentId: string | null;
   /** What a Mollie charge was for: checkout, change, renewal, pay_link, mandate. */

@@ -104,6 +104,20 @@ export function readPayLinkReturn(search: string): 'done' | 'expired' | null {
   return pay === 'done' || pay === 'expired' ? pay : null;
 }
 
+/** Says where a pay link sent the browser back, strips `pay` from the URL and refreshes. */
+function showPayLinkReturn(strings: BillingCheckoutReturnStrings, refresh: () => void): void {
+  const pay = readPayLinkReturn(window.location.search);
+  if (!pay) return;
+  const params = new URLSearchParams(window.location.search);
+  params.delete('pay');
+  const rest = params.toString();
+  const query = rest ? `?${rest}` : '';
+  window.history.replaceState({}, '', window.location.pathname + query);
+  const message = pay === 'done' ? strings.payLinkDone : strings.payLinkExpired;
+  if (message) toast.info(message);
+  refresh();
+}
+
 function showBilling(
   status: BillingCheckoutStatusResponse['status'] | null,
   purpose: BillingCheckoutStatusResponse['purpose'] | null,
@@ -145,15 +159,8 @@ export function useCreditCheckoutReturn(
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const pay = billingStrings ? readPayLinkReturn(window.location.search) : null;
-    if (billingStrings && pay) {
-      const params = new URLSearchParams(window.location.search);
-      params.delete('pay');
-      const rest = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
-      const message = pay === 'done' ? billingStrings.payLinkDone : billingStrings.payLinkExpired;
-      if (message) toast.info(message);
-      void queryClient.invalidateQueries({ queryKey: ['billing'] });
+    if (billingStrings) {
+      showPayLinkReturn(billingStrings, () => void queryClient.invalidateQueries({ queryKey: ['billing'] }));
     }
     const found = readCheckoutReturn(window.location.search);
     if (!found) return;

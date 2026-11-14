@@ -182,6 +182,13 @@ interface ShapeSpec {
   lists?: ShapeListSpec[];
 }
 
+/** `billing.dunning`'s kind from its flags: none is a failed charge. */
+function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
+  if (flags.has('ended')) return 'ended';
+  if (flags.has('reminder')) return 'reminder';
+  return 'failed';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -427,7 +434,7 @@ const SPECS: Spec[] = [
     flags: ['reminder', 'ended'],
     fields: ['workspace_name', 'plan_name', 'amount', 'ends_on', 'url'],
     props: (f) => ({
-      kind: f.has('ended') ? 'ended' : f.has('reminder') ? 'reminder' : 'failed',
+      kind: dunningKind(f),
       workspaceName: S('workspace_name'),
       planName: S('plan_name'),
       amount: S('amount'),

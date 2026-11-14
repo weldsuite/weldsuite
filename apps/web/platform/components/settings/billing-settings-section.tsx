@@ -2095,49 +2095,62 @@ export function BillingSettingsSection() {
         seats: seats,
         cycle: billingCycle === 'annually' ? 'yearly' : 'monthly',
       });
-
-      if (result.url) {
-        // Redirect to the hosted checkout (Stripe Checkout, or Mollie's)
-        window.location.href = result.url;
-        return;
-      } else if (result.paymentRequired && result.paymentUrl) {
-        // A running Mollie subscription changed, but the difference has to be paid first
-        window.location.href = result.paymentUrl;
-        return;
-      } else if (result.success) {
-        if (result.scheduled && result.effectiveAt) {
-          // Mollie: takes effect at the period end, so the plan has not changed yet
-          toast.success(
-            fillText(i18n.settings.billing.mollie.planScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') }),
-          );
-        } else {
-          toast.success(t('sweep.settings.billing.toasts.planChanged', { name: plan.name }));
-        }
-        await loadData();
-        setError(null);
-      } else {
-        setError(t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      if (await followCheckoutResult(plan, result)) return;
     } catch (err) {
-      // 400 BILLING_DETAILS_REQUIRED (Mollie): collect the missing details, then retry.
-      if (isBillingDetailsRequired(err)) {
-        pendingCheckout.current = { plan, seats, cycle: billingCycle };
-        toast.info(i18n.settings.billing.mollie.billingDetailsRequired);
-        setDetailsDialogOpen(true);
-        setProcessing(false);
-        setSelectedPlan(null);
-        return;
-      }
-      // 409 PARTNER_TERRITORY: no checkout was created, a partner sells WeldSuite here.
-      const territoryDetails = territoryErrorDetails(err);
-      if (territoryDetails) {
-        setTerritory(territoryDetails);
-      } else {
-        setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      handleCheckoutError(err, plan, seats, billingCycle);
     }
     setProcessing(false);
     setSelectedPlan(null);
+  };
+
+  // A checkout's answer: redirect to pay, or confirm the change. True when the page navigates away.
+  const followCheckoutResult = async (
+    plan: Billing.BillingPlan,
+    result: Awaited<ReturnType<typeof changePlanMutation.mutateAsync>>,
+  ): Promise<boolean> => {
+    // The hosted checkout (Stripe Checkout, or Mollie's), or the difference a
+    // running Mollie subscription has to pay first.
+    const redirect = result.url ?? (result.paymentRequired ? result.paymentUrl : undefined);
+    if (redirect) {
+      window.location.href = redirect;
+      return true;
+    }
+    if (!result.success) {
+      setError(t('sweep.settings.billing.errors.changePlanFailed'));
+      return false;
+    }
+    // Mollie: a change that waits for the period end has not happened yet.
+    toast.success(
+      result.scheduled && result.effectiveAt
+        ? fillText(i18n.settings.billing.mollie.planScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') })
+        : t('sweep.settings.billing.toasts.planChanged', { name: plan.name }),
+    );
+    await loadData();
+    setError(null);
+    return false;
+  };
+
+  // A refused checkout: billing details first (Mollie's 400
+  // BILLING_DETAILS_REQUIRED, retried once the dialog saves), a partner's
+  // territory (409 PARTNER_TERRITORY: no checkout was created), or the error.
+  const handleCheckoutError = (
+    err: unknown,
+    plan: Billing.BillingPlan,
+    seats: number,
+    billingCycle: 'monthly' | 'annually',
+  ): void => {
+    if (isBillingDetailsRequired(err)) {
+      pendingCheckout.current = { plan, seats, cycle: billingCycle };
+      toast.info(i18n.settings.billing.mollie.billingDetailsRequired);
+      setDetailsDialogOpen(true);
+      return;
+    }
+    const territoryDetails = territoryErrorDetails(err);
+    if (territoryDetails) {
+      setTerritory(territoryDetails);
+    } else {
+      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
+    }
   };
 
   const handleOpenManageSeats = () => {
