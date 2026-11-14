@@ -466,12 +466,15 @@ async fn a_subscription_from_checkout_to_free() {
     assert_eq!(inbox["sequenceType"], "recurring");
     assert_eq!(inbox["amount"]["value"], "6.45");
     inboxes.count.store(1, Ordering::SeqCst);
-    // The same create again reuses its charge; nothing new goes to Mollie.
+    // The same create again: its charge already pays this month's slot, so
+    // nothing new goes to Mollie.
     let sent = mollie.created.lock().expect("lock").len();
-    assert!(matches!(
-        charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_1", 1, t1).await,
-        Ok(InboxCharge::Charged { .. })
-    ));
+    assert_eq!(
+        charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_1", 1, t1)
+            .await
+            .expect("covered"),
+        InboxCharge::Covered
+    );
     // Deleted and another added: this month's slot is already paid.
     assert_eq!(
         charge_inbox_added(&state, WS, Some("user_billingdb"), "rmbx_2", 1, t1)

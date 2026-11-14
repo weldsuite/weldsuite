@@ -159,12 +159,15 @@ async fn paid_inboxes(
     workspace_id: &str,
     end: OffsetDateTime,
 ) -> BillingResult<i64> {
+    // Rows for this month: a renewal or an inbox charge says which period it
+    // pays (`periodEnd`); a pay link repays a failed renewal with its lines.
+    // Each line's own period is checked below.
     let rows: Vec<serde_json::Value> = sqlx::query_scalar(
         "select metadata from billing_payments
          where workspace_id = $1 and provider = 'mollie'
            and status in ('succeeded', 'processing') and metadata is not null
            and (coalesce(kind, '') <> 'addon' or provider_payment_id is not null)
-           and created_at > $2::timestamp - interval '45 days'",
+           and (metadata ->> 'periodEnd' = $2 or kind = 'pay_link')",
     )
     .bind(workspace_id)
     .bind(iso(end))
