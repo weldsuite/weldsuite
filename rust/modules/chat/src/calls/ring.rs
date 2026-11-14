@@ -466,26 +466,32 @@ mod tests {
         }
     }
 
+    /// A key made at run time, as `CALL_RING_SECRET` would be configured.
+    fn test_key() -> String {
+        weldsuite_kit::random_string(32, "abcdefghijklmnopqrstuvwxyz0123456789")
+    }
+
     #[test]
     fn ring_tokens_round_trip_and_expire() {
         let now = 1_800_000_000_000;
-        let token = sign_ring_token("secret", &claims(), now).unwrap_or_default();
+        let (key, other) = (test_key(), test_key());
+        let token = sign_ring_token(&key, &claims(), now).unwrap_or_default();
         assert_eq!(
-            verify_ring_token(Some("secret"), &token, now),
+            verify_ring_token(Some(key.as_str()), &token, now),
             Some(claims())
         );
         // Another secret, an expired token, a tampered one, no secret.
-        assert_eq!(verify_ring_token(Some("other"), &token, now), None);
+        assert_eq!(verify_ring_token(Some(other.as_str()), &token, now), None);
         assert_eq!(
-            verify_ring_token(Some("secret"), &token, now + CALL_RING_TOKEN_TTL_MS + 1),
+            verify_ring_token(Some(key.as_str()), &token, now + CALL_RING_TOKEN_TTL_MS + 1),
             None
         );
         assert_eq!(
-            verify_ring_token(Some("secret"), &format!("{token}x"), now),
+            verify_ring_token(Some(key.as_str()), &format!("{token}x"), now),
             None
         );
         assert_eq!(
-            verify_ring_token(Some("secret"), &format!("{token}.x"), now),
+            verify_ring_token(Some(key.as_str()), &format!("{token}.x"), now),
             None
         );
         assert_eq!(verify_ring_token(None, &token, now), None);

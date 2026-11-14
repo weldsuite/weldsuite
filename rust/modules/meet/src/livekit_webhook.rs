@@ -10,8 +10,10 @@
 //! - deliveries are de-duplicated by the event's `id`
 //!   (`livekit-webhook-delivery:<id>`, 7 days);
 //! - `room_finished` is `meeting.ended` (the room's name is the session's
-//!   or the WeldChat call's `cfAppId`; the room's `creationTime` and the
-//!   event's `createdAt` stand for the session's start and end),
+//!   or the WeldChat call's `cfAppId`; the room's `creationTimeMs` (else
+//!   `creationTime`) and the event's `createdAt` stand for the session's
+//!   start and end; whole seconds read as their last millisecond, see
+//!   `livekit_time`),
 //!   `participant_joined` / `participant_left` are the participant events:
 //!   the participant's identity is the id the join stored (`cfSessionId`,
 //!   `<userId>~<nonce>`), the part before `~` the app's id, and the
@@ -52,16 +54,32 @@ fn answer(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
 
-/// `LiveKit` times are Unix seconds, as a number or a string (protojson's
-/// `int64`); `None` when missing or zero.
-fn seconds_iso(value: Option<&Value>) -> Option<String> {
-    let seconds = match value? {
-        Value::Number(n) => n.as_f64()?,
-        Value::String(text) => text.parse::<f64>().ok()?,
+/// A protojson `int64`: a number or a string; `None` when missing or not
+/// positive.
+fn positive_int(value: Option<&Value>) -> Option<i64> {
+    let number = match value? {
+        Value::Number(n) => n.as_i64()?,
+        Value::String(text) => text.trim().parse::<i64>().ok()?,
         _ => return None,
     };
-    #[allow(clippy::cast_possible_truncation)]
-    (seconds > 0.0).then(|| iso_of_ms((seconds * 1000.0) as i64))
+    (number > 0).then_some(number)
+}
+
+/// A `LiveKit` time, as ISO: its millisecond field when the event carries
+/// one (`creationTimeMs`, `joinedAtMs`), else its whole-second field read as
+/// the last millisecond of that second.
+///
+/// What these are compared with (a call's `createdAt`, a participant's
+/// `joinedAt`) is ours, in milliseconds, stamped a moment before `LiveKit`'s
+/// own time. Read as the start of its second, a fresh room looked older than
+/// its call and a new connection older than the join that made it, so the
+/// room's end and the leave were ignored. The end of the second errs toward
+/// newer, which only ever lets the event count.
+fn livekit_time(millis: Option<&Value>, seconds: Option<&Value>) -> Option<String> {
+    if let Some(ms) = positive_int(millis) {
+        return Some(iso_of_ms(ms));
+    }
+    positive_int(seconds).map(|s| iso_of_ms(s.saturating_mul(1000).saturating_add(999)))
 }
 
 /// The app's id in a participant identity (`<customParticipantId>~<nonce>`),
@@ -156,8 +174,11 @@ async fn handle(state: &MeetState, parts: &RequestParts, event: &Value) -> Resul
         "room_finished" => {
             // The room's session: from its creation to this event.
             let times = SessionTimes {
-                started_at: seconds_iso(event.pointer("/room/creationTime")),
-                ended_at: seconds_iso(event.get("createdAt")),
+                started_at: livekit_time(
+                    event.pointer("/room/creationTimeMs"),
+                    event.pointer("/room/creationTime"),
+                ),
+                ended_at: livekit_time(None, event.get("createdAt")),
             };
             webhook::meeting_ended(state, parts, &mapping, room, &times).await?;
         }
@@ -172,9 +193,12 @@ async fn handle(state: &MeetState, parts: &RequestParts, event: &Value) -> Resul
             let ids = LeftIds {
                 cf_session_id: Some(identity.clone()),
                 custom_id: Some(custom_id(&identity)),
-                left_at: seconds_iso(event.get("createdAt")),
+                left_at: livekit_time(None, event.get("createdAt")),
                 peer_id: sid,
-                peer_joined_at: seconds_iso(participant.get("joinedAt")),
+                peer_joined_at: livekit_time(
+                    participant.get("joinedAtMs"),
+                    participant.get("joinedAt"),
+                ),
             };
             webhook::participant_left(state, parts, &mapping, &ids).await?;
         }
@@ -204,10 +228,62 @@ mod tests {
         assert_eq!(custom_id("user_1~ab12"), "user_1");
         assert_eq!(custom_id("guest:a~b~c"), "guest:a~b");
         assert_eq!(custom_id("plain"), "plain");
+        // Milliseconds when the event has them.
         assert_eq!(
-            seconds_iso(Some(&json!("1791896400"))).as_deref(),
-            Some("2026-10-13T13:00:00.000Z")
+            livekit_time(Some(&json!("1791896400350")), Some(&json!("1791896400"))).as_deref(),
+            Some("2026-10-13T13:00:00.350Z")
         );
-        assert_eq!(seconds_iso(Some(&json!(0))), None);
+        // Else the whole second, read as its last millisecond.
+        assert_eq!(
+            livekit_time(None, Some(&json!("1791896400"))).as_deref(),
+            Some("2026-10-13T13:00:00.999Z")
+        );
+        assert_eq!(
+            livekit_time(Some(&json!(0)), Some(&json!(1_791_896_400))).as_deref(),
+            Some("2026-10-13T13:00:00.999Z")
+        );
+        assert_eq!(livekit_time(None, Some(&json!(0))), None);
+        assert_eq!(livekit_time(None, None), None);
+    }
+
+    /// The review's two cases: a call stamped in milliseconds a moment before
+    /// `LiveKit`'s whole-second time of the same second.
+    #[test]
+    fn a_whole_second_never_reads_as_older_than_our_own_stamp() {
+        use crate::chat_calls::{SessionTimes, is_earlier_call_session};
+        // A channel call created at :00.300; its room, created after it, finishes.
+        let call = json!({
+            "createdAt": "2026-10-13T13:00:00.300Z",
+            "initiatorId": "a",
+            "participants": [{ "userId": "a", "joinedAt": "2026-10-13T13:00:00.300Z" }],
+        });
+        let room_finished = SessionTimes {
+            started_at: livekit_time(None, Some(&json!("1791896400"))),
+            ended_at: livekit_time(None, Some(&json!("1791896460"))),
+        };
+        assert!(!is_earlier_call_session(&call, &room_finished));
+        // A DM room still open from a call a second earlier is that call's.
+        let earlier = SessionTimes {
+            started_at: livekit_time(None, Some(&json!("1791896399"))),
+            ended_at: livekit_time(None, Some(&json!("1791896460"))),
+        };
+        assert!(is_earlier_call_session(&call, &earlier));
+
+        // A participant who joined at :00.300 and whose connection, joined in
+        // that same second, goes: their leave counts.
+        let participants = vec![json!({
+            "userId": "b",
+            "cfSessionId": "b~1",
+            "joinedAt": "2026-10-13T13:00:00.300Z",
+            "lastJoinAt": "2026-10-13T13:00:00.300Z",
+        })];
+        let left = LeftIds {
+            cf_session_id: Some("b~1".to_owned()),
+            custom_id: Some("b".to_owned()),
+            left_at: livekit_time(None, Some(&json!("1791896400"))),
+            peer_id: None,
+            peer_joined_at: livekit_time(None, Some(&json!("1791896400"))),
+        };
+        assert_eq!(crate::webhook::find_leaving(&participants, &left), Some(0));
     }
 }
