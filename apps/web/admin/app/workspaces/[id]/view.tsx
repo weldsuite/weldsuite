@@ -12,6 +12,7 @@ export function WorkspaceDetailPage({
   activity,
   snapshotState,
   ssoState,
+  mollieBilling,
   appAccess,
   appUsage,
   outbound,
@@ -32,6 +33,7 @@ export function WorkspaceDetailPage({
       activity={activity}
       snapshotState={snapshotState}
       ssoState={ssoState}
+      mollieBilling={mollieBilling}
       appAccess={appAccess}
       appUsage={appUsage}
       outbound={outbound}

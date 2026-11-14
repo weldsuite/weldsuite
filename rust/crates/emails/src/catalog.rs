@@ -30,6 +30,10 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/auth.verify-email.json"),
     ),
     (
+        "billing.dunning",
+        include_str!("../../../catalogs/emails/templates/billing.dunning.json"),
+    ),
+    (
         "calendar.event.cancel",
         include_str!("../../../catalogs/emails/templates/calendar.event.cancel.json"),
     ),

@@ -4166,6 +4166,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "weldsuite-adapters-oss",
  "weldsuite-ads",
  "weldsuite-agent",
@@ -4188,6 +4189,7 @@ dependencies = [
  "weldsuite-commerce-domain",
  "weldsuite-connect",
  "weldsuite-core-apps",
+ "weldsuite-core-billing",
  "weldsuite-core-files",
  "weldsuite-core-objects",
  "weldsuite-core-onboarding",
@@ -4218,6 +4220,7 @@ dependencies = [
  "weldsuite-meet",
  "weldsuite-merge",
  "weldsuite-migrations",
+ "weldsuite-mollie",
  "weldsuite-mta",
  "weldsuite-panel",
  "weldsuite-pass",
@@ -4907,6 +4910,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-core-billing"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-books-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mollie",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-core-domain"
 version = "0.0.0"
 dependencies = [
@@ -5016,6 +5044,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mollie",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -5760,6 +5789,16 @@ dependencies = [
  "sqlx",
  "tokio",
  "weldsuite-db",
+]
+
+[[package]]
+name = "weldsuite-mollie"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "url",
+ "weldsuite-ports",
 ]
 
 [[package]]

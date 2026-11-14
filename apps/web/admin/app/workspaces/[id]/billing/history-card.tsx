@@ -19,6 +19,9 @@ import { refundPayment, voidInvoice } from '@/actions/billing';
 import { adminCopy, fill } from '@/lib/i18n';
 import { formatCents, formatDay } from '@/lib/billing-format';
 import type { InvoiceRow, PaymentRow } from '@/lib/billing-types';
+import { GLOBAL } from '@/lib/edition';
+import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
+import { isAbsoluteUrl, isStripeRow, paymentKindLabel } from '@/lib/mollie-billing';
 
 const INVOICE_TONE: Record<string, 'success' | 'warning' | 'secondary' | 'destructive'> = {
   paid: 'success',
@@ -80,13 +83,17 @@ export function HistoryCard({
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatCents(invoice.amountDue, invoice.currency)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatCents(invoice.amountPaid, invoice.currency)}</TableCell>
-                      <TableCell className="space-x-3 text-xs">
-                        {invoice.pdfUrl && <ExternalAnchor href={invoice.pdfUrl}>{t.invoices.pdf}</ExternalAnchor>}
-                        {invoice.hostedUrl && <ExternalAnchor href={invoice.hostedUrl}>{t.invoices.payLink}</ExternalAnchor>}
-                      </TableCell>
+                      {isStripeRow(invoice) ? (
+                        <TableCell className="space-x-3 text-xs">
+                          {invoice.pdfUrl && <ExternalAnchor href={invoice.pdfUrl}>{t.invoices.pdf}</ExternalAnchor>}
+                          {invoice.hostedUrl && <ExternalAnchor href={invoice.hostedUrl}>{t.invoices.payLink}</ExternalAnchor>}
+                        </TableCell>
+                      ) : (
+                        <ProviderInvoiceCell invoice={invoice} />
+                      )}
                       {canWrite && (
                         <TableCell className="text-right">
-                          {invoice.status === 'open' && (
+                          {invoice.status === 'open' && isStripeRow(invoice) && (
                             <Button size="sm" variant="ghost" onClick={() => setVoiding(invoice)}>
                               {t.invoices.void}
                             </Button>
@@ -130,13 +137,14 @@ export function HistoryCard({
                         {[payment.methodBrand ?? payment.methodType, payment.methodLast4 && `•••• ${payment.methodLast4}`]
                           .filter(Boolean)
                           .join(' ') || '—'}
+                        {!isStripeRow(payment) && <ProviderPaymentReference payment={payment} />}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {payment.refundedAmount > 0 ? formatCents(payment.refundedAmount, payment.currency) : '—'}
                       </TableCell>
                       {canWrite && (
                         <TableCell className="text-right">
-                          {payment.status === 'succeeded' && payment.refundedAmount < payment.amount && (
+                          {payment.status === 'succeeded' && payment.refundedAmount < payment.amount && isStripeRow(payment) && (
                             <Button size="sm" variant="ghost" onClick={() => setRefunding(payment)}>
                               {t.payments.refund}
                             </Button>
@@ -148,6 +156,10 @@ export function HistoryCard({
                 </TableBody>
               </Table>
             </div>
+          )}
+          {/* Refunds and voids run through the billing worker, which only Global has. */}
+          {!GLOBAL && payments.some((payment) => !isStripeRow(payment)) && (
+            <p className="text-xs text-muted-foreground">{mollieBillingCopy().history.refundHint}</p>
           )}
         </section>
       </CardContent>
@@ -211,6 +223,47 @@ function RefundDialog({
       </Field>
       <p className="text-xs text-muted-foreground">{t.payments.creditTopupNote}</p>
     </ActionDialog>
+  );
+}
+
+/**
+ * The links cell of an invoice Stripe doesn't hold (a WeldBooks invoice on the
+ * EU edition): the Mollie payment it was issued for, and only links that open
+ * from here (its `pdf_url` is a platform API path behind the customer's session).
+ */
+function ProviderInvoiceCell({ invoice }: Readonly<{ invoice: InvoiceRow }>) {
+  const t = adminCopy();
+  const c = mollieBillingCopy();
+  return (
+    <TableCell className="text-xs">
+      <div className="text-muted-foreground">
+        {invoice.provider === 'weldbooks' ? c.history.weldbooks : invoice.provider}
+        {invoice.providerPaymentId && (
+          <>
+            {' · '}
+            {c.history.mollie} <span className="font-mono">{invoice.providerPaymentId}</span>
+          </>
+        )}
+      </div>
+      {(isAbsoluteUrl(invoice.pdfUrl) || isAbsoluteUrl(invoice.hostedUrl)) && (
+        <div className="space-x-3">
+          {isAbsoluteUrl(invoice.pdfUrl) && <ExternalAnchor href={invoice.pdfUrl}>{t.invoices.pdf}</ExternalAnchor>}
+          {isAbsoluteUrl(invoice.hostedUrl) && <ExternalAnchor href={invoice.hostedUrl}>{t.invoices.payLink}</ExternalAnchor>}
+        </div>
+      )}
+    </TableCell>
+  );
+}
+
+/** Under the method of a charge Stripe doesn't hold: what it was for and its Mollie payment id. */
+function ProviderPaymentReference({ payment }: Readonly<{ payment: PaymentRow }>) {
+  const c = mollieBillingCopy();
+  const kind = paymentKindLabel(c, payment.kind);
+  return (
+    <div className="mt-0.5">
+      {[payment.provider === 'mollie' ? c.history.mollie : payment.provider, kind].filter(Boolean).join(' · ')}
+      {payment.providerPaymentId && <span className="ml-1 font-mono">{payment.providerPaymentId}</span>}
+    </div>
   );
 }
 

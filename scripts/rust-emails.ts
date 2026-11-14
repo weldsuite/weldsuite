@@ -182,6 +182,13 @@ interface ShapeSpec {
   lists?: ShapeListSpec[];
 }
 
+/** `billing.dunning`'s kind from its flags: none is a failed charge. */
+function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
+  if (flags.has('ended')) return 'ended';
+  if (flags.has('reminder')) return 'reminder';
+  return 'failed';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -418,6 +425,21 @@ const SPECS: Spec[] = [
       enabledBy: S('enabled_by'),
       keySource: f.has('own') ? 'own' : 'weldsuite',
       settingsUrl: S('url'),
+    }),
+  },
+  // EU plan billing (ADR BILL-014): a failed charge, the reminder halfway
+  // through the grace period, and the plan ending on Free. No flag: failed.
+  {
+    id: 'billing.dunning',
+    flags: ['reminder', 'ended'],
+    fields: ['workspace_name', 'plan_name', 'amount', 'ends_on', 'url'],
+    props: (f) => ({
+      kind: dunningKind(f),
+      workspaceName: S('workspace_name'),
+      planName: S('plan_name'),
+      amount: S('amount'),
+      endsOn: S('ends_on'),
+      url: S('url'),
     }),
   },
   // WeldFlow's published status report: the overall colour is two flags (none:

@@ -778,11 +778,25 @@ mod tests {
                 "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
             })),
             credit_top_up: true,
+            plan_billing: true,
             sandbox: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
+        // Plans billed through Mollie (ADR BILL-014): billing is offered and
+        // the platform takes Mollie's flows; WeldReach inboxes are billed with
+        // the plan.
+        assert_eq!(body["billingProvider"], "mollie");
+        let lacks_billing = body["unavailableFeatures"]
+            .as_array()
+            .is_some_and(|lacks| lacks.contains(&json!("billing")));
+        assert!(!lacks_billing, "billing is offered with Mollie configured");
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|lacks| !lacks.contains(&json!("reach-billing")))
+        );
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
         assert_eq!(body["videoProvider"], "livekit");
         assert_eq!(body["videoUrl"], "wss://lk.example.eu");

@@ -42,6 +42,18 @@ describe('the ai block', () => {
   });
 });
 
+describe('the billingProvider field', () => {
+  it('is read as mollie', () => {
+    expect(parseRuntimeConfig({ ...rustConfig, billingProvider: 'mollie' })?.billingProvider).toBe('mollie');
+  });
+
+  it('counts a value this build does not know as absent, never as a broken document', () => {
+    const config = parseRuntimeConfig({ ...rustConfig, billingProvider: 'some-new-psp' });
+    expect(config).not.toBeNull();
+    expect(config?.billingProvider).toBeUndefined();
+  });
+});
+
 describe('fetchRuntimeConfig', () => {
   it('reads what the Rust backend serves', async () => {
     const fetchImpl = vi.fn(async () => response(JSON.stringify(rustConfig)));

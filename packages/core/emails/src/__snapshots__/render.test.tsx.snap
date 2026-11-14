@@ -300,6 +300,146 @@ Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'billing.dunning' / 'ended' / 'en' > matches the text snapshot 1`] = `
+""Acme Studio" is now on the Free plan
+
+Billing
+
+Your plan ended
+
+A payment of € 90,75 for the Business plan of Acme Studio stayed open, so the workspace moved to the Free plan. Your data is kept. Choose a plan again to get your seats and features back.
+
+You get this email because you manage billing for the workspace.
+
+Choose a plan https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'ended' / 'nl' > matches the text snapshot 1`] = `
+""Acme Studio" staat nu op het gratis abonnement
+
+Facturatie
+
+Je abonnement is gestopt
+
+Een betaling van € 90,75 voor het Business-abonnement van Acme Studio bleef open, dus de werkruimte is overgezet op het gratis abonnement. Je gegevens blijven bewaard. Kies opnieuw een abonnement om je gebruikers en functies terug te krijgen.
+
+Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Kies een abonnement https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'failed' / 'en' > matches the text snapshot 1`] = `
+"Payment failed for "Acme Studio"
+
+Billing
+
+Your payment didn’t go through
+
+We couldn’t collect € 90,75 for the Business plan of Acme Studio. Your plan keeps working until 28 november 2026. Pay before then to keep it.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 november 2026
+
+Paying also saves the payment method for the next renewals. You get this email because you manage billing for the workspace.
+
+Pay now https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'failed' / 'nl' > matches the text snapshot 1`] = `
+"Betaling mislukt voor "Acme Studio"
+
+Facturatie
+
+Je betaling is niet gelukt
+
+We konden € 90,75 voor het Business-abonnement van Acme Studio niet innen. Je abonnement blijft werken tot 28 november 2026. Betaal voor die datum om het te houden.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 november 2026
+
+Met de betaling sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Nu betalen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminder' / 'en' > matches the text snapshot 1`] = `
+"Reminder: a payment is open for "Acme Studio"
+
+Billing
+
+Your payment is still open
+
+The Business plan of Acme Studio still has € 90,75 open. If it isn’t paid by 28 november 2026, the workspace moves to the Free plan.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 november 2026
+
+You get this email because you manage billing for the workspace.
+
+Pay now https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminder' / 'nl' > matches the text snapshot 1`] = `
+"Herinnering: er staat een betaling open voor "Acme Studio"
+
+Facturatie
+
+Je betaling staat nog open
+
+Voor het Business-abonnement van Acme Studio staat nog € 90,75 open. Is dat op 28 november 2026 niet betaald, dan gaat de werkruimte over op het gratis abonnement.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 november 2026
+
+Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Nu betalen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
 "Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
 

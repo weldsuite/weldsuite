@@ -149,6 +149,9 @@ export const reach = {
   errors: {
     generic: 'Something went wrong. Please try again.',
     paymentMethodRequired: 'Add a payment method first. Mailboxes are billed to it.',
+    paidPlanRequired: 'Mailboxes are billed with your plan. Subscribe to a paid plan to add one.',
+    paymentOutstanding: 'A payment is outstanding. Pay it on the billing page, then add the mailbox.',
+    paymentFailed: 'Your payment method was refused. Update it on the billing page, then add the mailbox.',
     domainHasMailboxes: 'This domain still has mailboxes. Delete them first, then disconnect the domain.',
     forbidden: 'You do not have permission to do this.',
     limitReached: 'Your workspace has reached its limit. Contact support to raise it.',
@@ -273,6 +276,9 @@ export const reach = {
       priceNote: 'The same price for Google and shared inboxes. Domains are billed by WeldHost.',
       onFile: 'A payment method is on file.',
       missing: 'No payment method yet.',
+      descriptionWithPlan:
+        'Mailboxes cost {price} per mailbox per month excl. VAT, added to your plan\'s monthly charge. A mailbox added during the month is charged for the rest of that month.',
+      paidPlanRequired: 'Mailboxes are billed with your plan. Subscribe to a paid plan first.',
       add: 'Add payment method',
       redirecting: 'Taking you to our payment provider…',
       added: 'Payment method added.',
@@ -453,6 +459,8 @@ export const reach = {
       signaturePlaceholder: 'Anna de Vries\nAcme B.V.',
       signatureHint: 'Added below every email from this mailbox.',
       price: '{price} per month, billed to your payment method. Billing stops when you delete the mailbox.',
+      priceWithPlan:
+        '{price} per month excl. VAT, added to your plan\'s monthly charge. Added mid-month, you pay for the rest of the month; deleted, the next charge has one fewer.',
       submit: 'Create mailbox',
       submitting: 'Creating…',
       created: 'Mailbox created. It starts warming up now.',
@@ -460,6 +468,9 @@ export const reach = {
       paymentRequiredDescription:
         'Mailboxes are billed to your payment method. Add one, then come back and create your mailbox.',
       addPayment: 'Add payment method',
+      paidPlanRequiredTitle: 'Subscribe to a paid plan first',
+      paidPlanRequiredDescription: 'Mailboxes are billed with your plan. Pick a plan, then come back and create your mailbox.',
+      seePlans: 'See plans',
       noDomains: 'Connect a domain first.',
     },
     edit: {
@@ -571,6 +582,9 @@ export const reach = {
     billing: {
       title: 'Billing',
       description: 'Mailboxes are billed monthly to your payment method.',
+      descriptionWithPlan: 'Mailboxes are added to your plan\'s monthly charge. Amounts exclude VAT.',
+      pausedTitle: 'Your mailboxes are paused',
+      pausedDescription: 'Your plan ended, so your mailboxes send nothing. Subscribe to a paid plan to resume them.',
       status: 'Subscription',
       inboxes: 'Mailboxes',
       inboxesValue: '{count} × {price}',

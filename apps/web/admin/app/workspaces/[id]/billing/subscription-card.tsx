@@ -17,6 +17,8 @@ import {
   statusTone,
 } from '@/lib/billing-format';
 import type { PlanOption, SnapshotState, WorkspaceBilling } from '@/lib/billing-types';
+import { GLOBAL } from '@/lib/edition';
+import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
 import { CancelDialog, ChangePlanDialog, CompDialog, DiscountDialog, TrialDialog } from './subscription-dialogs';
 
 type DialogKind =
@@ -48,7 +50,9 @@ export function SubscriptionCard({
   const sub = snapshot?.subscription ?? null;
   const live = sub && isLiveSubscription(sub.status) ? sub : null;
   const workerReady = snapshotState.kind === 'ok';
-  const actionsEnabled = canWrite && workerReady;
+  // Every action here runs through the billing worker and Stripe, which only
+  // Global has (actions/billing.ts is globalOnly); Kubernetes uses the CLI.
+  const actionsEnabled = GLOBAL && canWrite && workerReady;
   const comped = billing.comp !== null;
   const status = comped ? 'comped' : (sub?.status ?? billing.subscriptionStatus);
   const cycle = sub?.interval === 'year' || billing.subscriptionCycle === 'yearly' ? 'yearly' : 'monthly';
@@ -108,7 +112,8 @@ export function SubscriptionCard({
 
   return (
     <div className="space-y-3">
-      {snapshotState.kind === 'not_configured' && (
+      {/* Kubernetes has no billing worker by design, so there is nothing to warn about. */}
+      {GLOBAL && snapshotState.kind === 'not_configured' && (
         <Notice tone="warning">{t.subscription.workerNotConfigured}</Notice>
       )}
       {snapshotState.kind === 'error' && (
@@ -238,6 +243,10 @@ export function SubscriptionCard({
                 </Button>
               )}
             </div>
+          )}
+
+          {!GLOBAL && canWrite && (
+            <p className="border-t pt-4 text-xs text-muted-foreground">{mollieBillingCopy().readOnlyHint}</p>
           )}
         </CardContent>
       </Card>

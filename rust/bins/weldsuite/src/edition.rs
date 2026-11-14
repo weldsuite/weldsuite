@@ -60,9 +60,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `/api/sso` claims and verifies a domain, but the SAML connection lives
     // at the identity provider (Clerk's): every connection change answers 502.
     "sso-connections",
-    // Stripe stays with Global's billing-worker: plans, subscriptions, seats
-    // bought by card, payment methods and invoices (`/api/billing`).
-    "billing",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
     // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
@@ -183,6 +180,18 @@ pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
 /// workers do without billing-worker.
 pub(crate) const CREDIT_TOP_UP_FEATURE: &str = "credit-top-up";
 
+/// Plans, seats, payment methods and invoices (`/api/billing`): Mollie on the
+/// Kubernetes editions when `BILLING_PROVIDER=mollie` (`weldsuite_core_billing`,
+/// ADR BILL-014), Stripe on Global. Unavailable otherwise: a self-hosted
+/// install's seats and modules come from its licence.
+pub(crate) const BILLING_FEATURE: &str = "billing";
+
+/// WeldReach's inbox subscription: billing-worker's (Stripe) on Global. Here
+/// inboxes ride on the plan's Mollie charge where plans are billed through
+/// Mollie (`weldsuite_core_billing::addons`, ADR BILL-014); otherwise they are
+/// provisioned unbilled (ADR REACH-010).
+pub(crate) const REACH_BILLING_FEATURE: &str = "reach-billing";
+
 /// WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
 /// `browser:use` toggles of the builder): Claude Managed Agents run them on
 /// Global; the Kubernetes editions run them on the install's own sandbox pods
@@ -232,6 +241,9 @@ pub(crate) struct EditionConfig {
     pub(crate) ai: Option<Value>,
     /// Credits can be bought through Mollie: [`CREDIT_TOP_UP_FEATURE`].
     pub(crate) credit_top_up: bool,
+    /// Plans are billed through Mollie (`BILLING_PROVIDER=mollie`):
+    /// [`BILLING_FEATURE`], and `/config.json`'s `billingProvider`.
+    pub(crate) plan_billing: bool,
     /// WeldAgent has a sandbox (`SANDBOX_ENABLED`, set by `Config`):
     /// [`AGENT_SANDBOX_FEATURE`].
     pub(crate) sandbox: bool,
@@ -281,6 +293,7 @@ impl Default for EditionConfig {
             mail: MailOffer::default(),
             ai: None,
             credit_top_up: false,
+            plan_billing: false,
             sandbox: false,
         }
     }
@@ -318,8 +331,16 @@ impl EditionConfig {
                 false
             }
         };
+        let plan_billing = match weldsuite_core_billing::BillingSettings::from_lookup(lookup) {
+            Ok(settings) => settings.is_some(),
+            Err(problem) => {
+                problems.push(problem);
+                false
+            }
+        };
         Self {
             credit_top_up,
+            plan_billing,
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
@@ -349,6 +370,11 @@ impl EditionConfig {
         if let Some(ai) = &self.ai {
             body["ai"] = ai.clone();
         }
+        if self.plan_billing {
+            // The platform's switch for Mollie's flows (payment methods by
+            // hosted checkout, the checkout return page); absent on Global.
+            body["billingProvider"] = json!("mollie");
+        }
     }
 }
 
@@ -368,6 +394,10 @@ impl EditionConfig {
         }
         if !self.credit_top_up {
             features.push(CREDIT_TOP_UP_FEATURE);
+        }
+        if !self.plan_billing {
+            features.push(BILLING_FEATURE);
+            features.push(REACH_BILLING_FEATURE);
         }
         if !self.sandbox {
             features.push(AGENT_SANDBOX_FEATURE);
@@ -443,7 +473,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 5
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 7
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -517,6 +547,8 @@ mod tests {
             MAIL_DOMAINS_FEATURE,
             MAIL_FREE_ADDRESSES_FEATURE,
             CREDIT_TOP_UP_FEATURE,
+            BILLING_FEATURE,
+            REACH_BILLING_FEATURE,
             AGENT_SANDBOX_FEATURE,
         ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
@@ -603,6 +635,46 @@ mod tests {
     }
 
     #[test]
+    fn offers_plan_billing_with_mollie() {
+        let full = [
+            ("BILLING_PROVIDER", "mollie"),
+            ("MOLLIE_API_KEY", "test_key"),
+            ("PUBLIC_URL", "https://app.weldsuite.eu"),
+            ("BILLING_ISSUER_WORKSPACE_ID", "ws_issuer"),
+            ("BILLING_PAY_LINK_KEY", "0123456789abcdef0123456789abcdef"),
+        ];
+        let (off, problems) = read(&[]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(off.unavailable_features().contains(&BILLING_FEATURE));
+        assert!(off.unavailable_features().contains(&REACH_BILLING_FEATURE));
+        let mut body = json!({});
+        off.describe(&mut body);
+        assert!(
+            body.get("billingProvider").is_none(),
+            "absent without billing"
+        );
+
+        let (on, problems) = read(&full);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(on.plan_billing);
+        assert!(!on.unavailable_features().contains(&BILLING_FEATURE));
+        // WeldReach inboxes ride on the plan's charge.
+        assert!(!on.unavailable_features().contains(&REACH_BILLING_FEATURE));
+        let mut body = json!({});
+        on.describe(&mut body);
+        assert_eq!(body["billingProvider"], "mollie");
+
+        // Turned on but not configured: the start stops.
+        let (half, problems) = read(&[("BILLING_PROVIDER", "mollie")]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("BILLING_ISSUER_WORKSPACE_ID"),
+            "{problems:?}"
+        );
+        assert!(!half.plan_billing);
+    }
+
+    #[test]
     fn offers_weldmeet_only_with_a_video_service() {
         let (none, _) = read(&[]);
         assert!(!none.offers(VIDEO_MODULE));
@@ -685,6 +757,7 @@ mod tests {
             &MAIL_DOMAINS_FEATURE,
             &MAIL_FREE_ADDRESSES_FEATURE,
             &COLLAB_ROOMS_FEATURE,
+            &REACH_BILLING_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

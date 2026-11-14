@@ -76,6 +76,37 @@
       "useCode": "Or enter this code on the sign-in screen:"
     }
   },
+  "billingDunning": {
+    "amount": "Amount due",
+    "ended": {
+      "body": "A payment of {amount} for the {plan} plan of {workspace} stayed open, so the workspace moved to the Free plan. Your data is kept. Choose a plan again to get your seats and features back.",
+      "button": "Choose a plan",
+      "heading": "Your plan ended",
+      "note": "You get this email because you manage billing for the workspace.",
+      "preview": "The {plan} plan ended because a payment stayed open.",
+      "subject": "\"{workspace}\" is now on the Free plan"
+    },
+    "endsOn": "Plan ends on",
+    "failed": {
+      "body": "We couldn’t collect {amount} for the {plan} plan of {workspace}. Your plan keeps working until {date}. Pay before then to keep it.",
+      "button": "Pay now",
+      "heading": "Your payment didn’t go through",
+      "note": "Paying also saves the payment method for the next renewals. You get this email because you manage billing for the workspace.",
+      "preview": "Pay {amount} before {date} to keep {plan}.",
+      "subject": "Payment failed for \"{workspace}\""
+    },
+    "kicker": "Billing",
+    "plan": "Plan",
+    "reminder": {
+      "body": "The {plan} plan of {workspace} still has {amount} open. If it isn’t paid by {date}, the workspace moves to the Free plan.",
+      "button": "Pay now",
+      "heading": "Your payment is still open",
+      "note": "You get this email because you manage billing for the workspace.",
+      "preview": "Pay {amount} before {date} to keep {plan}.",
+      "subject": "Reminder: a payment is open for \"{workspace}\""
+    },
+    "workspace": "Workspace"
+  },
   "booking": {
     "date": "Date",
     "host": "Host",

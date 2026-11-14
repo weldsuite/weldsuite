@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutToast, readCheckoutReturn, withoutCheckoutParams } from './credit-checkout-return';
+import { checkoutToast, isBillingCheckoutId, readCheckoutReturn, readPayLinkReturn, withoutCheckoutParams } from './credit-checkout-return';
 
 describe('credit checkout return', () => {
   it("reads Stripe's success and cancel returns", () => {
@@ -17,6 +17,12 @@ describe('credit checkout return', () => {
     expect(readCheckoutReturn('?checkout=ctp_abc')).toEqual({ outcome: null, checkoutId: 'ctp_abc' });
   });
 
+  it('tells plan billing checkouts (bpy_) from credit top-ups (ctp_)', () => {
+    expect(isBillingCheckoutId('bpy_abc')).toBe(true);
+    expect(isBillingCheckoutId('ctp_abc')).toBe(false);
+    expect(readCheckoutReturn('?checkout=bpy_abc')).toEqual({ outcome: null, checkoutId: 'bpy_abc' });
+  });
+
   it('strips only the checkout parameters', () => {
     expect(withoutCheckoutParams('?credits=success&checkout=ctp_abc')).toBe('');
     expect(withoutCheckoutParams('?tab=usage&credits=success&checkout=ctp_abc')).toBe('?tab=usage');
@@ -31,5 +37,14 @@ describe('credit checkout return', () => {
     expect(checkoutToast('pending')).toBe('pending');
     expect(checkoutToast('unknown')).toBe('pending');
     expect(checkoutToast(null)).toBe('pending');
+  });
+});
+
+describe('readPayLinkReturn', () => {
+  it('reads where a pay link sent the browser back', () => {
+    expect(readPayLinkReturn('?pay=done')).toBe('done');
+    expect(readPayLinkReturn('?pay=expired&x=1')).toBe('expired');
+    expect(readPayLinkReturn('?pay=other')).toBeNull();
+    expect(readPayLinkReturn('')).toBeNull();
   });
 });

@@ -1136,8 +1136,18 @@ Be clear about this before anyone signs a contract:
   the `unavailableFeatures` the platform hides (billing, credit top-up,
   paid apps, desktop sign-in, analytics, the search reindex). Not here yet:
   the help center and a CDN (Bunny.net) in front of `app.<domain>`.
-- **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
-  runs here.
+- **Billing.** Plans and seats through Mollie (ADR BILL-014,
+  `rust/README.md`, "Plan billing"), off until configured. To turn it on:
+  a Mollie profile with recurring payments, cards and iDEAL (SEPA Direct
+  Debit needs Mollie's approval); WeldSuite B.V.'s own workspace on this
+  cluster with WeldBooks set up (the legal entity, its address, VAT number
+  and invoice numbering); then `MOLLIE_API_KEY` in `weldsuite-env`,
+  `config.billing` in the cluster values (`provider: mollie`,
+  `issuerWorkspaceId` its `workspaces.id`), `cron.jobs.billing-renewals`
+  enabled, and the paid `plans` rows priced in EUR (the admin console's Plans page)
+  with `included_users = 0`. Mollie must reach
+  `https://app.<domain>/api/webhooks/mollie`. Staff work:
+  `weldsuite admin billing …`.
 - **Other EU services** in the design: mail goes out through the cluster's
   own MTA (`mta`, ADR MAIL-011), system mail (`SMTP_URL`) and customer mail
   (`MAIL_SMTP_URL`) from separate IP pools, and comes in through the Haraka

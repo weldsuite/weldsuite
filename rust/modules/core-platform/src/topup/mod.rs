@@ -23,11 +23,15 @@
 //!    here (the same idempotent grant). Without the cached checkout the
 //!    ledger says whether it was paid.
 //!
-//! Mollie is only the payment: no invoice or VAT document is made for a
-//! top-up (Global's comes from Stripe).
+//! On its own (BILL-013) Mollie is only the payment: the package's price is
+//! charged as is and no invoice is made. When plans are billed through
+//! Mollie as well (ADR BILL-014, `BILLING_PROVIDER=mollie`) the binary hands
+//! the top-up a [`TopUpBilling`]: the package's price is before VAT, the
+//! payment is that price plus the VAT the buyer's billing details lead to,
+//! and a paid top-up gets a WeldBooks invoice like a plan charge.
 
 pub mod ledger;
-pub mod mollie;
+pub use weldsuite_mollie as mollie;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,7 +46,7 @@ use http::request::Parts;
 use serde_json::{Value, json};
 use weldsuite_db::{MasterDb, PgPool};
 use weldsuite_kit::{ApiError, generate_id};
-use weldsuite_ports::{DynCache, OutboundHttp};
+use weldsuite_ports::{BoxFuture, DynCache, OutboundHttp};
 
 use crate::{CorePlatformState, PlatformError, PlatformResult};
 use ledger::{Applied, Purchase, Reversed};
@@ -153,6 +157,45 @@ pub fn top_up_configured(lookup: &impl Fn(&str) -> Option<String>) -> bool {
     matches!(TopUpSettings::from_lookup(lookup), Ok(Some(_)))
 }
 
+/// Plan billing's part in a top-up (ADR BILL-014), set when plans are billed
+/// through Mollie too. The binary implements it over `weldsuite-core-billing`
+/// (module crates don't depend on each other).
+pub trait TopUpBilling: Send + Sync {
+    /// Prices a package for the buyer's workspace (its price is before VAT)
+    /// and writes the charge its invoice comes from. A refusal, such as 400
+    /// `BILLING_DETAILS_REQUIRED`, is the checkout's answer.
+    fn quote<'a>(&'a self, request: TopUpQuote<'a>) -> BoxFuture<'a, Result<TopUpPrice, ApiError>>;
+
+    /// A top-up payment read back from Mollie, after the wallet took it:
+    /// records it on its charge and, once paid, issues the invoice.
+    /// Idempotent; `Err` when it should be retried.
+    fn settle<'a>(&'a self, payment: &'a Payment) -> BoxFuture<'a, Result<(), String>>;
+}
+
+/// What [`TopUpBilling::quote`] prices.
+#[derive(Debug, Clone, Copy)]
+pub struct TopUpQuote<'a> {
+    /// The checkout (`ctp_…`): one charge per checkout.
+    pub checkout_id: &'a str,
+    pub workspace_id: &'a str,
+    pub user_id: &'a str,
+    pub package_id: &'a str,
+    pub package_name: &'a str,
+    pub credits: i64,
+    /// The package's price, before VAT.
+    pub net: &'a Money,
+}
+
+/// What a priced top-up charges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopUpPrice {
+    /// The price plus VAT: the payment's amount.
+    pub gross: Money,
+    /// The charge (`billing_payments.id`), named in the payment's metadata
+    /// as `billingChargeId`.
+    pub charge_id: String,
+}
+
 /// The top-up: Mollie, the addresses it returns to, and where pending
 /// checkouts are kept.
 pub struct TopUp {
@@ -163,6 +206,8 @@ pub struct TopUp {
     http: Option<OutboundHttp>,
     /// Pending checkouts; without one the return page reads the ledger only.
     cache: Option<Arc<dyn DynCache>>,
+    /// VAT on top and the invoice, when plans are billed through Mollie.
+    billing: Option<Arc<dyn TopUpBilling>>,
 }
 
 impl std::fmt::Debug for TopUp {
@@ -170,6 +215,7 @@ impl std::fmt::Debug for TopUp {
         f.debug_struct("TopUp")
             .field("mollie", &self.mollie)
             .field("webhook_url", &self.webhook_url)
+            .field("billing", &self.billing.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -341,6 +387,23 @@ impl TopUp {
             redirect_url: settings.redirect_url.clone(),
             http,
             cache,
+            billing: None,
+        }
+    }
+
+    /// Prices top-ups with VAT on top and invoices them ([`TopUpBilling`]).
+    #[must_use]
+    pub fn with_billing(mut self, billing: Arc<dyn TopUpBilling>) -> Self {
+        self.billing = Some(billing);
+        self
+    }
+
+    /// Hands a payment read back from Mollie to plan billing, after the
+    /// wallet took it. Without plan billing there is nothing to do.
+    pub async fn settle_billing(&self, payment: &Payment) -> Result<(), String> {
+        match &self.billing {
+            Some(billing) => billing.settle(payment).await,
+            None => Ok(()),
         }
     }
 
@@ -365,6 +428,33 @@ impl TopUp {
             credits: i64::from(credits),
             price: Money::parse(&currency, &price),
         }))
+    }
+
+    /// What the checkout charges for `package` (priced `price`) and the
+    /// charge plan billing priced it against. With plan billing the price is
+    /// before VAT, so the VAT goes on top; without it the price is charged.
+    async fn price(
+        &self,
+        package: &Package,
+        price: Money,
+        buyer: Buyer<'_>,
+        checkout_id: &str,
+    ) -> PlatformResult<(Money, Option<String>)> {
+        let Some(billing) = &self.billing else {
+            return Ok((price, None));
+        };
+        let priced = billing
+            .quote(TopUpQuote {
+                checkout_id,
+                workspace_id: buyer.workspace_id,
+                user_id: buyer.user_id,
+                package_id: &package.id,
+                package_name: &package.name,
+                credits: package.credits,
+                net: &price,
+            })
+            .await?;
+        Ok((priced.gross, Some(priced.charge_id)))
     }
 
     /// `POST /api/credits/checkout` with Mollie: the hosted checkout's URL.
@@ -398,6 +488,7 @@ impl TopUp {
         }
         let http = self.http(http)?;
         let checkout_id = generate_id("ctp");
+        let (amount, charge_id) = self.price(&package, price, buyer, &checkout_id).await?;
         let success = input.success_url.as_deref().unwrap_or(&self.redirect_url);
         let redirect_url = with_query(success, "checkout", &checkout_id).ok_or_else(|| {
             PlatformError::internal(
@@ -409,20 +500,27 @@ impl TopUp {
             "WeldSuite credits: {} ({} credits)",
             package.name, package.credits
         );
+        let mut metadata = json!({
+            "kind": KIND,
+            "checkoutId": checkout_id,
+            "workspaceId": buyer.workspace_id,
+            "packageId": package.id,
+            "credits": package.credits,
+            "userId": buyer.user_id,
+        });
+        if let Some(charge_id) = &charge_id {
+            metadata["billingChargeId"] = json!(charge_id);
+        }
         let payment = NewPayment {
-            amount: &price,
+            amount: &amount,
             description: &description,
-            redirect_url: &redirect_url,
+            redirect_url: Some(&redirect_url),
             cancel_url: input.cancel_url.as_deref(),
             webhook_url: &self.webhook_url,
-            metadata: json!({
-                "kind": KIND,
-                "checkoutId": checkout_id,
-                "workspaceId": buyer.workspace_id,
-                "packageId": package.id,
-                "credits": package.credits,
-                "userId": buyer.user_id,
-            }),
+            metadata,
+            sequence: mollie::Sequence::OneOff,
+            methods: Vec::new(),
+            locale: None,
         };
         let created = self
             .mollie
@@ -461,6 +559,7 @@ impl TopUp {
             workspace = %buyer.workspace_id,
             package = %package.id,
             test = self.mollie.is_test(),
+            charge = charge_id.as_deref().unwrap_or("-"),
             "credits: Mollie checkout started"
         );
         Ok(url)
@@ -524,6 +623,10 @@ impl TopUp {
         if payment.status == PaymentStatus::Paid {
             let settled = settle(master, &payment).await?;
             tracing::info!(checkout = %checkout_id, ?settled, "credits: checkout settled on return");
+        }
+        // The webhook settles it too, and the renewal job retries an invoice.
+        if let Err(error) = self.settle_billing(&payment).await {
+            tracing::warn!(error, checkout = %checkout_id, "credits: charge not settled on return");
         }
         Ok(json!({
             "id": checkout_id,
@@ -593,7 +696,11 @@ async fn mollie_webhook(
         }
     };
     let master = overrides.master.unwrap_or_else(|| state.master.clone());
-    match settle(&master, &payment).await {
+    let settled = match settle(&master, &payment).await {
+        Ok(settled) => top_up.settle_billing(&payment).await.map(|()| settled),
+        Err(error) => Err(error.to_string()),
+    };
+    match settled {
         Ok(settled) => {
             match &settled {
                 Settled::Granted(Applied::New { balance_after, .. }) => tracing::info!(
@@ -734,6 +841,12 @@ mod tests {
             amount_charged_back: None,
             metadata: metadata.as_object().cloned().unwrap_or_default(),
             checkout_url: None,
+            sequence_type: None,
+            customer_id: None,
+            mandate_id: None,
+            details: mollie::MethodDetails::default(),
+            paid_at: None,
+            failure_reason: None,
         }
     }
 
@@ -853,7 +966,40 @@ mod tests {
         }
     }
 
+    /// Plan billing as the webhook sees it: records the payments it is handed.
+    #[derive(Default)]
+    struct RecordingBilling {
+        settled: Mutex<Vec<String>>,
+        fail: bool,
+    }
+
+    impl TopUpBilling for RecordingBilling {
+        fn quote<'a>(
+            &'a self,
+            _request: TopUpQuote<'a>,
+        ) -> BoxFuture<'a, Result<TopUpPrice, ApiError>> {
+            unreachable!("the webhook prices nothing")
+        }
+
+        fn settle<'a>(&'a self, payment: &'a Payment) -> BoxFuture<'a, Result<(), String>> {
+            self.settled.lock().expect("lock").push(payment.id.clone());
+            let result = if self.fail {
+                Err("database down".to_owned())
+            } else {
+                Ok(())
+            };
+            Box::pin(std::future::ready(result))
+        }
+    }
+
     fn webhook(answers: Vec<Result<HttpResponse, PortError>>) -> (Arc<FakeMollie>, Router) {
+        webhook_with(answers, None)
+    }
+
+    fn webhook_with(
+        answers: Vec<Result<HttpResponse, PortError>>,
+        billing: Option<Arc<dyn TopUpBilling>>,
+    ) -> (Arc<FakeMollie>, Router) {
         let fake = Arc::new(FakeMollie {
             requests: Mutex::default(),
             answers: Mutex::new(answers),
@@ -865,6 +1011,11 @@ mod tests {
         .expect("valid")
         .expect("configured");
         let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let top_up = TopUp::new(&settings, Some(http), None);
+        let top_up = match billing {
+            Some(billing) => top_up.with_billing(billing),
+            None => top_up,
+        };
         let state = CorePlatformState {
             events: EntityEventPublisher::new(None, weldsuite_events::TaskTracker::new()),
             realtime: None,
@@ -872,7 +1023,7 @@ mod tests {
             master: unreachable_master(),
             identity: None,
             audit_streams: Arc::new(NoAudit),
-            top_up: Some(Arc::new(TopUp::new(&settings, Some(http), None))),
+            top_up: Some(Arc::new(top_up)),
             ai: None,
             mail: None,
         };
@@ -937,6 +1088,31 @@ mod tests {
                 .into_bytes(),
         ))]);
         assert_eq!(post_form(app, "id=tr_abc").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_webhook_hands_the_payment_to_plan_billing() {
+        // A failed top-up grants nothing, but its charge records the state.
+        let billing = Arc::new(RecordingBilling::default());
+        let (_, app) = webhook_with(
+            vec![Ok(mollie_answer("failed"))],
+            Some(Arc::clone(&billing) as Arc<dyn TopUpBilling>),
+        );
+        assert_eq!(post_form(app, "id=tr_abc").await, StatusCode::OK);
+        assert_eq!(
+            *billing.settled.lock().expect("lock"),
+            vec!["tr_abc".to_owned()]
+        );
+        // Plan billing can't record it: Mollie delivers again.
+        let failing: Arc<dyn TopUpBilling> = Arc::new(RecordingBilling {
+            fail: true,
+            ..RecordingBilling::default()
+        });
+        let (_, app) = webhook_with(vec![Ok(mollie_answer("expired"))], Some(failing));
+        assert_eq!(
+            post_form(app, "id=tr_abc").await,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[tokio::test]

@@ -27,6 +27,7 @@ weldsuite-commerce = { workspace = true }
 weldsuite-commerce-domain = { workspace = true }
 weldsuite-connect = { workspace = true }
 weldsuite-core-apps = { workspace = true }
+weldsuite-core-billing = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-onboarding = { workspace = true }
 weldsuite-core-signin = { workspace = true }
@@ -36,6 +37,7 @@ weldsuite-core-team = { workspace = true }
 weldsuite-crm = { workspace = true }
 weldsuite-data = { workspace = true }
 weldsuite-db = { workspace = true }
+weldsuite-mollie = { workspace = true }
 weldsuite-desk = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-desk-widget = { workspace = true }
@@ -98,6 +100,7 @@ opentelemetry_sdk = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }

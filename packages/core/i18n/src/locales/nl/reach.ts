@@ -142,6 +142,9 @@ export const reach = {
   errors: {
     generic: 'Er ging iets mis. Probeer het opnieuw.',
     paymentMethodRequired: 'Voeg eerst een betaalmethode toe. Mailboxen worden daarop afgerekend.',
+    paidPlanRequired: 'Mailboxen worden met je abonnement afgerekend. Neem een betaald abonnement om er een toe te voegen.',
+    paymentOutstanding: 'Er staat nog een betaling open. Betaal die op de factuurpagina en voeg daarna de mailbox toe.',
+    paymentFailed: 'Je betaalmethode is geweigerd. Werk die bij op de factuurpagina en voeg daarna de mailbox toe.',
     domainHasMailboxes: 'Dit domein heeft nog mailboxen. Verwijder die eerst en ontkoppel daarna het domein.',
     forbidden: 'Je hebt hier geen toestemming voor.',
     limitReached: 'Je werkruimte heeft de limiet bereikt. Neem contact op met support om die te verhogen.',
@@ -264,6 +267,9 @@ export const reach = {
       priceNote: 'Dezelfde prijs voor Google- en gedeelde mailboxen. Domeinen worden door WeldHost gefactureerd.',
       onFile: 'Er staat een betaalmethode klaar.',
       missing: 'Nog geen betaalmethode.',
+      descriptionWithPlan:
+        'Een mailbox kost {price} per maand excl. btw en komt bij de maandelijkse afschrijving van je abonnement. Voeg je er halverwege de maand een toe, dan betaal je voor de rest van die maand.',
+      paidPlanRequired: 'Mailboxen worden met je abonnement afgerekend. Neem eerst een betaald abonnement.',
       add: 'Betaalmethode toevoegen',
       redirecting: 'We brengen je naar onze betaalprovider…',
       added: 'Betaalmethode toegevoegd.',
@@ -443,6 +449,8 @@ export const reach = {
       signaturePlaceholder: 'Anna de Vries\nAcme B.V.',
       signatureHint: 'Wordt onder elke e-mail van deze mailbox gezet.',
       price: '{price} per maand, afgerekend op je betaalmethode. De facturering stopt zodra je de mailbox verwijdert.',
+      priceWithPlan:
+        '{price} per maand excl. btw, bij de maandelijkse afschrijving van je abonnement. Halverwege de maand toegevoegd betaal je de rest van de maand; verwijderd, dan telt de volgende afschrijving er een minder.',
       submit: 'Mailbox maken',
       submitting: 'Maken…',
       created: 'Mailbox gemaakt. Hij begint nu met opwarmen.',
@@ -450,6 +458,9 @@ export const reach = {
       paymentRequiredDescription:
         'Mailboxen worden op je betaalmethode afgerekend. Voeg er een toe en maak daarna je mailbox.',
       addPayment: 'Betaalmethode toevoegen',
+      paidPlanRequiredTitle: 'Neem eerst een betaald abonnement',
+      paidPlanRequiredDescription: 'Mailboxen worden met je abonnement afgerekend. Kies een abonnement en maak daarna je mailbox aan.',
+      seePlans: 'Abonnementen bekijken',
       noDomains: 'Koppel eerst een domein.',
     },
     edit: {
@@ -561,6 +572,9 @@ export const reach = {
     billing: {
       title: 'Facturering',
       description: 'Mailboxen worden maandelijks op je betaalmethode afgerekend.',
+      descriptionWithPlan: 'Mailboxen komen bij de maandelijkse afschrijving van je abonnement. Bedragen zijn exclusief btw.',
+      pausedTitle: 'Je mailboxen staan stil',
+      pausedDescription: 'Je abonnement is afgelopen, dus je mailboxen versturen niets. Neem een betaald abonnement om ze te hervatten.',
       status: 'Abonnement',
       inboxes: 'Mailboxen',
       inboxesValue: '{count} × {price}',

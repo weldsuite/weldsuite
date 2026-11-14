@@ -76,6 +76,15 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = core_team(router, state);
     let router = core_platform(router, state);
+    // Plan billing on Mollie (ADR BILL-014): app-api's `/api/billing`, only
+    // where `BILLING_PROVIDER=mollie` turns it on.
+    let router = match crate::billing::billing_state(state) {
+        Some(billing) if mounts("core") => router.nest(
+            "/billing",
+            weldsuite_core_billing::router(billing, &state.permissions),
+        ),
+        _ => router,
+    };
     let router = core_apps(router, state);
     let router = if mounts("docs") {
         let docs = weldsuite_docs::DocsState {
@@ -1054,6 +1063,11 @@ fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
             ))
         }),
         tenants: Some(tenant_databases(state)),
+        // With plans billed through Mollie, inboxes ride on the plan's charge
+        // (ADR BILL-014); otherwise they are provisioned unbilled.
+        inbox_billing: crate::billing::billing_state(state).map(|billing| {
+            crate::billing::reach_inbox_billing(billing, Arc::clone(&state.workspaces))
+        }),
     }
 }
 
@@ -1972,10 +1986,27 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 weldsuite_core_apps::public_user_apps(apps),
             )
             .merge(sign_in_public(state))
-            .merge(credit_top_up_public(state))
+            .merge(mollie_public(state))
     } else {
         Router::new()
     }
+}
+
+/// Mollie's webhook (`/api/webhooks/mollie`) and the pay links
+/// (`/public/billing/pay/:token`), ahead of the session. With plan billing
+/// on (ADR BILL-014) one webhook settles plan payments and credit top-ups
+/// alike; with only the top-up, the top-up's own.
+fn mollie_public(state: &AppState) -> Router<AppState> {
+    match crate::billing::billing_state(state) {
+        Some(billing) => crate::billing::webhook(state, billing.clone())
+            .merge(weldsuite_core_billing::public_router(billing)),
+        None => credit_top_up_public(state),
+    }
+}
+
+/// Whether the credit top-up is configured (`MOLLIE_API_KEY`).
+pub(crate) fn credit_top_up_configured(state: &AppState) -> bool {
+    credit_top_up(state).is_some()
 }
 
 /// `/api/sign-in`: the backend of the platform's own sign-in screens on an
@@ -2253,7 +2284,8 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
 
 /// Buying credits through Mollie (`MOLLIE_API_KEY`; the `credit-top-up`
 /// edition feature, ADR OPS-012), made once per process: Mollie over the
-/// shared client, pending checkouts in Valkey (or this process without it).
+/// shared client, pending checkouts in Valkey (or this process without it),
+/// VAT on top and a WeldBooks invoice when plan billing is on.
 /// `None` without the key, and in conformance builds, whose tests are
 /// Global's (Stripe through billing-worker).
 fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>> {
@@ -2266,11 +2298,21 @@ fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>
             match weldsuite_core_platform::TopUpSettings::from_lookup(&|name| {
                 std::env::var(name).ok()
             }) {
-                Ok(Some(settings)) => Some(Arc::new(weldsuite_core_platform::TopUp::new(
-                    &settings,
-                    shared_outbound(),
-                    Some(upload_token_cache(state)),
-                ))),
+                Ok(Some(settings)) => {
+                    let top_up = weldsuite_core_platform::TopUp::new(
+                        &settings,
+                        shared_outbound(),
+                        Some(upload_token_cache(state)),
+                    );
+                    // With plan billing on Mollie (ADR BILL-014) a package's
+                    // price is before VAT and a paid top-up is invoiced.
+                    Some(Arc::new(match crate::billing::billing_state(state) {
+                        Some(billing) => {
+                            top_up.with_billing(crate::billing::top_up_billing(billing))
+                        }
+                        None => top_up,
+                    }))
+                }
                 Ok(None) => None,
                 // `serve` refuses to start on it (`crate::edition`).
                 Err(problem) => {

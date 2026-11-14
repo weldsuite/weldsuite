@@ -38,6 +38,13 @@ export const EDITION_FEATURES = [
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
   /**
+   * WeldReach inbox billing: a per-mailbox Stripe subscription on Global; on
+   * the Rust backend the inboxes ride on the plan's Mollie charge, so it is
+   * offered exactly where plans are billed through Mollie (`billingProvider`
+   * is `mollie`), and unbilled elsewhere.
+   */
+  'reach-billing',
+  /**
    * Buying credits: a Stripe checkout on Global, a Mollie payment on the
    * Kubernetes editions when the deployment has a Mollie key. Without
    * `billing`, the billing page shows just the balance and the top-up.
@@ -211,6 +218,11 @@ export function getAiConfig(): RuntimeAiConfig | null {
 /** Whether workspace AI settings exist here: a Kubernetes install with a configured provider. */
 export function hasAiSettings(): boolean {
   return getAiConfig() !== null;
+}
+
+/** Who bills plans: Mollie when `/config.json` says so, Stripe otherwise (Global). */
+export function billingProvider(): 'stripe' | 'mollie' {
+  return getRuntimeConfig()?.billingProvider === 'mollie' ? 'mollie' : 'stripe';
 }
 
 /** Whether this deployment offers a feature (`unavailableFeatures` doesn't name it). */

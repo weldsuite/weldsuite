@@ -22,13 +22,15 @@ interface BuyCreditsDialogProps {
   /** A checkout is being started: the packages are disabled. */
   pending: boolean;
   onBuy: (packageId: string) => void;
+  /** A line under the packages about their prices (excl. VAT with plan billing on Mollie). */
+  priceNote?: string;
 }
 
 /**
  * Pick a credit package; buying it goes to the hosted checkout (Stripe on
  * Global, Mollie on the Kubernetes editions).
  */
-export function BuyCreditsDialog({ open, onOpenChange, balance, packages, pending, onBuy }: Readonly<BuyCreditsDialogProps>) {
+export function BuyCreditsDialog({ open, onOpenChange, balance, packages, pending, onBuy, priceNote }: Readonly<BuyCreditsDialogProps>) {
   const { t, language } = useI18n();
   const ts = t.settings.billing.creditsWallet;
 
@@ -75,6 +77,10 @@ export function BuyCreditsDialog({ open, onOpenChange, balance, packages, pendin
                 </button>
               ))}
             </div>
+          )}
+
+          {priceNote && packages.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-4">{priceNote}</p>
           )}
 
           {pending && (

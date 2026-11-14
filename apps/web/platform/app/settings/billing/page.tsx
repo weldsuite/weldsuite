@@ -50,9 +50,12 @@ import {
 } from './billing-details';
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
-import { isFeatureAvailable } from '@/lib/edition';
+import { billingProvider, isFeatureAvailable } from '@/lib/edition';
+import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
 import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
-import { useCreditCheckoutReturn } from './credit-checkout-return';
+import { useCreditCheckoutReturn, type BillingCheckoutReturnStrings } from './credit-checkout-return';
+import { MollieBillingNotices } from '@/components/billing/mollie-billing-notices';
+import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
 import { CreditsWalletSettings } from './credits-wallet-settings';
 
 type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
@@ -367,6 +370,7 @@ function DirectBillingSettings() {
   const cancelMutation = useCancelSubscription();
   const reactivateMutation = useReactivateSubscription();
   const buyCreditsMutation = useBuyCredits();
+  const onInvoiceLinkClick = useInvoiceLinkClick();
 
   const creditsWallet = (creditsBalanceData?.data as { currentBalance?: number; isLow?: boolean } | undefined) ?? null;
   const creditPackages = (creditPackagesData?.data as CreditPackageOption[] | undefined) ?? [];
@@ -410,12 +414,32 @@ function DirectBillingSettings() {
 
   // Surface the outcome of a returning credit-topup checkout, then strip its
   // query params so a refresh doesn't re-toast.
-  useCreditCheckoutReturn(ts.creditsWallet);
+  // A Mollie plan checkout (`?checkout=bpy_…`) is looked up too and the billing queries refreshed.
+  const mollieStrings = ts.mollie;
+  const billingReturnStrings = useMemo<BillingCheckoutReturnStrings>(
+    () => ({
+      planPaid: mollieStrings.checkoutPlanPaid,
+      changePaid: mollieStrings.checkoutChangePaid,
+      mandatePaid: mollieStrings.checkoutMandatePaid,
+      payLinkPaid: mollieStrings.checkoutPayLinkPaid,
+      pending: mollieStrings.checkoutPending,
+      cancelled: mollieStrings.checkoutCancelled,
+      notCompleted: mollieStrings.checkoutNotCompleted,
+      payLinkDone: mollieStrings.payLinkDone,
+      payLinkExpired: mollieStrings.payLinkExpired,
+    }),
+    [mollieStrings],
+  );
+  useCreditCheckoutReturn(ts.creditsWallet, billingReturnStrings);
 
   const handleManagePlan = () => {
     router.push('/settings/plans');
   };
 
+  // With plan billing on Mollie a top-up is invoiced with VAT, so it is refused
+  // (400 BILLING_DETAILS_REQUIRED) until the billing details are complete:
+  // the dialog opens, and the purchase continues once it saves.
+  const detailsGate = useBillingDetailsGate(ts.mollie.billingDetailsRequired);
   const handleBuyCredits = async (packageId: string) => {
     try {
       const { url } = await buyCreditsMutation.mutateAsync(packageId);
@@ -424,7 +448,11 @@ function DirectBillingSettings() {
       } else {
         toast.error(ts.creditsWallet.purchaseFailed);
       }
-    } catch {
+    } catch (err) {
+      if (detailsGate.intercept(err, () => void handleBuyCredits(packageId))) {
+        setBuyCreditsOpen(false);
+        return;
+      }
       toast.error(ts.creditsWallet.purchaseFailed);
     }
   };
@@ -487,6 +515,12 @@ function DirectBillingSettings() {
         <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
+
+      <MollieBillingNotices
+        outstanding={subscription?.outstanding}
+        scheduledChange={subscription?.scheduledChange}
+        canPay={canManageBilling}
+      />
 
       {/* Current Plan */}
       <div>
@@ -720,6 +754,7 @@ function DirectBillingSettings() {
                             href={invoice.pdfUrl}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
                             className="text-muted-foreground hover:text-foreground transition-colors"
                           >
                             <Download className="h-4 w-4" />
@@ -763,6 +798,9 @@ function DirectBillingSettings() {
         details={billingDetails}
       />
 
+      {/* The same dialog, opened by a top-up refused for missing billing details. */}
+      <BillingDetailsDialog {...detailsGate.dialogProps} details={billingDetails} />
+
       <BuyCreditsDialog
         open={buyCreditsOpen}
         onOpenChange={setBuyCreditsOpen}
@@ -770,6 +808,7 @@ function DirectBillingSettings() {
         packages={creditPackages}
         pending={buyCreditsMutation.isPending}
         onBuy={(packageId) => void handleBuyCredits(packageId)}
+        priceNote={billingProvider() === 'mollie' ? ts.mollie.excludingVat : undefined}
       />
     </div>
   );

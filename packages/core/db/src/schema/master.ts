@@ -767,10 +767,25 @@ export const billingInvoices = pgTable('billing_invoices', {
   // Workspace reference
   workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
-  // Stripe identifiers
-  stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).notNull().unique(),
+  // Who issued the invoice: 'stripe' (Global, mirrored from Stripe) or
+  // 'weldbooks' (the EU edition: WeldBooks in WeldSuite's own workspace,
+  // ADR BILL-014).
+  provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+
+  // Stripe identifiers (null on a WeldBooks invoice)
+  stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).unique(),
   stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
   stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+
+  // WeldBooks identifiers: the invoice in the issuer workspace, and the
+  // Mollie payment (`tr_…`) it was issued for. An EU invoice is issued only
+  // once its payment is paid, so there is exactly one per paid payment.
+  providerInvoiceId: varchar('provider_invoice_id', { length: 255 }),
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }).unique(),
+  // What was billed: the lines with their periods and amounts in cents.
+  lines: jsonb('lines').$type<Array<Record<string, unknown>>>(),
+  // The printable invoice document copied into the private files bucket.
+  documentKey: text('document_key'),
 
   // Invoice details
   number: varchar('number', { length: 100 }),
@@ -826,9 +841,22 @@ export const billingPayments = pgTable('billing_payments', {
   // cascade can trip over a not-yet-deleted payment row.
   invoiceId: varchar('invoice_id', { length: 30 }).references(() => billingInvoices.id, { onDelete: 'cascade' }),
 
+  // 'stripe' (Global) or 'mollie' (the EU edition, ADR BILL-014).
+  provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+
   // Stripe identifiers
   stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).unique(),
   stripeChargeId: varchar('stripe_charge_id', { length: 255 }),
+
+  // Mollie: the payment (`tr_…`), what it is for ('first', 'renewal',
+  // 'proration', 'pay_link', 'mandate'), a key that makes each intended
+  // charge exactly one row (e.g. `renewal:<workspace>:<period start>`), and
+  // the lines, VAT and plan change it carries, which settle it when paid.
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }).unique(),
+  kind: varchar('kind', { length: 30 }),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).unique(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  paidAt: timestamp('paid_at'),
 
   // Amount
   amount: integer('amount').notNull(), // in cents
@@ -859,6 +887,65 @@ export const billingPayments = pgTable('billing_payments', {
 
 export type BillingPaymentRecord = typeof billingPayments.$inferSelect;
 export type NewBillingPaymentRecord = typeof billingPayments.$inferInsert;
+
+// ============================================================================
+// BILLING ACCOUNTS (EU edition: plan billing on Mollie, ADR BILL-014)
+// ============================================================================
+
+/**
+ * One row per workspace that has ever checked out on a Kubernetes edition
+ * with plan billing (`BILLING_PROVIDER=mollie`). Global never writes it: its
+ * subscription state is Stripe's, mirrored onto `workspaces` (BILL-001).
+ *
+ * Plan, seats, cycle, period and status stay on `workspaces`, so every reader
+ * (seat check, limits, lock gate) works unchanged. This row holds what only
+ * the billing code needs: the Mollie customer and its default mandate, the
+ * seat price the running period was bought at, the monthly anchor the
+ * renewal job (`weldsuite cron billing-renewals`) charges on, changes
+ * scheduled for the period end, and the open charge of a past-due account.
+ */
+export const billingAccounts = pgTable('billing_accounts', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().unique().references(() => workspaces.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 20 }).notNull().default('mollie'),
+
+  // Mollie customer (`cst_…`) and the mandate (`mdt_…`) renewals charge.
+  customerId: varchar('customer_id', { length: 255 }),
+  mandateId: varchar('mandate_id', { length: 255 }),
+  mandateMethod: varchar('mandate_method', { length: 30 }), // creditcard, directdebit, paypal
+  mandateLabel: varchar('mandate_label', { length: 100 }), // masked: "Visa •••• 4242"
+
+  // Net price per seat per cycle the running period bills, in cents.
+  unitAmount: integer('unit_amount'),
+  currency: varchar('currency', { length: 3 }).notNull().default('EUR'),
+
+  // Charges fall on this day of the month (1–28). The renewal job charges
+  // when `next_charge_at` has passed: the plan when its period ends, and the
+  // monthly add-ons and plan credits on every anchor in between.
+  anchorDay: smallint('anchor_day'),
+  nextChargeAt: timestamp('next_charge_at'),
+
+  // Applied at the end of the period: fewer seats, a cheaper plan, another cycle.
+  scheduledPlanId: varchar('scheduled_plan_id', { length: 30 }),
+  scheduledSeats: integer('scheduled_seats'),
+  scheduledCycle: varchar('scheduled_cycle', { length: 10 }),
+
+  // Past due: since when, the billing_payments row still to be paid, and
+  // when the billing owners were last reminded.
+  pastDueSince: timestamp('past_due_since'),
+  pastDuePaymentId: varchar('past_due_payment_id', { length: 30 }),
+  dunningRemindedAt: timestamp('dunning_reminded_at'),
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('billing_accounts_next_charge_at_idx').on(table.nextChargeAt),
+  index('billing_accounts_past_due_since_idx').on(table.pastDueSince),
+  uniqueIndex('billing_accounts_customer_id_idx').on(table.customerId),
+]);
+
+export type BillingAccountRecord = typeof billingAccounts.$inferSelect;
+export type NewBillingAccountRecord = typeof billingAccounts.$inferInsert;
 
 // ============================================================================
 // WORKSPACE CREDITS

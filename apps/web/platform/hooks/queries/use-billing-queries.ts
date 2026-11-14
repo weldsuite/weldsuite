@@ -4,6 +4,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type {
+  BillingCheckoutResult,
   BillingPaymentMethodResponse,
   BillingSubscriptionResponse,
   PhoneSubscriptionResponse,
@@ -212,13 +213,10 @@ export function useChangePlan() {
         ...(data.successUrl ? { successUrl: data.successUrl } : {}),
         ...(data.cancelUrl ? { cancelUrl: data.cancelUrl } : {}),
       };
-      // `success` is never actually returned (neither worker has a free-plan branch —
-      // checkout always answers `{ url }`), but callers still guard on it, so the type
-      // stays wide enough for that dead branch.
-      const res = await client.post<{ data: { url?: string; success?: boolean } }>(
-        '/billing/checkout',
-        body,
-      );
+      // Stripe always answers `{ url }`. A running Mollie subscription can change in
+      // place (`success`, `scheduled` + `effectiveAt`) or ask for a payment first
+      // (`paymentRequired` + `paymentUrl`).
+      const res = await client.post<{ data: BillingCheckoutResult }>('/billing/checkout', body);
       return res.data;
     },
     onSuccess: () => {
@@ -239,7 +237,13 @@ export function useUpdateSeats() {
     mutationFn: async (data: { seats: number }) => {
       const client = await getClient();
       const res = await client.post<{
-        data: { purchasedSeats: number; paymentRequired?: boolean; paymentUrl?: string | null };
+        data: {
+          purchasedSeats: number;
+          paymentRequired?: boolean;
+          paymentUrl?: string | null;
+          /** A decrease that waits for the period end (Mollie). */
+          effectiveAt?: string | null;
+        };
       }>('/billing/seats', { seatCount: data.seats });
       return { success: true, ...res.data };
     },
@@ -302,7 +306,9 @@ export function usePaymentMethods(enabled = true) {
 }
 
 /**
- * Create a SetupIntent and return its client secret for Stripe Elements.
+ * Start adding a payment method. Stripe answers a SetupIntent `clientSecret` for
+ * Elements; Mollie (`billingProvider() === 'mollie'`) answers the `url` of a hosted
+ * checkout that creates a new mandate, which the caller redirects to.
  *
  * Deliberately a mutation, not a query: each secret backs one confirmation
  * attempt, so it is minted when the dialog opens rather than cached.
@@ -312,7 +318,7 @@ export function useCreateSetupIntent() {
   return useMutation({
     mutationFn: async () => {
       const client = await getClient();
-      const res = await client.post<{ data: { clientSecret: string } }>(
+      const res = await client.post<{ data: { clientSecret?: string; url?: string } }>(
         '/billing/payment-methods/setup-intent',
         {},
       );

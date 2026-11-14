@@ -42,6 +42,12 @@
  *   // (`EditionFeature` in `lib/edition.ts`); the platform hides them.
  *   // Absent = none. Names this build doesn't know are ignored.
  *   "unavailableFeatures": ["billing", "sso-connections"],
+ *   // Who bills plans (ADR BILL-014): "mollie" when the deployment has plan
+ *   // billing on Mollie (`billing` is then not in `unavailableFeatures`).
+ *   // Absent = Stripe, as on Global (`billingProvider()` in `lib/edition.ts`).
+ *   // `reach-billing` is listed in `unavailableFeatures` whenever WeldReach
+ *   // inbox billing is not on Mollie.
+ *   "billingProvider": "mollie",
  *   // Origin of the core API (what Global calls app-api). Default for
  *   // "backend": "rust" is the SPA's own origin.
  *   "apiBaseUrl": "https://weldsuite.example.eu",
@@ -96,24 +102,35 @@
  * all fall back to the build-time values.
  */
 
+import { z } from 'zod';
 import {
-  parseRuntimeConfig,
   RUNTIME_CONFIG_PATH,
+  runtimeConfigSchema as sharedRuntimeConfigSchema,
   type RuntimeAuthConfig,
-  type RuntimeConfig,
   type RuntimeOidcAuthConfig,
 } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { isRuntimeConfigOn } from '@/src/boot/mode';
 
-// The contract itself (Zod v3) is shared with the mobile apps.
-export {
-  parseRuntimeConfig,
-  RUNTIME_CONFIG_PATH,
-  runtimeConfigSchema,
-} from '@weldsuite/app-api-client/schemas/runtime-config';
-export type { RuntimeConfig };
+export { RUNTIME_CONFIG_PATH };
+
+/**
+ * The contract itself (Zod v3) is shared with the mobile apps; `billingProvider`
+ * is read by the platform only (ADR BILL-014), so it is added here. A value
+ * this build doesn't know reads as absent (Stripe).
+ */
+export const runtimeConfigSchema = sharedRuntimeConfigSchema.extend({
+  billingProvider: z.enum(['stripe', 'mollie']).optional().catch(undefined),
+});
+
+export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type AuthConfig = RuntimeAuthConfig;
 export type OidcAuthConfig = RuntimeOidcAuthConfig;
+
+/** Parse a `/config.json` body. Null when it isn't a valid document. */
+export function parseRuntimeConfig(body: unknown): RuntimeConfig | null {
+  const parsed = runtimeConfigSchema.safeParse(body);
+  return parsed.success ? parsed.data : null;
+}
 
 const LOAD_TIMEOUT_MS = 3000;
 
