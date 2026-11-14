@@ -17,6 +17,7 @@
  */
 
 import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+import { basinSql, type BasinRow } from '@weldsuite/worker-kit/basin';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -510,7 +511,7 @@ function buildSelect(
 // Result shaping
 // ---------------------------------------------------------------------------
 
-type RawRow = unknown[] | Record<string, unknown>;
+type RawRow = BasinRow;
 
 interface ParsedRow {
   label: string;
@@ -820,29 +821,6 @@ function planRatio(
 // Query executor
 // ---------------------------------------------------------------------------
 
-async function runR2Sql(
-  endpoint: string,
-  token: string,
-  sql: string,
-): Promise<RawRow[]> {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query: sql }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`R2 SQL API error ${response.status}: ${text}`);
-  }
-
-  const raw = (await response.json()) as { result?: { rows?: RawRow[] } };
-  return raw.result?.rows ?? [];
-}
-
 export async function queryAnalytics(
   env: AnalyticsQueryEnv,
   workspace: WorkspaceRefs,
@@ -860,8 +838,8 @@ export async function queryAnalytics(
   try {
     const plan = planChartQuery(workspace, params);
     if (plan.queries.length === 0) return [];
-    const endpoint = `https://api.sql.cloudflarestorage.com/api/v1/accounts/${accountId}/r2-sql/query/${bucket}`;
-    const results = await Promise.all(plan.queries.map((sql) => runR2Sql(endpoint, token, sql)));
+    const config = { token, accountId, bucket };
+    const results = await Promise.all(plan.queries.map(async (sql) => (await basinSql(config, sql)).rows));
     return plan.finish(results);
   } catch (err) {
     console.error('[Analytics] Query failed:', err);
