@@ -1,7 +1,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, memo, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -44,7 +44,8 @@ import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
 import type { PartnerPublicInfo, PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
 import { PartnerContactLinks, PartnerLogo } from '@/components/partner/partner-contact';
 import { TerritoryDialog } from '@/components/partner/territory-screen';
-import { apiErrorCode, territoryErrorDetails } from '@/lib/partner/api-errors';
+import { territoryErrorDetails } from '@/lib/partner/api-errors';
+import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
 import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
 import { billingProvider } from '@/lib/edition';
 import { BillingDetailsDialog } from '@/app/settings/billing/billing-details-dialog';
@@ -54,11 +55,6 @@ import {
 } from '@/app/settings/billing/billing-details';
 
 type InvoiceInfo = BillingInvoiceResponse;
-
-/** `POST /billing/checkout` answers 400 `BILLING_DETAILS_REQUIRED` until the billing details are complete (Mollie). */
-function isBillingDetailsRequired(err: unknown): boolean {
-  return apiErrorCode(err) === 'BILLING_DETAILS_REQUIRED';
-}
 
 type ViewMode = 'overview' | 'plans' | 'invoices' | 'invoice-detail';
 
@@ -1937,10 +1933,9 @@ export function BillingSettingsSection() {
   // A partner serves the caller's country: it sells WeldSuite there, not us.
   const [partnerManaged, setPartnerManaged] = useState<PartnerPublicInfo | null>(null);
   const [territory, setTerritory] = useState<PartnerTerritoryErrorDetails | null>(null);
-  // Mollie asks for complete billing details before a checkout: the dialog opens and the checkout is retried once they are saved.
-  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const pendingCheckout = useRef<{ plan: Billing.BillingPlan; seats: number; cycle: 'monthly' | 'annually' } | null>(null);
   const { t: i18n, format: fillText } = useI18n();
+  // Mollie asks for complete billing details before a checkout: the dialog opens and the checkout is retried once they are saved.
+  const detailsGate = useBillingDetailsGate(i18n.settings.billing.mollie.billingDetailsRequired);
   const { data: settingsData } = useWorkspaceSettings();
   const billingDetails = useMemo(
     () => billingDetailsFromSettings(settingsData?.data as WorkspaceBillingSettings | null | undefined),
@@ -2139,12 +2134,7 @@ export function BillingSettingsSection() {
     seats: number,
     billingCycle: 'monthly' | 'annually',
   ): void => {
-    if (isBillingDetailsRequired(err)) {
-      pendingCheckout.current = { plan, seats, cycle: billingCycle };
-      toast.info(i18n.settings.billing.mollie.billingDetailsRequired);
-      setDetailsDialogOpen(true);
-      return;
-    }
+    if (detailsGate.intercept(err, () => void handleConfirmCheckout(plan, seats, billingCycle))) return;
     const territoryDetails = territoryErrorDetails(err);
     if (territoryDetails) {
       setTerritory(territoryDetails);
@@ -2246,17 +2236,8 @@ export function BillingSettingsSection() {
           details={territory}
         />
         <BillingDetailsDialog
-          open={detailsDialogOpen}
-          onOpenChange={(open) => {
-            setDetailsDialogOpen(open);
-            if (!open) pendingCheckout.current = null;
-          }}
+          {...detailsGate.dialogProps}
           details={billingDetails}
-          onSaved={() => {
-            const pending = pendingCheckout.current;
-            pendingCheckout.current = null;
-            if (pending) void handleConfirmCheckout(pending.plan, pending.seats, pending.cycle);
-          }}
         />
       </>
     );

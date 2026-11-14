@@ -2,9 +2,9 @@ import { CreditCard, Terminal } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { fill } from '@/lib/i18n';
-import { formatCents, formatDay } from '@/lib/billing-format';
-import { mollieBillingCopy, type MollieBillingCopy } from '@/lib/mollie-billing-copy';
-import { BILLING_CLI_PREFIX, billingCliCommands, mandateSummary } from '@/lib/mollie-billing';
+import { formatDay } from '@/lib/billing-format';
+import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
+import { BILLING_CLI_PREFIX, billingCliCommands, mandateSummary, mollieAccountSummary } from '@/lib/mollie-billing';
 import type { MollieBillingAccount, WorkspaceBilling } from '@/lib/billing-types';
 import { Notice } from './subscription-card';
 
@@ -19,7 +19,7 @@ export function MollieBillingCard({
   billing,
 }: Readonly<{ workspaceId: string; account: MollieBillingAccount; billing: WorkspaceBilling }>) {
   const c = mollieBillingCopy();
-  const yearly = billing.subscriptionCycle === 'yearly';
+  const summary = mollieAccountSummary(c, account, billing.subscriptionCycle);
 
   const rows: Array<[string, React.ReactNode]> = [
     [c.rows.customer, <span key="customer" className="font-mono text-xs">{account.customerId ?? '—'}</span>],
@@ -30,29 +30,11 @@ export function MollieBillingCard({
         {account.mandateId && <span className="font-mono text-[11px] text-muted-foreground">{account.mandateId}</span>}
       </span>,
     ],
-    [
-      c.rows.seatPrice,
-      account.unitAmount == null
-        ? '—'
-        : fill(c.seatPrice, {
-            amount: formatCents(account.unitAmount, account.currency),
-            interval: yearly ? c.intervalYear : c.intervalMonth,
-          }),
-    ],
-    [c.rows.nextCharge, formatDay(account.nextChargeAt)],
+    [c.rows.seatPrice, summary.seatPrice],
+    [c.rows.nextCharge, summary.nextCharge],
   ];
-  if (account.anchorDay != null) rows.push([c.rows.billingDay, fill(c.billingDay, { day: account.anchorDay })]);
-
-  const scheduledRows: Array<[string, React.ReactNode]> = [];
-  if (account.scheduled) {
-    const s = account.scheduled;
-    if (s.planId) scheduledRows.push([c.scheduled.plan, s.planName ?? s.planId]);
-    if (s.seats != null) scheduledRows.push([c.scheduled.seats, s.seats]);
-    if (s.cycle) scheduledRows.push([c.scheduled.cycle, cycleLabel(c, s.cycle)]);
-  }
-
-  const pastDue = account.pastDue;
-  const charge = pastDue?.charge ?? null;
+  if (summary.billingDay) rows.push([c.rows.billingDay, summary.billingDay]);
+  const pastDue = summary.pastDue;
 
   return (
     <Card className={pastDue ? 'border-destructive/40 py-4' : 'py-4'}>
@@ -68,32 +50,22 @@ export function MollieBillingCard({
         {pastDue && (
           <Notice tone="destructive">
             <div className="space-y-0.5">
-              <div className="font-medium">{fill(c.pastDue.since, { date: formatDay(pastDue.since) })}</div>
-              <div>
-                {charge
-                  ? fill(c.pastDue.charge, {
-                      id: charge.providerPaymentId ? `${charge.providerPaymentId} (${charge.id})` : charge.id,
-                      amount: formatCents(charge.amount, charge.currency ?? account.currency),
-                      status: charge.status ?? '—',
-                    })
-                  : c.pastDue.noCharge}
-              </div>
-              {charge?.failureMessage && <div>{fill(c.pastDue.failure, { message: charge.failureMessage })}</div>}
-              {pastDue.remindedAt && (
-                <div className="text-xs opacity-80">{fill(c.pastDue.reminded, { date: formatDay(pastDue.remindedAt) })}</div>
-              )}
+              <div className="font-medium">{pastDue.since}</div>
+              <div>{pastDue.charge}</div>
+              {pastDue.failure && <div>{pastDue.failure}</div>}
+              {pastDue.reminded && <div className="text-xs opacity-80">{pastDue.reminded}</div>}
             </div>
           </Notice>
         )}
 
         <DetailRows rows={rows} />
 
-        {scheduledRows.length > 0 && (
+        {summary.scheduled.length > 0 && (
           <div className="space-y-2">
             <h3 className="text-xs uppercase tracking-wide text-muted-foreground">
               {fill(c.scheduled.title, { date: formatDay(billing.currentPeriodEnd) })}
             </h3>
-            <DetailRows rows={scheduledRows} />
+            <DetailRows rows={summary.scheduled} />
           </div>
         )}
 
@@ -117,11 +89,6 @@ export function MollieBillingCard({
   );
 }
 
-function cycleLabel(c: MollieBillingCopy, cycle: string): string {
-  if (cycle === 'yearly') return c.scheduled.yearly;
-  if (cycle === 'monthly') return c.scheduled.monthly;
-  return cycle;
-}
 
 function DetailRows({ rows }: Readonly<{ rows: Array<[string, React.ReactNode]> }>) {
   return (

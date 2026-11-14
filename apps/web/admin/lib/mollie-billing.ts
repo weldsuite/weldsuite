@@ -3,7 +3,71 @@
 // Stripe mirror.
 
 import type { MollieBillingAccount } from './billing-types';
+import { formatCents, formatDay } from './billing-format';
+import { fill } from './i18n';
 import type { MollieBillingCopy } from './mollie-billing-copy';
+
+/** "Yearly" / "Monthly"; another cycle as written. */
+export function cycleLabel(copy: MollieBillingCopy, cycle: string): string {
+  if (cycle === 'yearly') return copy.scheduled.yearly;
+  if (cycle === 'monthly') return copy.scheduled.monthly;
+  return cycle;
+}
+
+/** What the console's Mollie card shows of an account, as text. */
+export interface MollieAccountSummary {
+  /** "€49.00 per seat / month", or "—" without a price. */
+  seatPrice: string;
+  nextCharge: string;
+  /** "Day 14 of each month", when the account has an anchor. */
+  billingDay: string | null;
+  /** What changes at the period end: label and value. */
+  scheduled: Array<[string, string]>;
+  /** The past-due notice's lines; null unless past due. */
+  pastDue: { since: string; charge: string; failure: string | null; reminded: string | null } | null;
+}
+
+/** The card's rows for `account`, billed `cycle` (`workspaces.subscription_cycle`). */
+export function mollieAccountSummary(
+  copy: MollieBillingCopy,
+  account: MollieBillingAccount,
+  cycle: string | null,
+): MollieAccountSummary {
+  const seatPrice =
+    account.unitAmount == null
+      ? '—'
+      : fill(copy.seatPrice, {
+          amount: formatCents(account.unitAmount, account.currency),
+          interval: cycle === 'yearly' ? copy.intervalYear : copy.intervalMonth,
+        });
+  const scheduled: Array<[string, string]> = [];
+  const s = account.scheduled;
+  if (s?.planId) scheduled.push([copy.scheduled.plan, s.planName ?? s.planId]);
+  if (s?.seats != null) scheduled.push([copy.scheduled.seats, String(s.seats)]);
+  if (s?.cycle) scheduled.push([copy.scheduled.cycle, cycleLabel(copy, s.cycle)]);
+  const pastDue = account.pastDue;
+  const charge = pastDue?.charge ?? null;
+  return {
+    seatPrice,
+    nextCharge: formatDay(account.nextChargeAt),
+    billingDay: account.anchorDay == null ? null : fill(copy.billingDay, { day: account.anchorDay }),
+    scheduled,
+    pastDue: pastDue
+      ? {
+          since: fill(copy.pastDue.since, { date: formatDay(pastDue.since) }),
+          charge: charge
+            ? fill(copy.pastDue.charge, {
+                id: charge.providerPaymentId ? `${charge.providerPaymentId} (${charge.id})` : charge.id,
+                amount: formatCents(charge.amount, charge.currency ?? account.currency),
+                status: charge.status ?? '—',
+              })
+            : copy.pastDue.noCharge,
+          failure: charge?.failureMessage ? fill(copy.pastDue.failure, { message: charge.failureMessage }) : null,
+          reminded: pastDue.remindedAt ? fill(copy.pastDue.reminded, { date: formatDay(pastDue.remindedAt) }) : null,
+        }
+      : null,
+  };
+}
 
 /**
  * Where staff change billing on Kubernetes: the `weldsuite` binary in the

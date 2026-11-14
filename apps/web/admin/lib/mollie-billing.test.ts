@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { mollieBillingCopyByLocale } from './mollie-billing-copy';
+import type { MollieBillingAccount } from './billing-types';
 import {
   BILLING_CLI_PREFIX,
   billingCliCommands,
+  cycleLabel,
   isAbsoluteUrl,
   isStripeRow,
   mandateSummary,
+  mollieAccountSummary,
   paymentKindLabel,
 } from './mollie-billing';
 
@@ -99,5 +102,101 @@ describe('history rows', () => {
   it('labels an unknown charge kind readably', () => {
     expect(paymentKindLabel(en, 'seat_top_up')).toBe('seat top up');
     expect(paymentKindLabel(en, null)).toBeNull();
+  });
+});
+
+describe('mollieAccountSummary', () => {
+  const account: MollieBillingAccount = {
+    customerId: 'cst_1',
+    mandateId: 'mdt_1',
+    mandateMethod: 'creditcard',
+    mandateLabel: 'Visa •••• 4242',
+    unitAmount: 4900,
+    currency: 'EUR',
+    anchorDay: 14,
+    nextChargeAt: '2026-12-14T10:00:00.000Z',
+    scheduled: null,
+    pastDue: null,
+  };
+
+  it('prices the seat per cycle and names the billing day', () => {
+    const monthly = mollieAccountSummary(en, account, 'monthly');
+    expect(monthly.seatPrice).toBe('€49.00 per seat per month, excl. VAT');
+    expect(monthly.nextCharge).toBe('14 Dec 2026');
+    expect(monthly.billingDay).toBe('Day 14 of the month');
+    expect(monthly.scheduled).toEqual([]);
+    expect(monthly.pastDue).toBeNull();
+    expect(mollieAccountSummary(en, account, 'yearly').seatPrice).toContain('per year');
+  });
+
+  it('shows a dash without a price, and no billing day without an anchor', () => {
+    const bare = mollieAccountSummary(en, { ...account, unitAmount: null, anchorDay: null, nextChargeAt: null }, null);
+    expect(bare.seatPrice).toBe('—');
+    expect(bare.billingDay).toBeNull();
+    expect(bare.nextCharge).toBe('—');
+  });
+
+  it('lists what changes at the period end', () => {
+    const summary = mollieAccountSummary(
+      en,
+      { ...account, scheduled: { planId: 'plan_team', planName: 'Team', seats: 3, cycle: 'yearly' } },
+      'monthly',
+    );
+    expect(summary.scheduled).toEqual([
+      [en.scheduled.plan, 'Team'],
+      [en.scheduled.seats, '3'],
+      [en.scheduled.cycle, 'Yearly'],
+    ]);
+    const unnamed = mollieAccountSummary(
+      en,
+      { ...account, scheduled: { planId: 'plan_team', planName: null, seats: null, cycle: null } },
+      'monthly',
+    );
+    expect(unnamed.scheduled).toEqual([[en.scheduled.plan, 'plan_team']]);
+  });
+
+  it('spells out a past-due account and its open charge', () => {
+    const summary = mollieAccountSummary(
+      en,
+      {
+        ...account,
+        pastDue: {
+          since: '2027-01-14T10:30:00.000Z',
+          remindedAt: '2027-01-21T10:30:00.000Z',
+          charge: {
+            id: 'bpy_1',
+            providerPaymentId: 'tr_1',
+            amount: 12100,
+            currency: null,
+            status: 'failed',
+            failureMessage: 'insufficient funds',
+          },
+        },
+      },
+      'monthly',
+    );
+    expect(summary.pastDue).toEqual({
+      since: 'Past due since 14 Jan 2027.',
+      charge: 'Open charge tr_1 (bpy_1): €121.00 (failed).',
+      failure: 'Last failure: insufficient funds',
+      reminded: 'Billing owners last reminded on 21 Jan 2027.',
+    });
+    const unrecorded = mollieAccountSummary(
+      en,
+      { ...account, pastDue: { since: '2027-01-14T10:30:00.000Z', remindedAt: null, charge: null } },
+      'monthly',
+    );
+    expect(unrecorded.pastDue).toEqual({
+      since: 'Past due since 14 Jan 2027.',
+      charge: en.pastDue.noCharge,
+      failure: null,
+      reminded: null,
+    });
+  });
+
+  it('labels the cycles, and keeps an unknown one', () => {
+    expect(cycleLabel(en, 'monthly')).toBe('Monthly');
+    expect(cycleLabel(en, 'yearly')).toBe('Yearly');
+    expect(cycleLabel(en, 'weekly')).toBe('weekly');
   });
 });

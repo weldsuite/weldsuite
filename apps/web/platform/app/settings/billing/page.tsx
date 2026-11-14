@@ -1,5 +1,5 @@
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   ColumnDef,
   flexRender,
@@ -51,7 +51,7 @@ import {
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 import { billingProvider, isFeatureAvailable } from '@/lib/edition';
-import { apiErrorCode } from '@/lib/partner/api-errors';
+import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
 import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
 import { useCreditCheckoutReturn, type BillingCheckoutReturnStrings } from './credit-checkout-return';
 import { MollieBillingNotices } from '@/components/billing/mollie-billing-notices';
@@ -439,7 +439,7 @@ function DirectBillingSettings() {
   // With plan billing on Mollie a top-up is invoiced with VAT, so it is refused
   // (400 BILLING_DETAILS_REQUIRED) until the billing details are complete:
   // the dialog opens, and the purchase continues once it saves.
-  const pendingCreditPackage = useRef<string | null>(null);
+  const detailsGate = useBillingDetailsGate(ts.mollie.billingDetailsRequired);
   const handleBuyCredits = async (packageId: string) => {
     try {
       const { url } = await buyCreditsMutation.mutateAsync(packageId);
@@ -449,11 +449,8 @@ function DirectBillingSettings() {
         toast.error(ts.creditsWallet.purchaseFailed);
       }
     } catch (err) {
-      if (apiErrorCode(err) === 'BILLING_DETAILS_REQUIRED') {
-        pendingCreditPackage.current = packageId;
+      if (detailsGate.intercept(err, () => void handleBuyCredits(packageId))) {
         setBuyCreditsOpen(false);
-        toast.info(ts.mollie.billingDetailsRequired);
-        setBillingDialogOpen(true);
         return;
       }
       toast.error(ts.creditsWallet.purchaseFailed);
@@ -797,17 +794,12 @@ function DirectBillingSettings() {
       {/* Update Billing Details Dialog — edits its own copy of the saved details. */}
       <BillingDetailsDialog
         open={billingDialogOpen}
-        onOpenChange={(open) => {
-          setBillingDialogOpen(open);
-          if (!open) pendingCreditPackage.current = null;
-        }}
+        onOpenChange={setBillingDialogOpen}
         details={billingDetails}
-        onSaved={() => {
-          const packageId = pendingCreditPackage.current;
-          pendingCreditPackage.current = null;
-          if (packageId) void handleBuyCredits(packageId);
-        }}
       />
+
+      {/* The same dialog, opened by a top-up refused for missing billing details. */}
+      <BillingDetailsDialog {...detailsGate.dialogProps} details={billingDetails} />
 
       <BuyCreditsDialog
         open={buyCreditsOpen}
