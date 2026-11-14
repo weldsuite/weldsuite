@@ -123,7 +123,10 @@ pub async fn inbox_billing(
 ) -> BillingResult<InboxBilling> {
     let (workspace, account) = load(state, workspace_id).await?;
     let free = workspace.is_partner() || workspace.comp_active(now);
-    let ever_paid = account.is_some();
+    // A checkout started but never paid, or a payment method saved, leaves an
+    // account too; only a plan that started sets the anchor (and its end
+    // keeps it).
+    let ever_paid = account.as_ref().is_some_and(|a| a.anchor_day.is_some());
     Ok(match running(&workspace, account, now) {
         Some(account) => InboxBilling {
             status: if account.past_due_payment_id.is_some() {
