@@ -7,7 +7,6 @@ import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { I18nProvider, useI18n } from '@/lib/i18n/provider';
 import { SettingsProvider } from '@/providers/settings-provider';
-import { NotificationProvider } from '@/contexts/notification-context';
 import { UnifiedNotificationProvider } from '@/contexts/unified-notification-context';
 import { WorkspaceProvider } from '@/contexts/workspace-context';
 import { PresenceProvider } from '@/contexts/presence-context';
@@ -64,17 +63,28 @@ function RealtimeSyncBridge() {
   return null;
 }
 
-const REALTIME_URL = getRealtimeUrl();
-
+/**
+ * The realtime socket belongs to a signed-in member with a workspace selected:
+ * its token is scoped to that workspace, so on the sign-in, callback,
+ * workspace-picker and onboarding routes there is nothing to connect with.
+ * There the provider gets an empty URL and keeps no client (it stays mounted,
+ * so the app below is not remounted when the workspace arrives). `connectionKey`
+ * reconnects on a workspace switch. An empty URL is also what a deployment
+ * without realtime resolves to.
+ */
 function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { getToken, orgId } = useAuth();
+  const { getToken, isSignedIn, orgId } = useAuth();
   const stableGetToken = useCallback(async () => (await getToken()) || '', [getToken]);
-  // Cursor store is scoped per-workspace so switching orgs starts a fresh
-  // replay window. Falls back to a sentinel key on the rare "no org yet" path
-  // (Clerk loads before the user picks an org); the cursor is harmless there.
+  const active = Boolean(isSignedIn && orgId);
+  // Cursor store is scoped per-workspace so switching orgs starts a fresh replay window.
   const cursorStore = createBrowserCursorStore(orgId || 'no-org');
   return (
-    <RealtimeProvider url={REALTIME_URL} getToken={stableGetToken} cursorStore={cursorStore}>
+    <RealtimeProvider
+      url={active ? getRealtimeUrl() : ''}
+      getToken={stableGetToken}
+      cursorStore={cursorStore}
+      connectionKey={orgId || ''}
+    >
       {children}
     </RealtimeProvider>
   );
@@ -94,33 +104,31 @@ function RootComponent() {
                     the workspace client from this context and silently gets
                     null when mounted above it. */}
                 <RealtimeProviderWrapper>
-                  <NotificationProvider>
-                    <UnifiedNotificationProvider>
-                      <WorkspaceProvider>
-                        <PlatformPermissionProvider>
-                          <PresenceProvider>
-                            <TeamMemberPanelProvider>
-                              {/* Live entity sync: useRealtimeSync only.
-                                  PlatformEventsProvider / useRealtimeQuerySync
-                                  / dataEvents.initializeRealtimeBridge were
-                                  stubs — removed in Phase 9. */}
-                              <RealtimeSyncBridge />
-                              <DesktopAuthBridge />
-                              <PrivateFilesAccess />
-                              {/* Must stay mounted for the whole session: the
-                                  shell denies screen-share requests whenever no
-                                  picker is registered. */}
-                              <DesktopSourcePicker />
-                              <AppShellClient>
-                                <Outlet />
-                              </AppShellClient>
-                              <Toaster />
-                            </TeamMemberPanelProvider>
-                          </PresenceProvider>
-                        </PlatformPermissionProvider>
-                      </WorkspaceProvider>
-                    </UnifiedNotificationProvider>
-                  </NotificationProvider>
+                  <UnifiedNotificationProvider>
+                    <WorkspaceProvider>
+                      <PlatformPermissionProvider>
+                        <PresenceProvider>
+                          <TeamMemberPanelProvider>
+                            {/* Live entity sync: useRealtimeSync only.
+                                PlatformEventsProvider / useRealtimeQuerySync
+                                / dataEvents.initializeRealtimeBridge were
+                                stubs — removed in Phase 9. */}
+                            <RealtimeSyncBridge />
+                            <DesktopAuthBridge />
+                            <PrivateFilesAccess />
+                            {/* Must stay mounted for the whole session: the
+                                shell denies screen-share requests whenever no
+                                picker is registered. */}
+                            <DesktopSourcePicker />
+                            <AppShellClient>
+                              <Outlet />
+                            </AppShellClient>
+                            <Toaster />
+                          </TeamMemberPanelProvider>
+                        </PresenceProvider>
+                      </PlatformPermissionProvider>
+                    </WorkspaceProvider>
+                  </UnifiedNotificationProvider>
                 </RealtimeProviderWrapper>
               </SettingsProvider>
             </AccessibilityBridge>

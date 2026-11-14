@@ -33,6 +33,7 @@ import {
   useAccountingCustomers,
   useAccountingTaxRates,
 } from '@/hooks/queries/use-accounting-queries';
+import { QuickAddContactDialog } from '@/app/weldbooks/customers/components/quick-add-contact-dialog';
 import { useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import type { InvoiceWithTax, TaxDocumentKind, TaxUse } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -54,7 +55,7 @@ import {
   type SalesTaxLineValues,
 } from '@/lib/weldbooks/document-tax-form';
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
-import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { isValidHsnSac } from '@/lib/weldbooks/gst';
 import {
@@ -83,6 +84,7 @@ import { InvoiceLineExtras } from './invoice-line-extras';
 import { BrDocumentSection, BrLineFields, BrTaxSummary } from './br-fields';
 import { EntityInvoiceDetailsNotice } from './entity-invoice-details';
 import { GstTaxSplit, PlaceOfSupplySelect } from './gst-fields';
+import { DiscardCreditMemoDraft } from './discard-credit-memo-draft';
 import { buildInvoicePayload } from './invoice-payload';
 import { ProductPicker } from './product-picker';
 import { useDescribeError } from './sales-tax-error-notice';
@@ -176,6 +178,9 @@ const emptyLine = {
   ...EMPTY_BR_LINE,
 };
 
+/** A credit note opens in its side panel on the credit notes list. */
+const creditNoteHref = (id: string) => `/weldbooks/credit-notes?stack=invoice:${id}`;
+
 /** The kind of document an invoice row is, for the tax calculation. */
 function documentKind(invoice: Pick<InvoiceDetail, 'type'> | undefined): TaxDocumentKind {
   if (invoice?.type === 'credit_note') return 'credit_memo';
@@ -196,7 +201,9 @@ function invoiceFormTitles(
 ): { title: string; submitText: string } {
   const { tf } = texts;
   const invoiceTitle = mode === 'add' ? tf.newInvoice : tf.editInvoice;
-  const title = isCreditMemo ? texts.creditMemoTitle : invoiceTitle;
+  // "Edit credit memo" / "Creditfactuur bewerken": the jurisdiction's name for it, in the sentence.
+  const creditMemoTitle = texts.creditMemoTitle.replace('{name}', texts.creditNoteName.toLowerCase());
+  const title = isCreditMemo ? creditMemoTitle.charAt(0).toUpperCase() + creditMemoTitle.slice(1) : invoiceTitle;
   // A credit note saves as "Update credit note", not "Update Invoice".
   const creditNoteSave = texts.creditMemoSave.replace('{name}', texts.creditNoteName.toLowerCase());
   const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
@@ -350,12 +357,20 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   // Invoices only go to customers — exclude suppliers. Backend expands
   // role=customer to include "both"-role contacts, so dual-role parties qualify.
-  const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
 
   const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
+  // Customers have loaded and there are none: the picker offers to add the first one instead.
+  const noCustomers = !contactsLoading && !!contactsData && contacts.length === 0;
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   // An invoice takes sales (and both) rates only.
   const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'sales'), [taxRatesData]);
+  // New lines start with the workspace's default rate, except on US sales tax (the server works the tax out there).
+  const defaultRateId = useMemo(
+    () => (features.salesTax ? null : defaultTaxRateId(taxRatesData?.data, 'sales')),
+    [features.salesTax, taxRatesData],
+  );
 
   const stored = invoice as unknown as InvoiceWithTax | undefined;
   const kind = documentKind(invoice);
@@ -440,13 +455,23 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     defaultValues,
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: 'items',
   });
 
   /** The user typed in (or emptied) the exchange rate: an emptied one resets it to the rate of the issue date. */
   const rateEdited = useRef(false);
+
+  // A new invoice's untouched lines take the default rate once the rates have loaded.
+  const defaultRateApplied = useRef(false);
+  useEffect(() => {
+    if (mode !== 'add' || !defaultRateId || defaultRateApplied.current) return;
+    defaultRateApplied.current = true;
+    form.getValues('items').forEach((item, index) => {
+      if (!item.taxRateId) update(index, { ...item, taxRateId: defaultRateId });
+    });
+  }, [mode, defaultRateId, form, update]);
 
   const watched = form.watch();
   const watchedItems = watched.items;
@@ -582,7 +607,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         toast.success(isCreditMemo ? td.form.creditMemoUpdated : tf.invoiceUpdated);
 
         setTimeout(() => {
-          router.push(isCreditMemo && invoice ? `/weldbooks/invoices/${invoice.id}` : '/weldbooks/invoices');
+          router.push(isCreditMemo && invoice ? creditNoteHref(invoice.id) : '/weldbooks/invoices');
         }, 500);
       } catch (error) {
         toast.error(tf.failedToSave, { description: describeError(error) });
@@ -619,25 +644,34 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           {isCreditMemo && <InfoBanner variant="info">{td.form.creditMemoNote}</InfoBanner>}
           <div className="space-y-2">
             <Label htmlFor="contactId">{tf.customer}</Label>
-            <Select
-              value={form.watch('contactId')}
-              onValueChange={(val) => {
-                form.setValue('contactId', val, { shouldValidate: true });
-                // Another customer: the place of supply follows their GSTIN or address again.
-                if (gst) form.setValue('placeOfSupply', '', { shouldDirty: true });
-              }}
-            >
-              <SelectTrigger id="contactId" className="shadow-none">
-                <SelectValue placeholder={tf.selectCustomer} />
-              </SelectTrigger>
-              <SelectContent>
-                {contacts.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name || c.email || c.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {noCustomers ? (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-1.5">
+                <span className="text-sm text-muted-foreground">{t.accounting.contacts.noCustomersYet}</span>
+                <Button type="button" variant="outline" size="sm" className="shadow-none" onClick={() => setAddCustomerOpen(true)}>
+                  {t.accounting.contacts.addCustomerTitle}
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={form.watch('contactId')}
+                onValueChange={(val) => {
+                  form.setValue('contactId', val, { shouldValidate: true });
+                  // Another customer: the place of supply follows their GSTIN or address again.
+                  if (gst) form.setValue('placeOfSupply', '', { shouldDirty: true });
+                }}
+              >
+                <SelectTrigger id="contactId" className="shadow-none">
+                  <SelectValue placeholder={tf.selectCustomer} />
+                </SelectTrigger>
+                <SelectContent>
+                  {contacts.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name || c.email || c.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {form.formState.errors.contactId && (
               <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>
             )}
@@ -805,7 +839,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className={`grid grid-cols-2 gap-3 ${salesTax ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
                   <div className="space-y-2">
                     <Label htmlFor={id('quantity')}>{tf.quantity}</Label>
                     <Input
@@ -829,7 +863,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                     />
                   </div>
                   {!salesTax && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 md:col-span-2">
                       <Label htmlFor={id('taxRate')}>{labels.taxRate}</Label>
                       <Select
                         value={form.watch(`items.${index}.taxRateId`) ?? NO_TAX_RATE}
@@ -846,7 +880,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                           <SelectItem value={NO_TAX_RATE}>{labels.noTax}</SelectItem>
                           {taxRates.map((tr) => (
                             <SelectItem key={tr.id} value={tr.id}>
-                              {tr.name ?? `${Number(tr.rate)}%`}
+                              {taxRateLabel(tr)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -916,7 +950,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                 <div className="flex justify-end text-sm text-muted-foreground">
                   {tf.lineTotal}{' '}
                   <span className="ml-1 font-medium text-foreground">
-                    {formatMoney(calculated?.lineTotalWithTax ?? 0, displayCurrency)}
+                    {formatMoney((salesTax ? calculated?.lineTotalWithTax : calculated?.lineTotal) ?? 0, displayCurrency)}
                   </span>
                 </div>
               </div>
@@ -930,7 +964,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
               variant="outline"
               size="sm"
               className="shadow-none"
-              onClick={() => append({ ...emptyLine })}
+              onClick={() => append({ ...emptyLine, taxRateId: defaultRateId })}
             >
               <Plus className="h-4 w-4 mr-1" />
               {tf.addItem}
@@ -1032,6 +1066,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     : undefined;
 
   return (
+    <>
     <InvoiceEditorLayout
       title={title}
       sections={sections}
@@ -1073,8 +1108,26 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       submitDisabled={detailsBlocked !== undefined}
       submitTitle={detailsBlocked}
       primaryAction={sendAction}
-      backLink="/weldbooks/invoices"
-      backText={tf.backToInvoices}
+      backLink={isCreditMemo && invoice ? creditNoteHref(invoice.id) : '/weldbooks/invoices'}
+      backText={isCreditMemo ? tf.backToCreditNotes : tf.backToInvoices}
+      headerActions={
+        mode === 'edit' && isCreditMemo && invoice?.status === 'draft' ? (
+          <DiscardCreditMemoDraft
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            originalInvoiceId={stored?.creditNoteForInvoiceId}
+          />
+        ) : undefined
+      }
     />
+    {/* Outside the editor's form: a submit inside the popup must not bubble into the invoice's own. */}
+    <QuickAddContactDialog
+      open={addCustomerOpen}
+      onOpenChange={setAddCustomerOpen}
+      role="customer"
+      onCreated={(id) => id && form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+      onOpenExisting={(id) => form.setValue('contactId', id, { shouldValidate: true, shouldDirty: true })}
+    />
+    </>
   );
 }

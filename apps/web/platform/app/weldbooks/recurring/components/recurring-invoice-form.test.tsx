@@ -6,6 +6,8 @@ const env = vi.hoisted(() => ({
   us: true,
   create: vi.fn(),
   update: vi.fn(),
+  customers: [{ id: 'cus_1', name: 'Globex' }] as Array<{ id: string; name: string }>,
+  taxRates: [{ id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both', isDefault: false, isActive: true }],
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
@@ -20,8 +22,8 @@ vi.mock('@/lib/router', async () => {
 });
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingCustomer: () => ({ data: { data: { id: 'cus_1', taxUse: 'personal' } } }),
-  useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Globex' }] } }),
-  useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' }] } }),
+  useAccountingCustomers: () => ({ data: { data: env.customers }, isLoading: false }),
+  useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useDimensionValues: () => ({
     data: [{ id: 'dim_l1', entityId: 'e', dimension: 'location', name: 'Austin', code: null, parentId: null, isActive: true }],
   }),
@@ -44,6 +46,14 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
     entity: { address: { line1: '1 Main St', city: 'Austin', state: 'TX', postalCode: '78701', country: 'US' } },
   }),
 }));
+vi.mock('@/app/weldbooks/customers/components/quick-add-contact-dialog', () => ({
+  QuickAddContactDialog: ({ open, onCreated }: { open: boolean; onCreated: (id: string) => void }) =>
+    open ? (
+      <button type="button" onClick={() => onCreated('cus_new')}>
+        quick add customer saved
+      </button>
+    ) : null,
+}));
 vi.mock('@/app/weldbooks/invoices/components/product-picker', () => ({
   ProductPicker: ({ onSelect }: Readonly<{ onSelect: (product: unknown) => void }>) => (
     <button type="button" onClick={() => onSelect({ id: 'prod_1', name: 'Hosting', price: 49, taxClass: 'saas' })}>
@@ -64,6 +74,8 @@ describe('RecurringInvoiceForm', { timeout: 30_000 }, () => {
   beforeAll(polyfillRadixSelect);
   beforeEach(() => {
     env.us = true;
+    env.customers = [{ id: 'cus_1', name: 'Globex' }];
+    env.taxRates[0].isDefault = false;
     env.create.mockReset().mockResolvedValue({ data: { id: 'ri_new' } });
     env.update.mockReset().mockResolvedValue({ data: { id: 'ri_1' } });
     Object.values(env.toast).forEach((fn) => fn.mockReset());
@@ -193,5 +205,39 @@ describe('RecurringInvoiceForm', { timeout: 30_000 }, () => {
     expect(data.templateData.internalNotes).toBe('Renegotiate in June');
     expect(data.templateData.items[0]).toMatchObject({ quantity: 3, unitPrice: 20, taxCode: 'saas', accountId: 'acc_4' });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('ri_1'));
+  });
+});
+
+describe('RecurringInvoiceForm: new template', { timeout: 30_000 }, () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    env.us = false;
+    env.customers = [{ id: 'cus_1', name: 'Globex' }];
+    env.taxRates[0].isDefault = true;
+    env.create.mockReset().mockResolvedValue({ data: { id: 'ri_new' } });
+  });
+
+  it('starts its lines on the default rate, and has no heading of its own in add mode', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RecurringInvoiceForm mode="add" onSaved={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByLabelText('Tax rate')).toHaveTextContent('BTW 21%'));
+    await user.click(screen.getByRole('button', { name: 'Add line' }));
+    expect(screen.getAllByLabelText('Tax rate')[1]).toHaveTextContent('BTW 21%');
+    expect(screen.queryByText('New recurring invoice')).not.toBeInTheDocument();
+  });
+
+  it('offers to add the first customer when there are none', async () => {
+    env.customers = [];
+    const user = userEvent.setup();
+    renderWithProviders(<RecurringInvoiceForm mode="add" onSaved={vi.fn()} />);
+
+    expect(screen.getByText('No customers yet')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add customer' }));
+    await user.click(await screen.findByRole('button', { name: 'quick add customer saved' }));
+    await user.type(screen.getByLabelText('Description'), 'Retainer');
+    await user.click(screen.getByRole('button', { name: /Save recurring invoice/ }));
+    await waitFor(() => expect(env.create).toHaveBeenCalledTimes(1));
+    expect(env.create.mock.calls[0][0].contactId).toBe('cus_new');
   });
 });

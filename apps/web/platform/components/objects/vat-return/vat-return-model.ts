@@ -27,6 +27,14 @@ export function vatStatusTone(status: string): ChipTone {
   return statusTone(status);
 }
 
+/**
+ * The tone of the total of a return (box 5g), shared by the list and the panel: a payable amount is just
+ * an amount, only a refund is good news.
+ */
+export function vatTotalToneClass(total: number): string {
+  return total < 0 ? 'text-green-600 dark:text-green-400' : '';
+}
+
 /** A return that was not filed yet can be filed and deleted; a rejected one can be deleted and calculated again. */
 export function canFileVatReturn(status: string): boolean {
   return status === 'calculated' || status === 'reviewed';

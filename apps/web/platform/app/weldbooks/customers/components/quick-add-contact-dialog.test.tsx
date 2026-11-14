@@ -8,6 +8,8 @@ const create = vi.hoisted(() => ({ mutateAsync: vi.fn(), isPending: false }));
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({ useCreateAccountingCustomer: () => create }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }));
 
 import { QuickAddContactDialog } from './quick-add-contact-dialog';
 
@@ -33,6 +35,7 @@ function renderDialog(role: 'customer' | 'supplier' = 'customer') {
 describe('QuickAddContactDialog', () => {
   beforeEach(() => {
     create.mutateAsync.mockReset().mockResolvedValue({ data: { id: 'acn_new' } });
+    navigate.mockReset();
   });
   afterEach(cleanup);
 
@@ -41,10 +44,10 @@ describe('QuickAddContactDialog', () => {
     const { onCreated } = renderDialog();
 
     expect(screen.getByRole('heading', { name: 'Add customer' })).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/Company Name/), 'Acme B.V.');
+    await user.type(screen.getByLabelText(/Company name/), 'Acme B.V.');
     await user.type(screen.getByLabelText('Email'), 'ap@acme.test');
     await user.type(screen.getByLabelText('VAT number'), 'NL123456789B01');
-    await user.click(screen.getByRole('button', { name: 'Create Contact' }));
+    await user.click(screen.getByRole('button', { name: 'Create customer' }));
 
     await waitFor(() =>
       expect(create.mutateAsync).toHaveBeenCalledWith({
@@ -64,7 +67,7 @@ describe('QuickAddContactDialog', () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.click(screen.getByRole('button', { name: 'Create Contact' }));
+    await user.click(screen.getByRole('button', { name: 'Create customer' }));
 
     expect(await screen.findByText('Company name is required')).toBeInTheDocument();
     expect(create.mutateAsync).not.toHaveBeenCalled();
@@ -76,14 +79,37 @@ describe('QuickAddContactDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'Add supplier' })).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Person/ }));
-    await user.type(screen.getByLabelText('First Name'), 'Ada');
-    await user.type(screen.getByLabelText('Last Name'), 'Lovelace');
-    await user.click(screen.getByRole('button', { name: 'Create Contact' }));
+    await user.type(screen.getByLabelText('First name'), 'Ada');
+    await user.type(screen.getByLabelText('Last name'), 'Lovelace');
+    await user.click(screen.getByRole('button', { name: 'Create supplier' }));
 
     await waitFor(() =>
       expect(create.mutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({ role: 'supplier', kind: 'person', name: 'Ada Lovelace', firstName: 'Ada', lastName: 'Lovelace' }),
       ),
     );
+  });
+});
+
+describe('QuickAddContactDialog: more details', () => {
+  afterEach(cleanup);
+
+  it('opens the full customer form and closes the popup', async () => {
+    const user = userEvent.setup();
+    const { onOpenChange } = renderDialog('customer');
+
+    await user.click(screen.getByRole('button', { name: 'More details…' }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/customers/add', search: {} });
+  });
+
+  it('opens the same form for a supplier', async () => {
+    const user = userEvent.setup();
+    renderDialog('supplier');
+
+    await user.click(screen.getByRole('button', { name: 'More details…' }));
+
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/customers/add', search: { role: 'supplier' } });
   });
 });

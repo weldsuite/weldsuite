@@ -6,6 +6,7 @@ import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/comp
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -26,12 +27,14 @@ export default function InvoicesPage() {
   const router = useRouter();
   // A new invoice is written on its own page, next to a live preview of the PDF.
   const newInvoice = () => router.push('/weldbooks/invoices/add');
-  const { data, isLoading } = useAccountingInvoices({ search });
+  // Credit notes have a list of their own.
+  const { data, isLoading } = useAccountingInvoices({ type: 'invoice', search });
   // Each invoice opens in the shared object panel (type 'invoice'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
   const { open: openPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldbooks/invoices');
   const { t } = useI18n();
+  const st = useTranslations();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
@@ -45,47 +48,53 @@ export default function InvoicesPage() {
   const groups: GroupConfig<InvoiceRow>[] = [
     { id: 'overdue', label: tip.groupOverdue, sortOrder: 1, filter: (i) => i.status === 'overdue' },
     { id: 'finalized', label: tip.groupFinalized, sortOrder: 2, filter: (i) => i.status === 'finalized' },
-    { id: 'sent', label: tip.groupSent, sortOrder: 2, filter: (i) => i.status === 'sent' || i.status === 'partial' },
-    { id: 'draft', label: tip.groupDraft, sortOrder: 3, filter: (i) => i.status === 'draft' },
-    { id: 'paid', label: tip.groupPaid, sortOrder: 4, filter: (i) => i.status === 'paid' },
-    { id: 'other', label: tip.groupOther, sortOrder: 5, filter: (i) => !knownStatuses.has(i.status) },
+    { id: 'sent', label: tip.groupSent, sortOrder: 2, filter: (i) => i.status === 'sent' },
+    {
+      id: 'partial',
+      label: st('sweep.weldbooks.records.groupPartiallyPaid'),
+      sortOrder: 3,
+      filter: (i) => i.status === 'partial',
+    },
+    { id: 'draft', label: tip.groupDraft, sortOrder: 4, filter: (i) => i.status === 'draft' },
+    { id: 'paid', label: tip.groupPaid, sortOrder: 5, filter: (i) => i.status === 'paid' },
+    { id: 'other', label: tip.groupOther, sortOrder: 6, filter: (i) => !knownStatuses.has(i.status) },
   ];
 
   const columns: ColumnDef<InvoiceRow>[] = [
     {
       id: 'number',
       header: tip.colNumber,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (inv) => <RowTitle>{inv.invoiceNumber ?? '—'}</RowTitle>,
     },
     {
       id: 'contact',
       header: tip.colContact,
-      width: 'w-[200px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
       render: (inv) => <ContactCell name={inv.contactName} />,
     },
     {
       id: 'issueDate',
       header: tip.colDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (inv) => <RowDate>{formatDate(inv.issueDate)}</RowDate>,
     },
     {
       id: 'dueDate',
       header: tip.colDueDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[120px]',
       render: (inv) => <RowDate>{formatDate(inv.dueDate)}</RowDate>,
     },
     {
       id: 'total',
       header: tip.colTotal,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (inv) => <RowAmount>{formatMoney(inv.total ?? inv.totalAmount, inv.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: tip.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (inv) => <StatusChip status={inv.status}>{tsl[inv.status as keyof typeof tsl] ?? inv.status}</StatusChip>,
     },
   ];

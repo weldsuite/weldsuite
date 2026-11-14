@@ -226,7 +226,7 @@ describe('TaxWorksheetPage', () => {
     state.report = { ...state.report, data: undefined };
     render(<TaxWorksheetPage />);
 
-    expect(screen.getByText('The tax return worksheet is available for US entities.')).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(state.calls.every((call) => (call.options as { enabled?: boolean }).enabled === false)).toBe(true);
   });
 

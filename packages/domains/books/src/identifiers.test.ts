@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkVatNumberFormat, ibanProblem, isValidIban } from './identifiers';
+import { checkVatNumberFormat, ibanProblem, isValidIban, isValidKvk } from './identifiers';
 
 describe('checkVatNumberFormat', () => {
   it('refuses a Belgian number that is too short, with or without spaces and dots', () => {
@@ -63,5 +63,19 @@ describe('IBAN', () => {
   it('refuses wrong check digits', () => {
     expect(ibanProblem('NL92ABNA0417164300')).toBe('checksum');
     expect(ibanProblem('DE89370400440532013001')).toBe('checksum');
+  });
+});
+
+describe('isValidKvk', () => {
+  it('accepts eight digits, with or without spaces', () => {
+    expect(isValidKvk('12345678')).toBe(true);
+    expect(isValidKvk(' 1234 5678 ')).toBe(true);
+  });
+
+  it('refuses anything else', () => {
+    expect(isValidKvk('1234567')).toBe(false);
+    expect(isValidKvk('123456789')).toBe(false);
+    expect(isValidKvk('1234567A')).toBe(false);
+    expect(isValidKvk('')).toBe(false);
   });
 });

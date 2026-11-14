@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { AlertCircle, AlertTriangle, FileText } from 'lucide-react';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { Button } from '@weldsuite/ui/components/button';
@@ -8,7 +8,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
-import { EmptyStateIllustration } from '@/components/entity-list';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useForm1099Summary } from '@/hooks/queries/use-weldbooks-1099-queries';
 import { useI18n } from '@/lib/i18n/provider';
@@ -27,11 +27,11 @@ import { defaultTaxYear, isForm1099Tab, taxYearChoices, type Form1099Tab } from 
  * filings with their IRIS files and recipient copies, IRS TIN matching and
  * the Form 945 summary of backup withholding.
  */
-export default function Form1099CenterPage() {
+function Form1099CenterPageContent() {
   const { t } = useI18n();
   const tc = t.weldbooksUs.form1099.center;
   const { can } = usePermissions();
-  const { features, isResolved, isError } = useCurrentJurisdiction();
+  const { features } = useCurrentJurisdiction();
   const search = useSearch({ from: '/weldbooks/form-1099/' });
   const navigate = useNavigate({ from: '/weldbooks/form-1099/' });
   const [drilldown, setDrilldown] = useState<string | null>(null);
@@ -49,19 +49,6 @@ export default function Form1099CenterPage() {
       <AccessDeniedEmptyState description={tc.noAccess} permission="taxes:read" pageLabel={tc.title} />
     );
   }
-  if (!isResolved && !isError) return <PageLoader fullScreen={false} />;
-  if (!features.form1099) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center" data-testid="form1099-unavailable">
-        <EmptyStateIllustration>
-          <FileText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
-        </EmptyStateIllustration>
-        <h1 className="text-lg font-semibold">{tc.title}</h1>
-        <p className="max-w-md text-sm text-muted-foreground">{tc.usOnly}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -145,5 +132,14 @@ export default function Form1099CenterPage() {
 
       <VendorDrilldownDialog partyId={drilldown} year={year} onOpenChange={(open) => !open && setDrilldown(null)} />
     </div>
+  );
+}
+
+export default function Form1099CenterPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.features.form1099} feature={t.accounting.header.form1099}>
+      <Form1099CenterPageContent />
+    </JurisdictionGate>
   );
 }

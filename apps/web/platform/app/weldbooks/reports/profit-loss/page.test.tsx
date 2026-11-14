@@ -115,7 +115,7 @@ describe('ProfitLossReportPage', () => {
     render(<ProfitLossReportPage />);
 
     expect(mocks.queries.at(-1)).toEqual({});
-    expect(screen.getByRole('heading', { level: 1, name: 'Profit & Loss' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Profit & loss' })).toBeInTheDocument();
     expect(screen.getByText('2026-01-01 – 2026-12-31 · Cash basis')).toBeInTheDocument();
     expect(screen.getByLabelText('From')).toHaveValue('2026-01-01');
     expect(screen.getByRole('radio', { name: 'Cash' })).toBeChecked();
@@ -123,7 +123,7 @@ describe('ProfitLossReportPage', () => {
 
   it('shows the sections and subtotals with a link from each account to its ledger', () => {
     render(<ProfitLossReportPage />);
-    const table = screen.getByRole('table', { name: 'Profit & Loss' });
+    const table = screen.getByRole('table', { name: 'Profit & loss' });
 
     expect(within(table).getByText('Income', { selector: 'td' })).toBeInTheDocument();
     expect(within(table).getByText('Total income')).toBeInTheDocument();

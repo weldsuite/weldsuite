@@ -79,6 +79,8 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
     secondaryAction?: { label: string; onClick: () => void };
   };
   noResultsState?: { icon?: ReactNode; title: string; description: string };
+  /** Classes of the empty state's box, e.g. a compact one for a list that shares its page with another. */
+  emptyStateClassName?: string;
 }
 
 /** The column header of a WeldBooks list, the same row EntityList draws above its items (not sticky). */
@@ -129,7 +131,7 @@ export function WeldbooksListRow<T extends { id: string }>({
         <RowOverlayButton label={getRowLabel?.(item) ?? t('common.actions.view')} onClick={() => onRowClick(item)} />
       ) : null}
       {columns.map((column) => (
-        <div key={column.id} className={cn('flex min-w-0 items-center', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
+        <div key={column.id} className={cn('flex min-w-0 items-center overflow-hidden', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
           {column.render(item, {
             onEdit: () => {},
             onDelete: () => {},
@@ -180,8 +182,12 @@ export function WeldbooksEntityList<T extends { id: string }>({
   leftActionButtons,
   emptyState,
   noResultsState,
+  emptyStateClassName,
 }: Readonly<WeldbooksEntityListProps<T>>) {
   return (
+    // Container for the `@…/list` column breakpoints: columns hide by the width the
+    // list really has, not the viewport (which stays wide while a panel is open).
+    <div className="@container/list min-w-0">
     <EntityList<T>
       items={items}
       isLoading={isLoading}
@@ -209,6 +215,7 @@ export function WeldbooksEntityList<T extends { id: string }>({
       leftActionButtons={leftActionButtons}
       emptyState={emptyState}
       noResultsState={noResultsState}
+      emptyStateClassName={emptyStateClassName}
       renderRow={(item) => (
         <WeldbooksListRow
           key={item.id}
@@ -221,5 +228,6 @@ export function WeldbooksEntityList<T extends { id: string }>({
         />
       )}
     />
+    </div>
   );
 }

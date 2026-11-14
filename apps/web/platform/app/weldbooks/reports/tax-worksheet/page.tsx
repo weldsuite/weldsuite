@@ -13,8 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTaxWorksheetReport } from '@/hooks/queries/use-accounting-queries';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { fiscalYearContaining, fiscalYearFor, type FiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
@@ -169,11 +169,11 @@ function UnmappedCallout({
  * lines of the entity's income-tax return, with the accounts behind each line,
  * for the accountant who prepares the return.
  */
-export default function TaxWorksheetPage() {
+function TaxWorksheetPageContent() {
   const { t } = useI18n();
   const tr = t.weldbooksUs.reports;
   const tw = tr.worksheet;
-  const { code, entity, isResolved } = useCurrentJurisdiction();
+  const { code, entity } = useCurrentJurisdiction();
   const isUs = code === 'US';
   const { formatMoney } = useWeldbooksFormat();
   const { rangeLabel } = useReportHeadings();
@@ -224,17 +224,6 @@ export default function TaxWorksheetPage() {
       return next;
     });
   const sectionLabels = t.weldbooksUs.setup.taxSections as Record<string, string>;
-
-  if (!isResolved) return <PageLoader fullScreen={false} />;
-
-  if (!isUs) {
-    return (
-      <div className="space-y-2 p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold">{tw.title}</h1>
-        <p className="text-sm text-muted-foreground">{tw.usOnly}</p>
-      </div>
-    );
-  }
 
   const summary = worksheet?.summary;
 
@@ -374,5 +363,14 @@ export default function TaxWorksheetPage() {
         </div>
       ) : null}
     </ReportShell>
+  );
+}
+
+export default function TaxWorksheetPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.code === 'US'} feature={t.accounting.header.taxWorksheet}>
+      <TaxWorksheetPageContent />
+    </JurisdictionGate>
   );
 }

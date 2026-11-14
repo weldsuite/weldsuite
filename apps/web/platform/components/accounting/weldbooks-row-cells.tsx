@@ -148,7 +148,7 @@ export function RowText({ children, className }: Readonly<{ children?: ReactNode
 export function RowDate({ children, className }: Readonly<{ children?: string | null; className?: string }>) {
   if (!children || children === '—') return <EmptyCell />;
   return (
-    <span className={cn('whitespace-nowrap text-sm tabular-nums', className)}>
+    <span className={cn('truncate whitespace-nowrap text-sm tabular-nums', className)}>
       {children}
     </span>
   );
@@ -157,7 +157,7 @@ export function RowDate({ children, className }: Readonly<{ children?: string | 
 /** A money amount. Pass the formatted string. */
 export function RowAmount({ children, className }: Readonly<{ children?: ReactNode; className?: string }>) {
   if (children === null || children === undefined || children === '') return <EmptyCell />;
-  return <span className={cn('whitespace-nowrap text-sm tabular-nums', className)}>{children}</span>;
+  return <span className={cn('truncate whitespace-nowrap text-sm tabular-nums', className)}>{children}</span>;
 }
 
 /** The 20px rounded-square avatar of the task assignee: the image when there is one, else the initial. */

@@ -14,6 +14,7 @@ import {
   useUpdateAccount,
 } from '@/hooks/queries/use-accounting-queries';
 import type { Account, TaxLineCatalog } from '@/lib/api/domains/weldbooks';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { useI18n } from '@/lib/i18n/provider';
 import { groupTaxLines, taxLineName } from '@/lib/weldbooks/tax-lines';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -65,10 +66,10 @@ function MappingAccountRow({ account, catalog, disabled, onChange }: Readonly<Ac
  * accounts that report on it, and the accounts that still have no line.
  * Reassign an account in place.
  */
-export default function TaxLineMappingPage() {
+function TaxLineMappingPageContent() {
   const { t } = useI18n();
   const tm = t.weldbooksUs.setup.mapping;
-  const { code: jurisdictionCode, entity, isResolved } = useCurrentJurisdiction();
+  const { code: jurisdictionCode, entity } = useCurrentJurisdiction();
   const isUs = jurisdictionCode === 'US';
   const canUpdateAccounts = useCan('accounts:update');
   const catalogQuery = useTaxLineCatalog(undefined, { enabled: isUs });
@@ -110,8 +111,6 @@ export default function TaxLineMappingPage() {
     }
   };
 
-  if (!isResolved) return <PageLoader fullScreen={false} />;
-
   const header = (
     <div className="flex items-start gap-3">
       <Link to="/weldbooks/accounts">
@@ -135,15 +134,6 @@ export default function TaxLineMappingPage() {
       ) : null}
     </div>
   );
-
-  if (!isUs) {
-    return (
-      <div className="space-y-6 p-4 sm:p-6">
-        {header}
-        <p className="text-sm text-muted-foreground">{tm.usOnly}</p>
-      </div>
-    );
-  }
 
   if (catalogQuery.isLoading || accountsQuery.isLoading) return <PageLoader fullScreen={false} />;
 
@@ -264,5 +254,14 @@ export default function TaxLineMappingPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function TaxLineMappingPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.code === 'US'} feature={t.accounting.header.taxLines}>
+      <TaxLineMappingPageContent />
+    </JurisdictionGate>
   );
 }

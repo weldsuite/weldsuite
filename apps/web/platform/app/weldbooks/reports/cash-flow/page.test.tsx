@@ -88,7 +88,7 @@ describe('CashFlowReportPage', () => {
   it('lists the months of the report with a running balance that starts at the opening balance', () => {
     render(<CashFlowReportPage />);
 
-    const table = screen.getByRole('table', { name: 'Monthly Breakdown' });
+    const table = screen.getByRole('table', { name: 'Monthly breakdown' });
     const rows = within(table).getAllByRole('row');
     // header + 2 months
     expect(rows).toHaveLength(3);
@@ -105,15 +105,15 @@ describe('CashFlowReportPage', () => {
 
   it('shows the totals of the period without a minus sign on the outflows, and the closing balance', () => {
     render(<CashFlowReportPage />);
-    expect(screen.getByText('Total Inflows')).toBeInTheDocument();
+    expect(screen.getByText('Total inflows')).toBeInTheDocument();
     expect(screen.getByText('$1500.00', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.getByText('Total Outflows')).toBeInTheDocument();
+    expect(screen.getByText('Total outflows')).toBeInTheDocument();
     expect(screen.getByText('$1300.00', { selector: 'p' })).toBeInTheDocument();
     expect(screen.queryByText('-$1300.00')).not.toBeInTheDocument();
     expect(screen.getByText('$200.00', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.getByText('Closing Balance')).toBeInTheDocument();
+    expect(screen.getByText('Closing balance')).toBeInTheDocument();
     expect(screen.getByText('$1200.00', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.getByText('Opening Balance: $1000.00')).toBeInTheDocument();
+    expect(screen.getByText('Opening balance: $1000.00')).toBeInTheDocument();
   });
 
   it('groups the cash movements by activity and category, leaving out empty ones', () => {

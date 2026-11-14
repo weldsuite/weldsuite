@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import type { AccountingEntity } from '@/lib/api/domains/weldbooks';
 import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
@@ -56,10 +57,16 @@ export function useCurrentAccountingEntityRow(options: { enabled?: boolean } = {
  */
 export function useCurrentEntityCurrency() {
   const { entity: current } = useCurrentAccountingEntityRow();
+  // An entity without a locale of its own reads numbers the way its country does, not the way the browser does.
+  const { data: jurisdictions } = useAccountingJurisdictions({ enabled: !!current && !current.locale });
 
   const entityCurrency = current?.baseCurrency || null;
   const currency = entityCurrency ?? '';
-  const locale = current?.locale || '';
+  const jurisdictionCode = current?.jurisdictionCode?.toUpperCase();
+  const jurisdictionLocale = jurisdictionCode
+    ? jurisdictions?.find((j) => j.code?.toUpperCase() === jurisdictionCode)?.defaultLocale
+    : undefined;
+  const locale = current?.locale || jurisdictionLocale || '';
 
   const formatMoney = useCallback(
     (value: number | string | null | undefined, overrideCurrency?: string | null) =>

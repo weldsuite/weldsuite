@@ -21,6 +21,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type { ActiveFilter, ColumnDef, FilterConfig } from '@/components/entity-list';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAmount, RowDate, RowTitle, StatusChip, type ChipTone } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
@@ -60,7 +61,17 @@ const STATUS_TONE: Record<ReconciliationStatus, ChipTone> = {
   in_progress: 'amber',
 };
 
+/** Statement reconciliation is offered where the sidebar offers it: entities with US sales tax. */
 export default function StatementReconciliationsPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.features.salesTax} feature={t.accounting.header.statements}>
+      <StatementReconciliationsContent />
+    </JurisdictionGate>
+  );
+}
+
+function StatementReconciliationsContent() {
   const { t } = useI18n();
   const ts = t.weldbooksUs.banking.statements;
   const navigate = useNavigate();
@@ -161,7 +172,7 @@ export default function StatementReconciliationsPage() {
                 id="statement-ending"
                 inputMode="decimal"
                 value={endingBalance}
-                placeholder="0.00"
+                placeholder="0"
                 onChange={(e) => setEndingBalance(e.target.value)}
                 data-testid="statement-ending-balance"
               />

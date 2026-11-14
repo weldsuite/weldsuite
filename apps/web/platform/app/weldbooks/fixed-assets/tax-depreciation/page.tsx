@@ -23,6 +23,7 @@ import {
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { US_STATES } from '@/components/address/us-states';
 import { useTaxDepreciationReport } from '@/hooks/queries/use-weldbooks-assets-queries';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { useI18n } from '@/lib/i18n/provider';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -42,12 +43,12 @@ function Line({ label, value, strong }: Readonly<{ label: string; value: string;
 }
 
 /** The year's tax depreciation in the shape of Form 4562, with the mid-quarter test of the year. US only. */
-export default function TaxDepreciationPage() {
+function TaxDepreciationPageContent() {
   const { t } = useI18n();
   const fa = t.weldbooksUs.assets.fixedAssets;
   const tt = fa.tax;
   const common = t.weldbooksUs.assets.common;
-  const { code, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
+  const { code } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(code);
   const { formatMoney, formatDate, today } = useWeldbooksFormat();
 
@@ -68,17 +69,6 @@ export default function TaxDepreciationPage() {
     const years = Array.from({ length: YEAR_CHOICES }, (_, index) => currentYear + 1 - index);
     return years.includes(selectedYear) ? years : [...years, selectedYear].sort((a, b) => b - a);
   }, [currentYear, selectedYear]);
-
-  if (!isResolved && !jurisdictionError) return <PageLoader fullScreen={false} />;
-
-  if (!isUs) {
-    return (
-      <div className="space-y-2 p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold">{tt.title}</h1>
-        <p className="text-sm text-muted-foreground">{common.usOnly}</p>
-      </div>
-    );
-  }
 
   const form = data?.form4562;
   const classLabels = fa.classes as Record<string, string>;
@@ -354,5 +344,14 @@ export default function TaxDepreciationPage() {
 
       {body}
     </div>
+  );
+}
+
+export default function TaxDepreciationPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => isUsJurisdictionCode(j.code)} feature={t.accounting.header.taxDepreciation}>
+      <TaxDepreciationPageContent />
+    </JurisdictionGate>
   );
 }

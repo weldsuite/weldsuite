@@ -92,7 +92,7 @@ describe('UsEntityCreateForm', () => {
     renderForm();
 
     await user.type(screen.getByLabelText('Display name *'), 'Acme');
-    await user.type(screen.getByLabelText('Legal Name'), 'Acme LLC');
+    await user.type(screen.getByLabelText('Legal name'), 'Acme LLC');
     await user.click(screen.getByRole('combobox', { name: 'Entity type' }));
     await user.click(await screen.findByRole('option', { name: 'LLC with one member' }));
     await user.click(screen.getByRole('combobox', { name: 'Tax classification' }));

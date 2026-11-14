@@ -25,7 +25,7 @@ vi.mock('@/components/object-panel', () => ({
   useObjectPanel: () => ({ open: panel.open }),
   useObjectPanelUrlSync: vi.fn(),
 }));
-vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: router.code, isError: false }) }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: router.code, isError: false, isResolved: true }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', async () => {
   const { testFormat } = await import('./test-utils');
   return { useWeldbooksFormat: () => testFormat };
@@ -155,7 +155,7 @@ describe('PaymentRunsPage', () => {
     routes([run()]);
     renderWithProviders(<PaymentRunsPage />);
 
-    expect(await screen.findByText('Vendor payment runs are for US entities')).toBeInTheDocument();
+    expect(await screen.findByText(/isn't available for/)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

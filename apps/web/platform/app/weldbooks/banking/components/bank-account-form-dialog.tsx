@@ -54,6 +54,8 @@ interface BankAccountFormDialogProps {
   onOpenChange: (open: boolean) => void;
   /** When present, the dialog switches to edit mode and pre-fills its fields. */
   bankAccount?: UsBankAccount | null;
+  /** Called with the id of a newly created account (when the server returned it), after the dialog closed. */
+  onCreated?: (bankAccountId: string | null) => void;
 }
 
 /** The dialog's values for a new account (`bankAccount` undefined) or an existing one. */
@@ -105,6 +107,7 @@ export function BankAccountFormDialog({
   open,
   onOpenChange,
   bankAccount,
+  onCreated,
 }: Readonly<BankAccountFormDialogProps>) {
   const t = useTranslations();
   const { t: i18n } = useI18n();
@@ -190,7 +193,13 @@ export function BankAccountFormDialog({
     if (isEdit && bankAccount) {
       updateMutation.mutate({ id: bankAccount.id, data: payload }, { onSuccess: () => onOpenChange(false) });
     } else {
-      createMutation.mutate(payload, { onSuccess: () => onOpenChange(false) });
+      createMutation.mutate(payload, {
+        onSuccess: (res) => {
+          onOpenChange(false);
+          const created = (res as { data?: { id?: unknown } } | undefined)?.data?.id;
+          onCreated?.(typeof created === 'string' ? created : null);
+        },
+      });
     }
   };
 

@@ -390,6 +390,60 @@ pub async fn plan_bank_ledger_account(
     Ok(BankLedgerPlan::New(row))
 }
 
+/// `planDefaultBankLedgerAccount`: the ledger account for a new bank account
+/// the caller named none for. The jurisdiction template's own bank account
+/// (1100, or 1200 for IN) when no bank account sits on it yet, so the first
+/// account of a fresh NL or IN book reconciles without a setup step. Only when
+/// no account type is given (the NL and IN forms send none): a typed account
+/// (the US flow) keeps its own planned account. Otherwise
+/// [`plan_bank_ledger_account`], a missing type read as checking.
+pub async fn plan_default_bank_ledger_account(
+    db: &PgPool,
+    entity_id: &str,
+    name: &str,
+    account_type: Option<&str>,
+    currency: &str,
+) -> Result<BankLedgerPlan, sqlx::Error> {
+    let given = account_type.filter(|t| !t.is_empty());
+    let account_type = given.unwrap_or("checking");
+    if given.is_none() {
+        let jurisdiction: Option<String> =
+            sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
+                .bind(entity_id)
+                .fetch_optional(db)
+                .await?;
+        let code = if jurisdiction.as_deref() == Some("IN") {
+            "1200"
+        } else {
+            "1100"
+        };
+        let template: Vec<Value> = sqlx::query_scalar(concat!(
+            "select ",
+            crate::books_row!(accounts),
+            " from accounts t where t.entity_id = $1 and t.code = $2 and t.type = 'asset' \
+             and t.subtype = 'bank' and t.deleted_at is null limit 1"
+        ))
+        .bind(entity_id)
+        .bind(code)
+        .fetch_all(db)
+        .await?;
+        if let Some(template) = ACCOUNTS.js_rows(template).into_iter().next()
+            && template.get("isActive") != Some(&Value::Bool(false))
+        {
+            let taken: Option<i32> = sqlx::query_scalar(
+                "select 1 from bank_accounts where ledger_account_id = $1 and deleted_at is null limit 1",
+            )
+            .bind(text(&template, "id"))
+            .fetch_optional(db)
+            .await?;
+            if taken.is_none() {
+                return Ok(BankLedgerPlan::Existing(template));
+            }
+        }
+    }
+    plan_bank_ledger_account(db, entity_id, name, account_type, currency).await
+}
+
 /// Insert a planned ledger account ([`BankLedgerPlan::New`]).
 pub async fn insert_ledger_account<'e>(
     db: impl sqlx::PgExecutor<'e>,

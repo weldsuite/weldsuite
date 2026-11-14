@@ -13,6 +13,16 @@ let imports: PayrollImport[] = [];
 let connections: PayrollConnection[] = [];
 const importFilters: PayrollImportFilters[] = [];
 
+const jurisdiction = vi.hoisted(() => ({ code: 'US' as string }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
+  useCurrentJurisdiction: () => ({
+    code: jurisdiction.code,
+    jurisdiction: { name: jurisdiction.code === 'US' ? 'United States' : 'Netherlands' },
+    features: { salesTax: jurisdiction.code === 'US' },
+    isResolved: true,
+    isError: false,
+  }),
+}));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => navigate,
@@ -113,9 +123,21 @@ describe('Payroll imports page', () => {
     panel.open.mockReset();
     reverseAsync.mockReset().mockResolvedValue({});
     importFilters.length = 0;
+    jurisdiction.code = 'US';
     permissions.clear();
     ['journal:read', 'journal:create', 'journal:update', 'journal:delete'].forEach((permission) => permissions.add(permission));
     imports = [payroll('pri_1'), payroll('pri_2', { source: 'gusto', status: 'reversed', summary: null, sourceFileName: null })];
+  });
+
+  it('offers Gusto only to a US entity', () => {
+    renderWithProviders(<PayrollImportsPage />);
+    expect(screen.getByRole('link', { name: /Gusto/ })).toBeInTheDocument();
+  });
+
+  it('hides Gusto for an entity outside the US', () => {
+    jurisdiction.code = 'NL';
+    renderWithProviders(<PayrollImportsPage />);
+    expect(screen.queryByRole('link', { name: /Gusto/ })).not.toBeInTheDocument();
   });
 
   it('lists the payrolls with their source, amounts and status', () => {

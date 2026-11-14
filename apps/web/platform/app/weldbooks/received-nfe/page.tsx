@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   RowAmount,
@@ -96,7 +97,17 @@ function applyStatusFilters(items: ReceivedFiscalDocument[], activeFilters: Acti
  * from Focus NFe by the entity's CNPJ or uploaded as XML; each can be answered
  * with a manifestação do destinatário, turned into a draft bill or ignored.
  */
+/** The received NF-e inbox is for entities whose jurisdiction has electronic fiscal documents (Brazil). */
 export default function ReceivedNfePage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => j.features.fiscalDocuments} feature={t.navigation.moduleSidebar.weldbooks.receivedNfe}>
+      <ReceivedNfeContent />
+    </JurisdictionGate>
+  );
+}
+
+function ReceivedNfeContent() {
   const { t } = useI18n();
   const tr = t.weldbooksBr.received;
   const { formatMoney, formatDate } = useWeldbooksFormat();

@@ -339,6 +339,8 @@ export interface Dashboard {
   receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number; aging?: DashboardAging };
   payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number; aging?: DashboardAging };
   bankAccounts: Array<{ id: string; name: string; iban: string | null; currentBalance: string | null; currency: string | null }>;
+  /** The ledger balance of the money accounts (bank, cash); absent on an older API. */
+  cashBalance?: string;
   recentPayments: Payment[];
   upcomingDue: Array<{ id: string; invoiceNumber: string | null; contactName: string | null; dueDate: string; balanceDue: string | null }>;
   pendingDocuments: number;
@@ -961,6 +963,11 @@ export const accountingApi = {
   createBill: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Bill>>('/bills', data),
   updateBill: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}`, data),
   deleteBill: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/bills/${id}`),
+  /** The account a bill line without an account of its own posts to: the supplier's default expense account, else the entity's. */
+  getBillDefaultExpenseAccount: (contactId?: string) =>
+    weldbooksApi.get<ApiResponse<{ defaultExpenseAccount: { id: string; code: string; name: string } | null }>>(
+      `/bills/default-expense-account${buildQuery({ contactId })}`,
+    ),
   getBillFromDocument: (docId: string) => weldbooksApi.post<ApiResponse<unknown>>(`/bills/from-document/${docId}`),
   approveBill: (id: string) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}/approve`),
   rejectBill: (id: string, reason: string) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}/reject`, { reason }),
@@ -1021,6 +1028,12 @@ export const accountingApi = {
   calculateVatReturn: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<{ id: string; rubrieken: Record<string, number>; recalculated?: boolean }>>('/vat-returns/calculate', data),
   updateVatReturn: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<VatReturn>>(`/vat-returns/${id}`, data),
   fileVatReturn: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/vat-returns/${id}/file`),
+  /** Where there is no Digipoort: record that the return was filed with the tax authority by hand. */
+  markVatReturnFiled: (id: string, data: { filingReference?: string; filedAt?: string }) =>
+    weldbooksApi.post<ApiResponse<Pick<VatReturn, 'id' | 'status' | 'filingReference' | 'filedAt'>>>(
+      `/vat-returns/${id}/mark-filed`,
+      data,
+    ),
   /** Only a return that was not filed yet can be deleted. */
   deleteVatReturn: (id: string) => weldbooksApi.delete<unknown>(`/vat-returns/${id}`),
   getVatReturnXml: (id: string) => weldbooksApi.get<string>(`/vat-returns/${id}/xml`),

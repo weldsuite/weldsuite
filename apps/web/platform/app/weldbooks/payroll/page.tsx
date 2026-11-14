@@ -16,6 +16,8 @@ import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel
 import { usePayrollImports } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { PayrollImport } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';
+import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
 import { useLoadMorePages } from '@/lib/weldbooks/use-load-more-pages';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -23,6 +25,8 @@ import { ReversePayrollDialog } from './components/reverse-dialog';
 
 const PAGE_SIZE = 25;
 const SOURCES = ['csv', 'gusto'] as const;
+/** Gusto is a US payroll provider: other entities only import CSV files. */
+const NON_US_SOURCES = ['csv'] as const;
 const STATUSES = ['posted', 'reversed'] as const;
 
 /** The two amounts a payroll is known by: gross wages and net pay (a ledger export has neither, so they are left out). */
@@ -42,6 +46,9 @@ export default function PayrollImportsPage() {
   const { open: openPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldbooks/payroll');
   const { can } = usePermissions();
+  const { code: jurisdictionCode } = useCurrentJurisdiction();
+  const gustoAvailable = isUsJurisdictionCode(jurisdictionCode);
+  const sources = gustoAvailable ? SOURCES : NON_US_SOURCES;
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -53,7 +60,7 @@ export default function PayrollImportsPage() {
   const query = usePayrollImports({
     limit: PAGE_SIZE,
     status: STATUSES.find((s) => s === status),
-    source: SOURCES.find((s) => s === source),
+    source: sources.find((s) => s === source),
     cursor: paging.key,
   });
   const list = paging.view({
@@ -73,7 +80,7 @@ export default function PayrollImportsPage() {
 
   const filterConfigs: FilterConfig[] = [
     { field: 'status', label: tl.columns.status, options: STATUSES.map((s) => ({ value: s, label: tp.statuses[s] })) },
-    { field: 'source', label: tl.columns.source, options: SOURCES.map((s) => ({ value: s, label: tp.sources[s] })) },
+    { field: 'source', label: tl.columns.source, options: sources.map((s) => ({ value: s, label: tp.sources[s] })) },
   ];
 
   const columns: ColumnDef<PayrollImport>[] = [
@@ -187,12 +194,14 @@ export default function PayrollImportsPage() {
         isLoadingMore={list.isLoadingMore}
         onLoadMore={list.loadMore}
         actionButtons={
-          <Button variant="outline" size="sm" className="h-8" asChild>
-            <Link to="/weldbooks/payroll/connections">
-              <Plug className="h-4 w-4 md:mr-0.5" />
-              <span className="hidden md:inline">{tl.gusto}</span>
-            </Link>
-          </Button>
+          gustoAvailable ? (
+            <Button variant="outline" size="sm" className="h-8" asChild>
+              <Link to="/weldbooks/payroll/connections">
+                <Plug className="h-4 w-4 md:mr-0.5" />
+                <span className="hidden md:inline">{tl.gusto}</span>
+              </Link>
+            </Button>
+          ) : undefined
         }
         createButton={canCreate ? { label: tl.importCsv, onClick: importCsv } : undefined}
         emptyState={{

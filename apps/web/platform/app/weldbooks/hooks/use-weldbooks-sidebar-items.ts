@@ -1,25 +1,12 @@
 import { useCallback } from 'react';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import { useI18n } from '@/lib/i18n/provider';
+import { isWeldbooksHrefVisible, WELDBOOKS_TAX_HREF } from '@/lib/weldbooks/jurisdiction-menu';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
-const TAX_HREF = '/weldbooks/vat';
+const TAX_HREF = WELDBOOKS_TAX_HREF;
 const SUPPLIERS_HREF = '/weldbooks/suppliers';
 const CREDIT_NOTES_HREF = '/weldbooks/credit-notes';
-const FORM_1099_HREF = '/weldbooks/form-1099';
-const RECEIVED_NFE_HREF = '/weldbooks/received-nfe';
-
-/** Screens that only exist for jurisdictions with US sales tax. */
-const SALES_TAX_HREFS = new Set([
-  '/weldbooks/sales-tax',
-  '/weldbooks/sales-tax/certificates',
-  '/weldbooks/sales-tax/nexus',
-  '/weldbooks/tax-calendar',
-  '/weldbooks/payment-runs',
-  '/weldbooks/deposits',
-  '/weldbooks/banking/statements',
-  '/weldbooks/reports/tax-worksheet',
-]);
 
 /**
  * Adjusts the static WeldBooks menu (MODULE_CONFIGS.weldbooks) to the selected
@@ -48,13 +35,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
     (groups: MenuGroupProps[]): MenuGroupProps[] => {
       if (!enabled) return groups;
       const known = isResolved && !isError;
-      const visible = (href: string): boolean => {
-        if (href === TAX_HREF) return known && (features.vatReturn || features.gstReturn || features.brTaxReturn);
-        if (href === RECEIVED_NFE_HREF) return known && features.fiscalDocuments;
-        if (href === FORM_1099_HREF) return known && features.form1099;
-        if (SALES_TAX_HREFS.has(href)) return known && features.salesTax;
-        return true;
-      };
+      const visible = (href: string): boolean => isWeldbooksHrefVisible(href, { known, features });
       return groups
         .map((group) => ({
           ...group,
@@ -77,12 +58,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       enabled,
       isError,
       isResolved,
-      features.vatReturn,
-      features.gstReturn,
-      features.brTaxReturn,
-      features.fiscalDocuments,
-      features.form1099,
-      features.salesTax,
+      features,
       terminology,
       nav,
     ],

@@ -116,7 +116,7 @@ export function AppHeader({
           {/* Breadcrumb trail. Wide header: capped so it doesn't run into the
               centered search. Narrow header: it takes the room the search and
               the buttons leave and truncates inside it, never wrapping. */}
-          <div className="hidden md:flex min-w-0 flex-1 overflow-hidden @min-[1000px]:flex-none @min-[1000px]:max-w-[calc(50%-280px)]">
+          <div className="hidden md:flex min-w-0 flex-1 overflow-hidden @min-[1200px]:flex-none @min-[1200px]:max-w-[calc(50%-280px)]">
             <AppHeaderTrail onResolved={(handle) => setHideAll(handle.hideAll)} />
           </div>
 
@@ -124,7 +124,7 @@ export function AppHeader({
               enough for the trail, the search and the buttons side by side;
               otherwise it takes its place in the row, as wide as a share of the
               header allows (140px to 448px). */}
-          <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1000px]:absolute @min-[1000px]:left-1/2 @min-[1000px]:-translate-x-1/2 @min-[1000px]:w-[448px]">
+          <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1200px]:absolute @min-[1200px]:left-1/2 @min-[1200px]:-translate-x-1/2 @min-[1200px]:w-[448px]">
             <CommandPaletteTrigger />
           </div>
 

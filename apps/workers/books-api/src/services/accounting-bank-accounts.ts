@@ -145,6 +145,56 @@ export type BankLedgerPlan =
   | { kind: 'existing'; account: AccountRow }
   | { kind: 'new'; row: typeof schema.accounts.$inferInsert };
 
+/** The template's bank account per jurisdiction: 1100 Bank (NL and most charts), 1200 Bank (IN). */
+const TEMPLATE_BANK_CODES: Record<string, string> = { IN: '1200' };
+const DEFAULT_TEMPLATE_BANK_CODE = '1100';
+
+/**
+ * The ledger account for a new bank account the caller named none for. The
+ * jurisdiction template's own bank account (1100, or 1200 for IN) when no bank
+ * account sits on it yet, so the first account of a fresh NL or IN book
+ * reconciles without a setup step. Only when no account type is given (the NL
+ * and IN forms send none): a typed account (the US flow) keeps its own planned
+ * account. Otherwise `planBankLedgerAccount`, with a missing type read as
+ * checking.
+ */
+export async function planDefaultBankLedgerAccount(
+  db: Database,
+  args: { entityId: string; name: string; accountType?: BankAccountType | null; currency: string },
+): Promise<BankLedgerPlan> {
+  const accountType = args.accountType ?? 'checking';
+  if (!args.accountType) {
+    const [entity] = await db
+      .select({ jurisdictionCode: schema.entities.jurisdictionCode })
+      .from(schema.entities)
+      .where(eq(schema.entities.id, args.entityId))
+      .limit(1);
+    const code = TEMPLATE_BANK_CODES[entity?.jurisdictionCode ?? ''] ?? DEFAULT_TEMPLATE_BANK_CODE;
+    const [template] = await db
+      .select()
+      .from(schema.accounts)
+      .where(
+        and(
+          eq(schema.accounts.entityId, args.entityId),
+          eq(schema.accounts.code, code),
+          eq(schema.accounts.type, 'asset'),
+          eq(schema.accounts.subtype, 'bank'),
+          isNull(schema.accounts.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (template && template.isActive !== false) {
+      const [taken] = await db
+        .select({ id: schema.bankAccounts.id })
+        .from(schema.bankAccounts)
+        .where(and(eq(schema.bankAccounts.ledgerAccountId, template.id), isNull(schema.bankAccounts.deletedAt)))
+        .limit(1);
+      if (!taken) return { kind: 'existing', account: template };
+    }
+  }
+  return planBankLedgerAccount(db, { entityId: args.entityId, name: args.name, accountType, currency: args.currency });
+}
+
 /**
  * Which ledger account a new bank account of this type sits on. A chart that
  * ships a matching, still unlinked account ("1000 Checking", "2500 Line of

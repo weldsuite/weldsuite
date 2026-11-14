@@ -28,7 +28,7 @@ use weldsuite_catalogs::entity_events::{
     VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED,
 };
 use weldsuite_kit::generate_id;
-use weldsuite_kit::validation::{Issues, Number, Presence};
+use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
@@ -64,6 +64,10 @@ where
             axum::routing::delete(remove).route_layer(need("reports:delete")),
         )
         .route("/{id}/file", post(file).route_layer(need("reports:update")))
+        .route(
+            "/{id}/mark-filed",
+            post(mark_filed).route_layer(need("reports:update")),
+        )
         .route(
             "/{id}/suppletie",
             post(suppletie).route_layer(need("reports:create")),
@@ -615,12 +619,190 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         id,
         json!({ "id": id, "status": "filed" }),
     );
+    let success = submission.stored.get("success") == Some(&Value::Bool(true));
+    let simulated = submission.stored.get("simulated") == Some(&Value::Bool(true));
+    // A simulated submission (no Digipoort link here) is recorded as filed but nothing was sent.
+    let message = if !success {
+        "Filing failed".to_owned()
+    } else if simulated {
+        "BTW-aangifte recorded as filed; the Digipoort submission was simulated and nothing was sent"
+            .to_owned()
+    } else {
+        "BTW-aangifte submitted to Digipoort".to_owned()
+    };
     Ok(ok(json!({
         "id": id,
         "status": "filed",
         "kenmerk": submission.kenmerk,
-        "digipoortSuccess": true,
-        "message": "BTW-aangifte submitted to Digipoort",
+        "digipoortSuccess": success,
+        "simulated": simulated,
+        "message": message,
+    })))
+}
+
+// ── POST /:id/mark-filed ────────────────────────────────────────────────────
+
+/// `markFiledSchema`: the reference the tax authority gave, and the day it was filed.
+fn read_mark_filed(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+) -> (Option<String>, Option<String>) {
+    let reference = issues.text_with(
+        body,
+        "filingReference",
+        Presence::Optional,
+        Text::trimmed(None, Some(255)),
+    );
+    let raw = body
+        .get("filedAt")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let day = issues.pattern(
+        body,
+        "filedAt",
+        Presence::Optional,
+        None,
+        None,
+        |text| {
+            let b = text.as_bytes();
+            b.len() == 10
+                && b.iter().enumerate().all(|(i, c)| {
+                    if i == 4 || i == 7 {
+                        *c == b'-'
+                    } else {
+                        c.is_ascii_digit()
+                    }
+                })
+        },
+        "filedAt must be YYYY-MM-DD",
+    );
+    let filed_at = match (day.into_option(), raw) {
+        (Some(text), _) => {
+            let iso = js::js_date(&text);
+            if iso.is_none() {
+                issues.custom("filedAt", "filedAt is not a date");
+            }
+            iso
+        }
+        // zod runs the refine on a string that failed the regex too, so a
+        // value like "31-05-2026" reports both issues.
+        (None, Some(text)) => {
+            if js::js_date(&text).is_none() {
+                issues.custom("filedAt", "filedAt is not a date");
+            }
+            None
+        }
+        (None, None) => None,
+    };
+    (reference.into_option(), filed_at)
+}
+
+/// Record a return as filed without Digipoort (filed in the tax authority's
+/// own portal, or an edition without the Digipoort link). The same filed
+/// update and period stamp as `/file`.
+async fn mark_filed(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, read_mark_filed) {
+        Ok(data) => data,
+        Err(refusal) => return refusal.respond("Failed to mark VAT return as filed"),
+    };
+    reply(
+        mark_filed_return(&caller, &state, &id, data).await,
+        "Failed to mark VAT return as filed",
+    )
+}
+
+async fn mark_filed_return(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    (reference, filed_at): (Option<String>, Option<String>),
+) -> Reply {
+    let db = &caller.db;
+    let Some(ret) = find(db, id).await? else {
+        return Err(Refusal::not_found("VAT return", id));
+    };
+    let Some(rubrieken) = nl::normalize(ret.get("rubrieken")) else {
+        return Err(Refusal::bad_request(
+            "VAT return has no calculated rubrieken",
+        ));
+    };
+    let status = text(&ret, "status").unwrap_or_default().to_owned();
+    if !is_unfiled(&status) {
+        return Err(Refusal::bad_request("VAT return has already been filed"));
+    }
+    let entity_id = text(&ret, "entityId").unwrap_or_default().to_owned();
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
+        return Err(Refusal::not_found("Entity", &entity_id));
+    };
+
+    let reference = reference.filter(|r| !r.is_empty());
+    let now = now();
+    let filed_at = filed_at.unwrap_or_else(|| now.clone());
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "update vat_returns set status = 'filed', rubrieken = $1, filing_reference = $2, \
+         filed_at = $3::timestamp, filed_by = $4, updated_at = $5::timestamp where id = $6",
+    )
+    .bind(rubrieken.to_value())
+    .bind(reference.as_deref())
+    .bind(&filed_at)
+    .bind(caller.user())
+    .bind(&now)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    // A suppletie corrects an already-stamped period; only regular returns stamp rows.
+    if text(&ret, "correctionOfId").is_none() {
+        file_period(
+            &mut tx,
+            &entity_id,
+            &iso_day(text(&ret, "periodStart").unwrap_or_default()),
+            &iso_day(text(&ret, "periodEnd").unwrap_or_default()),
+            id,
+            text(&entity, "taxLockDate"),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    let mut changes = Map::new();
+    changes.insert("status".into(), change(json!(status), json!("filed")));
+    changes.insert(
+        "filingReference".into(),
+        change(
+            ret.get("filingReference").cloned().unwrap_or(Value::Null),
+            json!(reference),
+        ),
+    );
+    write_accounting_audit(
+        caller,
+        db,
+        AuditInput {
+            accounting_entity_id: Some(&entity_id),
+            entity_type: "vat_return",
+            entity_id: id,
+            action: "filed",
+            changes: Some(changes),
+        },
+    )
+    .await;
+    caller.publish(
+        state,
+        VAT_RETURN_UPDATED,
+        id,
+        json!({ "id": id, "status": "filed" }),
+    );
+    Ok(ok(json!({
+        "id": id,
+        "status": "filed",
+        "filingReference": reference,
+        "filedAt": filed_at,
     })))
 }
 
@@ -866,4 +1048,30 @@ async fn remove(
         .await,
         "Failed to delete VAT return",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use weldsuite_books_domain::http::validate_value;
+
+    fn read(body: &Value) -> Result<(Option<String>, Option<String>), Refusal> {
+        validate_value(body, read_mark_filed)
+    }
+
+    #[test]
+    fn mark_filed_reads_a_reference_and_a_day() {
+        assert_eq!(read(&json!({})).ok(), Some((None, None)));
+        let (reference, day) =
+            read(&json!({ "filingReference": " MB-1 ", "filedAt": "2026-06-02" })).expect("valid");
+        assert_eq!(reference.as_deref(), Some("MB-1"));
+        assert_eq!(day.as_deref(), Some("2026-06-02T00:00:00.000Z"));
+    }
+
+    #[test]
+    fn mark_filed_refuses_a_day_in_another_shape() {
+        assert!(read(&json!({ "filedAt": "31-05-2026" })).is_err());
+        assert!(read(&json!({ "filedAt": "2026-13-45" })).is_err());
+        assert!(read(&json!({ "filingReference": "x".repeat(256) })).is_err());
+    }
 }

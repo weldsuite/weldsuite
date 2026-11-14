@@ -175,7 +175,7 @@ describe('JournalEntryPanel', () => {
   it('lists the journal lines with the account, the side of the amount and the dimensions', async () => {
     const user = userEvent.setup();
     renderPanel(<JournalEntryPanel {...panelProps} />);
-    await user.click(screen.getByRole('tab', { name: /Journal Lines/ }));
+    await user.click(screen.getByRole('tab', { name: /Journal lines/ }));
 
     expect(screen.getByText('1000 — Cash')).toBeInTheDocument();
     expect(screen.getByText('Cash in')).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe('JournalEntryPanel', () => {
     const user = userEvent.setup();
     journal.entry = entry({ lines: [] });
     renderPanel(<JournalEntryPanel {...panelProps} />);
-    await user.click(screen.getByRole('tab', { name: /Journal Lines/ }));
+    await user.click(screen.getByRole('tab', { name: /Journal lines/ }));
     expect(screen.getByText('No lines')).toBeInTheDocument();
   });
 
@@ -200,21 +200,21 @@ describe('JournalEntryPanel', () => {
     const user = userEvent.setup();
     renderPanel(<JournalEntryPanel {...panelProps} />);
 
-    await user.click(screen.getByRole('button', { name: 'Post Entry' }));
+    await user.click(screen.getByRole('button', { name: 'Post entry' }));
     expect(postMutate).toHaveBeenCalledWith('je_1', expect.any(Object));
   });
 
   it('offers no posting for a posted entry, or without journal:update', () => {
     journal.entry = entry({ status: 'posted' });
     const { unmount } = renderPanel(<JournalEntryPanel {...panelProps} />);
-    expect(screen.queryByRole('button', { name: 'Post Entry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Post entry' })).not.toBeInTheDocument();
     expect(screen.getByTestId('title')).toHaveTextContent('Posted');
     unmount();
 
     journal.entry = entry();
     permissions.delete('journal:update');
     renderPanel(<JournalEntryPanel {...panelProps} />);
-    expect(screen.queryByRole('button', { name: 'Post Entry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Post entry' })).not.toBeInTheDocument();
   });
 
   it('reads the audit trail of the entry on the history tab', async () => {

@@ -809,6 +809,36 @@ pub struct Matched {
 /// A document lookup: id, entity, contact, open balance.
 type DocumentRow = (String, Option<String>, Option<String>, Option<String>);
 
+/// The oldest payment of the document not yet tied to a bank line or deposit
+/// that moved `paid` through the bank (the net of any backup withholding).
+async fn unlinked_payment_for(
+    db: &PgPool,
+    txn: &Value,
+    invoice: bool,
+    document_id: &str,
+    paid: f64,
+) -> Result<Option<String>, sqlx::Error> {
+    let existing: Vec<Value> = sqlx::query_scalar(concat!(
+        "select ",
+        crate::books_row!(payments),
+        " from payments t where t.entity_id = $1 and t.deleted_at is null \
+         and t.bank_transaction_id is null and t.deposit_id is null and t.type = $2 \
+         and (case when $2 = 'received' then t.invoice_id else t.bill_id end) = $3 \
+         and (t.check_status is null or t.check_status <> 'voided') \
+         order by t.date, t.created_at"
+    ))
+    .bind(text(txn, "entityId"))
+    .bind(if invoice { "received" } else { "sent" })
+    .bind(document_id)
+    .fetch_all(db)
+    .await?;
+    Ok(existing
+        .into_iter()
+        .map(|row| PAYMENTS.js(row))
+        .find(|payment| (payment_net_amount(payment) - paid).abs() < 0.005)
+        .and_then(|payment| text(&payment, "id").map(str::to_owned)))
+}
+
 /// `reconcileBankTransactionToDocument`: a new payment (money in against
 /// an invoice, out against a bill), posted, settling the document and the
 /// line in one go. (`!(amount > 0)` keeps JavaScript's NaN handling.)
@@ -863,6 +893,16 @@ pub async fn reconcile_to_document(
             .fetch_optional(db)
             .await?;
     let paid = round_money(amount.abs());
+
+    // The document may already be paid by a payment recorded by hand before
+    // the line arrived. Posting the line as a new payment would book the bank
+    // twice, so link that payment to the line instead (the same as matching
+    // the line to the payment).
+    if let Some(payment_id) = unlinked_payment_for(db, txn, invoice, &doc_id, paid).await? {
+        return reconcile_to_payment(db, txn, &payment_id).await;
+    }
+
+    // Anything above the open balance stays on the contact as an unapplied credit.
     let allocated = round_money(f64::min(
         paid,
         parse_float(balance_due.as_deref().unwrap_or("0")),

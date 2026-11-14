@@ -41,6 +41,7 @@ import {
   assertLedgerAccountFits,
   BANK_ACCOUNT_TYPES,
   planBankLedgerAccount,
+  planDefaultBankLedgerAccount,
   isValidAbaRouting,
   normalizeAccountNumber,
   publicBankAccount,
@@ -279,9 +280,9 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
     let ledgerInfo: { id: string; code: string; name: string; created: boolean } | undefined;
     if (ledgerAccountId) {
       await loadLedgerAccount(db, accountingEntityId, ledgerAccountId, data.accountType);
-    } else if (data.accountType && data.createLedgerAccount !== false) {
-      // The ledger account holds base-currency amounts.
-      const plan = await planBankLedgerAccount(db, {
+    } else if (data.createLedgerAccount !== false) {
+      // The ledger account holds base-currency amounts. No type (the NL form sends none) reads as checking.
+      const plan = await planDefaultBankLedgerAccount(db, {
         entityId: accountingEntityId,
         name: data.name,
         accountType: data.accountType,

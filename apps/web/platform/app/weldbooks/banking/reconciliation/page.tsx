@@ -130,6 +130,9 @@ export default function BankReconciliationPage() {
   // Suggestions for the selected bank line
   const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
   const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
+  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
+  const selectedTxn = transactions.find((txn) => txn.id === selectedTxnId);
+  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
   const displayCurrency = selectedAccount?.currency || entityCurrency;
 
   const reconcileMutation = useMutation({
@@ -163,7 +166,14 @@ export default function BankReconciliationPage() {
   });
 
   const matching = reconcileMutation.isPending || matchPayment.isPending || matchDeposit.isPending;
-  const matchError = (reconcileMutation.error ?? matchPayment.error ?? matchDeposit.error) as Error | null;
+  // A refused categorize is shown in the categorize box, every other refusal under the suggestions: never both.
+  const categorizeFailed = reconcileMutation.variables?.data?.categoryAccountId !== undefined;
+  const categorizeError = categorizeFailed ? ((reconcileMutation.error as Error | null)?.message ?? null) : null;
+  const matchError = (
+    (categorizeFailed ? null : reconcileMutation.error) ??
+    matchPayment.error ??
+    matchDeposit.error
+  ) as Error | null;
 
   const handleMatch = (s: MatchSuggestion) => {
     if (!selectedTxnId) return;
@@ -305,15 +315,16 @@ export default function BankReconciliationPage() {
                   <CategorizeBankTransactionPanel
                     key={selectedTxnId}
                     accounts={ledgerAccounts}
+                    includeLiabilities={moneyOut}
                     pending={reconcileMutation.isPending}
-                    errorMessage={(reconcileMutation.error as Error | null)?.message ?? null}
+                    errorMessage={categorizeError}
                     labels={{
-                      title: tbp.categorizeTitle,
-                      hint: tbp.categorizeHint,
+                      title: moneyOut ? tbp.categorizeTitleOut : tbp.categorizeTitle,
+                      hint: moneyOut ? tbp.categorizeHintOut : tbp.categorizeHint,
                       accountLabel: tbp.categorizeAccountLabel,
                       accountPlaceholder: tbp.categorizeAccountPlaceholder,
                       button: tbp.categorizeButton,
-                      examples: tbp.categorizeExamples,
+                      examples: moneyOut ? tbp.categorizeExamplesOut : tbp.categorizeExamples,
                     }}
                     onCategorize={(categoryAccountId) =>
                       reconcileMutation.mutate({

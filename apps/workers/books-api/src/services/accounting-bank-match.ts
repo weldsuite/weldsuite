@@ -15,7 +15,7 @@
  * unlinks a payment or deposit.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { PostingError, reverseJournalEntry, roundMoney } from './accounting-posting';
@@ -64,6 +64,35 @@ export async function reconcileBankTransactionToDocument(
     .limit(1);
 
   const paid = roundMoney(Math.abs(amount));
+
+  // The document may already be paid by a payment recorded by hand before the line arrived. Posting
+  // the line as a new payment would book the bank twice, so link that payment to the line instead
+  // (the same as matching the line to the payment).
+  const existing = await db
+    .select()
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.entityId, txn.entityId),
+        isNull(schema.payments.deletedAt),
+        isNull(schema.payments.bankTransactionId),
+        isNull(schema.payments.depositId),
+        eq(schema.payments.type, args.type === 'invoice' ? 'received' : 'sent'),
+        args.type === 'invoice' ? eq(schema.payments.invoiceId, doc.id) : eq(schema.payments.billId, doc.id),
+        or(isNull(schema.payments.checkStatus), ne(schema.payments.checkStatus, 'voided')),
+      ),
+    )
+    .orderBy(asc(schema.payments.date), asc(schema.payments.createdAt));
+  const unlinked = existing.find((p) => Math.abs(paymentNetAmount(p) - paid) < 0.005);
+  if (unlinked) {
+    return reconcileBankTransactionToPayment(db, {
+      txn,
+      paymentId: unlinked.id,
+      reconciliationType: args.reconciliationType,
+      userId: args.userId,
+    });
+  }
+
   // Anything above the open balance stays on the contact as an unapplied credit.
   const allocated = roundMoney(Math.min(paid, Number.parseFloat(doc.balanceDue ?? '0')));
 

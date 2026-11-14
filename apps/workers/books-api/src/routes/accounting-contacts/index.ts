@@ -83,6 +83,7 @@ import {
 } from '../../services/vendor-tax-data';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { validateGstin } from '@weldsuite/books-domain/jurisdictions/in';
+import { nlAdapter } from '@weldsuite/books-domain/jurisdictions/nl';
 import { validateCnpjOrCpf, validateCpf } from '@weldsuite/books-domain/jurisdictions/br';
 import { checkVatNumberFormat, ibanProblem, IBAN_LENGTHS, normalizeIban } from '@weldsuite/books-domain/identifiers';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -1127,6 +1128,22 @@ async function syncIdentity(
 function checkIdentifierFormats(data: ContactPayload, storedBilling?: unknown): void {
   checkVatFormat(data, storedBilling);
   checkIbanFormat(data);
+  checkKvkFormat(data, storedBilling);
+}
+
+/** A Dutch contact's registration number is a KvK number: eight digits (spaces are dropped). */
+function checkKvkFormat(data: ContactPayload, storedBilling?: unknown): void {
+  const kvk = data.registrationNumber?.trim();
+  if (!kvk) return;
+  const billing = data.billingAddress !== undefined ? data.billingAddress : storedBilling;
+  if (normalizePostalAddress(billing as never)?.country !== 'NL') return;
+  const check = nlAdapter.validateTaxIdentifier('registrationNumber', kvk);
+  if (!check.valid) {
+    throw new ContactIdentityError('badRequest', `"${kvk}" is not a valid KvK number: it must be 8 digits`, {
+      field: 'registrationNumber',
+    });
+  }
+  if (check.formatted) data.registrationNumber = check.formatted;
 }
 
 function checkVatFormat(data: ContactPayload, storedBilling?: unknown): void {

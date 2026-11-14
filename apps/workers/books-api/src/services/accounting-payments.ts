@@ -30,7 +30,7 @@ import {
   roundMoney,
   type EntityAccounts,
 } from './accounting-posting';
-import { buildPaymentPosting, settlementSet, type PaymentAllocationInput } from './accounting-document-posting';
+import { buildPaymentPosting, findDefaultBankAccount, settlementSet, type PaymentAllocationInput } from './accounting-document-posting';
 import { findRecoveryEntries, postBadDebtRecovery, writtenOffBalance, writtenOffSettlementSet } from './accounting-bad-debt';
 
 export const PAYMENT_METHODS = [
@@ -404,6 +404,8 @@ interface PaymentWrite {
   currency: string;
   exchangeRate: string;
   paymentMethod: PaymentMethod | null;
+  /** The bank account the money moved through: the one given, else the default one the money account resolved to. */
+  bankAccountId: string | null;
   checkStatus: string | null;
   /** Backup withholding, rounded; 0 when none. */
   withheld: number;
@@ -434,7 +436,7 @@ function paymentRowStatement(h: Database, journalEntryId: string, w: PaymentWrit
     billId: single?.billId ?? null,
     contactId: w.contactId,
     counterpartyId: w.contactId,
-    bankAccountId: input.bankAccountId ?? null,
+    bankAccountId: w.bankAccountId,
     bankTransactionId: input.bankTransactionId ?? null,
     paymentRunId: input.paymentRunId ?? null,
     backupWithholdingAmount: w.withheld > 0 ? w.withheld.toFixed(2) : null,
@@ -564,8 +566,15 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   });
 
   // Checks and cash on a US entity wait in Undeposited Funds instead of the bank.
-  const undepositedFunds = accountForRole(await loadEntityAccounts(db, input.entityId), 'undeposited_funds');
+  const entityAccounts = await loadEntityAccounts(db, input.entityId);
+  const undepositedFunds = accountForRole(entityAccounts, 'undeposited_funds');
   const toUndeposited = resolveDepositTarget(input, paymentMethod, Boolean(undepositedFunds)) === 'undeposited_funds';
+  // With no bank account given, the money went through the entity's default one (see resolveMoneyAccount): keep it on the payment.
+  let bankAccountId = input.bankAccountId ?? null;
+  if (!bankAccountId && !toUndeposited && !(paymentMethod === 'cash' && entityAccounts.bySubtype('cash'))) {
+    const defaultBank = await findDefaultBankAccount(db, input.entityId);
+    if (defaultBank && entityAccounts.byId(defaultBank.ledgerAccountId)) bankAccountId = defaultBank.id;
+  }
   const lines = await buildPaymentPosting(
     db,
     {
@@ -598,6 +607,7 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
       currency,
       exchangeRate,
       paymentMethod,
+      bankAccountId,
       checkStatus,
       withheld,
       allocations,

@@ -307,6 +307,101 @@ app.patch('/:id', requirePermission('reports:update'), zValidator('json', z.obje
   }
 });
 
+type VatReturnRow = typeof schema.vatReturns.$inferSelect;
+
+/**
+ * The statements that mark a return filed: its status and filing fields, and
+ * the stamp on the period's tax lines (which moves the tax lock date). Shared
+ * by the Digipoort filing and the manual mark-filed.
+ */
+function filedStatements(
+  h: Database,
+  ret: VatReturnRow,
+  entity: typeof schema.entities.$inferSelect,
+  set: Partial<typeof schema.vatReturns.$inferInsert>,
+) {
+  return [
+    h.update(schema.vatReturns).set({ status: 'filed', ...set, updatedAt: new Date() }).where(eq(schema.vatReturns.id, ret.id)),
+    // A suppletie corrects an already-stamped period; only regular returns stamp rows.
+    ...(ret.correctionOfId
+      ? []
+      : fileTaxPeriodStatements(h, {
+          entityId: ret.entityId,
+          periodStart: ret.periodStart,
+          periodEnd: ret.periodEnd,
+          taxReturnId: ret.id,
+          currentTaxLockDate: entity.taxLockDate,
+        })),
+  ];
+}
+
+const markFiledSchema = z.object({
+  /** The reference the tax authority gave (a Digipoort kenmerk, a portal confirmation). */
+  filingReference: z.string().trim().max(255).optional(),
+  /** The day it was filed; today when left out. */
+  filedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'filedAt must be YYYY-MM-DD')
+    .refine((v) => !Number.isNaN(new Date(v).getTime()), 'filedAt is not a date')
+    .optional(),
+});
+
+// POST /:id/mark-filed — record a return as filed without Digipoort (the
+// return was filed in the tax authority's own portal, or the entity's
+// edition has no Digipoort link). Same filed update and period stamp as /file.
+app.post('/:id/mark-filed', requirePermission('reports:update'), zValidator('json', markFiledSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  const userId = c.get('userId');
+
+  try {
+    const [ret] = await db.select().from(schema.vatReturns)
+      .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
+    if (!ret) return error.notFound(c, 'VAT return', id);
+    const rubriekenToFile = normalizeVatRubrieken(ret.rubrieken);
+    if (!rubriekenToFile) return error.badRequest(c, 'VAT return has no calculated rubrieken');
+    if (!isUnfiledReturn(ret.status)) {
+      return error.badRequest(c, 'VAT return has already been filed');
+    }
+
+    const [entityRow] = await db
+      .select()
+      .from(schema.entities)
+      .where(and(eq(schema.entities.id, ret.entityId), isNull(schema.entities.deletedAt)))
+      .limit(1);
+    if (!entityRow) return error.notFound(c, 'Entity', ret.entityId);
+
+    const filingReference = data.filingReference || null;
+    const filedAt = data.filedAt ? new Date(data.filedAt) : new Date();
+    await atomically(db, (h) =>
+      filedStatements(h, ret, entityRow, {
+        rubrieken: rubriekenToFile,
+        filingReference,
+        filedAt,
+        filedBy: userId,
+      }),
+    );
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: ret.entityId,
+      entityType: 'vat_return',
+      entityId: id,
+      action: 'filed',
+      changes: {
+        status: { old: ret.status, new: 'filed' },
+        filingReference: { old: ret.filingReference ?? null, new: filingReference },
+      },
+    });
+    publishEntityEvent({ c, entityType: 'vat_return', entityId: id, action: 'updated', data: { id, status: 'filed' } });
+
+    return success(c, { id, status: 'filed', filingReference, filedAt: filedAt.toISOString() });
+  } catch (err) {
+    console.error('[books-api/vat-returns] mark-filed failed:', err);
+    return error.internal(c, 'Failed to mark VAT return as filed');
+  }
+});
+
 // POST /:id/file — generate SBR/XBRL and submit via Digipoort
 app.post('/:id/file', requirePermission('reports:update'), async (c) => {
   const db = c.get('tenantDb');
@@ -357,28 +452,16 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       return error.badRequest(c, `Digipoort submission failed: ${submitResult.error}`);
     }
 
-    await atomically(db, (h) => [
-      h.update(schema.vatReturns).set({
-        status: 'filed',
+    await atomically(db, (h) =>
+      filedStatements(h, ret, entityRow, {
         rubrieken: rubriekenToFile,
         xmlContent,
         filingReference: submitResult.kenmerk || null,
         digipoortResponse: submitResult as unknown as Record<string, unknown>,
         filedAt: new Date(),
         filedBy: userId,
-        updatedAt: new Date(),
-      }).where(eq(schema.vatReturns.id, id)),
-      // A suppletie corrects an already-stamped period; only regular returns stamp rows.
-      ...(ret.correctionOfId
-        ? []
-        : fileTaxPeriodStatements(h, {
-            entityId: ret.entityId,
-            periodStart: ret.periodStart,
-            periodEnd: ret.periodEnd,
-            taxReturnId: id,
-            currentTaxLockDate: entityRow.taxLockDate,
-          })),
-    ]);
+      }),
+    );
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: ret.entityId,
@@ -394,9 +477,13 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       status: 'filed',
       kenmerk: submitResult.kenmerk,
       digipoortSuccess: submitResult.success,
-      message: submitResult.success
-        ? 'BTW-aangifte submitted to Digipoort'
-        : `Filing failed: ${submitResult.error}`,
+      // A simulated submission (no Digipoort link in this environment) is recorded as filed but nothing was sent.
+      simulated: submitResult.simulated ?? false,
+      message: !submitResult.success
+        ? `Filing failed: ${submitResult.error}`
+        : submitResult.simulated
+          ? 'BTW-aangifte recorded as filed; the Digipoort submission was simulated and nothing was sent'
+          : 'BTW-aangifte submitted to Digipoort',
     });
   } catch (err) {
     console.error('[app-api/vat-returns] file failed:', err);

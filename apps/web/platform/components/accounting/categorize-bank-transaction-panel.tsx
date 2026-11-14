@@ -13,15 +13,21 @@ import type { Account } from '@/lib/api/domains/weldbooks';
 
 const CATEGORY_TYPES = new Set(['revenue', 'expense', 'equity']);
 
-export function ledgerCategoryAccounts(accounts: Account[]): Account[] {
+/** Money out can also settle a liability (a tax payment pays down taxes payable). */
+export function ledgerCategoryAccounts(accounts: Account[], options: { includeLiabilities?: boolean } = {}): Account[] {
   return accounts
-    .filter((a) => a.isActive !== false && CATEGORY_TYPES.has(a.type))
+    .filter(
+      (a) =>
+        a.isActive !== false && (CATEGORY_TYPES.has(a.type) || (options.includeLiabilities === true && a.type === 'liability')),
+    )
     .slice()
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
 interface CategorizeBankTransactionPanelProps {
   accounts: Account[];
+  /** The line is money out: liability accounts (taxes payable, ...) can be picked too. */
+  includeLiabilities?: boolean;
   pending?: boolean;
   errorMessage?: string | null;
   labels: {
@@ -37,13 +43,17 @@ interface CategorizeBankTransactionPanelProps {
 
 export function CategorizeBankTransactionPanel({
   accounts,
+  includeLiabilities,
   pending,
   errorMessage,
   labels,
   onCategorize,
 }: Readonly<CategorizeBankTransactionPanelProps>) {
   const [categoryAccountId, setCategoryAccountId] = useState('');
-  const options = useMemo(() => ledgerCategoryAccounts(accounts), [accounts]);
+  const options = useMemo(
+    () => ledgerCategoryAccounts(accounts, { includeLiabilities }),
+    [accounts, includeLiabilities],
+  );
 
   return (
     <div className="space-y-3 border-t pt-3">

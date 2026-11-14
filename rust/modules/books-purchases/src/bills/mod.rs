@@ -17,7 +17,9 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::{document_contact_fields, with_contact_names};
-use weldsuite_books_domain::document_posting::{post_bill, update_with_entry};
+use weldsuite_books_domain::document_posting::{
+    post_bill, resolve_bill_default_expense_account, update_with_entry,
+};
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
     resolve_requested_entity_id,
@@ -29,6 +31,7 @@ use weldsuite_books_domain::http::{
     validate,
 };
 use weldsuite_books_domain::js::{js_date, js_date_millis, number_text, parse_float};
+use weldsuite_books_domain::payments::{AllocationInput, RecordPaymentInput, record_payment};
 use weldsuite_books_domain::posting::{
     PostError, ReverseArgs, assert_dimensions_belong_to_entity, assert_projects_exist,
     reverse_journal_entry,
@@ -44,14 +47,14 @@ use weldsuite_books_domain::tax::{
     has_document_tax_hook,
 };
 use weldsuite_catalogs::entity_events::{
-    BILL_CREATED, BILL_DELETED, BILL_UPDATED, JOURNAL_ENTRY_CREATED,
+    BILL_CREATED, BILL_DELETED, BILL_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED,
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use body::{BillBody, BillLine, read_bill};
+use body::{BillBody, BillLine, read_bill, read_bill_payment};
 
 use crate::ocr::{line_items_for_bill, normalize_ocr_result};
 
@@ -68,6 +71,10 @@ where
             "/from-document/{document_id}",
             post(from_document).route_layer(need("bills:create")),
         )
+        .route(
+            "/default-expense-account",
+            get(default_expense_account).route_layer(need("bills:read")),
+        )
         .route("/{id}", get(detail).route_layer(need("bills:read")))
         .route(
             "/{id}",
@@ -82,6 +89,10 @@ where
         .route(
             "/{id}/attachments/{index}",
             get(attachment).route_layer(need("bills:read")),
+        )
+        .route(
+            "/{id}/record-payment",
+            post(record_bill_payment).route_layer(need("banking:create")),
         )
         .route(
             "/{id}/approve",
@@ -244,13 +255,48 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             return Err(Refusal::not_found("Bill", &id));
         };
         let items = live_items(db, &id, true).await?;
+        // Payments that settle this bill: directly (older single-bill payments)
+        // or through an allocation (a payment covering several bills).
+        let allocations: Vec<(String, String)> = sqlx::query_as(
+            "select payment_id, amount::text from payment_allocations \
+             where bill_id = $1 and deleted_at is null",
+        )
+        .bind(&id)
+        .fetch_all(db)
+        .await?;
+        let allocated_ids: Vec<String> = allocations.iter().map(|(p, _)| p.clone()).collect();
         let payments: Vec<Value> = sqlx::query_scalar(concat!(
             "select ",
             weldsuite_books_domain::books_row!(payments),
-            " from payments t where t.bill_id = $1 and t.deleted_at is null order by t.date desc"
+            " from payments t where t.deleted_at is null and (t.bill_id = $1 or t.id = any($2)) \
+             order by t.date desc"
         ))
         .bind(&id)
+        .bind(&allocated_ids)
         .fetch_all(db)
+        .await?;
+        let payments: Vec<Value> = PAYMENTS
+            .js_rows(payments)
+            .into_iter()
+            .map(|mut payment| {
+                let amount = payment["id"]
+                    .as_str()
+                    .and_then(|pid| allocations.iter().find(|(p, _)| p == pid))
+                    .map_or_else(
+                        || payment["amount"].clone(),
+                        |(_, a)| Value::String(a.clone()),
+                    );
+                payment["allocatedAmount"] = amount;
+                payment
+            })
+            .collect();
+        // Where a line without an account posts to; the form shows it before the bill is approved.
+        let default_expense = resolve_bill_default_expense_account(
+            db,
+            text(&bill, "entityId").unwrap_or_default(),
+            filled(&bill, "expenseAccountId"),
+            filled(&bill, "contactId"),
+        )
         .await?;
         let mut named = with_contact_names(db, vec![bill]).await?;
         let mut view = named
@@ -258,11 +304,142 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
         view.insert("items".into(), Value::Array(items));
-        view.insert("payments".into(), Value::Array(PAYMENTS.js_rows(payments)));
+        view.insert("payments".into(), Value::Array(payments));
+        view.insert("defaultExpenseAccount".into(), default_expense);
         Ok(ok(Value::Object(view)))
     }
     .await;
     reply(result, "Failed to fetch bill")
+}
+
+// ── GET /default-expense-account ────────────────────────────────────────────
+
+/// The account a bill line without an account posts to, for the bill form
+/// before a bill exists: the supplier's default expense account, else the
+/// entity's general expense account.
+async fn default_expense_account(caller: Caller) -> Response {
+    let result: Reply = async {
+        let Some(entity_id) = resolve_entity_id(&caller).await? else {
+            return Err(Refusal::bad_request("No accounting entity resolved"));
+        };
+        let contact = caller.query();
+        let account = resolve_bill_default_expense_account(
+            &caller.db,
+            &entity_id,
+            None,
+            contact.present("contactId"),
+        )
+        .await?;
+        Ok(ok(json!({ "defaultExpenseAccount": account })))
+    }
+    .await;
+    reply(result, "Failed to resolve the default expense account")
+}
+
+// ── POST /:id/record-payment ────────────────────────────────────────────────
+
+/// Pay this bill (posted: Dr payable / Cr bank, and the bill's paid amount
+/// and status updated). Overpaying is refused.
+async fn record_bill_payment(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    raw: Bytes,
+) -> Response {
+    let data = match validate(&headers, &raw, read_bill_payment) {
+        Ok(Some(data)) => data,
+        Ok(None) => return Refusal::Internal("body".into()).respond("Failed to record payment"),
+        Err(refusal) => return refusal.respond("Failed to record payment"),
+    };
+    let result: Reply = async {
+        let db = &caller.db;
+        let Some(bill) = find_bill(db, &id).await? else {
+            return Err(Refusal::not_found("Bill", &id));
+        };
+        let amount = parse_float(&data.amount);
+        let paid_on = js_date(&data.date)
+            .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
+        let http = caller.http(&state);
+        let result = record_payment(
+            db,
+            http.as_ref(),
+            RecordPaymentInput {
+                entity_id: text(&bill, "entityId").unwrap_or_default().to_owned(),
+                received: false,
+                amount,
+                currency: text(&bill, "currency").map(str::to_owned),
+                date: paid_on,
+                payment_method: data.payment_method.clone(),
+                reference: data.reference.clone(),
+                notes: data.notes.clone(),
+                contact_id: text(&bill, "contactId").map(str::to_owned),
+                bank_account_id: data.bank_account_id.clone(),
+                bank_transaction_id: data.bank_transaction_id.clone(),
+                allocations: vec![AllocationInput {
+                    invoice_id: None,
+                    bill_id: Some(id.clone()),
+                    amount,
+                }],
+                user_id: caller.user().map(str::to_owned),
+                ..RecordPaymentInput::default()
+            },
+        )
+        .await
+        .map_err(post_refusal)?;
+        let updated: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
+            "select amount_paid::text, balance_due::text, status from bills where id = $1 limit 1",
+        )
+        .bind(&id)
+        .fetch_optional(db)
+        .await?;
+        let (paid, balance, status) = match updated {
+            Some((paid, balance, status)) => (json!(paid), json!(balance), json!(status)),
+            None => (Value::Null, Value::Null, Value::Null),
+        };
+        let mut changes = Map::new();
+        changes.insert(
+            "amountPaid".into(),
+            json!({ "old": bill.get("amountPaid"), "new": paid }),
+        );
+        changes.insert(
+            "status".into(),
+            json!({ "old": bill.get("status"), "new": status }),
+        );
+        write_accounting_audit(
+            &caller,
+            db,
+            AuditInput {
+                accounting_entity_id: text(&bill, "entityId"),
+                entity_type: "bill",
+                entity_id: &id,
+                action: "payment_recorded",
+                changes: Some(changes),
+            },
+        )
+        .await;
+        caller.publish(
+            &state,
+            PAYMENT_CREATED,
+            &result.payment_id,
+            json!({
+                "id": result.payment_id,
+                "billId": id,
+                "amount": data.amount,
+                "date": data.date,
+                "method": data.payment_method,
+            }),
+        );
+        Ok(created(json!({
+            "paymentId": result.payment_id,
+            "journalEntryId": result.journal_entry_id,
+            "amountPaid": paid,
+            "balanceDue": balance,
+            "status": status,
+        })))
+    }
+    .await;
+    reply(result, "Failed to record payment")
 }
 
 // ── GET /:id/attachments/:index ─────────────────────────────────────────────

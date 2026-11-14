@@ -9,11 +9,16 @@ const env = vi.hoisted(() => ({
   us: true,
   previewState: null as unknown,
   requests: [] as unknown[],
+  /** The suppliers the picker lists. */
+  suppliers: [{ id: 'sup_1', name: 'Dell' }] as Array<{ id: string; name: string }>,
+  /** The account a line without one is booked to, when known. */
+  defaultAccount: null as { id: string; code: string; name: string } | null,
   taxRates: [
-    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' },
-    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales' },
-    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase' },
-  ] as Array<{ id: string; name: string; rate: string; type: string }>,
+    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both', taxCategoryCode: 'standard', isDefault: false, isActive: true },
+    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales', taxCategoryCode: 'reduced', isDefault: false, isActive: true },
+    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase', taxCategoryCode: 'standard', isDefault: false, isActive: true },
+    { id: 'tax_low', name: 'Laag tarief', rate: '9', type: 'both', taxCategoryCode: 'reduced', isDefault: false, isActive: true },
+  ] as Array<{ id: string; name: string; rate: string; type: string; taxCategoryCode: string; isDefault: boolean; isActive: boolean }>,
 }));
 
 vi.mock('@/lib/router', async () => {
@@ -26,7 +31,8 @@ vi.mock('@tanstack/react-router', async () => {
 });
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingCustomer: () => ({ data: { data: { id: 'sup_1', name: 'Dell', billingAddress: null } } }),
-  useAccountingCustomers: () => ({ data: { data: [{ id: 'sup_1', name: 'Dell' }] } }),
+  useAccountingCustomers: () => ({ data: { data: env.suppliers }, isLoading: false }),
+  useBillDefaultExpenseAccount: () => ({ data: env.defaultAccount }),
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useAccountingAccounts: () => ({
     data: {
@@ -43,6 +49,15 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
 vi.mock('@/hooks/queries/use-projects-queries', () => ({
   useProjects: () => ({ data: { data: [{ id: 'proj_1', name: 'Portal' }] }, isLoading: false, isError: false }),
   useProject: () => ({ data: undefined }),
+}));
+// The popup has its own tests; here it only hands back the supplier it "created".
+vi.mock('@/app/weldbooks/customers/components/quick-add-contact-dialog', () => ({
+  QuickAddContactDialog: ({ open, onCreated }: { open: boolean; onCreated: (id: string) => void }) =>
+    open ? (
+      <button type="button" onClick={() => onCreated('sup_new')}>
+        quick add supplier saved
+      </button>
+    ) : null,
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
   const labels = {
@@ -148,6 +163,9 @@ describe('BillForm', { timeout: 30_000 }, () => {
     env.us = true;
     env.previewState = previewState();
     env.requests = [];
+    env.suppliers = [{ id: 'sup_1', name: 'Dell' }];
+    env.defaultAccount = null;
+    for (const rate of env.taxRates) rate.isDefault = false;
   });
 
   describe('line inputs', () => {
@@ -161,7 +179,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       await user.keyboard('3');
       expect(qty.value).toBe('3');
 
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0].items[0].quantity).toBe('3');
     });
@@ -192,7 +210,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       await user.click(screen.getByRole('combobox', { name: 'Class' }));
       await user.click(await screen.findByRole('option', { name: 'Retail' }));
       await user.click(screen.getByLabelText('Delivered to a different address than my business address'));
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
 
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       const payload = onSubmit.mock.calls[0][0];
@@ -237,7 +255,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
         'Account default (1099-NEC (1): Nonemployee compensation)',
       );
 
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       // The default is not sent as a box: the account decides.
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0].items[0].form1099Box).toBeNull();
@@ -248,7 +266,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       const onSubmit = vi.fn();
       renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
 
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       const payload = onSubmit.mock.calls[0][0];
       expect(payload.items[0]).toMatchObject({ accrueUseTax: false, taxRate: '8.25', form1099Box: null });
@@ -312,7 +330,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       expect(lastRequest()?.items[0]).not.toHaveProperty('accrueUseTax');
       expect(lastRequest()).not.toHaveProperty('deliveryAddress');
 
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       const payload = onSubmit.mock.calls[0][0];
       expect(payload).not.toHaveProperty('deliveryAddress');
@@ -329,13 +347,13 @@ describe('BillForm', { timeout: 30_000 }, () => {
       renderWithProviders(<BillForm mode="edit" bill={tagged} onSubmit={onSubmit} />);
 
       expect(screen.getByRole('combobox', { name: 'Project' })).toHaveTextContent('Portal');
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0].items[0].projectId).toBe('proj_1');
 
       await user.click(screen.getByRole('combobox', { name: 'Project' }));
       await user.click(await screen.findByRole('option', { name: 'No project' }));
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
       expect(onSubmit.mock.calls[1][0].items[0].projectId).toBeNull();
     });
@@ -348,7 +366,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       expect(screen.getByRole('combobox', { name: 'Project' })).toHaveTextContent('No project');
       await user.click(screen.getByRole('combobox', { name: 'Project' }));
       await user.click(await screen.findByRole('option', { name: 'Portal' }));
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0].items[0].projectId).toBe('proj_1');
     });
@@ -358,9 +376,65 @@ describe('BillForm', { timeout: 30_000 }, () => {
       renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={vi.fn()} />);
 
       await user.click(screen.getByRole('combobox', { name: 'Tax rate' }));
-      expect(await screen.findByRole('option', { name: 'BTW 21% (21%)' })).toBeInTheDocument();
-      expect(screen.getByRole('option', { name: 'BTW inkoop 21% (21%)' })).toBeInTheDocument();
+      // The name carries its percentage already, so none is added; the both rate that has a purchase twin is hidden.
+      expect(await screen.findByRole('option', { name: 'BTW inkoop 21%' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Laag tarief (9%)' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /^BTW 21%/ })).not.toBeInTheDocument();
       expect(screen.queryByRole('option', { name: /BTW verkoop/ })).not.toBeInTheDocument();
+    });
+
+    it('starts a new bill line on the purchase twin of the default rate, and so does an added line', async () => {
+      env.taxRates.find((rate) => rate.id === 'tax_21')!.isDefault = true;
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="add" onSubmit={onSubmit} />);
+
+      await waitFor(() => expect(screen.getByRole('combobox', { name: 'Tax rate' })).toHaveTextContent('BTW inkoop 21%'));
+      await user.click(screen.getByRole('button', { name: 'Add line' }));
+      const pickers = screen.getAllByRole('combobox', { name: 'Tax rate' });
+      expect(pickers).toHaveLength(2);
+      expect(pickers[1]).toHaveTextContent('BTW inkoop 21%');
+    });
+
+    it('leaves a new bill line without a rate when the workspace has no default', () => {
+      renderWithProviders(<BillForm mode="add" onSubmit={vi.fn()} />);
+      expect(screen.getByRole('combobox', { name: 'Tax rate' })).toHaveTextContent('No tax');
+    });
+
+    it('shows the default account as the placeholder of the line account picker', () => {
+      env.defaultAccount = { id: 'acc_gen', code: '4999', name: 'General expenses' };
+      renderWithProviders(<BillForm mode="add" onSubmit={vi.fn()} />);
+      expect(screen.getByRole('combobox', { name: 'Account' })).toHaveTextContent('Default: 4999 — General expenses');
+    });
+
+    it('picks a line account by searching the chart', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
+
+      await user.click(screen.getByRole('combobox', { name: 'Account' }));
+      await user.type(await screen.findByPlaceholderText('Search by code or name'), 'Contr');
+      await user.click(screen.getByRole('option', { name: /Contractors/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].items[0].accountId).toBe('acc_2');
+    });
+
+    it('offers to add the first supplier when there are none, and selects the new one', async () => {
+      env.suppliers = [];
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="add" onSubmit={onSubmit} />);
+
+      expect(screen.getByText('No suppliers yet')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Add supplier' }));
+      env.suppliers = [{ id: 'sup_new', name: 'New supplier BV' }];
+      await user.click(await screen.findByRole('button', { name: 'quick add supplier saved' }));
+      await user.type(screen.getByPlaceholderText('Description'), 'Hosting');
+      await user.click(screen.getByRole('button', { name: /Create bill/i }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].contactId).toBe('sup_new');
     });
 
     it('sends the currency, and a typed exchange rate for a currency other than the entity base', async () => {
@@ -374,7 +448,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       await user.click(screen.getByLabelText('Currency'));
       await user.click(await screen.findByRole('option', { name: 'GBP' }));
       await user.type(await screen.findByLabelText('Exchange rate'), '0.79');
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
 
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0]).toMatchObject({ currency: 'GBP', exchangeRate: '0.79' });
@@ -384,7 +458,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
       const user = userEvent.setup();
       const onSubmit = vi.fn();
       renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
-      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await user.click(screen.getByRole('button', { name: /Update bill/ }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       expect(onSubmit.mock.calls[0][0].currency).toBe('USD');
       expect(onSubmit.mock.calls[0][0]).not.toHaveProperty('exchangeRate');

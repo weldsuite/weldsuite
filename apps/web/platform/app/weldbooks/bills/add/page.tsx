@@ -1,4 +1,4 @@
-import { useNavigate, Link, getRouteApi } from '@tanstack/react-router';
+import { Link, getRouteApi } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCreateBill } from '@/hooks/queries/use-accounting-queries';
@@ -9,11 +9,12 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useRouter } from '@/lib/router';
 
 const routeApi = getRouteApi('/weldbooks/bills/add/');
 
 export default function AddBillPage() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const createBill = useCreateBill();
   const search = routeApi.useSearch();
   const { t } = useI18n();
@@ -38,8 +39,11 @@ export default function AddBillPage() {
     if (currency) payload.currency = currency;
     if (fromDocument) payload.sourceDocumentId = fromDocument;
     createBill.mutate(payload, {
-      onSuccess: () => {
-        navigate({ to: '/weldbooks/bills' });
+      onSuccess: (res) => {
+        toast.success(tb.billCreated);
+        // Back to the list with the new bill open in its side panel, like a new invoice.
+        const createdId = res?.data?.id;
+        router.push(createdId ? `/weldbooks/bills?stack=bill:${createdId}` : '/weldbooks/bills');
       },
       onError: (err) => {
         toast.error(tb.saveFailed, { description: err instanceof Error ? err.message : undefined });
@@ -55,11 +59,11 @@ export default function AddBillPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/weldbooks/bills">
-          <Button variant="ghost" size="icon">
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/weldbooks/bills" aria-label={tb.backToBills}>
             <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <h1 className="text-2xl font-semibold">{tb.newBill}</h1>
       </div>
 
