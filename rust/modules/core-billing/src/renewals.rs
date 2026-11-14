@@ -465,20 +465,22 @@ async fn charge_row(
     };
     let refused = match attempt {
         Some(Ok(payment)) if payment.status.is_accepted() => {
-            let mut tx = master.begin().await?;
-            ChargeRow::record(
-                &mut tx,
-                &row.id,
-                status_of(&payment.status),
-                &payment.details,
-                None,
-                (payment.status == PaymentStatus::Paid).then_some(now),
-                0,
-            )
-            .await?;
-            tx.commit().await?;
             if payment.status == PaymentStatus::Paid {
+                // Settled here, invoice included.
                 settle::settle_payment(state, &payment, now).await?;
+            } else {
+                let mut tx = master.begin().await?;
+                ChargeRow::record(
+                    &mut tx,
+                    &row.id,
+                    status_of(&payment.status),
+                    &payment.details,
+                    None,
+                    None,
+                    0,
+                )
+                .await?;
+                tx.commit().await?;
             }
             return Ok(Some(Outcome::Charged));
         }

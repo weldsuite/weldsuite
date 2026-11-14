@@ -588,17 +588,24 @@ pub(crate) async fn change(
         apply_change(&mut tx, &workspace.id, &plan.id, seats, unit).await?;
         clear_cancel(&mut tx, &workspace.id).await?;
         mark_applied(&mut tx, &row.id).await?;
-        ChargeRow::record(
-            &mut tx,
-            &row.id,
-            status_of(&payment.status),
-            &payment.details,
-            None,
-            (payment.status == weldsuite_mollie::PaymentStatus::Paid).then_some(now),
-            0,
-        )
-        .await?;
+        if payment.status != weldsuite_mollie::PaymentStatus::Paid {
+            ChargeRow::record(
+                &mut tx,
+                &row.id,
+                status_of(&payment.status),
+                &payment.details,
+                None,
+                None,
+                0,
+            )
+            .await?;
+        }
         tx.commit().await?;
+        // Paid at once (a card): settled here, invoice included; otherwise
+        // the webhook settles it.
+        if payment.status == weldsuite_mollie::PaymentStatus::Paid {
+            crate::settle::settle_payment(state, &payment, now).await?;
+        }
         seats::write_cap(
             state.identity.as_ref(),
             workspace.organization(),
