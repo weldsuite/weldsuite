@@ -100,7 +100,7 @@ const files = {
         '@weldsuite/permissions': 'workspace:*',
         '@weldsuite/worker-kit': 'workspace:*',
         'drizzle-orm': '^0.45.2',
-        hono: '4.13.13',
+        hono: '4.13.16',
         zod: '^3.25.76',
       },
       devDependencies: {
