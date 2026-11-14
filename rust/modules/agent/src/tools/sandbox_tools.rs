@@ -276,6 +276,68 @@ mod tests {
         assert!(!model_can_use_computer("compat/llama"));
     }
 
+    /// `agent_loop::with_sandbox_tools`: the turn's tools with the sandbox
+    /// ones its sandbox offers, and no others.
+    #[tokio::test]
+    async fn a_turn_gets_sandbox_tools_only_with_a_sandbox() {
+        use crate::agent_loop::with_sandbox_tools;
+        let agent = json!({ "systemPrompt": "You help." });
+        let granted = ctx(&["computer:use", "browser:use"]);
+        let base = || resolve_agent_tools(&s(&["computer:use", "browser:use"]), &[], true);
+        let has_sandbox_tool = |names: &[&str]| {
+            names.iter().any(|name| {
+                name.starts_with("computer_")
+                    || name.starts_with("web_")
+                    || name.starts_with("browser_")
+            })
+        };
+
+        // No sandbox: none of them, grants or not; the other tools stay.
+        let without = names(&with_sandbox_tools(&agent, &granted, None, base()));
+        assert!(!has_sandbox_tool(&without));
+        assert!(without.contains(&"ask_user"));
+
+        // A sandbox without computer use (a model that cannot drive a
+        // desktop): the sandbox and web tools, not `computer_use`.
+        let (service, _) = sandboxes();
+        let text_only = names(&with_sandbox_tools(
+            &agent,
+            &granted,
+            Some(&access(&service, false)),
+            base(),
+        ));
+        for name in ["computer_exec", "web_search", "browser_open"] {
+            assert!(text_only.contains(&name), "{name}");
+        }
+        assert!(!text_only.contains(&"computer_use"));
+
+        // A computer-use model gets the desktop tool, once.
+        let desktop = names(&with_sandbox_tools(
+            &agent,
+            &granted,
+            Some(&access(&service, true)),
+            base(),
+        ));
+        assert_eq!(desktop.iter().filter(|n| **n == "computer_use").count(), 1);
+        assert_eq!(desktop.iter().filter(|n| **n == "computer_exec").count(), 1);
+
+        // The turn's own grants decide, not the tools handed in.
+        let ungranted = names(&with_sandbox_tools(
+            &agent,
+            &ctx(&[]),
+            Some(&access(&service, true)),
+            base(),
+        ));
+        assert!(!has_sandbox_tool(&ungranted));
+
+        // Setup mode (no instructions yet) keeps exactly the tools it was given.
+        let setup = json!({ "systemPrompt": "  " });
+        assert_eq!(
+            names(&with_sandbox_tools(&setup, &granted, None, base())),
+            names(&base())
+        );
+    }
+
     #[tokio::test]
     async fn without_a_sandbox_no_sandbox_tool_is_offered() {
         let tools = names(&offered_tools(&ctx(&["computer:use", "browser:use"]), None));
