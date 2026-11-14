@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   FLOW_COOKIE,
   OidcConfigError,
+  claimedOrg,
   finishSignIn,
   oidcConfig,
   readSession,
@@ -14,7 +15,7 @@ import {
 import { readCookie, seal } from './sealed-cookie';
 import { startFakeProvider, type FakeProvider } from './testing/fake-oidc-provider';
 
-const person = { sub: '300000000000000042', email: 'Ann@WeldSuite.test', emailVerified: true, name: 'Ann Staff' };
+const person = { sub: '300000000000000042', email: 'Ann@WeldSuite.test', emailVerified: true, name: 'Ann Staff', org: 'org-staff' };
 
 let provider: FakeProvider;
 let config: OidcConfig;
@@ -25,6 +26,7 @@ beforeAll(async () => {
     ADMIN_OIDC_ISSUER: provider.issuer,
     ADMIN_OIDC_CLIENT_ID: 'admin-console',
     ADMIN_OIDC_CLIENT_SECRET: 'client-secret',
+    ADMIN_OIDC_ORG_ID: 'org-staff',
     ADMIN_PUBLIC_URL: 'https://admin.eu.example',
     ADMIN_SESSION_SECRET: 'x'.repeat(40),
   });
@@ -50,7 +52,9 @@ describe('startSignIn', () => {
     expect(url.origin + url.pathname).toBe(`${provider.issuer}/authorize`);
     expect(url.searchParams.get('client_id')).toBe('admin-console');
     expect(url.searchParams.get('redirect_uri')).toBe('https://admin.eu.example/auth/callback');
-    expect(url.searchParams.get('scope')).toBe('openid email profile');
+    expect(url.searchParams.get('scope')).toBe(
+      'openid email profile urn:zitadel:iam:user:resourceowner urn:zitadel:iam:org:id:org-staff',
+    );
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('code_challenge')).toMatch(/^[\w-]{43}$/);
     expect(url.searchParams.get('state')).toBeTruthy();
@@ -60,12 +64,26 @@ describe('startSignIn', () => {
 });
 
 describe('finishSignIn', () => {
-  it('returns who signed in, with the email lowercased', async () => {
+  it('returns who signed in and their organization, with the email lowercased', async () => {
     const { callback, flow } = await signIn();
     await expect(finishSignIn(config, callback, flow)).resolves.toEqual({
-      session: { sub: person.sub, email: 'ann@weldsuite.test', emailVerified: true, name: 'Ann Staff' },
+      session: { sub: person.sub, email: 'ann@weldsuite.test', emailVerified: true, name: 'Ann Staff', org: 'org-staff' },
       returnTo: '/workspaces',
     });
+  });
+
+  it('names no organization when the provider gives none', async () => {
+    provider.person = { ...person, org: undefined };
+    const { callback, flow } = await signIn();
+    const { session } = await finishSignIn(config, callback, flow);
+    expect(session.org).toBeNull();
+  });
+
+  it("reads another organization's account as such", async () => {
+    provider.person = { ...person, org: 'org-platform' };
+    const { callback, flow } = await signIn();
+    const { session } = await finishSignIn(config, callback, flow);
+    expect(session.org).toBe('org-platform');
   });
 
   it('keeps an unverified email marked as such', async () => {
@@ -121,7 +139,7 @@ describe('finishSignIn', () => {
 
 describe('the session cookie', () => {
   it('opens to the session it was made from', async () => {
-    const session = { sub: 's', email: 'a@b.c', emailVerified: true, name: null };
+    const session = { sub: 's', email: 'a@b.c', emailVerified: true, name: null, org: 'org-staff' };
     const header = await sessionCookie(config, session);
     expect(header).toMatch(/^__Host-admin_session=[\w-]+; Path=\/; Max-Age=28800; HttpOnly; Secure; SameSite=Lax$/);
     await expect(readSession(config, readCookie(header.split(';')[0]!, '__Host-admin_session'))).resolves.toEqual(session);
@@ -163,10 +181,29 @@ describe('oidcConfig', () => {
       oidcConfig({ ADMIN_OIDC_ISSUER: 'not a url', ADMIN_SESSION_SECRET: 'short-secret-value' });
     } catch (error) {
       const message = (error as Error).message;
-      for (const name of ['ADMIN_OIDC_ISSUER is not a URL', 'ADMIN_PUBLIC_URL', 'ADMIN_OIDC_CLIENT_ID', 'ADMIN_OIDC_CLIENT_SECRET', 'shorter than 32']) {
+      for (const name of [
+        'ADMIN_OIDC_ISSUER is not a URL',
+        'ADMIN_PUBLIC_URL',
+        'ADMIN_OIDC_CLIENT_ID',
+        'ADMIN_OIDC_CLIENT_SECRET',
+        'ADMIN_OIDC_ORG_ID',
+        'shorter than 32',
+      ]) {
         expect(message).toContain(name);
       }
       expect(message).not.toContain('short-secret-value');
     }
+  });
+});
+
+describe('claimedOrg', () => {
+  it('takes the first non-empty string', () => {
+    expect(claimedOrg(undefined, ' org-staff ')).toBe('org-staff');
+    expect(claimedOrg('org-a', 'org-b')).toBe('org-a');
+  });
+
+  it('names nothing for anything else', () => {
+    expect(claimedOrg()).toBeNull();
+    expect(claimedOrg('', '  ', null, 42, ['org-staff'], { id: 'org-staff' })).toBeNull();
   });
 });

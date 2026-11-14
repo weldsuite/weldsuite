@@ -36,6 +36,22 @@ function checkedReason(reason: string): string | null {
   return trimmed.length >= 3 ? trimmed.slice(0, 500) : null;
 }
 
+/**
+ * The person's platform account, as `weldsuite admin staff add` finds it
+ * (`rust/crates/staff-domain/src/staff.rs`, ADR SEC-018): a master `users` row
+ * with this email that belongs to a workspace and isn't a row's console
+ * account. The identity sync copies staff-organization accounts into `users`
+ * too, with the same email, so the email alone could name either.
+ */
+function platformAccount(email: string) {
+  return sql`(select u.id from users u
+    where lower(u.email) = ${email} and u.is_active
+      and exists (select 1 from user_workspaces m where m.user_id = u.id)
+      and not exists (select 1 from admin_users s where s.console_subject = u.id)
+    order by u.created_at, u.id
+    limit 1)`;
+}
+
 /** The active superadmins, locked until the transaction ends, so two demotions can't both pass. */
 async function lockedSuperadmins(tx: MasterDatabase): Promise<number> {
   const rows = await tx
@@ -81,8 +97,8 @@ export async function addStaff(input: {
         name,
         role,
         isActive: true,
-        // The person's id on this install once they have one (master users), as the CLI does.
-        userId: sql`(select id from users where lower(email) = ${email} limit 1)`,
+        // For the WeldApps review gate; the console binds its own account on first sign-in.
+        userId: platformAccount(email),
         invitedBy: guard.identity.email,
       })
       .onConflictDoUpdate({
@@ -91,7 +107,9 @@ export async function addStaff(input: {
           role,
           isActive: true,
           name: sql`coalesce(excluded.name, ${adminUsers.name})`,
-          userId: sql`coalesce(${adminUsers.userId}, excluded.user_id)`,
+          // The account found now, else the one the row had, unless that is
+          // the console's own account (which a row bound before SEC-018 holds).
+          userId: sql`coalesce(excluded.user_id, nullif(${adminUsers.userId}, ${adminUsers.consoleSubject}))`,
           updatedAt: new Date(),
         },
       });

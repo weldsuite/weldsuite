@@ -735,6 +735,11 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
   an active row; a `viewer` only reads, and only a `superadmin` changes the
   list. The first superadmin is added without `--as` while the list is empty.
+  A row names two accounts of the person (ADR SEC-018): `staff add` fills
+  `user_id` with their platform account, for the WeldApps review gate (one
+  with that email that is in a workspace; adding them again catches up), and
+  the admin console fills `console_subject` with their staff account on their
+  first sign-in there.
 - **`access`**: workspaces' access to apps on request only, WeldReach
   (ADR REACH-003): `list`, `show`, `approve`, `reject`, `suspend`, `unsuspend`,
   `revoke` and `limits`, with the console's rules (the table is in
