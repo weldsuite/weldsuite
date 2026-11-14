@@ -6,6 +6,7 @@
 //! under `rust/modules/` and is mounted at its path prefix.
 
 mod access_requests;
+mod agent_modules;
 pub(crate) mod books;
 mod feature_flags;
 mod host;
@@ -711,6 +712,8 @@ fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("agent") {
         return router;
     }
+    // The spreadsheet, board and WeldMerge tools reach their modules in process.
+    agent_modules::install(state);
     // The jobs chat-api enqueues (`chat-room`) and the dispatchers start.
     state
         .infra

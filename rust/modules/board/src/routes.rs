@@ -79,7 +79,7 @@ pub(crate) async fn project_access(
 }
 
 /// `projectRole(c, projectId, role)`: a project's board follows the project.
-async fn project_role(
+pub(crate) async fn project_role(
     caller: &Caller,
     project_id: &str,
     role: DriveRole,
@@ -108,7 +108,7 @@ pub(crate) fn drive_role(access: &DriveAccessIndex, board: &BoardRecord) -> Opti
     board.legacy.then_some(DriveRole::Editor)
 }
 
-async fn drive_access(caller: &Caller) -> Result<DriveAccessIndex, Refusal> {
+pub(crate) async fn drive_access(caller: &Caller) -> Result<DriveAccessIndex, Refusal> {
     Ok(load_drive_access_for_user(
         &caller.db,
         Some(&caller.user_id)
@@ -178,7 +178,7 @@ async fn editable_folder(
 }
 
 /// A live project the caller may add work to (`writableProject`).
-async fn writable_project(caller: &Caller, project_id: &str) -> Result<String, Refusal> {
+pub(crate) async fn writable_project(caller: &Caller, project_id: &str) -> Result<String, Refusal> {
     let access = project_access(caller, project_id).await?;
     if !records::project_exists(&caller.db, project_id).await? || !access.may_access() {
         return Err(Refusal::not_found("Project", project_id));
@@ -807,7 +807,7 @@ pub(crate) async fn convert_in_place(
 /// A board with the caller's role on it, an old WeldFlow whiteboard
 /// converted first (`findConverted`); `may_convert` says whether this caller
 /// may trigger that.
-async fn find_converted(
+pub(crate) async fn find_converted(
     state: &BoardState,
     caller: &Caller,
     id: &str,

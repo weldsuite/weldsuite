@@ -30,7 +30,7 @@ pub use weldsuite_merge_domain::installations;
 pub mod keys;
 
 /// `MergeInternal.workflowAction` in process (WeldConnect's `merge.*` actions).
-pub use across::workflow_action;
+pub use across::{agent_tool, workflow_action};
 /// The WeldChat daily digest's hourly sweep (`weldsuite cron merge-digest-sweep`).
 pub use chat::digest::run_digest_sweep;
 

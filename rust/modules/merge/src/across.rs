@@ -679,6 +679,69 @@ pub async fn workflow_action(state: &MergeState, envelope: Value) -> Result<Valu
         })
 }
 
+/// `MergeInternal.agentTool(envelope)` in process, for WeldAgent's EU tools: a
+/// `merge_*` tool (`MERGE_AGENT_TOOLS`) run for the member the agent works for,
+/// in the workspace whose tenant database is `db`. Each tool is checked
+/// against that member's WeldMerge permissions as they are now; the writes
+/// publish the member routes' events, marked `triggeredByAgentId`.
+///
+/// `Ok` is the tool's result; `Err` the refusal the worker's `{ ok: false,
+/// error }` answer carries (a bad input, no permission, an unknown issue).
+///
+/// # Errors
+///
+/// The refusal message, or a database failure as `Internal server error`.
+pub async fn agent_tool(
+    state: &MergeState,
+    db: &PgPool,
+    workspace_id: &str,
+    clerk_org_id: Option<&str>,
+    user_id: &str,
+    agent_id: &str,
+    tool: &str,
+    input: &Value,
+) -> Result<Value, String> {
+    if !AGENT_TOOLS.contains(&tool) {
+        return Err(format!("Unknown WeldMerge tool {tool}"));
+    }
+    let scope = Scope {
+        state: state.clone(),
+        db: db.clone(),
+        workspace_id: workspace_id.to_owned(),
+        clerk_org_id: clerk_org_id.map(str::to_owned),
+        overrides: Overrides::default(),
+    };
+    let internal_error = |error: MergeError| {
+        tracing::error!(?error, tool, "merge: an agent tool failed");
+        "Internal server error".to_owned()
+    };
+    for (permission, doing) in tool_permissions(tool) {
+        if let Err(error) = authorize_member(&scope, user_id, permission, doing)
+            .await
+            .map_err(internal_error)?
+        {
+            return Err(error);
+        }
+    }
+    let actor = Actor {
+        user_id: user_id.to_owned(),
+        workflow_depth: None,
+        agent_id: Some(agent_id.to_owned()).filter(|a| !a.is_empty()),
+    };
+    let fields = input.as_object().cloned().unwrap_or_default();
+    let answer = run_tool(&scope, &actor, tool, &fields)
+        .await
+        .map_err(internal_error)?;
+    if answer["ok"] == Value::Bool(true) {
+        Ok(answer["result"].clone())
+    } else {
+        Err(answer["error"]
+            .as_str()
+            .unwrap_or("WeldMerge refused the request")
+            .to_owned())
+    }
+}
+
 /// What an internal route reads off its request: the tenant when a layer
 /// opened it (conformance), and the overrides.
 pub(crate) struct Internal {

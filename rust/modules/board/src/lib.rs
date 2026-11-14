@@ -26,6 +26,7 @@
 //! `/internal/boards/*` (the `BoardsInternal` entrypoint for the agent tools
 //! and the MCP server, whose callers are not ported).
 
+mod agent;
 mod ai;
 mod links;
 mod record_views;
@@ -33,6 +34,7 @@ mod records;
 mod routes;
 mod versions;
 
+pub use agent::{AgentScope, agent_call};
 pub use links::PublicLinks;
 
 use std::sync::Arc;
@@ -369,6 +371,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// (400, 403, 404, 409, a validation failure), or an unexpected error (500).
 pub(crate) enum Refusal {
     Response(Box<Response>),
+    /// A refusal as an [`ApiError`], so a caller that is not a route (the
+    /// agent tools) can read its message.
+    Api(ApiError),
     Database(sqlx::Error),
 }
 
@@ -380,7 +385,7 @@ impl From<sqlx::Error> for Refusal {
 
 impl From<ApiError> for Refusal {
     fn from(error: ApiError) -> Self {
-        Self::Response(Box::new(error.into_response()))
+        Self::Api(error)
     }
 }
 
@@ -397,9 +402,19 @@ impl Refusal {
         ApiError::bad_request(message).into()
     }
 
+    /// What a caller that is not a route (the agent tools) says of the refusal.
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::Api(error) => error.message().to_owned(),
+            Self::Response(_) => "The request was refused".to_owned(),
+            Self::Database(_) => "Internal server error".to_owned(),
+        }
+    }
+
     pub(crate) fn respond(self) -> Response {
         match self {
             Self::Response(response) => *response,
+            Self::Api(error) => error.into_response(),
             Self::Database(error) => {
                 tracing::error!(%error, "[board-api] a query failed");
                 ApiError::internal().into_response()

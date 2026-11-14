@@ -17,15 +17,23 @@
 //! has a sandbox (`agent-sandbox`); they run through [`execute_tool_with`].
 
 mod agent_tools;
+mod board_tools;
 mod chat_tools;
 mod data_tools;
+mod merge_tools;
+#[cfg(test)]
+mod module_tools_tests;
+pub mod modules;
 mod sandbox_tools;
-mod ticket_tools;
 pub mod schema;
+mod sheet_tools;
+mod ticket_tools;
 
+pub use modules::{ModuleCall, ModuleTools, install_module_tools};
 pub use sandbox_tools::{
     SandboxAccess, is_sandbox_tool, model_can_use_computer, tool_result_messages,
 };
+pub use sheet_tools::{SHEET_SCOPED_TOOL_IDS, sheet_call_allowed, sheet_not_allowed};
 pub use weldsuite_sandbox::ToolOutput;
 
 use std::sync::LazyLock;
@@ -64,7 +72,27 @@ pub(crate) fn not_editor() -> Value {
 }
 
 /// Tool ids ported to Rust.
-pub const PORTED: [&str; 16] = [
+pub const PORTED: [&str; 36] = [
+    "tickets.list",
+    "tickets.create",
+    "sheets.create",
+    "sheets.find",
+    "sheets.list_tabs",
+    "sheets.read_range",
+    "sheets.write_range",
+    "boards.add",
+    "boards.create",
+    "boards.find",
+    "boards.read",
+    "boards.update",
+    "merge.comment_on_issue",
+    "merge.create_issue",
+    "merge.get_issue",
+    "merge.get_pull_request",
+    "merge.list_issues",
+    "merge.list_pull_requests",
+    "merge.open_draft_pull_request",
+    "merge.update_issue",
     "agent.save_setup",
     "agent.ask_user",
     "agent.list_routines",
@@ -83,22 +111,10 @@ pub const PORTED: [&str; 16] = [
     "chat.create_agent_group",
 ];
 
-/// Tool ids not in the EU registry yet, and why. The sandbox, web and browser
-/// tools are not listed: the in-cluster sandbox crate registers them.
-pub const LEFT_OUT: [(&str, &str); 3] = [
-    (
-        "tickets.list",
-        "needs the WeldDesk inbox filters, not yet exposed by desk-domain",
-    ),
-    (
-        "tickets.create",
-        "needs desk-domain's inbox deps (routing, events) built outside a request",
-    ),
-    (
-        "sheets.*, boards.*, merge.*",
-        "the module crates expose routes, not a library surface",
-    ),
-];
+/// Tool ids not in the EU registry, and why. None: every tool of the Global
+/// registry is here (the sandbox, web and browser tools come from the
+/// in-cluster sandbox crate).
+pub const LEFT_OUT: [(&str, &str); 0] = [];
 
 /// One platform tool: its definition. Execution is [`execute_tool`].
 #[derive(Debug, Clone)]
@@ -118,6 +134,9 @@ pub fn platform_tools() -> &'static [ToolSpec] {
         let mut tools = agent_tools::specs();
         tools.extend(data_tools::specs());
         tools.extend(ticket_tools::specs());
+        tools.extend(sheet_tools::specs());
+        tools.extend(board_tools::specs());
+        tools.extend(merge_tools::specs());
         tools.extend(chat_tools::specs());
         tools.extend(sandbox_tools::specs());
         tools
@@ -417,6 +436,9 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
         id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
         id if id.starts_with("tickets.") => ticket_tools::execute(ctx, id, &args).await,
+        id if id.starts_with("sheets.") => sheet_tools::execute(ctx, id, &args).await,
+        id if id.starts_with("boards.") => board_tools::execute(ctx, id, &args).await,
+        id if id.starts_with("merge.") => merge_tools::execute(ctx, id, &args).await,
         // Needs the turn's sandbox: `execute_tool_with`.
         id if sandbox_tools::is_sandbox_tool(id) => Err(sandbox_tools::unavailable()),
         id => data_tools::execute(ctx, id, &args).await,
