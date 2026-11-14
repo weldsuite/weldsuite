@@ -72,6 +72,12 @@ pub struct BooksState {
     /// `TRUSTED_PROXIES`: where the member's address sits in
     /// `X-Forwarded-For`, counted from the right ([`Caller::client_ip`]).
     pub trusted_proxies: usize,
+    /// Starting a bank link asks for a second factor verified in the last
+    /// 10 minutes (`requireSecondFactor`, from Clerk's `fva`). Off with OIDC
+    /// sign-in for now: Zitadel puts `auth_time` and `amr` only in the ID
+    /// token, never in the access token the platform sends, and the platform
+    /// has no step-up flow there yet, so every link would be refused.
+    pub second_factor_step_up: bool,
 }
 
 impl std::fmt::Debug for BooksState {
@@ -103,6 +109,7 @@ impl BooksState {
             env: Arc::default(),
             rates: Arc::default(),
             trusted_proxies: 1,
+            second_factor_step_up: true,
         }
     }
 }
