@@ -4228,6 +4228,7 @@ dependencies = [
  "weldsuite-reach",
  "weldsuite-reach-domain",
  "weldsuite-realtime",
+ "weldsuite-sandbox",
  "weldsuite-sheets",
  "weldsuite-sign",
  "weldsuite-social",
@@ -4338,6 +4339,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-sandbox",
  "weldsuite-subscribers",
 ]
 
@@ -6024,6 +6026,25 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-sandbox"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
  "weldsuite-ports",
 ]
 

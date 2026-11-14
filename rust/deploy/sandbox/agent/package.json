@@ -1,0 +1,14 @@
+{
+  "name": "weldsuite-sandbox-agent",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "The agent inside a WeldAgent sandbox pod on the Kubernetes editions (ADR AI-012 phase 5): commands, files, code, page fetches, Chromium and the X desktop behind a per-pod token. No dependencies: Node's own http, fetch and WebSocket.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

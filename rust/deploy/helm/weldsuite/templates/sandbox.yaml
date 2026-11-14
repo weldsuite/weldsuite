@@ -1,0 +1,240 @@
+{{- if .Values.sandbox.enabled }}
+{{- /*
+WeldAgent's sandbox (ADR AI-012 phase 5, rust/crates/sandbox): what the
+namespace of the sandbox pods holds besides the pods the server starts. The
+pods' own shape is in rust/crates/sandbox/src/kube.rs (pod_manifest); the
+admission policy below checks the same fields: keep them in step.
+*/}}
+{{- $ns := .Values.sandbox.namespace }}
+{{- $selector := dict "app.kubernetes.io/name" "weldsuite-sandbox" "app.kubernetes.io/managed-by" "weldsuite" }}
+{{- if eq $ns .Release.Namespace }}
+{{- fail "sandbox.namespace must be a namespace of its own, not the release's" }}
+{{- end }}
+{{- if .Values.sandbox.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+{{- end }}
+{{- if .Values.sandbox.runtimeClass.create }}
+{{- with .Values.sandbox.runtimeClass.name }}
+# gVisor: the pods' system calls go to a kernel in user space (runsc), not to
+# the node's. The node needs gVisor installed (Talos: the siderolabs/gvisor
+# system extension, rust/deploy/hetzner/scripts/schematic.yaml).
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: {{ . }}
+  labels:
+    {{- include "weldsuite.labels" $ | nindent 4 }}
+handler: {{ $.Values.sandbox.runtimeClass.handler }}
+---
+{{- end }}
+{{- end }}
+# The server's service account may start, read and delete pods in the
+# sandbox namespace, and nothing else there (no exec, no secrets, no patch).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-sandbox
+  namespace: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-sandbox
+  namespace: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "weldsuite.fullname" . }}-sandbox
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "weldsuite.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Nothing in the namespace talks to anything unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# The sandbox pods: the server's pods (serve, consume, the cron jobs) may call
+# the agent on 8080; the pods may reach the public internet on the allowed
+# ports, and their resolvers on 53. Never the cluster's pods and services,
+# the nodes, the metadata service or any private or reserved range.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox
+  namespace: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $selector | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name | quote }}]
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["api", "consume", "cron"]
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        {{- range .Values.sandbox.dns }}
+        - ipBlock:
+            cidr: {{ if contains ":" . }}{{ . }}/128{{ else }}{{ . }}/32{{ end }}
+        {{- end }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+              {{- range .Values.sandbox.deniedCidrs }}
+              {{- if not (contains ":" .) }}
+              - {{ . }}
+              {{- end }}
+              {{- end }}
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - ::/128
+              - ::1/128
+              - ::ffff:0:0/96
+              - 64:ff9b::/96
+              - 100::/64
+              - 2001:db8::/32
+              - fc00::/7
+              - fe80::/10
+              - ff00::/8
+              {{- range .Values.sandbox.deniedCidrs }}
+              {{- if contains ":" . }}
+              - {{ . }}
+              {{- end }}
+              {{- end }}
+      ports:
+        {{- range .Values.sandbox.egressPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+---
+# At most maxTotal pods in the namespace, whatever asks.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox
+  namespace: {{ $ns }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: {{ .Values.sandbox.maxTotal | quote }}
+{{- if .Values.sandbox.admissionPolicy.enabled }}
+---
+# Only pods of the sandbox's shape are admitted to the namespace, so a
+# server that is taken over can start sandboxes and nothing else: gVisor, the
+# sandbox image, no service-account token, no host namespaces or paths, no
+# privilege, a hard lifetime, the public resolvers.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-sandbox-pods
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: containers
+      expression: "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])"
+  validations:
+    {{- with .Values.sandbox.runtimeClass.name }}
+    - expression: "has(object.spec.runtimeClassName) && object.spec.runtimeClassName == {{ . | squote }}"
+      message: "sandbox pods run under the {{ . }} RuntimeClass"
+    {{- end }}
+    - expression: "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false"
+      message: "sandbox pods get no service-account token"
+    - expression: "!has(object.spec.serviceAccountName) || object.spec.serviceAccountName == 'default'"
+      message: "sandbox pods run as the namespace's default service account"
+    - expression: "!(has(object.spec.hostNetwork) && object.spec.hostNetwork) && !(has(object.spec.hostPID) && object.spec.hostPID) && !(has(object.spec.hostIPC) && object.spec.hostIPC)"
+      message: "sandbox pods share no host namespace"
+    - expression: "!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.emptyDir))"
+      message: "sandbox pods have emptyDir volumes only"
+    - expression: "variables.containers.all(c, c.image == {{ include "weldsuite.sandbox.image" . | squote }})"
+      message: "sandbox pods run the sandbox image only"
+    - expression: "variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)"
+      message: "sandbox pods are not privileged"
+    - expression: "has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds <= {{ .Values.sandbox.maxLifetimeSeconds }}"
+      message: "sandbox pods have a hard lifetime of at most {{ .Values.sandbox.maxLifetimeSeconds }} seconds"
+    - expression: "has(object.spec.dnsPolicy) && object.spec.dnsPolicy == 'None'"
+      message: "sandbox pods use the public resolvers, not the cluster's DNS"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-sandbox-pods
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "weldsuite.fullname" . }}-sandbox-pods
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ $ns }}
+{{- end }}
+{{- end }}

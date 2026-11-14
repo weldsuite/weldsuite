@@ -267,6 +267,9 @@ pub(crate) struct Config {
     /// `AI_*` and the providers' keys (`weldsuite_ai::config`): the install
     /// provider, the opt-ins workspaces may enable, fallback and billing.
     pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*` and `SEARXNG_URL` (`weldsuite_sandbox::config`): WeldAgent's
+    /// sandbox pods and web search; `None` without `SANDBOX_ENABLED=true`.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -693,6 +696,8 @@ impl Config {
         let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
         let mut edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
         edition.ai = ai.describe();
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
+        edition.sandbox = sandbox.is_some();
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -751,6 +756,7 @@ impl Config {
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
             ai,
+            sandbox,
         })
     }
 }

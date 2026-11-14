@@ -502,6 +502,8 @@ rust/
                         ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
                         `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
                         `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
+  crates/sandbox/       WeldAgent's sandbox on Kubernetes: gVisor pods through the Kubernetes API, the client of the agent
+                        in them, SearXNG search, the sandbox and web tools, the isolation check (see "AI")
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
                         files over the S3 API, system mail over SMTP, IMAP (async-imap), identity on Zitadel, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
@@ -611,6 +613,8 @@ rust/
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
+  deploy/sandbox/       WeldAgent's sandbox image (AI-012 phase 5): Python, Node.js, Chromium, an X desktop, and the agent
+                        (agent/) crates/sandbox talks to; see "WeldAgent's sandbox" under "AI"
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
   deploy/hetzner/       OpenTofu for a cluster on Hetzner (Talos) and the install guide
   deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app, and an
@@ -1017,7 +1021,7 @@ labelled "outside the EU".
   `books-ocr`, `desk-ai`, `forms-ai`, `search-reindex`, `assistant-ai`,
   `agent-ai`) are listed as unavailable and WeldAgent's module isn't offered.
   `meet-transcription` stays listed while there are no recordings, and
-  `agent-sandbox` always is.
+  `agent-sandbox` while the install has no sandbox (below).
 - **Roles.** `serve` builds one `weldsuite_ai::Ai` (`bins/weldsuite/src/ai.rs`)
   over a plain HTTP client, with the workspaces' AI settings cached in Valkey,
   and keeps it in `AppState::ai`; `consume` builds its own the same way, and a
@@ -1079,6 +1083,53 @@ labelled "outside the EU".
   never by call order: the stub serves both runs. A route whose test only
   works with `vi.mock('@weldsuite/ai')` stays in `excludedRoutes` and is
   covered by Rust tests on `weldsuite_ai::FakeProvider`.
+
+### WeldAgent's sandbox
+
+On Global, Claude Managed Agents run an agent's sandbox (`computer:use`) and
+web tools (`browser:use`) at Anthropic. The Kubernetes editions run them on
+the install's own cluster: `crates/sandbox` (`weldsuite-sandbox`), the image
+`rust/deploy/sandbox`, the chart's `sandbox` and `searxng` sections
+(`docs/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
+
+- **Pods.** One per agent conversation (or run) in the `weldsuite-sandbox`
+  namespace, under gVisor (`RuntimeClass gvisor`), with no service-account
+  token, a read-only root, CPU/memory/disk limits, an idle timeout (the agent
+  in the pod exits) and a hard lifetime (`activeDeadlineSeconds`). The
+  server creates, reuses and deletes them through the Kubernetes REST API
+  (`kube.rs`, the in-cluster token; the chart's Role allows pods
+  get/list/create/delete in that namespace only, and its admission policy
+  admits only the sandbox's pod shape). `weldsuite cron sandbox-cleanup`
+  deletes what is done.
+- **Fail closed.** Before the first sandbox of a process (and hourly) is
+  handed out, the agent in it tries to reach the metadata service and the
+  Kubernetes API; if anything answers, the namespace's NetworkPolicy isn't
+  enforced and no sandbox is handed out (`service.rs`). `weldsuite doctor`
+  runs the same check in a throwaway sandbox.
+- **The agent in the pod** (`rust/deploy/sandbox/agent`, Node without
+  dependencies): commands, files under `/workspace`, Python/JavaScript, page
+  fetches as text, Chromium over the DevTools protocol, an X desktop for
+  computer use, and the isolation self-test, behind a per-pod token
+  (`HMAC(SANDBOX_TOKEN_SECRET, pod name)`; the pod holds only its digest).
+  `node --test test/*.test.mjs` there.
+- **Tools** (`tools.rs`, registered by `weldsuite-agent` behind the grants):
+  `computer_exec`, `computer_read_file`, `computer_write_file`,
+  `computer_list_files`, `computer_run_code`, `computer_use` (only when the
+  turn's model has the `computer_use` capability: the Claude 5.5 models and
+  GPT-5, never Mistral), `web_search` (the cluster's SearXNG), `web_fetch`,
+  `browser_open`, `browser_act`, `browser_close` (from the pod, never from
+  the server). Outputs are data: cleaned, capped, web text marked untrusted,
+  screenshots returned as images. The loop runs them with
+  `tools::execute_tool_with` and a `tools::SandboxAccess` for the turn.
+- **Configuration** (`crates/sandbox/src/config.rs`, chart `sandbox`):
+  `SANDBOX_ENABLED`, `SANDBOX_NAMESPACE`, `SANDBOX_IMAGE`,
+  `SANDBOX_RUNTIME_CLASS`, `SANDBOX_CPU` / `_CPU_REQUEST` / `_MEMORY` /
+  `_DISK`, `SANDBOX_IDLE_TIMEOUT_SECONDS`, `SANDBOX_MAX_LIFETIME_SECONDS`,
+  `SANDBOX_MAX_PER_WORKSPACE`, `SANDBOX_MAX_TOTAL`, `SANDBOX_DNS`,
+  `SANDBOX_EGRESS_PROBES`, `SANDBOX_NODE_SELECTOR`, `SANDBOX_TOLERATIONS`,
+  `SANDBOX_REQUIRE_ISOLATION`, the secret `SANDBOX_TOKEN_SECRET`, and
+  `SEARXNG_URL` (chart `searxng`). Without `SANDBOX_ENABLED` the grants aren't
+  offered and `/config.json` lists `agent-sandbox` as unavailable.
 
 ## Inbound mail
 

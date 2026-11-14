@@ -209,10 +209,13 @@ pub enum Capability {
     Embed,
     Stt,
     Ocr,
+    /// Drives a desktop from screenshots: WeldAgent's `computer_use` tool in
+    /// the sandbox (`weldsuite-sandbox`) is offered only to a model with it.
+    ComputerUse,
 }
 
 impl Capability {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Tools,
         Self::JsonSchema,
         Self::FileInput,
@@ -221,6 +224,7 @@ impl Capability {
         Self::Embed,
         Self::Stt,
         Self::Ocr,
+        Self::ComputerUse,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -233,6 +237,7 @@ impl Capability {
             Self::Embed => "embed",
             Self::Stt => "stt",
             Self::Ocr => "ocr",
+            Self::ComputerUse => "computer_use",
         }
     }
 }
@@ -739,6 +744,30 @@ mod tests {
         assert_eq!(
             needs(Feature::Meet, Task::Transcribe),
             vec![Capability::Stt]
+        );
+    }
+
+    /// Computer use (the sandbox's desktop) only on the opt-in providers'
+    /// models that drive one, never on the install provider's.
+    #[test]
+    fn computer_use_is_an_opt_in_models_capability() {
+        for model in models() {
+            if model.has(Capability::ComputerUse) {
+                assert!(model.provider.opt_in(), "{}", model.id);
+            }
+        }
+        for id in [
+            "anthropic/claude-sonnet-5-5",
+            "anthropic/claude-opus-5-5",
+            "openai/gpt-5",
+        ] {
+            assert!(
+                model(id).is_some_and(|m| m.has(Capability::ComputerUse)),
+                "{id}"
+            );
+        }
+        assert!(
+            !model("mistral/mistral-large-4-0").is_some_and(|m| m.has(Capability::ComputerUse))
         );
     }
 

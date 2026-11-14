@@ -92,6 +92,10 @@ pub(crate) struct AppState {
     /// conformance builds put the test's own on each request.
     #[allow(dead_code, reason = "the AI routes read it as they are ported")]
     pub(crate) ai: Option<weldsuite_ai::Ai>,
+    /// WeldAgent's sandbox (`crate::sandbox`), `None` without
+    /// `SANDBOX_ENABLED`: where the agent tools of `computer:use` and
+    /// `browser:use` run.
+    pub(crate) sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -613,6 +617,7 @@ mod tests {
             sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
             ai: None,
+            sandboxes: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
@@ -764,6 +769,7 @@ mod tests {
                 "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
             })),
             credit_top_up: true,
+            sandbox: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
