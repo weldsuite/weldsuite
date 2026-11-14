@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import dns from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -177,11 +178,15 @@ describe('addresses', () => {
       assert.match(error.message, /not on the public internet/);
     }
     await assert.rejects(checkUrl('http://localhost:9222/json/list'), /not on the public internet/);
-    // Allowed, the answer is the address the socket then connects to.
+    // Allowed, the answer is the resolver's own: the address the socket then
+    // connects to. How many entries localhost has is the host's /etc/hosts
+    // (GitHub's runners list 127.0.0.1 twice).
     const one = await lookupOnce(checkedLookup(() => true), 'localhost', { family: 4 });
     assert.deepEqual([one.error, one.address, one.family], [null, '127.0.0.1', 4]);
     const all = await lookupOnce(checkedLookup(() => true), 'localhost', { all: true, family: 4 });
-    assert.deepEqual(all.address, [{ address: '127.0.0.1', family: 4 }]);
+    assert.equal(all.error, null);
+    assert.deepEqual(all.address, await dns.lookup('localhost', { all: true, family: 4 }));
+    assert.ok(all.address.every((a) => a.address === '127.0.0.1' && a.family === 4));
   });
 
   it('parses targets', () => {
