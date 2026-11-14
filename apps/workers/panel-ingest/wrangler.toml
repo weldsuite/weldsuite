@@ -18,6 +18,14 @@
 # with the stream ids. Local dev uses the test stream, so it can never write to
 # the production table.
 
+# PANEL_PROJECT is the PanelProject Durable Object (people, identities, erased ids, live view;
+# EU jurisdiction through projectObjectStub). panel-api binds the same class with script_name.
+# PANEL_IDENTITIES / PANEL_PEOPLE / PANEL_REPLAY_CHUNKS are the streams behind the other Basin
+# tables (packages/domains/panel/src/*-v1-schema.json) and PANEL_REPLAYS the EU recordings bucket.
+# The code treats a missing one as "feature off" (one log warning), so [env.production] leaves
+# these four out until the production resources exist.
+# The *_RATE_LIMIT bindings are Workers rate limiters, per client IP.
+
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-panel-ingest-dev"
 main = "src/index.ts"
@@ -61,6 +69,55 @@ class_name = "PanelUsage"
 tag = "panel-v1"
 new_sqlite_classes = ["PanelSalt", "PanelUsage"]
 
+[[pipelines]]
+binding = "PANEL_IDENTITIES"
+stream = "d434e13caced469396eb843c635575f3"
+
+[[pipelines]]
+binding = "PANEL_PEOPLE"
+stream = "7b6f347299184392a79e29e6c7d9459f"
+
+[[pipelines]]
+binding = "PANEL_REPLAY_CHUNKS"
+stream = "8a018cf93e9049b1b35be0c9e49716d8"
+
+# Recording chunks and heatmap snapshots: private bucket, EU jurisdiction (ADR PANEL-005).
+[[r2_buckets]]
+binding = "PANEL_REPLAYS"
+bucket_name = "weldsuite-panel-replays-test"
+jurisdiction = "eu"
+
+[[durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+
+[[migrations]]
+tag = "panel-v2"
+new_sqlite_classes = ["PanelProject"]
+
+# Per-IP limits on the public browser routes (lib/rate-limit.ts).
+[[ratelimits]]
+name = "EVENTS_RATE_LIMIT"
+namespace_id = "7101"
+simple = { limit = 1200, period = 60 }
+
+[[ratelimits]]
+name = "REPLAYS_RATE_LIMIT"
+namespace_id = "7102"
+simple = { limit = 600, period = 60 }
+
+[[ratelimits]]
+name = "SNAPSHOTS_RATE_LIMIT"
+namespace_id = "7103"
+simple = { limit = 60, period = 60 }
+
+# panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
+# Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).
+[[services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api-dev"
+entrypoint = "PanelApiInternal"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -92,6 +149,55 @@ class_name = "PanelUsage"
 [[env.test.migrations]]
 tag = "panel-v1"
 new_sqlite_classes = ["PanelSalt", "PanelUsage"]
+
+[[env.test.pipelines]]
+binding = "PANEL_IDENTITIES"
+stream = "d434e13caced469396eb843c635575f3"
+
+[[env.test.pipelines]]
+binding = "PANEL_PEOPLE"
+stream = "7b6f347299184392a79e29e6c7d9459f"
+
+[[env.test.pipelines]]
+binding = "PANEL_REPLAY_CHUNKS"
+stream = "8a018cf93e9049b1b35be0c9e49716d8"
+
+# Recording chunks and heatmap snapshots: private bucket, EU jurisdiction (ADR PANEL-005).
+[[env.test.r2_buckets]]
+binding = "PANEL_REPLAYS"
+bucket_name = "weldsuite-panel-replays-test"
+jurisdiction = "eu"
+
+[[env.test.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+
+[[env.test.migrations]]
+tag = "panel-v2"
+new_sqlite_classes = ["PanelProject"]
+
+# Per-IP limits on the public browser routes (lib/rate-limit.ts).
+[[env.test.ratelimits]]
+name = "EVENTS_RATE_LIMIT"
+namespace_id = "7201"
+simple = { limit = 1200, period = 60 }
+
+[[env.test.ratelimits]]
+name = "REPLAYS_RATE_LIMIT"
+namespace_id = "7202"
+simple = { limit = 600, period = 60 }
+
+[[env.test.ratelimits]]
+name = "SNAPSHOTS_RATE_LIMIT"
+namespace_id = "7203"
+simple = { limit = 60, period = 60 }
+
+# panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
+# Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).
+[[env.test.services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api-test"
+entrypoint = "PanelApiInternal"
 
 [env.test.observability]
 enabled = true
@@ -128,6 +234,37 @@ class_name = "PanelUsage"
 [[env.production.migrations]]
 tag = "panel-v1"
 new_sqlite_classes = ["PanelSalt", "PanelUsage"]
+
+[[env.production.durable_objects.bindings]]
+name = "PANEL_PROJECT"
+class_name = "PanelProject"
+
+[[env.production.migrations]]
+tag = "panel-v2"
+new_sqlite_classes = ["PanelProject"]
+
+# Per-IP limits on the public browser routes (lib/rate-limit.ts).
+[[env.production.ratelimits]]
+name = "EVENTS_RATE_LIMIT"
+namespace_id = "7301"
+simple = { limit = 1200, period = 60 }
+
+[[env.production.ratelimits]]
+name = "REPLAYS_RATE_LIMIT"
+namespace_id = "7302"
+simple = { limit = 600, period = 60 }
+
+[[env.production.ratelimits]]
+name = "SNAPSHOTS_RATE_LIMIT"
+namespace_id = "7303"
+simple = { limit = 60, period = 60 }
+
+# panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
+# Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).
+[[env.production.services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api"
+entrypoint = "PanelApiInternal"
 
 # Head-sampled: every tracked page view on every customer site lands here.
 [env.production.observability]

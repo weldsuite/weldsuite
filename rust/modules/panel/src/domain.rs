@@ -17,6 +17,21 @@ pub(crate) fn seen_key(project_id: &str) -> String {
     format!("panel:seen:{project_id}")
 }
 
+/// `panel:quota:<workspaceId>` → `ok`, `replay_blocked` or `events_blocked`
+/// (plain string), written by panel-api's usage settlement.
+pub(crate) fn quota_key(workspace_id: &str) -> String {
+    format!("panel:quota:{workspace_id}")
+}
+
+/// `parseQuotaState(raw)`: anything but the two blocked states is `ok`.
+pub(crate) fn parse_quota_state(raw: Option<&str>) -> &'static str {
+    match raw {
+        Some("replay_blocked") => "replay_blocked",
+        Some("events_blocked") => "events_blocked",
+        _ => "ok",
+    }
+}
+
 /// `DEFAULT_PANEL_SETTINGS`, in its key order.
 pub(crate) fn default_settings() -> Vec<(&'static str, Value)> {
     vec![
@@ -162,8 +177,9 @@ pub(crate) fn trim_trailing_slashes(url: &str) -> &str {
 const STUB: &str = concat!(
     "!function(w,p,s){p=w.weldpanel=w.weldpanel||{q:[]};if(!p.q)return;",
     "s=function(n){return function(){p.q.push([n,[].slice.call(arguments)])}};",
-    "p.track=s(\"track\");p.optOut=s(\"optOut\");p.optIn=s(\"optIn\");p.flush=s(\"flush\");",
-    "p.consent={grant:s(\"consent.grant\"),revoke:s(\"consent.revoke\")}}(window);",
+    "p.track=s(\"track\");p.identify=s(\"identify\");p.reset=s(\"reset\");p.optOut=s(\"optOut\");p.optIn=s(\"optIn\");p.flush=s(\"flush\");",
+    "p.consent={grant:s(\"consent.grant\"),revoke:s(\"consent.revoke\")};",
+    "p.people={set:s(\"people.set\"),set_once:s(\"people.set_once\"),unset:s(\"people.unset\"),increment:s(\"people.increment\")}}(window);",
 );
 
 fn attr(value: &str) -> String {

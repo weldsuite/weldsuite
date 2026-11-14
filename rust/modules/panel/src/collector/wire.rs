@@ -18,13 +18,47 @@ const MAX_PROPERTIES: usize = 50;
 const MAX_STRING: usize = 2048;
 const MAX_ELEMENT_TEXT: usize = 255;
 
-const SYSTEM_EVENTS: &[&str] = &["$pageview", "$pageleave", "$autocapture"];
+const MAX_PEOPLE_OPS_PER_BATCH: usize = 50;
+const MAX_ERROR_MESSAGE: usize = 1000;
+
+const SYSTEM_EVENTS: &[&str] = &[
+    "$pageview",
+    "$pageleave",
+    "$autocapture",
+    "$identify",
+    "$rageclick",
+    "$deadclick",
+    "$quickback",
+    "$excessivescroll",
+    "$exception",
+];
 
 static CUSTOM_EVENT_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$").expect("a pattern")
 });
-static PROPERTY_KEY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$").expect("a pattern"));
+/// `EVENT_PROPERTY_KEY`: identifiers, plus the few reserved `$` keys the
+/// SDK's own events carry.
+static PROPERTY_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:[A-Za-z_][A-Za-z0-9_]{0,63}|\$(?:source|line|col|from))$").expect("a pattern")
+});
+
+/// `USER_ID`: 1 to 255 UTF-16 units, no control characters.
+fn is_user_id(text: &str) -> bool {
+    let units = text.encode_utf16().count();
+    (1..=255).contains(&units)
+        && !text
+            .chars()
+            .any(|c| matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}'))
+}
+
+/// `z.number().min(0).max(1)`.
+fn unit_interval() -> Number {
+    Number {
+        min: Some(0.0),
+        max: Some(1.0),
+        ..Number::default()
+    }
+}
 
 /// The `$autocapture` element.
 #[derive(Debug, Clone)]
@@ -43,6 +77,7 @@ pub(crate) struct WireEvent {
     pub(crate) ts: String,
     pub(crate) anon_id: Option<String>,
     pub(crate) session_id: Option<String>,
+    pub(crate) user_id: Option<String>,
     pub(crate) url: String,
     pub(crate) title: Option<String>,
     pub(crate) referrer: Option<String>,
@@ -50,7 +85,10 @@ pub(crate) struct WireEvent {
     pub(crate) el: Option<WireElement>,
     pub(crate) x: Option<i64>,
     pub(crate) y: Option<i64>,
+    pub(crate) rel_x: Option<f64>,
+    pub(crate) rel_y: Option<f64>,
     pub(crate) scroll_depth: Option<i64>,
+    pub(crate) error_message: Option<String>,
     /// In the body's key order (`JSON.stringify` writes it so).
     pub(crate) props: Option<Vec<(String, Js)>>,
 }
@@ -129,6 +167,17 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
             Presence::Required,
             Some(1),
             Some(MAX_EVENTS_PER_BATCH),
+            |_, item| Some(item.clone()),
+        );
+        // Profile operations belong to the PanelProject object, which the
+        // Kubernetes editions don't have: accepted (the length is still
+        // checked) and ignored.
+        issues.list(
+            fields,
+            "people",
+            Presence::Optional,
+            None,
+            Some(MAX_PEOPLE_OPS_PER_BATCH),
             |_, item| Some(item.clone()),
         );
         (token, sent_at, lib, lib_version, consent, events)
@@ -213,6 +262,15 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     );
     let anon_id = issues.text_with(fields, "anon_id", Presence::Optional, length(64));
     let session_id = issues.text_with(fields, "session_id", Presence::Optional, length(64));
+    let user_id = issues.pattern(
+        fields,
+        "user_id",
+        Presence::Optional,
+        None,
+        None,
+        is_user_id,
+        "Invalid",
+    );
     let url = issues.text_with(
         fields,
         "url",
@@ -241,8 +299,16 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     });
     let x = issues.whole_number(fields, "x", Presence::Optional, int(0.0, 100_000.0));
     let y = issues.whole_number(fields, "y", Presence::Optional, int(0.0, 1_000_000.0));
+    let rel_x = issues.number(fields, "rel_x", Presence::Optional, unit_interval());
+    let rel_y = issues.number(fields, "rel_y", Presence::Optional, unit_interval());
     let scroll_depth =
         issues.whole_number(fields, "scroll_depth", Presence::Optional, int(0.0, 100.0));
+    let error_message = issues.text_with(
+        fields,
+        "error_message",
+        Presence::Optional,
+        length(MAX_ERROR_MESSAGE),
+    );
     let props = properties(&mut issues, fields, raw.get("props"));
     if !issues.is_empty() {
         return Err(issues.issues_since(0).to_vec());
@@ -253,6 +319,7 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
         ts: ts.into_option().unwrap_or_default(),
         anon_id: anon_id.into_option(),
         session_id: session_id.into_option(),
+        user_id: user_id.into_option(),
         url: url.into_option().unwrap_or_default(),
         title: title.into_option(),
         referrer: referrer.into_option(),
@@ -260,7 +327,10 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
         el: el.into_option(),
         x: x.into_option(),
         y: y.into_option(),
+        rel_x: rel_x.into_option(),
+        rel_y: rel_y.into_option(),
         scroll_depth: scroll_depth.into_option(),
+        error_message: error_message.into_option(),
         props,
     })
 }
