@@ -862,6 +862,8 @@ export const settings = {
         checkoutPending: 'Your payment is being processed. Your plan is updated as soon as it is confirmed.',
         checkoutCancelled: 'Checkout cancelled.',
         checkoutNotCompleted: 'The payment was not completed. Nothing was charged.',
+        payLinkDone: 'Nothing is open on this payment any more.',
+        payLinkExpired: 'This payment link has expired. Pay from this page instead.',
       },
       billingDetails: 'Billing details',
       billingDetailsDescription: 'Manage your payment methods and billing information.',

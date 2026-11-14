@@ -859,6 +859,8 @@ export const settings = {
         checkoutPending: 'Uw betaling wordt verwerkt. Uw abonnement wordt bijgewerkt zodra de betaling is bevestigd.',
         checkoutCancelled: 'Afrekenen geannuleerd.',
         checkoutNotCompleted: 'De betaling is niet voltooid. Er is niets in rekening gebracht.',
+        payLinkDone: 'Voor deze betaling staat niets meer open.',
+        payLinkExpired: 'Deze betaallink is verlopen. Betaal in plaats daarvan via deze pagina.',
       },
       billingDetails: 'Factuurgegevens',
       billingDetailsDescription: 'Beheer uw betaalmethoden en factuurgegevens.',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutToast, isBillingCheckoutId, readCheckoutReturn, withoutCheckoutParams } from './credit-checkout-return';
+import { checkoutToast, isBillingCheckoutId, readCheckoutReturn, readPayLinkReturn, withoutCheckoutParams } from './credit-checkout-return';
 
 describe('credit checkout return', () => {
   it("reads Stripe's success and cancel returns", () => {
@@ -37,5 +37,14 @@ describe('credit checkout return', () => {
     expect(checkoutToast('pending')).toBe('pending');
     expect(checkoutToast('unknown')).toBe('pending');
     expect(checkoutToast(null)).toBe('pending');
+  });
+});
+
+describe('readPayLinkReturn', () => {
+  it('reads where a pay link sent the browser back', () => {
+    expect(readPayLinkReturn('?pay=done')).toBe('done');
+    expect(readPayLinkReturn('?pay=expired&x=1')).toBe('expired');
+    expect(readPayLinkReturn('?pay=other')).toBeNull();
+    expect(readPayLinkReturn('')).toBeNull();
   });
 });

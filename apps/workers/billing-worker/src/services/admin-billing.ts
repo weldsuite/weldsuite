@@ -1062,15 +1062,19 @@ export async function voidInvoice(
     .limit(1);
   if (!invoice) throw new AdminBillingError('NOT_FOUND', 'Invoice not found');
   if (invoice.status !== 'open') throw new AdminBillingError('CONFLICT', 'Only open invoices can be voided');
+  // A WeldBooks invoice (the EU edition, ADR BILL-014) has no Stripe id and
+  // is never open: it is issued once paid.
+  const stripeInvoiceId = invoice.stripeInvoiceId;
+  if (!stripeInvoiceId) throw new AdminBillingError('CONFLICT', 'Only Stripe invoices can be voided here');
 
   const voided = await voidStripeInvoice(
     stripeKey(ctx.env),
-    invoice.stripeInvoiceId,
+    stripeInvoiceId,
     idempotencyKey(ctx, 'invoice.void'),
   );
   await ctx.masterDb
     .update(billingInvoices)
     .set({ status: voided.status ?? 'void', updatedAt: new Date() })
     .where(eq(billingInvoices.id, invoice.id));
-  return { stripeInvoiceId: invoice.stripeInvoiceId, status: voided.status };
+  return { stripeInvoiceId, status: voided.status };
 }

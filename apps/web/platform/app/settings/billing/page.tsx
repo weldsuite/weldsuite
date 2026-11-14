@@ -424,6 +424,8 @@ function DirectBillingSettings() {
       pending: mollieStrings.checkoutPending,
       cancelled: mollieStrings.checkoutCancelled,
       notCompleted: mollieStrings.checkoutNotCompleted,
+      payLinkDone: mollieStrings.payLinkDone,
+      payLinkExpired: mollieStrings.payLinkExpired,
     }),
     [mollieStrings],
   );

@@ -89,6 +89,19 @@ export interface BillingCheckoutReturnStrings {
   pending: string;
   cancelled: string;
   notCompleted: string;
+  /** A pay link opened for a charge that is no longer open (`?pay=done`). */
+  payLinkDone?: string;
+  /** A pay link that expired (`?pay=expired`). */
+  payLinkExpired?: string;
+}
+
+/**
+ * A pay link (`/public/billing/pay/:token`) sends the browser back to the
+ * billing page with `?pay=done` (nothing is open any more) or `?pay=expired`.
+ */
+export function readPayLinkReturn(search: string): 'done' | 'expired' | null {
+  const pay = new URLSearchParams(search).get('pay');
+  return pay === 'done' || pay === 'expired' ? pay : null;
 }
 
 function showBilling(
@@ -132,6 +145,16 @@ export function useCreditCheckoutReturn(
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    const pay = billingStrings ? readPayLinkReturn(window.location.search) : null;
+    if (billingStrings && pay) {
+      const params = new URLSearchParams(window.location.search);
+      params.delete('pay');
+      const rest = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+      const message = pay === 'done' ? billingStrings.payLinkDone : billingStrings.payLinkExpired;
+      if (message) toast.info(message);
+      void queryClient.invalidateQueries({ queryKey: ['billing'] });
+    }
     const found = readCheckoutReturn(window.location.search);
     if (!found) return;
     window.history.replaceState({}, '', `${window.location.pathname}${withoutCheckoutParams(window.location.search)}`);
