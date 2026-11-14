@@ -571,7 +571,7 @@ async fn notify_owners(
             let props = ProviderEnabled {
                 recipient_name: name.clone(),
                 workspace_name: workspace_name.clone(),
-                provider_name: catalog::provider(*provider).label.clone(),
+                provider_name: email_provider_name(*provider),
                 enabled_by: enabled_by.clone(),
                 own_key: *source == KeySource::Own,
                 settings_url: settings_url.clone(),
@@ -599,6 +599,17 @@ async fn notify_owners(
 // ── keys ────────────────────────────────────────────────────────────────────
 
 /// `{ hint, status, lastError, lastCheckedAt }`: the key's state, never the key.
+/// The provider as the owners' email names it: the product and the company
+/// the workspace's data now goes to ("Claude (Anthropic)").
+fn email_provider_name(provider: ProviderId) -> String {
+    let label = &catalog::provider(provider).label;
+    match provider {
+        ProviderId::Anthropic => format!("{label} (Anthropic)"),
+        ProviderId::OpenAi => format!("{label} (OpenAI)"),
+        ProviderId::Mistral | ProviderId::Compat => label.clone(),
+    }
+}
+
 fn key_status(status: &weldsuite_ai::OwnKeyStatus) -> Value {
     serde_json::to_value(status).unwrap_or(Value::Null)
 }
