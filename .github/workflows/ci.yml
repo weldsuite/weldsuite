@@ -576,7 +576,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Restore TypeScript incremental cache
-        uses: actions/cache@v4
+        id: tsc-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             apps/workers/*/tsconfig.tsbuildinfo
@@ -606,6 +607,17 @@ jobs:
           # --incremental writes tsconfig.tsbuildinfo (gitignored). The cache
           # above restores it, so a later run rechecks changed files.
           pnpm "${args[@]}" exec tsc --noEmit --incremental --pretty false
+      # Pushes to main only, like every cache in this file.
+      - name: Save TypeScript incremental cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/workers/*/tsconfig.tsbuildinfo
+            packages/domains/*/tsconfig.tsbuildinfo
+            packages/core/api-modules/tsconfig.tsbuildinfo
+            packages/core/worker-*/tsconfig.tsbuildinfo
+          key: ${{ steps.tsc-cache.outputs.cache-primary-key }}
 
   type-check-api:
     name: Type Check · app-api
@@ -639,7 +651,8 @@ jobs:
       # Platform tsconfig already sets incremental. Persist the build info
       # so a later run rechecks changed files instead of the whole app.
       - name: Restore platform TypeScript cache
-        uses: actions/cache@v4
+        id: platform-tsc-cache
+        uses: actions/cache/restore@v4
         with:
           path: apps/web/platform/tsconfig.tsbuildinfo
           key: platform-tsc-${{ runner.os }}-${{ hashFiles('apps/web/platform/tsconfig.json', 'pnpm-lock.yaml') }}-${{ github.sha }}
@@ -648,6 +661,13 @@ jobs:
       - name: Type-check platform
         working-directory: apps/web/platform
         run: pnpm type-check
+      # Pushes to main only, like every cache in this file.
+      - name: Save platform TypeScript cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/web/platform/tsconfig.tsbuildinfo
+          key: ${{ steps.platform-tsc-cache.outputs.cache-primary-key }}
 
   # ────────────────────────────────────────────
   # Desktop shell. Type-check + bundle only — NOT packaging: electron-builder
