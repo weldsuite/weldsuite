@@ -91,3 +91,14 @@ metadata:
   name: livekit
   labels:
     pod-security.kubernetes.io/enforce: privileged
+---
+# WeldAgent's sandbox pods (the weldsuite chart's sandbox): code a model wrote
+# runs here, under gVisor, behind the chart's NetworkPolicy and admission
+# policy. Restricted, and nothing else runs in it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: weldsuite-sandbox
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

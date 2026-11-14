@@ -4,7 +4,7 @@ server's environment and Secret (the workers' Cron Triggers). The pods carry
 component=cron, so the api Service and NetworkPolicy never select them.
 */}}
 {{- range $name, $job := .Values.cron.jobs }}
-{{- if $job.enabled }}
+{{- if or $job.enabled (and (eq $name "sandbox-cleanup") $.Values.sandbox.enabled) }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -43,7 +43,8 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
-          automountServiceAccountToken: false
+          {{- /* The jobs that start or delete sandbox pods talk to the Kubernetes API. */}}
+          automountServiceAccountToken: {{ and $.Values.sandbox.enabled (has $name (list "weldagent-routines" "sandbox-cleanup")) }}
           securityContext:
             {{- toYaml $.Values.podSecurityContext | nindent 12 }}
           containers:

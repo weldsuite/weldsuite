@@ -19,18 +19,22 @@
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `board`
-//! conformance suite (`rust/conformance/suites.json`). Not here: the AI
-//! actions (`POST /:id/ai`, no AI port on Kubernetes: 503, and the platform
-//! hides them where `agent-ai` is unavailable) and `/internal/boards/*` (the `BoardsInternal`
-//! entrypoint for the agent tools and the MCP server, whose callers are not
-//! ported).
+//! conformance suite (`rust/conformance/suites.json`). The AI actions
+//! (`POST /:id/ai`) call `weldsuite_ai` (feature `board`) between two engine
+//! calls, `aiPrepare` and `aiPlan` (`services/ai-plan.ts`), so both backends
+//! ask the same thing and place the answer alike. Not here:
+//! `/internal/boards/*` (the `BoardsInternal` entrypoint for the agent tools
+//! and the MCP server, whose callers are not ported).
 
+mod agent;
+mod ai;
 mod links;
 mod record_views;
 mod records;
 mod routes;
 mod versions;
 
+pub use agent::{AgentScope, agent_call};
 pub use links::PublicLinks;
 
 use std::sync::Arc;
@@ -72,6 +76,12 @@ pub struct BoardState {
     /// addresses only, redirects one by one). A request's [`OutboundHttp`]
     /// (conformance) wins.
     pub links: Option<OutboundHttp>,
+    /// The install's AI (the AI actions); `None` with AI off. A request's own
+    /// `Ai` (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// The master database, for the AI actions' credit wallet. A request's
+    /// `MasterDb` (conformance) wins.
+    pub master: Option<PgPool>,
 }
 
 impl std::fmt::Debug for BoardState {
@@ -79,6 +89,7 @@ impl std::fmt::Debug for BoardState {
         f.debug_struct("BoardState")
             .field("collab", &self.collab.is_some())
             .field("links", &self.links.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -163,6 +174,11 @@ pub(crate) struct Caller {
     files: Option<FileStores>,
     collab: Option<RequestCollab>,
     links: Option<OutboundHttp>,
+    /// `workspaces.id`: the AI actions' wallet and settings.
+    pub(crate) workspace_id: String,
+    /// The request's own AI and master database (conformance).
+    ai: Option<weldsuite_ai::Ai>,
+    master: Option<PgPool>,
 }
 
 impl Caller {
@@ -239,6 +255,21 @@ impl Caller {
         args: Value,
     ) -> Result<Value, Refusal> {
         self.call(state, BOARD_ROOM, name, method, args).await
+    }
+
+    /// The AI an action calls: the request's (conformance), else the state's;
+    /// `None` when it is off.
+    pub(crate) fn ai(&self, state: &BoardState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
+    }
+
+    /// The master database: the request's (conformance), else the state's.
+    pub(crate) fn master(&self, state: &BoardState) -> Option<PgPool> {
+        self.master.clone().or_else(|| state.master.clone())
     }
 
     /// The board engine's `method` (`apps/workers/board-api/src/engine-ops.ts`).
@@ -321,6 +352,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     files: parts.extensions.get::<FileStores>().cloned(),
                     collab: parts.extensions.get::<RequestCollab>().cloned(),
                     links: parts.extensions.get::<OutboundHttp>().cloned(),
+                    workspace_id: tenant.workspace_id.clone(),
+                    ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
+                    master: parts
+                        .extensions
+                        .get::<weldsuite_db::MasterDb>()
+                        .map(|master| master.0.clone()),
                 })
             } else {
                 tracing::error!("board: a route without the session, tenant or permission layer");
@@ -334,6 +371,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// (400, 403, 404, 409, a validation failure), or an unexpected error (500).
 pub(crate) enum Refusal {
     Response(Box<Response>),
+    /// A refusal as an [`ApiError`], so a caller that is not a route (the
+    /// agent tools) can read its message.
+    Api(ApiError),
     Database(sqlx::Error),
 }
 
@@ -345,7 +385,7 @@ impl From<sqlx::Error> for Refusal {
 
 impl From<ApiError> for Refusal {
     fn from(error: ApiError) -> Self {
-        Self::Response(Box::new(error.into_response()))
+        Self::Api(error)
     }
 }
 
@@ -362,9 +402,19 @@ impl Refusal {
         ApiError::bad_request(message).into()
     }
 
+    /// What a caller that is not a route (the agent tools) says of the refusal.
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::Api(error) => error.message().to_owned(),
+            Self::Response(_) => "The request was refused".to_owned(),
+            Self::Database(_) => "Internal server error".to_owned(),
+        }
+    }
+
     pub(crate) fn respond(self) -> Response {
         match self {
             Self::Response(response) => *response,
+            Self::Api(error) => error.into_response(),
             Self::Database(error) => {
                 tracing::error!(%error, "[board-api] a query failed");
                 ApiError::internal().into_response()

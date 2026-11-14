@@ -15,7 +15,7 @@
 //!   `max_retries + 1` times, with headers naming the subscriber, the hub
 //!   sequence, the deliveries and the last error.
 //!
-//! The subscribers not ported (analytics, WeldAgent) have no
+//! The subscribers not ported (analytics) have no
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
 //!
@@ -223,13 +223,15 @@ fn mail_inbound_handler(
         http,
         fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
         assignment_router: Some(crate::routes::desk_assignment_router()),
+        // The auto-labels (feature `mail`); without AI they label nothing.
+        ai: services.ai.clone(),
     };
     if !ctx.fan_out.books {
         tracing::info!(
             "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
         );
     }
-    let reach = reach_inbound(inbound, workspaces, &ctx);
+    let reach = reach_inbound(inbound, workspaces, &ctx, services.ai.clone());
     let mail: Arc<dyn BatchHandler> = Arc::new(weldsuite_mail_inbound::MailInboundSubscriber::new(
         ctx,
         Arc::clone(&spool),
@@ -347,6 +349,7 @@ fn reach_inbound(
     inbound: &MailInboundConfig,
     workspaces: &Arc<Workspaces>,
     ctx: &weldsuite_mail_inbound::InboundContext,
+    ai: Option<weldsuite_ai::Ai>,
 ) -> Option<weldsuite_reach::inbound::ReachInbound> {
     let served = weldsuite_catalogs::api_modules()
         .iter()
@@ -372,6 +375,12 @@ fn reach_inbound(
         storage: ctx.storage.clone(),
         events: ctx.events.clone(),
         inbound_domain: domain,
+        // Replies are labelled by the install's AI, metered on the master
+        // database's wallet.
+        classifier: ai.map(|ai| weldsuite_reach::inbound::classify::ReplyClassifier {
+            ai,
+            master: Some(workspaces.master().clone()),
+        }),
     })
 }
 
@@ -480,6 +489,24 @@ fn handlers(
                     Some(runs),
                 ))
             }
+            // WeldAgent: runs the agents subscribed to an event. Only with AI
+            // (ADR AI-011 kept it out until the install has a provider).
+            "weldagent" => {
+                let Some(ai) = services.ai.clone() else {
+                    tracing::warn!("AI is not configured: the weldagent subscriber does not run");
+                    continue;
+                };
+                Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
+                    Arc::clone(tenants),
+                    Some(ai),
+                    weldsuite_agent::run::RunEnv {
+                        master: Some(master.clone()),
+                        realtime: services.realtime.clone(),
+                        sandbox: services.sandboxes.is_some(),
+                        sandboxes: services.sandboxes.clone(),
+                    },
+                ))
+            }
             "realtime" => {
                 let Some(realtime) = realtime else {
                     tracing::warn!("VALKEY_URL is not set: the realtime subscriber does not run");
@@ -490,17 +517,30 @@ fn handlers(
                     Arc::clone(realtime),
                 ))
             }
+            // The install's AI (`search-index`, metered), else the plain
+            // endpoint of an install without AI.
             "search-index" => {
-                let Some(embeddings) = embeddings else {
+                let with_ai = services.ai.clone().and_then(|ai| {
+                    SearchSubscriber::with_ai(Arc::clone(tenants), ai, Some(master.clone()))
+                });
+                if let Some(subscriber) = with_ai {
+                    if embeddings.is_some() {
+                        tracing::info!(
+                            "search-index: embeddings from the install's AI; EMBEDDINGS_URL is not used"
+                        );
+                    }
+                    Arc::new(subscriber)
+                } else if let Some(embeddings) = embeddings {
+                    Arc::new(SearchSubscriber::new(
+                        Arc::clone(tenants),
+                        Arc::clone(embeddings),
+                    ))
+                } else {
                     tracing::warn!(
-                        "EMBEDDINGS_URL is not set: the search-index subscriber does not run"
+                        "neither AI with an embedding model nor EMBEDDINGS_URL: the search-index subscriber does not run"
                     );
                     continue;
-                };
-                Arc::new(SearchSubscriber::new(
-                    Arc::clone(tenants),
-                    Arc::clone(embeddings),
-                ))
+                }
             }
             _ => continue,
         };
@@ -514,6 +554,15 @@ struct Services {
     bus: JetStreamEventBus,
     realtime: Option<Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<Arc<dyn Embeddings>>,
+    /// The install's AI (`crate::ai`), with the settings cache in Valkey;
+    /// `None` without `AI_DEFAULT_PROVIDER`.
+    #[allow(
+        dead_code,
+        reason = "the AI subscribers (search index, WeldReach and inbound mail labels) take it as they are ported"
+    )]
+    ai: Option<weldsuite_ai::Ai>,
+    /// WeldAgent's sandbox (`crate::sandbox`), for the weldagent subscriber.
+    sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     http: WebhookHttp,
     /// Audit log streams go out under the webhooks' private-network rule.
     streams: AuditStreamSender,
@@ -621,13 +670,25 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         }
     }
     ensure_queue_streams(&bus, config).await?;
-    let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
-        Some(url) => Some(Arc::new(ValkeyRealtime::new(
-            connect_valkey(url).await?,
-            config.valkey_realtime_prefix.clone(),
-        ))),
+    let valkey = match &config.valkey_url {
+        Some(url) => Some(connect_valkey(url).await?),
         None => None,
     };
+    let realtime: Option<Arc<dyn DynRealtimePublisher>> = valkey.clone().map(|connection| {
+        Arc::new(ValkeyRealtime::new(
+            connection,
+            config.valkey_realtime_prefix.clone(),
+        )) as Arc<dyn DynRealtimePublisher>
+    });
+    let ai = crate::ai::build(
+        &config.ai,
+        valkey.map(|connection| {
+            Arc::new(weldsuite_adapters_oss::ValkeyCache::new(
+                connection,
+                config.valkey_cache_prefix.clone(),
+            )) as Arc<dyn weldsuite_ports::DynCache>
+        }),
+    )?;
     let embeddings: Option<Arc<dyn Embeddings>> = match &config.embeddings {
         Some(settings) => Some(Arc::new(OpenAiEmbeddings::new(OpenAiEmbeddingsOptions {
             base_url: settings.url.clone(),
@@ -640,6 +701,8 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         bus,
         realtime,
         embeddings,
+        ai,
+        sandboxes: crate::sandbox::build(config.sandbox.as_ref())?,
         http: WebhookHttp::new(config.webhook_allow_private)?,
         streams: AuditStreamSender::new(config.webhook_allow_private)?,
         stream_flushes: PendingStreamFlushes::default(),
@@ -721,7 +784,8 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     let mut reach_warmup = Vec::new();
     if !warmup_subscribers.is_empty() {
         let flags = flag_source(&config, &master);
-        let network = crate::reach::warmup_network(master.clone(), flags)?;
+        // The sender and the engager only read the corpus.
+        let network = crate::reach::warmup_network(master.clone(), flags, None)?;
         for id in &warmup_subscribers {
             let kind = if *id == REACH_WARMUP_SEND {
                 weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Send

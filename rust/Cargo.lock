@@ -4168,6 +4168,8 @@ dependencies = [
  "tracing-subscriber",
  "weldsuite-adapters-oss",
  "weldsuite-ads",
+ "weldsuite-agent",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-board",
  "weldsuite-books",
@@ -4226,6 +4228,7 @@ dependencies = [
  "weldsuite-reach",
  "weldsuite-reach-domain",
  "weldsuite-realtime",
+ "weldsuite-sandbox",
  "weldsuite-sheets",
  "weldsuite-sign",
  "weldsuite-social",
@@ -4309,6 +4312,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-agent"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "http",
+ "jiff",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-ai",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-connect",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-sandbox",
+ "weldsuite-subscribers",
+]
+
+[[package]]
+name = "weldsuite-ai"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "futures-util",
+ "hex",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-apps-domain"
 version = "0.0.0"
 dependencies = [
@@ -4356,6 +4413,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -4439,6 +4497,7 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
@@ -4462,6 +4521,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "weldsuite-ai",
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-crm-domain",
@@ -4769,6 +4829,7 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-ads-domain",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-calendar-domain",
  "weldsuite-catalogs",
@@ -4878,6 +4939,7 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -4886,6 +4948,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
@@ -4937,15 +5000,19 @@ dependencies = [
  "axum",
  "http",
  "reqwest",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
@@ -5055,8 +5122,10 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-core-domain",
  "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-events",
@@ -5092,6 +5161,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "futures-util",
  "getrandom 0.4.3",
  "hex",
  "http",
@@ -5101,6 +5171,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -5311,6 +5382,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -5513,6 +5585,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
@@ -5563,6 +5636,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-desk-domain",
@@ -5607,15 +5681,18 @@ dependencies = [
  "bytes",
  "getrandom 0.4.3",
  "http",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
  "tracing",
  "unicode-normalization",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
+ "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -5643,6 +5720,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
@@ -5655,7 +5733,6 @@ dependencies = [
  "weldsuite-merge-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
- "weldsuite-social-domain",
 ]
 
 [[package]]
@@ -5878,6 +5955,7 @@ name = "weldsuite-reach"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "futures-util",
  "getrandom 0.4.3",
  "hex",
  "hmac",
@@ -5892,6 +5970,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "weldsuite-ai",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-crm-domain",
@@ -5949,6 +6028,25 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-sandbox"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
  "weldsuite-ports",
 ]
 
@@ -6100,6 +6198,7 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-adapters-oss",
+ "weldsuite-ai",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",

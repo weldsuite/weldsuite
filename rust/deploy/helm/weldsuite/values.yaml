@@ -227,6 +227,18 @@ config:
   # emails to client contacts (empty: those emails are not sent).
   flow:
     projectPortalUrl: ""
+  # Buying credits (the platform's top-up, edition feature credit-top-up)
+  # through Mollie (ADR OPS-012). MOLLIE_API_KEY in the Secret turns it on;
+  # without it /config.json lists credit-top-up as unavailable. Mollie posts
+  # every payment change to webhookUrl (empty: <publicUrl>/api/webhooks/mollie),
+  # which must be reachable from the internet; redirectUrl is where a
+  # checkout returns when the client named no address (empty:
+  # <publicUrl>/settings/billing?credits=success). Packages are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
@@ -253,6 +265,40 @@ config:
   # Seal new workspaces.database_url values as v3 (bound to the workspace);
   # every Rust reader opens v3, so a new cluster can have it on.
   aadWrites: false
+  # AI (ADR AI-012, docs/plans/eu-ai-mistral.md): the install's provider, what
+  # workspaces may opt in to, fallback and billing. Empty defaultProvider is AI
+  # off: the AI features are hidden and their routes answer as the workers do
+  # without their model. The keys go in the Secret (MISTRAL_API_KEY,
+  # ANTHROPIC_API_KEY, OPENAI_API_KEY, AI_COMPAT_API_KEY, AI_KEYS_ENCRYPTION_KEY;
+  # the chart generates the last one with secret.generate). The server refuses
+  # to start on an inconsistent setting: a provider without its key, a key
+  # source a provider can't serve, a fallback outside the EU.
+  ai:
+    defaultProvider: ""             # AI_DEFAULT_PROVIDER: mistral | compat | empty (AI off; compat when openaiCompatible.baseUrl is set)
+    mistral:
+      baseUrl: https://api.mistral.ai/v1   # AI_MISTRAL_BASE_URL; MISTRAL_API_KEY in the Secret
+    # Providers outside the EU a workspace admin may enable, and whose key pays:
+    # weldsuiteKey (WeldSuite's account, charged as credits; needs the provider's
+    # key in the Secret) and ownKey (the workspace's own key, not charged;
+    # needs AI_KEYS_ENCRYPTION_KEY). Both off: not offered.
+    optIn:
+      anthropic: { weldsuiteKey: false, ownKey: false }   # AI_OPTIN_ANTHROPIC=weldsuite,own
+      openai:    { weldsuiteKey: false, ownKey: false }   # AI_OPTIN_OPENAI=weldsuite,own
+    anthropic:
+      baseUrl: ""                   # AI_ANTHROPIC_BASE_URL (empty: https://api.anthropic.com)
+    openai:
+      baseUrl: ""                   # AI_OPENAI_BASE_URL (empty: https://api.openai.com/v1)
+    # Self-hosted: the customer's own OpenAI-compatible endpoint (vLLM,
+    # Ollama, Azure). AI_COMPAT_API_KEY in the Secret when it takes one.
+    openaiCompatible:
+      baseUrl: ""                   # AI_COMPAT_BASE_URL
+      region: eu                    # AI_COMPAT_REGION (eu | outside-eu): how the platform labels it
+      model: ""                     # AI_COMPAT_MODEL: the chat model it serves (required with baseUrl)
+      embedModel: ""                # AI_COMPAT_EMBED_MODEL (optional)
+    fallbackModel: ""               # AI_FALLBACK_MODEL: mistral/<id>, or the compat model in the EU; never outside it
+    creditGate: false               # AI_CREDIT_GATE: refuse calls on WeldSuite's keys at an empty wallet (402)
+    billing: credits                # AI_BILLING: credits | display (meter, never charge: self-hosted)
+    workspaceConcurrency: 4         # AI_WORKSPACE_CONCURRENCY: calls one workspace may have in flight on WeldSuite's keys
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -320,6 +366,18 @@ config:
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
+#   MISTRAL_API_KEY              WeldSuite's Mistral key (required with config.ai.defaultProvider
+#                                mistral, or a mistral/ fallback); the search index embeds
+#                                through config.ai with it
+#   ANTHROPIC_API_KEY            WeldSuite's EU-edition Anthropic account, for workspaces that opt in
+#                                with WeldSuite's key (required with config.ai.optIn.anthropic.weldsuiteKey)
+#   OPENAI_API_KEY               the same for OpenAI (config.ai.optIn.openai.weldsuiteKey)
+#   AI_COMPAT_API_KEY            the key of config.ai.openaiCompatible's endpoint (optional)
+#   AI_KEYS_ENCRYPTION_KEY       64 hex characters (`openssl rand -hex 32`): seals the API keys
+#                                workspaces bring (required with an ownKey opt-in; generated with
+#                                secret.generate). Losing it loses every stored own key, nothing else
+#   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
+#                                (config.credits.mollie; optional, unset: no top-up)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -329,10 +387,11 @@ secret:
   # The install's own keys, generated once by the chart into the Secret
   # `generatedName` and kept across upgrades and uninstalls (resource policy
   # keep): DATABASE_ENCRYPTION_KEY(_V2), WELDPASS_ROOT_KEY,
-  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET (64 hex characters each),
+  # WELDREACH_WARMUP_KEY, ADMIN_SESSION_SECRET, AI_KEYS_ENCRYPTION_KEY (64 hex characters each),
   # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
   # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
-  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET, and the
+  # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET,
+  # SANDBOX_TOKEN_SECRET (WeldAgent's sandbox pods' tokens), and the
   # bundled dependencies' credentials (bundle below). Every pod reads it before
   # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
   # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
@@ -773,7 +832,7 @@ consume:
   # webhooks, realtime, and reach-send: WeldReach's sends, which the
   # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
   # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
-  # `embeddings` below.
+  # config.ai with an embedding model, or `embeddings` below.
   subscribers: []
   # With config.nats.ensureStreams: create or update the hub and the
   # dead-letter stream at start with this many replicas (3 on a three-node
@@ -787,13 +846,18 @@ consume:
   # Where a message goes after a subscriber's last retry (subjects
   # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
   deadLetterStream: ENTITY_EVENTS_DLQ
-  # An OpenAI-compatible embeddings endpoint for the semantic search index
-  # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
-  # vectors must have 1024 dimensions. A key goes in the Secret as
-  # EMBEDDINGS_API_KEY. Without a url the search-index subscriber is off.
+  # With config.ai the semantic search index embeds through it (search-index:
+  # Mistral's mistral-embed, or config.ai.openaiCompatible's embedModel),
+  # metered per workspace and batch, and this is not used. For an install
+  # without AI (or whose endpoint has no embedding model): an OpenAI-compatible
+  # embeddings endpoint (bge-m3 served in the cluster by TEI, vLLM or Ollama),
+  # unmetered; the vectors must have 1024 dimensions. A key goes in the Secret
+  # as EMBEDDINGS_API_KEY, or under the name apiKeySecretKey gives. Without
+  # either the search-index subscriber is off.
   embeddings:
     url: ""
     model: ""
+    apiKeySecretKey: ""
   webhooks:
     # Deliver to private and loopback addresses too. Off: the pod sits next
     # to the cluster's own services, so a customer's webhook URL must not
@@ -1125,6 +1189,19 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldAgent: the due cron routines of the workspaces the weldagent_routine
+    # due index lists. Does nothing without AI (config.ai) or while the agent
+    # module is not served.
+    weldagent-routines:
+      enabled: true
+      schedule: "0 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldAgent's sandbox: deletes finished, expired and stuck sandbox pods.
+    # Runs whenever sandbox.enabled is on, whatever this says.
+    sandbox-cleanup:
+      enabled: false
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 240
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.
@@ -1260,3 +1337,111 @@ cron:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# WeldAgent's sandbox (ADR AI-012 phase 5, rust/crates/sandbox): code
+# execution, files, web fetches, a browser and a desktop for computer use, in
+# pods of their own that the server starts per agent conversation or run.
+# Without it the agent-sandbox edition feature is unavailable and the
+# builder hides the sandbox and browsing toggles.
+#
+# Each pod runs under gVisor (runtimeClass), with no service-account token,
+# a read-only root filesystem, CPU/memory/disk limits, an idle timeout and a
+# hard lifetime, in a namespace whose NetworkPolicy lets it reach only the
+# public internet on egressPorts and only the server's pods reach it. The
+# server manages them through the Kubernetes API: the server, consume and
+# the sandbox-cleanup CronJob get their pod's service-account token, and a
+# Role allows pods get/list/create/delete in that namespace only; an
+# admission policy there admits nothing but pods of the sandbox's shape.
+# Before handing out a sandbox the server checks from inside one that the
+# metadata service and the Kubernetes API are out of reach, and refuses
+# while they aren't: the NetworkPolicy needs a CNI that enforces it (Flannel
+# alone doesn't; rust/deploy/hetzner/README.md, "Agent sandbox").
+sandbox:
+  enabled: false
+  # The namespace the pods run in. Pod Security `restricted` there; create
+  # it with the chart (createNamespace) or beforehand (the Flux clusters).
+  namespace: weldsuite-sandbox
+  createNamespace: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    # Defaults to the chart's appVersion.
+    tag: ""
+  # A pull secret in the sandbox namespace, for a private registry.
+  imagePullSecret: ""
+  runtimeClass:
+    # The RuntimeClass the pods run under; empty: the node's default runtime
+    # (a development cluster without gVisor only).
+    name: gvisor
+    # Create it (cluster-scoped). Its handler is runsc, the name Talos'
+    # gvisor extension and the gVisor packages give it.
+    create: true
+    handler: runsc
+  resources:
+    cpu: "1"
+    cpuRequest: 250m
+    memory: 2Gi
+    # The /workspace volume and the container's own writes.
+    disk: 2Gi
+  # The agent in a pod exits after this long without a call, and the pod ends.
+  idleTimeoutSeconds: 900
+  # Kubernetes stops a pod this long after it started, whatever it does.
+  maxLifetimeSeconds: 3600
+  maxPerWorkspace: 2
+  maxTotal: 40
+  # The resolvers the pods use (public: they never ask the cluster's DNS).
+  dns: ["9.9.9.9", "149.112.112.112"]
+  # The ports the pods may reach on the public internet, besides DNS on the
+  # resolvers above. 80 and 443 cover the web, git over https, pip and npm;
+  # anything else (mail on 25, ssh) stays shut.
+  egressPorts: [80, 443]
+  # Addresses on the public internet the pods may never reach: the cluster's
+  # own nodes' public addresses (a pod reaches its node's host ports on them),
+  # and anything else of the install's. The private, link-local, metadata and
+  # reserved ranges are always shut.
+  deniedCidrs: []
+  # More host:port the isolation check must find unreachable (a database
+  # service, a node's private address).
+  egressProbes: []
+  # The admission policy that admits only pods of the sandbox's shape in the
+  # namespace (ValidatingAdmissionPolicy, Kubernetes 1.30+).
+  admissionPolicy:
+    enabled: true
+  # Run the pods on these nodes only (a pool of their own keeps them off the
+  # database and mail nodes): SANDBOX_NODE_SELECTOR and SANDBOX_TOLERATIONS.
+  nodeSelector: {}
+  tolerations: []
+  # Development clusters only: hand out sandboxes without the isolation check.
+  requireIsolation: true
+  # The cleanup is the CronJob cron.jobs.sandbox-cleanup, which runs whenever
+  # the sandbox is on.
+
+# Web search for WeldAgent's web_search tool: a SearXNG in the release's
+# namespace, reached only by the server's pods (SEARXNG_URL). Only the query
+# leaves the cluster, to the engines below; no account, cookie or profile
+# goes with it, the server sends it in a POST body (so it is in no access
+# log), SearXNG keeps no query log (debug off, no metrics), and its limiter
+# runs on a Valkey of its own in the pod. The engines are companies outside
+# WeldSuite: each gets the queries routed to it.
+searxng:
+  enabled: false
+  image:
+    repository: docker.io/searxng/searxng
+    tag: "2026.10.28-c360868e5"
+  valkey:
+    image:
+      repository: docker.io/valkey/valkey
+      tag: "9.1.2-alpine"
+  # The engines asked, from SearXNG's own list. The default leans on the EU:
+  # Qwant (France), Startpage (the Netherlands; Google's results, without the
+  # user), Mojeek (the UK, its own index) and Wikipedia (Wikimedia, US).
+  # duckduckgo and brave can be added; both are US companies.
+  engines: [qwant, startpage, mojeek, wikipedia]
+  # Who may skip the limiter: the server's pods (the cluster's pod network).
+  passCidrs: ["10.244.0.0/16"]
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

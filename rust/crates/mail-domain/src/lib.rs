@@ -3,6 +3,8 @@
 //! Calendar, Desk and Mail ports extend it in place:
 //!
 //! - [`access`] (`./access`): who may open a mailbox (MAIL-003).
+//! - [`ai_usage`]: the ops ledger row of the model calls mail makes at
+//!   WeldSuite's cost (the auto-labels and the outbound review).
 //! - [`store`] (`./store`): a workspace's mailbox contents. On Kubernetes
 //!   they stay in the tenant Postgres tables (`weldmail-mailbox-store` is
 //!   `postgres` there, MAIL-010); the Durable Object modes are
@@ -17,6 +19,7 @@
 //! function it mirrors named in its doc comment.
 
 pub mod access;
+pub mod ai_usage;
 pub mod contacts;
 pub mod domains;
 pub mod html;

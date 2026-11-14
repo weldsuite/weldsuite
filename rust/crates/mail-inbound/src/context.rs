@@ -102,6 +102,9 @@ pub struct InboundContext {
     /// `HELPDESK_WORKFLOW`); `None` picks locally, as the worker does
     /// without the binding.
     pub assignment_router: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
+    /// The install's AI, for the auto-labels ([`crate::auto_label`]); `None`
+    /// labels nothing, as the worker without Workers AI.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for InboundContext {
@@ -114,6 +117,7 @@ impl std::fmt::Debug for InboundContext {
             .field("http", &self.http.is_some())
             .field("fan_out", &self.fan_out)
             .field("assignment_router", &self.assignment_router.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }

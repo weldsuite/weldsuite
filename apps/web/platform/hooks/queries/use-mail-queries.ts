@@ -11,7 +11,11 @@
  */
 
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSetAtom } from 'jotai';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { lastMailAiAtom } from '@/components/ai/mail-ai-badge';
+import { readAiMeta } from '@/components/ai/ai-meta-badge';
+import type { AiMeta } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { isFeatureAvailable, type EditionFeature } from '@/lib/edition';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
 import { mailKeys } from '@/hooks/queries/mail-keys';
@@ -911,8 +915,23 @@ export function useScheduledEmails(accountId?: string, enabled = true) {
 // `.json()` here to match consumer expectations.
 // =============================================================================
 
+/**
+ * Keeps `meta.ai` of a WeldMail AI answer for the badge next to the result
+ * (`components/ai/mail-ai-badge.tsx`). The answer is returned untouched.
+ */
+function useRememberMailAi() {
+  const setLast = useSetAtom(lastMailAiAtom);
+  return <T extends { meta?: { ai?: AiMeta } }>(answer: T): T => {
+    const ai = readAiMeta(answer);
+    if (ai) setLast(ai);
+    return answer;
+  };
+}
+
 interface AiDraftResponse {
   success: boolean;
+  /** Which provider answered (Kubernetes editions). */
+  meta?: { ai?: AiMeta };
   data?: { subject?: string; body?: string };
   /** auto-draft returns the draft under `draft`; compose draft uses `data`. */
   draft?: { subject?: string; body?: string };
@@ -920,34 +939,39 @@ interface AiDraftResponse {
 
 interface AiReplyResponse {
   success: boolean;
+  /** Which provider answered (Kubernetes editions). */
+  meta?: { ai?: AiMeta };
   /** reply returns the body at the top level; `data.body` mirrors it. */
   body?: string;
   data?: { body?: string };
 }
 
 export function useGenerateEmailDraft() {
+  const rememberAi = useRememberMailAi();
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiDraftResponse> => {
       assertFeature('mail-ai');
       const res = await mailAi.draft(data as Parameters<typeof mailAi.draft>[0]);
-      return res.json();
+      return rememberAi(await res.json());
     },
   });
 }
 
 export function useGenerateAutoDraft() {
+  const rememberAi = useRememberMailAi();
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiDraftResponse> => {
       assertFeature('mail-ai');
       const res = await mailAi.autoDraft(data as Parameters<typeof mailAi.autoDraft>[0]);
-      return res.json();
+      return rememberAi(await res.json());
     },
   });
 }
 
 export function useGenerateAIReply() {
+  const rememberAi = useRememberMailAi();
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiReplyResponse> => {
@@ -961,18 +985,22 @@ export function useGenerateAIReply() {
         body?: string;
         data?: { body?: string };
       };
-      return { success: json.success, body: json.body ?? json.data?.body, data: json.data };
+      return rememberAi({ success: json.success, body: json.body ?? json.data?.body, data: json.data, meta: (json as { meta?: { ai?: AiMeta } }).meta });
     },
   });
 }
 
 interface AiInboxSummaryResponse {
   success: boolean;
+  /** Which provider answered (Kubernetes editions). */
+  meta?: { ai?: AiMeta };
   data?: { summary?: string };
 }
 
 interface AiSmartRepliesResponse {
   success: boolean;
+  /** Which provider answered (Kubernetes editions). */
+  meta?: { ai?: AiMeta };
   data?: { replies?: string[] };
 }
 
@@ -981,12 +1009,13 @@ interface AiSmartRepliesResponse {
  * Calls `POST /api/mail-ai/inbox-summary` → agent-worker → summary text.
  */
 export function useInboxSummary() {
+  const rememberAi = useRememberMailAi();
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Parameters<typeof mailAi.inboxSummary>[0]): Promise<AiInboxSummaryResponse> => {
       assertFeature('mail-ai');
       const res = await mailAi.inboxSummary(data);
-      return res.json();
+      return rememberAi(await res.json());
     },
   });
 }
@@ -996,12 +1025,13 @@ export function useInboxSummary() {
  * Calls `POST /api/mail-ai/smart-replies` → agent-worker → reply candidates.
  */
 export function useSmartReplies() {
+  const rememberAi = useRememberMailAi();
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Parameters<typeof mailAi.smartReplies>[0]): Promise<AiSmartRepliesResponse> => {
       assertFeature('mail-ai');
       const res = await mailAi.smartReplies(data);
-      return res.json();
+      return rememberAi(await res.json());
     },
   });
 }

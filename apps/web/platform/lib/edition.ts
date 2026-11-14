@@ -25,6 +25,7 @@
 
 import { API_MODULES, type ApiModuleId } from '@weldsuite/api-modules';
 import { normalizeAppCode } from '@weldsuite/permissions';
+import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 
 /**
@@ -36,7 +37,11 @@ export const EDITION_FEATURES = [
   'sso-connections',
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
-  /** Buying credits (a Stripe checkout). */
+  /**
+   * Buying credits: a Stripe checkout on Global, a Mollie payment on the
+   * Kubernetes editions when the deployment has a Mollie key. Without
+   * `billing`, the billing page shows just the balance and the top-up.
+   */
   'credit-top-up',
   /** Paid WeldApps: subscriptions and developer payouts (Stripe). */
   'paid-apps',
@@ -83,11 +88,27 @@ export const EDITION_FEATURES = [
   /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
   'meet-recordings',
   /**
-   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
-   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
-   * Kubernetes editions yet).
+   * WeldAgent's AI: agent runs, routine tests and teach mode (Claude Managed
+   * Agents on Global, the Kubernetes editions' own agent loop). Unavailable on
+   * Kubernetes without an AI provider (`AI_DEFAULT_PROVIDER`), like every AI
+   * feature (ADR AI-012).
    */
   'agent-ai',
+  /**
+   * The assistant chat and its drawer (`/new-chat`, the global shortcut,
+   * board AI). Offered on a Kubernetes install as soon as an AI provider is
+   * configured; split from `agent-ai` so chat does not depend on agents.
+   */
+  'assistant-ai',
+  /**
+   * WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
+   * `browser:use` toggles). They run at Anthropic on Global; a Kubernetes
+   * install runs them on its own gVisor sandbox pods and SearXNG
+   * (`rust/crates/sandbox`), and lists this as unavailable without one
+   * (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`). The desktop (computer
+   * use) is offered there only to a Claude or GPT-5 model the workspace enabled.
+   */
+  'agent-sandbox',
   /** WeldDesk's inbox translation (`/api/desk/conversations/:id/translate*`, Workers AI). */
   'desk-ai',
   /** WeldForms' AI: generate a form, suggest questions, summarise answers (`/api/forms/ai/*`, `@weldsuite/ai`). */
@@ -170,6 +191,19 @@ export function moduleForApp(appCode: string): ApiModuleId {
 /** Whether this deployment offers a first-party app (sidebar, app store, routes). */
 export function isAppOffered(appCode: string): boolean {
   return isModuleOffered(moduleForApp(appCode));
+}
+
+/**
+ * The AI this deployment runs (`ai` in `/config.json`): null on Global, which
+ * has no `/api/ai-settings`, and on a Kubernetes install without a provider.
+ */
+export function getAiConfig(): RuntimeAiConfig | null {
+  return getRuntimeConfig()?.ai ?? null;
+}
+
+/** Whether workspace AI settings exist here: a Kubernetes install with a configured provider. */
+export function hasAiSettings(): boolean {
+  return getAiConfig() !== null;
 }
 
 /** Whether this deployment offers a feature (`unavailableFeatures` doesn't name it). */

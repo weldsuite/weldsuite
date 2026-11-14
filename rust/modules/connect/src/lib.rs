@@ -7,6 +7,11 @@
 //! A run is started through [`runs::WorkflowRuns`]: the `EXECUTE_WORKFLOW`
 //! Workflow binding on Global, the `connect.execute-workflow` job here.
 //!
+//! AI (ADR AI-012, feature `connect`) runs on the install's provider through
+//! `weldsuite-ai`: "Generate with AI" (`POST /api/workflows/generate`) and the
+//! engine's `ai_generate` / `ai_classify` steps. Without a provider they
+//! answer as the workers do without their gateway.
+//!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `connect`
 //! conformance suites (`rust/conformance/suites.json`).
@@ -31,6 +36,7 @@ pub mod engine;
 mod entity_workflows;
 mod executions;
 mod external_webhooks;
+mod generate;
 mod github;
 mod github_app;
 mod github_connections;
@@ -91,6 +97,7 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
+pub use cron::compute_next_run_at;
 pub use entity_workflows::EntityWorkflowsSubscriber;
 pub use integrations::RequestCrmSyncRuns;
 pub use integrations::internal::is_internal_call as is_internal_integrations_call;
@@ -140,6 +147,11 @@ pub struct ConnectState {
     /// the connector sync copies. A request's `StorageBuckets`
     /// (conformance) wins.
     pub storage: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
+    /// The install's AI (`weldsuite-ai`, ADR AI-012): "Generate with AI"
+    /// (`POST /api/workflows/generate`). `None` without a provider, which
+    /// answers as connect-api without its gateway. A request's `Ai`
+    /// (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for ConnectState {
@@ -150,6 +162,7 @@ impl std::fmt::Debug for ConnectState {
             .field("master", &self.master.is_some())
             .field("http", &self.http.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -266,6 +279,7 @@ pub(crate) struct Overrides {
     pub(crate) master: Option<weldsuite_db::MasterDb>,
     pub(crate) runs: Option<RequestWorkflowRuns>,
     pub(crate) buckets: Option<weldsuite_ports::StorageBuckets>,
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Overrides {
@@ -277,7 +291,18 @@ impl Overrides {
             master: extensions.get::<weldsuite_db::MasterDb>().cloned(),
             runs: extensions.get::<RequestWorkflowRuns>().cloned(),
             buckets: extensions.get::<weldsuite_ports::StorageBuckets>().cloned(),
+            ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
         }
+    }
+
+    /// The AI a route calls: the request's (conformance), else the state's;
+    /// `None` when it is off.
+    pub(crate) fn ai(&self, state: &ConnectState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// `c.env.<name>`: the request's env first (conformance), then the state's.

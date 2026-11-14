@@ -130,9 +130,93 @@ impl HttpResponse {
     }
 }
 
+/// A streamed answer's body, read chunk by chunk (a model's server-sent
+/// events).
+pub trait HttpBodyStream: Send {
+    /// The next chunk; `None` at the end of the body.
+    fn next_chunk(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, PortError>>;
+}
+
+/// A streamed answer: the status and headers as soon as they arrive, the
+/// body as it comes. From [`DynOutboundHttp::send_streaming`].
+pub struct HttpStreamResponse {
+    pub status: u16,
+    /// Names lowercased, in the order received.
+    pub headers: Vec<(String, String)>,
+    pub body: Box<dyn HttpBodyStream>,
+}
+
+impl std::fmt::Debug for HttpStreamResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpStreamResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A body already read whole, handed out as one chunk.
+struct BufferedBody(Option<Vec<u8>>);
+
+impl HttpBodyStream for BufferedBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, PortError>> {
+        let chunk = self.0.take().filter(|body| !body.is_empty());
+        Box::pin(std::future::ready(Ok(chunk)))
+    }
+}
+
+impl HttpStreamResponse {
+    /// A whole answer as a stream of one chunk.
+    pub fn buffered(response: HttpResponse) -> Self {
+        Self {
+            status: response.status,
+            headers: response.headers,
+            body: Box::new(BufferedBody(Some(response.body))),
+        }
+    }
+
+    pub fn ok(&self) -> bool {
+        (200..300).contains(&self.status)
+    }
+
+    /// The first value of a header, by case-insensitive name.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Reads the rest of the body: the answer as [`DynOutboundHttp::send`]
+    /// would have given it.
+    pub async fn collect(mut self) -> Result<HttpResponse, PortError> {
+        let mut body = Vec::new();
+        while let Some(chunk) = self.body.next_chunk().await? {
+            body.extend_from_slice(&chunk);
+        }
+        Ok(HttpResponse {
+            status: self.status,
+            body,
+            headers: self.headers,
+        })
+    }
+}
+
 /// Sends HTTP requests to third parties.
 pub trait DynOutboundHttp: Send + Sync {
     fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>>;
+
+    /// Sends a request whose answer is read as it arrives (a model's
+    /// server-sent events). The default reads the whole answer with
+    /// [`send`](Self::send) and hands it out as one chunk, so every client
+    /// that can't stream (the test doubles, the conformance bridge) still
+    /// answers.
+    fn send_streaming(
+        &self,
+        request: HttpRequest,
+    ) -> BoxFuture<'_, Result<HttpStreamResponse, PortError>> {
+        Box::pin(async move { self.send(request).await.map(HttpStreamResponse::buffered) })
+    }
 }
 
 /// The outbound HTTP client a request uses (a request extension in
@@ -149,5 +233,56 @@ impl std::fmt::Debug for OutboundHttp {
 impl OutboundHttp {
     pub async fn send(&self, request: HttpRequest) -> Result<HttpResponse, PortError> {
         self.0.send(request).await
+    }
+
+    /// [`DynOutboundHttp::send_streaming`].
+    pub async fn send_streaming(
+        &self,
+        request: HttpRequest,
+    ) -> Result<HttpStreamResponse, PortError> {
+        self.0.send_streaming(request).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Whole;
+
+    impl DynOutboundHttp for Whole {
+        fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
+            let mut response = HttpResponse::new(200, request.url.into_bytes());
+            response
+                .headers
+                .push(("content-type".to_owned(), "text/event-stream".to_owned()));
+            Box::pin(std::future::ready(Ok(response)))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_that_cant_stream_answers_in_one_chunk() {
+        let http = OutboundHttp(Arc::new(Whole));
+        let mut streamed = http
+            .send_streaming(HttpRequest::empty("GET", "data: hi"))
+            .await
+            .expect("answer");
+        assert!(streamed.ok());
+        assert_eq!(streamed.header("Content-Type"), Some("text/event-stream"));
+        assert_eq!(
+            streamed.body.next_chunk().await.expect("chunk"),
+            Some(b"data: hi".to_vec())
+        );
+        assert_eq!(streamed.body.next_chunk().await.expect("end"), None);
+
+        let collected = http
+            .send_streaming(HttpRequest::empty("GET", "whole"))
+            .await
+            .expect("answer")
+            .collect()
+            .await
+            .expect("body");
+        assert_eq!(collected.text(), "whole");
+        assert_eq!(collected.status, 200);
     }
 }

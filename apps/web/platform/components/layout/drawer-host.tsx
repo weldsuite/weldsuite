@@ -33,7 +33,7 @@ export function DrawerHost() {
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
-      {isModuleOffered('agent') && isFeatureAvailable('agent-ai') && <GlobalAgentShortcut />}
+      {isModuleOffered('agent') && isFeatureAvailable('assistant-ai') && <GlobalAgentShortcut />}
     </>
   );
 }

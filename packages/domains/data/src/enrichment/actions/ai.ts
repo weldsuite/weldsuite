@@ -7,6 +7,10 @@
  * now always returns an empty result after logging a warning — the enrich
  * workflow (`workflows/welddata-enrich.ts`) writes this as a `done` cell with
  * an empty value, same as any other action that finds nothing.
+ *
+ * The Kubernetes editions answer the same way without an AI provider, and
+ * with one run the column's prompt on `weldsuite-ai` (feature `data`,
+ * `rust/modules/data/src/actions.rs`, ADR AI-012).
  */
 
 import { resolveTemplate } from '../template';

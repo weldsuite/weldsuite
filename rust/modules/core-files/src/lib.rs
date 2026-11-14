@@ -4,7 +4,10 @@
 //! - `/api/folders`: the folder tree and folder sharing;
 //! - `/api/drive`: the views across modules (all files, counts, "Shared with
 //!   me") and the trash;
-//! - `/api/search`: the federated search over every module's records.
+//! - `/api/search`: the federated search over every module's records, its
+//!   query understanding's model tier on the install's AI, and the semantic
+//!   reindex (`POST /api/search/reindex`, one backfill page per call through
+//!   the indexer of `weldsuite_subscribers::search`).
 //!
 //! `files:*` / `folders:*` open the door to Drive; which items a caller sees,
 //! and at what role, follows the WeldDrive rules in
@@ -17,9 +20,6 @@
 //!   public bucket;
 //! - the 30-day purge of trashed files, a job ([`TrashPurgeJob`]) that
 //!   `DELETE /api/files/:id` starts with a delay.
-//!
-//! Not here yet: the search reindex and the model tier of query
-//! understanding (both need an AI port).
 
 mod drive;
 mod files;
@@ -76,6 +76,13 @@ pub struct CoreFilesState {
     /// The upload broker's cache, signing key and session verifier, and the
     /// jobs port the trash purge is started on.
     pub storage: StorageState,
+    /// The install's AI (ADR AI-012): search query understanding's model
+    /// tier and the reindex's embeddings. `None` with AI off; a request's
+    /// `Ai` (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// The master database: the credit wallet the AI calls are metered on.
+    /// A request's `MasterDb` (conformance) wins.
+    pub master: Option<PgPool>,
 }
 
 /// `/api/files`, to nest under `/api` behind the session, tenant database,
@@ -220,6 +227,10 @@ where
 {
     Router::new()
         .route("/", post(search::search).route_layer(gate.resolve()))
+        .route(
+            "/reindex",
+            post(search::reindex).route_layer(gate.require(["settings:general:update".to_owned()])),
+        )
         .with_state(state)
 }
 
@@ -239,9 +250,37 @@ pub(crate) struct Caller {
     files: Option<FileStores>,
     /// What the storage routes read from the request (conformance builds).
     pub(crate) storage: storage::Overrides,
+    /// The request's AI and master database (conformance builds).
+    ai: Option<weldsuite_ai::Ai>,
+    master: Option<PgPool>,
+    /// `c.get('workspaceId')`: `workspaces.id`.
+    pub(crate) workspace_id: String,
 }
 
 impl Caller {
+    /// The AI a call runs on: the request's (conformance), then the app's;
+    /// `None` when it is off.
+    pub(crate) fn ai(&self, state: &CoreFilesState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
+    }
+
+    /// `getMasterDb(c.env)`: the request's (conformance), then the app's.
+    pub(crate) fn master(&self, state: &CoreFilesState) -> Option<PgPool> {
+        self.master.clone().or_else(|| state.master.clone())
+    }
+
+    /// `c.env.WORKSPACE_CACHE`.
+    pub(crate) fn cache(
+        &self,
+        state: &CoreFilesState,
+    ) -> Option<Arc<dyn weldsuite_ports::DynCache>> {
+        self.storage.cache(state)
+    }
+
     /// `hasContextPermission(c, key)`.
     pub(crate) fn can(&self, key: &str) -> bool {
         self.permissions
@@ -379,6 +418,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 env: parts.extensions.get::<RequestEnv>().cloned(),
                 files: parts.extensions.get::<FileStores>().cloned(),
                 storage: storage::Overrides::from_parts(parts),
+                ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
+                master: parts
+                    .extensions
+                    .get::<weldsuite_db::MasterDb>()
+                    .map(|master| master.0.clone()),
+                workspace_id: tenant.workspace_id.clone(),
             })
         } else {
             tracing::error!("core-files: a route without the session or tenant layer");

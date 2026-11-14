@@ -26,9 +26,10 @@ Decided with Gert (2026-11-13):
   served (AI-005, AI-006). The hard 402 gate (AI-007) switches on once the EU
   edition has a credit top-up (Mollie). Until then calls are charged but not
   blocked.
-- **WeldAgent comes later, on our own agent loop in Rust**, not on Claude
-  Managed Agents and not on Mistral's Agents API. It is phase 5 and gets its
-  own plan.
+- **WeldAgent is ported to the EU edition in the same pull request**, on our
+  own agent loop in Rust over `crates/ai`: not on Claude Managed Agents and
+  not on Mistral's Agents API (decided 2026-11-13). It is phase 5, with its
+  own section below.
 
 ## Where we start
 
@@ -455,16 +456,352 @@ them into the conformance suites, and adds the region badge.
 credit packages, the balance on the billing page, and `ai.creditGate: true`.
 EU billing is bigger than AI, so this gets its own plan.
 
-**Phase 5: WeldAgent on our own Rust agent loop.** Its own plan. In outline:
-- a tool-calling loop over `crates/ai`, provider and model from the policy's
-  `agents` feature;
-- conversation state in the existing `weldagent_*` tenant tables;
-- platform tools as Rust functions that run with the caller's permissions;
-- the agent module's data routes, rooms, the routine cron and the `weldagent`
-  subscriber;
-- no sandbox, computer use or browsing at first (those toggles are hidden on
-  EU);
-- `WORKSPACE_AGENT_MODELS` becomes edition-aware.
+**Phase 5: WeldAgent on our own Rust agent loop.** Built in the same pull
+request. The design is in "Phase 5: WeldAgent on our own Rust agent loop"
+below.
+
+## Phase 5: WeldAgent on our own Rust agent loop
+
+### What Global does
+
+WeldAgent is the module behind `/api/weldagent`, `/api/ai`, `/api/ai-models`
+and `/api/chat-agent` (`agent-api`, `packages/domains/agent`,
+`docs/autonomous-agents.md`, ADRs AGENT-001 to AGENT-015).
+
+- **Agents.** A workspace agent is a row in `weldagent_agents`: instructions,
+  model, grants (`permissions[]`), an owner, a visibility and optional
+  sub-agents. Its tools are the platform tools whose `requiredPermissions` its
+  grants cover, narrowed to the person who drives the turn (AGENT-003).
+- **Runtime.** Every agent syncs to a versioned Claude Managed Agents object.
+  A conversation keeps one Managed Agents session
+  (`weldagent_conversations.metadata.managedSession`); runs and room replies
+  get a one-off session (AGENT-001, 004, 005). Platform tools are custom tools
+  that `agent-api` executes (AGENT-002). The sandbox (`computer:use`) and the
+  web tools (`browser:use`) run at Anthropic, and `browser_open` / `browser_act`
+  run in `agent-runtime` (AGENT-007). A turn is charged from the session's list
+  cost (AGENT-006).
+- **Entry points.** Chat (`complete-turn`, the drawer and `/new-chat`), manual
+  runs, entity events (the `entity-agents` queue, AGENT-009), the hourly
+  routine sweep, connector events, WeldChat rooms (@mentions and the room
+  policy, `dispatchAgentMentions`, AGENT-010), durable jobs in a Cloudflare
+  Workflow (AGENT-008), and teach mode.
+- **Safety.** High-risk tool calls park a `weldagent_approvals` row and run
+  when a person approves, with the approver's grants. A routine may skip
+  approvals when its owner turned them off.
+- **The default WeldAgent** (no `agentId`) is the assistant chat. It is phase
+  3e and runs on the person's own permissions, not on grants.
+
+### What EU does instead
+
+The agent runs in the Rust backend, in a new module crate `rust/modules/agent`
+(`weldsuite-agent`), over `crates/ai`. Nothing in it calls Anthropic's Managed
+Agents. Global stays as it is.
+
+**The loop** (`run.rs`, the twin of `executor.ts`):
+
+1. Build the model request: the agent's instructions, the conversation (or the
+   event or routine payload), the tools the agent may use for this turn.
+2. Call `ai.chat` with `Feature::Agents`, `Task::Copilot` and the agent's
+   model. The model comes from the policy, so an admin can route agents to
+   another enabled provider. An agent's stored `modelId` is a `stored_model`:
+   a model the policy refuses is skipped, not an error, and the feature's
+   default is used.
+3. If the answer has tool calls, run each one through `execute_tool`, append
+   the results and go back to step 2. The loop stops when the model answers
+   without a tool call, or at `maxIterations` (default 10) or `maxTotalTokens`.
+   A tool that needs approval ends the turn for that call (below).
+4. Every `ai.chat` call is metered by `crates/ai`, one charge per model call,
+   with `op` = `agents` and the run or conversation id as the reference. This
+   replaces the session-list-cost charge. The 402 gate runs before the first
+   call (`assert_credits`) and between calls.
+5. Streaming chat turns use `ai.chat_stream`, and the loop forwards text
+   deltas and tool events. Runs, routines and room replies are not streamed.
+
+The conversation is rebuilt from `weldagent_messages` on every turn: the last
+messages, with the tool invocations stored on assistant messages. There is no
+server-side session, so nothing in `metadata.managedSession` is read or
+written on EU, and a conversation that moves between editions loses nothing.
+Long chats are trimmed to a token budget, the oldest turns first, with a short
+summary row when something was dropped.
+
+**State** stays in the existing tenant tables (`weldagent_agents`,
+`weldagent_agent_runs`, `weldagent_conversations`, `weldagent_messages`,
+`weldagent_agent_members`, and the parity tables for routines, skills,
+memories, approvals and teach sessions). No migration. The `anthropic_*`
+columns stay empty on EU. `agent_runs.result.toolInvocations` carries the
+steps, as on Global.
+
+**Platform tools** are Rust functions (`tools/`), each with a JSON-schema
+definition (`weldsuite_ai::ToolDef`) and an executor
+`execute_tool(ctx, name, args)`.
+
+- A tool is offered only when the agent's grants cover its
+  `requiredPermissions` (`resolve_agent_tools`, the twin of
+  `resolveAgentTools`), narrowed to the person driving the turn
+  (`effective_agent_permissions`, `actor-permissions.ts`). The executor checks
+  the same rule again at call time, so a model that invents a tool name gets
+  an error and nothing runs.
+- Arguments are validated against the schema before the tool runs, and a bad
+  argument goes back to the model as a tool error.
+- Reads and writes use the Rust domain crates (`crm-domain`, `desk-domain`,
+  `flow-domain`, `merge-domain`, the sheets and board modules) where a function
+  exists, and tenant SQL with the same `workspaceId` scoping otherwise. Every
+  write publishes the entity event with `triggeredByAgentId`, so audit,
+  workflows and realtime see it and agents don't re-trigger on their own
+  records.
+- A tool whose module is not ported to Rust is left out of the EU catalog.
+  `GET /api/weldagent/agents/tools` lists what EU can run, so the builder never
+  offers a tool that can't work.
+
+**Approvals** (`approvals.rs`): the same table and routes. `tool_risk_level`
+and `NEVER_AUTO_REVIEW` are ported as they are. Approving runs the stored call
+with the approver's grants and posts the result into the conversation.
+
+**Rooms** (`rooms.rs`): WeldChat rooms keep `memberType: 'agent'` members and
+the policy on `chat_channels.metadata` (`agentReplyPolicy`, `agentMaxHops`).
+`dispatch_agent_mentions` moves to Rust with the same loop guards: never reply
+to self, `agentMaxHops`, and `always` does not fan out on agent-authored
+messages. A reply is one run of the loop, posted with `authorType: 'agent'`.
+chat-api's Rust module calls it where the TypeScript worker calls
+`@weldsuite/agent-domain`.
+
+**Routines and events.**
+- The **routine cron** (`cron/weldagent-routines.ts`) becomes a job in
+  `weldsuite cron`: find routines due this hour, run each once (idempotent on
+  routine and slot), post the result in the owner's thread and notify them.
+- The **`weldagent` subscriber** (`entity-agents-consumer.ts`,
+  `dispatchWeldAgentsForEvent`) becomes a subscriber in `weldsuite consume`:
+  active agents whose `eventSubscriptions` match the event run once per event
+  id.
+- AI-011 kept both out of `consume` and `cron`. They are wired in again, and
+  only start when the role's `Ai` is `Some`.
+- Connector events (Slack, GitHub) follow the integrations module: a connector
+  routine fires through the same dispatch when that module delivers the event.
+
+**Models.** `WORKSPACE_AGENT_MODELS` (the three Claude ids) is Global's list.
+It becomes edition-aware in `@weldsuite/app-api-client/schemas/workspace-agents`:
+the create and update schemas accept a model that is in the policy's list for
+`agents` on this install, and the platform builder reads the list from
+`GET /api/ai-settings` on EU. `DEFAULT_WORKSPACE_AGENT_MODEL` on EU is the
+`agents` default of the workspace policy (Mistral Large at first), so a new
+agent has no model id of its own unless the admin picks one. Stored Claude ids
+on an agent that moved from Global keep working when the admin has enabled
+Anthropic, and fall back to the default otherwise.
+
+**The EU sandbox** (decided 2026-11-13). Code execution, web search and
+fetch, the browser tools and computer use run on the install's own cluster,
+not at Anthropic: `rust/crates/sandbox` (`weldsuite-sandbox`), the image
+`rust/deploy/sandbox`, and the chart's `sandbox` and `searxng` sections.
+
+- **Edition flag.** `agent-sandbox` is no longer static: it is listed only
+  while the install has no sandbox (`SANDBOX_ENABLED`, the chart's
+  `sandbox.enabled`). With one, the builder shows the sandbox and browsing
+  toggles, the create route adds `computer:use` and `browser:use` when the
+  creator holds them (as on Global), and `grantable permissions` lists them.
+- **Pods.** One sandbox pod per agent conversation (chat turns share it, so
+  files and the browser survive between turns) or per run, named from the
+  workspace, agent and session, so every replica finds the same pod. They
+  run in the `weldsuite-sandbox` namespace (Pod Security `restricted`) under
+  gVisor (`RuntimeClass gvisor`, handler `runsc`; on Talos the
+  `siderolabs/gvisor` system extension), with no service-account token, a
+  read-only root filesystem, CPU, memory and disk limits, the public
+  resolvers instead of the cluster's DNS, an idle timeout (the agent in the
+  pod exits, 15 minutes) and a hard lifetime (`activeDeadlineSeconds`, one
+  hour). Limits per workspace (2) and per install (40, also a
+  `ResourceQuota`).
+- **Who may start them.** The server (`serve`, `consume` and the cron jobs
+  that run agents) talks to the Kubernetes REST API with its pod's
+  service-account token. The chart's `Role` lets that account get, list,
+  create and delete pods in the sandbox namespace and nothing else, and a
+  `ValidatingAdmissionPolicy` admits only pods of the sandbox's shape there
+  (gVisor, the sandbox image, no token, no host namespaces or paths, no
+  privilege, a hard lifetime). A server that is taken over can start
+  sandboxes, nothing more.
+- **Network.** A default-deny `NetworkPolicy` in the namespace; the pods may
+  reach the public internet on TCP 80 and 443 and their resolvers on 53,
+  never a private, link-local, metadata or reserved range (nor the
+  addresses in `sandbox.deniedCidrs`, for the nodes' public IPs), and only the
+  server's pods may reach them, on 8080. **Fail closed:** before the first
+  sandbox of a process (and hourly after) is handed out, the agent in it
+  tries to reach the metadata service (`169.254.169.254:80`) and the
+  Kubernetes API; if either answers, the policy isn't enforced (Flannel, the
+  Talos default, doesn't enforce NetworkPolicy), the pod is deleted and no
+  sandbox is handed out. `weldsuite doctor` runs the same check.
+- **The agent in the pod** answers the server on port 8080, behind a
+  per-pod token (`HMAC(SANDBOX_TOKEN_SECRET, pod name)`; the pod holds only
+  its SHA-256): commands with a timeout and output caps, files under
+  `/workspace`, Python and JavaScript, page fetches as text, Chromium over
+  the DevTools protocol, an X desktop (Xvfb, xdotool, screenshots), and the
+  isolation self-test.
+- **Tools** (registered in `weldsuite-agent` behind the existing grants,
+  Global's names where they exist):
+
+  | Tool | Grant | Runs |
+  |---|---|---|
+  | `computer_exec`, `computer_read_file`, `computer_write_file`, `computer_list_files`, `computer_run_code` | `computer:use` | the sandbox (agent-runtime's `/v1/computer/*` names, which the approval rules already treat as high risk) |
+  | `computer_use` | `computer:use` and a model with `computer_use` | the sandbox's desktop |
+  | `web_search` | `browser:use` | SearXNG in the cluster |
+  | `web_fetch`, `browser_open`, `browser_act`, `browser_close` | `browser:use` | the sandbox, never the server's pod |
+
+  The loop offers them with `tools::offered_tools(ctx, Some(&access))` and
+  runs them with `tools::execute_tool_with`, where
+  `tools::SandboxAccess::for_turn` gives the turn its sandbox; a turn without
+  one gets none of them. Outputs are data: cleaned (hidden characters
+  removed), capped, web text marked as untrusted, and screenshots returned
+  as images after the tool result (`tools::tool_result_messages`), never as
+  base64 text.
+- **Computer use only on opted-in models.** `computer_use` is offered only
+  when the turn's resolved model has the `computer_use` capability in the
+  catalog (`packages/core/ai/src/catalog.ts`): the Claude 5.5 models and
+  GPT-5, which a workspace admin enabled outside the EU. On Mistral (and a
+  compat model) it is hidden, and a call to it is an unknown tool. Its
+  clicks and keystrokes are high risk (they ask first, like `browser_act`'s)
+  and never auto-reviewed.
+- **Web search.** A SearXNG in the release's namespace, asked only by the
+  server's pods: JSON on, debug and metrics off, the limiter on with a Valkey
+  of its own, and the engines Qwant, Startpage, Mojeek and Wikipedia. Only
+  the query leaves the cluster, sent in a POST body, to those engines (each
+  a company outside WeldSuite; Startpage forwards it to Google without the
+  user, Wikipedia is in the US).
+- **Cleanup.** `weldsuite cron sandbox-cleanup` (every 5 minutes) deletes
+  finished pods (idle exit, lifetime), pods past their lifetime and pods
+  that never started.
+
+**What stays on Global only.** Claude Managed Agents sessions, the agent-object
+sync and its columns, the `WeldAgentJob` Workflow (a long run on EU is one
+Restate job through the existing jobs port), and `agent-runtime`.
+
+### Where it lives
+
+| Part | Rust | TypeScript twin |
+|---|---|---|
+| Module crate, routes | `rust/modules/agent` (`agents`, `conversations`, `approvals`, `parity`, `ai_models`, `chat_agent`) | `apps/workers/agent-api/src/routes/` |
+| Access, grants, subscriptions | `access.rs`, `grants.rs`, `subscriptions.rs` | `access.ts`, `grants.ts`, `subscriptions.ts` |
+| Tools and executor | `tools/` | `tools.ts`, `*-tools.ts`, `executor.ts` |
+| Loop | `run.rs` (`run_agent`, `agent_turn`) | `run.ts`, `executor.ts`, `complete-turn.ts` |
+| Rooms | `rooms.rs` | `agent-mention-dispatch.ts` |
+| Routines, events | `routines.rs`, wired in `weldsuite cron` and `weldsuite consume` | `cron/weldagent-routines.ts`, `queue/entity-agents-consumer.ts` |
+| Sandbox, web and browser tools | `rust/crates/sandbox` (pods, agent client, SearXNG, tools), `tools/sandbox_tools.rs`, `rust/deploy/sandbox` (image and agent), the chart's `sandbox` and `searxng` | Managed Agents' toolset, `computer-client.ts`, `apps/workers/agent-runtime` |
+
+The module is `agent` in `packages/core/api-modules` (prefixes `/api/ai`,
+`/api/ai-models`, `/api/chat-agent`, `/api/weldagent`). It is added to
+`RUST_PORTED_MODULES`. `/config.json` offers it only when AI is configured,
+like `meet` needs video. Phase 3e's assistant routes (`/api/ai/chat`,
+`/api/ai/generate`, without `agentId`) live in the same crate.
+
+### What is built
+
+The module crate `rust/modules/agent` has:
+
+- the data routes (agents, access, sub-agents, conversations, messages,
+  approvals, skills, routines, memories, templates, teach sessions, connector
+  events) and the settings, mention and model-list stubs as the worker has
+  them;
+- the loop (`agent_loop.rs`): the system prompt, skills and memory blocks, the
+  history of a chat turn from `weldagent_messages` (80 messages, 120,000
+  characters, newest kept), the tool-call loop over `ai.chat`, approvals
+  parked and decided, `ask_user` ending the turn;
+- `run_agent` and `agent_turn` (`run.rs`): run rows and counters, routine
+  runs closed and delivered into the owner's chat, a chat turn accepted and
+  answered in the background (or in the request with `wait`);
+- rooms (`rooms.rs`): reply selection, the self-reply and hop guards, the
+  "working" signal, the reply with its approval buttons, the agent-to-agent
+  chain, and the `weldagent.job` job that chat-api enqueues;
+- the `weldagent` subscriber and the routine sweep.
+
+Streaming: Global's `complete-turn` does not stream either, the reply is
+saved and the client polls the messages. The streamed chat belongs to the
+assistant (`/api/ai/chat/stream`).
+
+**Tools on EU**: every tool of the Global registry. WeldAgent's own
+(`save_agent_setup`, `ask_user`, `list_routines`, `update_routine`,
+`save_skill`, `remember`, `create_routine`), people, tasks and projects
+(`list_people`, `get_person`, `create_person`, `list_tasks`, `create_task`,
+`list_projects`, `get_project`), chat (`message_agent`,
+`create_agent_group_chat`), tickets (`list_tickets`, `create_ticket`, through
+desk-domain's inbox like the public API), spreadsheets (`find_spreadsheets`,
+`create_spreadsheet`, `list_spreadsheet_tabs`, `read_spreadsheet_range`,
+`write_spreadsheet_range`), boards (`find_boards`, `create_board`,
+`read_board`, `add_to_board`, `update_board`) and WeldMerge (the eight
+`merge_*` tools). The sandbox, web and browser tools come from the sandbox
+crate; the loop offers them only when the install has a sandbox, and
+`computer_use` only for a model that can drive a desktop. A run releases its
+sandbox session when it ends; a chat keeps one per conversation, which the
+idle sweep ends.
+
+The spreadsheet, board and merge tools reach their modules in process. The
+module crates expose the operations the Global tools call over service
+bindings as library functions (`weldsuite_sheets::agent_call`,
+`weldsuite_board::agent_call`, `weldsuite_merge::agent_tool`, twins of
+`SheetsInternal`, `BoardsInternal` and `MergeInternal.agentTool`); the binary
+implements the agent crate's `ModuleTools` over them and installs it when it
+mounts the agent module. Each call acts for the person the agent works for:
+their permissions and their WeldDrive or project access are checked as they
+are now, on top of the agent's grants. Only `serve` installs it: the consume
+and cron roles run agents without the spreadsheet, board and merge tools (they
+answer that the module is not available to agents here). The default
+WeldAgent also gets the spreadsheet tools for the sheet the person has open
+and the sheets they tag (AGENT-015), limited to those sheets, with up to ten
+model requests instead of six.
+
+Push notifications for an approval waiting, a finished chat turn and a room
+reply are not sent yet; the unread counters and realtime pings are.
+
+**Models.** `createWorkspaceAgentSchema` keeps its strict Claude enum for
+Global. `createWorkspaceAgentSchemaAnyModel` takes a catalog id
+(`provider/model`), a bare Claude id or the `default` sentinel, and the agent
+form lists the models of `GET /api/ai-settings` (feature `agents`) plus "the
+workspace default". Whether the workspace's policy allows the stored model is
+checked on every run: a model it refuses is skipped and the policy's model
+for `agents` is used.
+
+### Parity: what behaves the same, what doesn't
+
+Same: every route path, body, status code and message; the access rules
+(owner, visibility, members, `weldagent:manage`); grants and their narrowing;
+approvals; room policy and loop guards; routines and event subscriptions; the
+tool names and result shapes the model sees; entity events.
+
+Different on EU, and said so in the UI:
+- the sandbox, computer use and browsing run on the install's own sandbox
+  pods and SearXNG, not at Anthropic; `agent-sandbox` hides them on an
+  install without one, and computer use needs a Claude or GPT-5 model the
+  workspace enabled;
+- no sub-agent roster at Anthropic: a sub-agent is a nested run of the same
+  loop (one level deep, as AGENT-013 requires), with the sandbox and web
+  grants never inherited;
+- no session compaction by the platform: the trimming above;
+- the model is the policy's, so quality and cost differ from Claude Opus, and
+  the label of the provider shows on the agent's header.
+
+### Tests and conformance
+
+- **Rust unit tests** per part: access rules, grants and their narrowing, the
+  subscription reader, the tool registry (a tool is offered only with its
+  grants), argument validation, approval risk levels, room policy and hop
+  limits, routine due-time.
+- **The loop on `FakeProvider`**: a scripted model that asks for a tool, then
+  answers. The tests cover tool results going back to the model, the
+  iteration and token limits, a refused tool, an approval parked, the 402 gate,
+  and one charge per model call.
+- **Conformance.** The data routes (agents, access, conversations and messages,
+  parity, approvals read and decide) are not behind the model, so their
+  TypeScript tests run against both backends and leave `excludedRoutes`.
+  Routes that run the model (`/agents/:id/run`, `complete-turn`, `/api/ai/*`)
+  have TypeScript tests that mock `@weldsuite/ai`; they stay excluded until
+  the shared mock-model helper (an OpenAI-compatible `/chat/completions`
+  answer over the harness's fetch stub) covers them, and are covered by the
+  Rust loop tests above until then.
+- **The sandbox** (`weldsuite-sandbox` and the agent crate's
+  `sandbox_tools`): the Kubernetes API requests and the pod's shape on a
+  recording HTTP client, start/reuse/replace/limits/fail-closed/cleanup on
+  an in-memory pod API, each tool's shape, caps and sanitising against a
+  faked agent, the grants and the desktop hidden without the model's
+  capability (Mistral). The agent in the pod has its own `node --test`
+  suite (auth, paths, caps, addresses, page text, desktop actions, the HTTP
+  server on a temporary workspace); CI builds the image and checks its
+  tools. Not tested in CI: gVisor itself and the NetworkPolicy, which need a
+  real cluster; the isolation check and `weldsuite doctor` cover them there.
 
 ## Schema (needs approval before any migration)
 

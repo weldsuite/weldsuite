@@ -9,9 +9,11 @@
 //! The video provider is the `VideoRooms` port (`weldsuite-video-rooms`):
 //! `RealtimeKit` on Global and in conformance (its calls go through the
 //! test's `fetch` stub), `LiveKit` on Kubernetes. What is RealtimeKit-only
-//! (its recorder, its post-meeting transcript and summary, the Workers AI
-//! transcription and summaries) answers as the worker does without the
-//! bindings it needs; see `README.md` in `rust/` for the details.
+//! (its recorder, its post-meeting transcript and summary) answers as the
+//! worker does without the bindings it needs; see `README.md` in `rust/` for
+//! the details. The "transcribe afterwards" pass and the summaries run as
+//! the [`MeetingAiJob`] on `weldsuite_ai` when the install has an AI
+//! provider (`crate::meeting_ai`).
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `meet`
@@ -31,8 +33,10 @@ mod invitations;
 mod js;
 mod lifecycle;
 mod livekit_webhook;
+mod meeting_ai;
 mod meetings;
 mod messages;
+mod mp3;
 mod participants;
 mod publish;
 mod recording;
@@ -72,6 +76,8 @@ use weldsuite_ports::{
     HttpRequest, HttpResponse, ObjectInfo, OutboundHttp, PortError, RequestCache, StorageBuckets,
 };
 use weldsuite_video_rooms::{DynVideoRooms, RealtimeKit, RealtimeKitConfig};
+
+pub use meeting_ai::{JobsMeetingAi, MEETING_AI_JOB, MeetingAiJob};
 
 /// A workspace's tenant database, by the id a webhook mapping carries (the
 /// Clerk org id; `getTenantDbForWorkspace`).
@@ -114,9 +120,11 @@ pub trait MeetWorkflow: Send + Sync {
     fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>>;
 }
 
-/// meet-api's three Workflow bindings. The Kubernetes editions run none of
-/// them (the copy and backfill read `RealtimeKit`'s recorder, the AI one
-/// Workers AI), so their routes answer as the worker does without them.
+/// meet-api's three Workflow bindings. The Kubernetes editions run the AI
+/// one as the [`MeetingAiJob`] when the install has an AI provider
+/// ([`JobsMeetingAi`]) and neither of the others (the copy and backfill read
+/// `RealtimeKit`'s recorder): their routes answer as the worker does without
+/// them.
 #[derive(Clone, Default)]
 pub struct MeetWorkflows {
     /// `MEETING_RECORDING_COPY`.
@@ -174,6 +182,9 @@ pub struct MeetState {
     pub tenants: Option<TenantDatabases>,
     /// `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, for `LiveKit`'s webhook.
     pub livekit: Option<LiveKitKeys>,
+    /// The install's AI (`weldsuite_ai`, ADR AI-012), for the [`MeetingAiJob`]
+    /// (transcripts and summaries). `None` with AI off.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for MeetState {
@@ -183,6 +194,7 @@ impl std::fmt::Debug for MeetState {
             .field("cache", &self.cache.is_some())
             .field("master", &self.master.is_some())
             .field("video", &self.video.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
