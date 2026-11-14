@@ -88,8 +88,18 @@ export interface CreditsSummary {
   transactions: CreditTransactionRow[];
 }
 
+/**
+ * Who issued an invoice: 'stripe' on Global, 'weldbooks' on the EU edition
+ * (ADR BILL-014). Payments are 'stripe' or 'mollie'. Kept as a string so a
+ * new provider reads as "not Stripe" instead of failing.
+ */
+export type BillingProvider = string;
+
 export interface InvoiceRow {
   id: string;
+  provider: BillingProvider;
+  /** The Mollie payment (`tr_…`) a WeldBooks invoice was issued for; null on Stripe rows. */
+  providerPaymentId: string | null;
   number: string | null;
   status: string | null;
   amountDue: number | null;
@@ -102,6 +112,11 @@ export interface InvoiceRow {
 
 export interface PaymentRow {
   id: string;
+  provider: BillingProvider;
+  /** The Mollie payment (`tr_…`); null on Stripe rows. */
+  providerPaymentId: string | null;
+  /** What a Mollie charge was for: checkout, change, renewal, pay_link, mandate. */
+  kind: string | null;
   amount: number;
   currency: string;
   status: string;
@@ -123,6 +138,54 @@ export interface AuditEventRow {
   reason: string | null;
   error: string | null;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Plan billing on Mollie (Kubernetes editions, master `billing_accounts`,
+// ADR BILL-014). Read-only here: changes run from `weldsuite admin billing`.
+// ---------------------------------------------------------------------------
+
+/** The charge a past-due account still has to pay (its `billing_payments` row). */
+export interface MolliePastDueCharge {
+  /** `billing_payments.id` (`bpy_…`). */
+  id: string;
+  /** The Mollie payment (`tr_…`), once it was sent to Mollie. */
+  providerPaymentId: string | null;
+  /** Null when the row is gone. */
+  amount: number | null;
+  currency: string | null;
+  status: string | null;
+  failureMessage: string | null;
+}
+
+export interface MollieBillingAccount {
+  /** Mollie customer (`cst_…`). */
+  customerId: string | null;
+  /** The default mandate (`mdt_…`) renewals charge. */
+  mandateId: string | null;
+  /** creditcard, directdebit, paypal. */
+  mandateMethod: string | null;
+  /** Masked, e.g. "Visa •••• 4242". */
+  mandateLabel: string | null;
+  /** Net price per seat per cycle, in cents. */
+  unitAmount: number | null;
+  currency: string;
+  /** Day of the month (1–28) charges fall on. */
+  anchorDay: number | null;
+  nextChargeAt: string | null;
+  /** What changes at the end of the period; null when nothing is scheduled. */
+  scheduled: {
+    planId: string | null;
+    planName: string | null;
+    seats: number | null;
+    cycle: string | null;
+  } | null;
+  /** Null unless the account is past due. */
+  pastDue: {
+    since: string;
+    remindedAt: string | null;
+    charge: MolliePastDueCharge | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

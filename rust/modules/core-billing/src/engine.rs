@@ -920,6 +920,26 @@ pub async fn outstanding_checkout(
         ));
     };
     let http = http_of(state, http)?;
+    // A checkout opened for this charge in the last hour that can still be
+    // paid is reused: mail scanners open links before people do.
+    let recent: Option<String> = sqlx::query_scalar(
+        "select provider_payment_id from billing_payments
+         where workspace_id = $1 and kind = 'pay_link' and status = 'processing'
+           and metadata ->> 'settles' = $2 and provider_payment_id is not null
+           and created_at > now() - interval '1 hour'
+         order by created_at desc limit 1",
+    )
+    .bind(workspace_id)
+    .bind(&open.id)
+    .fetch_optional(master)
+    .await?;
+    if let Some(payment_id) = recent
+        && let Ok(payment) = state.mollie.payment(&http, &payment_id).await
+        && payment.status == weldsuite_mollie::PaymentStatus::Open
+        && let Some(url) = payment.checkout_url
+    {
+        return Ok(Some(url));
+    }
     let meta = ChargeMeta {
         purpose: Purpose::PayLink,
         settles: Some(open.id.clone()),

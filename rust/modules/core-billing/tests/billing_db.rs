@@ -19,7 +19,9 @@ use weldsuite_core_billing::{
     BillingSettings, BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice, Settled,
     settle_payment,
 };
-use weldsuite_ports::{BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError};
+use weldsuite_ports::{
+    BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
+};
 
 const WS: &str = "ws_billingdb1";
 const ORG: &str = "org_billingdb1";
@@ -55,15 +57,19 @@ impl FakeMollie {
     }
 
     fn last_created(&self) -> Value {
-        self.created.lock().expect("lock").last().cloned().expect("a payment")
+        self.created
+            .lock()
+            .expect("lock")
+            .last()
+            .cloned()
+            .expect("a payment")
     }
 }
 
 impl DynOutboundHttp for FakeMollie {
     fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
-        let answer = |status: u16, body: Value| {
-            Ok(HttpResponse::new(status, body.to_string().into_bytes()))
-        };
+        let answer =
+            |status: u16, body: Value| Ok(HttpResponse::new(status, body.to_string().into_bytes()));
         let path = request
             .url
             .trim_start_matches("https://api.mollie.test/v2")
@@ -167,7 +173,12 @@ async fn reset(master: &PgPool, tenant: &PgPool) {
     ] {
         exec(master, sql, &[WS]).await;
     }
-    exec(tenant, "delete from workspace_settings where id = 'wss_billingdb1'", &[]).await;
+    exec(
+        tenant,
+        "delete from workspace_settings where id = 'wss_billingdb1'",
+        &[],
+    )
+    .await;
 }
 
 async fn seed(master: &PgPool, tenant: &PgPool) {
@@ -206,7 +217,12 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
     .await;
 }
 
-fn state(master: &PgPool, tenant: &PgPool, mollie: &Arc<FakeMollie>, issuer: &Arc<CountingIssuer>) -> BillingState {
+fn state(
+    master: &PgPool,
+    tenant: &PgPool,
+    mollie: &Arc<FakeMollie>,
+    issuer: &Arc<CountingIssuer>,
+) -> BillingState {
     let settings = BillingSettings::from_lookup(&|name: &str| {
         match name {
             "BILLING_PROVIDER" => Some("mollie"),
@@ -253,13 +269,11 @@ async fn workspace(master: &PgPool) -> Value {
 }
 
 async fn account(master: &PgPool) -> Value {
-    sqlx::query_scalar(
-        "select to_jsonb(a) from billing_accounts a where workspace_id = $1",
-    )
-    .bind(WS)
-    .fetch_one(master)
-    .await
-    .expect("account")
+    sqlx::query_scalar("select to_jsonb(a) from billing_accounts a where workspace_id = $1")
+        .bind(WS)
+        .fetch_one(master)
+        .await
+        .expect("account")
 }
 
 async fn pay(state: &BillingState, mollie: &FakeMollie, id: &str, now: OffsetDateTime) -> Settled {
@@ -318,16 +332,27 @@ async fn a_subscription_from_checkout_to_free() {
     let CheckoutAnswer::Redirect(url) = answer else {
         panic!("a new subscription pays on the checkout: {answer:?}");
     };
-    assert!(url.starts_with("https://www.mollie.test/checkout/"), "{url}");
+    assert!(
+        url.starts_with("https://www.mollie.test/checkout/"),
+        "{url}"
+    );
     let first = mollie.last_created();
     assert_eq!(first["sequenceType"], "first");
     assert_eq!(first["amount"]["value"], "90.75", "3 × €25 + 21%");
-    assert!(first["redirectUrl"].as_str().unwrap_or_default().contains("checkout=bpy_"));
+    assert!(
+        first["redirectUrl"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("checkout=bpy_")
+    );
     // Nothing changes before it is paid.
     assert_eq!(workspace(&master).await["seats"], 0);
 
     // 2. Paid: active, 3 seats, a month on the anchor, credits, an invoice.
-    assert_eq!(pay(&state, &mollie, "tr_billingdb1", t0).await, Settled::Activated);
+    assert_eq!(
+        pay(&state, &mollie, "tr_billingdb1", t0).await,
+        Settled::Activated
+    );
     // A second delivery changes nothing.
     assert!(matches!(
         pay(&state, &mollie, "tr_billingdb1", t0).await,
@@ -383,7 +408,13 @@ async fn a_subscription_from_checkout_to_free() {
         .await
         .expect("decrease");
     assert!(
-        matches!(answer, CheckoutAnswer::Changed { scheduled: true, .. }),
+        matches!(
+            answer,
+            CheckoutAnswer::Changed {
+                scheduled: true,
+                ..
+            }
+        ),
         "{answer:?}"
     );
     assert_eq!(workspace(&master).await["seats"], 5, "until the period end");

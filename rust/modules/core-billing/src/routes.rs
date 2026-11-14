@@ -436,6 +436,16 @@ async fn invoice_document(
                 headers.insert(CONTENT_DISPOSITION, value);
             }
             headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+            // Printable HTML on the platform's own origin: no scripts, no
+            // same-origin access, whatever the document holds.
+            headers.insert(
+                http::header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("sandbox allow-popups allow-modals; default-src 'none'; img-src data: https:; style-src 'unsafe-inline'"),
+            );
+            headers.insert(
+                http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
             Ok(response)
         }
         .await,
