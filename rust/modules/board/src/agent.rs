@@ -491,17 +491,13 @@ mod tests {
                 Err(read_only_message(Some(reason)).to_owned())
             );
         }
-        let suspended = read_only_refusal(Some(ReadOnlyReason::PartnerSuspended));
-        assert!(
-            suspended
-                .unwrap_err()
-                .contains("account that manages it is suspended")
-        );
-        let moving = read_only_refusal(Some(ReadOnlyReason::DatabaseMove));
-        assert!(
-            moving
-                .unwrap_err()
-                .contains("being moved to a new database")
-        );
+        let Err(suspended) = read_only_refusal(Some(ReadOnlyReason::PartnerSuspended)) else {
+            panic!("a suspended partner's workspace is read-only");
+        };
+        assert!(suspended.contains("account that manages it is suspended"));
+        let Err(moving) = read_only_refusal(Some(ReadOnlyReason::DatabaseMove)) else {
+            panic!("a moving workspace is read-only");
+        };
+        assert!(moving.contains("being moved to a new database"));
     }
 }

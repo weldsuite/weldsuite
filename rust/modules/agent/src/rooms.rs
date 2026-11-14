@@ -26,7 +26,9 @@ use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, Job, JobContext, JobError};
 use weldsuite_subscribers::Tenants;
 
-use crate::agent_loop::{ChatMsg, TurnInput, build_system, run_turn, tools_for, with_sandbox_tools};
+use crate::agent_loop::{
+    ChatMsg, TurnInput, build_system, run_turn, tools_for, with_sandbox_tools,
+};
 use crate::agents::get_agent;
 use crate::approvals::approval_label;
 use crate::run::{RunEnv, tool_context, turn_sandbox};
