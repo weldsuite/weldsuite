@@ -26,7 +26,7 @@ export function useHomeSidebarItems(isActive: boolean): {
   const isChat = pathname === '/new-chat';
 
   // Edition flags (4.F3): chats need the agent module (the hook asks for nothing without it).
-  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('agent-ai');
+  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('assistant-ai');
   const { data: conversations = [] } = useWeldAgentConversations(50, 'none');
   const updateConvo = useUpdateConversation();
   const deleteConvo = useDeleteConversation();

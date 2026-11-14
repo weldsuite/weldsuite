@@ -78,6 +78,10 @@ pub struct BooksState {
     /// token, never in the access token the platform sends, and the platform
     /// has no step-up flow there yet, so every link would be refused.
     pub second_factor_step_up: bool,
+    /// The install's AI (`weldsuite_ai`, ADR AI-012), for document OCR.
+    /// `None` with AI off. A request's own (conformance) wins
+    /// ([`Caller::ai`]).
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for BooksState {
@@ -89,6 +93,7 @@ impl std::fmt::Debug for BooksState {
             .field("cache", &self.cache.is_some())
             .field("realtime", &self.realtime.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -110,6 +115,7 @@ impl BooksState {
             rates: Arc::default(),
             trusted_proxies: 1,
             second_factor_step_up: true,
+            ai: None,
         }
     }
 }
@@ -137,6 +143,8 @@ pub struct Caller {
     flags: Option<weldsuite_pipeline::Flags>,
     http: Option<OutboundHttp>,
     cache: Option<RequestCache>,
+    /// The request's AI (conformance builds: the test's mock model).
+    ai: Option<weldsuite_ai::Ai>,
     /// `resolveEntityId(c, db)`, once per request (books-api keeps it in a
     /// `WeakMap` keyed by the context).
     pub(crate) entity: OnceCell<Option<String>>,
@@ -368,6 +376,17 @@ impl Caller {
             .or_else(|| state.cache.clone())
     }
 
+    /// The AI a route calls: the request's own (conformance), else the
+    /// app's. `None` when it is off: the route then answers as books-api
+    /// does without its AI gateway.
+    pub fn ai(&self, state: &BooksState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
+    }
+
     /// The client address the accounting audit trail records:
     /// `cf-connecting-ip ?? x-forwarded-for ?? null`.
     pub fn ip_address(&self) -> Option<String> {
@@ -424,6 +443,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     flags: parts.extensions.get::<weldsuite_pipeline::Flags>().cloned(),
                     http: parts.extensions.get::<OutboundHttp>().cloned(),
                     cache: parts.extensions.get::<RequestCache>().cloned(),
+                    ai: parts.extensions.get::<weldsuite_ai::Ai>().cloned(),
                     entity: OnceCell::new(),
                     legal_entity: RequestEntity::of(&parts.extensions).cloned(),
                     entity_access: OnceCell::new(),

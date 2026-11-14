@@ -36,6 +36,7 @@
 //! A workspace brand with the "Sent via WeldSuite" line turned off
 //! (`poweredBy: false`, white-label portals): no exported layout has it.
 
+pub mod ai;
 pub mod auth;
 pub mod calendar;
 mod catalog;

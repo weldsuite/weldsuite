@@ -14,6 +14,7 @@ import {
   Building2,
   CreditCard,
   Fingerprint,
+  Sparkles,
   History,
   Home,
   Keyboard,
@@ -339,6 +340,14 @@ export function settingsCommands(
       keywords: `${menu.sso} ${search.sso} sso saml okta entra identity provider`,
       href: '/settings/sso',
       icon: Fingerprint,
+    },
+    {
+      id: 'settings-ai',
+      title: menu.ai,
+      subtitle: settingsTitle,
+      keywords: `${menu.ai} ${search.ai} ai mistral claude chatgpt provider model openai anthropic`,
+      href: '/settings/ai',
+      icon: Sparkles,
     },
     {
       id: 'settings-plans',

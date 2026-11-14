@@ -56,6 +56,118 @@ Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-suppor
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'ai.provider-enabled' / 'ownKey' / 'en' > matches the text snapshot 1`] = `
+"OpenAI was enabled for AI in "Acme Studio"
+
+AI settings
+
+OpenAI was enabled for AI
+
+Hi,
+
+tom@acme.example enabled OpenAI as an AI provider for Acme Studio. Features set to use it send their content to OpenAI, which processes it outside the EU.
+
+Provider: OpenAI
+
+Region: Outside the EU
+
+Paid with: The workspace’s own key
+
+Enabled by: tom@acme.example
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'ownKey' / 'nl' > matches the text snapshot 1`] = `
+"OpenAI is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+OpenAI is ingeschakeld voor AI
+
+Hoi,
+
+tom@acme.example heeft OpenAI ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar OpenAI, dat die buiten de EU verwerkt.
+
+Aanbieder: OpenAI
+
+Regio: Buiten de EU
+
+Betaald met: De eigen sleutel van de werkruimte
+
+Ingeschakeld door: tom@acme.example
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'en' > matches the text snapshot 1`] = `
+"Anthropic was enabled for AI in "Acme Studio"
+
+AI settings
+
+Anthropic was enabled for AI
+
+Hi Lisa,
+
+Tom Jansen enabled Anthropic as an AI provider for Acme Studio. Features set to use it send their content to Anthropic, which processes it outside the EU.
+
+Provider: Anthropic
+
+Region: Outside the EU
+
+Paid with: WeldSuite’s account, charged as AI credits
+
+Enabled by: Tom Jansen
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'nl' > matches the text snapshot 1`] = `
+"Anthropic is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+Anthropic is ingeschakeld voor AI
+
+Hoi Lisa,
+
+Tom Jansen heeft Anthropic ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar Anthropic, dat die buiten de EU verwerkt.
+
+Aanbieder: Anthropic
+
+Regio: Buiten de EU
+
+Betaald met: Het account van WeldSuite, in rekening gebracht als AI-tegoed
+
+Ingeschakeld door: Tom Jansen
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'auth.password-reset' / 'default' / 'en' > matches the text snapshot 1`] = `
 "Reset your WeldSuite password
 

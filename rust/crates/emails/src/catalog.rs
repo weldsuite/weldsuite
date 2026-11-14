@@ -14,6 +14,10 @@ use crate::{EmailBrand, EmailLocale};
 /// writes one that is not listed here.
 const TEMPLATE_FILES: &[(&str, &str)] = &[
     (
+        "ai.provider-enabled",
+        include_str!("../../../catalogs/emails/templates/ai.provider-enabled.json"),
+    ),
+    (
         "auth.password-reset",
         include_str!("../../../catalogs/emails/templates/auth.password-reset.json"),
     ),

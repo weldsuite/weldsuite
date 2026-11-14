@@ -1292,6 +1292,10 @@ export const common = {
               label: 'Claude Haiku 5.5',
               description: 'Snelst, laagste kosten',
             },
+            default: {
+              label: 'Standaard van de werkruimte',
+              description: 'Het model dat je beheerder voor agents koos',
+            },
           },
         },
         settings: {

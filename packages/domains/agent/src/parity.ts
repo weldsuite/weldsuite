@@ -952,6 +952,18 @@ export async function getTemplate(db: AgentDb, id: string) {
   return row ? serializeTemplate(row) : null;
 }
 
+/**
+ * A template carries grants the installer does not hold. Installing it would
+ * hand them an agent that acts beyond their role, so it is refused like
+ * `POST /agents` refuses the same grants.
+ */
+export class TemplateGrantsRefused extends Error {
+  constructor(readonly denied: string[]) {
+    super(`You can't grant permissions you don't have: ${denied.join(', ')}`);
+    this.name = 'TemplateGrantsRefused';
+  }
+}
+
 export async function installTemplate(
   db: AgentDb,
   input: {
@@ -959,6 +971,8 @@ export async function installTemplate(
     shareToken?: string;
     name?: string;
     createdBy?: string;
+    /** Whether the installer may give the agent this grant (`granterHolds`). Omitted: no check. */
+    canGrant?: (permission: string) => boolean;
   },
 ) {
   let template: Awaited<ReturnType<typeof getTemplate>> = null;
@@ -984,13 +998,18 @@ export async function installTemplate(
     memories?: Array<{ kind: MemoryKind; content: string }>;
   };
 
+  const canGrant = input.canGrant ?? (() => true);
+  const denied = (payload.permissions ?? []).filter((perm) => !canGrant(perm));
+  if (denied.length > 0) throw new TemplateGrantsRefused(denied);
+
   const agent = await createAgent(db, {
       name:
         input.name ??
         (template.name.replace(/template$/i, '').trim() || 'Imported agent'),
       description: template.description,
     systemPrompt: payload.systemPrompt ?? '',
-    permissions: payload.permissions ?? ['computer:use', 'browser:use'],
+    // Without grants of its own: the sandbox and web ones, where the installer holds them.
+    permissions: payload.permissions ?? ['computer:use', 'browser:use'].filter(canGrant),
     enabledTools: payload.enabledTools ?? [],
     // Templates exported before agents ran on Claude carry other model ids.
     modelId: resolveManagedModel(payload.modelId),

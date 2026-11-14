@@ -6,12 +6,19 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here. Three entries
-//!   follow the deployment instead: [`MAIL_DOMAINS_FEATURE`], when it has no
+//!   both follow the code, and a port removes its entry here. Some entries
+//!   follow the deployment instead: [`AI_FEATURES`], when it has no AI
+//!   provider (`AI_DEFAULT_PROVIDER`); [`MAIL_DOMAINS_FEATURE`], when it has no
 //!   MX for customer domains (`MAIL_MX_HOST`); [`MAIL_FREE_ADDRESSES_FEATURE`],
 //!   when it also has no free-address domain of its own (`WELDMAIL_DOMAIN`);
-//!   and [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
-//!   (`COLLAB_ROOMS_URLS`).
+//!   [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
+//!   (`COLLAB_ROOMS_URLS`); [`CREDIT_TOP_UP_FEATURE`], without Mollie
+//!   (`MOLLIE_API_KEY`); and [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
+//!   sandbox (`SANDBOX_ENABLED`).
+//! - `ai`: the install's AI providers, with their region and the key sources
+//!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
+//!   one. The platform shows the AI settings page and the region labels from
+//!   it.
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -56,8 +63,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Stripe stays with Global's billing-worker: plans, subscriptions, seats
     // bought by card, payment methods and invoices (`/api/billing`).
     "billing",
-    // Buying credits is a Stripe checkout (`POST /api/credits/checkout`).
-    "credit-top-up",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
     // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
@@ -65,13 +70,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "desktop-sign-in",
     // Analytics pages read Cloudflare's analytics store.
     "analytics",
-    // `POST /api/search/reindex` isn't served.
-    "search-reindex",
     // `POST /api/company-logos/resolve` (crm-api) fetches each company's
     // website and keeps the logo in R2; not served, so avatars keep initials.
     "company-logos",
-    // WeldMail AI (`/api/mail-ai`): the Rust backend has no AI port yet.
-    "mail-ai",
     // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
     // RealtimeKit, its API and the call UI's client SDK alike; they come with
     // LiveKit in the call UI.
@@ -80,19 +81,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
-    // WeldConnect's "Generate with AI" (`POST /api/workflows/generate`) runs
-    // on Workers AI through the Cloudflare AI Gateway; the Rust backend has
-    // no AI port yet.
-    "weldconnect-ai",
     // WeldHR payroll: sending the loonaangifte over Digipoort needs the
     // worker's PKIoverheid client certificate binding. The return is filed
     // by hand and marked as filed (`POST …/filings/:id/submit` answers
     // DIGIPOORT_NOT_CONFIGURED, as the worker without the binding does).
     "payroll-digipoort",
-    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`)
-    // reads the file with a model on Workers AI; the route keeps its refusals
-    // and answers 503 where it would call the model.
-    "books-ocr",
     // WeldCall: buying a phone number and submitting a number port are Stripe
     // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
     // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
@@ -113,7 +106,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // the worker's MEETING_AI Workflow, and the video provider's own
     // transcript and summary are RealtimeKit's. `POST …/recording/transcribe`
     // and `…/summarize` answer 503 as the worker without the binding does,
-    // and the AI options of a live meeting need RealtimeKit.
+    // and the AI options of a live meeting need RealtimeKit. Listed whatever
+    // the AI provider while `meet-recordings` is: there is nothing to
+    // transcribe without a recording.
     "meet-transcription",
     // WeldMeet recordings: RealtimeKit's recorder uploads the file and the
     // worker's MEETING_RECORDING_COPY Workflow copies it into the private
@@ -121,23 +116,41 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // files store, which isn't built: access, streaming and deletes answer
     // 503 "Recording storage is not configured".
     "meet-recordings",
-    // WeldAgent's AI: chat turns, agent runs, routine tests, connector
-    // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
-    // on Global; the Kubernetes editions have no AI provider yet.
-    "agent-ai",
-    // WeldDesk's inbox translation (`POST /api/desk/conversations/:id/translate`
-    // and `/translate-reply`) runs on Workers AI through `@weldsuite/ai`; the
-    // routes answer 503 `ai_unavailable` here (ADR AI-011).
-    "desk-ai",
-    // WeldForms' AI (`/api/forms/ai/*` and the response summaries) runs on
-    // `@weldsuite/ai`; the routes answer 503 `ai_unavailable` here (ADR AI-011).
-    "forms-ai",
     // Choosing where a new workspace's data is stored: Global puts each
     // workspace's database in the Neon region picked at signup. A Kubernetes
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
 ];
+
+/// The AI features (ADR AI-012): served on the install's AI provider
+/// (`AI_DEFAULT_PROVIDER`, `weldsuite_ai`), listed as unavailable only when
+/// there is none, as the workers answer without their model.
+pub(crate) const AI_FEATURES: &[&str] = &[
+    // WeldMail AI (`/api/mail-ai`): drafts, replies, summaries, labels.
+    "mail-ai",
+    // WeldConnect's "Generate with AI" (`POST /api/workflows/generate`) and
+    // its `ai_generate` / `ai_classify` steps.
+    "weldconnect-ai",
+    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`).
+    "books-ocr",
+    // WeldDesk's inbox translation (`POST /api/desk/conversations/:id/translate`
+    // and `/translate-reply`).
+    "desk-ai",
+    // WeldForms' AI (`/api/forms/ai/*` and the response summaries).
+    "forms-ai",
+    // `POST /api/search/reindex`: the semantic search index's embeddings.
+    "search-reindex",
+    // The assistant chat and drawer (`/api/ai/generate`, `/api/ai/chat`,
+    // `/api/ai/chat/stream` without an agent).
+    "assistant-ai",
+    // WeldAgent's agents, routines and teach mode, on the Kubernetes
+    // editions' own agent loop.
+    "agent-ai",
+];
+
+/// WeldAgent: offered by `/config.json` only with an AI provider.
+pub(crate) const AI_MODULE: &str = "agent";
 
 /// WeldDocs, WeldSheets and WeldBoard: live editing runs in the collab-rooms
 /// service (`rust/docs/collab-rooms.md`). Without `COLLAB_ROOMS_URLS` (the
@@ -158,6 +171,20 @@ pub(crate) const MAIL_DOMAINS_FEATURE: &str = "mail-domains";
 /// `weldmail.com` and `weldmail.org` are Global's and never used here.
 pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
 
+/// Buying credits (`POST /api/credits/checkout`): a Mollie payment on the
+/// Kubernetes editions (`weldsuite_core_platform::topup`, ADR OPS-012), a
+/// Stripe Checkout on Global. Unavailable without `MOLLIE_API_KEY` (and an
+/// address Mollie reports payments to): the checkout then answers as the
+/// workers do without billing-worker.
+pub(crate) const CREDIT_TOP_UP_FEATURE: &str = "credit-top-up";
+
+/// WeldAgent's sandbox, computer use and web browsing (the `computer:use` and
+/// `browser:use` toggles of the builder): Claude Managed Agents run them on
+/// Global; the Kubernetes editions run them on the install's own sandbox pods
+/// and `SearXNG` (`weldsuite_sandbox`, ADR AI-012 phase 5). Unavailable without
+/// one (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`).
+pub(crate) const AGENT_SANDBOX_FEATURE: &str = "agent-sandbox";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -177,6 +204,10 @@ pub(crate) const PUBLIC_ENV_KEYS: &[&str] = &[
 
 /// The edition and the public settings, read at start.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one flag per service the deployment may have, each an edition feature"
+)]
 pub(crate) struct EditionConfig {
     pub(crate) edition: Edition,
     /// Name → value, only names in [`PUBLIC_ENV_KEYS`].
@@ -190,6 +221,15 @@ pub(crate) struct EditionConfig {
     pub(crate) live_editing: bool,
     /// What the deployment offers of WeldMail's addresses.
     pub(crate) mail: MailOffer,
+    /// `/config.json`'s `ai` block (`weldsuite_ai::AiConfig::describe`), set
+    /// by `Config` from `AI_*`; `None` is AI off: [`AI_FEATURES`] are
+    /// unavailable and [`AI_MODULE`] isn't offered.
+    pub(crate) ai: Option<Value>,
+    /// Credits can be bought through Mollie: [`CREDIT_TOP_UP_FEATURE`].
+    pub(crate) credit_top_up: bool,
+    /// WeldAgent has a sandbox (`SANDBOX_ENABLED`, set by `Config`):
+    /// [`AGENT_SANDBOX_FEATURE`].
+    pub(crate) sandbox: bool,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -234,6 +274,9 @@ impl Default for EditionConfig {
             video_configured: false,
             live_editing: false,
             mail: MailOffer::default(),
+            ai: None,
+            credit_top_up: false,
+            sandbox: false,
         }
     }
 }
@@ -263,7 +306,15 @@ impl EditionConfig {
             .map(|raw| public_env(&raw, problems))
             .unwrap_or_default();
         let mail = MailOffer::from_lookup(lookup, problems);
+        let credit_top_up = match weldsuite_core_platform::TopUpSettings::from_lookup(lookup) {
+            Ok(settings) => settings.is_some(),
+            Err(problem) => {
+                problems.push(problem);
+                false
+            }
+        };
         Self {
+            credit_top_up,
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
@@ -271,6 +322,10 @@ impl EditionConfig {
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
             mail,
+            // `Config` reads `AI_*` once, with its problems, and sets it.
+            ai: None,
+            // `Config` reads `SANDBOX_*` likewise.
+            sandbox: false,
         }
     }
 
@@ -286,19 +341,31 @@ impl EditionConfig {
         if let Some(url) = &self.video.url {
             body["videoUrl"] = json!(url);
         }
+        if let Some(ai) = &self.ai {
+            body["ai"] = ai.clone();
+        }
     }
 }
 
 impl EditionConfig {
-    /// [`UNAVAILABLE_FEATURES`], and custom mail domains and live editing when
-    /// they aren't configured.
+    /// [`UNAVAILABLE_FEATURES`], and the AI features, custom mail domains and
+    /// live editing when they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if self.ai.is_none() {
+            features.extend_from_slice(AI_FEATURES);
+        }
         if !self.mail.custom_domains {
             features.push(MAIL_DOMAINS_FEATURE);
         }
         if !self.mail.free_addresses {
             features.push(MAIL_FREE_ADDRESSES_FEATURE);
+        }
+        if !self.credit_top_up {
+            features.push(CREDIT_TOP_UP_FEATURE);
+        }
+        if !self.sandbox {
+            features.push(AGENT_SANDBOX_FEATURE);
         }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
@@ -307,9 +374,11 @@ impl EditionConfig {
     }
 
     /// Whether `/config.json` offers `module`: WeldMeet only with a video
-    /// service ([`VIDEO_MODULE`]). The routes stay mounted either way.
+    /// service ([`VIDEO_MODULE`]), WeldAgent only with an AI provider
+    /// ([`AI_MODULE`]). The routes stay mounted either way.
     pub(crate) fn offers(&self, module: &str) -> bool {
-        module != VIDEO_MODULE || self.video_configured
+        (module != VIDEO_MODULE || self.video_configured)
+            && (module != AI_MODULE || self.ai.is_some())
     }
 }
 
@@ -369,7 +438,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + 3
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 5
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -377,6 +446,54 @@ mod tests {
                 .and_then(|f| f.last()),
             Some(&json!(COLLAB_ROOMS_FEATURE))
         );
+        assert!(body.get("ai").is_none(), "no AI provider");
+    }
+
+    /// The AI features and WeldAgent follow the install's AI provider; what
+    /// AI can't serve on Kubernetes stays listed either way.
+    #[test]
+    fn offers_the_ai_features_with_an_ai_provider() {
+        let (off, _) = read(&[]);
+        let lacks = off.unavailable_features();
+        for feature in AI_FEATURES {
+            assert!(lacks.contains(feature), "{feature}");
+        }
+        assert!(!off.offers(AI_MODULE));
+
+        let block = json!({
+            "defaultProvider": "mistral",
+            "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
+        });
+        let on = EditionConfig {
+            ai: Some(block.clone()),
+            ..off
+        };
+        let lacks = on.unavailable_features();
+        for feature in AI_FEATURES {
+            assert!(!lacks.contains(feature), "{feature}");
+        }
+        for still in ["meet-transcription", "meet-recordings", "agent-sandbox"] {
+            assert!(lacks.contains(&still), "{still}");
+        }
+        assert!(on.offers(AI_MODULE));
+        assert!(on.offers("crm"));
+        let mut body = json!({});
+        on.describe(&mut body);
+        assert_eq!(body["ai"], block);
+    }
+
+    /// WeldAgent's sandbox, computer use and browsing follow the install's
+    /// sandbox (`SANDBOX_ENABLED`), whatever the AI provider.
+    #[test]
+    fn offers_the_agent_sandbox_with_a_sandbox() {
+        let (off, _) = read(&[]);
+        assert!(off.unavailable_features().contains(&AGENT_SANDBOX_FEATURE));
+        let on = EditionConfig {
+            sandbox: true,
+            ..off
+        };
+        assert!(!on.unavailable_features().contains(&AGENT_SANDBOX_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&AGENT_SANDBOX_FEATURE));
     }
 
     #[test]
@@ -390,7 +507,13 @@ mod tests {
         let mut body = json!({});
         config.describe(&mut body);
         let mut lacks = UNAVAILABLE_FEATURES.to_vec();
-        lacks.extend([MAIL_DOMAINS_FEATURE, MAIL_FREE_ADDRESSES_FEATURE]);
+        lacks.extend_from_slice(AI_FEATURES);
+        lacks.extend([
+            MAIL_DOMAINS_FEATURE,
+            MAIL_FREE_ADDRESSES_FEATURE,
+            CREDIT_TOP_UP_FEATURE,
+            AGENT_SANDBOX_FEATURE,
+        ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
         let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
@@ -450,6 +573,28 @@ mod tests {
             assert!(problems[0].contains("Global's"), "{problems:?}");
             assert!(!config.mail.free_addresses);
         }
+    }
+
+    #[test]
+    fn offers_the_credit_top_up_with_mollie() {
+        let lacks = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config
+                .unavailable_features()
+                .contains(&CREDIT_TOP_UP_FEATURE)
+        };
+        assert!(lacks(&[]));
+        assert!(lacks(&[("MOLLIE_API_KEY", " ")]), "a blank key is none");
+        assert!(!lacks(&[
+            ("MOLLIE_API_KEY", "live_key"),
+            ("PUBLIC_URL", "https://app.weldsuite.eu"),
+        ]));
+        // A key Mollie could never report payments for stops the start.
+        let (config, problems) = read(&[("MOLLIE_API_KEY", "live_key")]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("MOLLIE_WEBHOOK_URL"), "{problems:?}");
+        assert!(!config.credit_top_up);
     }
 
     #[test]
@@ -531,7 +676,7 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES.iter().chain([
+        for feature in UNAVAILABLE_FEATURES.iter().chain(AI_FEATURES).chain([
             &MAIL_DOMAINS_FEATURE,
             &MAIL_FREE_ADDRESSES_FEATURE,
             &COLLAB_ROOMS_FEATURE,

@@ -51,6 +51,8 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Loki | chart 7.5.0 | Logs, single binary, chunks in the logs bucket, 30 days |
 | Fluent Bit | chart 0.58.3 | Every node's pod and Talos logs, and the cluster's events, to Loki |
 | Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
+| WeldAgent sandbox | this repository (`rust/deploy/sandbox`), gVisor from the Talos extension | Pods the server starts per agent conversation in `weldsuite-sandbox` ("Agent sandbox" below) |
+| SearXNG | 2026.10.28-c360868e5 (Valkey 9.1.2 beside it) | WeldAgent's web search, asked only by the server ("Agent sandbox" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -90,8 +92,10 @@ differ.
 HCLOUD_TOKEN=… TALOS_VERSION=v1.14.3 rust/deploy/hetzner/scripts/upload-talos-image.sh
 ```
 
-Uploads the stock Talos image as a snapshot labelled `os=talos,
-talos_version=v1.14.3`; `servers.tf` picks the newest one with that label.
+Uploads the Talos image (stock, plus the `siderolabs/gvisor` extension for
+WeldAgent's sandbox: `scripts/schematic.yaml`) as a snapshot labelled
+`os=talos, talos_version=v1.14.3`; `servers.tf` picks the newest one with that
+label.
 
 ## 2. Settings
 
@@ -187,6 +191,10 @@ a time.
   (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
   and the MTA's database password matches in `weldsuite-mta` and
   `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
+  `MISTRAL_API_KEY` is the one AI key the cluster needs ("AI" below); the
+  script takes it from the variable of that name, and generates
+  `AI_KEYS_ENCRYPTION_KEY`, which seals the keys workspaces bring for Claude
+  and ChatGPT (losing it loses those keys, nothing else).
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -591,6 +599,113 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
 - **Not on LiveKit yet:** recording and transcripts. Recording would be
   LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
   belong on these shared nodes.
+
+## AI (Mistral)
+
+Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
+`docs/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
+`config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
+workspaces with their own key, the credit gate on); the search index embeds
+through it with `mistral-embed`, metered as `search-index` (so
+`consume.embeddings`, for installs without AI, stays unset).
+
+- **Keys** (`weldsuite-env`): `MISTRAL_API_KEY`, from the EU edition's
+  account on Mistral's La Plateforme (zero data retention, the rate-limit
+  tier it was granted); `AI_KEYS_ENCRYPTION_KEY`, 64 hex characters. The
+  server, `consume` and the cron jobs don't start without them. A running
+  cluster adds them with
+
+  ```bash
+  MISTRAL_API_KEY=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+    node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+  ```
+
+  (it generates `AI_KEYS_ENCRYPTION_KEY`), before Flux applies a release
+  with `config.ai` set.
+- **WeldSuite's own Claude and ChatGPT accounts**, once opened for the EU
+  edition: add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to `weldsuite-env`,
+  then set `weldsuiteKey: true` for that provider under `config.ai.optIn`.
+  The other order stops the server: an opt-in with WeldSuite's key needs the
+  key.
+- **Check it**: `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor`
+  lists each key the install holds (a model list, free) and asks the default
+  chat models for one token each; `--no-model-calls` skips that.
+  `/config.json` names the providers under `ai`.
+- **Credits**: every call on WeldSuite's key is charged to the workspace's
+  credit wallet and written to the ops ledger (`ai_provider_usage`); with
+  `creditGate: true` a workspace with an empty wallet gets 402 until it tops
+  up.
+
+## Agent sandbox
+
+WeldAgent's code execution, web search and fetch, browser and computer use
+run on this cluster (ADR AI-012 phase 5, `docs/plans/eu-ai-mistral.md`, "The
+EU sandbox"; rust/README.md, "WeldAgent's sandbox"). The EU values turn on the
+chart's `sandbox` and `searxng`: the server starts one gVisor pod per agent
+conversation in `weldsuite-sandbox`, behind a default-deny NetworkPolicy
+(public internet on 80/443 only), and asks SearXNG for web searches.
+
+**The server hands out no sandbox until the cluster isolates it.** Before the
+first one (and hourly), a new sandbox tries to reach the metadata service and
+the Kubernetes API; if either answers, it is deleted, the agents get "the
+sandbox is switched off", and the server logs `isolation check failed`. Do
+these first:
+
+1. **gVisor on the nodes.** The image from step 1 carries the
+   `siderolabs/gvisor` extension. Nodes installed from an older image need
+   the new one, one node at a time:
+
+   ```bash
+   HCLOUD_TOKEN=… rust/deploy/hetzner/scripts/upload-talos-image.sh   # prints the schematic id
+   talosctl -n <node> upgrade --image factory.talos.dev/installer/<schematic>:v1.14.3 --preserve
+   talosctl -n <node> get extensions          # lists gvisor
+   kubectl get runtimeclass gvisor            # the chart creates it (handler runsc)
+   ```
+
+   A node without it can't start sandbox pods (they stay Pending: "no
+   runtime for gvisor"). To keep sandboxes off the database and mail nodes,
+   give them a pool of their own and set `sandbox.nodeSelector` and
+   `sandbox.tolerations`.
+2. **A CNI that enforces NetworkPolicy.** Talos' default, Flannel, routes pod
+   traffic but ignores NetworkPolicy, so today every pod can reach every
+   other pod, the Kubernetes API and the **Hetzner metadata service, which
+   serves each server's user data: the Talos machine configuration, secrets
+   included**. Either replace Flannel with Cilium (`cluster.network.cni.name:
+   none` in the Talos config, then Cilium from Flux; a maintenance window, the
+   pods restart) or add a policy-only controller beside Flannel (kube-router
+   with only its firewall: `--run-firewall=true --run-router=false
+   --run-service-proxy=false`, or Calico in policy-only mode). Then
+   `weldsuite doctor` shows `pass  sandbox isolation`. The chart's other
+   NetworkPolicies (`networkPolicy.enabled`) start working at the same time:
+   check them on the test cluster first.
+3. **The token secret.** `SANDBOX_TOKEN_SECRET` in `weldsuite-env`, the same
+   on every replica: `fill-secrets.mjs --update` generates it.
+4. **The nodes' public addresses** in `sandbox.deniedCidrs` (`tofu output`):
+   a pod reaches its own node's host ports on them (node-exporter, the
+   kubelet), which the private ranges don't cover.
+5. **Check it:**
+
+   ```bash
+   kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor --no-model-calls
+   ```
+
+   `sandbox` (the API and the Role answer), `web search` (SearXNG answers) and
+   `sandbox isolation` (a throwaway sandbox reaches neither the metadata
+   service nor the API) must pass. `kubectl -n weldsuite-sandbox get pods`
+   lists the sandboxes; `weldsuite cron sandbox-cleanup` (every 5 minutes)
+   deletes the finished ones.
+
+**Web search.** SearXNG keeps no query log (debug and metrics off; the server
+posts the query, so it shows in no access line) and is reachable from the
+server's pods only. The query itself goes to the engines in
+`searxng.engines` (Qwant, Startpage, Mojeek, Wikipedia by default), each a
+company outside WeldSuite; Startpage passes it on to Google without the user,
+Wikipedia is in the US. Add or remove engines there. Update the image pins
+(`searxng.image.tag`, two weeks old at least) as SearXNG's engines change.
+
+**Computer use** (the desktop) is offered only to a Claude or GPT-5 model the
+workspace enabled outside the EU; on Mistral it's hidden. Screenshots of the
+sandbox's desktop then go to that provider with the conversation.
 
 ## Mail
 
@@ -1029,9 +1144,9 @@ Be clear about this before anyone signs a contract:
   before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
   sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
-  MEET-007; "Video" above), without recording and transcripts. Not here yet:
-  Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off).
+  MEET-007; "Video" above), without recording and transcripts. The
+  semantic search index embeds on Mistral through `config.ai` ("AI (Mistral)"
+  above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a

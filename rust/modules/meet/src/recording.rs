@@ -5,10 +5,12 @@
 //! per-meeting aliases in `crate::meetings` call the same functions.
 //!
 //! The recorder is `RealtimeKit`'s, and the transcript and summary come from
-//! `RealtimeKit` or Workers AI. The Kubernetes editions have neither (the
-//! `meet-recordings` and `meet-transcription` features are unavailable
-//! there): without the `MEETING_RECORDINGS` bucket and the `MEETING_AI`
-//! Workflow these routes answer exactly as the worker does without them.
+//! `RealtimeKit` or the `MEETING_AI` Workflow. The Kubernetes editions have
+//! no recorder yet (`meet-recordings` and `meet-transcription` are
+//! unavailable there): without the `MEETING_RECORDINGS` bucket these routes
+//! answer exactly as the worker does without it. `MEETING_AI` is the
+//! [`crate::MeetingAiJob`] there when the install has an AI provider, so
+//! "transcribe afterwards" and the summary run once a recording exists.
 
 use std::sync::Arc;
 
@@ -1059,7 +1061,7 @@ async fn remove(
 // ============================================================================
 
 /// `whisperLanguage(code)`.
-fn whisper_language(code: Option<&str>) -> Option<String> {
+pub(crate) fn whisper_language(code: Option<&str>) -> Option<String> {
     let code = code.filter(|c| !c.is_empty())?;
     let base = code.trim().split(['-', '_']).next()?.to_lowercase();
     let valid = (2..=3).contains(&base.len()) && base.bytes().all(|b| b.is_ascii_lowercase());

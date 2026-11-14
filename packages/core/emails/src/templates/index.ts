@@ -6,6 +6,7 @@
  */
 
 import workspaceDeletion from './admin/workspace-deletion';
+import aiProviderEnabled from './ai/provider-enabled';
 import authPasswordReset from './auth/password-reset';
 import authSignInCode from './auth/sign-in-code';
 import authVerifyEmail from './auth/verify-email';
@@ -79,6 +80,7 @@ export const templates = {
   'sign.declined': signDeclined,
   'sign.voided': signVoided,
   'sign.expired': signExpired,
+  'ai.provider-enabled': aiProviderEnabled,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -88,6 +90,7 @@ export type TemplateProps<Id extends TemplateId> =
   (typeof templates)[Id] extends { previews: Record<string, { props: infer P }> } ? P : never;
 
 export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
+export type { AiProviderEnabledEmailProps } from './ai/provider-enabled';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
 export type {

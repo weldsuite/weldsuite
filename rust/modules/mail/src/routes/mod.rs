@@ -3,6 +3,7 @@
 
 pub(crate) mod internal_outbound;
 pub(crate) mod mail_accounts;
+pub(crate) mod mail_ai;
 pub(crate) mod mail_attachments;
 pub(crate) mod mail_campaigns;
 pub(crate) mod mail_domains;

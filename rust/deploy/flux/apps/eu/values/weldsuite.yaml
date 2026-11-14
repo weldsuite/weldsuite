@@ -87,11 +87,39 @@ config:
   # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
   # every URL setting that names this host from it.
   publicUrl: https://app.${DOMAIN}
+  # AI on Mistral, in the EU (ADR AI-012, docs/plans/eu-ai-mistral.md):
+  # every AI feature runs there unless a workspace admin opts in to a
+  # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
+  # AI_KEYS_ENCRYPTION_KEY (seals the keys workspaces bring); the server
+  # doesn't start without them. Claude and ChatGPT are offered with the
+  # workspace's own key; set weldsuiteKey once WeldSuite's EU-edition
+  # accounts are open and ANTHROPIC_API_KEY / OPENAI_API_KEY are in the
+  # Secret. The credit gate (402 at an empty wallet) is on: the Mollie
+  # top-up lets a workspace buy credits.
+  ai:
+    defaultProvider: mistral
+    mistral:
+      baseUrl: https://api.mistral.ai/v1
+    optIn:
+      anthropic: { weldsuiteKey: false, ownKey: true }
+      openai: { weldsuiteKey: false, ownKey: true }
+    creditGate: true
+    billing: credits
+  # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
+  # weldsuite-env: Mollie reports payments to
+  # https://app.${DOMAIN}/api/webhooks/mollie and checkouts return to the
+  # billing page, both from publicUrl. The packages on sale are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET:
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, SANDBOX_TOKEN_SECRET, and optionally MOLLIE_API_KEY:
 # secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
@@ -218,6 +246,29 @@ collabRooms:
     tag: ${WELDSUITE_IMAGE_TAG}
   replicaCount: 2
 
+# WeldAgent's sandbox, computer use and browsing on the EU edition's own
+# cluster (ADR AI-012 phase 5): gVisor pods in weldsuite-sandbox
+# (infrastructure/controllers/namespaces.yaml), released with the server's
+# image. Needs gVisor on the nodes (the gvisor extension in the Talos image,
+# hetzner/scripts/schematic.yaml) and a CNI that enforces NetworkPolicy:
+# until a new sandbox can't reach the metadata service or the Kubernetes API,
+# the server hands out none and says so in its log and `weldsuite doctor`
+# (rust/deploy/hetzner/README.md, "Agent sandbox"). SANDBOX_TOKEN_SECRET is in
+# the Secret.
+sandbox:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # The nodes' public addresses: a pod could reach its own node's host ports
+  # on them. Add them when they are known (tofu output).
+  deniedCidrs: []
+
+# Web search for WeldAgent (web_search): SearXNG in the cluster, asked only by
+# the server; only the query leaves, to Qwant, Startpage, Mojeek and Wikipedia.
+searxng:
+  enabled: true
+
 autoscaling:
   enabled: true
   minReplicas: 2
@@ -232,9 +283,10 @@ resources:
     memory: 1Gi
 
 # The entity-event subscribers on the in-cluster JetStream: audit log,
-# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
-# search-index subscriber stays off until an embeddings endpoint (EU model
-# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+# outgoing webhooks, realtime fan-out (VALKEY_URL is in the Secret) and the
+# semantic search index. The index's vectors come from config.ai: Mistral's
+# mistral-embed (1024 dimensions), metered as search-index per workspace and
+# batch, so consume.embeddings (for installs without AI) stays unset.
 consume:
   enabled: true
   replicaCount: 2

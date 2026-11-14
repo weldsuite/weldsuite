@@ -406,6 +406,20 @@ const SPECS: Spec[] = [
       changedAt: SAMPLE_DATE,
     }),
   },
+  // AI settings: a provider outside the EU was enabled; sent to the workspace owners.
+  {
+    id: 'ai.provider-enabled',
+    flags: ['name', 'own'],
+    fields: ['recipient_name', 'workspace_name', 'provider_name', 'enabled_by', 'url'],
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      workspaceName: S('workspace_name'),
+      providerName: S('provider_name'),
+      enabledBy: S('enabled_by'),
+      keySource: f.has('own') ? 'own' : 'weldsuite',
+      settingsUrl: S('url'),
+    }),
+  },
   // WeldFlow's published status report: the overall colour is two flags (none:
   // green, `amber`, `red`; `amber+red` is exported but never chosen, it renders
   // as red). The period label is written by Rust (`period_label`).

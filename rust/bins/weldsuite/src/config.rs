@@ -264,6 +264,12 @@ pub(crate) struct Config {
     /// ingress trusts). The client's address is that many entries from the
     /// right; anything to its left came from the client.
     pub(crate) trusted_proxies: usize,
+    /// `AI_*` and the providers' keys (`weldsuite_ai::config`): the install
+    /// provider, the opt-ins workspaces may enable, fallback and billing.
+    pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*` and `SEARXNG_URL` (`weldsuite_sandbox::config`): WeldAgent's
+    /// sandbox pods and web search; `None` without `SANDBOX_ENABLED=true`.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -602,6 +608,7 @@ impl fmt::Debug for Config {
             .field("spa_dir", &self.spa_dir)
             .field("infra", &self.infra)
             .field("realtime", &self.realtime)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -686,7 +693,11 @@ impl Config {
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
         auth.check_sign_in_screens(&infra, &mut problems);
-        let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let mut edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        edition.ai = ai.describe();
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
+        edition.sandbox = sandbox.is_some();
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -744,6 +755,8 @@ impl Config {
             platform_url: lookup("PLATFORM_URL").filter(|s| !s.trim().is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
+            ai,
+            sandbox,
         })
     }
 }

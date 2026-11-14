@@ -126,6 +126,21 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── AI settings (EU and self-hosted editions, ADR AI-012) ─────────────
+  // Every member sees which AI provider is in use; changing it, enabling a
+  // provider outside the EU and storing the workspace's own keys needs this.
+  {
+    key: 'ai',
+    label: 'AI settings',
+    permissions: [
+      {
+        key: 'ai:manage',
+        label: 'Manage AI providers',
+        description: 'Choose the AI provider and models, enable providers outside the EU, store the workspace’s own provider keys and see AI usage.',
+      },
+    ],
+  },
+
   // ── CRM ───────────────────────────────────────────────────────────────
   // `<obj>:scope:all` is an OPT-IN elevated grant — without it, a user with
   // `<obj>:read`/`update`/`delete` can only act on rows they own. Wildcards
@@ -891,6 +906,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'settings:working-hours:edit-self',
   // Single sign-on configuration (buying the add-on still takes billing:manage)
   'sso:read', 'sso:manage',
+  // AI settings (EU and self-hosted editions): which providers, own keys
+  'ai:manage',
   // Legal entities, including who sees which one
   'legal_entities:read', 'legal_entities:create', 'legal_entities:update', 'legal_entities:delete',
   'legal_entities:reveal', 'legal_entities:manage',

@@ -143,6 +143,7 @@ const IMAGE_PATHS = [
   'rust/deploy/helm/',
   'rust/deploy/kind/',
   'rust/deploy/haraka/',
+  'rust/deploy/sandbox/',
   'rust/rust-toolchain.toml',
   'rust/Cargo.toml',
   'rust/Cargo.lock',
