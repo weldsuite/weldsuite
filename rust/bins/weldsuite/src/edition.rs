@@ -121,6 +121,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
+    // WeldPanel analytics (insights, funnels, retention, flows, reports,
+    // dashboards, cohorts, lexicon, users, recordings, heatmaps, frustration):
+    // queries run on Basin, which only Global has. Projects and the install
+    // instructions stay; the platform hides the rest and redirects to them.
+    "panel-analytics",
 ];
 
 /// The AI features (ADR AI-012): served on the install's AI provider

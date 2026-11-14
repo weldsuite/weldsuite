@@ -6,6 +6,7 @@ import {
   buildProjectFormSchema,
   normalizeDomainInput,
   parseDomain,
+  parseIpFilter,
   parseUrlPattern,
 } from './validation';
 
@@ -81,7 +82,12 @@ describe('buildProjectFormSchema', () => {
 
 describe('buildPrivacyFormSchema', () => {
   const schema = buildPrivacyFormSchema(en.weldpanel.validation);
-  const base = { autocapture: true, consentMode: 'required' as const, maskingLevel: 'balanced' as const, excludedUrls: ['/admin/*'] };
+  const base = { autocapture: true, consentMode: 'required' as const, maskingLevel: 'balanced' as const,
+    excludedUrls: ['/admin/*'],
+    ipFilters: ['203.0.113.0/24'],
+    recordingSamplePercent: 100,
+    aiEnabled: true,
+  };
 
   it('accepts valid settings', () => {
     expect(schema.safeParse(base).success).toBe(true);
@@ -95,5 +101,33 @@ describe('buildPrivacyFormSchema', () => {
   it('refuses an unknown consent mode or masking level', () => {
     expect(schema.safeParse({ ...base, consentMode: 'maybe' }).success).toBe(false);
     expect(schema.safeParse({ ...base, maskingLevel: 'off' }).success).toBe(false);
+  });
+
+  it('refuses an address or range that is not one', () => {
+    const result = schema.safeParse({ ...base, ipFilters: ['office'] });
+    expect(result.error?.issues[0]?.message).toBe(en.weldpanel.validation.ipInvalid);
+  });
+
+  it('takes a whole percent from 0 to 100 for the recording sample rate', () => {
+    for (const ok of [0, 25, 100]) expect(schema.safeParse({ ...base, recordingSamplePercent: ok }).success).toBe(true);
+    for (const bad of [-1, 101, 12.5, undefined, Number.NaN]) {
+      const result = schema.safeParse({ ...base, recordingSamplePercent: bad });
+      expect(result.error?.issues[0]?.message).toBe(en.weldpanel.validation.sampleRateInvalid);
+    }
+  });
+});
+
+describe('parseIpFilter', () => {
+  it('accepts IPv4, IPv6 and CIDR ranges', () => {
+    for (const ok of ['203.0.113.7', '203.0.113.0/24', '0.0.0.0/0', '2001:db8::/32', '::1', 'fe80::1', '::ffff:1.2.3.4', '2001:db8:0:0:0:0:0:1']) {
+      expect(parseIpFilter(ok)).toBe(ok);
+    }
+    expect(parseIpFilter('  10.0.0.1 ')).toBe('10.0.0.1');
+  });
+
+  it('rejects what is not an address or range', () => {
+    for (const bad of ['', 'office', '256.1.1.1', '1.2.3', '1.2.3.4/33', '1.2.3.4/', '1.2.3.4/8/8', '2001:db8::/129', '1::2::3', '1:2:3:4:5:6:7', ':::', 'g::1', '/24']) {
+      expect(parseIpFilter(bad), bad).toBeNull();
+    }
   });
 });

@@ -4,8 +4,13 @@
  * Fase 1 (verzamelen): projecten, hun instellingen en de installatiepagina.
  * Rapporten, funnels en opnames komen in latere fases.
  */
+import { weldpanelAnalytics } from './weldpanel-analytics';
+import { weldpanelObserve } from './weldpanel-observe';
+
 export const weldpanel = {
   title: 'WeldPanel',
+  /** Analytics pages (phases 2-3), see weldpanel-analytics.ts. */
+  analytics: weldpanelAnalytics,
   breadcrumb: {
     home: 'WeldPanel',
     projects: 'Projecten',
@@ -35,6 +40,10 @@ export const weldpanel = {
     patternInvalid: 'Begin met een slash, zoals /admin/* of /checkout/bedankt.',
     patternDuplicate: 'Dit patroon staat al in de lijst.',
     tooManyPatterns: 'Voeg maximaal 50 patronen toe.',
+    ipInvalid: 'Voer een IPv4- of IPv6-adres in, of een bereik zoals 203.0.113.0/24.',
+    ipDuplicate: 'Dit adres staat al in de lijst.',
+    tooManyIps: 'Voeg maximaal 50 adressen toe.',
+    sampleRateInvalid: 'Voer een geheel getal van 0 tot 100 in.',
   },
 
   /** The editor behind "allowed domains" and "excluded pages". */
@@ -192,7 +201,7 @@ export const weldpanel = {
     },
     maskingLabel: 'Maskering',
     maskingDescription:
-      'Wat verborgen wordt. Dit geldt nu voor de tekst van vastgelegde elementen en later voor sessie-opnames, die in een volgende fase komen. Wachtwoordvelden worden altijd gemaskeerd.',
+      'Wat verborgen wordt in sessie-opnames en in de tekst die bij aangeklikte elementen wordt vastgelegd. Wachtwoordvelden worden altijd gemaskeerd.',
     masking: {
       strict: {
         label: 'Streng',
@@ -211,7 +220,20 @@ export const weldpanel = {
     excludedDescription:
       'Pagina’s waarvan het pad bij een patroon past, worden niet gemeten. * past bij elke tekenreeks, bijvoorbeeld /admin/* of /checkout/bedankt.',
     excludedPlaceholder: '/admin/*',
-    excludedNone: 'Er zijn geen pagina’s uitgesloten.',
+    excludedNone: "Er zijn geen pagina's uitgesloten.",
+    recordingRateLabel: 'Opnamepercentage',
+    recordingRateSuffix: '% van de sessies met toestemming',
+    recordingRateDescription:
+      'Het aandeel sessies met toestemming dat wordt opgenomen, van 0 tot 100 procent. Sessies zonder toestemming worden nooit opgenomen.',
+    recordingRateValue: '{percent}% van de sessies met toestemming',
+    aiLabel: 'AI-samenvattingen van opnames',
+    aiDescription:
+      'Schrijf een korte samenvatting van elke opname. Samenvattingen gebruiken werkruimtetegoed en zien alleen gemaskeerde inhoud.',
+    ipFiltersLabel: 'Uitgesloten IP-adressen',
+    ipFiltersDescription:
+      'Verkeer van deze IP-adressen of CIDR-bereiken wordt genegeerd, bijvoorbeeld je kantoor. Adressen worden vergeleken en nooit opgeslagen.',
+    ipFiltersPlaceholder: '203.0.113.0/24',
+    ipFiltersNone: 'Er zijn geen IP-adressen uitgesloten.',
     readOnlyNote: 'Alleen mensen die WeldPanel-projecten mogen beheren, kunnen deze instellingen wijzigen.',
     save: 'Instellingen opslaan',
     saving: 'Opslaan…',
@@ -265,4 +287,6 @@ export const weldpanel = {
     },
     cancel: 'Annuleren',
   },
+  /** Users, recordings, heatmaps, frustration, live, keys and usage (phases 3-7), see weldpanel-observe.ts. */
+  observe: weldpanelObserve,
 };
