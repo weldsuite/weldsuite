@@ -104,8 +104,17 @@ impl From<Refused> for AuthError {
 
 // ── return URLs, callback URLs ──────────────────────────────────────────────
 
-/// `isAllowedConnectorReturnUrl(url)`.
-pub fn is_allowed_return_url(url: &str) -> bool {
+/// `configuredOrigin(url)`: the origin of a configured http(s) URL.
+fn configured_origin(url: Option<&str>) -> Option<url::Origin> {
+    let parsed = url::Url::parse(url.filter(|u| !u.is_empty())?).ok()?;
+    matches!(parsed.scheme(), "https" | "http").then(|| parsed.origin())
+}
+
+/// `isAllowedConnectorReturnUrl(url, publicAppUrl)`: a connector page on
+/// Global's platform hosts, or on `public_app_url` (the install's own
+/// platform origin, `PUBLIC_APP_URL`, which is how the EU and self-hosted
+/// editions are reached).
+pub fn is_allowed_return_url(url: &str, public_app_url: Option<&str>) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };
@@ -116,7 +125,8 @@ pub fn is_allowed_return_url(url: &str) -> bool {
     let allowed = matches!(
         host,
         "localhost" | "127.0.0.1" | "app.weldsuite.org" | "app-test.weldsuite.org"
-    ) || host.ends_with(".weldsuite.pages.dev");
+    ) || host.ends_with(".weldsuite.pages.dev")
+        || configured_origin(public_app_url).is_some_and(|own| own == parsed.origin());
     if !allowed {
         return false;
     }
@@ -388,7 +398,7 @@ pub async fn start_woo_app_auth(
     return_url: &str,
     request_origin: Option<&str>,
 ) -> Result<Value, AuthError> {
-    if !is_allowed_return_url(return_url) {
+    if !is_allowed_return_url(return_url, env.public_app_url.as_deref()) {
         return Err(refused("Return URL is not a WeldSuite page", 400).into());
     }
     let Some(callback) = woo_callback_url(
@@ -583,7 +593,7 @@ pub async fn start_moneybird_oauth(
     return_url: &str,
     entity_id: Option<&str>,
 ) -> Result<Value, AuthError> {
-    if !is_allowed_return_url(return_url) {
+    if !is_allowed_return_url(return_url, env.public_app_url.as_deref()) {
         return Err(refused("Return URL is not a WeldSuite page", 400).into());
     }
     let (client_id, _) = moneybird_app(env)?;
@@ -910,7 +920,7 @@ pub async fn start_stripe_oauth(
     entity_id: Option<&str>,
     import_start_date: Option<&str>,
 ) -> Result<Value, AuthError> {
-    if !is_allowed_return_url(return_url) {
+    if !is_allowed_return_url(return_url, env.public_app_url.as_deref()) {
         return Err(refused("Return URL is not a WeldSuite page", 400).into());
     }
     let (client_id, _) = stripe_platform(env)?;
@@ -1087,21 +1097,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn own_platform_origin_is_a_return_url() {
+        let own = Some("https://app.test.weldsuite.eu");
+        let page = "https://app.test.weldsuite.eu/settings/integrations/moneybird";
+        assert!(!is_allowed_return_url(page, None));
+        assert!(is_allowed_return_url(page, own));
+        assert!(is_allowed_return_url(
+            "https://app.test.weldsuite.eu/w/acme/weldconnect/connectors",
+            Some("https://app.test.weldsuite.eu/")
+        ));
+        assert!(!is_allowed_return_url(
+            "https://app.test.weldsuite.eu/settings/billing",
+            own
+        ));
+        assert!(!is_allowed_return_url(
+            "http://app.test.weldsuite.eu/settings/integrations/moneybird",
+            own
+        ));
+        assert!(!is_allowed_return_url(
+            "https://evil.weldsuite.eu/settings/integrations/moneybird",
+            own
+        ));
+        assert!(!is_allowed_return_url(
+            "https://evil.example/weldconnect/connectors",
+            Some("not a url")
+        ));
+        assert!(!is_allowed_return_url(page, Some("")));
+    }
+
+    #[test]
     fn return_urls_and_states() {
         assert!(is_allowed_return_url(
-            "https://app.weldsuite.org/weldconnect/connectors"
+            "https://app.weldsuite.org/weldconnect/connectors",
+            None
         ));
         assert!(is_allowed_return_url(
-            "https://app-test.weldsuite.org/w/acme/weldconnect/connectors/x"
+            "https://app-test.weldsuite.org/w/acme/weldconnect/connectors/x",
+            None
         ));
         assert!(is_allowed_return_url(
-            "http://localhost:3000/settings/integrations/moneybird"
+            "http://localhost:3000/settings/integrations/moneybird",
+            None
         ));
         assert!(!is_allowed_return_url(
-            "https://evil.example/weldconnect/connectors"
+            "https://evil.example/weldconnect/connectors",
+            None
         ));
         assert!(!is_allowed_return_url(
-            "https://app.weldsuite.org/settings/billing"
+            "https://app.weldsuite.org/settings/billing",
+            None
         ));
         let state = WooState {
             clerk_org_id: "org_1".to_owned(),

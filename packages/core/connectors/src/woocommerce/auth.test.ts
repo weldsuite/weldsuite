@@ -81,6 +81,25 @@ describe('WooCommerce application authentication', () => {
     expect(isAllowedConnectorReturnUrl('https://evil.example/w/acme/weldconnect/connectors')).toBe(false);
   });
 
+  it("allows the install's own platform origin (PUBLIC_APP_URL), and only that origin", () => {
+    const publicAppUrl = 'https://app.test.weldsuite.eu';
+    expect(isAllowedConnectorReturnUrl('https://app.test.weldsuite.eu/settings/integrations/moneybird')).toBe(false);
+    expect(
+      isAllowedConnectorReturnUrl('https://app.test.weldsuite.eu/settings/integrations/moneybird', publicAppUrl),
+    ).toBe(true);
+    expect(
+      isAllowedConnectorReturnUrl('https://app.test.weldsuite.eu/w/acme/weldconnect/connectors', `${publicAppUrl}/`),
+    ).toBe(true);
+    expect(isAllowedConnectorReturnUrl('https://app.test.weldsuite.eu/settings/billing', publicAppUrl)).toBe(false);
+    expect(
+      isAllowedConnectorReturnUrl('http://app.test.weldsuite.eu/settings/integrations/moneybird', publicAppUrl),
+    ).toBe(false);
+    expect(
+      isAllowedConnectorReturnUrl('https://evil.weldsuite.eu/settings/integrations/moneybird', publicAppUrl),
+    ).toBe(false);
+    expect(isAllowedConnectorReturnUrl('https://evil.example/weldconnect/connectors', 'not a url')).toBe(false);
+  });
+
   it('resolves the HTTPS callback onto app-api, not the webhook worker', () => {
     expect(woocommerceAuthCallbackUrl('https://app-api.weldsuite.org/')).toBe(
       'https://app-api.weldsuite.org/webhooks/woocommerce/auth',
