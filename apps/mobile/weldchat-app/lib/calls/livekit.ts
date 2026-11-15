@@ -19,10 +19,11 @@
  * client are required on first use, after `ensureLiveKitGlobals()`.
  */
 
-import { NativeModules, PixelRatio, Platform } from 'react-native';
+import { PixelRatio, Platform } from 'react-native';
 import { registerGlobals } from '@cloudflare/react-native-webrtc';
 import { randomUUID } from 'expo-crypto';
 import type { Room, RoomOptions } from 'livekit-client';
+import { holdCallAudio } from './call-audio';
 
 /**
  * `initLiveKitMeeting` of `@weldsuite/weldmeet-ui/providers/livekit`, as this
@@ -90,59 +91,6 @@ export function ensureLiveKitGlobals(): void {
     crypto.randomUUID = randomUUID as Crypto['randomUUID'];
   }
   globalsReady = true;
-}
-
-/**
- * RealtimeKit's own in-call audio module (`@cloudflare/realtimekit-react-native`,
- * a fork of react-native-incall-manager). Its `start` takes no arguments on
- * either platform; `stop` takes a busy-tone name on iOS and nothing on Android.
- */
-interface InCallManagerModule {
-  start?: () => void;
-  stop?: (busytone?: string) => void;
-}
-
-function inCallManager(): InCallManagerModule | undefined {
-  return NativeModules.InCallManager as InCallManagerModule | undefined;
-}
-
-/** Calls holding the in-call audio session: a call still closing can overlap the next. */
-let audioHolds = 0;
-
-/**
- * Route call audio as RealtimeKit does: its SDK starts the in-call audio
- * session (speaker, Bluetooth kept available, screen kept on) with its
- * `InCallManager` native module when a call's media is set up, and this binary
- * has that module on every edition. A missing module (an old binary) just
- * leaves WebRTC's default.
- *
- * Returns the release. The session goes back to the app (media audio, the
- * screen allowed to sleep) when the last call holding it lets go; until then
- * voice messages and other sounds would play at call volume.
- */
-export function holdCallAudio(): () => void {
-  audioHolds += 1;
-  if (audioHolds === 1) {
-    try {
-      inCallManager()?.start?.();
-    } catch {
-      // WebRTC's default audio session then.
-    }
-  }
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    audioHolds -= 1;
-    if (audioHolds > 0) return;
-    try {
-      // The bridge checks the argument count. RealtimeKit plays no busy tone.
-      if (Platform.OS === 'ios') inCallManager()?.stop?.('');
-      else inCallManager()?.stop?.();
-    } catch {
-      // Nothing was started.
-    }
-  };
 }
 
 export interface LiveKitCallOptions {

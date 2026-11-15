@@ -13,6 +13,8 @@
  * WeldSuite cloud, LiveKit on the Kubernetes editions. Both clients answer to
  * RealtimeKit's client surface, so only setting the client up differs
  * (`RealtimeKitCall` / `LiveKitCall`); `CallSurface` is the rest of the call.
+ * Each provider's hook also ends the call when the host unmounts: it leaves the
+ * room if nobody did, then gives the phone's call audio back.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -21,15 +23,13 @@ import { useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { Phone, MicOff } from 'lucide-react-native';
-import {
-  RealtimeKitProvider,
-  useRealtimeKitClient,
-} from '@cloudflare/realtimekit-react-native';
+import { RealtimeKitProvider } from '@cloudflare/realtimekit-react-native';
 import { getMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 import type { VideoProvider } from '@weldsuite/weldmeet-ui/providers/video-provider';
 import { useCall, type CallSession, type CallType } from '@/contexts/CallContext';
 import { useLiveKitClient } from '@/hooks/useLiveKitClient';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
+import { useRealtimeKitCall } from '@/hooks/useRealtimeKitCall';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import type { CallInitOptions, MeetingClient } from '@/lib/calls/types';
@@ -178,7 +178,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
 }
 
 function RealtimeKitCall({ session }: Readonly<{ session: CallSession }>) {
-  const [meeting, initMeeting] = useRealtimeKitClient();
+  const [meeting, initMeeting] = useRealtimeKitCall();
   return <CallSurface session={session} provider="realtimekit" meeting={meeting} initMeeting={initMeeting} />;
 }
 
@@ -414,16 +414,14 @@ function CallSurface({
     return () => clearInterval(id);
   }, [connected]);
 
+  // Gone without a hang-up here (the call was ended elsewhere, or a newer one
+  // replaced it). Leaving the room is the provider hook's (`useRealtimeKitCall`,
+  // `useLiveKitClient`): it leaves once, and only then gives the phone's audio back.
   useEffect(() => {
     return () => {
       if (leftRef.current) return;
       leftRef.current = true;
       stopLocalMediaTracks(meetingRef.current);
-      try {
-        void meetingRef.current?.leave();
-      } catch {
-        /* best effort */
-      }
     };
   }, []);
 
