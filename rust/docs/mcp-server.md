@@ -120,10 +120,35 @@ on the edition's own host (one host serves every path, OPS-013).
   OAuth access tokens (`at+jwt`), so an MCP client can't sign in on a
   Clerk-mode Kubernetes install yet; Global's TypeScript server takes them.
   The workspace, its restrictions and the member's permissions
-  come from the same lookups the `/api` pipeline uses. Discovery names the
-  edition's issuer (`OIDC_ISSUER`, or Clerk's from `CLERK_PUBLISHABLE_KEY`) and
-  passes its `oauth-authorization-server` metadata through. Opaque Clerk
+  come from the same lookups the `/api` pipeline uses. Opaque Clerk
   tokens (`oat_…`, verified only by Clerk's API) are refused.
+- **Discovery.** It names the edition's issuer (`OIDC_ISSUER`, or Clerk's
+  from `CLERK_PUBLISHABLE_KEY`) and follows the sign-in (`auth::Discovery`).
+  With Clerk the protected-resource document is Global's, field for field,
+  and `/.well-known/oauth-authorization-server` passes Clerk's RFC 8414
+  metadata through. With `AUTH_PROVIDER=oidc` the protected-resource
+  document carries RFC 9728's fields only (`resource`,
+  `authorization_servers`, `scopes_supported`, `bearer_methods_supported`),
+  not Clerk's paths, and the authorization-server document is the
+  provider's `/.well-known/openid-configuration` (Zitadel serves no RFC 8414
+  document; §5 of the RFC makes the two the same). `scopes_supported` is
+  what a client must ask for, the scopes the platform asks for: `openid
+  profile email offline_access`, and with a Zitadel org claim
+  (`OIDC_ORG_CLAIM` starting `urn:zitadel:`) also
+  `urn:zitadel:iam:org:projects:roles` (the roles claim that names the
+  organization) and `urn:zitadel:iam:org:project:id:<OIDC_AUDIENCE>:aud`
+  (the project in `aud`).
+- **An MCP client on Zitadel.** Zitadel has no dynamic client registration,
+  so each client is an application in the WeldSuite project (the project
+  `OIDC_AUDIENCE` names), registered by hand: the client's redirect URI,
+  code flow with PKCE, refresh tokens, and **JWT access tokens** (the
+  verifier takes no opaque token). The user gives the client its client id
+  (and secret, for a confidential app). The organization comes from the
+  roles claim, so an account with roles in several organizations gets a
+  token that names none, and `/mcp` answers 401: the platform narrows its
+  token with `urn:zitadel:iam:org:roles:id:<org id>`, which an MCP client
+  can't know to ask for. Until `/mcp` can be told the workspace some other
+  way, MCP on a Zitadel edition is for accounts in one workspace.
 - **Bindings on Kubernetes.** KV caches → the cache port (Valkey); the
   rate limiter → the cache's atomic counters, as external-api's; the D1
   due index → `weldsuite_db::due_index` (in the ported WeldReach routes);

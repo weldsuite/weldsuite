@@ -7,6 +7,11 @@
 //! the member's effective permissions in it are the authority, never the
 //! token. A request then counts against the workspace's per-minute limit on
 //! the cache's counters (the worker's `RateLimiter` Durable Object).
+//!
+//! The discovery documents follow the sign-in ([`Discovery`]): with Clerk
+//! they are Global's, field for field; with an OIDC provider they name its
+//! endpoints and the scopes its tokens need, and the authorization server's
+//! metadata is the provider's `openid-configuration`.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,12 +31,62 @@ use weldsuite_ports::{HttpRequest, OutboundHttp};
 
 use crate::{McpSession, McpState};
 
-/// The scopes discovery advertises.
-const SUPPORTED_SCOPES: [&str; 4] = ["openid", "profile", "email", "user:org:read"];
+/// The scopes Global's discovery advertises (Clerk's).
+const CLERK_SCOPES: [&str; 4] = ["openid", "profile", "email", "user:org:read"];
+/// The scopes every OIDC sign-in asks for (the platform's
+/// `DEFAULT_OIDC_SCOPES`, less Zitadel's roles scope).
+const OIDC_SCOPES: [&str; 4] = ["openid", "profile", "email", "offline_access"];
+/// Zitadel's scope for the project roles claim, which names the
+/// organizations the user has roles in.
+const ZITADEL_ROLES_SCOPE: &str = "urn:zitadel:iam:org:projects:roles";
 const SERVICE_DOCUMENTATION: &str = "https://help.weldsuite.org/settings/mcp-server";
 const PROTECTED_RESOURCE_PATH: &str = "/.well-known/oauth-protected-resource";
 const AUTHORIZATION_SERVER_PATH: &str = "/.well-known/oauth-authorization-server";
+const OPENID_CONFIGURATION_PATH: &str = "/.well-known/openid-configuration";
 const RATE_WINDOW_SECONDS: u64 = 60;
+
+/// Who signs MCP clients in, which shapes the discovery documents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Discovery {
+    /// Clerk: Global's documents, as the worker writes them.
+    Clerk,
+    /// An OIDC provider (`AUTH_PROVIDER=oidc`; Zitadel on EU): RFC 9728's
+    /// fields only, with the scopes a client must ask for to get a token
+    /// this server takes. The authorization server's metadata is the
+    /// provider's `openid-configuration`, since Zitadel serves no RFC 8414
+    /// document.
+    Oidc { scopes: Vec<String> },
+}
+
+impl Discovery {
+    /// The OIDC sign-in for a provider whose tokens name the organization in
+    /// `org_claim` and must have `audience` in `aud`. With a Zitadel claim,
+    /// Zitadel's scopes as the platform asks for them
+    /// (`lib/auth/oidc/session.ts`): the project roles, which carry the
+    /// organization, and the project in `aud`.
+    pub fn oidc(audience: Option<&str>, org_claim: &str) -> Self {
+        let mut scopes: Vec<String> = OIDC_SCOPES.iter().map(|&scope| scope.to_owned()).collect();
+        if org_claim.starts_with("urn:zitadel:") {
+            scopes.push(ZITADEL_ROLES_SCOPE.to_owned());
+            if let Some(audience) = audience.filter(|audience| !audience.is_empty()) {
+                scopes.push(format!("urn:zitadel:iam:org:project:id:{audience}:aud"));
+            }
+        }
+        Self::Oidc { scopes }
+    }
+
+    /// The 401 for a token that names no single organization.
+    fn no_organization_message(&self) -> &'static str {
+        match self {
+            Self::Clerk => {
+                "Token is not scoped to an organization. Re-authorize requesting the \"user:org:read\" scope and select a workspace."
+            }
+            Self::Oidc { .. } => {
+                "Token names no single workspace. Sign in again with the scopes in this server's OAuth metadata; an account that belongs to several workspaces can't use MCP here yet."
+            }
+        }
+    }
+}
 
 /// The verifier and what discovery names.
 pub struct McpAuth {
@@ -42,6 +97,7 @@ pub struct McpAuth {
     /// This server's public origin (`MCP_SERVER_URL`).
     pub server_url: String,
     pub outbound: Option<OutboundHttp>,
+    pub discovery: Discovery,
 }
 
 impl std::fmt::Debug for McpAuth {
@@ -49,6 +105,7 @@ impl std::fmt::Debug for McpAuth {
         f.debug_struct("McpAuth")
             .field("issuer", &self.issuer)
             .field("server_url", &self.server_url)
+            .field("discovery", &self.discovery)
             .finish_non_exhaustive()
     }
 }
@@ -138,7 +195,7 @@ pub async fn authenticate(
     };
     let Some(org) = context.org_id.clone() else {
         return unauthorized(
-            "Token is not scoped to an organization. Re-authorize requesting the \"user:org:read\" scope and select a workspace.",
+            auth.discovery.no_organization_message(),
             "no organization claim",
         );
     };
@@ -332,6 +389,38 @@ fn metadata_cors(mut response: Response) -> Response {
     response
 }
 
+/// RFC 9728's document for `{server_url}{resource_path}`.
+fn protected_resource_document(
+    issuer: &str,
+    server_url: &str,
+    resource_path: &str,
+    discovery: &Discovery,
+) -> Value {
+    let resource = format!("{}{resource_path}", server_url.trim_end_matches('/'));
+    match discovery {
+        Discovery::Clerk => json!({
+            "resource": resource,
+            "authorization_servers": [issuer],
+            "token_types_supported": ["urn:ietf:params:oauth:token-type:access_token"],
+            "token_introspection_endpoint": format!("{issuer}/oauth/token"),
+            "token_introspection_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
+            "authorization_data_types_supported": ["oauth_scope"],
+            "authorization_data_locations_supported": ["header", "body"],
+            "key_challenges_supported": [{ "challenge_type": "urn:ietf:params:oauth:pkce:code_challenge", "challenge_algs": ["S256"] }],
+            "scopes_supported": CLERK_SCOPES,
+            "bearer_methods_supported": ["header"],
+            "service_documentation": SERVICE_DOCUMENTATION,
+        }),
+        Discovery::Oidc { scopes } => json!({
+            "resource": resource,
+            "authorization_servers": [issuer],
+            "scopes_supported": scopes,
+            "bearer_methods_supported": ["header"],
+        }),
+    }
+}
+
 fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
     let Some(issuer) = &auth.issuer else {
         return metadata_cors(
@@ -343,57 +432,56 @@ fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
         );
     };
     metadata_cors(
-        axum::Json(json!({
-            "resource": format!("{}{resource_path}", auth.server_url.trim_end_matches('/')),
-            "authorization_servers": [issuer],
-            "token_types_supported": ["urn:ietf:params:oauth:token-type:access_token"],
-            "token_introspection_endpoint": format!("{issuer}/oauth/token"),
-            "token_introspection_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
-            "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
-            "authorization_data_types_supported": ["oauth_scope"],
-            "authorization_data_locations_supported": ["header", "body"],
-            "key_challenges_supported": [{ "challenge_type": "urn:ietf:params:oauth:pkce:code_challenge", "challenge_algs": ["S256"] }],
-            "scopes_supported": SUPPORTED_SCOPES,
-            "bearer_methods_supported": ["header"],
-            "service_documentation": SERVICE_DOCUMENTATION,
-        }))
+        axum::Json(protected_resource_document(
+            issuer,
+            &auth.server_url,
+            resource_path,
+            &auth.discovery,
+        ))
         .into_response(),
     )
 }
 
+/// The issuer's metadata: RFC 8414's document from Clerk, the
+/// `openid-configuration` from an OIDC provider (RFC 8414 §5 makes it the same
+/// document). `None` when it can't be fetched or has no `issuer`.
+async fn authorization_server_metadata(
+    issuer: &str,
+    outbound: &OutboundHttp,
+    discovery: &Discovery,
+) -> Option<Value> {
+    let path = match discovery {
+        Discovery::Clerk => AUTHORIZATION_SERVER_PATH,
+        Discovery::Oidc { .. } => OPENID_CONFIGURATION_PATH,
+    };
+    let request = HttpRequest {
+        method: "GET".to_owned(),
+        url: format!("{}{path}", issuer.trim_end_matches('/')),
+        headers: vec![("accept".to_owned(), "application/json".to_owned())],
+        body: None,
+    };
+    let response = outbound.0.send(request).await.ok()?;
+    let metadata = serde_json::from_slice::<Value>(&response.body).ok()?;
+    ((200..300).contains(&response.status) && metadata.get("issuer").is_some_and(Value::is_string))
+        .then_some(metadata)
+}
+
 async fn authorization_server(auth: &McpAuth) -> Response {
-    let unavailable = || {
-        metadata_cors(
+    let metadata = match (&auth.issuer, &auth.outbound) {
+        (Some(issuer), Some(outbound)) => {
+            authorization_server_metadata(issuer, outbound, &auth.discovery).await
+        }
+        _ => None,
+    };
+    match metadata {
+        Some(metadata) => metadata_cors(axum::Json(metadata).into_response()),
+        None => metadata_cors(
             (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({ "error": "server_error", "error_description": "Authorization server metadata unavailable" })),
             )
                 .into_response(),
-        )
-    };
-    let (Some(issuer), Some(outbound)) = (&auth.issuer, &auth.outbound) else {
-        return unavailable();
-    };
-    let request = HttpRequest {
-        method: "GET".to_owned(),
-        url: format!(
-            "{}{AUTHORIZATION_SERVER_PATH}",
-            issuer.trim_end_matches('/')
         ),
-        headers: vec![("accept".to_owned(), "application/json".to_owned())],
-        body: None,
-    };
-    let Ok(response) = outbound.0.send(request).await else {
-        return unavailable();
-    };
-    match serde_json::from_slice::<Value>(&response.body) {
-        Ok(metadata)
-            if (200..300).contains(&response.status)
-                && metadata.get("issuer").is_some_and(Value::is_string) =>
-        {
-            metadata_cors(axum::Json(metadata).into_response())
-        }
-        _ => unavailable(),
     }
 }
 
@@ -428,5 +516,116 @@ mod tests {
             Some("https://definite-eagle-3.clerk.accounts.dev")
         );
         assert_eq!(tier_limit("business"), 60);
+    }
+
+    #[test]
+    fn oidc_scopes_follow_the_org_claim() {
+        let zitadel = Discovery::oidc(Some("397"), "urn:zitadel:iam:org:project:397:roles");
+        assert_eq!(
+            zitadel,
+            Discovery::Oidc {
+                scopes: [
+                    "openid",
+                    "profile",
+                    "email",
+                    "offline_access",
+                    "urn:zitadel:iam:org:projects:roles",
+                    "urn:zitadel:iam:org:project:id:397:aud",
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            }
+        );
+        let no_audience = Discovery::oidc(Some(""), "urn:zitadel:iam:org:id");
+        let Discovery::Oidc { scopes } = &no_audience else {
+            panic!("oidc");
+        };
+        assert_eq!(scopes.last().map(String::as_str), Some(ZITADEL_ROLES_SCOPE));
+        assert_eq!(
+            Discovery::oidc(Some("api"), "org_id"),
+            Discovery::Oidc {
+                scopes: OIDC_SCOPES.map(str::to_owned).to_vec()
+            }
+        );
+    }
+
+    #[test]
+    fn protected_resource_names_the_oidc_provider_only() {
+        let discovery = Discovery::oidc(Some("397"), "urn:zitadel:iam:org:project:397:roles");
+        let document = protected_resource_document(
+            "https://auth.example.eu",
+            "https://app.example.eu/",
+            "/mcp",
+            &discovery,
+        );
+        assert_eq!(
+            document,
+            json!({
+                "resource": "https://app.example.eu/mcp",
+                "authorization_servers": ["https://auth.example.eu"],
+                "scopes_supported": [
+                    "openid", "profile", "email", "offline_access",
+                    "urn:zitadel:iam:org:projects:roles",
+                    "urn:zitadel:iam:org:project:id:397:aud",
+                ],
+                "bearer_methods_supported": ["header"],
+            })
+        );
+        let clerk = protected_resource_document(
+            "https://clerk.example.org",
+            "https://mcp.example.org",
+            "",
+            &Discovery::Clerk,
+        );
+        assert_eq!(clerk["resource"], "https://mcp.example.org");
+        assert_eq!(
+            clerk["jwks_uri"],
+            "https://clerk.example.org/.well-known/jwks.json"
+        );
+        assert_eq!(clerk["scopes_supported"], json!(CLERK_SCOPES));
+    }
+
+    /// Answers `openid-configuration` only, as Zitadel does.
+    struct OpenIdOnly;
+
+    impl weldsuite_ports::DynOutboundHttp for OpenIdOnly {
+        fn send(
+            &self,
+            request: HttpRequest,
+        ) -> weldsuite_ports::BoxFuture<
+            '_,
+            Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>,
+        > {
+            let response = if request.url
+                == "https://auth.example.eu/.well-known/openid-configuration"
+            {
+                weldsuite_ports::HttpResponse::new(
+                    200,
+                    br#"{"issuer":"https://auth.example.eu","token_endpoint":"https://auth.example.eu/oauth/v2/token"}"#.to_vec(),
+                )
+            } else {
+                weldsuite_ports::HttpResponse::new(404, b"not found".to_vec())
+            };
+            Box::pin(std::future::ready(Ok(response)))
+        }
+    }
+
+    #[tokio::test]
+    async fn authorization_server_metadata_is_the_oidc_configuration() {
+        let outbound = OutboundHttp(Arc::new(OpenIdOnly));
+        let oidc = Discovery::oidc(None, "org_id");
+        let metadata = authorization_server_metadata("https://auth.example.eu/", &outbound, &oidc)
+            .await
+            .expect("metadata");
+        assert_eq!(
+            metadata["token_endpoint"],
+            "https://auth.example.eu/oauth/v2/token"
+        );
+        // Clerk's RFC 8414 path, which this provider doesn't serve.
+        assert_eq!(
+            authorization_server_metadata("https://auth.example.eu", &outbound, &Discovery::Clerk)
+                .await,
+            None
+        );
     }
 }

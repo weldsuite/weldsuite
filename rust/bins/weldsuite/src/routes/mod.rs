@@ -2900,12 +2900,27 @@ pub(crate) fn mcp(state: &AppState) -> Router {
                 .ok()
                 .and_then(|key| weldsuite_mcp::auth::clerk_frontend_api_url(&key))
         });
+    // `public_auth` is set exactly with `AUTH_PROVIDER=oidc`.
+    let discovery =
+        state
+            .public_auth
+            .as_deref()
+            .map_or(weldsuite_mcp::auth::Discovery::Clerk, |public| {
+                weldsuite_mcp::auth::Discovery::oidc(
+                    public.get("audience").and_then(serde_json::Value::as_str),
+                    public
+                        .get("orgClaim")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                )
+            });
     let auth = env.get("MCP_SERVER_URL").map(|server_url| {
         Arc::new(weldsuite_mcp::McpAuth {
             verifier: Arc::clone(&state.verifier),
             issuer,
             server_url: server_url.clone(),
             outbound: shared_outbound(),
+            discovery,
         })
     });
     let mcp_state = weldsuite_mcp::McpState::new(

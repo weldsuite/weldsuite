@@ -437,9 +437,13 @@ The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
 is served at `/mcp` on the same host, with its OAuth discovery documents at
 `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-authorization-server` (the issuer's metadata passed
-through). The bearer token is an access token the server's own session
+through: Clerk's RFC 8414 document, or an OIDC provider's OpenID
+configuration, with the scopes its tokens need advertised). The bearer token
+is an access token the server's own session
 verifier accepts (`AUTH_PROVIDER=oidc`: the issuer's, the organization from
-`OIDC_ORG_CLAIM`); the member's effective permissions in that workspace are
+`OIDC_ORG_CLAIM`; Zitadel registers no client by itself, so each MCP client
+is an app registered there first, and an account in several workspaces
+can't sign in yet); the member's effective permissions in that workspace are
 the authority, and each workspace has a per-minute limit by plan on the
 cache's counters. Its tools are the TypeScript server's catalog, generated
 from the worker itself (`modules/mcp/tools/generate.mts`: `tools/list`'s
