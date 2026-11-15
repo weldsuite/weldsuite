@@ -2,13 +2,17 @@
  * A WeldChat call on LiveKit through the real client
  * (`@weldsuite/weldmeet-ui/providers/livekit`), driven by a fake room: the
  * events and state `CallHost` reads to join, ring back, show "Reconnecting",
- * mute, and hang up when the other person or the server ends the call.
+ * mute, hang up when the other person or the server ends the call, and give
+ * the phone its audio back afterwards.
  */
 
 import { EventEmitter } from 'events';
 
+/** RealtimeKit's in-call audio module. */
+const mockInCallManager = { start: jest.fn(), stop: jest.fn() };
+
 jest.mock('react-native', () => ({
-  NativeModules: { InCallManager: { start: jest.fn() } },
+  NativeModules: { InCallManager: mockInCallManager },
   Platform: { OS: 'android' },
   PixelRatio: { get: () => 2 },
 }));
@@ -17,6 +21,8 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid' }));
 
 /** The rooms `createLiveKitCall` built, newest last. */
 const mockRooms: MockRoom[] = [];
+/** End every call a test started, as the call host does when it unmounts. */
+const endCalls: (() => Promise<void>)[] = [];
 
 jest.mock('livekit-client', () => {
   const actual = jest.requireActual('livekit-client');
@@ -96,18 +102,19 @@ function setup(defaults = { audio: true, video: false }) {
   const lk = jest.requireActual('livekit-client') as LiveKit;
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded after the navigator stub
   const { createLiveKitCall } = require('../livekit') as typeof import('../livekit');
-  const meeting = createLiveKitCall<{
+  const { meeting, end } = createLiveKitCall<{
     self: EventEmitter & { roomJoined: boolean; audioEnabled: boolean; videoEnabled: boolean; disableAudio(): Promise<void>; enableAudio(): Promise<void> };
     participants: { joined: EventEmitter & { toArray(): { id: string }[] } };
     join(): Promise<void>;
     leave(): Promise<void>;
   }>({ url: 'wss://livekit.eu.example.org', token: chatCallToken('user_b'), defaults });
+  endCalls.push(end);
   const room = mockRooms[mockRooms.length - 1];
   const events: [string, unknown][] = [];
   for (const name of ['roomJoined', 'roomLeft', 'audioUpdate']) {
     meeting.self.on(name, (payload: unknown) => events.push([name, payload]));
   }
-  return { lk, meeting, room, events };
+  return { lk, meeting, end, room, events };
 }
 
 beforeAll(() => {
@@ -116,6 +123,15 @@ beforeAll(() => {
     configurable: true,
     writable: true,
   });
+});
+
+beforeEach(() => {
+  mockInCallManager.start.mockClear();
+  mockInCallManager.stop.mockClear();
+});
+
+afterEach(async () => {
+  await Promise.all(endCalls.splice(0).map((end) => end()));
 });
 
 describe('a WeldChat call on LiveKit', () => {
@@ -193,5 +209,18 @@ describe('a WeldChat call on LiveKit', () => {
 
     expect(room.disconnect).toHaveBeenCalledWith(true);
     expect(events).toContainEqual(['roomLeft', { state: 'left' }]);
+  });
+
+  it('holds the in-call audio for the call and gives it back after it ends', async () => {
+    const { lk, meeting, end, room } = setup();
+    expect(mockInCallManager.start).toHaveBeenCalledTimes(1);
+    await meeting.join();
+
+    room.emit(lk.RoomEvent.Disconnected, lk.DisconnectReason.ROOM_DELETED);
+    expect(mockInCallManager.stop).not.toHaveBeenCalled();
+
+    await end();
+    expect(mockInCallManager.stop).toHaveBeenCalledTimes(1);
+    expect(mockInCallManager.stop).toHaveBeenCalledWith();
   });
 });

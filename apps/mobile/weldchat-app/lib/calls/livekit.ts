@@ -92,22 +92,57 @@ export function ensureLiveKitGlobals(): void {
   globalsReady = true;
 }
 
+/**
+ * RealtimeKit's own in-call audio module (`@cloudflare/realtimekit-react-native`,
+ * a fork of react-native-incall-manager). Its `start` takes no arguments on
+ * either platform; `stop` takes a busy-tone name on iOS and nothing on Android.
+ */
 interface InCallManagerModule {
   start?: () => void;
+  stop?: (busytone?: string) => void;
 }
+
+function inCallManager(): InCallManagerModule | undefined {
+  return NativeModules.InCallManager as InCallManagerModule | undefined;
+}
+
+/** Calls holding the in-call audio session: a call still closing can overlap the next. */
+let audioHolds = 0;
 
 /**
  * Route call audio as RealtimeKit does: its SDK starts the in-call audio
- * session (speaker, Bluetooth kept available) with its `InCallManager` native
- * module when a call's media is set up, and this binary has that module on
- * every edition. A missing module (an old binary) just leaves WebRTC's default.
+ * session (speaker, Bluetooth kept available, screen kept on) with its
+ * `InCallManager` native module when a call's media is set up, and this binary
+ * has that module on every edition. A missing module (an old binary) just
+ * leaves WebRTC's default.
+ *
+ * Returns the release. The session goes back to the app (media audio, the
+ * screen allowed to sleep) when the last call holding it lets go; until then
+ * voice messages and other sounds would play at call volume.
  */
-export function startCallAudio(): void {
-  try {
-    (NativeModules.InCallManager as InCallManagerModule | undefined)?.start?.();
-  } catch {
-    // WebRTC's default audio session then.
+export function holdCallAudio(): () => void {
+  audioHolds += 1;
+  if (audioHolds === 1) {
+    try {
+      inCallManager()?.start?.();
+    } catch {
+      // WebRTC's default audio session then.
+    }
   }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    audioHolds -= 1;
+    if (audioHolds > 0) return;
+    try {
+      // The bridge checks the argument count. RealtimeKit plays no busy tone.
+      if (Platform.OS === 'ios') inCallManager()?.stop?.('');
+      else inCallManager()?.stop?.();
+    } catch {
+      // Nothing was started.
+    }
+  };
 }
 
 export interface LiveKitCallOptions {
@@ -119,12 +154,22 @@ export interface LiveKitCallOptions {
   defaults: { audio: boolean; video: boolean };
 }
 
-/**
- * A call client on LiveKit, typed as the RealtimeKit client the call host is
- * written against. Not connected yet: the call host calls `join()`, as it
- * does on RealtimeKit.
- */
-export function createLiveKitCall<Client>(options: LiveKitCallOptions): Client {
+export interface LiveKitCall<Client> {
+  /**
+   * The call client, typed as the RealtimeKit client the call host is written
+   * against. Not connected yet: the call host calls `join()`, as it does on
+   * RealtimeKit.
+   */
+  meeting: Client;
+  /**
+   * The call is over, however it ended: leave the room if still in it, then
+   * give the phone's audio back. Safe to call more than once.
+   */
+  end: () => Promise<void>;
+}
+
+/** A call on LiveKit, holding the in-call audio session until `end()`. */
+export function createLiveKitCall<Client>(options: LiveKitCallOptions): LiveKitCall<Client> {
   ensureLiveKitGlobals();
   // After the globals: livekit-client runs webrtc-adapter when it loads.
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded on first use, never on Global
@@ -139,6 +184,20 @@ export function createLiveKitCall<Client>(options: LiveKitCallOptions): Client {
     defaults: options.defaults,
     room: new Room(LIVEKIT_ROOM_OPTIONS),
   });
-  startCallAudio();
-  return meeting;
+  const releaseAudio = holdCallAudio();
+  let ended: Promise<void> | undefined;
+  const end = () => {
+    ended ??= (async () => {
+      try {
+        // Waits for a leave already under way. Only then hand the audio
+        // back: iOS stops whatever still plays into a session it deactivates.
+        await (meeting as unknown as { leave: () => Promise<void> }).leave();
+      } catch {
+        // Gone already.
+      }
+      releaseAudio();
+    })();
+    return ended;
+  };
+  return { meeting, end };
 }
