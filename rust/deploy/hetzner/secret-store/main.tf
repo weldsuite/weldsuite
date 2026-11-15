@@ -116,10 +116,12 @@ locals {
     package_update  = true
     package_upgrade = true
     packages        = ["caddy", "rclone", "unattended-upgrades"]
+    # A Windows checkout (core.autocrlf) has CRLF in these files; bash on
+    # the server would choke on it.
     write_files = [
       for path, f in local.files : {
         path        = path
-        content     = f.content
+        content     = replace(f.content, "\r\n", "\n")
         permissions = f.mode
         owner       = "root:root"
       }
