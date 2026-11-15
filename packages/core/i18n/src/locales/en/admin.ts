@@ -29,7 +29,7 @@ export const admin = {
     failed: "Signing in didn't work. Try again; if it keeps failing, the console's log says why.",
     signedOut: 'You are signed out.',
     notOnRoster:
-      "Your account isn't on this install's staff list. Ask a superadmin to add you with weldsuite admin staff add.",
+      "This account isn't on this install's staff list. Sign out and sign in with your WeldSuite Staff account, not your platform account; if that is the one you used, ask a superadmin to add you with weldsuite admin staff add.",
   },
 
   common: {

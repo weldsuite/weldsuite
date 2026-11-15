@@ -7,8 +7,8 @@
 # sign in at the install's OIDC provider and get in only with an active
 # admin_users row, the roster `weldsuite admin staff` manages (ADR SEC-014).
 # Until ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and
-# ADMIN_SESSION_SECRET are in the Secret, its sign-in answers 503 and nobody
-# gets in.
+# ADMIN_SESSION_SECRET are in the Secret and admin.staffOrgId is set, its
+# sign-in answers 503 and nobody gets in.
 {{- if .Values.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount
@@ -69,6 +69,11 @@ spec:
               value: {{ .Values.admin.publicUrl | quote }}
             - name: ADMIN_OIDC_ISSUER
               value: {{ .Values.admin.oidcIssuer | default .Values.config.auth.oidc.issuer | quote }}
+            {{- with .Values.admin.staffOrgId }}
+            # Only accounts of this organization get in (ADR SEC-018).
+            - name: ADMIN_OIDC_ORG_ID
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.admin.platformUrl }}
             # Links in the emails the console sends (WeldReach access decisions).
             - name: PLATFORM_APP_URL

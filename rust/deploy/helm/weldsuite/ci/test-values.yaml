@@ -99,6 +99,7 @@ formsPortal:
 admin:
   enabled: true
   publicUrl: https://admin.example.org
+  staffOrgId: "234567890123456789"
   platformUrl: https://app.example.org
   allowedSourceRanges: [203.0.113.7/32, 198.51.100.0/24]
   ingress:

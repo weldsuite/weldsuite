@@ -739,12 +739,14 @@ formsPortal:
 # requests, workspaces, the app catalog, warmup and outbound mail. Staff sign in
 # at the install's OIDC provider (Zitadel: a confidential web app with the
 # redirect URI <publicUrl>/auth/callback and the post-logout URI
-# <publicUrl>/sign-in?signed_out=1) and get in only with an active admin_users
-# row, the roster `weldsuite admin staff` manages (ADR SEC-014). Reads from the
+# <publicUrl>/sign-in?signed_out=1) with an account of the staff organization
+# (staffOrgId) and get in only with an active admin_users row, the roster
+# `weldsuite admin staff` manages (ADR SEC-014, SEC-018). Reads from the
 # Secret: DATABASE_URL_MASTER, DATABASE_ENCRYPTION_KEY(_V2) (the tenants'
 # stored URLs), SMTP_URL, OUTBOUND_ADMIN_SECRET, and its own
 # ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and ADMIN_SESSION_SECRET (at
-# least 32 characters); until those three are there, nobody gets in.
+# least 32 characters); until those three and staffOrgId are there, nobody
+# gets in.
 admin:
   enabled: false
   image:
@@ -758,6 +760,11 @@ admin:
   publicUrl: ""
   # The issuer staff sign in at; empty: config.auth.oidc.issuer.
   oidcIssuer: ""
+  # The id of the organization that holds the staff's own accounts (Zitadel:
+  # `WeldSuite Staff`), ADMIN_OIDC_ORG_ID. Only its accounts get in, never a
+  # person's platform account (ADR SEC-018). Empty: the sign-in answers 503
+  # and nobody gets in.
+  staffOrgId: ""
   # The platform's URL, for links in the emails the console sends.
   platformUrl: ""
   # Client addresses (CIDRs) that may reach the console, as a Traefik

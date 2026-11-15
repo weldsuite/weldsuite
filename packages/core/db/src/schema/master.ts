@@ -1293,16 +1293,24 @@ export type NewHelpcenterDomainRegistry = typeof helpcenterDomainRegistry.$infer
 //  - viewer:     read-only access to every surface
 export const adminRoleEnum = pgEnum('admin_role', ['superadmin', 'admin', 'viewer']);
 
-// Admin Users - explicit allowlist of who may sign into the internal admin
-// console. Access is gated on an ACTIVE row here (matched by email), plus an
-// env-based bootstrap list so the very first superadmin can never be locked
-// out. Without a matching entry, an authenticated Clerk user gets NO access.
+// Admin Users - the install's staff roster. The WeldApps review gate lets in
+// the platform account in `user_id`. On the Kubernetes editions it is also who
+// may sign in to the admin console, and as what (ADR SEC-014), managed with
+// `weldsuite admin staff`; Global's console is gated by its own Clerk instance
+// (ADR SEC-009) and doesn't read this table.
 export const adminUsers = pgTable('admin_users', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
-  // Clerk user id, populated on first successful sign-in (matched by email).
-  // Null while an invitation is still outstanding.
+  // The person's PLATFORM account (master `users.id`), which the WeldApps
+  // review gate matches. `staff add` fills it from an account with this email
+  // that belongs to a workspace; null until they have one.
   userId: varchar('user_id', { length: 255 }),
+
+  // Kubernetes editions: the account the admin console bound this row to (the
+  // identity provider's subject in the staff organization), on the first
+  // sign-in with this verified email. A separate account from `user_id` (ADR
+  // SEC-018). Never filled by `staff add`; null until that first sign-in.
+  consoleSubject: varchar('console_subject', { length: 255 }),
 
   // Email is the invite key — always stored lowercased.
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -1326,6 +1334,8 @@ export const adminUsers = pgTable('admin_users', {
 }, (table) => [
   uniqueIndex('admin_users_email_idx').on(table.email),
   index('admin_users_user_id_idx').on(table.userId),
+  // One console account is one roster row.
+  uniqueIndex('admin_users_console_subject_idx').on(table.consoleSubject),
   index('admin_users_is_active_idx').on(table.isActive),
 ]);
 

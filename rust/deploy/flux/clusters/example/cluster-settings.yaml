@@ -30,9 +30,10 @@ data:
   # redirects; runbook step 7, item 2b). Empty until it is made: the apps
   # then can't sign in to this cluster.
   ZITADEL_MOBILE_CLIENT_ID: ""
-  # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN};
-  # the WeldSuite Staff org on WeldSuite's clusters): its id, from the
-  # organisation's settings in Zitadel's console.
+  # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN})
+  # and the staff admin console (admin.${DOMAIN}, ADR SEC-018; the WeldSuite
+  # Staff org on WeldSuite's clusters): its id, from the organisation's
+  # settings in Zitadel's console.
   ZITADEL_STAFF_ORG_ID: "000000000000000000"
   # Logs (infrastructure/logging): Loki's bucket, with its S3 endpoint as a
   # host name (no https://) and region. Its key is the Secret logging/loki-s3.
