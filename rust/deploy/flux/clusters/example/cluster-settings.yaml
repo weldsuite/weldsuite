@@ -54,3 +54,8 @@ data:
   # 127.0.0.1/32 lets nobody in from outside; put the staff's addresses here
   # (README, "Staff work").
   ADMIN_CIDRS: "[127.0.0.1/32]"
+  # The cluster's secret store (rust/deploy/hetzner/secret-store), as
+  # https://<its hostname>, no trailing slash. Set, Prometheus probes its
+  # /v1/sys/health and SecretStoreDown fires while it is sealed or
+  # unreachable (monitoring-config/ALERTS.md). Empty: no store, no probe.
+  SECRET_STORE_URL: ""

@@ -102,6 +102,11 @@ kubectl --context <ctx> create namespace external-secrets
 kubectl --context <ctx> -n external-secrets create secret generic secret-store-token --from-literal=token=<the token>
 ```
 
+And set `SECRET_STORE_URL: https://<hostname>` in the cluster's
+`cluster-settings.yaml`. With it set, the cluster's Prometheus also probes
+the store's `/v1/sys/health` and raises `SecretStoreDown` while it is sealed
+or unreachable (`flux/infrastructure/monitoring-config/ALERTS.md`).
+
 To make cluster tokens that only work from the cluster's own addresses, run
 `bao-configure` with `CLUSTER_TOKEN_CIDRS=<node addresses, comma-separated>`
 before creating one. A node with a new address then needs a new token, so
@@ -140,6 +145,7 @@ S3_BUCKET=…
 S3_ACCESS_KEY_ID=…
 S3_SECRET_ACCESS_KEY=…
 S3_PREFIX=<cluster>
+SNAPSHOT_PING_URL=https://hc-ping.com/…
 EOF
 systemctl start bao-snapshot && journalctl -u bao-snapshot -n 3
 ```
@@ -147,12 +153,27 @@ systemctl start bao-snapshot && journalctl -u bao-snapshot -n 3
 How long snapshots are kept is the bucket's lifecycle rule (30 days is
 plenty). `systemctl list-timers bao-snapshot` shows the next run.
 
+`SNAPSHOT_PING_URL` is optional, and the only thing that notices a failed
+snapshot. Make a healthchecks.io check per store (period 1 day, grace 2
+hours: the timer starts between 03:30 and 04:00 UTC), notifying through ntfy
+like the cluster's heartbeat check (`flux/infrastructure/monitoring-config/ALERTS.md`,
+"Receivers"), and put its ping URL here. The script pings only once the
+snapshot is in the bucket, with `curl -fsS -m 10 --retry 3`, so a run that
+fails anywhere (a sealed store, an expired token, the bucket) sends nothing,
+and the check notifies when its grace is up. A ping that fails is logged and
+leaves the run good. Without the setting nothing is pinged.
+
+On a store made before the ping existed (cloud-init wrote the script once),
+copy `files/bao-snapshot.sh` to `/usr/local/sbin/bao-snapshot` first.
+
 ## Reboots and unsealing
 
 Every start of OpenBao (a reboot, Hetzner maintenance, a crash,
 `systemctl restart openbao`) leaves the store sealed until two unseal keys
 are given. Meanwhile the cluster keeps its Secrets; new and changed values
-wait.
+wait. With the cluster's `SECRET_STORE_URL` set (step 3), `SecretStoreDown`
+fires after 10 minutes sealed: a warning, so at night it arrives in the
+morning.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://<hostname>/v1/sys/health   # 200 active, 503 sealed
@@ -245,6 +266,11 @@ then unseal.
 ## Not covered
 
 - One node, no failover. It doesn't need one for the cluster to keep
-  running, but nothing alerts yet on a sealed store (`/v1/sys/health` 503) or
-  a snapshot that failed (`systemctl status bao-snapshot`).
+  running.
+- Alerts only once both settings are made: a sealed or unreachable store is
+  the cluster's `SecretStoreDown` (`SECRET_STORE_URL`, step 3), a failed
+  snapshot the healthchecks.io check (`SNAPSHOT_PING_URL`, "Backups").
+  Without them nothing alerts. Nothing watches the server's disk or memory
+  or OpenBao's audit log either: Hetzner's console graphs, and
+  `journalctl -u openbao`.
 - x86 only (`server_type` rejects `cax`): the pinned package is amd64.
