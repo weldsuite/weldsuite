@@ -53,6 +53,11 @@ On a test cluster, once, and after changing a receiver:
   (the operator scales it back; patch the Alertmanager's `spec.replicas` to
   hold it), wait 10 minutes.
 - A crash loop: a pod in the weldsuite namespace whose command exits.
+- `SecretStoreDown`: `systemctl restart openbao` on the test cluster's store
+  (it comes back sealed), wait 15 minutes, unseal. The snapshot check:
+  healthchecks.io's test notification on the check's ntfy integration, and
+  `systemctl start bao-snapshot` on the store shows up as a ping in the
+  check's log.
 - Flux: a HelmRelease value its chart's schema refuses, on a test-only branch.
 - Routing only, anywhere (production too): `amtool alert add test severity=critical
   --annotation=summary="routing test" --alertmanager.url=http://localhost:9093`
@@ -262,6 +267,31 @@ then the Fluent Bit pod named in the alert.
 Loki discards lines (rate or size limits, too-old timestamps) or answers
 pushes with 5xx. Its logs say which; limits are in
 `../logging/values/loki.yaml`.
+
+## Secret store
+
+### SecretStoreDown
+
+The cluster's secret store (`rust/deploy/hetzner/secret-store`, ADR
+OPS-023) has answered its health check (`SECRET_STORE_URL`/v1/sys/health)
+with something other than 200 for 10 minutes. The cluster keeps every Secret
+it has; External Secrets refreshes nothing, and new or changed values wait.
+A warning: it waits for the morning. The HTTP code in the summary says
+which:
+
+- 503, sealed: OpenBao restarted (a reboot, Hetzner maintenance, a crash).
+  Unseal it with two keys (the store's README, "Reboots and unsealing").
+- 0, no answer: the server (Hetzner console), Caddy (`systemctl status
+  caddy`), its DNS name, or the cluster's way out.
+- 501, not initialised: a new or rebuilt server; README, "First start" or
+  "Restore".
+- 429, standby: OpenBao won't become active; `journalctl -u openbao` (an
+  audit device changed in `openbao.hcl`, README, "Upgrades").
+
+Probed only while the cluster's `SECRET_STORE_URL` is set. Its daily
+snapshot isn't watched from here: a failed one is the healthchecks.io check
+pinged by the store itself (`SNAPSHOT_PING_URL`, README, "Backups"), which
+notifies on its own.
 
 ## From kube-prometheus-stack
 

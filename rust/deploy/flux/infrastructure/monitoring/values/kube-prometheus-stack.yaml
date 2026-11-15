@@ -5,7 +5,8 @@
 #
 # What it scrapes besides the defaults below: ../monitors.yaml (Postgres,
 # Traefik, cert-manager, Flux, NATS, Restate, Zitadel, the weldsuite roles)
-# and ../probes.yaml (the public hosts through the blackbox exporter). The
+# and ../probes.yaml (the public hosts and the secret store through the
+# blackbox exporter). The
 # rules are ../rules/*.yaml plus the trimmed defaults here.
 #
 # ${DOMAIN} is the cluster's (Flux substitution). Nothing else in this file

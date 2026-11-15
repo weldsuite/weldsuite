@@ -5,8 +5,10 @@
 #
 # /etc/secret-store/snapshot.env (README, "Backups"): BAO_TOKEN (a token of
 # the snapshot role), S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID,
-# S3_SECRET_ACCESS_KEY, and optionally S3_REGION and S3_PREFIX. The bucket's
-# own lifecycle rule decides how long snapshots are kept.
+# S3_SECRET_ACCESS_KEY, and optionally S3_REGION, S3_PREFIX and
+# SNAPSHOT_PING_URL, a dead-man's switch (a healthchecks.io check's ping URL)
+# pinged after every uploaded snapshot, which notifies when the pings stop.
+# The bucket's own lifecycle rule decides how long snapshots are kept.
 set -euo pipefail
 # shellcheck disable=SC1091
 . /etc/secret-store/snapshot.env
@@ -29,3 +31,10 @@ export RCLONE_CONFIG_BACKUP_TYPE=s3 \
 target="backup:$S3_BUCKET/${S3_PREFIX:-openbao}/$(hostname)-$(date -u +%Y%m%dT%H%M%SZ).snap"
 rclone copyto "$file" "$target"
 echo "bao-snapshot: $target ($(stat -c %s "$file") bytes)"
+
+# Only reached when the snapshot is in the bucket. A ping that fails leaves
+# the snapshot and the run good; the check notifies once its grace is up.
+if [ -n "${SNAPSHOT_PING_URL:-}" ]; then
+  curl -fsS -m 10 --retry 3 -o /dev/null "$SNAPSHOT_PING_URL" ||
+    echo "bao-snapshot: the ping to SNAPSHOT_PING_URL failed" >&2
+fi
