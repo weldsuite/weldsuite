@@ -1,0 +1,37 @@
+# OpenBao's settings, written by cloud-init (rust/deploy/hetzner/secret-store).
+# One node: Raft storage on the server's own disk, and the API on localhost
+# only. Caddy holds the certificate and decides who reaches which path
+# (/etc/caddy/Caddyfile).
+ui            = false
+cluster_name  = "${name}"
+api_addr      = "https://${hostname}"
+cluster_addr  = "https://127.0.0.1:8201"
+# The package's unit grants no CAP_IPC_LOCK and turns swap off for the
+# service instead (MemorySwapMax=0), as OpenBao advises for Raft storage.
+disable_mlock = true
+
+storage "raft" {
+  path    = "/opt/openbao/data"
+  node_id = "${name}"
+}
+
+listener "tcp" {
+  address         = "127.0.0.1:8200"
+  cluster_address = "127.0.0.1:8201"
+  tls_disable     = true
+  # Caddy passes the caller's address on, so the audit log names it. A
+  # request without the header comes from this server itself (the bao CLI).
+  x_forwarded_for_authorized_addrs   = "127.0.0.1/32"
+  x_forwarded_for_reject_not_present = false
+}
+
+# Every request and response, secret values HMAC'd. If the file can't be
+# written OpenBao refuses requests, so logrotate keeps it small
+# (/etc/logrotate.d/openbao).
+audit "file" "file" {
+  description = "Every request, by token and address."
+  options {
+    file_path = "/var/log/openbao/audit.log"
+    mode      = "0600"
+  }
+}

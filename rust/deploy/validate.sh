@@ -92,6 +92,9 @@ echo "== OpenTofu"
 tofu -chdir=hetzner fmt -check -recursive
 tofu -chdir=hetzner init -backend=false -input=false >/dev/null
 tofu -chdir=hetzner validate
+# The cluster's secret store: a module of its own (its own state).
+tofu -chdir=hetzner/secret-store init -backend=false -input=false >/dev/null
+tofu -chdir=hetzner/secret-store validate
 
 echo "== Flux base layers (settings: $settings)"
 for dir in \
