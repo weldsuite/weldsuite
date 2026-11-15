@@ -43,6 +43,7 @@ import { LiveKitRoomService } from './room-service';
 import {
   CUSTOM_ID_ATTRIBUTE,
   WAITING_ATTRIBUTE,
+  customIdFromIdentity,
   parseMetadata,
   readLiveKitToken,
   type LiveKitTokenClaims,
@@ -117,7 +118,9 @@ export class LiveKitPeer {
   get customParticipantId(): string | undefined {
     const metadata = parseMetadata(this.participant.metadata);
     const fromMeta = typeof metadata.customParticipantId === 'string' ? metadata.customParticipantId : undefined;
-    return this.participant.attributes?.[CUSTOM_ID_ATTRIBUTE] ?? fromMeta;
+    // A token without the attribute still names the person in its identity,
+    // which keeps a rejoin (new identity, same person) one tile in the chat call.
+    return this.participant.attributes?.[CUSTOM_ID_ATTRIBUTE] ?? fromMeta ?? customIdFromIdentity(this.id);
   }
   get picture(): string | undefined {
     return pictureOf(parseMetadata(this.participant.metadata));
@@ -283,7 +286,7 @@ export class LiveKitSelf extends Emitter {
   get customParticipantId(): string | undefined {
     const { attributes, metadata } = this.meeting.claims;
     const fromMeta = typeof metadata.customParticipantId === 'string' ? metadata.customParticipantId : undefined;
-    return attributes[CUSTOM_ID_ATTRIBUTE] ?? fromMeta;
+    return attributes[CUSTOM_ID_ATTRIBUTE] ?? fromMeta ?? customIdFromIdentity(this.id);
   }
   get picture(): string | undefined {
     return pictureOf(this.meeting.claims.metadata);

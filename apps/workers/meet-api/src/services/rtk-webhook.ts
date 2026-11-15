@@ -300,8 +300,11 @@ async function handleCallMeetingEnded(
     .where(eq(chatCalls.id, callId))
     .limit(1);
 
-  if (!call || call.status === 'ended') {
-    console.log(`[RTK Webhook] Call ${callId} already ended or not found`);
+  // Only a live call can end here. A DM's room outlives its calls, so its
+  // session ends after a call that was already ended as missed or declined;
+  // ending that one again would post its notice and its missed-call push twice.
+  if (!call || (call.status !== 'ringing' && call.status !== 'active')) {
+    console.log(`[RTK Webhook] Call ${callId} already over or not found`);
     return;
   }
   if (isEarlierCallSession(call, rtkSession)) {

@@ -41,7 +41,12 @@ modules, each with conformance suites that reach every route:
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
   **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
   as the MX, the `mail.inbound` subscriber in place of mail-inbound-worker,
-  ADR MAIL-010, see "Inbound mail" below), **chat**, **desk** (with the
+  ADR MAIL-010, see "Inbound mail" below), **chat** (with its voice and
+  video calls at `/api/chat-calls` on the same video provider as WeldMeet:
+  join tokens from `crates/video-rooms`, the call lifecycle in
+  `crates/chat-domain` (`calls`), the 25-second ring timeout as the
+  `chat.call-ring-timeout` job, and the lock-screen decline at
+  `/public/chat-calls/decline`), **desk** (with the
   helpdesk widget API at `/public/helpdesk-widget`, and the helpdesk
   workflow engine, `helpdesk-workflow-worker`, in process: its
   `ConversationWorkflow` is the `desk.conversation-workflow` job and its
@@ -130,12 +135,13 @@ modules, each with conformance suites that reach every route:
   RealtimeKit, which conformance compares, or LiveKit, which
   `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
   served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
-  presence and the end of a room, with no recorder or AI events. The
+  presence and the end of a room, with no recorder or AI events. Both end
+  WeldChat calls whose room emptied and mark who left them, and "one live
+  call at a time" spans meetings and WeldChat calls both ways. The
   `MEETING_AI` Workflow ("transcribe afterwards" over the stored MP3 in
   frame-aligned chunks, and the summary of a transcript, each charged per
   meeting minute) is the `meet.meeting-ai` job on `crates/ai` (Voxtral, and
   the summarize task's model) when an AI provider is configured. Not served:
-  WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
   the recording-copy and backfill Workflows (the routes answer as the worker
   without the binding does), and the recordings bucket, so there is nothing
   to transcribe yet; see `meet-transcription` and `meet-recordings` below)
@@ -454,16 +460,19 @@ the platform hides them: SSO connections, billing (without
 `BILLING_PROVIDER=mollie`), WeldReach inbox billing (likewise), credit
 top-up (without Mollie), paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls, help center custom domains,
+`weldmail.com` addresses, mail AI, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
 returns through Digipoort, buying or porting phone numbers, buying or
 renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-One follows the deployment rather than the code: `collab-rooms` (WeldDocs,
+Two follow the deployment rather than the code: `collab-rooms` (WeldDocs,
 WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
-(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
+(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`), and
+`chat-calls` (WeldChat's call buttons) when no video provider is
+(`LIVEKIT_URL` with `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, the chart's
+`config.video`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 agent, and the rest of the edge workers (the rest of `external-api` and

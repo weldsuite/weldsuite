@@ -13,7 +13,8 @@
 //!   when it also has no free-address domain of its own (`WELDMAIL_DOMAIN`);
 //!   [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
 //!   (`COLLAB_ROOMS_URLS`); [`CREDIT_TOP_UP_FEATURE`], without Mollie
-//!   (`MOLLIE_API_KEY`); and [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
+//!   (`MOLLIE_API_KEY`); [`CHAT_CALLS_FEATURE`], without a video provider
+//!   (`weldsuite_video_rooms::configured`); and [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
 //!   sandbox (`SANDBOX_ENABLED`).
 //! - `ai`: the install's AI providers, with their region and the key sources
 //!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
@@ -70,10 +71,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `POST /api/company-logos/resolve` (crm-api) fetches each company's
     // website and keeps the logo in R2; not served, so avatars keep initials.
     "company-logos",
-    // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
-    // RealtimeKit, its API and the call UI's client SDK alike; they come with
-    // LiveKit in the call UI.
-    "chat-calls",
     // WeldDesk help center custom domains: attaching one writes a CNAME into a
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
@@ -159,6 +156,13 @@ pub(crate) const AI_MODULE: &str = "agent";
 /// chart's `collabRooms.enabled: false`) every route that needs a room or an
 /// engine answers 503, so the platform hides the three apps.
 pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
+
+/// WeldChat voice and video calls (`/api/chat-calls`) run on the video
+/// provider (`LiveKit` on Kubernetes). Without one configured
+/// (`weldsuite_video_rooms::configured`: `LIVEKIT_URL` and its key pair, or
+/// `RealtimeKit`'s credentials) every call answers 500, so the platform
+/// hides calls, as it hides WeldMeet.
+pub(crate) const CHAT_CALLS_FEATURE: &str = "chat-calls";
 
 /// WeldMail custom domains (`/api/mail-domains`, MAIL-010 and MAIL-011): the
 /// records point at the deployment's own MX (`MAIL_MX_HOST`, Haraka) and, on
@@ -379,10 +383,13 @@ impl EditionConfig {
 }
 
 impl EditionConfig {
-    /// [`UNAVAILABLE_FEATURES`], and the AI features, custom mail domains and
-    /// live editing when they aren't configured.
+    /// [`UNAVAILABLE_FEATURES`], and calls, the AI features, custom mail
+    /// domains and live editing when they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if !self.video_configured {
+            features.push(CHAT_CALLS_FEATURE);
+        }
         if self.ai.is_none() {
             features.extend_from_slice(AI_FEATURES);
         }
@@ -473,7 +480,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 7
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 8
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -542,6 +549,7 @@ mod tests {
         let mut body = json!({});
         config.describe(&mut body);
         let mut lacks = UNAVAILABLE_FEATURES.to_vec();
+        lacks.push(CHAT_CALLS_FEATURE);
         lacks.extend_from_slice(AI_FEATURES);
         lacks.extend([
             MAIL_DOMAINS_FEATURE,
@@ -724,6 +732,28 @@ mod tests {
     }
 
     #[test]
+    fn offers_calls_once_a_video_provider_is_configured() {
+        let calls_hidden = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config.unavailable_features().contains(&CHAT_CALLS_FEATURE)
+        };
+        assert!(calls_hidden(&[]));
+        // LiveKit without its key pair can't mint a join token.
+        assert!(calls_hidden(&[("LIVEKIT_URL", "wss://lk.example.eu")]));
+        assert!(!calls_hidden(&[
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ]));
+        assert!(!calls_hidden(&[
+            ("CF_ACCOUNT_ID", "acc"),
+            ("CF_REALTIME_APP_ID", "app"),
+            ("CF_REALTIME_APP_SECRET", "secret"),
+        ]));
+    }
+
+    #[test]
     fn refuses_anything_but_the_listed_public_settings() {
         let (config, problems) = read(&[
             ("EDITION", "global"),
@@ -758,6 +788,7 @@ mod tests {
             &MAIL_FREE_ADDRESSES_FEATURE,
             &COLLAB_ROOMS_FEATURE,
             &REACH_BILLING_FEATURE,
+            &CHAT_CALLS_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

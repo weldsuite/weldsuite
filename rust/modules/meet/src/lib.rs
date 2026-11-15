@@ -29,6 +29,7 @@
 
 mod attendees;
 mod billing;
+mod chat_calls;
 mod invitations;
 mod js;
 mod lifecycle;
@@ -77,6 +78,7 @@ use weldsuite_ports::{
 };
 use weldsuite_video_rooms::{DynVideoRooms, RealtimeKit, RealtimeKitConfig};
 
+pub use chat_calls::leave_meeting_sessions;
 pub use meeting_ai::{JobsMeetingAi, MEETING_AI_JOB, MeetingAiJob};
 
 /// A workspace's tenant database, by the id a webhook mapping carries (the
