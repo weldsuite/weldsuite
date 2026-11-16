@@ -82,6 +82,7 @@ import { useAuth } from '@/lib/auth';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { APP_REGISTRY } from '@/lib/apps/app-registry';
 import { useTheme } from '@/hooks/use-theme';
+import { isPendingInvitee } from '@/app/weldchat/lib/dm-availability';
 
 // ─── Unified Type ────────────────────────────────────────────────────
 
@@ -342,7 +343,9 @@ export function TeamMemberDetailsPanel({
   onCollapse,
 }: Readonly<TeamMemberDetailsPanelProps>) {
   const t = useTranslations();
-  const hideMessages = shouldHideMessages(hideMessagesProp);
+  // Someone who hasn't accepted their invitation can't be messaged yet.
+  const isInvitee = !!member && isPendingInvitee(member);
+  const hideMessages = shouldHideMessages(hideMessagesProp) || isInvitee;
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -565,7 +568,9 @@ export function TeamMemberDetailsPanel({
 
   useEffect(() => () => clearNavTimer(), [clearNavTimer]);
 
-  const { composeEmail, openChat } = useMemberContactActions(onClose);
+  const { composeEmail, openChat: openChatAction } = useMemberContactActions(onClose);
+  // The expanded view's chat button and sidebar hang off `onOpenChat` too.
+  const openChat = isInvitee ? undefined : openChatAction;
 
   const isPending = member?.status === 'PENDING';
   const isOwner = member?.role === 'OWNER';
@@ -806,7 +811,7 @@ export function TeamMemberDetailsPanel({
             <MemberHeaderIdentity member={member} />
 
             <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-              <MemberCallButtons userId={member.userId} />
+              <MemberCallButtons member={member} />
 
               {composeEmail && (
                 <Button
@@ -1071,7 +1076,7 @@ function ExpandedMemberContent({
           </div>
 
           <div className="flex items-center gap-0.5 md:gap-1">
-            <MemberCallButtons userId={member.userId} />
+            <MemberCallButtons member={member} />
 
             {onComposeEmail && (
               <Button
@@ -1660,8 +1665,11 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
   );
 }
 
-function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
+function MemberCallButtons({ member }: Readonly<{ member: Pick<TeamMemberDetail, 'userId' | 'status'> }>) {
   const t = useTranslations();
+  // A call runs in the DM, and there is none with someone who hasn't accepted
+  // their invitation: resolving it would only get chat-api's 409.
+  const userId = isPendingInvitee(member) ? null : member.userId;
   const dmQuery = useDmByUser(userId ?? '');
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;

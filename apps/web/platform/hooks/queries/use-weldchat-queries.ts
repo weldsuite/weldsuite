@@ -18,6 +18,7 @@ import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { isModuleOffered } from '@/lib/edition';
+import { isInvitationPendingError } from '@/app/weldchat/lib/dm-availability';
 import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';
 import type {
   RecordChatCallerState,
@@ -1645,6 +1646,9 @@ export function useDmByUser(targetUserId: string, { fresh }: FreshCheckOptions =
     },
     // Edition flags (4.F3): team member panels (core) open a DM too.
     enabled: !!targetUserId && isModuleOffered('chat'),
+    // Someone who hasn't accepted their invitation stays that way for a while:
+    // answer at once rather than after three retries.
+    retry: (failureCount, error) => !isInvitationPendingError(error) && failureCount < 3,
     ...freshCheck(fresh),
   });
 

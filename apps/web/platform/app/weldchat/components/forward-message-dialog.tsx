@@ -16,6 +16,7 @@ import {
   PopoverAnchor,
 } from '@weldsuite/ui/components/popover';
 import { useChannels, useCreateDm, useForwardMessage } from '@/hooks/queries/use-weldchat-queries';
+import { isPendingInvitee } from '../lib/dm-availability';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
@@ -55,6 +56,7 @@ interface RawMemberOption {
   userId?: string;
   name?: string;
   email?: string;
+  status?: string;
 }
 
 function getChannelKind(ch: RawChannelOption): 'private' | 'group' | 'channel' {
@@ -125,6 +127,8 @@ export function ForwardMessageDialog({
       }));
 
     const userItems = members
+      // Forwarding to a person goes through a DM, which an invitee can't have yet.
+      .filter((m) => !isPendingInvitee(m))
       .filter((m) => {
         const name = (m.name || m.email || '').toLowerCase();
         return q ? name.includes(q) : true;

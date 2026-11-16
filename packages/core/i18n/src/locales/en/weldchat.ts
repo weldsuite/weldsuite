@@ -333,6 +333,8 @@ export const weldchat = {
       cancel: 'Cancel',
       startConversation: 'Start Conversation',
       creating: 'Creating...',
+      invited: 'Invited',
+      invitedHint: 'Can be messaged once they accept the invitation',
     },
     groupSettings: {
       nav: {
@@ -704,6 +706,7 @@ export const weldchat = {
       selectConversation: 'Select a conversation or start a new one',
       conversationNotFound: 'Conversation not found',
       channelNotFound: 'Channel not found',
+      invitationPending: "This person hasn't accepted their invitation yet. You can message them once they join.",
     },
     draftsPage: {
       threadReply: 'Thread reply',
