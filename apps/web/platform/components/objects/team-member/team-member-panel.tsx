@@ -54,7 +54,7 @@ import { usePresence } from '@/contexts/presence-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
-import { isPendingInvitee } from '@/app/weldchat/lib/dm-availability';
+import { canMessageMember } from '@/app/weldchat/lib/dm-availability';
 import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { OverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
@@ -145,13 +145,12 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const navigate = useNavigate();
   const compose = useComposeSafe();
   const callCtx = useWeldChatCallOptional();
-  // Someone who hasn't accepted their invitation can't be messaged or called
-  // yet; resolving their DM would only get chat-api's 409.
-  const isInvitee = !!profile && isPendingInvitee(profile);
-  const dmQuery = useDmByUser(isInvitee ? '' : (profile?.userId ?? ''));
+  // Edition flags (4.F3): calls and chat are WeldChat's. Someone who hasn't
+  // accepted their invitation can't be messaged or called yet, and resolving
+  // their DM would only get chat-api's 409.
+  const chatOffered = isModuleOffered('chat') && canMessageMember(profile);
+  const dmQuery = useDmByUser(chatOffered ? (profile?.userId ?? '') : '');
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
-  // Edition flags (4.F3): calls and chat are WeldChat's.
-  const chatOffered = isModuleOffered('chat') && !isInvitee;
 
   if (!profile) return null;
 

@@ -23,7 +23,7 @@ import {
 } from '@/hooks/queries/use-weldchat-queries';
 import { useNavigate } from '@tanstack/react-router';
 import { useI18n } from '@/lib/i18n/provider';
-import { isPendingInvitee } from '../lib/dm-availability';
+import { inviteesLast, isPendingInvitee } from '../lib/dm-availability';
 
 interface DmCreateDialogProps {
   open: boolean;
@@ -72,10 +72,7 @@ export function DmCreateDialog({ open, onOpenChange }: Readonly<DmCreateDialogPr
 
   // Invitees stay findable but come last and can't be picked: they can be
   // messaged once they accept (chat-api refuses a DM before then).
-  const members = useMemo<DmMember[]>(() => {
-    const all: DmMember[] = membersData?.data || [];
-    return [...all.filter((m) => !isPendingInvitee(m)), ...all.filter((m) => isPendingInvitee(m))];
-  }, [membersData]);
+  const members = useMemo<DmMember[]>(() => inviteesLast(membersData?.data || []), [membersData]);
 
   const toggleMember = (id: string) => {
     setSelectedIds((prev) =>

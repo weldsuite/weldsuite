@@ -2,20 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, type InfiniteData } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { ApiError } from '@weldsuite/api-client';
 import {
   fetchChannelList,
   mergeMessageIntoCache,
   resetThreadReplyCountTracking,
+  useDmByUser,
   useSendMessage,
   weldchatKeys,
   type ChatMessage,
 } from './use-weldchat-queries';
 
 const postMock = vi.fn();
+const getMock = vi.fn();
 
 vi.mock('@/lib/api/use-app-api', () => ({
   useAppApiClient: () => ({
-    getClient: async () => ({ post: (...args: unknown[]) => postMock(...args) }),
+    getClient: async () => ({
+      post: (...args: unknown[]) => postMock(...args),
+      get: (...args: unknown[]) => getMock(...args),
+    }),
   }),
 }));
 
@@ -264,5 +270,29 @@ describe('useSendMessage', () => {
     await waitFor(() => {
       expect(channelMessages(client).map((m) => m.id)).toEqual(['opt_top', 'msg_parent']);
     });
+  });
+});
+
+describe('useDmByUser', () => {
+  beforeEach(() => {
+    getMock.mockReset();
+  });
+
+  it("doesn't retry chat-api's 409 for someone who hasn't accepted their invitation", async () => {
+    getMock.mockRejectedValue(
+      new ApiError('conflict', 409, {
+        error: { code: 'CONFLICT', message: 'x', details: { reason: 'invitation_pending' } },
+      }),
+    );
+    const client = new QueryClient();
+    const { result } = renderHook(() => useDmByUser('invited_bob@example.com'), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(getMock).toHaveBeenCalledTimes(1);
+    expect(getMock).toHaveBeenCalledWith('/chat-dm/invited_bob@example.com');
   });
 });

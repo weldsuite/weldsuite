@@ -66,7 +66,7 @@ import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
-import { isPendingInvitee } from '@/app/weldchat/lib/dm-availability';
+import { withoutInvitees } from '@/app/weldchat/lib/dm-availability';
 
 interface CustomerDetailHeaderProps {
   variant?: 'page' | 'panel';
@@ -1255,18 +1255,16 @@ function ShareDialog({
 
   const members = useMemo<Member[]>(
     () =>
-      (membersData?.data ?? [])
-        // Sharing to a person goes through a DM, which an invitee can't have yet.
-        .filter((m) => !isPendingInvitee(m))
-        .map((m) => ({
-          id: m.id ?? m.userId,
-          userId: m.userId,
-          name: m.name ?? null,
-          picture: m.picture ?? null,
-          role: m.role ?? '',
-          status: m.status ?? '',
-          memberType: 'INTERNAL' as const,
-        })),
+      // Sharing to a person goes through a DM, which an invitee can't have yet.
+      withoutInvitees(membersData?.data ?? []).map((m) => ({
+        id: m.id ?? m.userId,
+        userId: m.userId,
+        name: m.name ?? null,
+        picture: m.picture ?? null,
+        role: m.role ?? '',
+        status: m.status ?? '',
+        memberType: 'INTERNAL' as const,
+      })),
     [membersData],
   );
   const channels = useMemo<ChatChannel[]>(() => channelsData?.data ?? [], [channelsData]);

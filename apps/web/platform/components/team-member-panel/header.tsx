@@ -7,7 +7,7 @@ import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/com
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
-import { isPendingInvitee } from '@/app/weldchat/lib/dm-availability';
+import { canMessageMember } from '@/app/weldchat/lib/dm-availability';
 import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
@@ -25,8 +25,7 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
   const { getStatus } = usePresence();
   const { startCall } = useWeldChatCall();
   // Someone who hasn't accepted their invitation can't be messaged or called yet.
-  const isInvitee = isPendingInvitee(profile);
-  const canChat = !isSelf && !isInvitee && isModuleOffered('chat');
+  const canChat = !isSelf && isModuleOffered('chat') && canMessageMember(profile);
   const dmQuery = useDmByUser(canChat ? profile.userId : '');
   const navigate = useNavigate();
   const now = useNow(30_000);

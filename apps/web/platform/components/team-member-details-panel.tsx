@@ -208,9 +208,12 @@ const getExpandedTabItems = (t: Translate): PageTab[] => [
   { id: 'working-hours', label: t('projects.memberDetails.tabs.workingHours'), icon: Clock },
 ];
 
-/** Edition flags (4.F3): the messages tab is a WeldChat DM. */
-function shouldHideMessages(hideMessages: boolean | undefined): boolean {
-  return Boolean(hideMessages) || !isModuleOffered('chat');
+/**
+ * Edition flags (4.F3): the messages tab is a WeldChat DM. Someone who hasn't
+ * accepted their invitation has none yet.
+ */
+function shouldHideMessages(hideMessages: boolean | undefined, member: TeamMemberDetail | null): boolean {
+  return Boolean(hideMessages) || !isModuleOffered('chat') || isPendingInvitee(member ?? {});
 }
 
 /**
@@ -218,13 +221,14 @@ function shouldHideMessages(hideMessages: boolean | undefined): boolean {
  * can't offer (edition flags, 4.F3): no compose panel without WeldMail, no DM
  * without WeldChat.
  */
-function useMemberContactActions(onClose: () => void) {
+function useMemberContactActions(onClose: () => void, member: TeamMemberDetail | null) {
   const composeContext = useComposeSafe();
   const navigate = useNavigate();
   const composeEmail = composeContext
     ? (email: string) => composeContext.openCompose({ to: email })
     : undefined;
-  const openChat = isModuleOffered('chat')
+  // No DM with an invitee; the expanded view's chat button and sidebar hang off this too.
+  const openChat = isModuleOffered('chat') && !isPendingInvitee(member ?? {})
     ? (userId: string) => {
         navigate({ to: '/weldchat/dm/$userId', params: { userId } });
         onClose();
@@ -343,9 +347,7 @@ export function TeamMemberDetailsPanel({
   onCollapse,
 }: Readonly<TeamMemberDetailsPanelProps>) {
   const t = useTranslations();
-  // Someone who hasn't accepted their invitation can't be messaged yet.
-  const isInvitee = !!member && isPendingInvitee(member);
-  const hideMessages = shouldHideMessages(hideMessagesProp) || isInvitee;
+  const hideMessages = shouldHideMessages(hideMessagesProp, member);
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -568,9 +570,7 @@ export function TeamMemberDetailsPanel({
 
   useEffect(() => () => clearNavTimer(), [clearNavTimer]);
 
-  const { composeEmail, openChat: openChatAction } = useMemberContactActions(onClose);
-  // The expanded view's chat button and sidebar hang off `onOpenChat` too.
-  const openChat = isInvitee ? undefined : openChatAction;
+  const { composeEmail, openChat } = useMemberContactActions(onClose, member);
 
   const isPending = member?.status === 'PENDING';
   const isOwner = member?.role === 'OWNER';
