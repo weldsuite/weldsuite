@@ -100,13 +100,20 @@ config:
   # accounts are open and ANTHROPIC_API_KEY / OPENAI_API_KEY are in the
   # Secret. The credit gate (402 at an empty wallet) is on: the Mollie
   # top-up lets a workspace buy credits.
+  #
+  # OFF for now (2026-11-16): neither cluster's weldsuite-env has those two
+  # keys yet, and with AI on, serve and consume refused to start, so every
+  # build from 0.1.0-main.109 on failed its upgrade and rolled back. To turn
+  # it on, put the keys in both clusters' Secrets first, then set
+  # defaultProvider back to mistral and ownKey back to true for both
+  # opt-ins. An opt-in needs an install provider, so they stay off with it.
   ai:
-    defaultProvider: mistral
+    defaultProvider: ""
     mistral:
       baseUrl: https://api.mistral.ai/v1
     optIn:
-      anthropic: { weldsuiteKey: false, ownKey: true }
-      openai: { weldsuiteKey: false, ownKey: true }
+      anthropic: { weldsuiteKey: false, ownKey: false }
+      openai: { weldsuiteKey: false, ownKey: false }
     creditGate: true
     billing: credits
   # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
@@ -124,7 +131,8 @@ config:
 # SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
 # WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
-# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY, SANDBOX_TOKEN_SECRET, and optionally MOLLIE_API_KEY:
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY and SANDBOX_TOKEN_SECRET (once
+# config.ai and the sandbox are on again), and optionally MOLLIE_API_KEY:
 # secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
 # (mta below).
 secret:
@@ -289,8 +297,13 @@ collabRooms:
 # the server hands out none and says so in its log and `weldsuite doctor`
 # (rust/deploy/hetzner/README.md, "Agent sandbox"). SANDBOX_TOKEN_SECRET is in
 # the Secret.
+#
+# OFF for now (2026-11-16), with config.ai above: SANDBOX_TOKEN_SECRET is not in
+# either cluster's weldsuite-env, so serve and consume refused to start, and
+# the nodes run without gVisor (only runc), so no sandbox pod could start
+# anyway. Turn it on (and searxng below) after both are fixed, together with AI.
 sandbox:
-  enabled: true
+  enabled: false
   image:
     repository: ghcr.io/weldsuite/weldsuite-sandbox
     tag: ${WELDSUITE_IMAGE_TAG}
@@ -300,8 +313,9 @@ sandbox:
 
 # Web search for WeldAgent (web_search): SearXNG in the cluster, asked only by
 # the server; only the query leaves, to Qwant, Startpage, Mojeek and Wikipedia.
+# Off while WeldAgent's sandbox and AI are (above): nothing else asks it.
 searxng:
-  enabled: true
+  enabled: false
 
 autoscaling:
   enabled: true
@@ -320,7 +334,8 @@ resources:
 # outgoing webhooks, realtime fan-out (VALKEY_URL is in the Secret) and the
 # semantic search index. The index's vectors come from config.ai: Mistral's
 # mistral-embed (1024 dimensions), metered as search-index per workspace and
-# batch, so consume.embeddings (for installs without AI) stays unset.
+# batch, so consume.embeddings (for installs without AI) stays unset. While
+# config.ai is off, the search-index subscriber does not run (as before AI).
 consume:
   enabled: true
   replicaCount: 2
