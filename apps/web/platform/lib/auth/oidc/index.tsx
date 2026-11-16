@@ -190,5 +190,6 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
     completeSignIn: () => session.completeSignIn(),
     accountUrl: session.accountUrl,
     platformSignIn: config.signIn === 'platform',
+    getActiveOrgId: () => session.getSnapshot().activeOrgId,
   };
 }

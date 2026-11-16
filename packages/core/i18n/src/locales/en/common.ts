@@ -763,7 +763,7 @@ export const common = {
         retry: 'Sign in again',
         managedTitle: 'Managed by your identity provider',
         managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed by your organization\'s identity provider, not in WeldSuite.',
-        openAccount: 'Open account settings',
+        openAccount: 'Manage sign-in and security',
         invitationsManaged: 'Workspace membership is managed by your organization\'s identity provider. Ask your administrator for access.',
         accountLocked: 'This account is locked. Try again later or contact your administrator.',
         tooManyAttempts: 'Too many attempts. Wait a few minutes and try again.',

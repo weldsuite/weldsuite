@@ -5,7 +5,10 @@
  * secure store. Pure apart from the injected dependencies, so it is tested
  * without React Native.
  *
- * Workspaces follow ADR SEC-012 as the platform's `oidc/session.ts` does:
+ * Workspaces follow one of two models, chosen by `workspaceSource` (`claim`,
+ * the default, or `header`):
+ *
+ * **`claim`**, as the platform's `oidc/session.ts` does (ADR SEC-012):
  *
  * 1. Sign-in asks for no organization. The token then lists every
  *    organization that granted the person a role: their workspace list.
@@ -16,6 +19,12 @@
  * 3. To keep that to the first visit, one refresh token is kept per
  *    workspace (the last six used). Switching back to a workspace already
  *    used refreshes its token without a browser.
+ *
+ * **`header`** (WeldID in membership mode, plan `weldid-auth-server.md`):
+ * the token names no workspace, so there is only ever one (stored under
+ * `UNSCOPED`). Switching workspace is a local choice (`activeWorkspaceId`,
+ * cached alongside the profile), never a new authorization; the app tags its
+ * own API calls with it (`X-Weld-Workspace`) using `getActiveOrgId()`.
  *
  * The access token lives in memory only. After a restart the active
  * workspace's refresh token gets a new one on the first API call; offline,
@@ -80,8 +89,11 @@ export interface OidcSessionConfig {
   audience?: string | null;
   orgClaim?: string | null;
   scopes?: readonly string[];
-  audienceScope?: string;
-  organizationScope?: string;
+  /** `null` = no such scope (WeldID); absent = Zitadel's default template. */
+  audienceScope?: string | null;
+  organizationScope?: string | null;
+  /** `header`: one token for every workspace; see the file comment. Default `claim`. */
+  workspaceSource?: 'claim' | 'header';
   /** One stored session per server: a key-safe form of its origin. */
   storageId: string;
 }
@@ -140,6 +152,8 @@ interface CachedProfile {
   sub: string;
   person: OidcPerson;
   organizations: OidcOrganization[];
+  /** `workspaceSource: "header"` only: the locally chosen active workspace. */
+  activeWorkspaceId?: string | null;
 }
 
 interface AccessToken {
@@ -166,12 +180,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export class OidcMobileSession {
   private readonly orgClaim: string;
   private readonly organizationScope: string;
+  private readonly workspaceSource: 'claim' | 'header';
   private readonly baseScope: string;
   private readonly secureKey: string;
   private readonly profileKey: string;
   private readonly now: () => number;
   private stored: StoredTokens | null = null;
   private profile: CachedProfile | null = null;
+  /** `header` mode only: the locally chosen active workspace. */
+  private activeWorkspaceId: string | null = null;
   private access: AccessToken | null = null;
   private discovery: Promise<Discovery> | null = null;
   private initialised: Promise<void> | null = null;
@@ -184,8 +201,11 @@ export class OidcMobileSession {
     private readonly deps: OidcSessionDeps,
   ) {
     this.orgClaim = config.orgClaim ?? DEFAULT_ORG_CLAIM;
-    this.organizationScope = config.organizationScope ?? ZITADEL_ORG_ROLES_SCOPE;
-    const audienceScope = config.audienceScope ?? ZITADEL_AUDIENCE_SCOPE;
+    this.workspaceSource = config.workspaceSource ?? 'claim';
+    // `null` (WeldID: no such scope) and absent (Zitadel's default template)
+    // mean different things; `??` alone would treat them the same.
+    this.organizationScope = config.organizationScope === undefined ? ZITADEL_ORG_ROLES_SCOPE : (config.organizationScope ?? '');
+    const audienceScope = config.audienceScope === undefined ? ZITADEL_AUDIENCE_SCOPE : (config.audienceScope ?? '');
     const scopes = [...(config.scopes ?? DEFAULT_OIDC_SCOPES)];
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
@@ -210,6 +230,7 @@ export class OidcMobileSession {
       if (stored && stored.sub === profile?.sub && stored.tokens[stored.active]) {
         this.stored = stored;
         this.profile = profile;
+        this.activeWorkspaceId = profile.activeWorkspaceId ?? null;
       } else if (stored || profile) {
         await this.clearStorage();
       }
@@ -296,10 +317,23 @@ export class OidcMobileSession {
     }
   }
 
-  /** Activate or switch workspace: its kept token, else a sign-in for it. */
+  /**
+   * Activate or switch workspace. `header`: a local choice only, one token
+   * serves every workspace, so nothing is refreshed and no browser opens.
+   * `claim`: its kept token, else a sign-in for it.
+   */
   async setActiveOrganization(orgId: string | null): Promise<void> {
     await this.init();
-    if (!orgId || !this.stored || orgId === this.snapshot.activeOrgId) return;
+    if (!orgId || orgId === this.snapshot.activeOrgId) return;
+    if (this.workspaceSource === 'header') {
+      if (!this.profile) return;
+      this.activeWorkspaceId = orgId;
+      this.profile = { ...this.profile, activeWorkspaceId: orgId };
+      await this.persist();
+      this.publish(true);
+      return;
+    }
+    if (!this.stored) return;
     if (this.stored.tokens[orgId]?.refresh) {
       const token = await this.refreshKey(orgId);
       if (token && this.stored) {
@@ -384,7 +418,10 @@ export class OidcMobileSession {
     stored.active = key;
     pruneTokens(stored);
     this.stored = stored;
-    this.profile = { sub: person.id, person, organizations };
+    // `header` mode: the same person signing in again (a fresh interactive
+    // sign-in after the token fully expired) keeps their workspace choice.
+    if (!samePerson) this.activeWorkspaceId = null;
+    this.profile = { sub: person.id, person, organizations, activeWorkspaceId: this.activeWorkspaceId };
     this.access = this.accessFrom(response, key);
     await this.persist();
     this.publish(true);
@@ -568,6 +605,7 @@ export class OidcMobileSession {
   private async forget(): Promise<void> {
     this.stored = null;
     this.profile = null;
+    this.activeWorkspaceId = null;
     this.access = null;
     await this.clearStorage();
     this.publish(true);
@@ -576,11 +614,17 @@ export class OidcMobileSession {
   private publish(loaded: boolean): void {
     const signedIn = Boolean(this.stored && this.profile);
     const active = this.stored?.active;
+    const activeOrgId =
+      this.workspaceSource === 'header'
+        ? (signedIn ? this.activeWorkspaceId : null)
+        : signedIn && active && active !== UNSCOPED
+          ? active
+          : null;
     this.snapshot = {
       isLoaded: loaded,
       person: signedIn ? (this.profile?.person ?? null) : null,
       organizations: signedIn ? (this.profile?.organizations ?? []) : [],
-      activeOrgId: signedIn && active && active !== UNSCOPED ? active : null,
+      activeOrgId,
     };
     for (const listener of this.listeners) listener();
   }

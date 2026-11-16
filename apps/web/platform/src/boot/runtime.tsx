@@ -25,6 +25,13 @@ export async function selectIdentityProvider(config: RuntimeConfig | null): Prom
   }
   const { createOidcAuth } = await import('@/lib/auth/oidc');
   setAuthImplementation(createOidcAuth({ ...auth, clientId }));
+  // WeldID in membership mode (no workspace claim): tag every API request
+  // with the active workspace instead. Never loaded on Clerk or claim-mode
+  // OIDC (Zitadel).
+  if (auth.workspaceSource === 'header') {
+    const { installWorkspaceHeader } = await import('@/lib/api/workspace-header');
+    installWorkspaceHeader();
+  }
 }
 
 /** Runtime config and the locale's bundle (see `./global.tsx`), then the app. */

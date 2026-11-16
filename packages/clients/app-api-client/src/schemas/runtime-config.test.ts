@@ -47,6 +47,31 @@ describe('runtime config (/config.json)', () => {
     expect(config).not.toHaveProperty('futureField');
   });
 
+  it('reads a WeldID document: header workspace source, and null scopes meaning none', () => {
+    const config = parseRuntimeConfig({
+      auth: {
+        ...OIDC,
+        orgClaim: undefined,
+        audienceScope: null,
+        organizationScope: null,
+        accountUrl: 'https://auth.example.eu/account',
+        workspaceSource: 'header',
+      },
+    });
+    expect(config?.auth).toMatchObject({
+      provider: 'oidc',
+      audienceScope: null,
+      organizationScope: null,
+      accountUrl: 'https://auth.example.eu/account',
+      workspaceSource: 'header',
+    });
+  });
+
+  it('treats an unknown workspaceSource as absent (today\'s claim behaviour)', () => {
+    const config = parseRuntimeConfig({ auth: { ...OIDC, workspaceSource: 'magic' } });
+    expect(config?.auth && 'workspaceSource' in config.auth ? config.auth.workspaceSource : undefined).toBeUndefined();
+  });
+
   it('refuses a document that breaks the contract', () => {
     expect(parseRuntimeConfig(null)).toBeNull();
     expect(parseRuntimeConfig('<html>')).toBeNull();

@@ -3,7 +3,10 @@
  * (authorization code + PKCE, a public client) and a small store React reads
  * through `useSyncExternalStore`.
  *
- * Workspaces follow ADR SEC-012 as the EU edition runs it on Zitadel:
+ * Workspaces follow one of two models, chosen by `/config.json`'s
+ * `auth.workspaceSource` (`claim`, the default, or `header`):
+ *
+ * **`claim`** (the EU edition on Zitadel; ADR SEC-012):
  *
  * 1. Sign-in asks for no organization. The token's roles claim then lists
  *    every organization that granted the person a role on the project: their
@@ -25,9 +28,19 @@
  * and workspaces created since the token was issued come from WeldSuite's
  * own list (`workspaces.ts`), read once a person is signed in and kept in
  * storage so the next page load has them at once.
+ *
+ * **`header`** (WeldID in membership mode, plan `weldid-auth-server.md`):
+ * WeldID's tokens name no workspace at all, so there is nothing to narrow and
+ * only one token ever exists. The workspace list comes entirely from
+ * WeldSuite's own directory (`workspaces.ts`); the active workspace is a
+ * locally stored choice, switched with no provider round trip; and every
+ * request to WeldSuite's own API origins is tagged `X-Weld-Workspace`
+ * (`workspaces.id`) by `lib/api/workspace-header.ts`, installed only in this
+ * mode.
  */
 
 import { User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
+import { getLocale } from '@weldsuite/i18n';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
 import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
 import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
@@ -51,6 +64,8 @@ export const OIDC_CALLBACK_PATH = '/auth/sso-callback';
 export const DEFAULT_OIDC_SCOPES = [...SHARED_DEFAULT_OIDC_SCOPES];
 const MEMBERSHIPS_KEY = 'weldsuite:oidc:memberships';
 const DIRECTORY_KEY = 'weldsuite:oidc:workspaces';
+/** `workspaceSource: "header"` only: the locally chosen active workspace. */
+const ACTIVE_WORKSPACE_KEY = 'weldsuite:oidc:activeWorkspace';
 
 export type OidcSessionConfig = OidcAuthConfig & { clientId: string };
 
@@ -77,6 +92,11 @@ interface StoredMemberships {
 interface StoredDirectory {
   sub: string;
   workspaces: WorkspaceDirectoryEntry[];
+}
+
+interface StoredActiveWorkspace {
+  sub: string;
+  id: string;
 }
 
 export interface OidcSessionOptions {
@@ -113,6 +133,7 @@ export class OidcSession {
   readonly accountUrl: string | undefined;
   private readonly orgClaim: string;
   private readonly organizationScope: string;
+  private readonly workspaceSource: 'claim' | 'header';
   private readonly baseScope: string;
   private readonly storage: Storage | undefined;
   private readonly origin: string;
@@ -139,12 +160,15 @@ export class OidcSession {
     this.storage = safeStorage(options.storage);
     this.loadWorkspaces = options.loadWorkspaces ?? loadWorkspacesFromApi;
     this.orgClaim = config.orgClaim ?? DEFAULT_ORG_CLAIM;
-    this.organizationScope = config.organizationScope ?? ZITADEL_ORG_ROLES_SCOPE;
-    const audienceScope = config.audienceScope ?? ZITADEL_AUDIENCE_SCOPE;
+    this.workspaceSource = config.workspaceSource ?? 'claim';
+    // `null` (WeldID: no such scope) and absent (Zitadel's default template)
+    // mean different things; `??` alone would treat them the same.
+    this.organizationScope = config.organizationScope === undefined ? ZITADEL_ORG_ROLES_SCOPE : (config.organizationScope ?? '');
+    const audienceScope = config.audienceScope === undefined ? ZITADEL_AUDIENCE_SCOPE : (config.audienceScope ?? '');
     const scopes = [...(config.scopes ?? DEFAULT_OIDC_SCOPES)];
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
-    this.accountUrl = config.accountUrl;
+    this.accountUrl = config.accountUrl ?? undefined;
     this.platformSignIn = config.signIn === 'platform';
     this.manager = new UserManager({
       authority: config.issuer,
@@ -200,6 +224,8 @@ export class OidcSession {
       scope: orgScope ? `${this.baseScope} ${orgScope}` : undefined,
       // OIDC "Initiating User Registration": Zitadel and Keycloak open their sign-up form.
       prompt: options.intent === 'sign-up' ? 'create' : undefined,
+      // So WeldID's own sign-in pages render in the platform's current language.
+      ui_locales: getLocale(),
     });
   }
 
@@ -228,11 +254,21 @@ export class OidcSession {
   }
 
   /**
-   * Activate or switch workspace: a token requested for it (see the file
-   * comment), coming back to `returnTo`, or else to `returnPathFor(orgId)`.
+   * Activate or switch workspace. `header`: a local choice only, like
+   * Clerk's in-place switch, `returnTo` ignored; the caller reloads if it
+   * must. `claim`: a token requested for it (see the file comment), coming
+   * back to `returnTo`, or else to `returnPathFor(orgId)`.
    */
   async setActiveOrganization(orgId: string | null, returnTo?: string): Promise<void> {
-    if (!orgId || orgId === this.snapshot.activeOrgId || !this.organizationScope) return;
+    if (!orgId || orgId === this.snapshot.activeOrgId) return;
+    if (this.workspaceSource === 'header') {
+      const sub = this.snapshot.person?.id;
+      if (!sub) return;
+      this.rememberActiveWorkspace(sub, orgId);
+      this.publish(this.snapshot.isLoaded);
+      return;
+    }
+    if (!this.organizationScope) return;
     await this.signIn({ returnTo: returnTo ?? this.returnPathFor(orgId), orgId });
   }
 
@@ -246,9 +282,17 @@ export class OidcSession {
     const person = this.snapshot.person;
     if (!person) return;
     this.directoryReadFor = null;
-    this.readDirectory(person.id, this.snapshot.activeOrgId);
+    this.readDirectory(person.id, this.directoryOrgKey());
     this.publish(this.snapshot.isLoaded);
     await this.directoryReading;
+  }
+
+  /**
+   * The workspace the directory read is keyed to: `header` mode has one
+   * token for every workspace, so the read never depends on which is active.
+   */
+  private directoryOrgKey(): string | null {
+    return this.workspaceSource === 'header' ? null : this.snapshot.activeOrgId;
   }
 
   /**
@@ -297,8 +341,28 @@ export class OidcSession {
     try {
       this.storage?.removeItem(MEMBERSHIPS_KEY);
       this.storage?.removeItem(DIRECTORY_KEY);
+      this.storage?.removeItem(ACTIVE_WORKSPACE_KEY);
     } catch {
       // Nothing stored.
+    }
+  }
+
+  /** `header` mode: the locally chosen active workspace, for this person. */
+  private storedActiveWorkspace(sub: string): string | null {
+    try {
+      const raw = this.storage?.getItem(ACTIVE_WORKSPACE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as StoredActiveWorkspace) : null;
+      return parsed?.sub === sub ? parsed.id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberActiveWorkspace(sub: string, id: string): void {
+    try {
+      this.storage?.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify({ sub, id } satisfies StoredActiveWorkspace));
+    } catch {
+      // Storage blocked: the choice lasts for this page only.
     }
   }
 
@@ -369,9 +433,18 @@ export class OidcSession {
   private publish(loaded: boolean): void {
     const claims = (this.user?.profile ?? {}) as Claims;
     const person = this.user ? personFromClaims(claims) : null;
-    const activeOrgId = person ? activeOrganizationId(claims, this.orgClaim) : null;
     let organizations: OidcOrganization[] = [];
-    if (person) {
+    let activeOrgId: string | null = null;
+    if (person && this.workspaceSource === 'header') {
+      // WeldID's token names no workspace: the list and the active choice
+      // are WeldSuite's own, never the claims.
+      organizations = this.storedDirectory(person.id).map(({ id, name, slug }) => ({ id, name, slug }));
+      activeOrgId = this.storedActiveWorkspace(person.id);
+      // One workspace: nothing to choose, same as the claim mode's auto-narrow.
+      if (!activeOrgId && organizations.length === 1) activeOrgId = organizations[0]!.id;
+      if (loaded) this.readDirectory(person.id, null);
+    } else if (person) {
+      activeOrgId = activeOrganizationId(claims, this.orgClaim);
       // The stored list, plus whatever this token names (a narrowed token names one).
       const merged = new Map(this.storedMemberships(person.id).map((o) => [o.id, o]));
       for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);

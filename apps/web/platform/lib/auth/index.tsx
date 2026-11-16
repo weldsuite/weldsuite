@@ -148,6 +148,15 @@ export function getAccountUrl(): string | undefined {
 }
 
 /**
+ * The active workspace id outside React (`lib/api/workspace-header.ts`).
+ * Null on every provider except OIDC with `auth.workspaceSource: "header"`
+ * (WeldID in membership mode), where it is the `X-Weld-Workspace` value.
+ */
+export function getActiveWorkspaceId(): string | null {
+  return active.getActiveOrgId?.() ?? null;
+}
+
+/**
  * Render Clerk-specific screens only when Clerk is the provider. Their hooks
  * (`@/lib/auth/clerk`) throw outside `<ClerkProvider>`, so on other providers
  * the fallback renders instead and the children never mount.

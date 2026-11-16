@@ -178,4 +178,12 @@ export interface AuthImplementation {
    * the provider's pages. Clerk has its own screens and leaves this unset.
    */
   platformSignIn?: boolean;
+  /**
+   * The active workspace id, read outside React (`lib/api/workspace-header.ts`,
+   * `auth.workspaceSource: "header"` only, WeldID in membership mode): every
+   * request to WeldSuite's own API origins is tagged `X-Weld-Workspace` with
+   * it. Unset on Clerk and on `claim`-mode OIDC, which name the workspace in
+   * the token instead.
+   */
+  getActiveOrgId?: () => string | null;
 }

@@ -14,6 +14,15 @@
  *
  * More than one organization is none: the token isn't for a workspace yet.
  *
+ * This file's claim-parsing functions (`activeOrganizationId`,
+ * `organizationsFromClaims`) apply only in `claim` mode. WeldID (plan
+ * `weldid-auth-server.md`) runs in membership mode: its tokens carry no
+ * `orgClaim` at all, so `/config.json` names `auth.workspaceSource: "header"`
+ * and the session (`lib/auth/oidc/session.ts`, the mobile apps' equivalent)
+ * reads and switches the active workspace itself, tagging API requests with
+ * `X-Weld-Workspace` instead. `personFromClaims` and `scopeFor` stay
+ * provider-neutral and are used in both modes.
+ *
  * The EU edition (Zitadel) uses the project roles claim
  * `urn:zitadel:iam:org:project:<projectId>:roles`. Zitadel's
  * `urn:zitadel:iam:org:id` only names the person's own organization, so it

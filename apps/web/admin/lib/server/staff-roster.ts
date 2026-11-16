@@ -6,8 +6,11 @@ import '@tanstack/react-start/server-only';
  * SEC-014). Read on every request, so removing someone, or taking their
  * superadmin away, applies at once, not when their session ends.
  *
- * Only an account of the staff organization (`ADMIN_OIDC_ORG_ID`) gets in,
- * never a person's platform account (ADR SEC-018). It is matched on the row's
+ * With a staff organization configured (`ADMIN_OIDC_ORG_ID`, Zitadel, ADR
+ * SEC-018), only an account of it gets in, never a person's platform
+ * account. Without one (WeldID, SEC-019): its separate staff issuer already
+ * has its own users, so every session here is a staff account, and that
+ * check is skipped. Either way, the account is matched on the row's
  * `console_subject`, which only this file writes: a row nobody has signed in
  * to yet matches the person's email, if the provider says they verified it,
  * and is then bound to their account, so from then on only that account gets
@@ -39,9 +42,10 @@ export function roleOf(value: string): AdminRole | null {
 
 /**
  * The decision, apart from the database: nothing for an account outside the
- * staff organization; else the row bound to the account, while it is active;
- * else the active, unbound row of a verified email; else nothing. Exported
- * for its tests.
+ * staff organization (when one is configured; SEC-019: WeldID's separate
+ * staff issuer already guarantees it without that check); else the row bound
+ * to the account, while it is active; else the active, unbound row of a
+ * verified email; else nothing. Exported for its tests.
  */
 export function decide(
   session: StaffSession,
@@ -49,7 +53,7 @@ export function decide(
   bySubject: RosterRow | undefined,
   byEmail: RosterRow | undefined,
 ): { row: RosterRow; bind: boolean } | null {
-  if (!staffOrgId || session.org !== staffOrgId) return null;
+  if (staffOrgId && session.org !== staffOrgId) return null;
   // A removed person's account stays out, under any email.
   if (bySubject) return bySubject.isActive ? { row: bySubject, bind: false } : null;
   if (!byEmail?.isActive || !session.emailVerified || !session.email) return null;
@@ -71,7 +75,7 @@ export async function staffIdentity(
   session: StaffSession,
   { staffOrgId, signingIn = false }: { staffOrgId: string; signingIn?: boolean },
 ): Promise<AdminIdentity | null> {
-  if (!staffOrgId || session.org !== staffOrgId) return null;
+  if (staffOrgId && session.org !== staffOrgId) return null;
   const db = getMasterDb();
   const [bySubject] = await db.select(columns).from(adminUsers).where(eq(adminUsers.consoleSubject, session.sub)).limit(1);
   const [byEmail] =

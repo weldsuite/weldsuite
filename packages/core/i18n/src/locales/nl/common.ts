@@ -763,7 +763,7 @@ export const common = {
         retry: 'Opnieuw inloggen',
         managedTitle: 'Beheerd door je identiteitsprovider',
         managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
-        openAccount: 'Accountinstellingen openen',
+        openAccount: 'Inloggen en beveiliging beheren',
         invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
         accountLocked: 'Dit account is geblokkeerd. Probeer het later opnieuw of neem contact op met je beheerder.',
         tooManyAttempts: 'Te veel pogingen. Wacht een paar minuten en probeer het opnieuw.',

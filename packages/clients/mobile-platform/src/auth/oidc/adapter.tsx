@@ -57,6 +57,7 @@ function getSession(): OidcMobileSession {
       scopes: auth.scopes,
       audienceScope: auth.audienceScope,
       organizationScope: auth.organizationScope,
+      workspaceSource: auth.workspaceSource,
       storageId: storageIdFor(runtime.server.origin ?? runtime.apiOrigin),
     },
     deps,
@@ -181,6 +182,7 @@ export const oidcAuth: AuthImplementation = {
   signIn: (options) => getSession().signIn({ intent: options?.intent }),
   get accountUrl() {
     const { auth } = getMobileRuntime();
-    return auth.provider === 'oidc' ? auth.accountUrl : undefined;
+    return auth.provider === 'oidc' ? (auth.accountUrl ?? undefined) : undefined;
   },
+  getActiveOrgId: () => getSession().getSnapshot().activeOrgId,
 };

@@ -201,6 +201,11 @@ describe('OIDC sign-in', () => {
     expect(scopes.some((s) => s.startsWith(ORG_SCOPE))).toBe(false);
   });
 
+  it("asks WeldID's sign-in pages for the platform's current language", async () => {
+    const { authorize } = await signedIn();
+    expect(authorize.searchParams.get('ui_locales')).toBe('en');
+  });
+
   it('exchanges the code (the verifier matches the challenge) and returns to where sign-in started', async () => {
     const { next } = await signedIn();
     expect(next).toBe('/weldknow');
@@ -470,5 +475,72 @@ describe('the facade on OIDC', () => {
     await waitFor(() => expect(result.current.isLoaded).toBe(true));
     expect(result.current.isSignedIn).toBe(false);
     await expect(getAuthToken()).resolves.toBeNull();
+  });
+});
+
+describe('the facade on OIDC in header mode (WeldID in membership mode)', () => {
+  /** What the Rust backend serves when WeldID owns the workspace header. */
+  const HEADER_CONFIG: OidcSessionConfig = {
+    provider: 'oidc',
+    issuer: ISSUER,
+    clientId: CLIENT_ID,
+    audienceScope: null,
+    organizationScope: null,
+    workspaceSource: 'header',
+  };
+  const directory = [
+    { id: 'ws_acme', name: 'Acme', slug: 'acme' },
+    { id: 'ws_globex', name: 'Globex', slug: 'globex' },
+  ];
+
+  it('never asks for an audience or organization scope', async () => {
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    const { authorize } = await answerRedirect(auth, 0);
+    const scopes = (authorize.searchParams.get('scope') ?? '').split(' ');
+    expect(scopes.some((s) => s.startsWith(ORG_SCOPE))).toBe(false);
+    expect(scopes.some((s) => s.includes(':aud'))).toBe(false);
+  });
+
+  it("lists workspaces from WeldSuite's own directory, never the token's claims, and switches with no redirect", async () => {
+    const loadWorkspaces = vi.fn(async (_token: string) => directory);
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    await answerRedirect(auth, 0);
+
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() =>
+      expect(result.current.list.userMemberships.data?.map((m) => m.organization.id)).toEqual(['ws_acme', 'ws_globex']),
+    );
+    // Two workspaces and no local choice yet: none active.
+    expect(result.current.auth.orgId).toBeNull();
+
+    await act(async () => {
+      await result.current.list.setActive?.({ organization: 'ws_globex' });
+    });
+    expect(result.current.auth.orgId).toBe('ws_globex');
+    // A local choice only: the one redirect was the sign-in itself.
+    expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the chosen workspace for this person across a reload', async () => {
+    const loadWorkspaces = async () => directory;
+    const first = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(first);
+    void first.redirectToSignIn?.();
+    await answerRedirect(first, 0);
+    const { result: r1 } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(r1.current.userMemberships.data?.length).toBe(2));
+    await act(async () => {
+      await r1.current.setActive?.({ organization: 'ws_globex' });
+    });
+
+    const second = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(second);
+    const { result } = renderHook(() => useAuth());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.orgId).toBe('ws_globex');
   });
 });

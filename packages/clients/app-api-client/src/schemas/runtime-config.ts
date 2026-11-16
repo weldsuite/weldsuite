@@ -33,9 +33,14 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
     audience: z.string().min(1).nullish(),
     orgClaim: z.string().min(1).nullish(),
     scopes: z.array(z.string().min(1)).optional(),
-    audienceScope: z.string().optional(),
-    organizationScope: z.string().optional(),
-    accountUrl: z.string().url().optional(),
+    /**
+     * `null` means "add no such scope" (WeldID, which knows no audience or
+     * organization scoping); absent means "use Zitadel's default template".
+     * Consumers must tell the two apart (`lib/auth/oidc/session.ts`).
+     */
+    audienceScope: z.string().nullish(),
+    organizationScope: z.string().nullish(),
+    accountUrl: z.string().url().nullish(),
     /**
      * Who shows the sign-in screens on the web (`OIDC_SIGN_IN`, ADR SEC-016):
      * `platform` = WeldSuite's own over the backend's `/api/sign-in`, absent or
@@ -43,6 +48,16 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
      * as the provider's pages, never as a broken document.
      */
     signIn: z.enum(['provider', 'platform']).optional().catch(undefined),
+    /**
+     * Where the active workspace comes from (plan `weldid-auth-server.md`,
+     * "WeldSuite side (main repo)"): `claim` (default; the Zitadel-style
+     * org-scoped roles claim, ADR SEC-012) or `header` (WeldID in membership
+     * mode: the token carries no workspace at all, so every API request
+     * names it in `X-Weld-Workspace` (`workspaces.id`), and switching
+     * workspace never re-authorizes). Absent or a value this build doesn't
+     * know reads as `claim`, today's behaviour.
+     */
+    workspaceSource: z.enum(['claim', 'header']).optional().catch(undefined),
   }),
 ]);
 

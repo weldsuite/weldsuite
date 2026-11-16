@@ -77,7 +77,14 @@
  *     // Who shows the sign-in screens. "platform": WeldSuite's own, the ones
  *     // Global shows, over the backend's /api/sign-in (OIDC_SIGN_IN=platform,
  *     // ADR SEC-016). Absent or "provider": the provider's pages.
- *     "signIn": "platform"
+ *     "signIn": "platform",
+ *     // Where the active workspace comes from (WeldID, plan
+ *     // weldid-auth-server.md): "claim" (default, Zitadel's org-scoped roles
+ *     // claim) or "header" (the token names no workspace; every API request
+ *     // carries it as X-Weld-Workspace, and switching workspace is local,
+ *     // no re-authorization). With "header", audienceScope and
+ *     // organizationScope are normally null (WeldID has neither notion).
+ *     "workspaceSource": "header"
  *   },
  *   // The AI this install runs (only when a default provider is configured):
  *   // the settings page (`/settings/ai`) and every model picker need it, and the
