@@ -1,0 +1,4 @@
+# WeldID on auth.${DOMAIN}, with the certificate its layer had issued
+# meanwhile (infrastructure/weldid/certificate.yaml).
+ingress:
+  enabled: true

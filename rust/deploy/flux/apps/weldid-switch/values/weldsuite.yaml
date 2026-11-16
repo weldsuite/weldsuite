@@ -1,0 +1,46 @@
+# The weldsuite release on WeldID (ADR SEC-019), over ../../eu/values/
+# weldsuite.yaml: sign-in, the identity adapter and the admin console move
+# from Zitadel to WeldID at auth.${DOMAIN}. The base values' Zitadel keys
+# stay but go unread: config.identity.zitadel with provider weldid, and
+# config.auth.oidc.orgClaim in header mode.
+config:
+  auth:
+    provider: oidc
+    oidc:
+      # WeldID's platform issuer; its access tokens name weldsuite-api.
+      issuer: https://auth.${DOMAIN}
+      audience: weldsuite-api
+      # Membership mode: WeldID's tokens name no workspace, every request
+      # names it in X-Weld-Workspace and WeldSuite's own memberships decide
+      # (the chart's default with provider weldid; spelled out here).
+      workspaceSource: header
+      # WeldID shows its own sign-in screens: the base values' `platform`
+      # is Zitadel's login API, which the chart refuses with WeldID.
+      signIn: provider
+      webClientId: weldsuite-web
+      mobileClientId: weldsuite-mobile
+  identity:
+    provider: weldid
+    weldid:
+      # WeldID's admin API inside the cluster. It answers only its public
+      # host, which the server sends as Host (taken from the issuer).
+      adminUrl: http://weldid.weldid.svc:8080
+      clientId: weldsuite-backend
+  # The admin API client's private key (private_key_jwt), from the Secret
+  # the WeldID secrets put next to weldsuite-env; read by the server,
+  # consume and the cron jobs (the identity sync). Helm replaces lists: a
+  # cluster whose own patch sets config.extraEnv repeats this entry there.
+  extraEnv:
+    - name: WELDID_CLIENT_KEY
+      valueFrom:
+        secretKeyRef:
+          name: weldid-client
+          key: WELDID_CLIENT_KEY
+
+# The staff admin console on WeldID's staff issuer, whose accounts are staff
+# only: no organization to check (ADMIN_OIDC_ORG_ID unset). Its client is
+# weldsuite-admin: ADMIN_OIDC_CLIENT_ID in weldsuite-env must say so
+# (README.md, "Switching"); its secret is already the one WeldID has.
+admin:
+  oidcIssuer: https://auth.${DOMAIN}/staff
+  staffOrgId: ""

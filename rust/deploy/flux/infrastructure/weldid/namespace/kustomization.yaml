@@ -1,0 +1,7 @@
+# WeldID's namespace, a layer of its own (weldid-namespace in
+# clusters/example/weldid.yaml) because WeldID's Secrets go into it before
+# the layer that uses them (../README.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml

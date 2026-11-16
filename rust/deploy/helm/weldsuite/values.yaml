@@ -789,8 +789,9 @@ admin:
   oidcIssuer: ""
   # The id of the organization that holds the staff's own accounts (Zitadel:
   # `WeldSuite Staff`), ADMIN_OIDC_ORG_ID. Only its accounts get in, never a
-  # person's platform account (ADR SEC-018). Empty: the sign-in answers 503
-  # and nobody gets in.
+  # person's platform account (ADR SEC-018). Leave it empty with WeldID,
+  # whose staff issuer (oidcIssuer <issuer>/staff) has staff accounts only
+  # (SEC-019); with Zitadel, empty would let any of its accounts try.
   staffOrgId: ""
   # The platform's URL, for links in the emails the console sends.
   platformUrl: ""

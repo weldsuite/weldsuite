@@ -1,0 +1,171 @@
+# WeldID: sign-in for the Kubernetes editions (ADR SEC-019), on its own
+# CloudNativePG cluster (weldid/weldid-db). TLS ends at Traefik. The chart's
+# values and what each means: deploy/helm/weldid/values.yaml in the weldid
+# repository; its install guide: docs/deploy.md there.
+
+# The issuer every client and token names: the platform issuer here, the
+# staff issuer (the admin console, Grafana) at /staff. The same host Zitadel
+# serves until the cut-over (README.md): WeldID takes its place there.
+publicUrl: https://auth.${DOMAIN}
+
+# The image is private until WeldID 1.0 (source.yaml): pulled with the
+# registry Secret in this namespace.
+imagePullSecrets:
+  - name: registry
+
+# Traefik is the only proxy that appends to X-Forwarded-For: the Hetzner
+# load balancer passes the client's address with the PROXY protocol. Wrong,
+# every visitor shares one address and the rate limits refuse everyone
+# (WeldIDRateLimited).
+trustedProxyHops: 1
+
+branding:
+  productName: WeldSuite
+
+mail:
+  # The platform's own sender (the weldsuite chart's config.mail.from,
+  # notifications@mail.weldsuite.org unless a cluster sets it): the MTA's
+  # system pool only takes a sender whose domain has its DKIM key
+  # (rust/deploy/hetzner/README.md, "Mail"). WELDID_MAIL_FROM in the
+  # cluster's settings when the platform sends from another address.
+  from: "${WELDID_MAIL_FROM:=WeldSuite <notifications@mail.weldsuite.org>}"
+
+passkeys:
+  # The WebAuthn relying party id: auth.${DOMAIN} or a parent of it, chosen
+  # once per cluster in its settings. NEVER change it after the first start:
+  # every passkey is bound to it, and changing it breaks all of them.
+  rpId: "${WELDID_RP_ID}"
+
+# On the first install the migration Job starts with weldid-db, which takes
+# a few minutes to accept writes (initdb, then the synchronous replica):
+# five retries (backoff 10 s to 160 s) wait for it within the deadline.
+migrations:
+  backoffLimit: 5
+
+# Off until the cluster switches to WeldID: Zitadel still answers on
+# auth.${DOMAIN}, and two Ingresses for the same host and path would split
+# its traffic. The weldid-switch layer turns it on (weldid-values-switch).
+# The certificate is the layer's own (certificate.yaml), issued meanwhile.
+ingress:
+  enabled: false
+  className: traefik
+  clusterIssuer: ""
+  tls:
+    enabled: true
+    secretName: weldid-tls
+
+secrets:
+  # weldid-env (secrets/examples/weldid.example.yaml): the database URL, the
+  # master key, the MTA's system pool, Valkey, and the client secrets of the
+  # admin console and Grafana.
+  existingSecret: weldid-env
+  # The services layer's Valkey: rate limits shared by both replicas.
+  valkeyUrl:
+    enabled: true
+
+# Picked up as is: the cluster's Prometheus selects every ServiceMonitor.
+serviceMonitor:
+  enabled: true
+
+# NetworkPolicies stay off: Flannel, Talos' default CNI, ignores them.
+networkPolicy:
+  enabled: false
+
+# The clients the Zitadel applications are today (rust/deploy/hetzner/
+# README.md, step 7, "The admin console" and "Monitoring, alerts and logs"),
+# with the same redirect URIs and fixed ids.
+clients:
+  # The platform SPA: public, PKCE (lib/auth/oidc/session.ts: redirect
+  # <origin>/auth/sso-callback, post-logout <origin>/).
+  - id: weldsuite-web
+    issuer: platform
+    kind: public
+    redirectUris:
+      - https://app.${DOMAIN}/auth/sso-callback
+    postLogoutRedirectUris:
+      - https://app.${DOMAIN}/
+    grantTypes: [authorization_code, refresh_token]
+    scopes: [openid, profile, email, offline_access]
+    audience: [weldsuite-api]
+    firstParty: true
+
+  # The mobile apps: one public native client, PKCE, one redirect per app
+  # (<scheme>://sso-callback, the route the apps already use).
+  - id: weldsuite-mobile
+    issuer: platform
+    kind: public
+    redirectUris:
+      - weldagent://sso-callback
+      - weldbooks://sso-callback
+      - weldcalendar://sso-callback
+      - weldchat://sso-callback
+      - weldcrm://sso-callback
+      - welddesk://sso-callback
+      - weldflow://sso-callback
+      - weldhr://sso-callback
+      - weldmail://sso-callback
+      - weldmeet://sso-callback
+      - weldsocial://sso-callback
+      - weldstash://sso-callback
+    grantTypes: [authorization_code, refresh_token]
+    scopes: [openid, profile, email, offline_access]
+    audience: [weldsuite-api]
+    firstParty: true
+
+  # The weldsuite server: WeldID's admin API (users, sessions, the event feed
+  # the identity sync reads), client_credentials with private_key_jwt. Its
+  # private key is WELDID_CLIENT_KEY in weldsuite/weldid-client; the public
+  # half is in the cluster's settings (WELDID_BACKEND_KEY_X and _Y, which
+  # fill-secrets.mjs --weldid prints). To rotate: add a second key here with
+  # kid weldsuite-backend-2 (a patch in the cluster's layers), switch the
+  # server's key, then remove the first.
+  - id: weldsuite-backend
+    issuer: platform
+    kind: confidential
+    authMethod: private_key_jwt
+    jwks:
+      keys:
+        - kty: EC
+          crv: P-256
+          alg: ES256
+          use: sig
+          kid: weldsuite-backend-1
+          x: "${WELDID_BACKEND_KEY_X}"
+          # Quoted: YAML reads a bare y as true.
+          "y": "${WELDID_BACKEND_KEY_Y}"
+    grantTypes: [client_credentials]
+    scopes: [weldid:users.read, weldid:users.write, weldid:sessions, weldid:events.read]
+    audience: [weldid-admin]
+
+  # The staff admin console (admin.${DOMAIN}, ADR FE-018) on the staff
+  # issuer, whose accounts are staff only (no ADMIN_OIDC_ORG_ID). Its secret:
+  # WELDID_CLIENT_SECRET_WELDSUITE_ADMIN in weldid-env, the same value as
+  # ADMIN_OIDC_CLIENT_SECRET in weldsuite-env.
+  - id: weldsuite-admin
+    issuer: staff
+    kind: confidential
+    authMethod: client_secret_basic
+    redirectUris:
+      - https://admin.${DOMAIN}/auth/callback
+    postLogoutRedirectUris:
+      - https://admin.${DOMAIN}/sign-in?signed_out=1
+    grantTypes: [authorization_code, refresh_token]
+    scopes: [openid, profile, email]
+    firstParty: true
+
+  # Grafana (grafana.${DOMAIN}): generic_oauth on the staff issuer, PKCE and
+  # a client secret (WELDID_CLIENT_SECRET_GRAFANA, the same value as
+  # grafana-oidc's). Scope roles: the staff's roles claim, from which Grafana
+  # takes Admin for grafana-admin (`weldid admin staff add … --roles
+  # grafana-admin`), Viewer for everyone else.
+  - id: grafana
+    issuer: staff
+    kind: confidential
+    authMethod: client_secret_basic
+    redirectUris:
+      - https://grafana.${DOMAIN}/login/generic_oauth
+    postLogoutRedirectUris:
+      - https://grafana.${DOMAIN}/login
+    grantTypes: [authorization_code]
+    scopes: [openid, profile, email, roles]
+    firstParty: true

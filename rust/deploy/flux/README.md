@@ -20,14 +20,19 @@ infrastructure/
                 which brings the CRDs; dashboards/generate.mjs writes them); ALERTS.md: what each
                 alert means and what to do
   logging/      Loki on the cluster's logs bucket, Fluent Bit on every node and for the events
+  weldid/       OPT-IN: WeldID, WeldSuite's own OIDC provider replacing Zitadel (ADR SEC-019), with its
+                namespace (namespace/), CNPG cluster, backups, alerts; README.md there says how to turn it
+                on and switch to it (clusters/example/weldid.yaml, weldid-switch.yaml)
 apps/eu/        the weldsuite HelmRelease
+apps/weldid-switch/
+                OPT-IN: the switch from Zitadel to WeldID, values the base releases list as optional
 apps/marketing/ the marketing site (WeldSuite's test cluster only, so far: its image is built for that
                 cluster's hosts in weldsuite-eu-marketing, which publishes its chart too; both private,
                 pulled with the marketing/ghcr token)
-secrets/        examples/: every Secret the layers expect; example/: where the example cluster's
-                SOPS-encrypted Secrets go
+secrets/        examples/: every Secret the layers expect (weldid.example.yaml: WeldID's); example/:
+                where the example cluster's SOPS-encrypted Secrets go (weldid/: WeldID's)
 scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values;
-                --update adds what the examples gained to an encrypted one;
+                --update adds what the examples gained to an encrypted one; --weldid: WeldID's;
                 ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic
 ```
 
@@ -50,7 +55,10 @@ nothing the build is made from (ADR OPS-020). A self-hosted install follows a re
 Order: `sources` → `controllers` → `secrets` → `configs` (with a cluster's
 own `configs-extra` next to it) → `services` → `apps`, and `video` after
 `services`, beside `apps`; `monitoring` after `secrets`, then
-`monitoring-config` and `logging` after it. Each HelmRelease's values are in a `values/` file
+`monitoring-config` and `logging` after it. A cluster that turns WeldID on adds
+`weldid-namespace` → `weldid-secrets` → `weldid` (after `services` and `monitoring`), and to
+sign in with it `weldid-switch` (`../hetzner/README.md`, "WeldID instead of Zitadel"). Each
+HelmRelease's values are in a `values/` file
 next to it (a generated ConfigMap), which `../validate.sh` renders with the
 chart at the pinned version.
 
