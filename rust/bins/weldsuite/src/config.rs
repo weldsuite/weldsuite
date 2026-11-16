@@ -106,6 +106,7 @@ impl AuthConfig {
                     settings.org_claim = claim;
                 }
                 settings.jwks_url = lookup("OIDC_JWKS_URL");
+                settings.workspace_source = workspace_source(lookup, problems);
                 let platform_sign_in = match lookup("OIDC_SIGN_IN").as_deref() {
                     None | Some("" | "provider") => false,
                     Some("platform") => true,
@@ -132,7 +133,65 @@ impl AuthConfig {
     }
 }
 
+/// `OIDC_WORKSPACE_SOURCE`: `claim` or `header` (membership mode). Unset:
+/// `header` with WeldID, whose tokens carry no workspace, else `claim`.
+fn workspace_source(
+    lookup: &impl Fn(&str) -> Option<String>,
+    problems: &mut Vec<String>,
+) -> weldsuite_auth::WorkspaceSource {
+    let weldid = lookup("IDENTITY_PROVIDER").as_deref() == Some("weldid");
+    match lookup("OIDC_WORKSPACE_SOURCE")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        None if weldid => weldsuite_auth::WorkspaceSource::Header,
+        None => weldsuite_auth::WorkspaceSource::Claim,
+        Some(value) => match weldsuite_auth::WorkspaceSource::parse(&value) {
+            Some(weldsuite_auth::WorkspaceSource::Claim) if weldid => {
+                problems.push(
+                    "IDENTITY_PROVIDER=weldid needs OIDC_WORKSPACE_SOURCE=header: WeldID's tokens name no workspace"
+                        .to_owned(),
+                );
+                weldsuite_auth::WorkspaceSource::Header
+            }
+            Some(source) => source,
+            None => {
+                problems.push("OIDC_WORKSPACE_SOURCE must be claim or header".to_owned());
+                weldsuite_auth::WorkspaceSource::Claim
+            }
+        },
+    }
+}
+
 impl AuthConfig {
+    /// The workspace comes from the request's header (membership mode).
+    pub(crate) fn workspace_from_header(&self) -> bool {
+        matches!(self, Self::Oidc { settings, .. }
+            if settings.workspace_source == weldsuite_auth::WorkspaceSource::Header)
+    }
+
+    /// WeldID authenticates through OIDC and shows its own screens: the
+    /// platform's (`/api/sign-in`) are Zitadel's login client.
+    fn check_weldid(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
+        if infra.weldid.is_none() {
+            return;
+        }
+        match self {
+            Self::Clerk { .. } => problems.push(
+                "IDENTITY_PROVIDER=weldid needs AUTH_PROVIDER=oidc (OIDC_ISSUER is WeldID's issuer)"
+                    .to_owned(),
+            ),
+            Self::Oidc {
+                platform_sign_in: true,
+                ..
+            } => problems.push(
+                "IDENTITY_PROVIDER=weldid needs OIDC_SIGN_IN=provider: WeldID shows its own sign-in screens, and /api/sign-in is Zitadel's"
+                    .to_owned(),
+            ),
+            Self::Oidc { .. } => {}
+        }
+    }
+
     /// The platform's own sign-in screens are served by the provider's
     /// login API: without it there is nothing behind them.
     fn check_sign_in_screens(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
@@ -143,6 +202,7 @@ impl AuthConfig {
                 ..
             }
         ) && infra.identity.is_none()
+            && infra.weldid.is_none()
         {
             problems.push(
                 "OIDC_SIGN_IN=platform needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
@@ -323,8 +383,12 @@ pub(crate) struct InfraConfig {
     pub(crate) jobs: JobsConfig,
     /// `ZITADEL_API_URL` and friends: the identity provider's management
     /// API (onboarding, team routes, the identity sync). Unset: no identity
-    /// provider, as the workers without a Clerk key.
+    /// provider, as the workers without a Clerk key. Always `None` with
+    /// `IDENTITY_PROVIDER=weldid`.
     pub(crate) identity: Option<IdentityConfig>,
+    /// `IDENTITY_PROVIDER=weldid` and `WELDID_*`: WeldID's admin API, with
+    /// WeldSuite's own memberships (membership mode).
+    pub(crate) weldid: Option<WeldIdConfig>,
     /// `TENANT_SHARDS`: the CloudNativePG shards new workspace databases go
     /// on. Unset: no provisioning, so no new workspaces.
     pub(crate) tenant_shards: Option<Vec<weldsuite_adapters_oss::CnpgShard>>,
@@ -396,6 +460,80 @@ impl IdentityConfig {
                 );
                 None
             }
+        }
+    }
+}
+
+/// WeldID's admin API (`crates/adapters-oss/src/weldid.rs`).
+#[derive(Clone)]
+pub(crate) struct WeldIdConfig {
+    /// `OIDC_ISSUER`: WeldID's platform issuer.
+    pub(crate) issuer: String,
+    /// `WELDID_ADMIN_URL`: the admin API's in-cluster address.
+    pub(crate) admin_url: String,
+    /// `WELDID_CLIENT_ID`: the `private_key_jwt` client for the admin API.
+    pub(crate) client_id: String,
+    /// `WELDID_CLIENT_KEY`: its ES256 private key (PEM). Secret.
+    pub(crate) client_key: String,
+}
+
+impl fmt::Debug for WeldIdConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeldIdConfig")
+            .field("issuer", &self.issuer)
+            .field("admin_url", &self.admin_url)
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `IDENTITY_PROVIDER`: `zitadel`, `weldid`, or unset (Zitadel when
+/// `ZITADEL_*` is set, as before there was a choice). The Zitadel settings
+/// and WeldID's, of which at most one is used.
+fn identity_providers(
+    lookup: &impl Fn(&str) -> Option<String>,
+    problems: &mut Vec<String>,
+) -> (Option<IdentityConfig>, Option<WeldIdConfig>) {
+    let set = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+    match set("IDENTITY_PROVIDER").as_deref() {
+        None => {
+            if set("WELDID_ADMIN_URL").is_some() {
+                problems
+                    .push("WELDID_ADMIN_URL is set but IDENTITY_PROVIDER is not weldid".to_owned());
+            }
+            (IdentityConfig::from_lookup(lookup, problems), None)
+        }
+        Some("zitadel") => {
+            let zitadel = IdentityConfig::from_lookup(lookup, problems);
+            if zitadel.is_none() {
+                problems.push(
+                    "IDENTITY_PROVIDER=zitadel needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                        .to_owned(),
+                );
+            }
+            (zitadel, None)
+        }
+        Some("weldid") => {
+            let mut required = |name: &str| {
+                set(name).unwrap_or_else(|| {
+                    problems.push(format!("{name} is required with IDENTITY_PROVIDER=weldid"));
+                    String::new()
+                })
+            };
+            let weldid = WeldIdConfig {
+                issuer: required("OIDC_ISSUER"),
+                admin_url: required("WELDID_ADMIN_URL"),
+                client_id: required("WELDID_CLIENT_ID"),
+                client_key: required("WELDID_CLIENT_KEY"),
+            };
+            if set("ZITADEL_API_URL").is_some() {
+                tracing::warn!("IDENTITY_PROVIDER=weldid: the ZITADEL_* settings are ignored");
+            }
+            (None, Some(weldid))
+        }
+        Some(_) => {
+            problems.push("IDENTITY_PROVIDER must be zitadel or weldid".to_owned());
+            (None, None)
         }
     }
 }
@@ -526,6 +664,7 @@ impl fmt::Debug for InfraConfig {
             .field("smtp", &self.smtp_url.as_ref().map(|_| "<set>"))
             .field("system_email_from", &self.system_email_from)
             .field("identity", &self.identity)
+            .field("weldid", &self.weldid)
             .field("tenant_shards", &self.tenant_shards)
             .field("aad_writes", &self.aad_writes)
             .finish_non_exhaustive()
@@ -554,6 +693,7 @@ impl InfraConfig {
                 None
             }
         };
+        let (identity, weldid) = identity_providers(lookup, problems);
         Self {
             valkey_url: lookup("VALKEY_URL"),
             valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
@@ -582,7 +722,8 @@ impl InfraConfig {
             jobs: JobsConfig::from_lookup(lookup, problems),
             smtp_url: lookup("SMTP_URL").filter(|url| !url.trim().is_empty()),
             system_email_from: lookup("SYSTEM_EMAIL_FROM").filter(|from| !from.trim().is_empty()),
-            identity: IdentityConfig::from_lookup(lookup, problems),
+            identity,
+            weldid,
             tenant_shards: lookup("TENANT_SHARDS")
                 .filter(|shards| !shards.trim().is_empty())
                 .and_then(|shards| {
@@ -698,6 +839,7 @@ impl Config {
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
         auth.check_sign_in_screens(&infra, &mut problems);
+        auth.check_weldid(&infra, &mut problems);
         if let Some(identity) = &mut infra.identity {
             // The platform's own sign-in screens take invitations too.
             identity.accept_on_platform = matches!(
@@ -1130,6 +1272,137 @@ abc",
         vars[4] = ("OIDC_SIGN_IN", "embedded");
         let error = config(&vars).expect_err("unknown value");
         assert!(error.0[0].contains("OIDC_SIGN_IN must be"), "{error}");
+    }
+
+    const WELDID: [(&str, &str); 8] = [
+        ("DATABASE_URL_MASTER", "postgres://master"),
+        ("AUTH_PROVIDER", "oidc"),
+        ("OIDC_ISSUER", "https://auth.eu.example"),
+        ("OIDC_AUDIENCE", "weldsuite-api"),
+        ("IDENTITY_PROVIDER", "weldid"),
+        ("WELDID_ADMIN_URL", "http://weldid.weldid.svc:8080"),
+        ("WELDID_CLIENT_ID", "weldsuite-backend"),
+        (
+            "WELDID_CLIENT_KEY",
+            // Split, so secret scanners don't read the fake PEM as a key.
+            concat!(
+                "-----BEGIN ",
+                "PRIVATE KEY-----\\nnot-a-key\\n-----END ",
+                "PRIVATE KEY-----"
+            ),
+        ),
+    ];
+
+    #[test]
+    fn weldid_is_membership_mode_with_its_own_screens() {
+        let mut vars = WELDID.to_vec();
+        // Left over from Zitadel: ignored, never both.
+        vars.extend([
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+        ]);
+        let parsed = config(&vars).expect("valid");
+        let weldid = parsed.infra.weldid.as_ref().expect("weldid");
+        assert_eq!(weldid.issuer, "https://auth.eu.example");
+        assert_eq!(weldid.admin_url, "http://weldid.weldid.svc:8080");
+        assert_eq!(weldid.client_id, "weldsuite-backend");
+        assert!(parsed.infra.identity.is_none());
+        assert!(parsed.auth.workspace_from_header(), "header by default");
+        assert!(!format!("{parsed:?}").contains("not-a-key"));
+
+        let with = |extra: (&'static str, &'static str)| {
+            let mut vars = WELDID.to_vec();
+            vars.push(extra);
+            config(&vars)
+        };
+        let error = with(("OIDC_SIGN_IN", "platform")).expect_err("Zitadel's screens");
+        assert!(
+            error.0.iter().any(|p| p.contains("OIDC_SIGN_IN=provider")),
+            "{error}"
+        );
+        assert_eq!(error.0.len(), 1, "{error}");
+        let error = with(("OIDC_WORKSPACE_SOURCE", "claim")).expect_err("no claim");
+        assert!(
+            error.0[0].contains("OIDC_WORKSPACE_SOURCE=header"),
+            "{error}"
+        );
+        assert!(
+            with(("OIDC_WORKSPACE_SOURCE", "header"))
+                .expect("valid")
+                .auth
+                .workspace_from_header()
+        );
+
+        let mut clerk = WELDID.to_vec();
+        clerk[1] = ("AUTH_PROVIDER", "clerk");
+        clerk.push(("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"));
+        let error = config(&clerk).expect_err("weldid signs in through OIDC");
+        assert!(error.0[0].contains("AUTH_PROVIDER=oidc"), "{error}");
+
+        let incomplete: Vec<_> = WELDID
+            .iter()
+            .copied()
+            .filter(|(name, _)| *name != "WELDID_CLIENT_KEY")
+            .collect();
+        let error = config(&incomplete).expect_err("no key");
+        assert_eq!(
+            error.0,
+            ["WELDID_CLIENT_KEY is required with IDENTITY_PROVIDER=weldid"]
+        );
+    }
+
+    #[test]
+    fn the_identity_provider_and_workspace_source_are_checked() {
+        let oidc = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.example"),
+            ("OIDC_AUDIENCE", "api"),
+        ];
+        let with = |extra: &[(&'static str, &'static str)]| {
+            let mut vars = oidc.to_vec();
+            vars.extend_from_slice(extra);
+            config(&vars)
+        };
+        // Today's install: claim mode, Zitadel when its settings are there.
+        let plain = with(&[]).expect("valid");
+        assert!(!plain.auth.workspace_from_header());
+        assert!(plain.infra.identity.is_none() && plain.infra.weldid.is_none());
+        // A customer's own provider in membership mode.
+        let byo = with(&[("OIDC_WORKSPACE_SOURCE", "header")]).expect("valid");
+        assert!(byo.auth.workspace_from_header());
+        assert!(byo.infra.weldid.is_none());
+
+        for (extra, problem) in [
+            (
+                &[("OIDC_WORKSPACE_SOURCE", "token")][..],
+                "OIDC_WORKSPACE_SOURCE must be claim or header",
+            ),
+            (
+                &[("IDENTITY_PROVIDER", "keycloak")][..],
+                "IDENTITY_PROVIDER must be zitadel or weldid",
+            ),
+            (
+                &[("IDENTITY_PROVIDER", "zitadel")][..],
+                "IDENTITY_PROVIDER=zitadel needs ZITADEL_API_URL",
+            ),
+            (
+                &[("WELDID_ADMIN_URL", "http://weldid:8080")][..],
+                "WELDID_ADMIN_URL is set but IDENTITY_PROVIDER is not weldid",
+            ),
+        ] {
+            let error = with(extra).expect_err(problem);
+            assert!(error.0.iter().any(|p| p.starts_with(problem)), "{error}");
+        }
+        let zitadel = with(&[
+            ("IDENTITY_PROVIDER", "zitadel"),
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+        ])
+        .expect("valid");
+        assert!(zitadel.infra.identity.is_some() && zitadel.infra.weldid.is_none());
     }
 
     #[test]

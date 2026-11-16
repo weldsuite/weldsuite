@@ -26,15 +26,26 @@
 //! Not here: the invitation email (Zitadel sends its own invite code), the
 //! permission-cache bump (the Rust backend keeps no permission cache), and
 //! WeldChat's auto-join (not ported).
+//!
+//! WeldID (membership mode) keeps no organizations or memberships, only
+//! users, and offers an ordered event feed instead of a change feed:
+//! [`IdentitySync::run_feed`] reads `Identity::events_after` from its own
+//! watermark ([`FEED_WATERMARK_KEY`], the last event id handled) and
+//! reconciles only users, the same way: `user.created`, `user.updated` and
+//! `user.email_changed` read the profile into `users` and the member rows'
+//! name, picture and email; `user.deleted` deactivates the user and removes
+//! their memberships (WeldID keeps an anonymised row, so the profile isn't
+//! asked); `session.revoked` needs nothing here.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
 use weldsuite_db::PgPool;
 use weldsuite_ports::{
-    DatabaseProvisioner, Identity, IdentityChange, IdentityError, ListPage, Membership, Teardown,
+    DatabaseProvisioner, FeedEvent, Identity, IdentityChange, IdentityError, ListPage, Membership,
+    Teardown, UserProfile,
 };
 
 use crate::TenantDatabases;
@@ -43,6 +54,52 @@ use crate::onboard::upsert_user_workspace;
 /// The `system_settings` key of the watermark: the time of the newest change
 /// handled (RFC 3339, as a JSON string).
 pub const WATERMARK_KEY: &str = "identity_sync.watermark";
+
+/// The `system_settings` key of the event feed's watermark
+/// ([`IdentitySync::run_feed`]): the id of the last event handled (a JSON
+/// string).
+pub const FEED_WATERMARK_KEY: &str = "identity_sync.weldid_watermark";
+
+/// What a feed event asks of a user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FeedAction {
+    /// Read the profile again.
+    Refresh,
+    /// The user is gone.
+    Delete,
+}
+
+/// The action an event of `kind` asks for; `None` for kinds with nothing to
+/// do here (`session.revoked`, and kinds this build doesn't know).
+pub fn feed_action(kind: &str) -> Option<FeedAction> {
+    match kind {
+        "user.created" | "user.updated" | "user.email_changed" => Some(FeedAction::Refresh),
+        "user.deleted" => Some(FeedAction::Delete),
+        _ => None,
+    }
+}
+
+/// One action per user for a batch of events: a deletion wins over a
+/// refresh (ids are never reused).
+pub fn feed_actions<'a>(
+    events: impl IntoIterator<Item = &'a FeedEvent>,
+) -> BTreeMap<String, FeedAction> {
+    let mut actions = BTreeMap::new();
+    for event in events {
+        let (Some(action), Some(user)) = (feed_action(&event.kind), event.user_id.as_deref())
+        else {
+            continue;
+        };
+        if user.is_empty() {
+            continue;
+        }
+        actions
+            .entry(user.to_owned())
+            .and_modify(|current: &mut FeedAction| *current = (*current).max(action))
+            .or_insert(action);
+    }
+    actions
+}
 
 /// Changes read per page, and pages per run.
 const PAGE: u32 = 500;
@@ -107,10 +164,10 @@ impl IdentitySync {
         }
     }
 
-    async fn watermark(&self) -> Result<Option<String>, sqlx::Error> {
+    async fn watermark(&self, key: &str) -> Result<Option<String>, sqlx::Error> {
         let value: Option<Option<Value>> =
             sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-                .bind(WATERMARK_KEY)
+                .bind(key)
                 .fetch_optional(&self.master)
                 .await?;
         Ok(value
@@ -118,23 +175,104 @@ impl IdentitySync {
             .and_then(|value| value.as_str().map(str::to_owned)))
     }
 
-    async fn store_watermark(&self, at: &str) -> Result<(), sqlx::Error> {
+    async fn store_watermark(&self, key: &str, at: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             "insert into system_settings (id, key, category, value, description, data_type)
              values ($1, $2, 'integrations', $3, 'The identity sync has handled the provider''s changes up to here', 'string')
              on conflict (key) do update set value = excluded.value, updated_at = now()",
         )
         .bind(weldsuite_kit::generate_id("sset"))
-        .bind(WATERMARK_KEY)
+        .bind(key)
         .bind(Value::String(at.to_owned()))
         .execute(&self.master)
         .await
         .map(drop)
     }
 
+    /// One run on an event feed (WeldID's outbox): read the events after the
+    /// watermark, reconcile their users, move the watermark. A page whose
+    /// reconciles didn't all work leaves the watermark, and the next run
+    /// reads it again.
+    pub async fn run_feed(&self) -> Result<SyncReport, Failure> {
+        let mut after = self.watermark(FEED_WATERMARK_KEY).await?;
+        let mut report = SyncReport::default();
+        for _ in 0..MAX_PAGES {
+            let page = self.identity.events_after(after.as_deref(), PAGE).await?;
+            if page.events.is_empty() {
+                break;
+            }
+            report.changes += page.events.len();
+            let mut failed = 0;
+            for (user_id, action) in feed_actions(&page.events) {
+                report.users += 1;
+                let outcome = match action {
+                    FeedAction::Refresh => self.feed_user(&user_id).await,
+                    FeedAction::Delete => self
+                        .user_deleted(&user_id)
+                        .await
+                        .map_or_else(Outcome::from, |()| Outcome::Done),
+                };
+                if let Outcome::Retry(error) = outcome {
+                    tracing::warn!(%error, "identity sync: a user is left for the next run");
+                    failed += 1;
+                }
+            }
+            if failed > 0 {
+                report.failed += failed;
+                break;
+            }
+            let Some(next) = page.next_cursor().map(str::to_owned) else {
+                break;
+            };
+            self.store_watermark(FEED_WATERMARK_KEY, &next).await?;
+            let unchanged = after.as_deref() == Some(next.as_str());
+            after = Some(next);
+            if !page.has_more || unchanged {
+                break;
+            }
+        }
+        report.watermark = after;
+        Ok(report)
+    }
+
+    /// A user an event named: the profile into `users` and the member rows
+    /// (their email too: `user.email_changed`), or their deletion.
+    async fn feed_user(&self, user_id: &str) -> Outcome {
+        let profile = match self.identity.user_profile(user_id).await {
+            Ok(profile) => profile,
+            Err(error) if error.is_not_found() => {
+                return self
+                    .user_deleted(user_id)
+                    .await
+                    .map_or_else(Outcome::from, |()| Outcome::Done);
+            }
+            Err(error) => return retry_unless_refused(error),
+        };
+        if let Err(outcome) = self.store_profile(user_id, &profile).await {
+            return outcome;
+        }
+        let email = profile.primary_email().unwrap_or_default();
+        if !email.is_empty() {
+            for (workspace, org) in self.workspaces_of(user_id).await {
+                let Ok(tenant) = (self.tenants)(org.unwrap_or(workspace)).await else {
+                    continue;
+                };
+                let _ = sqlx::query(
+                    "update workspace_members set email = $2, updated_at = now()
+                      where user_id = $1 and deleted_at is null and email is distinct from $2",
+                )
+                .bind(user_id)
+                .bind(email)
+                .execute(&tenant)
+                .await;
+            }
+        }
+        Outcome::Done
+    }
+
     /// One run: read the feed, reconcile, move the watermark.
     pub async fn run(&self) -> Result<SyncReport, Failure> {
-        let mut since = self.watermark().await?;
+        let mut since = self.watermark(WATERMARK_KEY).await?;
         let mut report = SyncReport::default();
         for _ in 0..MAX_PAGES {
             let changes = self.identity.changes_since(since.as_deref(), PAGE).await?;
@@ -157,7 +295,7 @@ impl IdentitySync {
             } else {
                 last
             };
-            self.store_watermark(&next).await?;
+            self.store_watermark(WATERMARK_KEY, &next).await?;
             let unchanged = since.as_deref() == Some(next.as_str());
             since = Some(next);
             if !full || unchanged {
@@ -226,31 +364,7 @@ impl IdentitySync {
     async fn user(&self, user_id: &str) -> Result<Vec<String>, Outcome> {
         match self.identity.user_profile(user_id).await {
             Ok(profile) => {
-                let email = profile.primary_email().unwrap_or_default().to_owned();
-                sqlx::query(
-                    "insert into users (id, email, first_name, last_name, image_url)
-                     values ($1, $2, $3, $4, $5)
-                     on conflict (id) do update
-                        set email = case when excluded.email <> '' then excluded.email else users.email end,
-                            first_name = excluded.first_name, last_name = excluded.last_name,
-                            image_url = excluded.image_url, updated_at = now()",
-                )
-                .bind(user_id)
-                .bind(&email)
-                .bind(&profile.first_name)
-                .bind(&profile.last_name)
-                .bind(&profile.image_url)
-                .execute(&self.master)
-                .await
-                .map_err(Outcome::from)?;
-                let full_name = [profile.first_name.as_deref(), profile.last_name.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                self.update_member_names(user_id, &full_name, profile.image_url.as_deref())
-                    .await;
+                self.store_profile(user_id, &profile).await?;
                 match self.identity.user_memberships(user_id, 100).await {
                     Ok(memberships) => Ok(memberships
                         .into_iter()
@@ -265,6 +379,37 @@ impl IdentitySync {
             }
             Err(error) => Err(retry_unless_refused(error)),
         }
+    }
+
+    /// `handleUserCreated` / `handleUserUpdated`: the `users` row, then the
+    /// member rows' name and picture.
+    async fn store_profile(&self, user_id: &str, profile: &UserProfile) -> Result<(), Outcome> {
+        let email = profile.primary_email().unwrap_or_default().to_owned();
+        sqlx::query(
+            "insert into users (id, email, first_name, last_name, image_url)
+             values ($1, $2, $3, $4, $5)
+             on conflict (id) do update
+                set email = case when excluded.email <> '' then excluded.email else users.email end,
+                    first_name = excluded.first_name, last_name = excluded.last_name,
+                    image_url = excluded.image_url, updated_at = now()",
+        )
+        .bind(user_id)
+        .bind(&email)
+        .bind(&profile.first_name)
+        .bind(&profile.last_name)
+        .bind(&profile.image_url)
+        .execute(&self.master)
+        .await
+        .map_err(Outcome::from)?;
+        let full_name = [profile.first_name.as_deref(), profile.last_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.update_member_names(user_id, &full_name, profile.image_url.as_deref())
+            .await;
+        Ok(())
     }
 
     /// `handleUserUpdated`'s tenant half: only values the provider has
@@ -768,6 +913,38 @@ async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feed_events_become_one_action_per_user() {
+        let event = |id: &str, kind: &str, user: Option<&str>| FeedEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            user_id: user.map(str::to_owned),
+            at: None,
+            data: Value::Null,
+        };
+        let events = [
+            event("1", "user.created", Some("usr_a")),
+            event("2", "user.email_changed", Some("usr_a")),
+            event("3", "user.updated", Some("usr_b")),
+            event("4", "user.deleted", Some("usr_b")),
+            event("5", "user.updated", Some("usr_b")),
+            event("6", "session.revoked", Some("usr_c")),
+            event("7", "user.renamed", Some("usr_d")),
+            event("8", "user.updated", None),
+            event("9", "user.updated", Some("")),
+        ];
+        let actions = feed_actions(&events);
+        assert_eq!(
+            actions.into_iter().collect::<Vec<_>>(),
+            [
+                ("usr_a".to_owned(), FeedAction::Refresh),
+                ("usr_b".to_owned(), FeedAction::Delete),
+            ]
+        );
+        assert_eq!(feed_action("session.revoked"), None);
+        assert_eq!(feed_action("user.deleted"), Some(FeedAction::Delete));
+    }
 
     #[test]
     fn stepping_past_an_instant() {

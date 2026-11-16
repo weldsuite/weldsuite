@@ -39,6 +39,10 @@ pub(crate) struct AppState {
     /// The edition and public settings `/config.json` reports.
     pub(crate) edition: Arc<crate::edition::EditionConfig>,
     pub(crate) workspaces: Arc<Workspaces>,
+    /// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): the workspace each
+    /// request names in `X-Weld-Workspace`, between the session and the
+    /// tenant database. `None` in claim mode and with Clerk.
+    pub(crate) workspace_header: Option<weldsuite_db::WorkspaceSelector>,
     /// Session tokens: the `/api` layer (not in conformance builds, which
     /// take the test's context) and the private-object read's bearer check.
     pub(crate) verifier: Arc<SessionVerifier>,
@@ -310,23 +314,41 @@ async fn bundle_host_guard(
     }
 }
 
-/// Session token → tenant database, as `apiAuth()` does.
+/// Session token → tenant database, as `apiAuth()` does. In membership mode
+/// the request's `X-Weld-Workspace` picks the workspace in between, and a
+/// workspace the user isn't a member of is refused.
 #[cfg(not(feature = "conformance"))]
 fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
-    api.layer(axum::middleware::from_fn_with_state(
+    let api = api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.workspaces),
         weldsuite_db::workspace_db,
-    ))
-    .layer(axum::middleware::from_fn_with_state(
+    ));
+    let api = match &state.workspace_header {
+        Some(selector) => api.layer(axum::middleware::from_fn_with_state(
+            selector.clone(),
+            weldsuite_db::workspace_from_header,
+        )),
+        None => api,
+    };
+    api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.verifier),
         weldsuite_auth::clerk_auth,
     ))
 }
 
 /// The session alone, for the routes that need no workspace
-/// (`clerkMiddleware()` without `workspaceDbMiddleware()`).
+/// (`clerkMiddleware()` without `workspaceDbMiddleware()`). In membership
+/// mode a workspace the request names is used when the user is a member of
+/// it, and ignored otherwise.
 #[cfg(not(feature = "conformance"))]
 fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    let api = match &state.workspace_header {
+        Some(selector) => api.layer(axum::middleware::from_fn_with_state(
+            selector.lenient(),
+            weldsuite_db::workspace_from_header,
+        )),
+        None => api,
+    };
     api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.verifier),
         weldsuite_auth::clerk_auth,
@@ -590,6 +612,7 @@ mod tests {
                 Keyring::default(),
                 WorkspaceConfig::default(),
             )),
+            workspace_header: None,
             verifier: Arc::new(verifier.into()),
             permissions_app_enforce: false,
             draining: Arc::new(AtomicBool::new(false)),
@@ -867,6 +890,99 @@ mod tests {
         let (status, _, body) = call(state, with("expired")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(body.contains("Token verification failed"), "{body}");
+    }
+
+    /// Grants the fixture's user `ws_member` (as `org_member`), nothing else.
+    #[cfg(not(feature = "conformance"))]
+    struct OneMembership(String);
+
+    #[cfg(not(feature = "conformance"))]
+    impl weldsuite_db::MembershipLookup for OneMembership {
+        fn member_workspace<'a>(
+            &'a self,
+            user_id: &'a str,
+            reference: &'a str,
+        ) -> weldsuite_db::MembershipFuture<'a> {
+            let found =
+                (user_id == self.0 && reference == "ws_member").then(|| "org_member".to_owned());
+            Box::pin(std::future::ready(Ok(found)))
+        }
+    }
+
+    /// [`oidc_state`] in membership mode: the header picks the workspace,
+    /// and the fixture's user is a member of `ws_member` only.
+    #[cfg(not(feature = "conformance"))]
+    fn header_mode_state() -> (AppState, Value) {
+        let (mut state, fixture) = oidc_state();
+        let settings = weldsuite_auth::OidcSettings {
+            workspace_source: weldsuite_auth::WorkspaceSource::Header,
+            ..weldsuite_auth::OidcSettings::new(
+                fixture["issuer"].as_str().expect("issuer"),
+                vec![fixture["project"].as_str().expect("project").to_owned()],
+            )
+        };
+        state.verifier = Arc::new(
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks"),
+        );
+        let user = fixture["user"].as_str().expect("user").to_owned();
+        state.workspace_header = Some(weldsuite_db::WorkspaceSelector::new(Arc::new(
+            OneMembership(user),
+        )));
+        (state, fixture)
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn the_workspace_list_needs_no_workspace_in_membership_mode_only() {
+        let list = |token: &str| {
+            Request::builder()
+                .uri("/api/workspaces")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("request")
+        };
+        // Membership mode: no workspace named, yet the list is read (from
+        // the master database, which this test has none of: 500, not 403).
+        let (state, fixture) = header_mode_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let (status, _, body) = call(state, list(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("Failed to list workspaces"), "{body}");
+        // Claim mode keeps it behind the tenant layer: the token's
+        // organization is looked up first (no master database: 500 there).
+        let (state, fixture) = oidc_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let (status, _, body) = call(state, list(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(!body.contains("Failed to list workspaces"), "{body}");
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn membership_mode_takes_the_workspace_from_the_header() {
+        let (state, fixture) = header_mode_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let with = |workspace: Option<&str>| {
+            let request = Request::builder()
+                .uri("/api/me/permissions")
+                .header("Authorization", format!("Bearer {token}"));
+            let request = match workspace {
+                Some(workspace) => request.header("X-Weld-Workspace", workspace),
+                None => request,
+            };
+            request.body(Body::empty()).expect("request")
+        };
+        // A member: on to the tenant database lookup (none here, so 500).
+        let (status, _, body) = call(state.clone(), with(Some("ws_member"))).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        // Another workspace: refused before any lookup.
+        let (status, _, body) = call(state.clone(), with(Some("ws_other"))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("not a member of this workspace"), "{body}");
+        // No header: the token's organization claim doesn't count.
+        let (status, _, body) = call(state, with(None)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("ORG_REQUIRED"), "{body}");
     }
 
     #[tokio::test]

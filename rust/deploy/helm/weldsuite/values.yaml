@@ -109,6 +109,13 @@ config:
       # The links in its emails open the platform at PLATFORM_URL, which
       # config.publicUrl fills.
       signIn: ""
+      # Where a request's workspace comes from (OIDC_WORKSPACE_SOURCE).
+      # claim (empty's default): the token's orgClaim; the provider keeps
+      # the memberships (Zitadel). header: membership mode, the request
+      # names its workspace in X-Weld-Workspace and WeldSuite's own
+      # memberships decide (a customer's own provider). Empty with
+      # config.identity.provider weldid: header.
+      workspaceSource: ""
   # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
@@ -267,7 +274,25 @@ config:
   # config.auth.oidc.signIn: platform the sign-in screens call Zitadel's
   # login API too, as a service user with IAM_LOGIN_CLIENT: that same user
   # with the role added, or one of its own (ZITADEL_LOGIN_TOKEN).
+  #
+  # WeldID (weldsuite-documentation/plans/weldid-auth-server.md) instead:
+  # provider weldid. WeldID only authenticates; workspaces, members and
+  # invitations stay in WeldSuite's databases (membership mode), every
+  # request names its workspace in X-Weld-Workspace
+  # (config.auth.oidc.workspaceSource is header), WeldID shows its own
+  # sign-in screens (config.auth.oidc.signIn must stay empty or provider),
+  # and identity-sync reads WeldID's event feed. The admin API client's
+  # ES256 private key (PEM) goes in the Secret as WELDID_CLIENT_KEY; its
+  # public key is in WeldID's client list (weldsuite-backend,
+  # private_key_jwt, the scopes weldid:users.read weldid:users.write
+  # weldid:sessions weldid:events.read).
   identity:
+    # IDENTITY_PROVIDER: zitadel or weldid. Empty: zitadel when
+    # zitadel.apiUrl is set, else no identity provider.
+    provider: ""
+    weldid:
+      adminUrl: ""           # WELDID_ADMIN_URL: http://weldid.weldid.svc:8080 (sent with the issuer's host)
+      clientId: ""           # WELDID_CLIENT_ID: weldsuite-backend
     zitadel:
       apiUrl: ""             # http://zitadel.zitadel.svc:8080
       # The instance's external domain, sent as Host when apiUrl is in-cluster.
@@ -381,6 +406,8 @@ config:
 #   ZITADEL_LOGIN_TOKEN          the token of a service user with only IAM_LOGIN_CLIENT, for the sign-in
 #                                screens (optional, with config.auth.oidc.signIn: platform; unset: the
 #                                service user above, which then needs that role as well)
+#   WELDID_CLIENT_KEY            WeldID's admin API client's ES256 private key, PEM (with
+#                                config.identity.provider: weldid)
 #   DATABASE_URL_PERSONAL        personal-api's shared personal database (consumer WeldMail and
 #                                WeldCalendar on personal accounts, ADR DATA-011), a database of its
 #                                own: set, the server serves personal-api at /personal-api and the

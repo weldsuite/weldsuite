@@ -67,11 +67,11 @@ pub use files::{
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
-    ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
-    IdentityResult, Invitation, InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser,
-    Membership, MemoryIdentity, NewInvitation, NewMembership, NewOrganization, Organization,
-    OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata,
-    with_identity,
+    ChangeEvent, FeedEvent, FeedPage, Identity, IdentityCall, IdentityChange, IdentityError,
+    IdentityProvider, IdentityResult, Invitation, InvitationEmail, InvitationMailer, ListPage,
+    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, NewOrganization,
+    Organization, OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile,
+    merge_metadata, with_identity,
 };
 pub use imap::{
     ImapConfig, ImapConnector, ImapError, ImapErrorKind, ImapSession, MailboxInfo, MemoryImap,

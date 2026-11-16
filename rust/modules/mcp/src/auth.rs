@@ -11,10 +11,14 @@
 //! The discovery documents follow the sign-in ([`Discovery`]): with Clerk
 //! they are Global's, field for field; with an OIDC provider they name its
 //! endpoints and the scopes its tokens need, and the authorization server's
-//! metadata is the provider's `openid-configuration`.
+//! metadata is the provider's `openid-configuration`. Whatever names one of
+//! the issuer's endpoints (Clerk's `token_introspection_endpoint` and
+//! `jwks_uri`, the authorization server document) comes from the issuer's
+//! own metadata, fetched once and reused ([`IssuerMetadata`]), never from a
+//! path built after one provider's layout.
 
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -88,6 +92,46 @@ impl Discovery {
     }
 }
 
+/// How long the issuer's metadata is reused, and how long a failed fetch
+/// waits before the next.
+const METADATA_TTL: Duration = Duration::from_secs(3600);
+const METADATA_RETRY: Duration = Duration::from_secs(60);
+
+/// The issuer's metadata, as last fetched: reused for [`METADATA_TTL`]; a
+/// failed fetch is tried again after [`METADATA_RETRY`].
+#[derive(Debug, Default)]
+pub struct IssuerMetadata {
+    fetched: Mutex<Option<(Instant, Fetched)>>,
+}
+
+/// What the last fetch gave.
+#[derive(Debug, Clone)]
+enum Fetched {
+    Document(Value),
+    Failed,
+}
+
+impl IssuerMetadata {
+    /// The last fetch's outcome while it is fresh.
+    fn cached(&self) -> Option<Fetched> {
+        let fetched = self.fetched.lock().unwrap_or_else(PoisonError::into_inner);
+        let (at, outcome) = fetched.as_ref()?;
+        let ttl = match outcome {
+            Fetched::Document(_) => METADATA_TTL,
+            Fetched::Failed => METADATA_RETRY,
+        };
+        (at.elapsed() < ttl).then(|| outcome.clone())
+    }
+
+    fn store(&self, metadata: Option<&Value>) {
+        let outcome = metadata.map_or(Fetched::Failed, |document| {
+            Fetched::Document(document.clone())
+        });
+        *self.fetched.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some((Instant::now(), outcome));
+    }
+}
+
 /// The verifier and what discovery names.
 pub struct McpAuth {
     pub verifier: Arc<SessionVerifier>,
@@ -98,6 +142,26 @@ pub struct McpAuth {
     pub server_url: String,
     pub outbound: Option<OutboundHttp>,
     pub discovery: Discovery,
+    /// The issuer's metadata, cached.
+    pub metadata: IssuerMetadata,
+}
+
+impl McpAuth {
+    /// The issuer's metadata ([`authorization_server_metadata`]), from the
+    /// cache when it is fresh.
+    async fn issuer_metadata(&self) -> Option<Value> {
+        match self.metadata.cached() {
+            Some(Fetched::Document(document)) => return Some(document),
+            Some(Fetched::Failed) => return None,
+            None => {}
+        }
+        let (Some(issuer), Some(outbound)) = (&self.issuer, &self.outbound) else {
+            return None;
+        };
+        let fetched = authorization_server_metadata(issuer, outbound, &self.discovery).await;
+        self.metadata.store(fetched.as_ref());
+        fetched
+    }
 }
 
 impl std::fmt::Debug for McpAuth {
@@ -389,12 +453,30 @@ fn metadata_cors(mut response: Response) -> Response {
     response
 }
 
-/// RFC 9728's document for `{server_url}{resource_path}`.
+/// One of the issuer's endpoints from its metadata, else where Clerk keeps
+/// it (`fallback`, under the issuer).
+fn issuer_endpoint(metadata: Option<&Value>, field: &str, issuer: &str, fallback: &str) -> String {
+    metadata
+        .and_then(|metadata| metadata.get(field))
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map_or_else(
+            || format!("{}{fallback}", issuer.trim_end_matches('/')),
+            str::to_owned,
+        )
+}
+
+/// RFC 9728's document for `{server_url}{resource_path}`. With Clerk it
+/// names the issuer's token endpoint and keys as Clerk's MCP tooling does,
+/// taken from the issuer's `metadata` (Clerk's own paths until it has
+/// answered); an OIDC provider's document names neither, as RFC 9728 means
+/// those fields for the resource's own.
 fn protected_resource_document(
     issuer: &str,
     server_url: &str,
     resource_path: &str,
     discovery: &Discovery,
+    metadata: Option<&Value>,
 ) -> Value {
     let resource = format!("{}{resource_path}", server_url.trim_end_matches('/'));
     match discovery {
@@ -402,9 +484,9 @@ fn protected_resource_document(
             "resource": resource,
             "authorization_servers": [issuer],
             "token_types_supported": ["urn:ietf:params:oauth:token-type:access_token"],
-            "token_introspection_endpoint": format!("{issuer}/oauth/token"),
+            "token_introspection_endpoint": issuer_endpoint(metadata, "token_endpoint", issuer, "/oauth/token"),
             "token_introspection_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
-            "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
+            "jwks_uri": issuer_endpoint(metadata, "jwks_uri", issuer, "/.well-known/jwks.json"),
             "authorization_data_types_supported": ["oauth_scope"],
             "authorization_data_locations_supported": ["header", "body"],
             "key_challenges_supported": [{ "challenge_type": "urn:ietf:params:oauth:pkce:code_challenge", "challenge_algs": ["S256"] }],
@@ -421,7 +503,7 @@ fn protected_resource_document(
     }
 }
 
-fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
+async fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
     let Some(issuer) = &auth.issuer else {
         return metadata_cors(
             (
@@ -431,12 +513,18 @@ fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
                 .into_response(),
         );
     };
+    // Only Clerk's document names the issuer's endpoints.
+    let metadata = match auth.discovery {
+        Discovery::Clerk => auth.issuer_metadata().await,
+        Discovery::Oidc { .. } => None,
+    };
     metadata_cors(
         axum::Json(protected_resource_document(
             issuer,
             &auth.server_url,
             resource_path,
             &auth.discovery,
+            metadata.as_ref(),
         ))
         .into_response(),
     )
@@ -467,13 +555,7 @@ async fn authorization_server_metadata(
 }
 
 async fn authorization_server(auth: &McpAuth) -> Response {
-    let metadata = match (&auth.issuer, &auth.outbound) {
-        (Some(issuer), Some(outbound)) => {
-            authorization_server_metadata(issuer, outbound, &auth.discovery).await
-        }
-        _ => None,
-    };
-    match metadata {
+    match auth.issuer_metadata().await {
         Some(metadata) => metadata_cors(axum::Json(metadata).into_response()),
         None => metadata_cors(
             (
@@ -492,11 +574,11 @@ pub fn well_known_router(auth: Arc<McpAuth>) -> Router {
     Router::new()
         .route(
             PROTECTED_RESOURCE_PATH,
-            get(move || async move { protected_resource(&a, "") }).options(preflight),
+            get(move || async move { protected_resource(&a, "").await }).options(preflight),
         )
         .route(
             "/.well-known/oauth-protected-resource/mcp",
-            get(move || async move { protected_resource(&b, "/mcp") }).options(preflight),
+            get(move || async move { protected_resource(&b, "/mcp").await }).options(preflight),
         )
         .route(
             AUTHORIZATION_SERVER_PATH,
@@ -552,11 +634,17 @@ mod tests {
     #[test]
     fn protected_resource_names_the_oidc_provider_only() {
         let discovery = Discovery::oidc(Some("397"), "urn:zitadel:iam:org:project:397:roles");
+        let metadata = json!({
+            "issuer": "https://auth.example.eu",
+            "token_endpoint": "https://auth.example.eu/oauth/token",
+            "jwks_uri": "https://auth.example.eu/oauth/jwks",
+        });
         let document = protected_resource_document(
             "https://auth.example.eu",
             "https://app.example.eu/",
             "/mcp",
             &discovery,
+            Some(&metadata),
         );
         assert_eq!(
             document,
@@ -571,18 +659,126 @@ mod tests {
                 "bearer_methods_supported": ["header"],
             })
         );
+        // Clerk's document, before Clerk's metadata has been read: Clerk's paths.
         let clerk = protected_resource_document(
             "https://clerk.example.org",
             "https://mcp.example.org",
             "",
             &Discovery::Clerk,
+            None,
         );
         assert_eq!(clerk["resource"], "https://mcp.example.org");
         assert_eq!(
             clerk["jwks_uri"],
             "https://clerk.example.org/.well-known/jwks.json"
         );
+        assert_eq!(
+            clerk["token_introspection_endpoint"],
+            "https://clerk.example.org/oauth/token"
+        );
         assert_eq!(clerk["scopes_supported"], json!(CLERK_SCOPES));
+    }
+
+    #[test]
+    fn the_issuers_endpoints_come_from_its_metadata() {
+        let metadata = json!({
+            "issuer": "https://clerk.example.org",
+            "token_endpoint": "https://clerk.example.org/v2/oauth/token",
+            "jwks_uri": "https://keys.example.org/jwks.json",
+        });
+        let clerk = protected_resource_document(
+            "https://clerk.example.org",
+            "https://mcp.example.org",
+            "/mcp",
+            &Discovery::Clerk,
+            Some(&metadata),
+        );
+        assert_eq!(
+            clerk["token_introspection_endpoint"],
+            "https://clerk.example.org/v2/oauth/token"
+        );
+        assert_eq!(clerk["jwks_uri"], "https://keys.example.org/jwks.json");
+        // A field the metadata lacks keeps Clerk's path.
+        let partial = json!({ "issuer": "https://clerk.example.org", "jwks_uri": "" });
+        assert_eq!(
+            issuer_endpoint(
+                Some(&partial),
+                "jwks_uri",
+                "https://clerk.example.org/",
+                "/.well-known/jwks.json"
+            ),
+            "https://clerk.example.org/.well-known/jwks.json"
+        );
+    }
+
+    /// Counts its calls; answers the discovery document with `issuer`, or
+    /// fails while `down`.
+    struct Counting {
+        calls: std::sync::atomic::AtomicUsize,
+        down: std::sync::atomic::AtomicBool,
+    }
+
+    impl weldsuite_ports::DynOutboundHttp for Counting {
+        fn send(
+            &self,
+            request: HttpRequest,
+        ) -> weldsuite_ports::BoxFuture<
+            '_,
+            Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>,
+        > {
+            use std::sync::atomic::Ordering;
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let response = if self.down.load(Ordering::SeqCst) {
+                weldsuite_ports::HttpResponse::new(503, b"down".to_vec())
+            } else {
+                assert_eq!(
+                    request.url,
+                    "https://auth.example.eu/.well-known/openid-configuration"
+                );
+                weldsuite_ports::HttpResponse::new(
+                    200,
+                    br#"{"issuer":"https://auth.example.eu","token_endpoint":"https://auth.example.eu/oauth/token","jwks_uri":"https://auth.example.eu/oauth/jwks"}"#.to_vec(),
+                )
+            };
+            Box::pin(std::future::ready(Ok(response)))
+        }
+    }
+
+    #[tokio::test]
+    async fn the_issuers_metadata_is_fetched_once_and_a_failure_retried_later() {
+        use std::sync::atomic::Ordering;
+        let counting = Arc::new(Counting {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            down: std::sync::atomic::AtomicBool::new(true),
+        });
+        let auth = McpAuth {
+            verifier: Arc::new(
+                SessionVerifier::oidc(weldsuite_auth::OidcSettings::new(
+                    "https://auth.example.eu",
+                    vec!["weldsuite-api".to_owned()],
+                ))
+                .expect("verifier"),
+            ),
+            issuer: Some("https://auth.example.eu".to_owned()),
+            server_url: "https://app.example.eu".to_owned(),
+            outbound: Some(OutboundHttp(counting.clone())),
+            discovery: Discovery::oidc(Some("weldsuite-api"), ""),
+            metadata: IssuerMetadata::default(),
+        };
+        // Down: no document, and no new fetch until the retry is due.
+        assert_eq!(auth.issuer_metadata().await, None);
+        assert_eq!(auth.issuer_metadata().await, None);
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
+        // Once the retry is due, it is fetched and then reused.
+        counting.down.store(false, Ordering::SeqCst);
+        *auth.metadata.fetched.lock().expect("lock") = Some((
+            Instant::now().checked_sub(METADATA_RETRY).expect("past"),
+            Fetched::Failed,
+        ));
+        let metadata = auth.issuer_metadata().await.expect("metadata");
+        assert_eq!(metadata["jwks_uri"], "https://auth.example.eu/oauth/jwks");
+        auth.issuer_metadata().await.expect("cached");
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 2);
     }
 
     /// Answers `openid-configuration` only, as Zitadel does.

@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
     CnpgOptions, CnpgProvisioner, JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore,
-    SmtpMail, ValkeyCache, ValkeyRealtime, ZitadelIdentity, ZitadelOptions, connect_valkey,
-    entity_events_stream_config,
+    SmtpMail, ValkeyCache, ValkeyRealtime, WeldIdIdentity, WeldIdOptions, ZitadelIdentity,
+    ZitadelOptions, connect_valkey, entity_events_stream_config,
 };
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
@@ -24,7 +24,7 @@ use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
 };
 
-use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig};
+use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig, WeldIdConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -48,7 +48,7 @@ pub(crate) struct Infra {
     pub(crate) job_registry: JobRegistry,
     /// System mail (the workers' `SEND_EMAIL`), from `SYSTEM_EMAIL_FROM` when set.
     pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
-    /// The identity provider's management API (Zitadel), when configured.
+    /// The identity provider's management API (Zitadel, or WeldID), when configured.
     pub(crate) identity: Option<Arc<dyn Identity>>,
     /// Workspace databases on the CloudNativePG shards, when configured.
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
@@ -223,19 +223,37 @@ pub(crate) fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSyst
     )))
 }
 
-/// Zitadel's management API, when `ZITADEL_*` is set.
-fn identity(
+/// The identity provider's management API: WeldID's with
+/// `IDENTITY_PROVIDER=weldid` (memberships in the master database), else
+/// Zitadel's when `ZITADEL_*` is set.
+pub(crate) fn identity(
     config: &InfraConfig,
+    master: &PgPool,
     mail: Option<&Arc<dyn DynSystemMail>>,
 ) -> Result<Option<Arc<dyn Identity>>, Error> {
+    if let Some(settings) = &config.weldid {
+        let identity = WeldIdIdentity::new(weldid_options(settings), master.clone())?;
+        return Ok(Some(Arc::new(identity)));
+    }
     let Some(settings) = &config.identity else {
         tracing::warn!(
-            "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
+            "no identity provider (ZITADEL_API_URL, or IDENTITY_PROVIDER=weldid): onboarding and team changes fail"
         );
         return Ok(None);
     };
     let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
     Ok(Some(Arc::new(identity)))
+}
+
+/// How to reach WeldID's admin API.
+pub(crate) fn weldid_options(settings: &WeldIdConfig) -> WeldIdOptions {
+    WeldIdOptions {
+        issuer: settings.issuer.clone(),
+        admin_url: settings.admin_url.clone(),
+        client_id: settings.client_id.clone(),
+        client_key: settings.client_key.clone(),
+        token_endpoint: None,
+    }
 }
 
 /// How to reach Zitadel's management API. With system mail, invitations go
@@ -304,7 +322,7 @@ pub(crate) async fn connect(
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let identity = identity(config, mail.as_ref())?;
+    let identity = identity(config, master, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,

@@ -33,7 +33,8 @@ pub use middleware::clerk_auth;
 /// [`clerk_auth`] under the name that fits both providers.
 pub use middleware::clerk_auth as session_auth;
 pub use oidc::{
-    OIDC_CLOCK_SKEW_SECONDS, OidcSettings, ZITADEL_ORG_CLAIM, factor_verification_age, organization,
+    OIDC_CLOCK_SKEW_SECONDS, OidcSettings, WORKSPACE_HEADER, WorkspaceSource, ZITADEL_ORG_CLAIM,
+    factor_verification_age, organization,
 };
 pub use second_factor::{
     DEFAULT_SECOND_FACTOR_MAX_AGE_MINUTES, MFA_REQUIRED, REVERIFICATION_REQUIRED,

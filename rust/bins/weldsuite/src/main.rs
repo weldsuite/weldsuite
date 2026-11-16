@@ -40,6 +40,7 @@ mod infra;
 mod migrate;
 mod monitoring;
 mod mta;
+mod public_auth;
 mod reach;
 mod realtime;
 mod routes;
@@ -164,13 +165,24 @@ fn serve() -> ExitCode {
     reason = "the start-up sequence, one service after the other"
 )]
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let (verifier, public_auth) = session_verifier(&config.auth)?;
+    let (verifier, public_auth) = session_verifier(&config.auth, config.infra.weldid.is_some())?;
     tracing::info!(provider = verifier.provider(), "sign-in");
 
     // Lazy: the pod starts and reports not-ready until the database answers,
     // instead of crash-looping while it comes up.
     let master = master_pool(&config.master_database_url, config.master_max_connections)?;
-    let workspaces = Workspaces::new(master, config.keyring.clone(), config.workspaces.clone());
+    let workspaces = Arc::new(Workspaces::new(
+        master,
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    // Membership mode: the workspace a request names, checked against
+    // WeldSuite's own memberships.
+    let workspace_header = config.auth.workspace_from_header().then(|| {
+        weldsuite_db::WorkspaceSelector::new(
+            Arc::clone(&workspaces) as Arc<dyn weldsuite_db::MembershipLookup>
+        )
+    });
 
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
@@ -208,7 +220,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         service: "weldsuite",
         environment: config.environment.clone(),
         edition: Arc::new(config.edition.clone()),
-        workspaces: Arc::new(workspaces),
+        workspaces,
+        workspace_header,
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,
         draining: Arc::clone(&draining),
@@ -280,9 +293,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
 /// The session verifier for the configured provider, and what `/config.json`
 /// tells the frontends about sign-in (nothing for Clerk, whose frontends
-/// carry their own key).
+/// carry their own key). `weldid`: WeldID is the identity provider
+/// (`IDENTITY_PROVIDER=weldid`), whose account pages `/config.json` names.
 fn session_verifier(
     auth: &AuthConfig,
+    weldid: bool,
 ) -> Result<(SessionVerifier, Option<Arc<serde_json::Value>>), weldsuite_auth::KeyError> {
     match auth {
         AuthConfig::Clerk {
@@ -306,19 +321,13 @@ fn session_verifier(
             mobile_client_id,
             platform_sign_in,
         } => {
-            let mut public = serde_json::json!({
-                "provider": "oidc",
-                "issuer": settings.issuer,
-                "clientId": web_client_id,
-                // The mobile apps' native client (weldsuite-documentation/plans/mobile-server-choice.md).
-                "mobileClientId": mobile_client_id,
-                "audience": settings.audiences.first(),
-                "orgClaim": settings.org_claim,
+            let public = public_auth::oidc_public_auth(&public_auth::OidcClients {
+                settings,
+                web_client_id: web_client_id.as_deref(),
+                mobile_client_id: mobile_client_id.as_deref(),
+                platform_sign_in: *platform_sign_in,
+                weldid,
             });
-            if *platform_sign_in {
-                // The platform shows its own sign-in screens (ADR SEC-016).
-                public["signIn"] = serde_json::json!("platform");
-            }
             Ok((
                 SessionVerifier::oidc(settings.clone())?,
                 Some(Arc::new(public)),
