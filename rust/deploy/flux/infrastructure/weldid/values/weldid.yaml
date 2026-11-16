@@ -112,6 +112,22 @@ clients:
     audience: [weldsuite-api]
     firstParty: true
 
+  # The desktop app (apps/desktop): one public native client, PKCE, signing
+  # in through the system browser with a loopback redirect (RFC 8252). The
+  # app listens on 127.0.0.1 with a port the OS picks; WeldID matches a
+  # public client's loopback redirect on any port, everything else exactly
+  # (clients.rs, loopback_matches). No post-logout URI: signing out opens
+  # WeldID's sign-out in the browser, which then shows WeldID's own page.
+  - id: weldsuite-desktop
+    issuer: platform
+    kind: public
+    redirectUris:
+      - http://127.0.0.1/callback
+    grantTypes: [authorization_code, refresh_token]
+    scopes: [openid, profile, email, offline_access]
+    audience: [weldsuite-api]
+    firstParty: true
+
   # The weldsuite server: WeldID's admin API (users, sessions, the event feed
   # the identity sync reads), client_credentials with private_key_jwt. Its
   # private key is WELDID_CLIENT_KEY in weldsuite/weldid-client; the public

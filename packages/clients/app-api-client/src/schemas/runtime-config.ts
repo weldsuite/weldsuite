@@ -30,6 +30,14 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
      * or absent: the mobile apps can't sign in to this server.
      */
     mobileClientId: z.string().min(1).nullish(),
+    /**
+     * The desktop app's public native client (`OIDC_DESKTOP_CLIENT_ID`):
+     * PKCE with a loopback redirect, `http://127.0.0.1/callback` on any port
+     * (RFC 8252). The platform uses it inside the desktop shell, which signs
+     * in through the system browser. Null or absent: the shell signs in with
+     * `clientId` inside its own window, as before.
+     */
+    desktopClientId: z.string().min(1).nullish(),
     audience: z.string().min(1).nullish(),
     orgClaim: z.string().min(1).nullish(),
     scopes: z.array(z.string().min(1)).optional(),

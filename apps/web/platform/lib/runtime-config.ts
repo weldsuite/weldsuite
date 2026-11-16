@@ -67,6 +67,9 @@
  *     "issuer": "https://id.example.eu",        // OIDC_ISSUER (discovery base)
  *     "clientId": "300000000000000300",         // OIDC_WEB_CLIENT_ID: public client, PKCE
  *     "mobileClientId": "300000000000000400",   // OIDC_MOBILE_CLIENT_ID: the mobile apps' native client
+ *     // OIDC_DESKTOP_CLIENT_ID: the desktop app's native client (system
+ *     // browser, loopback redirect; apps/desktop/docs/auth-handoff.md)
+ *     "desktopClientId": "300000000000000500",
  *     "audience": "300000000000000100",         // first OIDC_AUDIENCE (Zitadel: the project id)
  *     "orgClaim": "urn:zitadel:iam:org:project:300000000000000100:roles", // OIDC_ORG_CLAIM
  *     // Optional, frontend only (defaults suit Zitadel):

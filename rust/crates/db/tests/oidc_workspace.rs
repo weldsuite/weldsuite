@@ -176,6 +176,9 @@ async fn a_zitadel_session_reaches_its_workspace() {
     .execute(&master)
     .await
     .expect("membership");
+    // What a client naming no workspace (MCP) falls back to: the only one.
+    let only = workspaces.member_workspaces(user, 2).await.expect("list");
+    assert_eq!(only, [org.to_owned()]);
     for reference in ["ws_eu", "eu", org] {
         let (status, body) = call(&header_mode, token, Some(reference)).await;
         assert_eq!(status, 200, "{reference}: {body}");

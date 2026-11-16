@@ -100,6 +100,12 @@ config:
       # <app scheme>://sso-callback), told to the apps by /config.json.
       # Without it the mobile apps can't sign in to this server (optional).
       mobileClientId: ""
+      # The desktop app's public native client (PKCE, the loopback redirect
+      # http://127.0.0.1/callback on any port, RFC 8252), told to the
+      # platform by /config.json. Without it the desktop app signs in inside
+      # its window with webClientId, where Google and Microsoft sign-in is
+      # refused (optional).
+      desktopClientId: ""
       # Who shows the sign-in screens (ADR SEC-016). Empty or provider: the
       # provider's own pages. platform: WeldSuite's, the ones Global shows,
       # with the server as Zitadel's login client behind them (/api/sign-in).

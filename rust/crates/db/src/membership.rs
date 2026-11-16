@@ -51,6 +51,10 @@ const MAX_REFERENCE: usize = 255;
 pub type MembershipFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Option<String>, WorkspaceError>> + Send + 'a>>;
 
+/// What [`MembershipLookup::member_workspaces`] answers.
+pub type MembershipsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<String>, WorkspaceError>> + Send + 'a>>;
+
 /// Whether a user may use a workspace.
 pub trait MembershipLookup: Send + Sync {
     /// The organization reference (`clerk_org_id`, else `id`) of the live
@@ -58,6 +62,21 @@ pub trait MembershipLookup: Send + Sync {
     /// `user_id` is an active member of it; `None` otherwise.
     fn member_workspace<'a>(&'a self, user_id: &'a str, reference: &'a str)
     -> MembershipFuture<'a>;
+
+    /// The organization references of the live workspaces `user_id` is an
+    /// active member of, at most `limit` of them.
+    fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a>;
+}
+
+/// What [`WorkspaceSelector::sole_workspace`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoleWorkspace {
+    /// The user is an active member of no workspace.
+    None,
+    /// Of exactly one: its organization reference.
+    One(String),
+    /// Of several: the request has to name one.
+    Several,
 }
 
 /// One master query: the workspace by id, organization id or slug (in that
@@ -73,7 +92,29 @@ const SELECT_MEMBER_WORKSPACE: &str = "
     order by case when w.id = $1 then 0 when w.clerk_org_id = $1 then 1 else 2 end
     limit 1";
 
+/// The live workspaces the user is an active member of.
+const SELECT_MEMBER_WORKSPACES: &str = "
+    select coalesce(w.clerk_org_id, w.id)
+    from workspaces w
+    join user_workspaces uw on uw.workspace_id = w.id
+    where uw.user_id = $1
+      and uw.status = 'ACTIVE'
+      and w.deleted_at is null
+    order by w.id
+    limit $2";
+
 impl MembershipLookup for Workspaces {
+    fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a> {
+        Box::pin(async move {
+            sqlx::query_scalar(SELECT_MEMBER_WORKSPACES)
+                .bind(user_id)
+                .bind(i64::from(limit))
+                .fetch_all(self.master())
+                .await
+                .map_err(WorkspaceError::from)
+        })
+    }
+
     fn member_workspace<'a>(
         &'a self,
         user_id: &'a str,
@@ -181,9 +222,28 @@ impl WorkspaceSelector {
             .member_workspace(user_id, reference)
             .await?
             .filter(|org| !org.is_empty());
-        if let Some(org) = &found
-            && !self.inner.ttl.is_zero()
-        {
+        if let Some(org) = &found {
+            self.remember(key, org);
+        }
+        Ok(found)
+    }
+
+    /// The workspace for a request that names none (an MCP client, which
+    /// can't send `X-Weld-Workspace`): the user's one workspace, when they
+    /// have exactly one. Never cached: joining a second workspace must make
+    /// the choice explicit at once.
+    pub async fn sole_workspace(&self, user_id: &str) -> Result<SoleWorkspace, WorkspaceError> {
+        let mut found = self.inner.lookup.member_workspaces(user_id, 2).await?;
+        found.retain(|org| !org.is_empty());
+        Ok(match found.len() {
+            0 => SoleWorkspace::None,
+            1 => SoleWorkspace::One(found.remove(0)),
+            _ => SoleWorkspace::Several,
+        })
+    }
+
+    fn remember(&self, key: (String, String), org: &str) {
+        if !self.inner.ttl.is_zero() {
             let mut granted = self
                 .inner
                 .granted
@@ -192,19 +252,16 @@ impl WorkspaceSelector {
             if granted.len() >= MAX_CACHED {
                 granted.clear();
             }
-            granted.insert(key, (Instant::now(), org.clone()));
+            granted.insert(key, (Instant::now(), org.to_owned()));
         }
-        Ok(found)
     }
 }
 
-/// The header's reference: trimmed, non-empty, at most 255 bytes of
-/// visible ASCII. `Err(())` for a header that is there but unusable.
-fn header_reference(request: &Request) -> Result<Option<String>, ()> {
-    let Some(value) = request.headers().get(WORKSPACE_HEADER) else {
-        return Ok(None);
-    };
-    let text = value.to_str().map_err(|_| ())?.trim();
+/// A workspace reference as a request may carry one: trimmed, non-empty,
+/// at most 255 bytes of visible ASCII. `Err(())` for one that is there but
+/// unusable; `Ok(None)` for an empty one.
+fn workspace_reference(text: &str) -> Result<Option<String>, ()> {
+    let text = text.trim();
     if text.is_empty() {
         return Ok(None);
     }
@@ -212,6 +269,14 @@ fn header_reference(request: &Request) -> Result<Option<String>, ()> {
         return Err(());
     }
     Ok(Some(text.to_owned()))
+}
+
+/// The header's reference ([`workspace_reference`]).
+fn header_reference(request: &Request) -> Result<Option<String>, ()> {
+    let Some(value) = request.headers().get(WORKSPACE_HEADER) else {
+        return Ok(None);
+    };
+    workspace_reference(value.to_str().map_err(|_| ())?)
 }
 
 fn not_a_member() -> Response {
@@ -301,6 +366,23 @@ mod tests {
                     .iter()
                     .find(|(user, r, _)| *user == user_id && *r == reference)
                     .map(|(_, _, org)| (*org).to_owned()))
+            };
+            Box::pin(std::future::ready(result))
+        }
+
+        fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let result = if self.fail {
+                Err(WorkspaceError::NoDatabase)
+            } else {
+                let mut orgs: Vec<String> = Vec::new();
+                for (user, _, org) in &self.granted {
+                    if *user == user_id && !orgs.iter().any(|known| known == org) {
+                        orgs.push((*org).to_owned());
+                    }
+                }
+                orgs.truncate(usize::from(limit));
+                Ok(orgs)
             };
             Box::pin(std::future::ready(result))
         }
@@ -447,5 +529,43 @@ mod tests {
         call(&app, Some("ws_1")).await;
         call(&app, Some("ws_1")).await;
         assert_eq!(lookup.calls.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn a_request_naming_no_workspace_gets_the_users_only_one() {
+        let selector = WorkspaceSelector::new(Arc::new(Grants {
+            granted: vec![
+                ("solo", "ws_1", "org_1"),
+                ("solo", "acme", "org_1"),
+                ("busy", "ws_1", "org_1"),
+                ("busy", "ws_2", "ws_2"),
+            ],
+            ..Grants::default()
+        }));
+        assert_eq!(
+            selector.sole_workspace("solo").await.expect("lookup"),
+            SoleWorkspace::One("org_1".to_owned())
+        );
+        assert_eq!(
+            selector.sole_workspace("busy").await.expect("lookup"),
+            SoleWorkspace::Several
+        );
+        assert_eq!(
+            selector.sole_workspace("nobody").await.expect("lookup"),
+            SoleWorkspace::None
+        );
+        let failing = WorkspaceSelector::new(Arc::new(Grants {
+            fail: true,
+            ..Grants::default()
+        }));
+        assert!(failing.sole_workspace("solo").await.is_err());
+    }
+
+    #[test]
+    fn workspace_references_are_short_visible_ascii() {
+        assert_eq!(workspace_reference(" ws_1 "), Ok(Some("ws_1".to_owned())));
+        assert_eq!(workspace_reference("  "), Ok(None));
+        assert_eq!(workspace_reference("bad value"), Err(()));
+        assert_eq!(workspace_reference(&"x".repeat(256)), Err(()));
     }
 }

@@ -9,6 +9,7 @@ import { en } from '@weldsuite/i18n/locales/en';
 
 const auth = vi.hoisted(() => ({ platform: true, redirectToSignIn: vi.fn() }));
 vi.mock('@/lib/auth', () => ({
+  usesBrowserSignIn: () => false,
   usesPlatformSignIn: () => auth.platform,
   redirectToSignIn: auth.redirectToSignIn,
   completeSignIn: vi.fn(),

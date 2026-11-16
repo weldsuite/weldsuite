@@ -63,8 +63,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "sso-connections",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
-    // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
-    // needs an identity provider that mints one.
+    // The desktop app's Clerk sign-in ticket (`POST /api/auth-desktop/ticket`,
+    // Global's desktop sign-in) needs an identity provider that mints one.
+    // It hides only that handoff page: with OIDC the desktop app signs in
+    // through the system browser and a loopback redirect, with its own client
+    // (`OIDC_DESKTOP_CLIENT_ID`, apps/desktop/docs/auth-handoff.md).
     "desktop-sign-in",
     // Analytics pages read Cloudflare's analytics store.
     "analytics",

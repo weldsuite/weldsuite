@@ -37,14 +37,24 @@
  * request to WeldSuite's own API origins is tagged `X-Weld-Workspace`
  * (`workspaces.id`) by `lib/api/workspace-header.ts`, installed only in this
  * mode.
+ *
+ * **Inside the desktop shell** (`options.browserSignIn`, either mode): the
+ * session belongs to the desktop app's own native client (`desktopClientId`)
+ * and this page never navigates to the provider. A sign-in opens the provider
+ * in the system browser, which comes back to a loopback listener of the
+ * shell (RFC 8252); this page then redeems the code itself
+ * (`./browser-sign-in.ts`). Refresh is the usual refresh-token grant. Signing
+ * out revokes the refresh token, forgets the session and opens the
+ * provider's sign-out in the browser, where its session cookie lives.
  */
 
-import { User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
+import { OidcClient, User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 import { getLocale } from '@weldsuite/i18n';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
 import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
 import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
 import { endProviderSession } from './sign-in-api';
+import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   activeOrganizationId,
   DEFAULT_OIDC_SCOPES as SHARED_DEFAULT_OIDC_SCOPES,
@@ -108,6 +118,27 @@ export interface OidcSessionOptions {
   settings?: Partial<UserManagerSettings>;
   /** Reads WeldSuite's workspace list; defaults to `GET /api/workspaces`. */
   loadWorkspaces?: LoadWorkspaces;
+  /**
+   * The desktop shell's sign-in through the system browser
+   * (`desktopBrowserSignIn()`, `lib/desktop-auth.ts`); the config's
+   * `clientId` is then the desktop app's client. See the file comment.
+   */
+  browserSignIn?: BrowserSignIn;
+}
+
+/** What one authorization request asks for, whichever way it travels. */
+interface AuthorizationRequest {
+  state: SignInState;
+  scope: string | undefined;
+  prompt: string | undefined;
+  ui_locales: string;
+}
+
+/** 128 random bits, hex: the desktop sign-in's `nonce`. */
+function randomNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function safeStorage(storage: Storage | undefined): Storage | undefined {
@@ -140,6 +171,11 @@ export class OidcSession {
   private readonly loadWorkspaces: LoadWorkspaces;
   /** WeldSuite's own sign-in screens: the backend holds the provider session in a cookie. */
   private readonly platformSignIn: boolean;
+  /** The desktop shell's system browser and loopback listener, when this page runs in it. */
+  private readonly browserSignIn: BrowserSignIn | null;
+  /** The browser sign-in under way, by the shell's id. */
+  private browserFlow: string | null = null;
+  private client: OidcClient | null = null;
   private user: User | null = null;
   private snapshot: OidcSnapshot = {
     isLoaded: false,
@@ -170,11 +206,14 @@ export class OidcSession {
     this.baseScope = scopes.join(' ');
     this.accountUrl = config.accountUrl ?? undefined;
     this.platformSignIn = config.signIn === 'platform';
+    this.browserSignIn = options.browserSignIn ?? null;
     this.manager = new UserManager({
       authority: config.issuer,
       client_id: config.clientId,
       redirect_uri: `${this.origin}${OIDC_CALLBACK_PATH}`,
-      post_logout_redirect_uri: `${this.origin}/`,
+      // The desktop app signs out in the system browser, which then shows the
+      // provider's own page: its client registers no post-logout URI.
+      post_logout_redirect_uri: this.browserSignIn ? undefined : `${this.origin}/`,
       response_type: 'code',
       scope: this.baseScope,
       // Shared by every tab, like Clerk's session.
@@ -219,14 +258,69 @@ export class OidcSession {
   async signIn(options: { intent?: 'sign-in' | 'sign-up'; returnTo?: string; orgId?: string } = {}): Promise<void> {
     const state: SignInState = { returnTo: sameOriginPath(options.returnTo), orgId: options.orgId };
     const orgScope = options.orgId && this.organizationScope ? scopeFor(this.organizationScope, { orgId: options.orgId }) : '';
-    await this.manager.signinRedirect({
+    const request: AuthorizationRequest = {
       state,
       scope: orgScope ? `${this.baseScope} ${orgScope}` : undefined,
       // OIDC "Initiating User Registration": Zitadel and Keycloak open their sign-up form.
       prompt: options.intent === 'sign-up' ? 'create' : undefined,
       // So WeldID's own sign-in pages render in the platform's current language.
       ui_locales: getLocale(),
+    };
+    if (this.browserSignIn) {
+      await this.signInThroughBrowser(this.browserSignIn, request);
+      return;
+    }
+    await this.manager.signinRedirect(request);
+  }
+
+  /** Whether sign-in happens in the system browser (the desktop shell). */
+  get signsInThroughBrowser(): boolean {
+    return this.browserSignIn !== null;
+  }
+
+  /** Stop waiting for the browser; the sign-in then rejects as cancelled. */
+  cancelSignIn(): void {
+    const id = this.browserFlow;
+    if (id) void this.browserSignIn?.cancel(id).catch(() => undefined);
+  }
+
+  /**
+   * The desktop shell: the authorization request (state, nonce, PKCE S256,
+   * kept in oidc-client-ts's state store) opens in the system browser, which
+   * comes back to the shell's loopback listener; this page then redeems the
+   * code itself, so the verifier and the tokens never leave it. Resolves
+   * once the session is stored and the page is on its way to `returnTo`;
+   * rejects with `BrowserSignInError`.
+   */
+  private async signInThroughBrowser(browser: BrowserSignIn, request: AuthorizationRequest): Promise<void> {
+    const flow = await browser.start().catch(() => {
+      throw new BrowserSignInError('failed');
     });
+    this.browserFlow = flow.id;
+    try {
+      const signinRequest = await this.oidcClient().createSigninRequest({
+        ...request,
+        request_type: 'si:r',
+        redirect_uri: flow.redirectUri,
+        nonce: randomNonce(),
+      });
+      const callbackUrl = await browser.authorize(flow.id, signinRequest.url);
+      // Checks the state against the store, the nonce, and redeems the code
+      // with the verifier at the loopback redirect URI.
+      const returnTo = await this.completeSignIn(callbackUrl);
+      if (typeof window !== 'undefined') window.location.assign(returnTo);
+    } catch (err) {
+      await browser.cancel(flow.id).catch(() => undefined);
+      throw err instanceof BrowserSignInError ? err : new BrowserSignInError('failed');
+    } finally {
+      if (this.browserFlow === flow.id) this.browserFlow = null;
+    }
+  }
+
+  /** The UserManager's settings and metadata, for requests it has no method for. */
+  private oidcClient(): OidcClient {
+    this.client ??= new OidcClient(this.manager.settings, this.manager.metadataService);
+    return this.client;
   }
 
   /** Finish the redirect on the callback route; resolves to the path to continue on. */
@@ -244,6 +338,10 @@ export class OidcSession {
     // `/auth/login` would sign the same person straight back in.
     if (this.platformSignIn) await endProviderSession();
     const post = redirectUrl ? `${this.origin}${sameOriginPath(redirectUrl)}` : undefined;
+    if (this.browserSignIn) {
+      await this.signOutThroughBrowser(this.browserSignIn, post);
+      return;
+    }
     try {
       await this.manager.signoutRedirect(post ? { post_logout_redirect_uri: post } : undefined);
     } catch {
@@ -251,6 +349,26 @@ export class OidcSession {
       await this.manager.removeUser();
       if (typeof window !== 'undefined') window.location.assign(post ?? `${this.origin}/`);
     }
+  }
+
+  /**
+   * The desktop shell: the app's own grant ends here (its refresh token
+   * revoked, the session forgotten), and the provider's sign-out opens in the
+   * system browser, where its session cookie lives. That request names the
+   * client only, never an `id_token_hint`: no token in a URL the browser keeps
+   * in its history. The provider then asks before ending the browser's
+   * session (WeldID's confirmation page); the app is signed out either way.
+   */
+  private async signOutThroughBrowser(browser: BrowserSignIn, post: string | undefined): Promise<void> {
+    await this.manager.revokeTokens(['refresh_token']).catch(() => undefined);
+    await this.manager.removeUser().catch(() => undefined);
+    try {
+      const request = await this.oidcClient().createSignoutRequest({ client_id: this.manager.settings.client_id });
+      await browser.openExternal(request.url);
+    } catch {
+      // No end-session endpoint, or no browser: the session is forgotten here.
+    }
+    if (typeof window !== 'undefined') window.location.assign(post ?? `${this.origin}/`);
   }
 
   /**
@@ -269,7 +387,11 @@ export class OidcSession {
       return;
     }
     if (!this.organizationScope) return;
-    await this.signIn({ returnTo: returnTo ?? this.returnPathFor(orgId), orgId });
+    // In the desktop shell this is a trip through the system browser, which
+    // the person may cancel: they then stay on the workspace they had.
+    await this.signIn({ returnTo: returnTo ?? this.returnPathFor(orgId), orgId }).catch((err: unknown) => {
+      if (!(err instanceof BrowserSignInError)) throw err;
+    });
   }
 
   /** Re-read the profile (refresh with the refresh token). */

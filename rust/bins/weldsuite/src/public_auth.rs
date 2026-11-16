@@ -11,6 +11,10 @@
 //! | `workspaceSource` | `claim` | `header`: every request names its workspace in `X-Weld-Workspace` |
 //! | `orgClaim` | `OIDC_ORG_CLAIM` | `null`: no claim names the workspace |
 //!
+//! Either mode: `clientId`, `mobileClientId` and `desktopClientId` are the
+//! platform's, the mobile apps' and the desktop app's clients
+//! (`OIDC_WEB_CLIENT_ID`, `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID`).
+//!
 //! The claim mode values are the ones the clients used before the server
 //! sent any (`DEFAULT_OIDC_SCOPES`, `ZITADEL_AUDIENCE_SCOPE` and
 //! `ZITADEL_ORG_ROLES_SCOPE` in `oidc-claims.ts`), so a Zitadel install signs
@@ -36,6 +40,9 @@ pub(crate) struct OidcClients<'a> {
     pub(crate) web_client_id: Option<&'a str>,
     /// `OIDC_MOBILE_CLIENT_ID`.
     pub(crate) mobile_client_id: Option<&'a str>,
+    /// `OIDC_DESKTOP_CLIENT_ID`: the desktop app, which signs in through the
+    /// system browser with a loopback redirect (RFC 8252).
+    pub(crate) desktop_client_id: Option<&'a str>,
     /// `OIDC_SIGN_IN=platform`.
     pub(crate) platform_sign_in: bool,
     /// `IDENTITY_PROVIDER=weldid`: WeldID's account pages exist.
@@ -67,6 +74,8 @@ pub(crate) fn oidc_public_auth(clients: &OidcClients<'_>) -> Value {
         "clientId": clients.web_client_id,
         // The mobile apps' native client (weldsuite-documentation/plans/mobile-server-choice.md).
         "mobileClientId": clients.mobile_client_id,
+        // The desktop app's native client (apps/desktop/docs/auth-handoff.md).
+        "desktopClientId": clients.desktop_client_id,
         "audience": settings.audiences.first(),
         // Header mode reads no organization claim.
         "orgClaim": (!header).then_some(settings.org_claim.as_str()),
@@ -101,6 +110,7 @@ mod tests {
             settings: &settings,
             web_client_id: Some("300300"),
             mobile_client_id: None,
+            desktop_client_id: None,
             platform_sign_in: true,
             weldid: false,
         });
@@ -111,6 +121,7 @@ mod tests {
                 "issuer": "https://auth.eu.example/",
                 "clientId": "300300",
                 "mobileClientId": null,
+                "desktopClientId": null,
                 "audience": "300100",
                 "orgClaim": "urn:zitadel:iam:org:id",
                 "scopes": ["openid", "profile", "email", "offline_access", "urn:zitadel:iam:org:projects:roles"],
@@ -130,6 +141,7 @@ mod tests {
             settings: &settings,
             web_client_id: Some("weldsuite-web"),
             mobile_client_id: Some("weldsuite-mobile"),
+            desktop_client_id: Some("weldsuite-desktop"),
             platform_sign_in: false,
             weldid: true,
         });
@@ -142,6 +154,7 @@ mod tests {
         assert_eq!(public["orgClaim"], Value::Null);
         assert_eq!(public["accountUrl"], "https://auth.eu.example/account");
         assert_eq!(public["workspaceSource"], "header");
+        assert_eq!(public["desktopClientId"], "weldsuite-desktop");
         assert!(public.get("signIn").is_none());
 
         // A customer's own provider in membership mode: no account pages.
@@ -149,6 +162,7 @@ mod tests {
             settings: &settings,
             web_client_id: None,
             mobile_client_id: None,
+            desktop_client_id: None,
             platform_sign_in: false,
             weldid: false,
         });

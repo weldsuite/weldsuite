@@ -6,6 +6,7 @@ const OIDC = {
   issuer: 'https://auth.example.eu',
   clientId: 'web',
   mobileClientId: 'mobile',
+  desktopClientId: 'desktop',
   audience: 'project',
   orgClaim: 'urn:zitadel:iam:org:project:project:roles',
 };
@@ -15,7 +16,7 @@ describe('runtime config (/config.json)', () => {
     expect(RUNTIME_CONFIG_PATH).toBe('/config.json');
   });
 
-  it('reads a Kubernetes document with the web and mobile OIDC clients', () => {
+  it('reads a Kubernetes document with the web, mobile and desktop OIDC clients', () => {
     const config = parseRuntimeConfig({
       backend: 'rust',
       version: '0.3.0',
@@ -28,7 +29,13 @@ describe('runtime config (/config.json)', () => {
       auth: { ...OIDC, signIn: 'platform' },
       env: { VITE_MAPBOX_ACCESS_TOKEN: 'pk.x' },
     });
-    expect(config?.auth).toMatchObject({ provider: 'oidc', clientId: 'web', mobileClientId: 'mobile', signIn: 'platform' });
+    expect(config?.auth).toMatchObject({
+      provider: 'oidc',
+      clientId: 'web',
+      mobileClientId: 'mobile',
+      desktopClientId: 'desktop',
+      signIn: 'platform',
+    });
     expect(config?.modules).toEqual(['core', 'mail']);
   });
 

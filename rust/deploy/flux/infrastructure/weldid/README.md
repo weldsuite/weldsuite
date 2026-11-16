@@ -101,7 +101,8 @@ All at once and reversibly, once WeldID is ready:
    already has), Zitadel's two Ingresses off, the weldsuite release on
    WeldID (issuer `https://auth.<domain>`, audience `weldsuite-api`,
    workspace from the `X-Weld-Workspace` header, WeldID's own sign-in
-   screens, clients `weldsuite-web` and `weldsuite-mobile`, the admin API
+   screens, clients `weldsuite-web`, `weldsuite-mobile` and
+   `weldsuite-desktop`, the admin API
    at `http://weldid.weldid.svc:8080` as `weldsuite-backend` with
    `WELDID_CLIENT_KEY` from `weldsuite/weldid-client`, the admin console on
    `https://auth.<domain>/staff` without `ADMIN_OIDC_ORG_ID`), and Grafana

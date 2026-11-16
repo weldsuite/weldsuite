@@ -2949,6 +2949,9 @@ pub(crate) fn mcp(state: &AppState) -> Router {
             outbound: shared_outbound(),
             discovery,
             metadata: weldsuite_mcp::auth::IssuerMetadata::default(),
+            // Membership mode: the URL names the workspace, checked as the
+            // platform's `X-Weld-Workspace` is.
+            membership: state.workspace_header.clone(),
         })
     });
     let mcp_state = weldsuite_mcp::McpState::new(

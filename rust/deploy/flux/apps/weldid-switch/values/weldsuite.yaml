@@ -19,6 +19,7 @@ config:
       signIn: provider
       webClientId: weldsuite-web
       mobileClientId: weldsuite-mobile
+      desktopClientId: weldsuite-desktop
   identity:
     provider: weldid
     weldid:

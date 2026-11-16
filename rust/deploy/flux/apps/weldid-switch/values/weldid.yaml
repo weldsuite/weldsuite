@@ -2,3 +2,16 @@
 # meanwhile (infrastructure/weldid/certificate.yaml).
 ingress:
   enabled: true
+
+# MCP clients (Claude, Cursor, …) register themselves on the platform issuer
+# once the app's MCP server (https://app.${DOMAIN}/mcp, and /mcp/w/<workspace>
+# for one workspace) names WeldID, which is from this switch on. Metadata
+# documents are the MCP spec's preferred way, dynamic registration its
+# fallback; both get consent and tokens for weldsuite-api only. Without the
+# resources below, every MCP client's `resource` is refused (invalid_target).
+registration:
+  dynamic: true
+  metadataDocuments: true
+  resources:
+    - https://app.${DOMAIN}/mcp
+    - https://app.${DOMAIN}/mcp/

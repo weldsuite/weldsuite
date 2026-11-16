@@ -907,6 +907,19 @@ mod tests {
                 (user_id == self.0 && reference == "ws_member").then(|| "org_member".to_owned());
             Box::pin(std::future::ready(Ok(found)))
         }
+
+        fn member_workspaces<'a>(
+            &'a self,
+            user_id: &'a str,
+            _limit: u8,
+        ) -> weldsuite_db::MembershipsFuture<'a> {
+            let found = if user_id == self.0 {
+                vec!["org_member".to_owned()]
+            } else {
+                Vec::new()
+            };
+            Box::pin(std::future::ready(Ok(found)))
+        }
     }
 
     /// [`oidc_state`] in membership mode: the header picks the workspace,

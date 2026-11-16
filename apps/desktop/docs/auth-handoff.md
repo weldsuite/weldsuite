@@ -2,10 +2,18 @@
 
 Google and Microsoft actively block OAuth inside embedded webviews ("this
 browser or app may not be secure"). The WeldSuite desktop shell drives the
-entire sign-in flow through the user's system browser and hands the Clerk
-session back via a custom-protocol deep link.
+entire sign-in flow through the user's system browser. How the session gets
+back to the app depends on the edition, which the platform reads from
+`/config.json` (`auth.provider`):
 
-## Flow overview
+- **Global (Clerk)**: a single-use Clerk sign-in ticket, handed back by a
+  `weldsuite://auth` deep link (below, from "Flow overview").
+- **EU and self-hosted (OIDC: WeldID, or Zitadel)**: plain OIDC with PKCE and
+  a loopback redirect, as RFC 8252 asks of native apps ("OIDC editions", at
+  the end). No ticket and no deep link: `desktop-sign-in` (the Clerk ticket
+  endpoint) stays unavailable there and hides nothing else.
+
+## Flow overview (Global, Clerk)
 
 ```
 ┌──────────────┐    1. click Sign in     ┌──────────────────────┐
@@ -169,3 +177,94 @@ function DesktopAuthBridge() {
 
 To test without the backend ticket endpoint ready yet, hard-code a stub that
 returns a known test token.
+
+## OIDC editions (EU and self-hosted)
+
+The Kubernetes editions sign in with an OIDC provider: WeldID (header mode,
+the workspace in `X-Weld-Workspace`) or Zitadel (claim mode). The desktop app
+is a **public native client** of its own, `desktopClientId` in
+`/config.json` (`OIDC_DESKTOP_CLIENT_ID`; `weldsuite-desktop` on WeldID), with
+the one redirect URI `http://127.0.0.1/callback`. Both providers match a
+native client's loopback redirect on any port (RFC 8252 section 7.3).
+
+```
+┌──────────────────────┐ 1. "Continue in your browser"   ┌──────────────────┐
+│ platform (app view)  │ ─ oidcSignIn.start() ─────────▶ │ Electron main    │
+│ oidc-client-ts:      │ ◀─ { id, redirectUri } ──────── │ listens on       │
+│ state, nonce, PKCE   │                                 │ 127.0.0.1:<port> │
+│ (its state store)    │ 2. oidcSignIn.authorize(url) ─▶ │ checks the URL,  │
+└──────────────────────┘                                 │ opens the browser│
+          ▲                                              └────────┬─────────┘
+          │                                   3. sign-in at the   │
+          │                                      provider         ▼
+          │                                              ┌──────────────────┐
+          │ 5. { status: 'callback', callbackUrl }       │ system browser   │
+          │    (main closes the listener, focuses        │ → 127.0.0.1:<port>│
+          │    the window)                               │   /callback?code │
+          │                                              │   &state         │
+          │                                              └────────┬─────────┘
+          │ 6. code + verifier → token endpoint                   │ 4. "You're signed
+          │    (this page, CORS); session stored where            │    in" page
+          │    a browser sign-in stores it                        ▼
+```
+
+- **The page does the OIDC part, the shell only listens.** The platform
+  builds the authorization request with oidc-client-ts (state, nonce, PKCE
+  S256, scopes `openid profile email offline_access` plus the edition's
+  audience/organization scopes) and redeems the code at the token endpoint
+  itself. The PKCE verifier and the tokens never cross IPC, never touch the
+  main process, and land in the same place as a browser sign-in's
+  (oidc-client-ts's user store), under the desktop client. Refresh is the
+  usual refresh-token grant (`offline_access`).
+- **The shell** (`src/main/loopback-sign-in.ts`) opens a one-shot HTTP
+  listener on `127.0.0.1` (never `localhost` or `0.0.0.0`) with a port the OS
+  picks, checks the authorization request before opening it (https, or http
+  to a loopback provider in development; `response_type=code`,
+  `code_challenge_method=S256`, a `state`, and its own redirect URI), and
+  answers only `GET /callback` with that `state` and its own `Host`.
+  Anything else is refused and the listener keeps waiting, so a stray
+  request can't end a real sign-in. The browser gets a small page in the
+  app's language that loads nothing (`default-src 'none'`). The sign-in ends
+  after 10 minutes, on cancel, when the app view navigates, or when the
+  window closes. Nothing logs a URL: the callback carries the code.
+- **IPC** (`window.weldsuiteDesktop.oidcSignIn`, shells 0.3.0 and later):
+  `start()`, `authorize({ id, url, page })` and `cancel(id)`. Main answers
+  only the app view's main frame on `APP_URL`'s origin: a link that takes
+  the view elsewhere keeps the preload, so the bridge alone proves nothing.
+- **The platform** (`apps/web/platform`): `src/boot/runtime.tsx` picks the
+  desktop client and the shell's sign-in (`desktopBrowserSignIn()`,
+  `lib/desktop-auth.ts`) when the shell has `oidcSignIn` and `/config.json`
+  names `desktopClientId`; `lib/auth/oidc/session.ts` runs the flow. In the
+  shell, `/auth/login` (and the other provider entry points) show a
+  "Continue in your browser" button (`components/auth/browser-sign-in-screen.tsx`)
+  and never open the browser on their own: the app also starts at login,
+  minimised. A Zitadel workspace switch (claim mode) takes the same route.
+- **Sign-out** revokes the refresh token at the provider, forgets the
+  session, and opens the provider's end-session endpoint in the system
+  browser, where the provider's session cookie lives. It names the client
+  only, never an `id_token_hint`, so no token goes into the browser's
+  history; WeldID then asks before ending the browser's session.
+- **Older shells, or no `desktopClientId`**: the platform signs in inside the
+  window with the web client, as before (Google and Microsoft sign-in is
+  refused there).
+
+### Registering the client
+
+- WeldID: the `weldsuite-desktop` client in
+  `rust/deploy/flux/infrastructure/weldid/values/weldid.yaml` (public,
+  `redirectUris: [http://127.0.0.1/callback]`, `firstParty`, audience
+  `weldsuite-api`), named by the weldid-switch layer's `desktopClientId`.
+- Zitadel: a Native application with PKCE and refresh tokens and the same
+  redirect URI (`rust/deploy/hetzner/README.md`, step 7, item 2c); its id is
+  `ZITADEL_DESKTOP_CLIENT_ID`.
+
+### Testing locally
+
+1. Run the Rust backend with `AUTH_PROVIDER=oidc` and
+   `OIDC_DESKTOP_CLIENT_ID` (or put `desktopClientId` in the platform's
+   `public/config.json`), and the platform with `VITE_RUNTIME_CONFIG=on`.
+2. `DESKTOP_APP_URL=http://localhost:3000 pnpm --filter desktop dev`.
+3. Sign in: the browser opens the provider, then shows "You're signed in";
+   the window comes to the front, signed in.
+4. `pnpm --filter desktop test` covers the listener (state, timeout, cancel,
+   127.0.0.1 only, the page's lack of external resources).

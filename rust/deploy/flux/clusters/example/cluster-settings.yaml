@@ -30,6 +30,11 @@ data:
   # redirects; runbook step 7, item 2b). Empty until it is made: the apps
   # then can't sign in to this cluster.
   ZITADEL_MOBILE_CLIENT_ID: ""
+  # The desktop app's native application (PKCE, the loopback redirect
+  # http://127.0.0.1/callback; runbook step 7, item 2c). Optional: empty or
+  # absent, the desktop app signs in inside its window with the web
+  # application, where Google and Microsoft sign-in is refused.
+  ZITADEL_DESKTOP_CLIENT_ID: ""
   # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN})
   # and the staff admin console (admin.${DOMAIN}, ADR SEC-018; the WeldSuite
   # Staff org on WeldSuite's clusters): its id, from the organisation's

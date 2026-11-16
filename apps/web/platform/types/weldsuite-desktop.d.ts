@@ -25,6 +25,37 @@ export interface SettingsApi {
   defaults(): Promise<DesktopSettings>;
 }
 
+/** The page the browser shows once it is back from the provider, in the app's language. */
+export interface OidcSignInPageText {
+  lang: string;
+  successTitle: string;
+  successBody: string;
+  failureTitle: string;
+  failureBody: string;
+}
+
+/** How one sign-in through the system browser ended. */
+export type OidcSignInOutcome =
+  | { status: 'callback'; callbackUrl: string }
+  | { status: 'cancelled' }
+  | { status: 'timeout' }
+  | { status: 'failed'; reason: 'invalid_request' | 'unknown_sign_in' | 'browser' | 'listener' };
+
+/**
+ * Sign-in on the OIDC editions through the system browser and a loopback
+ * redirect (RFC 8252, apps/desktop/docs/auth-handoff.md). The page builds the
+ * authorization request and redeems the code; the shell only listens on
+ * 127.0.0.1 and opens the browser. Answers the app's own origin only.
+ */
+export interface OidcSignInApi {
+  /** Open a one-shot listener; its `redirectUri` goes into the authorization request. */
+  start(): Promise<{ id: string; redirectUri: string }>;
+  /** Open the authorization request in the system browser and wait for it to come back. */
+  authorize(opts: { id: string; url: string; page?: OidcSignInPageText }): Promise<OidcSignInOutcome>;
+  /** Stop waiting; `authorize` then resolves as cancelled. */
+  cancel(id: string): Promise<boolean>;
+}
+
 /**
  * The bridge the desktop shell's preload exposes. The platform is served live
  * to every installed shell, including ones that predate newer methods, so any
@@ -50,6 +81,8 @@ export interface WeldsuiteDesktopApi {
   flashFrame(flag: boolean): Promise<void>;
   openExternal(url: string): Promise<boolean>;
   signInExternally(opts?: { path?: string; returnTo?: string }): Promise<{ url: string; returnTo: string }>;
+  /** Not in shells older than 0.3.0; feature-detect (`desktopBrowserSignIn` in `lib/desktop-auth.ts`). */
+  oidcSignIn?: OidcSignInApi;
   reloadApp(): Promise<boolean>;
   relaunch(): Promise<boolean>;
   settings: SettingsApi;

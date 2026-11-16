@@ -42,6 +42,11 @@ pub(crate) enum AuthConfig {
         /// (PKCE, `<app scheme>://sso-callback` redirects), told to the
         /// apps by `/config.json`. Without it the apps can't sign in here.
         mobile_client_id: Option<String>,
+        /// `OIDC_DESKTOP_CLIENT_ID`: the desktop app's public native client
+        /// (PKCE, the loopback redirect `http://127.0.0.1/callback` on any
+        /// port, RFC 8252), told to the platform by `/config.json`. Without
+        /// it the desktop app signs in inside its window with the web client.
+        desktop_client_id: Option<String>,
         /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
         /// screens and this server is the provider's login client behind
         /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
@@ -63,12 +68,14 @@ impl fmt::Debug for AuthConfig {
                 settings,
                 web_client_id,
                 mobile_client_id,
+                desktop_client_id,
                 platform_sign_in,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
                 .field("mobile_client_id", mobile_client_id)
+                .field("desktop_client_id", desktop_client_id)
                 .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
@@ -119,6 +126,7 @@ impl AuthConfig {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
                     mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
+                    desktop_client_id: lookup("OIDC_DESKTOP_CLIENT_ID"),
                     platform_sign_in,
                 }
             }
@@ -1175,12 +1183,14 @@ abc",
             ("OIDC_AUDIENCE", "300000000000000100, 300000000000000200"),
             ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
             ("OIDC_MOBILE_CLIENT_ID", "300000000000000400"),
+            ("OIDC_DESKTOP_CLIENT_ID", "300000000000000500"),
         ])
         .expect("valid");
         let AuthConfig::Oidc {
             settings,
             web_client_id,
             mobile_client_id,
+            desktop_client_id,
             platform_sign_in,
         } = &oidc.auth
         else {
@@ -1196,6 +1206,7 @@ abc",
         assert_eq!(settings.jwks_url, None);
         assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
         assert_eq!(mobile_client_id.as_deref(), Some("300000000000000400"));
+        assert_eq!(desktop_client_id.as_deref(), Some("300000000000000500"));
 
         let error = config(&[
             ("DATABASE_URL_MASTER", "postgres://master"),

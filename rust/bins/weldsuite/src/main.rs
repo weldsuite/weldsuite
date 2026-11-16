@@ -319,12 +319,14 @@ fn session_verifier(
             settings,
             web_client_id,
             mobile_client_id,
+            desktop_client_id,
             platform_sign_in,
         } => {
             let public = public_auth::oidc_public_auth(&public_auth::OidcClients {
                 settings,
                 web_client_id: web_client_id.as_deref(),
                 mobile_client_id: mobile_client_id.as_deref(),
+                desktop_client_id: desktop_client_id.as_deref(),
                 platform_sign_in: *platform_sign_in,
                 weldid,
             });

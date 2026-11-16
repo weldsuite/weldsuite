@@ -278,6 +278,19 @@ default) organisation:
      client id is `ZITADEL_MOBILE_CLIENT_ID`; until it is set the apps can't
      sign in to the cluster
      (`weldsuite-documentation/plans/mobile-server-choice.md` in the code repo).
+   - **2c. Native application** `desktop` in the same project, for the
+     desktop app, which signs in through the system browser (Google and
+     Microsoft refuse sign-in inside its window) and takes the answer on a
+     loopback listener (RFC 8252, `apps/desktop/docs/auth-handoff.md`): type
+     *Native*, authentication *PKCE*, refresh tokens on, **Auth token type:
+     JWT**, the same token settings as `platform`, and the one redirect URI
+     `http://127.0.0.1/callback`. Zitadel ignores the port of a native
+     application's loopback redirect, so it covers the random port the app
+     picks. No post-logout URI: signing out opens Zitadel's own page in the
+     browser. With `OIDC_SIGN_IN=platform`, point its sign-in at
+     `https://app.<domain>/auth` too, like `platform`'s. Its client id is
+     `ZITADEL_DESKTOP_CLIENT_ID` (optional); until it is set the desktop app
+     signs in inside its own window with the web application.
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and
@@ -1226,7 +1239,9 @@ Be clear about this before anyone signs a contract:
   `SIGN_SESSION_SECRET` for signer sessions. `/config.json` carries the
   public settings in `config.publicEnv` (Mapbox, the portal URLs) and lists
   the `unavailableFeatures` the platform hides (billing, credit top-up,
-  paid apps, desktop sign-in, analytics, the search reindex). Not here yet:
+  paid apps, the desktop app's Clerk sign-in ticket, analytics, the search
+  reindex; the desktop app signs in through the browser instead, step 7
+  item 2c). Not here yet:
   the help center and a CDN (Bunny.net) in front of `app.<domain>`.
 - **Billing.** Plans and seats through Mollie (ADR BILL-014,
   `rust/README.md`, "Plan billing"), off until configured. To turn it on:

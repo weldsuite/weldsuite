@@ -168,6 +168,15 @@ export interface AuthImplementation {
    * `/auth/login` itself.
    */
   redirectToSignIn?: (options?: RedirectToSignInOptions) => Promise<void>;
+  /**
+   * Inside the desktop shell on OIDC: sign in through the system browser and
+   * the shell's loopback listener (RFC 8252). Resolves once signed in, with
+   * the page on its way to `returnTo`; rejects with `BrowserSignInError`.
+   * Unset everywhere else.
+   */
+  signInWithBrowser?: (options?: RedirectToSignInOptions) => Promise<void>;
+  /** Stop a `signInWithBrowser` still waiting for the browser. */
+  cancelBrowserSignIn?: () => void;
   /** Finish a sign-in redirect on `/auth/sso-callback`; resolves to where to go next. */
   completeSignIn?: () => Promise<string>;
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */

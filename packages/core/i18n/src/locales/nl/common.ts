@@ -476,7 +476,7 @@ export const common = {
       unavailableTitle: 'Niet beschikbaar in deze editie',
       unavailableDescription: 'Dit deel van WeldSuite zit niet in deze editie, dus hier is niets te zien.',
       backHome: 'Terug naar home',
-      desktopSignInUnavailable: 'Inloggen in de desktop-app is niet beschikbaar in deze editie. Gebruik WeldSuite in je browser.',
+      desktopSignInUnavailable: 'Deze editie gebruikt deze pagina niet. Log in vanuit de WeldSuite-desktop-app zelf: die opent je browser voor je.',
     },
     time: {
       justNow: 'Zojuist',
@@ -994,6 +994,23 @@ export const common = {
           title: 'Aanmelding overdracht mislukt',
           tryAgain: 'Opnieuw proberen',
           failedToComplete: 'Desktop-aanmelding voltooien mislukt.',
+        },
+        browser: {
+          signInTitle: 'Inloggen bij WeldSuite',
+          signUpTitle: 'Maak je WeldSuite-account aan',
+          subtitle: 'Je gaat verder in je browser en komt daarna terug in dit venster.',
+          continue: 'Verder in je browser',
+          waiting: 'Rond het af in je browser…',
+          waitingHint: 'Ging je browser niet open? Annuleer en probeer het opnieuw.',
+          cancel: 'Annuleren',
+          timedOut: 'Inloggen duurde te lang. Probeer het opnieuw.',
+          failed: 'Inloggen is niet gelukt. Probeer het opnieuw.',
+          callback: {
+            successTitle: 'Je bent ingelogd',
+            successBody: 'Je kunt dit tabblad sluiten en teruggaan naar de WeldSuite-app.',
+            failureTitle: 'Inloggen is niet gelukt',
+            failureBody: 'Sluit dit tabblad en probeer het opnieuw in de WeldSuite-app.',
+          },
         },
       },
       ssoCallback: {

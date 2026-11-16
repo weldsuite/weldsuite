@@ -7,9 +7,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { completeSignIn, getAccountUrl, redirectToSignIn } from '@/lib/auth';
+import { completeSignIn, getAccountUrl, redirectToSignIn, usesBrowserSignIn } from '@/lib/auth';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
+import { BrowserSignInScreen } from './browser-sign-in-screen';
 
 /** Only paths on this origin; anything else lands on the dashboard. */
 function returnPath(): string {
@@ -20,8 +21,17 @@ function returnPath(): string {
   return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
 }
 
-/** `/auth/login`, `/auth/register`, password reset: off to the provider's own page. */
+/**
+ * `/auth/login`, `/auth/register`, password reset: off to the provider's own
+ * page. Inside the desktop shell, the button that opens it in the system
+ * browser instead.
+ */
 export function HostedSignInRedirect({ intent = 'sign-in' }: Readonly<{ intent?: 'sign-in' | 'sign-up' }>) {
+  if (usesBrowserSignIn()) return <BrowserSignInScreen intent={intent} returnTo={returnPath()} />;
+  return <RedirectToProvider intent={intent} />;
+}
+
+function RedirectToProvider({ intent }: Readonly<{ intent: 'sign-in' | 'sign-up' }>) {
   const t = getTranslations('common');
   const startedRef = useRef(false);
 

@@ -52,7 +52,13 @@ export const EDITION_FEATURES = [
   'credit-top-up',
   /** Paid WeldApps: subscriptions and developer payouts (Stripe). */
   'paid-apps',
-  /** The desktop app's sign-in ticket (`/api/auth-desktop/ticket`). */
+  /**
+   * The desktop app's Clerk sign-in ticket (`/api/auth-desktop/ticket`, the
+   * `/auth/desktop-handoff` page): Global's desktop sign-in. It hides nothing
+   * else: on the OIDC editions the desktop app signs in through the system
+   * browser and a loopback redirect, which needs no ticket
+   * (`lib/auth/oidc/browser-sign-in.ts`).
+   */
   'desktop-sign-in',
   /** Analytics pages (Cloudflare's analytics store). */
   'analytics',

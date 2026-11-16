@@ -4,7 +4,7 @@
  *
  * MCP clients bootstrap authentication entirely from these:
  *   1. client calls /mcp with no token → 401 + `WWW-Authenticate: Bearer
- *      resource_metadata="…/.well-known/oauth-protected-resource"`
+ *      resource_metadata="…/.well-known/oauth-protected-resource/mcp"`
  *   2. client fetches that document → learns Clerk is the authorization server
  *   3. client fetches Clerk's authorization-server metadata → learns the
  *      registration/authorize/token endpoints
@@ -55,9 +55,13 @@ export function clerkFrontendApiUrl(publishableKey: string): string {
   return `https://${host}`;
 }
 
-/** Absolute URL of this server's protected-resource document. */
-export function protectedResourceMetadataUrl(serverUrl: string): string {
-  return `${serverUrl.replace(/\/$/, '')}${PROTECTED_RESOURCE_PATH}`;
+/**
+ * Absolute URL of the protected-resource document for the resource at
+ * `resourcePath` ('' for the origin, '/mcp' for the endpoint): RFC 9728 §3.1
+ * puts the well-known suffix between the host and the resource's path.
+ */
+export function protectedResourceMetadataUrl(serverUrl: string, resourcePath = ''): string {
+  return `${serverUrl.replace(/\/$/, '')}${PROTECTED_RESOURCE_PATH}${resourcePath}`;
 }
 
 /**
@@ -67,8 +71,9 @@ export function protectedResourceMetadataUrl(serverUrl: string): string {
  * for the bare document, '/mcp' for `…/oauth-protected-resource/mcp`. RFC 9728
  * §3.3 has a client discard a document whose `resource` differs from the URL
  * it looked the document up for, so each path answers with its own resource,
- * as Clerk's own handlers do. The origin is `MCP_SERVER_URL`, the same one the
- * 401's `WWW-Authenticate` header points at.
+ * as Clerk's own handlers do. The origin is `MCP_SERVER_URL`; the 401's
+ * `WWW-Authenticate` header points at the '/mcp' document, whose `resource`
+ * is the URL the client called (RFC 9728 §3.3).
  */
 export function protectedResourceMetadata(serverUrl: string, publishableKey: string, resourcePath = '') {
   return generateClerkProtectedResourceMetadata({
