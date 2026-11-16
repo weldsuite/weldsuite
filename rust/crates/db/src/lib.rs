@@ -20,6 +20,7 @@ mod permissions;
 pub mod pg_errors;
 mod restrictions;
 mod rows;
+pub mod sso_settings;
 mod workspaces;
 
 pub use atomically::{TransactionFuture, atomically, atomically_with};

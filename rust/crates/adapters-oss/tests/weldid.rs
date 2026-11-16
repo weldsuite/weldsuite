@@ -19,11 +19,12 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use weldsuite_adapters_oss::{
-    INVITATIONS_UNAVAILABLE, WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions,
+    INVITATIONS_UNAVAILABLE, WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions, WeldIdSso,
 };
 use weldsuite_ports::{
     Identity, IdentityError, ListPage, NewInvitation, NewMembership, NewOrganization,
-    OrganizationChanges, UserChanges,
+    NewSsoConnection, OrganizationChanges, SsoConnectionChanges, SsoDirectory, SsoDomainStatus,
+    UserChanges,
 };
 
 const CLIENT: &str = "weldsuite-backend";
@@ -759,5 +760,264 @@ async fn organizations_and_memberships_are_weldsuites_own() {
             .expect("mine")
             .len(),
         1
+    );
+}
+
+/// A connection as the fake WeldID keeps it (`weldid-server::admin::sso`).
+fn fake_connection(id: &str, tenant: &str, domains: &Value) -> Value {
+    json!({
+        "id": id, "tenantRef": tenant, "protocol": "oidc", "displayName": "Acme Entra",
+        "issuer": "https://login.example.test/acme/v2.0", "clientId": "client-1",
+        // A careless WeldID echoing the secret: the adapter never reads it.
+        "clientSecret": "echoed", "hasClientSecret": true,
+        "scopes": ["groups"], "trustEmails": false, "enabled": false, "enforceSso": false,
+        "redirectUri": format!("https://auth.example.test/sso/{id}/callback"),
+        "domains": domains,
+        "createdAt": "2026-11-16T10:00:00Z", "updatedAt": "2026-11-16T10:00:00Z",
+    })
+}
+
+const A: &str = "/admin/v1/tenants/ws_a/sso/connections";
+
+/// The fake WeldID's SSO admin API: the domains of `ssoc_1` and whether its
+/// TXT record is up are its state; `ssoc_b` is another tenant's, which this
+/// fake wrongly answers under `ws_a` too.
+fn fake_sso(
+    domains: &Mutex<Value>,
+    record_up: &Mutex<bool>,
+    method: &str,
+    path: &str,
+) -> (StatusCode, Value) {
+    let current = domains.lock().expect("lock").clone();
+    let ssoc_1 = format!("{A}/ssoc_1");
+    match (method, path) {
+        ("POST", "/oauth/token") => (
+            StatusCode::OK,
+            json!({ "access_token": "at-sso", "token_type": "Bearer", "expires_in": 600 }),
+        ),
+        ("GET", A) => (
+            StatusCode::OK,
+            json!({ "data": [
+                fake_connection("ssoc_1", "ws_a", &current),
+                fake_connection("ssoc_b", "ws_b", &json!([])),
+                { "id": "ssoc_saml", "tenantRef": "ws_a", "protocol": "saml" },
+            ], "pagination": { "hasMore": false, "cursor": null } }),
+        ),
+        ("POST", A) => (
+            StatusCode::CREATED,
+            json!({ "data": fake_connection("ssoc_1", "ws_a", &json!([])) }),
+        ),
+        ("GET", p) if p == ssoc_1 => (
+            StatusCode::OK,
+            json!({ "data": fake_connection("ssoc_1", "ws_a", &current) }),
+        ),
+        ("GET", p) if p == format!("{A}/ssoc_b") => (
+            StatusCode::OK,
+            json!({ "data": fake_connection("ssoc_b", "ws_b", &json!([])) }),
+        ),
+        ("PATCH", p) if p == ssoc_1 => {
+            let mut connection = fake_connection("ssoc_1", "ws_a", &current);
+            connection["enforceSso"] = json!(true);
+            (StatusCode::OK, json!({ "data": connection }))
+        }
+        ("POST", p) if p == format!("{ssoc_1}/domains") => {
+            let domain = json!({
+                "id": "ssod_1", "domain": "acme.test", "status": "pending",
+                "recordName": "_weldsuite-sso.acme.test",
+                "recordValue": "weldsuite-sso-verification=tok1",
+                "lastCheck": null, "checkedAt": null, "verifiedAt": null,
+            });
+            *domains.lock().expect("lock") = json!([domain.clone()]);
+            // Answers the domain only: the adapter reads the connection again.
+            (StatusCode::CREATED, json!({ "data": domain }))
+        }
+        ("POST", p) if p == format!("{ssoc_1}/domains/ssod_1/verify") => {
+            let up = *record_up.lock().expect("lock");
+            let mut list = domains.lock().expect("lock");
+            list[0]["checkedAt"] = json!("2026-11-16T10:05:00Z");
+            if up {
+                list[0]["status"] = json!("verified");
+                list[0]["lastCheck"] = json!("found");
+                list[0]["verifiedAt"] = json!("2026-11-16T10:05:00Z");
+            } else {
+                list[0]["lastCheck"] = json!("missing");
+            }
+            (StatusCode::OK, json!({ "data": list[0].clone() }))
+        }
+        ("DELETE", p) if p == format!("{ssoc_1}/domains/ssod_1") => {
+            *domains.lock().expect("lock") = json!([]);
+            (StatusCode::NO_CONTENT, Value::Null)
+        }
+        ("DELETE", p) if p == ssoc_1 => (StatusCode::NO_CONTENT, Value::Null),
+        _ => (
+            StatusCode::IM_A_TEAPOT,
+            json!({ "unexpected": [method, path] }),
+        ),
+    }
+}
+
+/// SSO connections through WeldID's admin API: one token asking for
+/// `weldid:sso`, every path under the tenant, another tenant's connection
+/// invisible (dropped from a list, a 404 before any write), the secret
+/// written once and never read back, only known fields sent, domains
+/// addressed by their WeldID id, and a check that finds nothing a 422.
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // one scenario, in order
+async fn sso_connections_go_through_the_admin_api_scoped_by_tenant() {
+    let domains = Arc::new(Mutex::new(json!([])));
+    let record_up = Arc::new(Mutex::new(false));
+    let (state_domains, state_record) = (Arc::clone(&domains), Arc::clone(&record_up));
+    let setup = mock(None, move |method, path, _query| {
+        fake_sso(&state_domains, &state_record, method, path)
+    })
+    .await;
+    let seen = Arc::clone(&setup.seen);
+    let sso = WeldIdSso::new(Arc::new(setup.identity));
+
+    // Only ws_a's OIDC connection is listed.
+    let listed = sso.connections("ws_a").await.expect("list");
+    assert_eq!(
+        listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+        ["ssoc_1"]
+    );
+    let token = calls(&seen, "/oauth/token");
+    assert!(
+        form_field(&form(&token[0].body), "scope")
+            .split(' ')
+            .any(|scope| scope == "weldid:sso")
+    );
+
+    // Created with the secret, which never comes back.
+    let created = sso
+        .create_connection(
+            "ws_a",
+            &NewSsoConnection {
+                display_name: "Acme Entra".to_owned(),
+                issuer: "https://login.example.test/acme/v2.0".to_owned(),
+                client_id: "client-1".to_owned(),
+                client_secret: Some("s3cret".to_owned()),
+                scopes: vec!["groups".to_owned()],
+                trust_emails: false,
+                enabled: false,
+                enforce_sso: false,
+            },
+        )
+        .await
+        .expect("created");
+    assert!(created.has_client_secret);
+    assert_eq!(
+        created.redirect_uri.as_deref(),
+        Some("https://auth.example.test/sso/ssoc_1/callback")
+    );
+    assert!(!format!("{created:?}").contains("s3cret"));
+    let posted: Value = serde_json::from_str(
+        &calls(&seen, A)
+            .into_iter()
+            .find(|s| s.method == "POST")
+            .expect("posted")
+            .body,
+    )
+    .expect("json");
+    assert_eq!(
+        posted,
+        json!({
+            "protocol": "oidc", "displayName": "Acme Entra",
+            "issuer": "https://login.example.test/acme/v2.0", "clientId": "client-1",
+            "clientSecret": "s3cret", "scopes": ["groups"], "trustEmails": false,
+            "enabled": false, "enforceSso": false,
+        })
+    );
+
+    // Another tenant's connection: a 404, and nothing is written.
+    let error = sso
+        .update_connection(
+            "ws_a",
+            "ssoc_b",
+            &SsoConnectionChanges {
+                enabled: Some(true),
+                ..SsoConnectionChanges::default()
+            },
+        )
+        .await
+        .expect_err("another tenant's");
+    assert!(error.is_not_found());
+    assert!(
+        calls(&seen, &format!("{A}/ssoc_b"))
+            .iter()
+            .all(|s| s.method == "GET")
+    );
+
+    // Only the changes are sent.
+    let updated = sso
+        .update_connection(
+            "ws_a",
+            "ssoc_1",
+            &SsoConnectionChanges {
+                enforce_sso: Some(true),
+                ..SsoConnectionChanges::default()
+            },
+        )
+        .await
+        .expect("updated");
+    assert!(updated.enforce_sso);
+    let patch = calls(&seen, &format!("{A}/ssoc_1"))
+        .into_iter()
+        .find(|s| s.method == "PATCH")
+        .expect("patched");
+    assert_eq!(patch.body, json!({ "enforceSso": true }).to_string());
+
+    // A domain, its record, a check that finds nothing, then one that does.
+    let with_domain = sso
+        .add_domain("ws_a", "ssoc_1", "acme.test")
+        .await
+        .expect("added");
+    let domain = with_domain.domain("acme.test").expect("domain");
+    assert_eq!(domain.status, SsoDomainStatus::Pending);
+    assert_eq!(domain.txt_name, "_weldsuite-sso.acme.test");
+    assert_eq!(domain.txt_value, "weldsuite-sso-verification=tok1");
+    let error = sso
+        .verify_domain("ws_a", "ssoc_1", "acme.test")
+        .await
+        .expect_err("no record yet");
+    assert_eq!(
+        (error.status(), error.code()),
+        (Some(422), Some("domain_not_verified"))
+    );
+    let after_miss = sso.connections("ws_a").await.expect("list");
+    assert_eq!(after_miss[0].domains[0].status, SsoDomainStatus::Failed);
+    *record_up.lock().expect("lock") = true;
+    let verified = sso
+        .verify_domain("ws_a", "ssoc_1", "acme.test")
+        .await
+        .expect("verified");
+    assert!(verified.has_verified_domain());
+
+    let without = sso
+        .remove_domain("ws_a", "ssoc_1", "acme.test")
+        .await
+        .expect("removed");
+    assert_eq!(without.domains, Vec::new());
+    assert!(
+        sso.remove_domain("ws_a", "ssoc_1", "acme.test")
+            .await
+            .expect_err("gone")
+            .is_not_found()
+    );
+    sso.delete_connection("ws_a", "ssoc_1")
+        .await
+        .expect("deleted");
+    assert!(
+        sso.delete_connection("ws_a", "ssoc_b")
+            .await
+            .expect_err("another tenant's")
+            .is_not_found()
+    );
+    // Every SSO call stayed under the tenant, without a query.
+    assert!(
+        seen.lock()
+            .expect("lock")
+            .iter()
+            .filter(|s| s.path.starts_with("/admin/"))
+            .all(|s| s.path.starts_with(A) && s.query.is_empty())
     );
 }

@@ -36,6 +36,19 @@
 //! name, picture and email; `user.deleted` deactivates the user and removes
 //! their memberships (WeldID keeps an anonymised row, so the profile isn't
 //! asked); `session.revoked` needs nothing here.
+//!
+//! `sso.signed_in` ([`SSO_SIGNED_IN`], ADR SEC-019 phase 5a) is the one
+//! automatic way into a workspace in membership mode (invitations are not
+//! served yet): someone signed in through a workspace's SSO connection, and
+//! its data names the workspace (`tenantRef`, `workspaces.id`) and the
+//! connection. Besides the profile refresh, the person joins that workspace
+//! with its default role for SSO members (`weldsuite_db::sso_settings`) when
+//! they aren't a member yet: the tenant member first, then the master row,
+//! so a run that stops halfway is finished by the next one. An existing
+//! member's role is never changed, and a user the same page deletes doesn't
+//! join. Like the other membership reconciles here it publishes no entity
+//! event (the catalog has no member events; Clerk's webhooks publish none
+//! either).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -69,14 +82,76 @@ pub enum FeedAction {
     Delete,
 }
 
+/// The feed event of a sign-in through a workspace's SSO connection.
+pub const SSO_SIGNED_IN: &str = "sso.signed_in";
+
 /// The action an event of `kind` asks for; `None` for kinds with nothing to
-/// do here (`session.revoked`, and kinds this build doesn't know).
+/// do here (`session.revoked`, and kinds this build doesn't know). An SSO
+/// sign-in also refreshes the profile (WeldID may have just created the
+/// person); the join itself is [`sso_joins`]'.
 pub fn feed_action(kind: &str) -> Option<FeedAction> {
     match kind {
-        "user.created" | "user.updated" | "user.email_changed" => Some(FeedAction::Refresh),
+        "user.created" | "user.updated" | "user.email_changed" | SSO_SIGNED_IN => {
+            Some(FeedAction::Refresh)
+        }
         "user.deleted" => Some(FeedAction::Delete),
         _ => None,
     }
+}
+
+/// Someone signed in through a workspace's SSO connection
+/// ([`SSO_SIGNED_IN`]): they join that workspace if they aren't a member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SsoJoin {
+    pub user_id: String,
+    /// `workspaces.id` (an organization id is accepted too).
+    pub tenant_ref: String,
+    pub connection_id: Option<String>,
+}
+
+/// A string field of an event's data, camelCase or snake case, non-empty.
+fn data_field<'a>(data: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| data.get(*name).and_then(Value::as_str))
+        .filter(|text| !text.is_empty())
+}
+
+/// The joins a batch of events asks for, once per user and workspace, in
+/// feed order. An event without a user or a workspace is skipped.
+pub fn sso_joins<'a>(events: impl IntoIterator<Item = &'a FeedEvent>) -> Vec<SsoJoin> {
+    let mut joins: Vec<SsoJoin> = Vec::new();
+    for event in events {
+        if event.kind != SSO_SIGNED_IN {
+            continue;
+        }
+        let user = event
+            .user_id
+            .as_deref()
+            .filter(|user| !user.is_empty())
+            .or_else(|| data_field(&event.data, &["userId", "user_id"]));
+        let tenant = data_field(&event.data, &["tenantRef", "tenant_ref"]);
+        let (Some(user), Some(tenant)) = (user, tenant) else {
+            tracing::warn!(
+                event = event.id,
+                "identity sync: an SSO sign-in without a user or workspace"
+            );
+            continue;
+        };
+        if joins
+            .iter()
+            .any(|join| join.user_id == user && join.tenant_ref == tenant)
+        {
+            continue;
+        }
+        joins.push(SsoJoin {
+            user_id: user.to_owned(),
+            tenant_ref: tenant.to_owned(),
+            connection_id: data_field(&event.data, &["connectionId", "connection_id"])
+                .map(str::to_owned),
+        });
+    }
+    joins
 }
 
 /// One action per user for a batch of events: a deletion wins over a
@@ -203,17 +278,29 @@ impl IdentitySync {
             }
             report.changes += page.events.len();
             let mut failed = 0;
-            for (user_id, action) in feed_actions(&page.events) {
+            let actions = feed_actions(&page.events);
+            for (user_id, action) in &actions {
                 report.users += 1;
                 let outcome = match action {
-                    FeedAction::Refresh => self.feed_user(&user_id).await,
+                    FeedAction::Refresh => self.feed_user(user_id).await,
                     FeedAction::Delete => self
-                        .user_deleted(&user_id)
+                        .user_deleted(user_id)
                         .await
                         .map_or_else(Outcome::from, |()| Outcome::Done),
                 };
                 if let Outcome::Retry(error) = outcome {
                     tracing::warn!(%error, "identity sync: a user is left for the next run");
+                    failed += 1;
+                }
+            }
+            for join in sso_joins(&page.events) {
+                // Deleted in this page: gone, whatever came before.
+                if actions.get(&join.user_id) == Some(&FeedAction::Delete) {
+                    continue;
+                }
+                report.memberships += 1;
+                if let Outcome::Retry(error) = self.sso_join(&join).await {
+                    tracing::warn!(%error, "identity sync: an SSO join is left for the next run");
                     failed += 1;
                 }
             }
@@ -268,6 +355,123 @@ impl IdentitySync {
             }
         }
         Outcome::Done
+    }
+
+    /// An SSO sign-in's join: the workspace's tenant member with the default
+    /// role for SSO members, then the master membership. Someone already in
+    /// keeps their role; a workspace that is gone is skipped.
+    async fn sso_join(&self, join: &SsoJoin) -> Outcome {
+        let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> = sqlx::query_as(
+            "select id, clerk_org_id from workspaces
+              where (id = $1 or clerk_org_id = $1) and deleted_at is null
+              order by (id = $1) desc limit 1",
+        )
+        .bind(&join.tenant_ref)
+        .fetch_optional(&self.master)
+        .await;
+        let (workspace_id, org) = match workspace {
+            Ok(Some(workspace)) => workspace,
+            Ok(None) => {
+                tracing::info!(
+                    tenant_ref = join.tenant_ref,
+                    "identity sync: an SSO sign-in for a workspace that is gone; skipped"
+                );
+                return Outcome::Done;
+            }
+            Err(error) => return error.into(),
+        };
+        let master_role: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
+            "select status::text, role from user_workspaces where user_id = $1 and workspace_id = $2",
+        )
+        .bind(&join.user_id)
+        .bind(&workspace_id)
+        .fetch_optional(&self.master)
+        .await;
+        let master_role = match master_role {
+            Ok(row) => row
+                .filter(|(status, _)| status == "ACTIVE")
+                .map(|(_, role)| role),
+            Err(error) => return error.into(),
+        };
+        let tenant = match (self.tenants)(org.unwrap_or_else(|| workspace_id.clone())).await {
+            Ok(tenant) => tenant,
+            Err(error) => return Outcome::Retry(error.into()),
+        };
+        let existing = match active_member(&tenant, &join.user_id).await {
+            Ok(existing) => existing,
+            Err(error) => return error.into(),
+        };
+        if master_role.is_some() && existing.is_some() {
+            return Outcome::Done;
+        }
+        // The role they have, else the one the workspace gives SSO members.
+        let role = match (&existing, &master_role) {
+            (Some(member), _) => member.role.clone(),
+            (None, Some(master)) => display_role(master).to_owned(),
+            (None, None) => match weldsuite_db::sso_settings::sso_default_role(&tenant).await {
+                Ok(role) => role.to_owned(),
+                Err(error) => return error.into(),
+            },
+        };
+        let person = match self.sso_person(&join.user_id).await {
+            Ok(Some(person)) => person,
+            Ok(None) => return Outcome::Done,
+            Err(outcome) => return outcome,
+        };
+        if existing.is_none()
+            && let Err(error) = add_sso_member(&tenant, &join.user_id, &person, &role).await
+        {
+            return error.into();
+        }
+        if master_role.is_none()
+            && let Err(error) = upsert_user_workspace(
+                &self.master,
+                &join.user_id,
+                &workspace_id,
+                None,
+                provider_role(&role),
+            )
+            .await
+        {
+            return error.into();
+        }
+        tracing::info!(
+            workspace_id,
+            user_id = join.user_id,
+            role,
+            connection_id = join.connection_id.as_deref(),
+            "identity sync: joined the workspace through SSO"
+        );
+        Outcome::Done
+    }
+
+    /// The `users` row of someone who signed in through SSO (read from the
+    /// provider when this run hasn't stored it yet); `None` when the
+    /// provider no longer knows them.
+    async fn sso_person(&self, user_id: &str) -> Result<Option<Person>, Outcome> {
+        let person = |row: Option<Person>| row.filter(|p| !p.email.is_empty());
+        let stored: Option<Person> = sqlx::query_as(
+            "select email, first_name, last_name, image_url from users where id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.master)
+        .await
+        .map_err(Outcome::from)?;
+        if let Some(found) = person(stored) {
+            return Ok(Some(found));
+        }
+        let profile = match self.identity.user_profile(user_id).await {
+            Ok(profile) => profile,
+            Err(error) if error.is_not_found() => return Ok(None),
+            Err(error) => return Err(retry_unless_refused(error)),
+        };
+        self.store_profile(user_id, &profile).await?;
+        Ok(Some(Person {
+            email: profile.primary_email().unwrap_or_default().to_owned(),
+            first_name: profile.first_name,
+            last_name: profile.last_name,
+            image_url: profile.image_url,
+        }))
     }
 
     /// One run: read the feed, reconcile, move the watermark.
@@ -897,6 +1101,81 @@ async fn sync_tenant_member(
     .map(drop)
 }
 
+/// `mapRoleToClerk`: the master row's role for a workspace role.
+fn provider_role(role: &str) -> &'static str {
+    if role.eq_ignore_ascii_case("ADMIN") || role.eq_ignore_ascii_case("OWNER") {
+        "org:admin"
+    } else {
+        "org:member"
+    }
+}
+
+/// Who signed in, from the master `users` row.
+#[derive(Debug, sqlx::FromRow)]
+struct Person {
+    email: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    image_url: Option<String>,
+}
+
+/// The tenant member of an SSO join: a pending row for the email (an
+/// invitation from before) becomes them and keeps its role; otherwise a new
+/// active member with `role`. Never the owner, even in an empty workspace.
+async fn add_sso_member(
+    tenant: &PgPool,
+    user_id: &str,
+    person: &Person,
+    role: &str,
+) -> Result<(), sqlx::Error> {
+    let name = [person.first_name.as_deref(), person.last_name.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let name = Some(name).filter(|name| !name.is_empty());
+    release_removed_user_id(tenant, user_id).await?;
+    let pending: Option<String> = sqlx::query_scalar(
+        "select id from workspace_members
+          where lower(email) = lower($1)
+            and (status = 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
+            and deleted_at is null
+          limit 1",
+    )
+    .bind(&person.email)
+    .fetch_optional(tenant)
+    .await?;
+    if let Some(id) = pending {
+        sqlx::query(
+            "update workspace_members
+                set user_id = $2, name = coalesce($3, name), picture = coalesce($4, picture),
+                    status = 'ACTIVE', accepted_at = coalesce(accepted_at, now()), updated_at = now()
+              where id = $1",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(&name)
+        .bind(&person.image_url)
+        .execute(tenant)
+        .await?;
+        return Ok(());
+    }
+    sqlx::query(
+        "insert into workspace_members (id, user_id, email, name, picture, role, status)
+         values ($1, $2, $3, $4, $5, $6, 'ACTIVE')",
+    )
+    .bind(weldsuite_kit::generate_id("mbr"))
+    .bind(user_id)
+    .bind(&person.email)
+    .bind(&name)
+    .bind(&person.image_url)
+    .bind(role)
+    .execute(tenant)
+    .await
+    .map(drop)
+}
+
 /// `releaseRemovedMemberUserId`: a removed row that still holds the user id
 /// gives it up, so the user's new row can take it.
 async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
@@ -944,6 +1223,63 @@ mod tests {
         );
         assert_eq!(feed_action("session.revoked"), None);
         assert_eq!(feed_action("user.deleted"), Some(FeedAction::Delete));
+    }
+
+    #[test]
+    fn sso_sign_ins_become_one_join_per_user_and_workspace() {
+        let event = |id: &str, kind: &str, user: Option<&str>, data: Value| FeedEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            user_id: user.map(str::to_owned),
+            at: None,
+            data,
+        };
+        let events = [
+            event(
+                "1",
+                SSO_SIGNED_IN,
+                Some("usr_a"),
+                serde_json::json!({ "tenantRef": "ws_1", "connectionId": "ssoc_1", "created": true }),
+            ),
+            event(
+                "2",
+                SSO_SIGNED_IN,
+                Some("usr_a"),
+                serde_json::json!({ "tenantRef": "ws_1", "connectionId": "ssoc_1" }),
+            ),
+            event(
+                "3",
+                SSO_SIGNED_IN,
+                None,
+                serde_json::json!({ "user_id": "usr_b", "tenant_ref": "ws_1", "connection_id": "ssoc_1" }),
+            ),
+            event("4", SSO_SIGNED_IN, Some("usr_c"), Value::Null),
+            event(
+                "5",
+                "user.created",
+                Some("usr_d"),
+                serde_json::json!({ "tenantRef": "ws_1" }),
+            ),
+        ];
+        let joins = sso_joins(&events);
+        assert_eq!(
+            joins,
+            [
+                SsoJoin {
+                    user_id: "usr_a".to_owned(),
+                    tenant_ref: "ws_1".to_owned(),
+                    connection_id: Some("ssoc_1".to_owned()),
+                },
+                SsoJoin {
+                    user_id: "usr_b".to_owned(),
+                    tenant_ref: "ws_1".to_owned(),
+                    connection_id: Some("ssoc_1".to_owned()),
+                },
+            ]
+        );
+        assert_eq!(feed_action(SSO_SIGNED_IN), Some(FeedAction::Refresh));
+        assert_eq!(provider_role("ADMIN"), "org:admin");
+        assert_eq!(provider_role("VIEWER"), "org:member");
     }
 
     #[test]

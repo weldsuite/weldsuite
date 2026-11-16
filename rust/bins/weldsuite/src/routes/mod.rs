@@ -2294,6 +2294,13 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
         top_up: credit_top_up(state),
         ai: state.ai.clone(),
         mail: state.infra.mail.clone(),
+        // WeldID's SSO connections (`IDENTITY_PROVIDER=weldid`); never in
+        // conformance builds, whose tests are Global's.
+        sso: if cfg!(feature = "conformance") {
+            None
+        } else {
+            state.infra.sso.clone()
+        },
     }
 }
 

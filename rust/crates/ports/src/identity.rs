@@ -233,7 +233,9 @@ pub struct ChangeEvent {
 
 /// One event of a provider's ordered event feed ([`Identity::events_after`],
 /// WeldID's outbox): `user.created`, `user.updated`, `user.email_changed`,
-/// `user.deleted`, `session.revoked`. Like a change, an event says what
+/// `user.deleted`, `session.revoked`, and `sso.signed_in` (a sign-in
+/// through a workspace's SSO connection; its `data` names the workspace,
+/// `tenantRef`, and the connection). Like a change, an event says what
 /// moved; the reader asks the provider for the current state, except for a
 /// deletion.
 #[derive(Debug, Clone, PartialEq)]
@@ -792,6 +794,12 @@ impl MemoryIdentity {
     /// Append an event to the feed of [`Identity::events_after`]: `kind`
     /// about `user_id`. Its id is its position (1, 2, …).
     pub fn record_event(&self, kind: &str, user_id: &str) {
+        self.record_event_with(kind, user_id, Value::Null);
+    }
+
+    /// [`MemoryIdentity::record_event`] with the event's own payload
+    /// (`sso.signed_in` carries the workspace and the connection).
+    pub fn record_event_with(&self, kind: &str, user_id: &str, data: Value) {
         let mut state = self.lock();
         let id = (state.events.len() + 1).to_string();
         state.events.push(FeedEvent {
@@ -799,7 +807,7 @@ impl MemoryIdentity {
             kind: kind.to_owned(),
             user_id: Some(user_id.to_owned()),
             at: None,
-            data: Value::Null,
+            data,
         });
     }
 

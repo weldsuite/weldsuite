@@ -863,6 +863,8 @@ impl Config {
         edition.ai = ai.describe();
         let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
         edition.sandbox = sandbox.is_some();
+        // Only WeldID manages SSO connections on Kubernetes (ADR SEC-019).
+        edition.sso_connections = infra.weldid.is_some();
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -1320,6 +1322,10 @@ abc",
         assert_eq!(weldid.client_id, "weldsuite-backend");
         assert!(parsed.infra.identity.is_none());
         assert!(parsed.auth.workspace_from_header(), "header by default");
+        assert!(
+            parsed.edition.sso_connections,
+            "WeldID manages SSO connections"
+        );
         assert!(!format!("{parsed:?}").contains("not-a-key"));
 
         let with = |extra: (&'static str, &'static str)| {

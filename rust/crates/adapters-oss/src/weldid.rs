@@ -50,9 +50,13 @@ use weldsuite_ports::{
 
 use crate::zitadel_api::safe_path;
 
-/// What the backend client asks WeldID's token endpoint for.
+/// What the backend client asks WeldID's token endpoint for. `weldid:sso`
+/// is for the SSO connections ([`crate::WeldIdSso`]); WeldID leaves out a
+/// scope the client isn't allowed (`client_credentials` narrows, it doesn't
+/// refuse), so a client without it keeps working and only `/api/sso`'s
+/// connection calls are refused.
 pub const WELDID_ADMIN_SCOPES: &str =
-    "weldid:users.read weldid:users.write weldid:sessions weldid:events.read";
+    "weldid:users.read weldid:users.write weldid:sessions weldid:events.read weldid:sso";
 
 /// How long a client assertion is valid.
 const ASSERTION_SECONDS: i64 = 60;
@@ -156,7 +160,7 @@ fn authority(url: &str) -> Option<String> {
     })
 }
 
-fn not_found() -> IdentityError {
+pub(crate) fn not_found() -> IdentityError {
     IdentityError::Rejected {
         status: 404,
         code: Some("not_found".to_owned()),
@@ -175,7 +179,7 @@ fn invitations_unavailable() -> IdentityError {
 
 /// A string field under any of `names` (camelCase first, then snake case),
 /// non-empty.
-fn field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
+pub(crate) fn field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
     names
         .iter()
         .find_map(|name| value.get(*name).and_then(Value::as_str))
@@ -244,7 +248,7 @@ fn feed_event(event: &Value) -> Option<FeedEvent> {
 }
 
 /// The `data` array of a list answer.
-fn list(body: &Value) -> &[Value] {
+pub(crate) fn list(body: &Value) -> &[Value] {
     body.get("data")
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice)
@@ -469,7 +473,7 @@ impl WeldIdIdentity {
     // ── the admin API ───────────────────────────────────────────────────
 
     /// `method path?query` on the admin API; a 401 fetches a new token once.
-    async fn admin(
+    pub(crate) async fn admin(
         &self,
         method: Method,
         path: &str,

@@ -803,6 +803,7 @@ mod tests {
             credit_top_up: true,
             plan_billing: true,
             sandbox: false,
+            sso_connections: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");

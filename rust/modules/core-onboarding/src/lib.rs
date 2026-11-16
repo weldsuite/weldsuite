@@ -44,8 +44,8 @@ pub use sweeps::{
     sweep_scheduled_deletions, sweep_unfinished_teardowns,
 };
 pub use sync::{
-    FEED_WATERMARK_KEY, FeedAction, IdentitySync, SyncReport, WATERMARK_KEY, feed_action,
-    feed_actions,
+    FEED_WATERMARK_KEY, FeedAction, IdentitySync, SSO_SIGNED_IN, SsoJoin, SyncReport,
+    WATERMARK_KEY, feed_action, feed_actions, sso_joins,
 };
 
 /// A workspace's tenant database, by `workspaces.id` or its organization id

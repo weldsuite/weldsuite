@@ -14,6 +14,7 @@
 //! | `MailTransport` | [`SmtpMailTransport`] (customer mail, its own relay identity, MAIL-010) | `SEND_EMAIL` for user-written mail |
 //! | `LedgerStore` | [`ValkeyLedgerStore`] (one Lua script per commit) | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects |
 //! | `Identity` | [`ZitadelIdentity`]; [`WeldIdIdentity`] (WeldID's admin API, WeldSuite's own memberships) | Clerk's Backend API |
+//! | `SsoDirectory` | [`WeldIdSso`] (WeldID's SSO connections, over [`WeldIdIdentity`]'s admin client) | Clerk's SAML connections |
 //! | `SignInProvider` | [`ZitadelSignIn`] (Zitadel's session API, as its login client) | Clerk's sign-in, which Global's browser calls itself |
 //! | `OutboundHttp` | [`ReqwestOutbound`] | a Worker's `fetch` to third parties |
 //! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
@@ -39,6 +40,7 @@ mod smtp_transport;
 mod valkey;
 mod valkey_ledger;
 mod weldid;
+mod weldid_sso;
 mod zitadel;
 mod zitadel_api;
 mod zitadel_sign_in;
@@ -66,5 +68,6 @@ pub use smtp_transport::{SmtpMailTransport, refusal_code};
 pub use valkey::{ValkeyCache, ValkeyRealtime, connect_valkey};
 pub use valkey_ledger::ValkeyLedgerStore;
 pub use weldid::{INVITATIONS_UNAVAILABLE, WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions};
+pub use weldid_sso::{WELDID_SSO_TENANTS_PATH, WeldIdSso};
 pub use zitadel::{ZitadelIdentity, ZitadelOptions};
 pub use zitadel_sign_in::{ZitadelSignIn, ZitadelSignInOptions};

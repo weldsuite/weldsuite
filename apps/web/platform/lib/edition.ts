@@ -33,7 +33,12 @@ import { getRuntimeConfig } from '@/lib/runtime-config';
  * (`UNAVAILABLE_FEATURES` in `rust/bins/weldsuite/src/edition.rs`).
  */
 export const EDITION_FEATURES = [
-  /** SAML connections (`/api/sso` connection changes). */
+  /**
+   * Enterprise SSO connections (`/api/sso`): Clerk's SAML connections on
+   * Global; on the Kubernetes editions only with WeldID as the identity
+   * provider, as OpenID Connect connections (ADR SEC-019). Zitadel installs
+   * list it, and the settings page is hidden.
+   */
   'sso-connections',
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',

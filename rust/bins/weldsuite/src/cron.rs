@@ -1722,7 +1722,7 @@ fn workspace_infra(config: &Config) -> Result<WorkspaceInfra, Box<dyn std::error
         config.workspaces.clone(),
     ));
     let mail = crate::infra::system_mail(&config.infra)?;
-    let identity = crate::infra::identity(&config.infra, &master, mail.as_ref())?;
+    let identity = crate::infra::identity(&config.infra, &master, mail.as_ref())?.identity;
     let provisioner = crate::infra::provisioner(&config.infra, &master, &config.keyring)?;
     Ok(WorkspaceInfra {
         master,
