@@ -71,11 +71,11 @@ function WeekRow({ weeks, height, children }: Readonly<{ weeks: number; height: 
 }
 
 /** A project's hours per week under an opened person. */
-function ProjectWeekRow({ weeks, hours, nothing }: Readonly<{ weeks: number; hours: readonly number[]; nothing: string }>) {
+function ProjectWeekRow({ weekIds, hours, nothing }: Readonly<{ weekIds: readonly string[]; hours: readonly number[]; nothing: string }>) {
   return (
-    <WeekRow weeks={weeks} height={PROJECT_ROW_HEIGHT}>
+    <WeekRow weeks={weekIds.length} height={PROJECT_ROW_HEIGHT}>
       {hours.map((h, i) => (
-        <div key={i} className={cn(WEEK_CELL, 'flex items-center justify-center text-[11px] text-foreground/80 tabular-nums')}>
+        <div key={weekIds[i]} className={cn(WEEK_CELL, 'flex items-center justify-center text-[11px] text-foreground/80 tabular-nums')}>
           {h > 0 ? `${h} h` : nothing}
         </div>
       ))}
@@ -119,10 +119,11 @@ function EditButton({ label, onClick }: Readonly<{ label: string; onClick: () =>
   );
 }
 
-function memberCells(member: MemberCapacity, copy: Parameters<typeof cellLabel>[0], format: Format) {
+/** A week's cells are keyed by its ISO week (`2026-W45`), which stays put when the range moves. */
+function memberCells(member: MemberCapacity, weekIds: readonly string[], copy: Parameters<typeof cellLabel>[0], format: Format) {
   return member.cells.map((cell, i) => (
     <Cell
-      key={i}
+      key={weekIds[i]}
       hours={cell.hours}
       tentativeHours={cell.tentativeHours}
       percent={cell.percent}
@@ -132,11 +133,11 @@ function memberCells(member: MemberCapacity, copy: Parameters<typeof cellLabel>[
   ));
 }
 
-function groupCells(group: SkillGroup, copy: Parameters<typeof cellLabel>[0], format: Format) {
+function groupCells(group: SkillGroup, weekIds: readonly string[], copy: Parameters<typeof cellLabel>[0], format: Format) {
   return group.hours.map((hours, i) => {
     const percent = percentOf(hours, group.capacity[i]);
     const rounded = Math.round(hours * 100) / 100;
-    return <Cell key={i} hours={hours} tentativeHours={0} percent={percent} band={bandOf(hours, percent)} label={cellLabel(copy, format, percent, rounded, 0)} />;
+    return <Cell key={weekIds[i]}hours={hours} tentativeHours={0} percent={percent} band={bandOf(hours, percent)} label={cellLabel(copy, format, percent, rounded, 0)} />;
   });
 }
 
@@ -157,13 +158,13 @@ interface Lines {
   grid: ReactNode[];
 }
 
-function skillLines(members: readonly MemberCapacity[], weeks: number, heat: HeatCopy, format: Format): Lines {
+function skillLines(members: readonly MemberCapacity[], weekIds: readonly string[], heat: HeatCopy, format: Format): Lines {
   const lines: Lines = { sidebar: [], grid: [] };
-  for (const group of groupBySkill(members, weeks)) {
+  for (const group of groupBySkill(members, weekIds.length)) {
     lines.sidebar.push(<GroupSidebarRow key={group.key} label={group.label || heat.noSkill} people={format(heat.people, { count: group.members.length })} />);
     lines.grid.push(
-      <WeekRow key={group.key} weeks={weeks} height={ROW_HEIGHT}>
-        {groupCells(group, heat, format)}
+      <WeekRow key={group.key} weeks={weekIds.length} height={ROW_HEIGHT}>
+        {groupCells(group, weekIds, heat, format)}
       </WeekRow>,
     );
   }
@@ -171,7 +172,7 @@ function skillLines(members: readonly MemberCapacity[], weeks: number, heat: Hea
 }
 
 interface MemberLineOptions {
-  weeks: number;
+  weekIds: readonly string[];
   heat: HeatCopy;
   format: Format;
   name: string;
@@ -183,7 +184,7 @@ interface MemberLineOptions {
 }
 
 /** A person's line, and their project lines when the person is opened. */
-function memberLines(member: MemberCapacity, { weeks, heat, format, name, image, open, onToggle, onEdit }: MemberLineOptions): Lines {
+function memberLines(member: MemberCapacity, { weekIds, heat, format, name, image, open, onToggle, onEdit }: MemberLineOptions): Lines {
   const sidebar: ReactNode[] = [
     <MemberSidebarRow
       key={member.memberId}
@@ -199,15 +200,15 @@ function memberLines(member: MemberCapacity, { weeks, heat, format, name, image,
     />,
   ];
   const grid: ReactNode[] = [
-    <WeekRow key={member.memberId} weeks={weeks} height={ROW_HEIGHT}>
-      {memberCells(member, heat, format)}
+    <WeekRow key={member.memberId} weeks={weekIds.length} height={ROW_HEIGHT}>
+      {memberCells(member, weekIds, heat, format)}
     </WeekRow>,
   ];
   if (open) {
     for (const row of member.projects) {
       const key = `${member.memberId}:${projectKey(row)}`;
       sidebar.push(<ProjectSidebarRow key={key} name={row.accessible ? row.name : heat.otherProject} muted={!row.accessible} />);
-      grid.push(<ProjectWeekRow key={key} weeks={weeks} hours={row.hours} nothing={heat.nothing} />);
+      grid.push(<ProjectWeekRow key={key} weekIds={weekIds} hours={row.hours} nothing={heat.nothing} />);
     }
   }
   return { sidebar, grid };
@@ -287,14 +288,15 @@ export function Heatmap({ load, groupBy, canEdit, nameOf, pictureOf, onEdit }: R
   const { t, format, language } = useI18n();
   const heat = t.flowPortfolio.capacity.heatmap;
   const weeks = load.weeks.length;
+  const weekIds = load.weeks.map((week) => week.week);
   const bySkill = groupBy === 'skill';
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const lines = bySkill
-    ? skillLines(load.members, weeks, heat, format)
+    ? skillLines(load.members, weekIds, heat, format)
     : personLines(load.members, (member) =>
         memberLines(member, {
-          weeks,
+          weekIds,
           heat,
           format,
           name: nameOf(member.memberId),
