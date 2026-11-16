@@ -7,5 +7,5 @@ admin_cidrs = ["203.0.113.10/32"]
 ssh_keys    = ["ops"]
 
 # location    = "hel1"
-# server_type = "cpx12"
+# server_type = "cpx02"
 # backups     = true

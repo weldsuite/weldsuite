@@ -51,9 +51,9 @@ variable "location" {
 }
 
 variable "server_type" {
-  description = "x86 server type (the OpenBao package below is amd64). OpenBao needs well under 1 GB of memory."
+  description = "x86 server type (the OpenBao package below is amd64). OpenBao, Caddy and Debian fit in 1 GB. A running server can be rescaled to a type with the same or a bigger disk, never a smaller one."
   type        = string
-  default     = "cpx12"
+  default     = "cpx02"
 
   validation {
     condition     = !startswith(var.server_type, "cax")
