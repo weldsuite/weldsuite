@@ -236,7 +236,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
         unfurl={async (url) => (await boardsApi.current.unfurl({ url })).data}
         headerExtra={<PeerAvatars controller={controller} peers={peers} />}
         banner={<FollowBanner controller={controller} peers={peers} />}
-        onShare={fileId && !record.data?.projectId ? () => setShareTarget({ kind: 'item', fileId, name: name || tw.home.untitled, link }) : undefined}
+        onShare={fileId && !record.data?.projectId ? () => setShareTarget({ kind: 'item', fileId, name: name || tw.home.untitled, link, description: tw.editor.shareDescription }) : undefined}
         back={<BackLink to={backTo} label={backLabel ?? tw.home.backHome} />}
         record={records.record}
         recordVersion={records.version}

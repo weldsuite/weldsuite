@@ -1349,6 +1349,8 @@ export function MessageList({
     <>
     <ConversationList
       items={items}
+      // The unread dot and bold sender already mark unread mail.
+      hideUnreadCount
       selectedId={getSelectedId()}
       getItemUrl={getItemUrl}
       filterContent={filterPopover}

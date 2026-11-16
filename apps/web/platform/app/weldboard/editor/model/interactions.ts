@@ -44,6 +44,7 @@ import {
 } from '@weldsuite/board-engine';
 import type { BoardController } from './board-controller';
 import { toBoard, toScreen, zoomAt } from './camera';
+import { selectAllText, selectWordAt } from './text-editing';
 import { DROPPABLE_TOOLS, type ToolKind } from './tools';
 
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -725,8 +726,14 @@ export class Interactions {
 
   doubleClick(info: PointerInfo): void {
     const c = this.c;
-    if (c.tool !== 'select') return;
     const p = toBoard(c.camera, info.screen);
+    // In the text being edited: select the word under the pointer.
+    const pos = this.editedTextOffsetAt(p);
+    if (pos !== null) {
+      selectWordAt(c, pos);
+      return;
+    }
+    if (c.tool !== 'select') return;
     const hit = c.index.hit(p, this.tolerance());
     if (!hit) {
       if (!c.readOnly) this.placeSticky(p);
@@ -754,7 +761,39 @@ export class Interactions {
     }
   }
 
+  /** A third click in a row in the text being edited selects all of it. */
+  tripleClick(info: PointerInfo): void {
+    if (this.editedTextOffsetAt(toBoard(this.c.camera, info.screen)) !== null) selectAllText(this.c);
+  }
+
+  /**
+   * Right-click: the element under the pointer becomes the selection, unless it
+   * is already part of it. True when there is a selection to show the menu for.
+   * In the text being edited the press stays with the text (no menu).
+   */
+  contextMenu(screen: Point): boolean {
+    const c = this.c;
+    if (c.readOnly) return false;
+    const p = toBoard(c.camera, screen);
+    if (this.editedTextOffsetAt(p) !== null) return false;
+    if (c.editing) c.stopEditing();
+    const hit = c.index.hit(p, this.tolerance());
+    if (!hit) return false;
+    const target = c.selection.has(hit.id) ? hit : outerGroup(c, hit);
+    if (!c.selection.has(target.id)) c.select([target.id]);
+    c.changed();
+    return true;
+  }
+
   // ---------------------------------------------------------------- helpers
+
+  /** Where `p` falls in the text being edited, or null when it is outside it (or nothing is). */
+  private editedTextOffsetAt(p: Point): number | null {
+    const c = this.c;
+    const el = c.editing ? c.board.get(c.editing.id) : undefined;
+    if (!el || !this.pointInTextBox(el, p)) return null;
+    return this.textOffsetAt(el, p);
+  }
 
   private neighbours(near: Rect, skip: Set<string>): Rect[] {
     const c = this.c;

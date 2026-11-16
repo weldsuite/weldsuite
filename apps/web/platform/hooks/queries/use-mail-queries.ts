@@ -18,6 +18,15 @@ import { mailKeys } from '@/hooks/queries/mail-keys';
 import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
 import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { mailLabelThreadsInfiniteQueryOptions } from '@/app/weldmail/lib/mail-label-threads-query';
+import {
+  isSampleMailMode,
+  isSampleMessageId,
+  sampleAttachments,
+  sampleLabelThreadsPage,
+  sampleMessage,
+  sampleThread,
+  setSampleMailAccount,
+} from '@/app/weldmail/lib/sample-mail';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -170,7 +179,7 @@ export function useMailMessage(id: string, enabled = true) {
   const { mailMessages } = useAppApi();
   return useQuery({
     queryKey: mailKeys.message(id),
-    queryFn: () => mailMessages.get(id),
+    queryFn: () => (isSampleMessageId(id) ? sampleMessage(id) : mailMessages.get(id)),
     enabled: !!id && enabled,
     // Full message body — don't persist (phase 1 item 6).
     meta: { persist: false },
@@ -190,7 +199,7 @@ export function useMailThread(_accountId: string, messageId: string, enabled = t
   const { mailMessages } = useAppApi();
   return useQuery({
     queryKey: mailKeys.thread(messageId),
-    queryFn: () => mailMessages.thread(messageId),
+    queryFn: () => (isSampleMessageId(messageId) ? sampleThread(messageId) : mailMessages.thread(messageId)),
     enabled: !!messageId && enabled,
     // Full thread, bodies included — don't persist (phase 1 item 6).
     meta: { persist: false },
@@ -330,7 +339,11 @@ export function useMarkThreadAsRead() {
       accountId: string;
       threadId: string;
       isRead: boolean;
-    }) => mailThreads.markRead(threadId, accountId, { isRead }),
+    }) =>
+      // Sample conversations live in the browser only; opening one changes nothing.
+      threadId.startsWith('sample_thread_')
+        ? Promise.resolve({ data: { updatedCount: 0 } })
+        : mailThreads.markRead(threadId, accountId, { isRead }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
       refreshSidebarBadges(qc);
@@ -700,9 +713,18 @@ export function useInfiniteMailLabelThreads(
   enabled = true,
 ) {
   const { mailLabels } = useAppApi();
+  // Development: `?sampleMail=1` lists sample conversations under your first
+  // mail account instead (app/weldmail/lib/sample-mail.ts), in their own cache
+  // entry so the real list and the samples never mix.
+  const sample = isSampleMailMode();
+  const { data: accounts } = useMailAccounts(sample);
+  const sampleAccount = accounts?.data?.[0];
+  if (sample) setSampleMailAccount(sampleAccount && { id: sampleAccount.id, email: sampleAccount.email, displayName: sampleAccount.displayName });
+  const options = mailLabelThreadsInfiniteQueryOptions(sample ? sampleLabelThreadsPage : mailLabels.threads, params);
   return useInfiniteQuery({
-    ...mailLabelThreadsInfiniteQueryOptions(mailLabels.threads, params),
-    enabled: !!params.labelSlug && enabled,
+    ...options,
+    queryKey: (sample ? [...options.queryKey, 'sample', sampleAccount?.id ?? null] : options.queryKey) as typeof options.queryKey,
+    enabled: !!params.labelSlug && enabled && (!sample || !!accounts),
   });
 }
 
@@ -745,7 +767,8 @@ export function useMailAttachments(messageId: string, enabled = true) {
   const { mailAttachments } = useAppApi();
   return useQuery({
     queryKey: mailKeys.attachments(messageId),
-    queryFn: () => mailAttachments.listForMessage(messageId),
+    queryFn: () =>
+      isSampleMessageId(messageId) ? sampleAttachments(messageId) : mailAttachments.listForMessage(messageId),
     enabled: !!messageId && enabled,
   });
 }// =============================================================================
@@ -931,6 +954,23 @@ export function useGenerateEmailDraft() {
     mutationFn: async (data: Record<string, unknown>): Promise<AiDraftResponse> => {
       assertFeature('mail-ai');
       const res = await mailAi.draft(data as Parameters<typeof mailAi.draft>[0]);
+      return res.json();
+    },
+  });
+}
+
+interface AiImproveTextResponse {
+  success: boolean;
+  data?: { text?: string };
+}
+
+/** Rewrites email text (improve, shorten, expand, formalize, make friendlier). */
+export function useImproveEmailText() {
+  const { mailAi } = useAppApi();
+  return useMutation({
+    mutationFn: async (data: Parameters<typeof mailAi.improveText>[0]): Promise<AiImproveTextResponse> => {
+      assertFeature('mail-ai');
+      const res = await mailAi.improveText(data);
       return res.json();
     },
   });

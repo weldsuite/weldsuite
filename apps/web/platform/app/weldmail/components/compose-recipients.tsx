@@ -4,7 +4,7 @@
  * the full-page compose and the floating compose panel so both behave the same.
  */
 import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ChevronDown, PanelRight, User, X } from 'lucide-react';
+import { ChevronDown, CircleAlert, PanelRight, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -44,6 +44,13 @@ interface PersonLike {
 // A complete, syntactically valid email address (used to decide whether Enter
 // should commit the typed text verbatim or resolve the highlighted suggestion).
 const isCompleteEmail = (value: string) => /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/.test(value.trim());
+
+/**
+ * Whether a recipient can be sent to: a plain address, or a named one
+ * (`Ann <ann@example.com>`, as restored drafts may hold).
+ */
+export const isValidRecipient = (value: string): boolean =>
+  isCompleteEmail(/<([^<>]+)>\s*$/.exec(value)?.[1] ?? value);
 
 const parseRecipientList = (value: string): string[] =>
   value.split(/[,;]/).map((e) => e.trim()).filter((e) => e.length > 0);
@@ -335,7 +342,7 @@ function ToRecipientsInput({
   /** Accessible name of the typing input (To, Cc, Bcc). */
   label: string;
   testId?: string;
-  /** Marks the input as failing validation (a send without any recipient). */
+  /** Marks the input as failing validation (no recipient, or one that is not an address). */
   invalid?: boolean;
   /** Id of the element that explains `invalid`. */
   describedBy?: string;
@@ -353,57 +360,72 @@ function ToRecipientsInput({
       {/* Plain avatar and address at rest. Hovering (or selecting) one shows the pill with a
           chevron over the faded end of the address; clicking opens its menu, and Backspace
           or Delete removes the selected one. */}
-      {recipients.map((email) => (
-        <DropdownMenu key={email}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      {recipients.map((email) => {
+        const valid = isValidRecipient(email);
+        return (
+          <DropdownMenu key={email}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+                  e.preventDefault();
+                  onRemoveRecipient(email);
+                }}
+                data-invalid={valid ? undefined : 'true'}
+                className={cn(
+                  'group relative inline-flex items-center gap-1.5 h-[26px] max-w-full -ml-[5px] pl-1 pr-1.5 rounded-md border border-transparent text-sm text-gray-700 dark:text-foreground outline-none cursor-pointer hover:bg-gray-50 hover:border-gray-200 focus:bg-gray-50 focus:border-gray-200 data-[state=open]:bg-gray-50 data-[state=open]:border-gray-200 dark:hover:bg-accent/40 dark:hover:border-border/50 dark:focus:bg-accent/40 dark:focus:border-border/50 dark:data-[state=open]:bg-accent/40 dark:data-[state=open]:border-border/50',
+                  !valid && 'text-destructive dark:text-destructive',
+                )}
+              >
+                {valid ? (
+                  <RecipientAvatar avatarUrl={people[personKey(email)]?.avatarUrl} name={email} compact />
+                ) : (
+                  // The circle stops one unit (of 24) short of the icon's edge; the
+                  // negative margin takes that back, so the gap to the address
+                  // looks the same as the avatar's.
+                  <CircleAlert aria-hidden="true" className="size-4 flex-shrink-0 -mr-[calc(1rem/24)]" />
+                )}
+                <span className={cn('truncate', RECIPIENT_FADE)}>{email}</span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="absolute right-1.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-data-[state=open]:opacity-100"
+                />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-56"
+              align="start"
+              onCloseAutoFocus={(e) => {
+                // Back to typing, not to a recipient that may just have been removed.
                 e.preventDefault();
-                onRemoveRecipient(email);
+                inputRef.current?.focus();
               }}
-              className="group relative inline-flex items-center gap-1.5 h-[26px] max-w-full -ml-[5px] pl-1 pr-1.5 rounded-md border border-transparent text-sm text-gray-700 dark:text-foreground outline-none cursor-pointer hover:bg-gray-50 hover:border-gray-200 focus:bg-gray-50 focus:border-gray-200 data-[state=open]:bg-gray-50 data-[state=open]:border-gray-200 dark:hover:bg-accent/40 dark:hover:border-border/50 dark:focus:bg-accent/40 dark:focus:border-border/50 dark:data-[state=open]:bg-accent/40 dark:data-[state=open]:border-border/50"
             >
-              <RecipientAvatar avatarUrl={people[personKey(email)]?.avatarUrl} name={email} compact />
-              <span className={cn('truncate', RECIPIENT_FADE)}>{email}</span>
-              <ChevronDown
-                aria-hidden="true"
-                className="absolute right-1.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-data-[state=open]:opacity-100"
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            onCloseAutoFocus={(e) => {
-              // Back to typing, not to a recipient that may just have been removed.
-              e.preventDefault();
-              inputRef.current?.focus();
-            }}
-          >
-            {people[personKey(email)] && (
-              <>
-                <DropdownMenuItem
-                  onSelect={() => openObjectPanel({ type: 'person', id: people[personKey(email)].id })}
-                >
-                  <PanelRight />
-                  {t.mail.composePage.openRecipientDetails}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem onSelect={() => onRemoveRecipient(email)}>
-              <X />
-              {t.mail.composePage.removeRecipient}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ))}
+              {people[personKey(email)] && (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => openObjectPanel({ type: 'person', id: people[personKey(email)].id })}
+                  >
+                    <PanelRight />
+                    {t.mail.composePage.openRecipientDetails}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem onSelect={() => onRemoveRecipient(email)}>
+                <X />
+                {t.mail.composePage.removeRecipient}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      })}
       <input
         ref={inputRef}
         type="text"
-        className="flex-1 min-w-[120px] h-[26px] text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent"
+        className="flex-1 min-w-[120px] h-[26px] text-sm outline-none bg-transparent"
         value={input}
         onChange={onInputChange}
         onKeyDown={onInputKeyDown}
@@ -486,6 +508,7 @@ export function RecipientsRow({
   testId,
   handleRef,
   error,
+  labelContent,
 }: Readonly<{
   label: string;
   recipients: string[];
@@ -500,9 +523,15 @@ export function RecipientsRow({
   focusOnMount?: boolean;
   testId?: string;
   handleRef?: React.Ref<RecipientsRowHandle>;
-  /** Message shown under the row, which also marks the input as invalid. */
+  /**
+   * Message shown under the row, which also marks the input as invalid. Without
+   * one, the row reports its own recipients that are not email addresses.
+   */
   error?: string;
+  /** Shown in place of the label text (the reply box puts its Reply ▾ menu there); `label` still names the field. */
+  labelContent?: React.ReactNode;
 }>) {
+  const { t } = useI18n();
   const errorId = useId();
   const suggestions = useContactSuggestions();
   const recipientInput = useRecipientInput({
@@ -512,6 +541,17 @@ export function RecipientsRow({
     setToInput: setInput,
     suggestions,
   });
+
+  // A recipient that is not an email address (typed, then clicked away from
+  // without picking a person) shows in red, and this line says which one.
+  const invalidRecipients = recipients.filter((recipient) => !isValidRecipient(recipient));
+  let invalidMessage: string | undefined;
+  if (invalidRecipients.length === 1) {
+    invalidMessage = t.mail.compose.invalidRecipient.replace('{recipient}', invalidRecipients[0]);
+  } else if (invalidRecipients.length > 1) {
+    invalidMessage = t.mail.compose.invalidRecipients.replace('{recipients}', invalidRecipients.join(', '));
+  }
+  const rowError = error ?? invalidMessage;
 
   const { people, rememberPerson } = useRecipientPeople(recipients);
   const selectContact = (contact: PersonSuggestion) => {
@@ -531,10 +571,14 @@ export function RecipientsRow({
     <>
       <div className="relative">
         <div className="flex items-start min-h-9">
-          {/* `leading-9` goes last: a text-size class in `labelClassName` would otherwise
-              reset the line height and leave the label above the field's centre line. */}
-          <span className={cn(labelClassName, 'leading-9')}>{label}</span>
-          <div className="flex flex-1 min-w-0 py-[5px]">
+          {labelContent ? (
+            <div className={cn(labelClassName, 'flex h-9 items-center')}>{labelContent}</div>
+          ) : (
+            // `leading-9` goes last: a text-size class in `labelClassName` would otherwise
+            // reset the line height and leave the label above the field's centre line.
+            <span className={cn(labelClassName, 'leading-9')}>{label}</span>
+          )}
+          <div className="flex flex-1 flex-col min-w-0 py-[5px]">
             <ToRecipientsInput
               recipients={recipients}
               people={people}
@@ -547,22 +591,23 @@ export function RecipientsRow({
               onInputBlur={recipientInput.handleToInputBlur}
               label={label}
               testId={testId}
-              invalid={!!error}
+              invalid={!!rowError}
               describedBy={errorId}
             />
+            {/* Under the field, whatever the label's width */}
+            {rowError && (
+              <p
+                id={errorId}
+                role="alert"
+                data-testid={testId ? `${testId}-error` : undefined}
+                className="pt-1 text-xs text-destructive"
+              >
+                {rowError}
+              </p>
+            )}
           </div>
           {trailing}
         </div>
-        {error && (
-          <p
-            id={errorId}
-            role="alert"
-            data-testid={testId ? `${testId}-error` : undefined}
-            className={cn(labelClassName && 'pl-[72px]', 'pb-1 text-xs text-destructive')}
-          >
-            {error}
-          </p>
-        )}
 
         {suggestions.show && (
           <ContactSuggestionsList

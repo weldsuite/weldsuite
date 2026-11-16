@@ -5,6 +5,7 @@ import { isFeatureAvailable } from '@/lib/edition';
 import { useRouter } from '@/lib/router';
 import type { BoardController } from '../editor/model/board-controller';
 import type { LiveBoardProps } from './live-board';
+import { BoardAiIsland } from './ai-island';
 import { BoardPanels, PanelMenuItems, SidePanels } from './panels';
 import { recordUrl } from './records';
 
@@ -37,6 +38,7 @@ export function useBoardExtensions(): LiveBoardProps['extend'] {
         onComment: (id: string) => store.focusComment(id),
         onRecords: ctx.mode === 'edit' ? () => store.openRecords() : undefined,
         onAi: ctx.mode === 'edit' && aiAvailable ? () => store.openAi() : undefined,
+        island: ctx.mode === 'edit' && aiAvailable ? <BoardAiIsland controller={c} boardId={ctx.boardId} panels={store} /> : undefined,
         context: {
           ...(ctx.mode === 'edit' && canCreateTasks ? { onToTasks: (ids: string[]) => store.openTasks(ids) } : {}),
           onOpenRecord: (el) => {

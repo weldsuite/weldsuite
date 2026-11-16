@@ -11,14 +11,13 @@ import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { DashboardPage } from '@weldsuite/ui/components/page-layout';
 import { ListTable, type ListTableColumn } from '@weldsuite/ui/components/list-table';
-import { Label } from '@weldsuite/ui/components/label';
-import { Switch } from '@weldsuite/ui/components/switch';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
+import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { useLegalEntities } from '@/hooks/queries/use-legal-entities-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { CreateLegalEntityDialog } from './create-dialog';
@@ -30,10 +29,27 @@ export default function LegalEntitiesSettingsPage() {
   const navigate = useNavigate();
   const canRead = useCan('legal_entities:read');
   const canCreate = useCan('legal_entities:create');
-  const [includeArchived, setIncludeArchived] = useState(false);
+  // The Status filter: none (or "is Active") lists the active entities, "is
+  // Archived" (or "is not Active") fetches the archived ones too and lists only those.
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const statusFilter = activeFilters.find((filter) => filter.field === 'status' && filter.value);
+  const includeArchived =
+    !!statusFilter && (statusFilter.value === 'archived') === (statusFilter.operator === 'is');
   const [creating, setCreating] = useState(false);
   const legalFormLabel = useLegalFormLabel();
   const { data, isLoading, error, refetch } = useLegalEntities({ includeArchived, enabled: canRead });
+  const rows = includeArchived ? (data ?? []).filter((entity) => !entity.isActive) : (data ?? []);
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: 'status',
+      label: tl.filters.status,
+      filterType: 'select',
+      options: [
+        { value: 'active', label: tl.filters.active },
+        { value: 'archived', label: tl.filters.archived },
+      ],
+    },
+  ];
   const appLabels = tl.apps as Record<string, string>;
 
   const columns: ListTableColumn<LegalEntity>[] = [
@@ -109,7 +125,11 @@ export default function LegalEntitiesSettingsPage() {
     content = (
       <ListTable
         columns={columns}
-        data={data ?? []}
+        data={rows}
+        // Framed like the other settings lists; the last row's divider would
+        // double the bottom edge, so it goes. Left off for the empty state,
+        // which draws its own block.
+        className={rows.length ? 'overflow-clip rounded-lg border [&>*:last-child]:border-b-0' : undefined}
         rowKey={(entity) => entity.id}
         rowLabel={(entity) => entity.name}
         onRowClick={(entity) => navigate({ to: '/settings/legal-entities/$id', params: { id: entity.id } })}
@@ -117,7 +137,7 @@ export default function LegalEntitiesSettingsPage() {
           icon: <Scale className="h-8 w-8" />,
           title: includeArchived ? tl.empty.archivedTitle : tl.empty.title,
           description: includeArchived ? tl.empty.archivedDescription : tl.empty.description,
-          action: canCreate ? { label: tl.add, onClick: () => setCreating(true) } : undefined,
+          action: canCreate && !includeArchived ? { label: tl.add, onClick: () => setCreating(true) } : undefined,
         }}
       />
     );
@@ -128,26 +148,28 @@ export default function LegalEntitiesSettingsPage() {
       title={tl.title}
       description={tl.description}
       className="max-w-5xl"
-      actions={
-        canRead ? (
-          <>
-            <div className="flex items-center gap-2">
-              <Switch id="legal-entities-archived" checked={includeArchived} onCheckedChange={setIncludeArchived} />
-              <Label htmlFor="legal-entities-archived" className="text-sm font-normal">
-                {tl.showArchived}
-              </Label>
-            </div>
+    >
+      {/* Toolbar right above the list, as on the other settings lists: the
+          Filter button on the left, the add button on the right. */}
+      <div className="space-y-3">
+        {canRead && (
+          <div className="flex items-center justify-between gap-2">
+            <FilterPills
+              filters={activeFilters}
+              filterConfigs={filterConfigs}
+              maxFilters={1}
+              onFiltersChange={setActiveFilters}
+            />
             {canCreate && (
               <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus />
                 {tl.add}
               </Button>
             )}
-          </>
-        ) : undefined
-      }
-    >
-      {content}
+          </div>
+        )}
+        {content}
+      </div>
       <CreateLegalEntityDialog
         open={creating}
         onOpenChange={setCreating}

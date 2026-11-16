@@ -31,6 +31,7 @@ export function ConversationList({
   isLoading,
   footer,
   onSearchChange,
+  hideUnreadCount,
 }: Readonly<ConversationListProps>) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.shared.noConversationsFound');
@@ -114,6 +115,7 @@ export function ConversationList({
                 onToggleStar={onToggleStar ? () => onToggleStar(item.id) : undefined}
                 contextMenuContent={contextMenuItems?.(item)}
                 onLabelDrop={onLabelDrop ? (labelData) => onLabelDrop(item, labelData) : undefined}
+                hideUnreadCount={hideUnreadCount}
               />
             ))}
           </div>

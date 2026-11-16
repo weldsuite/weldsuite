@@ -46,6 +46,12 @@ function hasScrollingAncestor(node: HTMLElement): boolean {
   return document.documentElement.scrollHeight > window.innerHeight + 1;
 }
 
+/** The optional box around the column header and rows (`listClassName`). */
+function ListFrame({ className, children }: Readonly<{ className?: string; children: React.ReactNode }>) {
+  if (!className) return <>{children}</>;
+  return <div className={cn('overflow-clip [&>div:last-child]:-mb-px', className)}>{children}</div>;
+}
+
 export function EntityList<T extends { id: string }>({
   // Data
   items,
@@ -110,6 +116,7 @@ export function EntityList<T extends { id: string }>({
 
   // Styling
   topBarClassName,
+  listClassName,
   hideTopBar,
   emptyStateClassName,
   itemsClassName,
@@ -439,145 +446,147 @@ export function EntityList<T extends { id: string }>({
       </div>
       )}
 
-      {/* Table Header - hidden on mobile */}
-      {(headerColumns || columns) && (
-        <div className={cn("hidden md:flex items-center px-4 h-[35px] border-b border-border/70 sticky bg-background z-10", columnGap ?? 'gap-4')} style={{ top: stickyOffset }}>
-          {(headerColumns || columns || []).map((column) => {
-            const isSortable = 'sortable' in column && column.sortable && onSort;
-            const isActive = sortState?.columnId === column.id;
-            let headerClassName: string | undefined;
-            if ('className' in column) {
-              headerClassName = column.className;
-            } else if ('headerClassName' in column) {
-              headerClassName = column.headerClassName;
-            }
-            let sortIcon = <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />;
-            if (isActive) {
-              sortIcon = sortState.direction === 'asc'
-                ? <ArrowUp className="h-3 w-3" />
-                : <ArrowDown className="h-3 w-3" />;
-            }
-            return (
-              <div key={column.id} className={cn(column.width, headerClassName)}>
-                {isSortable ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(column.id)}
-                    className={cn(
-                      "flex items-center gap-1 text-xs font-medium cursor-pointer select-none hover:text-foreground transition-colors",
-                      isActive ? "text-foreground" : "text-muted-foreground"
-                    )}
-                  >
-                    {column.header}
-                    {sortIcon}
-                  </button>
-                ) : (
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {column.header}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-          <div className="w-[40px]"></div>
-        </div>
-      )}
-
-      {/* Grouped Items */}
-      <div ref={setItemsNode}>
-        {groupedItems.map((group, groupIndex) => (
-          <div
-            key={group.id}
-            // A list that scrolls ends at the bottom edge of its page, where a
-            // divider under the very last row is one line too many; a short
-            // list keeps it to close itself off. Transparent rather than
-            // removed, so the list's height (and the check above) is unchanged.
-            className={cn(
-              listScrolls &&
-                groupIndex === groupedItems.length - 1 &&
-                '[&>:last-child]:!border-b-transparent',
-            )}
-          >
-            {group.label && renderGroupHeader(group.label, group.items.length, group.rightContent, group.leadingContent)}
-            {itemsClassName ? (
-              <div className={itemsClassName}>
-                {group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))}
-              </div>
-            ) : (
-              group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))
-            )}
-          </div>
-        ))}
-
-        {/* Infinite-scroll sentinel — only present when controlled pagination is wired up.
-            Padding is applied only while loading so the (otherwise empty) sentinel
-            doesn't leave dead space below the last row once everything is loaded. */}
-        {onLoadMore && items.length > 0 && (
-          <div ref={loadMoreSentinelRef} className={cn("flex items-center justify-center", isLoadingMore && "py-4")}>
-            {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      <ListFrame className={listClassName}>
+        {/* Table Header - hidden on mobile */}
+        {(headerColumns || columns) && (
+          <div className={cn("hidden md:flex items-center px-4 h-[35px] border-b border-border/70 sticky bg-background z-10", columnGap ?? 'gap-4')} style={{ top: stickyOffset }}>
+            {(headerColumns || columns || []).map((column) => {
+              const isSortable = 'sortable' in column && column.sortable && onSort;
+              const isActive = sortState?.columnId === column.id;
+              let headerClassName: string | undefined;
+              if ('className' in column) {
+                headerClassName = column.className;
+              } else if ('headerClassName' in column) {
+                headerClassName = column.headerClassName;
+              }
+              let sortIcon = <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />;
+              if (isActive) {
+                sortIcon = sortState.direction === 'asc'
+                  ? <ArrowUp className="h-3 w-3" />
+                  : <ArrowDown className="h-3 w-3" />;
+              }
+              return (
+                <div key={column.id} className={cn(column.width, headerClassName)}>
+                  {isSortable ? (
+                    <button
+                      type="button"
+                      onClick={() => onSort(column.id)}
+                      className={cn(
+                        "flex items-center gap-1 text-xs font-medium cursor-pointer select-none hover:text-foreground transition-colors",
+                        isActive ? "text-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {column.header}
+                      {sortIcon}
+                    </button>
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {column.header}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            <div className="w-[40px]"></div>
           </div>
         )}
 
-        {/* No search results state */}
-        {hasNoResults && noResultsState && (
-          <div className="flex flex-col items-center justify-center text-center min-h-[calc(100dvh-260px)]">
-            <div className="relative mb-5">
-              <div className="relative py-3">
-                <div className="flex gap-2 mb-2">
-                  <div className="w-10 h-7 border border-dashed border-border rounded-md" />
-                  <div className="w-16 h-7 border border-dashed border-border rounded-md" />
+        {/* Grouped Items */}
+        <div ref={setItemsNode}>
+          {groupedItems.map((group, groupIndex) => (
+            <div
+              key={group.id}
+              // A list that scrolls ends at the bottom edge of its page, where a
+              // divider under the very last row is one line too many; a short
+              // list keeps it to close itself off. Transparent rather than
+              // removed, so the list's height (and the check above) is unchanged.
+              className={cn(
+                listScrolls &&
+                  groupIndex === groupedItems.length - 1 &&
+                  '[&>:last-child]:!border-b-transparent',
+              )}
+            >
+              {group.label && renderGroupHeader(group.label, group.items.length, group.rightContent, group.leadingContent)}
+              {itemsClassName ? (
+                <div className={itemsClassName}>
+                  {group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))}
                 </div>
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-border bg-background flex items-center justify-center z-10">
-                  {noResultsState.icon || <XCircle className="w-4 h-4 text-gray-400" />}
-                </div>
-                <div className="flex gap-2">
-                  <div className="w-14 h-7 border border-dashed border-border rounded-md" />
-                  <div className="w-11 h-7 border border-dashed border-border rounded-md" />
-                </div>
-              </div>
+              ) : (
+                group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))
+              )}
             </div>
-            <h3 className="text-sm font-medium text-foreground mb-1">{noResultsState.title}</h3>
-            <p className="text-sm text-muted-foreground mb-4">{noResultsState.description}</p>
-            <Button variant="outline" size="sm" onClick={clearFilters}>
-              Clear filter
-            </Button>
-          </div>
-        )}
+          ))}
 
-        {/* Empty state */}
-        {items.length === 0 && emptyState && !hasNoResults && (
-          <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
-            {emptyState.icon}
-            <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
-            {/* `overflow-wrap:anywhere`: a long unbreakable token (an email address,
-                a URL) must wrap inside the column instead of being clipped by it. */}
-            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">{emptyState.description}</p>
-            {(emptyState.action || emptyState.secondaryAction) && (
-              <div className="flex items-center gap-2">
-                {emptyState.action && (
-                  <Button
-                    size="sm"
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
-                    onClick={emptyState.action.onClick}
-                  >
-                    <Plus className="h-4 w-4 mr-0.5" />
-                    <span>{emptyState.action.label}</span>
-                  </Button>
-                )}
-                {emptyState.secondaryAction && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={emptyState.secondaryAction.onClick}
-                  >
-                    <span>{emptyState.secondaryAction.label}</span>
-                  </Button>
-                )}
+          {/* Infinite-scroll sentinel — only present when controlled pagination is wired up.
+              Padding is applied only while loading so the (otherwise empty) sentinel
+              doesn't leave dead space below the last row once everything is loaded. */}
+          {onLoadMore && items.length > 0 && (
+            <div ref={loadMoreSentinelRef} className={cn("flex items-center justify-center", isLoadingMore && "py-4")}>
+              {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+          )}
+
+          {/* No search results state */}
+          {hasNoResults && noResultsState && (
+            <div className="flex flex-col items-center justify-center text-center min-h-[calc(100dvh-260px)]">
+              <div className="relative mb-5">
+                <div className="relative py-3">
+                  <div className="flex gap-2 mb-2">
+                    <div className="w-10 h-7 border border-dashed border-border rounded-md" />
+                    <div className="w-16 h-7 border border-dashed border-border rounded-md" />
+                  </div>
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-border bg-background flex items-center justify-center z-10">
+                    {noResultsState.icon || <XCircle className="w-4 h-4 text-gray-400" />}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="w-14 h-7 border border-dashed border-border rounded-md" />
+                    <div className="w-11 h-7 border border-dashed border-border rounded-md" />
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        )}
-      </div>
+              <h3 className="text-sm font-medium text-foreground mb-1">{noResultsState.title}</h3>
+              <p className="text-sm text-muted-foreground mb-4">{noResultsState.description}</p>
+              <Button variant="outline" size="sm" onClick={clearFilters}>
+                Clear filter
+              </Button>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {items.length === 0 && emptyState && !hasNoResults && (
+            <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
+              {emptyState.icon}
+              <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
+              {/* `overflow-wrap:anywhere`: a long unbreakable token (an email address,
+                  a URL) must wrap inside the column instead of being clipped by it. */}
+              <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">{emptyState.description}</p>
+              {(emptyState.action || emptyState.secondaryAction) && (
+                <div className="flex items-center gap-2">
+                  {emptyState.action && (
+                    <Button
+                      size="sm"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={emptyState.action.onClick}
+                    >
+                      <Plus className="h-4 w-4 mr-0.5" />
+                      <span>{emptyState.action.label}</span>
+                    </Button>
+                  )}
+                  {emptyState.secondaryAction && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={emptyState.secondaryAction.onClick}
+                    >
+                      <span>{emptyState.secondaryAction.label}</span>
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </ListFrame>
 
       {/* Dialog */}
       {dialogComponent}
