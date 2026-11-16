@@ -27,6 +27,7 @@ function weekColumns(weeks: number): string {
 }
 
 type Format = (s: string, v: Record<string, unknown>) => string;
+type HeatCopy = ReturnType<typeof useI18n>['t']['flowPortfolio']['capacity']['heatmap'];
 
 function cellLabel(
   copy: { cell: string; cellTentative: string; cellNoContract: string },
@@ -69,6 +70,19 @@ function WeekRow({ weeks, height, children }: Readonly<{ weeks: number; height: 
   );
 }
 
+/** A project's hours per week under an opened person. */
+function ProjectWeekRow({ weeks, hours, nothing }: Readonly<{ weeks: number; hours: readonly number[]; nothing: string }>) {
+  return (
+    <WeekRow weeks={weeks} height={PROJECT_ROW_HEIGHT}>
+      {hours.map((h, i) => (
+        <div key={i} className={cn(WEEK_CELL, 'flex items-center justify-center text-[11px] text-foreground/80 tabular-nums')}>
+          {h > 0 ? `${h} h` : nothing}
+        </div>
+      ))}
+    </WeekRow>
+  );
+}
+
 /** The project lines under an opened person, in the member list (like the timeline's task lines). */
 function ProjectSidebarRow({ name, muted }: Readonly<{ name: string; muted: boolean }>) {
   return (
@@ -89,6 +103,19 @@ function GroupSidebarRow({ label, people }: Readonly<{ label: string; people: st
       <span className="block min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
       <span className="block shrink-0 text-xs text-muted-foreground">{people}</span>
     </div>
+  );
+}
+
+function EditButton({ label, onClick }: Readonly<{ label: string; onClick: () => void }>) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+    >
+      <Pencil className="size-3" />
+    </button>
   );
 }
 
@@ -117,6 +144,130 @@ function projectKey(row: MemberCapacity['projects'][number]): string {
   return `${row.projectId ?? ''}:${row.requestId ?? ''}`;
 }
 
+function toggled(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
+/** The member list's lines and the week grid's lines, built side by side so they stay level. */
+interface Lines {
+  sidebar: ReactNode[];
+  grid: ReactNode[];
+}
+
+function skillLines(members: readonly MemberCapacity[], weeks: number, heat: HeatCopy, format: Format): Lines {
+  const lines: Lines = { sidebar: [], grid: [] };
+  for (const group of groupBySkill(members, weeks)) {
+    lines.sidebar.push(<GroupSidebarRow key={group.key} label={group.label || heat.noSkill} people={format(heat.people, { count: group.members.length })} />);
+    lines.grid.push(
+      <WeekRow key={group.key} weeks={weeks} height={ROW_HEIGHT}>
+        {groupCells(group, heat, format)}
+      </WeekRow>,
+    );
+  }
+  return lines;
+}
+
+interface MemberLineOptions {
+  weeks: number;
+  heat: HeatCopy;
+  format: Format;
+  name: string;
+  image: string | undefined;
+  open: boolean;
+  onToggle: () => void;
+  /** Set when the viewer may edit the person's capacity profile. */
+  onEdit?: () => void;
+}
+
+/** A person's line, and their project lines when the person is opened. */
+function memberLines(member: MemberCapacity, { weeks, heat, format, name, image, open, onToggle, onEdit }: MemberLineOptions): Lines {
+  const sidebar: ReactNode[] = [
+    <MemberSidebarRow
+      key={member.memberId}
+      name={name}
+      image={image}
+      subtitle={member.skills.join(', ')}
+      meta={format(heat.hoursPerWeek, { hours: member.weeklyHours })}
+      rowHeight={ROW_HEIGHT}
+      isExpanded={open}
+      onToggle={onToggle}
+      toggleLabel={format(open ? heat.hide : heat.show, { name })}
+      action={onEdit ? <EditButton label={format(heat.editProfile, { name })} onClick={onEdit} /> : undefined}
+    />,
+  ];
+  const grid: ReactNode[] = [
+    <WeekRow key={member.memberId} weeks={weeks} height={ROW_HEIGHT}>
+      {memberCells(member, heat, format)}
+    </WeekRow>,
+  ];
+  if (open) {
+    for (const row of member.projects) {
+      const key = `${member.memberId}:${projectKey(row)}`;
+      sidebar.push(<ProjectSidebarRow key={key} name={row.accessible ? row.name : heat.otherProject} muted={!row.accessible} />);
+      grid.push(<ProjectWeekRow key={key} weeks={weeks} hours={row.hours} nothing={heat.nothing} />);
+    }
+  }
+  return { sidebar, grid };
+}
+
+function personLines(members: readonly MemberCapacity[], lineOf: (member: MemberCapacity) => Lines): Lines {
+  const lines: Lines = { sidebar: [], grid: [] };
+  for (const member of members) {
+    const own = lineOf(member);
+    lines.sidebar.push(...own.sidebar);
+    lines.grid.push(...own.grid);
+  }
+  return lines;
+}
+
+/** Month names over their weeks, and each week's first day under them, like the timeline's header. */
+function WeekHeader({ weeks, locale }: Readonly<{ weeks: CapacityResponse['weeks']; locale: string }>) {
+  return (
+    <div
+      className="sticky top-0 z-20 grid shrink-0 bg-background/90 backdrop-blur-sm"
+      style={{ gridTemplateColumns: weekColumns(weeks.length), gridTemplateRows: '1fr auto', height: HEADER_HEIGHT }}
+    >
+      {monthSpans(weeks, locale).map((month) => (
+        <div
+          key={month.key}
+          className={cn(WEEK_CELL, 'truncate px-3 py-2 text-xs whitespace-nowrap text-muted-foreground')}
+          style={{ gridRow: 1, gridColumn: `span ${month.span}` }}
+        >
+          {month.label}
+        </div>
+      ))}
+      {weeks.map((week) => (
+        <div key={week.week} title={week.week} className={cn(WEEK_CELL, 'border-b py-1 text-center text-xs')} style={{ gridRow: 2 }}>
+          {dayOfMonth(week.startsOn)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Legend() {
+  const { t } = useI18n();
+  const copy = t.flowPortfolio.capacity;
+  return (
+    <ul className="flex shrink-0 flex-wrap items-center gap-4 border-t px-4 py-2.5 text-xs text-muted-foreground">
+      <li className="font-medium text-foreground/80">{copy.heatmap.unit}</li>
+      {BANDS.map((band) => (
+        <li key={band} className="inline-flex items-center gap-1.5">
+          <span aria-hidden className={cn('h-3.5 w-5 rounded-sm', BAND_CLASS[band])} />
+          {copy.legend[band]}
+        </li>
+      ))}
+      <li className="inline-flex items-center gap-1.5">
+        <span aria-hidden className="size-1.5 rounded-full bg-foreground/70" />
+        {copy.legend.tentative}
+      </li>
+    </ul>
+  );
+}
+
 interface HeatmapProps {
   load: CapacityResponse;
   groupBy: 'person' | 'skill';
@@ -134,80 +285,25 @@ interface HeatmapProps {
  */
 export function Heatmap({ load, groupBy, canEdit, nameOf, pictureOf, onEdit }: Readonly<HeatmapProps>) {
   const { t, format, language } = useI18n();
-  const copy = t.flowPortfolio.capacity;
-  const heat = copy.heatmap;
-  const locale = intlLocaleOf(language);
+  const heat = t.flowPortfolio.capacity.heatmap;
   const weeks = load.weeks.length;
+  const bySkill = groupBy === 'skill';
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (memberId: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(memberId)) next.delete(memberId);
-      else next.add(memberId);
-      return next;
-    });
 
-  const sidebar: ReactNode[] = [];
-  const grid: ReactNode[] = [];
-  if (groupBy === 'skill') {
-    for (const group of groupBySkill(load.members, weeks)) {
-      sidebar.push(<GroupSidebarRow key={group.key} label={group.label || heat.noSkill} people={format(heat.people, { count: group.members.length })} />);
-      grid.push(
-        <WeekRow key={group.key} weeks={weeks} height={ROW_HEIGHT}>
-          {groupCells(group, heat, format)}
-        </WeekRow>,
+  const lines = bySkill
+    ? skillLines(load.members, weeks, heat, format)
+    : personLines(load.members, (member) =>
+        memberLines(member, {
+          weeks,
+          heat,
+          format,
+          name: nameOf(member.memberId),
+          image: pictureOf(member.memberId),
+          open: expanded.has(member.memberId),
+          onToggle: () => setExpanded((current) => toggled(current, member.memberId)),
+          onEdit: canEdit ? () => onEdit(member.memberId) : undefined,
+        }),
       );
-    }
-  } else {
-    for (const member of load.members) {
-      const name = nameOf(member.memberId);
-      const open = expanded.has(member.memberId);
-      sidebar.push(
-        <MemberSidebarRow
-          key={member.memberId}
-          name={name}
-          image={pictureOf(member.memberId)}
-          subtitle={member.skills.join(', ')}
-          meta={format(heat.hoursPerWeek, { hours: member.weeklyHours })}
-          rowHeight={ROW_HEIGHT}
-          isExpanded={open}
-          onToggle={() => toggle(member.memberId)}
-          toggleLabel={format(open ? heat.hide : heat.show, { name })}
-          action={
-            canEdit ? (
-              <button
-                type="button"
-                aria-label={format(heat.editProfile, { name })}
-                onClick={() => onEdit(member.memberId)}
-                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-              >
-                <Pencil className="size-3" />
-              </button>
-            ) : undefined
-          }
-        />,
-      );
-      grid.push(
-        <WeekRow key={member.memberId} weeks={weeks} height={ROW_HEIGHT}>
-          {memberCells(member, heat, format)}
-        </WeekRow>,
-      );
-      if (!open) continue;
-      for (const row of member.projects) {
-        const key = `${member.memberId}:${projectKey(row)}`;
-        sidebar.push(<ProjectSidebarRow key={key} name={row.accessible ? row.name : heat.otherProject} muted={!row.accessible} />);
-        grid.push(
-          <WeekRow key={key} weeks={weeks} height={PROJECT_ROW_HEIGHT}>
-            {row.hours.map((h, i) => (
-              <div key={i} className={cn(WEEK_CELL, 'flex items-center justify-center text-[11px] text-foreground/80 tabular-nums')}>
-                {h > 0 ? `${h} h` : heat.nothing}
-              </div>
-            ))}
-          </WeekRow>,
-        );
-      }
-    }
-  }
 
   const frame = {
     '--gantt-header-height': `${HEADER_HEIGHT}px`,
@@ -218,39 +314,21 @@ export function Heatmap({ load, groupBy, canEdit, nameOf, pictureOf, onEdit }: R
     <section aria-label={heat.title} className="flex min-h-0 flex-1 flex-col [--cap-sidebar:200px] md:[--cap-sidebar:380px]">
       <div className="min-h-0 flex-1 overflow-auto bg-secondary">
         <div className="grid min-h-full w-max min-w-full" style={frame}>
-          <GanttSidebar sidebarLabel={groupBy === 'skill' ? heat.group : heat.person} sidebarSecondaryLabel={groupBy === 'skill' ? heat.peopleHeader : heat.contractHours}>
+          <GanttSidebar sidebarLabel={bySkill ? heat.group : heat.person} sidebarSecondaryLabel={bySkill ? heat.peopleHeader : heat.contractHours}>
             <div className="flex flex-col">
               {load.members.length === 0 ? (
                 <div className="flex h-32 flex-col items-center justify-center p-4 text-center">
                   <p className="text-xs text-muted-foreground">{heat.empty}</p>
                 </div>
               ) : (
-                sidebar
+                lines.sidebar
               )}
             </div>
           </GanttSidebar>
 
           <div className="flex min-w-0 flex-col">
-            <div
-              className="sticky top-0 z-20 grid shrink-0 bg-background/90 backdrop-blur-sm"
-              style={{ gridTemplateColumns: weekColumns(weeks), gridTemplateRows: '1fr auto', height: HEADER_HEIGHT }}
-            >
-              {monthSpans(load.weeks, locale).map((month) => (
-                <div
-                  key={month.key}
-                  className={cn(WEEK_CELL, 'truncate px-3 py-2 text-xs whitespace-nowrap text-muted-foreground')}
-                  style={{ gridRow: 1, gridColumn: `span ${month.span}` }}
-                >
-                  {month.label}
-                </div>
-              ))}
-              {load.weeks.map((week) => (
-                <div key={week.week} title={week.week} className={cn(WEEK_CELL, 'border-b py-1 text-center text-xs')} style={{ gridRow: 2 }}>
-                  {dayOfMonth(week.startsOn)}
-                </div>
-              ))}
-            </div>
-            {grid}
+            <WeekHeader weeks={load.weeks} locale={intlLocaleOf(language)} />
+            {lines.grid}
             {/* The week lines carry on to the bottom, as in the timeline. */}
             <div aria-hidden className="grid flex-1" style={{ gridTemplateColumns: weekColumns(weeks) }}>
               {load.weeks.map((week) => (
@@ -260,19 +338,7 @@ export function Heatmap({ load, groupBy, canEdit, nameOf, pictureOf, onEdit }: R
           </div>
         </div>
       </div>
-      <ul className="flex shrink-0 flex-wrap items-center gap-4 border-t px-4 py-2.5 text-xs text-muted-foreground">
-        <li className="font-medium text-foreground/80">{heat.unit}</li>
-        {BANDS.map((band) => (
-          <li key={band} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className={cn('h-3.5 w-5 rounded-sm', BAND_CLASS[band])} />
-            {copy.legend[band]}
-          </li>
-        ))}
-        <li className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="size-1.5 rounded-full bg-foreground/70" />
-          {copy.legend.tentative}
-        </li>
-      </ul>
+      <Legend />
     </section>
   );
 }
