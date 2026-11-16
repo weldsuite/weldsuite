@@ -6,14 +6,14 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useObserve } from 'expo-observe';
-import { useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import {
   ArrowLeft, Bell, Check, ChevronDown, Inbox,
   Shield, Database, Zap,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import storage from '@weldsuite/mobile-ui/utils/storage';
 import api from '@/services/api';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -553,7 +553,7 @@ export default function SetupScreen() {
   const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mode?: string }>();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { setActive } = useOrganizationList();
   const { t } = useI18n();
 

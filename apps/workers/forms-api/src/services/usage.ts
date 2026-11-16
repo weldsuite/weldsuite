@@ -1,6 +1,6 @@
 /**
  * Plan quota: completed responses per UTC calendar month against what the
- * workspace's plan allows (docs/plans/weldforms.md, "Plan quota"). Counted from
+ * workspace's plan allows (weldsuite-documentation/plans/weldforms.md, "Plan quota"). Counted from
  * `form_responses.submitted_at`, no separate counter. Views, partial responses
  * and previews are not counted.
  */

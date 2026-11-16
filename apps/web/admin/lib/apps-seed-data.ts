@@ -759,7 +759,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: null,
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until signing works (phase 2 of
-    // docs/plans/weldsign.md); staff publish the row then.
+    // weldsuite-documentation/plans/weldsign.md); staff publish the row then.
     isPublished: false,
   },
   {
@@ -796,7 +796,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: null,
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until projects and the snippet work
-    // (phase 1 of docs/plans/weldpanel.md); staff publish the row then.
+    // (phase 1 of weldsuite-documentation/plans/weldpanel.md); staff publish the row then.
     isPublished: false,
   },
   {
@@ -867,7 +867,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: null,
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until forms work end to end
-    // (docs/plans/weldforms.md); staff publish the row then.
+    // (weldsuite-documentation/plans/weldforms.md); staff publish the row then.
     isPublished: false,
   },
   {

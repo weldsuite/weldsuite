@@ -1,4 +1,5 @@
-import { ClerkProvider, ClerkLoaded, ClerkLoading, useOrganizationList } from '@clerk/expo';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { isFeatureAvailable } from '@weldsuite/mobile-platform/edition';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -14,9 +15,8 @@ import '@/utils/notification-tasks';
 
 import { hideAppSplash } from '@/utils/splash';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { passkeys } from '@clerk/expo/passkeys';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerAuthRoot } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -39,6 +39,10 @@ import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { usePersonalMailRealtime } from '@/hooks/usePersonalMailRealtime';
 import { useMailEntityRealtime } from '@/hooks/useMailEntityRealtime';
 import { BRAND } from '@/lib/brand';
+import { passkeys } from '@/lib/clerk-passkeys';
+import { language } from '@/lib/i18n';
+import { registerServerDataCleaner } from '@/lib/offline/clear-server-data';
+import { APP, BUILD } from '@/lib/server';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -49,10 +53,22 @@ Observe.configure({
 // paint — avoids a labeled loader flash on cold start / notification tap.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+// Switching server clears the offline cache, outbox and the other per-server mail data.
+registerServerDataCleaner();
+
+/**
+ * Where a person without a workspace goes: their inbox, or claiming a free
+ * address. Free @weldmail addresses are a WeldSuite cloud feature: where the
+ * server has none there is nothing to claim, so without a mailbox they land
+ * on `/no-workspace`.
+ */
+function personalRoute(hasMail: boolean): '/' | '/claim-address' | '/no-workspace' {
+  if (hasMail) return '/';
+  return isFeatureAvailable('mail-free-addresses') ? '/claim-address' : '/no-workspace';
+}
 
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
   const segments = useSegments();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
@@ -63,7 +79,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const membershipCount = userMemberships?.data?.length ?? 0;
 
   // Wire token getters during render (not in an effect) so the first fetch
-  // already has a Clerk JWT. Effects run children-first.
+  // already has a session token. Effects run children-first.
   if (user) {
     const getAccessToken = async () => {
       const credentials = await getCredentials();
@@ -131,9 +147,9 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
         const { data: me } = await personalApi.me();
         if (cancelled) return;
 
-        const hasMail = (me.mailAccounts?.length ?? 0) > 0;
-        if (!hasMail) {
-          if (!inClaimAddress) router.replace('/claim-address');
+        const target = personalRoute((me.mailAccounts?.length ?? 0) > 0);
+        if (target !== '/') {
+          if (segments[0] !== target.slice(1)) router.replace(target);
           return;
         }
         if (inAuthGroup || inNoWorkspace || inClaimAddress || inSsoCallback) {
@@ -343,13 +359,13 @@ function AppStack() {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
   );
 }
 
@@ -367,21 +383,11 @@ function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <ErrorBoundary>
-          {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-              client sync races browser SSO on Android and signs users out again. */}
-          <ClerkProvider
-            publishableKey={CLERK_PUBLISHABLE_KEY || ''}
-            tokenCache={tokenCache}
-            __experimental_passkeys={passkeys}
-            __experimental_disableNativeClientSync
-          >
-            <ClerkLoading>
-              {null}
-            </ClerkLoading>
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
+          {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+              in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+          <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash} clerk={{ passkeys }}>
+            <AuthenticatedApp />
+          </ServerAuthRoot>
         </ErrorBoundary>
       </KeyboardProvider>
     </GestureHandlerRootView>

@@ -60,6 +60,8 @@ export {
   type FormsResponseEmailProps,
   type MeetInvitationEmailProps,
   type NotificationEmailProps,
+  type PanelUsageEmailKind,
+  type PanelUsageEmailProps,
   type PartnerDunningEmailProps,
   type PartnerDunningStage,
   type PartnerInvitationEmailProps,

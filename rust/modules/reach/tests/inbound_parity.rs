@@ -362,6 +362,8 @@ async fn whole_deliveries() {
                 storage: Some(Arc::clone(&storage)),
                 events: &events,
                 now,
+                // TypeScript wrote the fixtures without a gateway.
+                classifier: None,
             })
             .await
             .unwrap_or_else(|e| panic!("{name}: {}", e.message));

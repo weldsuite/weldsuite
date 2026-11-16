@@ -30,7 +30,7 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::identifiers::{
     check_vat_number_format, iban_length, iban_problem, normalize_iban,
 };
-use weldsuite_books_domain::jurisdictions::{br, india, js_trim};
+use weldsuite_books_domain::jurisdictions::{br, india, js_trim, nl};
 use weldsuite_books_domain::tables::{BILLS, COMPANIES, INVOICES, PARTIES, PEOPLE, TAX_ID_REVEALS};
 use weldsuite_books_domain::vendor_tax::{
     NO_KEY_MESSAGE, SecretField, VendorTaxError, build_vendor_tax_change, format_tin, is_tin_type,
@@ -606,7 +606,8 @@ async fn assert_w9_document(db: &sqlx::PgPool, data: &ContactPayload) -> Result<
 }
 
 /// `checkIdentifierFormats(data, storedBilling)`: a VAT number fits its
-/// country, an IBAN its length and check digits.
+/// country, an IBAN its length and check digits, a Dutch contact's
+/// registration number is a `KvK` number.
 fn check_identifier_formats(
     data: &mut ContactPayload,
     stored_billing: Option<&Value>,
@@ -661,6 +662,42 @@ fn check_identifier_formats(
                 Some(json!({ "field": "iban" })),
             ));
         }
+    }
+    check_kvk_format(data, stored_billing)
+}
+
+/// `checkKvkFormat`: a Dutch contact's registration number is eight digits
+/// (spaces are dropped).
+fn check_kvk_format(
+    data: &mut ContactPayload,
+    stored_billing: Option<&Value>,
+) -> Result<(), ContactError> {
+    let Field::Set(raw) = &data.registration_number else {
+        return Ok(());
+    };
+    let kvk = js_trim(raw).to_owned();
+    if kvk.is_empty() {
+        return Ok(());
+    }
+    let billing = match &data.billing_address {
+        Field::Absent => stored_billing.cloned(),
+        Field::Null => None,
+        Field::Set(address) => Some(address.clone()),
+    };
+    let country = normalize_postal_address(billing.as_ref())
+        .and_then(|a| a.get("country").and_then(Value::as_str).map(str::to_owned));
+    if country.as_deref() != Some("NL") {
+        return Ok(());
+    }
+    let check = nl::validate_kvk(&kvk);
+    if !check.valid {
+        return Err(bad_request(
+            format!("\"{kvk}\" is not a valid KvK number: it must be 8 digits"),
+            Some(json!({ "field": "registrationNumber" })),
+        ));
+    }
+    if let Some(formatted) = check.formatted {
+        data.registration_number = Field::Set(formatted);
     }
     Ok(())
 }
@@ -1533,5 +1570,56 @@ mod tests {
             describe_usage(&[("invoices", 2), ("bills", 1), ("journalLines", 3)]),
             "2 invoices, 1 bill and 3 journal entry lines"
         );
+    }
+
+    fn dutch_contact(registration_number: &str) -> ContactPayload {
+        ContactPayload {
+            registration_number: Field::Set(registration_number.to_owned()),
+            billing_address: Field::Set(json!({
+                "line1": "Keizersgracht 1",
+                "city": "Amsterdam",
+                "postalCode": "1015 AA",
+                "country": "NL",
+            })),
+            ..ContactPayload::default()
+        }
+    }
+
+    #[test]
+    fn a_dutch_contact_needs_an_eight_digit_kvk_number() {
+        let mut short = dutch_contact("12");
+        let Err(ContactError::Identity {
+            conflict,
+            message,
+            details,
+            ..
+        }) = check_kvk_format(&mut short, None)
+        else {
+            panic!("a short KvK number must be refused");
+        };
+        assert!(!conflict);
+        assert_eq!(
+            message,
+            "\"12\" is not a valid KvK number: it must be 8 digits"
+        );
+        assert_eq!(details, Some(json!({ "field": "registrationNumber" })));
+
+        let mut spaced = dutch_contact("1234 5678");
+        assert!(check_kvk_format(&mut spaced, None).is_ok());
+        assert_eq!(
+            spaced.registration_number.as_set().map(String::as_str),
+            Some("12345678")
+        );
+
+        // Another country's registration number is left alone, and so is an update without an address.
+        let mut abroad = dutch_contact("12");
+        abroad.billing_address =
+            Field::Set(json!({ "line1": "Rue 1", "city": "Brussels", "country": "BE" }));
+        assert!(check_kvk_format(&mut abroad, None).is_ok());
+        let mut update = dutch_contact("123");
+        update.billing_address = Field::Absent;
+        let stored = json!({ "line1": "Keizersgracht 1", "city": "Amsterdam", "country": "NL" });
+        assert!(check_kvk_format(&mut update, Some(&stored)).is_err());
+        assert!(check_kvk_format(&mut update, None).is_ok());
     }
 }

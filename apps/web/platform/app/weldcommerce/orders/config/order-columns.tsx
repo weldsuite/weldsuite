@@ -6,7 +6,7 @@ import { formatMoney } from '../../products/config/product-columns';
 
 /**
  * `orders.status` is a free-form varchar today — there is no server-side
- * transition guard yet (Phase 3 of `.claude/weldcommerce-plan.md`). This list
+ * transition guard yet (Phase 3 of `weldsuite-documentation/plans/weldcommerce-plan.md`). This list
  * is the UI's own convention, not an enforced enum.
  */
 export const ORDER_STATUS_OPTIONS = [

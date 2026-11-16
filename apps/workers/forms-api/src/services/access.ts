@@ -1,5 +1,5 @@
 /**
- * Who may see and change a form (docs/plans/weldforms.md, "Permissions").
+ * Who may see and change a form (weldsuite-documentation/plans/weldforms.md, "Permissions").
  *
  * Two layers. The workspace permissions (`forms:*`, `form_responses:*`) say
  * what a member may do at all; a **restricted** form then narrows that to its

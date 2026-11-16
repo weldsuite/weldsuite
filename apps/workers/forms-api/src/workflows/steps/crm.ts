@@ -1,5 +1,5 @@
 /**
- * ProcessResponse step: WeldCRM (ADR FORMS-006, docs/plans/weldforms.md,
+ * ProcessResponse step: WeldCRM (ADR FORMS-006, weldsuite-documentation/plans/weldforms.md,
  * "Integrations"). Per enabled `crm` integration, as the member who set it up:
  *
  *  - find the person by email in the CRM, or create one (a hidden mail identity

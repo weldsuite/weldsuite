@@ -557,6 +557,7 @@ mod db_tests {
             doh: None,
             domains: None,
             workspace_tenants: None,
+            ai: None,
             env: Arc::new(HashMap::from([(
                 "WELDMAIL_DOMAIN".to_owned(),
                 free_domain.to_owned(),

@@ -7,7 +7,7 @@
  *
  * Fallback (binding not configured, or the entrypoint not deployed yet): the
  * old path through app-api's forwarder with `X-Internal-Secret`. It goes once
- * every environment has the binding (docs/plans/app-api-module-split.md,
+ * every environment has the binding (weldsuite-documentation/plans/app-api-module-split.md,
  * rollout item 7).
  */
 

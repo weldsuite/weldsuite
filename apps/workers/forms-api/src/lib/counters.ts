@@ -1,5 +1,5 @@
 /**
- * The counter store behind one port (docs/plans/weldforms.md, "Views and other
+ * The counter store behind one port (weldsuite-documentation/plans/weldforms.md, "Views and other
  * counters"): views per day, rate-limit windows and wrong-code counts. Never
  * the tenant DB: they are written on every page load and every request. A
  * `FormCounters` Durable Object per form on Global, Valkey on Kubernetes.

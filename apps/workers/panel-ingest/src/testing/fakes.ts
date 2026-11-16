@@ -4,17 +4,23 @@
  * the tests drive the same code the runtime does.
  */
 
+import { DatabaseSync } from 'node:sqlite';
 import { vi } from 'vitest';
 import type { PanelProjectRecord } from '@weldsuite/panel-domain/registry';
 import { projectKvKey } from '@weldsuite/panel-domain/registry';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import type { EventBatch, WireEvent } from '@weldsuite/panel-domain/wire';
+import { PanelProject } from '../durable-objects/panel-project';
 import { PanelSalt } from '../durable-objects/panel-salt';
 import { PanelUsage } from '../durable-objects/panel-usage';
+import type { PanelIdentityRecord, PanelPersonRecord, PanelReplayChunkRecord } from '@weldsuite/panel-domain/tables';
 import type { Env, PanelEventRecord } from '../env';
 import { app } from '../index';
-import { resetSaltCache } from '../lib/visitor';
+import { resetLive } from '../lib/live';
+import { resetQuotaCache } from '../lib/quota';
 import { resetSeenThrottle } from '../lib/seen';
+import { resetWarnings } from '../lib/warn';
+import { resetSaltCache } from '../lib/visitor';
 
 export const TOKEN = `wpk_${'a'.repeat(32)}`;
 export const PROJECT_ID = 'pnp_test_project';
@@ -93,12 +99,83 @@ export function fakeNamespace<T extends object>(create: () => T) {
   };
 }
 
-export function fakeStream() {
-  const sent: PanelEventRecord[] = [];
+export function fakePipeline<T>() {
+  const sent: T[] = [];
   return {
     sent,
-    send: vi.fn(async (records: PanelEventRecord[]) => {
+    send: vi.fn(async (records: T[]) => {
       sent.push(...records);
+    }),
+  };
+}
+
+export function fakeStream() {
+  return fakePipeline<PanelEventRecord>();
+}
+
+type SqlValue = string | number | null;
+
+/**
+ * Durable Object storage with a real SQLite behind `storage.sql` (node's
+ * built-in), so the PanelProject object runs its own queries in the tests.
+ */
+export function fakeSqlContext() {
+  const db = new DatabaseSync(':memory:');
+  let alarm: number | null = null;
+  const sql = {
+    exec: (query: string, ...bindings: SqlValue[]) => {
+      const rows = db.prepare(query).all(...bindings) as Record<string, SqlValue>[];
+      return { toArray: () => rows, one: () => rows[0], rowsRead: rows.length, rowsWritten: 0 };
+    },
+  };
+  const storage = {
+    sql,
+    transactionSync: <R>(fn: () => R): R => {
+      db.exec('BEGIN');
+      try {
+        const result = fn();
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    getAlarm: async () => alarm,
+    setAlarm: async (at: number) => {
+      alarm = at;
+    },
+    deleteAlarm: async () => {
+      alarm = null;
+    },
+  };
+  return { ctx: { storage } as unknown as DurableObjectState, db, alarm: () => alarm };
+}
+
+export interface FakeR2 extends R2Bucket {
+  objects: Map<string, { bytes: Uint8Array; options: unknown }>;
+}
+
+export function fakeR2(): FakeR2 {
+  const objects: FakeR2['objects'] = new Map();
+  return {
+    objects,
+    put: vi.fn(async (key: string, value: Uint8Array, options?: unknown) => {
+      objects.set(key, { bytes: value, options });
+      return null;
+    }),
+  } as unknown as FakeR2;
+}
+
+/** A Workers rate limiter that lets `allowed` calls per key through, then refuses. */
+export function fakeRateLimit(allowed: number) {
+  const calls = new Map<string, number>();
+  return {
+    calls,
+    limit: vi.fn(async ({ key }: { key: string }) => {
+      const n = (calls.get(key) ?? 0) + 1;
+      calls.set(key, n);
+      return { success: n <= allowed };
     }),
   };
 }
@@ -119,33 +196,66 @@ export interface TestEnv {
   env: Env;
   kv: FakeKv;
   stream: ReturnType<typeof fakeStream>;
+  identities: ReturnType<typeof fakePipeline<PanelIdentityRecord>>;
+  people: ReturnType<typeof fakePipeline<PanelPersonRecord>>;
+  replayChunks: ReturnType<typeof fakePipeline<PanelReplayChunkRecord>>;
+  replays: FakeR2;
+  /** The PanelProject objects behind `PANEL_PROJECT`, by project id; `jurisdictions` records `jurisdiction()` calls. */
+  projects: ReturnType<typeof fakeNamespace<PanelProject>> & { jurisdictions: string[] };
   /** The salt object behind `PANEL_SALT`. */
   salt: PanelSalt;
   usage: ReturnType<typeof fakeNamespace<PanelUsage>>;
 }
 
 /** An environment with one project (`TOKEN`) registered, unless `record` is null. */
-export function makeEnv(record: PanelProjectRecord | null = projectRecord()): TestEnv {
+export function makeEnv(record: PanelProjectRecord | null = projectRecord(), options: { limits?: { events?: number; replays?: number; snapshots?: number } } = {}): TestEnv {
   const kv = fakeKv(record ? { [projectKvKey(TOKEN)]: JSON.stringify(record) } : {});
   const stream = fakeStream();
   const salt = new PanelSalt(fakeDurableObjectContext().ctx, {});
   const saltNamespace = fakeNamespace(() => salt);
-  const usage = fakeNamespace(() => new PanelUsage(fakeDurableObjectContext().ctx, {}));
+  const usage = fakeNamespace(() => new PanelUsage(fakeDurableObjectContext().ctx, {} as Env));
+
+  const identities = fakePipeline<PanelIdentityRecord>();
+  const people = fakePipeline<PanelPersonRecord>();
+  const replayChunks = fakePipeline<PanelReplayChunkRecord>();
+  const replays = fakeR2();
+  const jurisdictions: string[] = [];
+  // The object namespace is EU-only here: `jurisdiction('eu')` returns it, and is noted.
+  const projectObjects = fakeNamespace(() => new PanelProject(fakeSqlContext().ctx, env));
+  const projectNamespace = {
+    ...projectObjects,
+    jurisdiction: (jurisdiction: string) => {
+      jurisdictions.push(jurisdiction);
+      return projectObjects;
+    },
+  };
+  const { limits = {} } = options;
 
   const env = {
     ENVIRONMENT: 'test',
     WORKSPACE_CACHE: kv,
     PANEL_EVENTS: stream,
+    PANEL_IDENTITIES: identities,
+    PANEL_PEOPLE: people,
+    PANEL_REPLAY_CHUNKS: replayChunks,
+    PANEL_REPLAYS: replays,
     PANEL_SALT: saltNamespace,
     PANEL_USAGE: usage,
+    PANEL_PROJECT: projectNamespace,
+    ...(limits.events !== undefined ? { EVENTS_RATE_LIMIT: fakeRateLimit(limits.events) } : {}),
+    ...(limits.replays !== undefined ? { REPLAYS_RATE_LIMIT: fakeRateLimit(limits.replays) } : {}),
+    ...(limits.snapshots !== undefined ? { SNAPSHOTS_RATE_LIMIT: fakeRateLimit(limits.snapshots) } : {}),
   } as unknown as Env;
-  return { env, kv, stream, salt, usage };
+  return { env, kv, stream, identities, people, replayChunks, replays, projects: Object.assign(projectObjects, { jurisdictions }), salt, usage };
 }
 
 /** Clears what an isolate would keep between requests. */
 export function resetIsolateState(): void {
   resetSaltCache();
   resetSeenThrottle();
+  resetQuotaCache();
+  resetLive();
+  resetWarnings();
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +296,7 @@ export function wireBatch(overrides: Partial<EventBatch> = {}): EventBatch {
 }
 
 export interface SendOptions {
-  /** A string is sent as is, anything else as JSON. */
+  /** A string or bytes are sent as is, anything else as JSON. */
   body?: unknown;
   headers?: Record<string, string>;
   /** `request.cf`, as Cloudflare would set it. */
@@ -209,7 +319,8 @@ export async function call(testEnv: TestEnv, options: SendOptions = {}) {
   };
   const init: RequestInit = { method, headers };
   if (method !== 'GET' && method !== 'OPTIONS' && method !== 'HEAD') {
-    init.body = typeof body === 'string' ? body : JSON.stringify(body ?? wireBatch());
+    init.body =
+      typeof body === 'string' || body instanceof Uint8Array ? (body as BodyInit) : JSON.stringify(body ?? wireBatch());
   }
 
   const request = new Request(`https://pnl.test${path}`, init);

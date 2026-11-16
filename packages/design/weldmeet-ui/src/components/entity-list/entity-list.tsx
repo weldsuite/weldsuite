@@ -92,6 +92,7 @@ export function EntityList<T extends { id: string }>({
 
   // Left action buttons
   leftActionButtons,
+  hideFilter,
 
   // Search
   searchPlaceholder = 'Search...',
@@ -366,12 +367,14 @@ export function EntityList<T extends { id: string }>({
       {!hideTopBar && (
       <div className={cn("flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-border", topBarClassName)}>
         <div className="hidden md:flex items-center gap-2">
-          <FilterPills
-            filters={activeFilters}
-            filterConfigs={filterConfigs}
-            maxFilters={maxFilters}
-            onFiltersChange={setActiveFilters}
-          />
+          {!hideFilter && (
+            <FilterPills
+              filters={activeFilters}
+              filterConfigs={filterConfigs}
+              maxFilters={maxFilters}
+              onFiltersChange={setActiveFilters}
+            />
+          )}
           {leftActionButtons}
         </div>
 

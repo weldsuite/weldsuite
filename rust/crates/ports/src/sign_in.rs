@@ -22,7 +22,7 @@
 //! The trait is object safe (boxed futures), like [`crate::Identity`]: the
 //! provider is picked at run time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -260,6 +260,8 @@ pub enum CodeKind {
     EmailSecondFactor,
     /// Lets somebody set a new password.
     PasswordReset,
+    /// Comes with an invitation: proves the address and sets the first password.
+    Invitation,
 }
 
 /// How the provider writes a code it emails.
@@ -270,6 +272,8 @@ pub struct CodeFormat {
     pub letters: bool,
     /// Its letters are capitals only, so a code typed in lower case still matches.
     pub uppercase: bool,
+    /// How long a code stays valid, when the provider says.
+    pub expires_in: Option<Duration>,
 }
 
 /// A new account.
@@ -292,6 +296,23 @@ impl fmt::Debug for NewUser {
 /// Where a link in the provider's email points: a platform URL with `{user}`
 /// and `{code}` where the provider writes the account's id and the code.
 pub type LinkTemplate<'a> = Option<&'a str>;
+
+/// Who emails a code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeDelivery<'a> {
+    /// The provider, in its own email, its link pointing at the template
+    /// (`None`: the provider's own pages). The code is not handed back.
+    Provider(LinkTemplate<'a>),
+    /// Nobody: the provider hands the code back and the caller emails it
+    /// (WeldSuite's own templates).
+    Return,
+}
+
+impl CodeDelivery<'_> {
+    pub fn returns(self) -> bool {
+        matches!(self, Self::Return)
+    }
+}
 
 /// The provider's login API.
 pub trait SignInProvider: Send + Sync {
@@ -345,12 +366,13 @@ pub trait SignInProvider: Send + Sync {
         code: &'a str,
     ) -> BoxFuture<'a, SignInResult<SessionRef>>;
 
-    /// Email the second-factor code to the session's account.
+    /// Email the second-factor code to the session's account, or hand it
+    /// back ([`CodeDelivery::Return`]); the session's new reference.
     fn send_email_code<'a>(
         &'a self,
         session: &'a SessionRef,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<SessionRef>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(SessionRef, Option<String>)>>;
 
     fn check_email_code<'a>(
         &'a self,
@@ -374,19 +396,20 @@ pub trait SignInProvider: Send + Sync {
     /// session): the callback URL carrying that error.
     fn refuse<'a>(&'a self, auth_request: &'a str) -> BoxFuture<'a, SignInResult<String>>;
 
-    /// Create the account and email the code that verifies its address; the
-    /// account's id.
+    /// Create the account and email the code that verifies its address (or
+    /// hand it back); the account's id.
     fn create_user<'a>(
         &'a self,
         user: &'a NewUser,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<String>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(String, Option<String>)>>;
 
+    /// A new code that verifies the account's address: emailed, or handed back.
     fn send_email_verification<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>>;
 
     fn verify_email<'a>(
         &'a self,
@@ -394,13 +417,26 @@ pub trait SignInProvider: Send + Sync {
         code: &'a str,
     ) -> BoxFuture<'a, SignInResult<()>>;
 
+    /// A password reset code: emailed, or handed back.
     fn send_password_reset<'a>(
         &'a self,
         user_id: &'a str,
-        link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>>;
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>>;
 
     fn reset_password<'a>(
+        &'a self,
+        user_id: &'a str,
+        code: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, SignInResult<()>>;
+
+    /// Accept an invitation: check the code that came with it, which proves
+    /// the address, then give the account its first password. A code that
+    /// is wrong, expired or already used is [`SignInError::InvalidCode`]. The
+    /// code is spent once it checks out, so a password the provider then
+    /// refuses ([`SignInError::WeakPassword`]) is set with a password reset.
+    fn accept_invitation<'a>(
         &'a self,
         user_id: &'a str,
         code: &'a str,
@@ -431,8 +467,12 @@ struct MemoryState {
     requests: HashMap<String, AuthRequest>,
     /// Auth request id → the user it was answered for.
     completed: HashMap<String, String>,
-    /// Codes "sent", newest last: (kind, account).
+    /// Codes the provider "sent", newest last: (kind, account).
     sent: Vec<(&'static str, String)>,
+    /// Codes handed back instead (`CodeDelivery::Return`), newest last.
+    returned: Vec<(&'static str, String)>,
+    /// Accounts with an invite code not used yet.
+    invited: HashSet<String>,
     next_id: u64,
     failure: Option<SignInError>,
     /// How many sessions a new account refuses before it is known.
@@ -493,6 +533,27 @@ impl MemorySignIn {
         id
     }
 
+    /// Add an invited account: no password, an unverified address and an
+    /// open invite code ([`MemorySignIn::CODE`]); its id.
+    pub fn add_invited_user(&self, email: &str) -> String {
+        let mut state = self.lock();
+        state.next_id += 1;
+        let id = format!("user_{}", state.next_id);
+        state.users.push(MemoryUser {
+            user: SignInUser {
+                id: id.clone(),
+                organization_id: Some("org_invited".to_owned()),
+                email: Some(email.to_owned()),
+                status: UserStatus::Initial,
+                ..SignInUser::default()
+            },
+            password: String::new(),
+            methods: AuthMethods::default(),
+        });
+        state.invited.insert(id.clone());
+        id
+    }
+
     /// Change an account in place.
     pub fn update_user(&self, user_id: &str, change: impl FnOnce(&mut MemoryUser)) {
         if let Some(user) = self
@@ -525,6 +586,11 @@ impl MemorySignIn {
     /// The account an auth request was answered for.
     pub fn completed_for(&self, auth_request: &str) -> Option<String> {
         self.lock().completed.get(auth_request).cloned()
+    }
+
+    /// The codes handed back for the caller to email, oldest first: (kind, account).
+    pub fn returned(&self) -> Vec<(&'static str, String)> {
+        self.lock().returned.clone()
     }
 
     /// What was emailed, oldest first: (`verify` | `second-factor` | `reset`, account).
@@ -575,6 +641,22 @@ fn now_ms() -> i64 {
 }
 
 impl MemoryState {
+    /// A code for `account`: "sent", or handed back.
+    fn deliver(
+        &mut self,
+        delivery: CodeDelivery<'_>,
+        kind: &'static str,
+        account: String,
+    ) -> Option<String> {
+        if delivery.returns() {
+            self.returned.push((kind, account));
+            Some(MemorySignIn::CODE.to_owned())
+        } else {
+            self.sent.push((kind, account));
+            None
+        }
+    }
+
     fn user_mut(&mut self, user_id: &str) -> SignInResult<&mut MemoryUser> {
         self.users
             .iter_mut()
@@ -630,10 +712,12 @@ impl SignInProvider for MemorySignIn {
             match kind {
                 CodeKind::EmailVerification
                 | CodeKind::EmailSecondFactor
-                | CodeKind::PasswordReset => CodeFormat {
+                | CodeKind::PasswordReset
+                | CodeKind::Invitation => CodeFormat {
                     length: 6,
                     letters: true,
                     uppercase: true,
+                    expires_in: None,
                 },
             }
         })
@@ -754,14 +838,13 @@ impl SignInProvider for MemorySignIn {
     fn send_email_code<'a>(
         &'a self,
         session: &'a SessionRef,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<SessionRef>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(SessionRef, Option<String>)>> {
         Box::pin(async move {
             self.run(|state| {
                 let next = state.update_session(session, |_| {})?;
                 let user = state.sessions[&session.id].1.user_id.clone();
-                state.sent.push(("second-factor", user));
-                Ok(next)
+                Ok((next, state.deliver(delivery, "second-factor", user)))
             })
         })
     }
@@ -836,8 +919,8 @@ impl SignInProvider for MemorySignIn {
     fn create_user<'a>(
         &'a self,
         user: &'a NewUser,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<String>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<(String, Option<String>)>> {
         Box::pin(async move {
             self.run(|state| {
                 if state.users.iter().any(|existing| {
@@ -864,11 +947,11 @@ impl SignInProvider for MemorySignIn {
                         ..AuthMethods::default()
                     },
                 });
-                state.sent.push(("verify", id.clone()));
+                let code = state.deliver(delivery, "verify", id.clone());
                 if state.new_account_lag > 0 {
                     state.unknown_yet.insert(id.clone(), state.new_account_lag);
                 }
-                Ok(id)
+                Ok((id, code))
             })
         })
     }
@@ -876,13 +959,10 @@ impl SignInProvider for MemorySignIn {
     fn send_email_verification<'a>(
         &'a self,
         user_id: &'a str,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            self.run(|state| {
-                state.sent.push(("verify", user_id.to_owned()));
-                Ok(())
-            })
+            self.run(|state| Ok(state.deliver(delivery, "verify", user_id.to_owned())))
         })
     }
 
@@ -905,13 +985,10 @@ impl SignInProvider for MemorySignIn {
     fn send_password_reset<'a>(
         &'a self,
         user_id: &'a str,
-        _link: LinkTemplate<'a>,
-    ) -> BoxFuture<'a, SignInResult<()>> {
+        delivery: CodeDelivery<'a>,
+    ) -> BoxFuture<'a, SignInResult<Option<String>>> {
         Box::pin(async move {
-            self.run(|state| {
-                state.sent.push(("reset", user_id.to_owned()));
-                Ok(())
-            })
+            self.run(|state| Ok(state.deliver(delivery, "reset", user_id.to_owned())))
         })
     }
 
@@ -930,6 +1007,32 @@ impl SignInProvider for MemorySignIn {
                     return Err(SignInError::WeakPassword);
                 }
                 password.clone_into(&mut state.user_mut(user_id)?.password);
+                Ok(())
+            })
+        })
+    }
+
+    fn accept_invitation<'a>(
+        &'a self,
+        user_id: &'a str,
+        code: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, SignInResult<()>> {
+        Box::pin(async move {
+            self.run(|state| {
+                // As the provider: a wrong code, or none open, is refused
+                // alike; a code that checks out is spent before the password.
+                if code != Self::CODE || !state.invited.remove(user_id) {
+                    return Err(SignInError::InvalidCode);
+                }
+                let user = state.user_mut(user_id)?;
+                user.user.email_verified = true;
+                user.user.status = UserStatus::Active;
+                if password.len() < 8 {
+                    return Err(SignInError::WeakPassword);
+                }
+                password.clone_into(&mut user.password);
+                user.methods.password = true;
                 Ok(())
             })
         })

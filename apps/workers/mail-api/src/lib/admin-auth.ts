@@ -6,7 +6,7 @@
  * own staff API. Not Clerk: the admin console calls these server-to-server.
  *
  * Extracted from `routes/internal-outbound/index.ts` (task C4,
- * docs/plans/weldmail-mailbox-store-design.md §9) so the mailbox-store admin
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9) so the mailbox-store admin
  * routes (`routes/internal-mail-store`) reuse it instead of a second copy.
  */
 

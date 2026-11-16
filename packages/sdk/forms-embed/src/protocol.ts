@@ -2,7 +2,7 @@
  * The postMessage protocol between the embed SDK (on the host page) and the
  * portal's embed view (forms-portal `/f/<publicId>?embed=<mode>`, in an
  * iframe). The SDK and the portal change in lockstep: bump `PROTOCOL_VERSION`
- * for anything incompatible. See docs/plans/weldforms.md ("Embeds").
+ * for anything incompatible. See weldsuite-documentation/plans/weldforms.md ("Embeds").
  *
  * Messages go from the portal to the host only; the host configures the form
  * through the iframe URL (`embedUrl`), so nothing the host page sends is ever

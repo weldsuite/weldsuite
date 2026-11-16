@@ -6,6 +6,11 @@
  */
 
 import workspaceDeletion from './admin/workspace-deletion';
+import aiProviderEnabled from './ai/provider-enabled';
+import billingDunning from './billing/dunning';
+import authPasswordReset from './auth/password-reset';
+import authSignInCode from './auth/sign-in-code';
+import authVerifyEmail from './auth/verify-email';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
 import deskReport from './desk/report';
@@ -19,6 +24,7 @@ import enterpriseInquiry from './internal/enterprise-inquiry';
 import outboundAbuseAlert from './internal/outbound-abuse-alert';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
+import panelUsage from './panel/usage';
 import partnerDunning from './partner/dunning';
 import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
@@ -44,6 +50,9 @@ export const templates = {
   'meet.invitation': meetInvitation,
   booking,
   'workspace.invitation': workspaceInvitation,
+  'auth.verify-email': authVerifyEmail,
+  'auth.sign-in-code': authSignInCode,
+  'auth.password-reset': authPasswordReset,
   notification,
   'task.assigned': taskAssigned,
   'desk.report': deskReport,
@@ -67,12 +76,15 @@ export const templates = {
   'forms.response': formsResponse,
   'forms.digest': formsDigest,
   'forms.quota': formsQuota,
+  'panel.usage': panelUsage,
   'sign.request': signRequest,
   'sign.code': signCode,
   'sign.completed': signCompleted,
   'sign.declined': signDeclined,
   'sign.voided': signVoided,
   'sign.expired': signExpired,
+  'ai.provider-enabled': aiProviderEnabled,
+  'billing.dunning': billingDunning,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -82,6 +94,8 @@ export type TemplateProps<Id extends TemplateId> =
   (typeof templates)[Id] extends { previews: Record<string, { props: infer P }> } ? P : never;
 
 export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
+export type { AiProviderEnabledEmailProps } from './ai/provider-enabled';
+export type { BillingDunningEmailProps, BillingDunningKind } from './billing/dunning';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
 export type {
@@ -101,6 +115,7 @@ export type { OutboundAbuseAlertEmailProps } from './internal/outbound-abuse-ale
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';
+export type { PanelUsageEmailKind, PanelUsageEmailProps } from './panel/usage';
 export type { PartnerDunningEmailProps, PartnerDunningStage } from './partner/dunning';
 export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';

@@ -21,6 +21,7 @@ const GLOBAL_ONLY = [
   '/domain-pricing',
   '/phone-pricing',
   '/weldmeet-ai-pricing',
+  '/weldpanel-pricing',
 ];
 
 /** Pages only the Kubernetes editions have: Global keeps staff in Clerk and flags in Flagship. */

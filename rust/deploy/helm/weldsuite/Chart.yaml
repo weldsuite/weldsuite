@@ -10,7 +10,7 @@ sources:
 keywords:
   - weldsuite
 # Dependencies the chart can run itself for a self-hosted install (`bundle`
-# in values.yaml; docs/plans/self-hosted-edition.md, decision 2). Each is off
+# in values.yaml; weldsuite-documentation/plans/self-hosted-edition.md, decision 2). Each is off
 # unless its bundle toggle is on, and pinned to the version the EU cluster's
 # Flux layers run (rust/deploy/flux/infrastructure/services/releases.yaml).
 # The packaged charts are committed under charts/, so no build step needs

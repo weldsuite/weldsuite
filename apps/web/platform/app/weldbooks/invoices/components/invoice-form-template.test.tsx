@@ -101,7 +101,7 @@ function invoice(overrides: Record<string, unknown> = {}): InvoiceDetail {
   } as unknown as InvoiceDetail;
 }
 
-const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update Invoice' }));
+const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update invoice' }));
 
 describe('InvoiceForm template picker', { timeout: 30_000 }, () => {
   beforeAll(polyfillRadixSelect);

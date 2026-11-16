@@ -1,6 +1,6 @@
 /**
- * Privacy & collection tab: autocapture, consent mode, masking level and the
- * pages that are never tracked (`panel_projects:manage`). Without that
+ * Privacy & collection tab: autocapture, consent mode, masking level, recording
+ * sample rate, AI summaries and the pages and IP addresses that are never tracked (`panel_projects:manage`). Without that
  * permission the values are shown, with no controls.
  */
 
@@ -11,6 +11,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
+import { NumberInput } from '@weldsuite/ui/components/number-input';
 import { Switch } from '@weldsuite/ui/components/switch';
 import {
   PANEL_CONSENT_MODES,
@@ -22,8 +23,15 @@ import { useI18n } from '@/lib/i18n/provider';
 import { OptionRadioGroup } from '../components/option-radio-group';
 import { ReadOnlyChips, ReadOnlyField } from '../components/read-only-field';
 import { StringListEditor } from '../components/string-list-editor';
-import { privacyFormValues, settingsChanges } from '../lib/changes';
-import { buildPrivacyFormSchema, MAX_EXCLUDED_URLS, parseUrlPattern, type PrivacyFormValues } from '../lib/validation';
+import { privacyFormValues, settingsChanges, toPercent } from '../lib/changes';
+import {
+  buildPrivacyFormSchema,
+  MAX_EXCLUDED_URLS,
+  MAX_IP_FILTERS,
+  parseIpFilter,
+  parseUrlPattern,
+  type PrivacyFormValues,
+} from '../lib/validation';
 
 interface PrivacyTabProps {
   project: PanelProjectDto;
@@ -31,7 +39,7 @@ interface PrivacyTabProps {
 }
 
 export function PrivacyTab({ project, canManage }: Readonly<PrivacyTabProps>) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const tp = t.weldpanel.privacy;
   const { settings } = project;
 
@@ -53,6 +61,13 @@ export function PrivacyTab({ project, canManage }: Readonly<PrivacyTabProps>) {
             <ReadOnlyField label={tp.excludedLabel}>
               <ReadOnlyChips values={settings.excludedUrls} empty={tp.excludedNone} />
             </ReadOnlyField>
+            <ReadOnlyField label={tp.ipFiltersLabel}>
+              <ReadOnlyChips values={settings.ipFilters} empty={tp.ipFiltersNone} />
+            </ReadOnlyField>
+            <ReadOnlyField label={tp.recordingRateLabel}>
+              {format(tp.recordingRateValue, { percent: toPercent(settings.recordingSampleRate) })}
+            </ReadOnlyField>
+            <ReadOnlyField label={tp.aiLabel}>{settings.aiEnabled ? tp.on : tp.off}</ReadOnlyField>
           </dl>
           <p className="text-sm text-muted-foreground">{tp.readOnlyNote}</p>
         </>
@@ -149,6 +164,75 @@ function PrivacyForm({ project }: Readonly<{ project: PanelProjectDto }>) {
               />
               <FormDescription>{tp.excludedDescription}</FormDescription>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="ipFilters"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{tp.ipFiltersLabel}</FormLabel>
+              <StringListEditor
+                value={field.value}
+                onChange={field.onChange}
+                parse={parseIpFilter}
+                separator={/[\s,]+/}
+                max={MAX_IP_FILTERS}
+                placeholder={tp.ipFiltersPlaceholder}
+                invalidMessage={t.weldpanel.validation.ipInvalid}
+                duplicateMessage={t.weldpanel.validation.ipDuplicate}
+                disabled={saving}
+              />
+              <FormDescription>{tp.ipFiltersDescription}</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="recordingSamplePercent"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{tp.recordingRateLabel}</FormLabel>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <NumberInput
+                    ref={field.ref}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    value={field.value}
+                    // RHF treats undefined as "reset to default", so an empty field is NaN (shown empty, refused by the schema).
+                    onValueChange={(next) => field.onChange(next ?? Number.NaN)}
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="w-24"
+                    disabled={saving}
+                  />
+                </FormControl>
+                <span className="text-sm text-muted-foreground">{tp.recordingRateSuffix}</span>
+              </div>
+              <FormDescription>{tp.recordingRateDescription}</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="aiEnabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
+              <div className="space-y-1">
+                <FormLabel>{tp.aiLabel}</FormLabel>
+                <FormDescription>{tp.aiDescription}</FormDescription>
+              </div>
+              <FormControl>
+                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={saving} />
+              </FormControl>
             </FormItem>
           )}
         />

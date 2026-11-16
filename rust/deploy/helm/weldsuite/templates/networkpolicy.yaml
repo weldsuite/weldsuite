@@ -57,6 +57,16 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     {{- end }}
+    {{- if .Values.metrics.enabled }}
+    # Prometheus, from its namespace, scrapes /metrics.
+    - ports:
+        - port: metrics
+          protocol: TCP
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.metrics.networkPolicy.namespace | quote }}
+    {{- end }}
 {{- if .Values.signPortal.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

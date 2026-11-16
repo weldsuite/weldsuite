@@ -98,7 +98,7 @@ Locales live in **`packages/core/i18n/src/locales/`**, `en` (source of truth), `
   `--stable-only` skips locales flagged experimental in `localeConfig`; `--strict` fails on any missing/orphan key. Use `--fix` to emit patch files listing gaps.
 - No raw literals in JSX/markup, route copy through `getTranslations(...)` / the i18n helpers.
 
-> CLAUDE.md still says "en/nl only", reality moved to the 4-locale `@weldsuite/i18n` package. Treat `en + nl + es + fr` as the parity set unless `--stable-only` skips one.
+> AGENTS.md requires `en` and `nl` for every new string. `es`, `fr` and `pt` are partial (`fr` and `pt` are flagged experimental in `localeConfig`).
 
 ### Tests
 

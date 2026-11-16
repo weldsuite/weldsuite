@@ -116,7 +116,7 @@ const hubKeyMemo = new Map<string, string>();
  *
  * Hubs are named by the Clerk org id: a client connects with its Clerk token
  * and the hub comes from the token's org claim. Publishers and entity events
- * may carry `workspaces.id` instead (docs/plans/workspace-id-standardization.md),
+ * may carry `workspaces.id` instead (weldsuite-documentation/plans/workspace-id-standardization.md),
  * which would land in a hub nobody is connected to. An `org_…` ref is used as
  * it is (a Clerk org id, or an early workspace whose id is its org id); any
  * other ref is mapped to its workspace's org id, and kept as it is when the

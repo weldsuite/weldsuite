@@ -1,5 +1,5 @@
 /**
- * Per-entity access (docs/plans/legal-entities.md, "Per-entity access").
+ * Per-entity access (weldsuite-documentation/plans/legal-entities.md, "Per-entity access").
  *
  * Who sees a legal entity, and which role they act with inside it:
  *

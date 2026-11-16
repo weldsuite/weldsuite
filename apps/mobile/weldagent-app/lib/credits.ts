@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { platformUrl } from '@weldsuite/mobile-platform/api';
+
 import appApi, { type CreditsBalance } from '@/services/app-api';
 
-/** Where credits are bought: in-app purchase is not available yet. */
-export const TOP_UP_URL = 'https://app.weldsuite.org';
+/** Where credits are bought (the server's web app): in-app purchase is not available yet. Read at use time. */
+export function topUpUrl(): string {
+  return platformUrl();
+}
 
 /** True when the workspace has no credits left to spend (balance at or below zero). */
 export function isOutOfCredits(credits: CreditsBalance | null): boolean {

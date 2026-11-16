@@ -1309,6 +1309,7 @@ mod db_tests {
             doh: None,
             domains: Some(fake.clone()),
             workspace_tenants: None,
+            ai: None,
             env: Arc::new(
                 env.iter()
                     .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))

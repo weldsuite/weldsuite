@@ -111,6 +111,7 @@ import {
 } from './use-person-data';
 import { LinkCompanyPopover } from './link-company-popover';
 import { PersonChat } from './person-chat';
+import { WebsiteActivityCard } from './website-activity-card';
 import { PERSON_TABS, type PersonTab } from './person-tabs';
 import type { Person } from '@weldsuite/core-api-client/schemas/people';
 
@@ -463,6 +464,8 @@ function PersonDetailsTab({
         onSave={(next) => onUpdateFieldAsync({ customFields: next })}
         layout="row"
       />
+
+      <WebsiteActivityCard email={person.email} />
     </div>
   );
 }

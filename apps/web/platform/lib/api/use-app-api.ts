@@ -59,6 +59,7 @@ import { createMailWeldMailApi } from '@weldsuite/app-api-client/domains/mail-we
 import { createMailSendingApi } from '@weldsuite/app-api-client/domains/mail-sending';
 import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
+import { createAiSettingsApi } from '@weldsuite/app-api-client/domains/ai-settings';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
@@ -237,6 +238,8 @@ export function useAppApi() {
       notifications: createNotificationsApi(lazyClient),
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
+      // Workspace AI settings (Kubernetes editions): providers, per-feature models, keys, usage.
+      aiSettings: createAiSettingsApi(lazyClient),
       // Reseller licensing: workspace-facing calls (managed billing, territory
       // requests, `/partner/me`). The portal itself is its own app
       // (apps/web/partner).

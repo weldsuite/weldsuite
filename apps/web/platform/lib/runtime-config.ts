@@ -42,6 +42,12 @@
  *   // (`EditionFeature` in `lib/edition.ts`); the platform hides them.
  *   // Absent = none. Names this build doesn't know are ignored.
  *   "unavailableFeatures": ["billing", "sso-connections"],
+ *   // Who bills plans (ADR BILL-014): "mollie" when the deployment has plan
+ *   // billing on Mollie (`billing` is then not in `unavailableFeatures`).
+ *   // Absent = Stripe, as on Global (`billingProvider()` in `lib/edition.ts`).
+ *   // `reach-billing` is listed in `unavailableFeatures` whenever WeldReach
+ *   // inbox billing is not on Mollie.
+ *   "billingProvider": "mollie",
  *   // Origin of the core API (what Global calls app-api). Default for
  *   // "backend": "rust" is the SPA's own origin.
  *   "apiBaseUrl": "https://weldsuite.example.eu",
@@ -60,6 +66,7 @@
  *     "provider": "oidc",                       // or "clerk"
  *     "issuer": "https://id.example.eu",        // OIDC_ISSUER (discovery base)
  *     "clientId": "300000000000000300",         // OIDC_WEB_CLIENT_ID: public client, PKCE
+ *     "mobileClientId": "300000000000000400",   // OIDC_MOBILE_CLIENT_ID: the mobile apps' native client
  *     "audience": "300000000000000100",         // first OIDC_AUDIENCE (Zitadel: the project id)
  *     "orgClaim": "urn:zitadel:iam:org:project:300000000000000100:roles", // OIDC_ORG_CLAIM
  *     // Optional, frontend only (defaults suit Zitadel):
@@ -71,6 +78,13 @@
  *     // Global shows, over the backend's /api/sign-in (OIDC_SIGN_IN=platform,
  *     // ADR SEC-016). Absent or "provider": the provider's pages.
  *     "signIn": "platform"
+ *   },
+ *   // The AI this install runs (only when a default provider is configured):
+ *   // the settings page (`/settings/ai`) and every model picker need it, and the
+ *   // AI features are offered only with it (`lib/edition.ts`, `getAiConfig`).
+ *   "ai": {
+ *     "defaultProvider": "mistral",
+ *     "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }]
  *   },
  *   // Any other public build-time value, by its `VITE_*` name. Wins over the
  *   // baked-in value (`VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_MAPBOX_ACCESS_TOKEN`, …).
@@ -89,51 +103,35 @@
  */
 
 import { z } from 'zod';
+import {
+  RUNTIME_CONFIG_PATH,
+  runtimeConfigSchema as sharedRuntimeConfigSchema,
+  type RuntimeAuthConfig,
+  type RuntimeOidcAuthConfig,
+} from '@weldsuite/app-api-client/schemas/runtime-config';
 import { isRuntimeConfigOn } from '@/src/boot/mode';
 
-const authSchema = z.discriminatedUnion('provider', [
-  z.object({
-    provider: z.literal('clerk'),
-    publishableKey: z.string().min(1).nullish(),
-  }),
-  z.object({
-    provider: z.literal('oidc'),
-    issuer: z.string().url(),
-    /** Null when the backend has no OIDC_WEB_CLIENT_ID: the platform can't sign anyone in. */
-    clientId: z.string().min(1).nullish(),
-    audience: z.string().min(1).nullish(),
-    orgClaim: z.string().min(1).nullish(),
-    scopes: z.array(z.string().min(1)).optional(),
-    audienceScope: z.string().optional(),
-    organizationScope: z.string().optional(),
-    accountUrl: z.string().url().optional(),
-    /** A value this build doesn't know reads as the provider's pages, never as a broken document. */
-    signIn: z.enum(['provider', 'platform']).optional().catch(undefined),
-  }),
-]);
+export { RUNTIME_CONFIG_PATH };
 
-export const runtimeConfigSchema = z.object({
-  backend: z.string().min(1).optional(),
-  version: z.string().optional(),
-  edition: z.string().min(1).optional(),
-  modules: z.array(z.string().min(1)).optional(),
-  unavailableFeatures: z.array(z.string().min(1)).optional(),
-  apiBaseUrl: z.string().url().optional(),
-  realtimeUrl: z.string().url().optional(),
-  // Checked where they are used (`lib/video-provider.ts`), so a bad value
-  // only stops joining a meeting, never the whole document.
-  videoProvider: z.string().min(1).optional(),
-  videoUrl: z.string().min(1).optional(),
-  auth: authSchema.optional(),
-  env: z.record(z.string()).optional(),
+/**
+ * The contract itself (Zod v3) is shared with the mobile apps; `billingProvider`
+ * is read by the platform only (ADR BILL-014), so it is added here. A value
+ * this build doesn't know reads as absent (Stripe).
+ */
+export const runtimeConfigSchema = sharedRuntimeConfigSchema.extend({
+  billingProvider: z.enum(['stripe', 'mollie']).optional().catch(undefined),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
-export type AuthConfig = NonNullable<RuntimeConfig['auth']>;
-export type OidcAuthConfig = Extract<AuthConfig, { provider: 'oidc' }>;
+export type AuthConfig = RuntimeAuthConfig;
+export type OidcAuthConfig = RuntimeOidcAuthConfig;
 
-/** Where the document lives, relative to the SPA's origin. */
-export const RUNTIME_CONFIG_PATH = '/config.json';
+/** Parse a `/config.json` body. Null when it isn't a valid document. */
+export function parseRuntimeConfig(body: unknown): RuntimeConfig | null {
+  const parsed = runtimeConfigSchema.safeParse(body);
+  return parsed.success ? parsed.data : null;
+}
+
 const LOAD_TIMEOUT_MS = 3000;
 
 let current: RuntimeConfig | null = null;
@@ -146,12 +144,6 @@ export function getRuntimeConfig(): RuntimeConfig | null {
 /** Replace the runtime config. Boot calls it once; tests use it to set one up. */
 export function setRuntimeConfig(config: RuntimeConfig | null): void {
   current = config;
-}
-
-/** Parse a `/config.json` body. Null when it isn't a valid document. */
-export function parseRuntimeConfig(body: unknown): RuntimeConfig | null {
-  const parsed = runtimeConfigSchema.safeParse(body);
-  return parsed.success ? parsed.data : null;
 }
 
 /**

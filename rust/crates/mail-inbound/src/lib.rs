@@ -22,12 +22,15 @@
 //!   `expo-push.ts`, `contact-upsert.ts`; realtime as `realtime.ts`.
 //! - [`fanout`]: `desk-inbound.ts` and the helpdesk and accounting inboxes,
 //!   each only when the edition serves its module.
+//! - [`auto_label`]: `mail-auto-label.ts`, Global's Jev auto-labels as one
+//!   structured `classify` call on `weldsuite-ai` (ADR AI-012), when the
+//!   install has AI.
 //!
 //! Not ported, on purpose: consumer WeldMail's personal mailboxes
-//! (MAIL-008 is not part of the Kubernetes editions), the mailbox Durable
-//! Object modes (MAIL-010 keeps the Postgres store), and the Jev
-//! auto-labels (Workers AI; mail AI is an unavailable feature).
+//! (MAIL-008 is not part of the Kubernetes editions), and the mailbox
+//! Durable Object modes (MAIL-010 keeps the Postgres store).
 
+pub mod auto_label;
 pub mod catch_all;
 pub mod consumer;
 pub mod context;

@@ -304,6 +304,8 @@ pub(crate) struct Svc {
     pub(crate) outbound: weldsuite_mail_domain::outbound::OutboundBindings,
     /// Third-party HTTP (Turnstile's siteverify).
     pub(crate) http: Option<OutboundHttp>,
+    /// The AI (the AI routes); `None` when it is off.
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
 }
 
 /// `WorkspaceCtx`: one workspace's tenant and master databases, its two ids

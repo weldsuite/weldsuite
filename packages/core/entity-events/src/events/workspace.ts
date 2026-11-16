@@ -16,7 +16,7 @@ export const WORKSPACE_ENTITY_EVENTS = {
   workflow_webhook: ['created', 'updated', 'deleted'],
   workspace_settings: ['updated', 'deleted'],
   /**
-   * Core legal entities (docs/plans/legal-entities.md). Registrations count
+   * Core legal entities (weldsuite-documentation/plans/legal-entities.md). Registrations count
    * as an `updated` of the entity; so does switching per-entity access on
    * or off. `accounting_entity` stays for WeldBooks' extension.
    */
@@ -27,6 +27,13 @@ export const WORKSPACE_ENTITY_EVENTS = {
   legal_entity_member: ['created', 'updated', 'deleted'],
   /** A destination the audit log is pushed to (SIEM). Event data never carries the token, only `hasToken`. */
   audit_log_stream: ['created', 'updated', 'deleted'],
+  /**
+   * AI settings (Settings → AI, EU and self-hosted editions; ADR AI-012). The
+   * event data names providers and settings only. Provider keys are never in
+   * an event, only the provider and the key hint (last characters).
+   */
+  ai_settings: ['updated'],
+  ai_provider_key: ['set', 'removed'],
   /**
    * A tenant's connection to a third-party app through the connector
    * framework (WeldConnect › Connectors).

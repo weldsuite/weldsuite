@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Rewrite app-api-relative imports in a module worker after its files were
- * `git mv`-ed out of app-api (docs/plans/app-api-module-split.md, step 2 of
+ * `git mv`-ed out of app-api (weldsuite-documentation/plans/app-api-module-split.md, step 2 of
  * .claude/skills/extract-api-module).
  *
  *   node scripts/api-module-rewrite-imports.mjs <module>-api [--dry]

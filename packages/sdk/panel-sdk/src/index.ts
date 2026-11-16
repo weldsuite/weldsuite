@@ -10,6 +10,7 @@
  */
 
 import { createClient, type WeldPanel } from './client';
+import type { RecorderFactory } from './recorder-api';
 import { DEFAULT_HOST, fetchConfig } from './config';
 import { trimTrailingSlashes } from './host';
 import { LIB_VERSION } from './event';
@@ -21,6 +22,11 @@ export interface InitOptions {
   host?: string;
   /** Warn in the console about dropped events and properties. */
   debug?: boolean;
+  /**
+   * The recording plugin, `createRecorder` from `@weldsuite/panel-sdk/recorder`,
+   * to bundle it instead of loading it from the collector when a session is recorded.
+   */
+  recorder?: RecorderFactory;
 }
 
 const noop = (): void => undefined;
@@ -29,6 +35,9 @@ const noop = (): void => undefined;
 const inert: WeldPanel = {
   version: LIB_VERSION,
   track: noop,
+  identify: noop,
+  reset: noop,
+  people: { set: noop, set_once: noop, unset: noop, increment: noop },
   consent: { grant: noop, revoke: noop },
   optOut: noop,
   optIn: noop,
@@ -43,21 +52,24 @@ const inert: WeldPanel = {
 export function init(options: InitOptions): WeldPanel {
   if (typeof window === 'undefined' || typeof document === 'undefined' || !options || !options.token) return inert;
   const host = trimTrailingSlashes(options.host || DEFAULT_HOST);
-  const client = createClient({ token: options.token, host, debug: options.debug });
+  const client = createClient({ token: options.token, host, debug: options.debug, recorder: options.recorder });
   fetchConfig(host, options.token).then(client.start, client.fail);
   return client.api;
 }
 
 export type { WeldPanel } from './client';
+export type { PanelRecorder, RecorderFactory, RecorderOptions } from './recorder-api';
 export { buildBatch, buildBatches, type BatchInput } from './batch';
-export { normalizeEvent, type EventInput } from './event';
+export { normalizeEvent, normalizePeopleOp, type EventInput, type PeopleOpInput } from './event';
 export { LIB_VERSION };
 export type {
   ClientConfig,
+  DeviceClass,
   EventBatch,
   Properties,
   PropertyValue,
   SystemEventName,
   WireElement,
   WireEvent,
+  WirePeopleOp,
 } from './wire';

@@ -13,7 +13,8 @@ export type EmailModule =
   | 'WeldHR'
   | 'WeldReach'
   | 'WeldSign'
-  | 'WeldForms';
+  | 'WeldForms'
+  | 'WeldPanel';
 
 /**
  * Who the email looks like it comes from.

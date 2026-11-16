@@ -26,10 +26,15 @@ data:
   # Zitadel's console after its first start (README, step 7).
   ZITADEL_PROJECT_ID: "000000000000000000"
   ZITADEL_WEB_CLIENT_ID: "000000000000000000"
-  # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN};
-  # the WeldSuite Staff org on WeldSuite's clusters): its primary domain, from
-  # the organisation's settings in Zitadel's console.
-  ZITADEL_STAFF_ORG_DOMAIN: staff.auth.weldsuite.example.com
+  # The mobile apps' native application (PKCE, <app scheme>://sso-callback
+  # redirects; runbook step 7, item 2b). Empty until it is made: the apps
+  # then can't sign in to this cluster.
+  ZITADEL_MOBILE_CLIENT_ID: ""
+  # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN})
+  # and the staff admin console (admin.${DOMAIN}, ADR SEC-018; the WeldSuite
+  # Staff org on WeldSuite's clusters): its id, from the organisation's
+  # settings in Zitadel's console.
+  ZITADEL_STAFF_ORG_ID: "000000000000000000"
   # Logs (infrastructure/logging): Loki's bucket, with its S3 endpoint as a
   # host name (no https://) and region. Its key is the Secret logging/loki-s3.
   LOGS_S3_ENDPOINT: fsn1.your-objectstorage.com
@@ -49,3 +54,8 @@ data:
   # 127.0.0.1/32 lets nobody in from outside; put the staff's addresses here
   # (README, "Staff work").
   ADMIN_CIDRS: "[127.0.0.1/32]"
+  # The cluster's secret store (rust/deploy/hetzner/secret-store), as
+  # https://<its hostname>, no trailing slash. Set, Prometheus probes its
+  # /v1/sys/health and SecretStoreDown fires while it is sealed or
+  # unreachable (monitoring-config/ALERTS.md). Empty: no store, no probe.
+  SECRET_STORE_URL: ""

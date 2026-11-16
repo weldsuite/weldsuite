@@ -2,9 +2,22 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const env = vi.hoisted(() => ({ create: vi.fn(), dimensions: [] as unknown[] }));
+const env = vi.hoisted(() => ({
+  create: vi.fn(),
+  navigate: vi.fn(),
+  toastError: vi.fn(),
+  dimensions: [] as unknown[],
+}));
 
-vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }));
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => env.navigate,
+  Link: ({ children, to, ...rest }: { children: React.ReactNode; to: string }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => env.toastError(...args), success: vi.fn() } }));
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useCreateJournalEntry: () => ({ mutateAsync: env.create, isPending: false }),
   useAccountingAccounts: () => ({
@@ -61,7 +74,7 @@ describe('AddJournalEntryPage: dimensions', { timeout: 30_000 }, () => {
     await user.click(await screen.findByRole('option', { name: /Cash/ }));
     await user.click(accountPickers[1]);
     await user.click(await screen.findByRole('option', { name: /Sales/ }));
-    const amounts = screen.getAllByPlaceholderText('0.00');
+    const amounts = screen.getAllByPlaceholderText('0');
     await user.type(amounts[0], '100');
     await user.type(amounts[3], '100');
 
@@ -101,5 +114,59 @@ describe('AddJournalEntryPage: account search', { timeout: 30_000 }, () => {
 
     await user.click(screen.getByRole('option', { name: /Sales/ }));
     expect(screen.getAllByRole('combobox')[0]).toHaveTextContent('4000 — Sales');
+  });
+});
+
+describe('AddJournalEntryPage: create outcome and accessibility', { timeout: 30_000 }, () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    env.create.mockReset();
+    env.navigate.mockReset();
+    env.toastError.mockReset();
+    env.dimensions = [];
+  });
+
+  async function fillBalancedEntry(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('combobox', { name: 'Account, line 1' }));
+    await user.click(await screen.findByRole('option', { name: /Cash/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Account, line 2' }));
+    await user.click(await screen.findByRole('option', { name: /Sales/ }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Debit, line 1' }), '100');
+    await user.type(screen.getByRole('spinbutton', { name: 'Credit, line 2' }), '100');
+  }
+
+  it('names the date, reference and line fields for assistive technology', () => {
+    renderWithProviders(<AddJournalEntryPage />);
+    expect(screen.getByLabelText('Date')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reference')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Description, line 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove line 1' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to journal entries' })).toHaveAttribute('href', '/weldbooks/journal');
+  });
+
+  it('stays on the page and toasts the reason when the entry cannot be created', async () => {
+    env.create.mockRejectedValue(new Error('Period is locked'));
+    const user = userEvent.setup();
+    renderWithProviders(<AddJournalEntryPage />);
+    await fillBalancedEntry(user);
+    await user.click(screen.getByRole('button', { name: /Create/ }));
+
+    await waitFor(() =>
+      expect(env.toastError).toHaveBeenCalledWith('The journal entry could not be created', {
+        description: 'Period is locked',
+      }),
+    );
+    expect(env.navigate).not.toHaveBeenCalled();
+  });
+
+  it('returns to the journal once the entry is created', async () => {
+    env.create.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithProviders(<AddJournalEntryPage />);
+    await fillBalancedEntry(user);
+    await user.click(screen.getByRole('button', { name: /Create/ }));
+
+    await waitFor(() => expect(env.navigate).toHaveBeenCalledWith({ to: '/weldbooks/journal' }));
+    expect(env.toastError).not.toHaveBeenCalled();
   });
 });

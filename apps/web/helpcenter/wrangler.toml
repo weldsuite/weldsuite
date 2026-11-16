@@ -14,7 +14,7 @@
 # on its default port 8787.
 #
 # Routes are not attached yet. Customer domains and *.welddesk.org move here in
-# the cutover (docs/plans/helpcenter-tanstack-start.md, Phase 5); until then the
+# the cutover (weldsuite-documentation/plans/helpcenter-tanstack-start.md, Phase 5); until then the
 # deployed Worker is reachable on workers.dev only, where FALLBACK_DOMAIN picks
 # which help center it shows.
 

@@ -268,8 +268,34 @@ describe('InvoicePanel', () => {
       expect(screen.queryByRole('button', { name: 'Finalize' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
       expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Record Payment' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Record payment' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    });
+
+    it('shows Send and Record payment as buttons on a finalized invoice, next to the menu', () => {
+      env.invoice = invoice({ status: 'finalized' });
+      renderPanel();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Record payment' })).toBeInTheDocument();
+    });
+
+    it('shows no Send or Record payment button on a draft or a settled invoice', () => {
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      const { unmount } = renderPanel();
+      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
+      unmount();
+
+      env.invoice = invoice({ status: 'paid', balanceDue: '0.00', amountPaid: '108.25' });
+      renderPanel();
+      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
+    });
+
+    it('labels the payment button of a credit memo as a refund', () => {
+      env.invoice = invoice({ type: 'credit_note', creditNoteForInvoiceId: 'inv_0', amountPaid: '8.25', balanceDue: '100.00' });
+      renderPanel();
+      expect(screen.getByRole('button', { name: 'Record refund' })).toBeInTheDocument();
     });
 
     it('a draft links to the edit page', () => {
@@ -320,7 +346,7 @@ describe('InvoicePanel', () => {
       const user = userEvent.setup();
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       const rows = screen.getAllByTestId('tax-breakdown-row');
       expect(rows).toHaveLength(2);
       expect(within(rows[0]).getByText(/Texas/)).toBeInTheDocument();
@@ -342,7 +368,7 @@ describe('InvoicePanel', () => {
       });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(
         screen.getByText('Software as a service · Business use · Tax included · Tax overridden: State ruling'),
       ).toBeInTheDocument();
@@ -355,7 +381,7 @@ describe('InvoicePanel', () => {
       });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       const line = screen.getByText('Hosting').closest('div.group')!;
       expect(within(line as HTMLElement).getByText('10 × $100.00 · Sales tax 21%')).toBeInTheDocument();
       expect(within(line as HTMLElement).queryByText(/10.0000|21.0000/)).not.toBeInTheDocument();
@@ -366,7 +392,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ items: [{ ...(invoice().items as object[])[0], discountPercent: '10.0000' }] });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('1 × $100.00 · Discount 10% · Sales tax 8.25%')).toBeInTheDocument();
     });
 
@@ -375,7 +401,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ items: [], taxBreakdown: [] });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('No line items')).toBeInTheDocument();
     });
   });
@@ -402,7 +428,8 @@ describe('InvoicePanel', () => {
 
       await openTab(user, 'Payments');
       expect(screen.getByText('No payments yet')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Record Payment' })).toBeInTheDocument();
+      // The empty state's action, next to the one in the action bar.
+      expect(screen.getAllByRole('button', { name: 'Record payment' })).toHaveLength(2);
     });
   });
 
@@ -453,7 +480,7 @@ describe('InvoicePanel', () => {
 
       await openTab(user, 'Sales tax');
       expect(screen.getByTestId('exempt-notice')).toHaveTextContent('Exempt sale: Resale. Certificate no. A-123.');
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('$100.00 exempt')).toBeInTheDocument();
     });
 
@@ -530,6 +557,7 @@ describe('InvoicePanel', () => {
       expect(options.labels.jurisdictionTax).toBe('{tax} – {jurisdiction} {rate}%');
       expect(options.labels.creditNote).toBe('CREDIT MEMO');
       expect(options.labels.exempt.reasonWithCertificate).toBe('Exempt sale: {reason}. Certificate no. {number}.');
+      expect(env.toast.success).toHaveBeenCalledWith('PDF downloaded');
     });
 
     it('does not fall back to the built-in layout when the invoice templates cannot be loaded', async () => {
@@ -656,7 +684,7 @@ describe('InvoicePanel', () => {
 
       await user.click(screen.getByRole('button', { name: 'More actions' }));
       expect(await screen.findByRole('menuitem', { name: 'Record refund' })).toBeInTheDocument();
-      expect(screen.queryByRole('menuitem', { name: 'Record Payment' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Record payment' })).not.toBeInTheDocument();
       await user.keyboard('{Escape}');
       expect(screen.getByText('Credit remaining')).toBeInTheDocument();
       expect(screen.getByText('Applied or refunded')).toBeInTheDocument();
@@ -702,7 +730,7 @@ describe('InvoicePanel', () => {
       renderPanel();
 
       expect(screen.queryByRole('tab', { name: 'Sales tax' })).not.toBeInTheDocument();
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('BTW 21%')).toBeInTheDocument();
       expect(screen.queryByTestId('sales-tax-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('tax-breakdown-row')).not.toBeInTheDocument();

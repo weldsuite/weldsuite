@@ -36,12 +36,13 @@ pub use pg_errors::{
 };
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,
+    read_only_message,
 };
 pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;
 pub use workspaces::{
-    Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,
-    master_pool,
+    PoolUsage, Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError,
+    WorkspacePools, Workspaces, master_pool,
 };
 
 /// The master database a request should use, as a request extension.

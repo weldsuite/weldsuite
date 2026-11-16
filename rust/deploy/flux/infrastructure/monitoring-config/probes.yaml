@@ -23,3 +23,30 @@ spec:
         - https://sign.${DOMAIN}/healthz
       labels:
         group: platform
+---
+# The cluster's secret store (rust/deploy/hetzner/secret-store), outside the
+# cluster: OpenBao's health check answers 200 only while it is unsealed and
+# active (503 sealed, 501 not initialised, 429 standby), and Caddy lets it
+# through from anywhere. SECRET_STORE_URL is the cluster's setting; empty, the
+# target is only the path, which the relabeling drops: no store, no probe.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: secret-store
+  namespace: monitoring
+spec:
+  interval: 60s
+  scrapeTimeout: 15s
+  module: https_2xx
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - ${SECRET_STORE_URL}/v1/sys/health
+      labels:
+        group: secret-store
+      relabelingConfigs:
+        - sourceLabels: [__param_target]
+          regex: https://.+
+          action: keep

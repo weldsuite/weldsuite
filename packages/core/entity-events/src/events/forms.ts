@@ -1,5 +1,5 @@
 /**
- * WeldForms entity events (docs/plans/weldforms.md, ADR FORMS-004).
+ * WeldForms entity events (weldsuite-documentation/plans/weldforms.md, ADR FORMS-004).
  *
  * `form_response` payloads carry the answers keyed by field `ref` with
  * display values, so WeldConnect triggers and webhooks can use them. File

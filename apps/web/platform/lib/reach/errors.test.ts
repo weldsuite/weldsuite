@@ -4,6 +4,7 @@ import {
   appAccessRequiredStatus,
   isAppAccessRequiredError,
   isDomainHasMailboxesError,
+  isPaidPlanRequiredError,
   isPaymentMethodRequiredError,
   reachErrorMessage,
 } from './errors';
@@ -38,6 +39,17 @@ describe('WeldReach API errors', () => {
     expect(isPaymentMethodRequiredError(apiError(402, 'SOMETHING_ELSE'))).toBe(true);
     expect(isPaymentMethodRequiredError(apiError(400, 'VALIDATION'))).toBe(false);
     expect(isDomainHasMailboxesError(apiError(409, 'DOMAIN_HAS_MAILBOXES'))).toBe(true);
+  });
+
+  it('keeps the plan-billing refusals (EU) apart from a missing card', () => {
+    for (const code of ['PAID_PLAN_REQUIRED', 'PAYMENT_OUTSTANDING', 'PAYMENT_FAILED']) {
+      expect(isPaymentMethodRequiredError(apiError(402, code)), code).toBe(false);
+    }
+    expect(isPaidPlanRequiredError(apiError(402, 'PAID_PLAN_REQUIRED'))).toBe(true);
+    expect(isPaidPlanRequiredError(apiError(402, 'PAYMENT_METHOD_REQUIRED'))).toBe(false);
+    expect(reachErrorMessage(apiError(402, 'PAID_PLAN_REQUIRED'), t)).toBe('reach.errors.paidPlanRequired');
+    expect(reachErrorMessage(apiError(402, 'PAYMENT_OUTSTANDING'), t)).toBe('reach.errors.paymentOutstanding');
+    expect(reachErrorMessage(apiError(402, 'PAYMENT_FAILED'), t)).toBe('reach.errors.paymentFailed');
   });
 
   it('explains known codes in the UI language and falls back to the server message', () => {

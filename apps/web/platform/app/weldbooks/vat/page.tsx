@@ -26,7 +26,7 @@ import {
 } from '@/components/accounting/weldbooks-row-cells';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
-import { vatStatusTone } from '@/components/objects/vat-return/vat-return-model';
+import { vatStatusTone, vatTotalToneClass } from '@/components/objects/vat-return/vat-return-model';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
@@ -52,13 +52,6 @@ interface VatReturnRow {
   periodLabel: string | null;
   status: string;
   rubrieken?: Record<string, number> | null;
-}
-
-/** Box 5g: red only when there is VAT to pay, green for a refund; nothing to pay stays neutral. */
-function totalTone(r5g: number): string {
-  if (r5g > 0) return 'text-red-600';
-  if (r5g < 0) return 'text-green-600';
-  return '';
 }
 
 /** Why the typed-in dates can't be filed, or null. */
@@ -262,7 +255,7 @@ export default function VatReturnsPage() {
       width: 'w-[130px]',
       render: (vr) => {
         const r5g = vr.rubrieken?.r5g ?? 0;
-        return <RowAmount className={`font-medium ${totalTone(r5g)}`}>{fmt(r5g)}</RowAmount>;
+        return <RowAmount className={`font-medium ${vatTotalToneClass(r5g)}`}>{fmt(r5g)}</RowAmount>;
       },
     },
     {
@@ -320,10 +313,13 @@ export default function VatReturnsPage() {
   ];
 
   return (
-    <>
+    // One scroll for the whole page: the two lists keep their natural height instead of shrinking into clipped regions.
+    <div className="h-full min-h-0 overflow-y-auto">
       {/* BTW-aangiftes */}
+      <div className="flex-none shrink-0">
       {showIcp ? <h2 className="px-4 pt-4 text-sm font-semibold sm:px-6">{tv.returnsTitle}</h2> : null}
       <WeldbooksEntityList<VatReturnRow>
+        emptyStateClassName="min-h-0 py-10"
         items={returns}
         isLoading={false}
         columns={returnColumns}
@@ -342,15 +338,17 @@ export default function VatReturnsPage() {
           action: { label: tv.listNewReturn, onClick: openVatDialog },
         }}
       />
+      </div>
 
       {/* EC Sales List (ICP) — only where the jurisdiction has it */}
       {showIcp ? (
-        <>
+        <div className="flex-none shrink-0">
           <div className="px-4 pt-6 sm:px-6">
             <h2 className="text-sm font-semibold">{tv.icpTitle}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{tv.icpDesc}</p>
           </div>
           <WeldbooksEntityList<IcpDeclaration>
+            emptyStateClassName="min-h-0 py-10"
             items={icpDeclarations}
             isLoading={false}
             columns={icpColumns}
@@ -367,7 +365,7 @@ export default function VatReturnsPage() {
               action: { label: tv.icpNew, onClick: openIcpDialog },
             }}
           />
-        </>
+        </div>
       ) : null}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -413,6 +411,6 @@ export default function VatReturnsPage() {
           if (icpToDelete) await deleteIcp.mutateAsync(icpToDelete).catch(() => undefined);
         }}
       />
-    </>
+    </div>
   );
 }

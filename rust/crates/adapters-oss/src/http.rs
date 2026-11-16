@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use reqwest::{Client, Identity, Method};
 use weldsuite_ports::{
-    BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, PortError, is_public_ip,
+    BoxFuture, DynOutboundHttp, HttpBodyStream, HttpRequest, HttpResponse, HttpStreamResponse,
+    PortError, is_public_ip,
 };
 
 /// [`DynOutboundHttp`] over `reqwest`, with a request timeout.
@@ -98,6 +99,21 @@ impl ReqwestOutbound {
         })
     }
 
+    /// A client that gives up connecting after `connect` and on a whole
+    /// request after `total`: the AI providers' client (`weldsuite-ai`, 10 s
+    /// and 300 s; the crate cuts each call shorter where it must).
+    pub fn with_timeouts(connect: Duration, total: Duration) -> Result<Self, PortError> {
+        let client = Client::builder()
+            .connect_timeout(connect)
+            .timeout(total)
+            .build()
+            .map_err(PortError::backend)?;
+        Ok(Self {
+            client,
+            public_only: false,
+        })
+    }
+
     /// A client that presents a TLS client certificate (mutual TLS, as
     /// Ponto's API requires): `pem` holds the certificate chain and its
     /// private key.
@@ -115,41 +131,77 @@ impl ReqwestOutbound {
     }
 }
 
+impl ReqwestOutbound {
+    /// Sends `request` and returns the answer once its head has arrived.
+    async fn start(&self, request: HttpRequest) -> Result<reqwest::Response, PortError> {
+        let method = Method::from_bytes(request.method.as_bytes()).map_err(PortError::backend)?;
+        if self.public_only {
+            let url = reqwest::Url::parse(&request.url).map_err(PortError::backend)?;
+            if literal_is_blocked(&url) {
+                return Err(PortError::backend(BlockedAddress));
+            }
+        }
+        let mut call = self.client.request(method, &request.url);
+        for (name, value) in &request.headers {
+            call = call.header(name.as_str(), value.as_str());
+        }
+        if let Some(body) = request.body {
+            call = call.body(body);
+        }
+        call.send().await.map_err(PortError::backend)
+    }
+}
+
+fn response_headers(response: &reqwest::Response) -> Vec<(String, String)> {
+    response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
+/// A `reqwest` body read chunk by chunk.
+struct ReqwestBody(reqwest::Response);
+
+impl HttpBodyStream for ReqwestBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, PortError>> {
+        Box::pin(async move {
+            let chunk = self.0.chunk().await.map_err(PortError::backend)?;
+            Ok(chunk.map(|bytes| bytes.to_vec()))
+        })
+    }
+}
+
 impl DynOutboundHttp for ReqwestOutbound {
     fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
         Box::pin(async move {
-            let method =
-                Method::from_bytes(request.method.as_bytes()).map_err(PortError::backend)?;
-            if self.public_only {
-                let url = reqwest::Url::parse(&request.url).map_err(PortError::backend)?;
-                if literal_is_blocked(&url) {
-                    return Err(PortError::backend(BlockedAddress));
-                }
-            }
-            let mut call = self.client.request(method, &request.url);
-            for (name, value) in &request.headers {
-                call = call.header(name.as_str(), value.as_str());
-            }
-            if let Some(body) = request.body {
-                call = call.body(body);
-            }
-            let response = call.send().await.map_err(PortError::backend)?;
+            let response = self.start(request).await?;
             let status = response.status().as_u16();
-            let headers = response
-                .headers()
-                .iter()
-                .filter_map(|(name, value)| {
-                    value
-                        .to_str()
-                        .ok()
-                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
-                })
-                .collect();
+            let headers = response_headers(&response);
             let body = response.bytes().await.map_err(PortError::backend)?.to_vec();
             Ok(HttpResponse {
                 status,
                 body,
                 headers,
+            })
+        })
+    }
+
+    fn send_streaming(
+        &self,
+        request: HttpRequest,
+    ) -> BoxFuture<'_, Result<HttpStreamResponse, PortError>> {
+        Box::pin(async move {
+            let response = self.start(request).await?;
+            Ok(HttpStreamResponse {
+                status: response.status().as_u16(),
+                headers: response_headers(&response),
+                body: Box::new(ReqwestBody(response)),
             })
         })
     }
@@ -179,6 +231,41 @@ mod tests {
             let url = reqwest::Url::parse(open).expect("url");
             assert!(!literal_is_blocked(&url), "{open}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_streamed_answer_reads_the_whole_body() {
+        let app = axum::Router::new().route(
+            "/events",
+            axum::routing::post(|| async {
+                (
+                    [("content-type", "text/event-stream")],
+                    "data: one\n\ndata: two\n\n",
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let http = ReqwestOutbound::with_timeouts(Duration::from_secs(5), Duration::from_secs(10))
+            .expect("client");
+        let mut streamed = http
+            .send_streaming(HttpRequest::empty(
+                "POST",
+                format!("http://{address}/events"),
+            ))
+            .await
+            .expect("answer");
+        assert_eq!(streamed.status, 200);
+        assert_eq!(streamed.header("content-type"), Some("text/event-stream"));
+        let mut body = Vec::new();
+        while let Some(chunk) = streamed.body.next_chunk().await.expect("chunk") {
+            body.extend_from_slice(&chunk);
+        }
+        assert_eq!(body, b"data: one\n\ndata: two\n\n");
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 /**
- * Provider-neutral bank-feed model (docs/plans/weldbooks-us.md section 9).
+ * Provider-neutral bank-feed model (weldsuite-documentation/plans/weldbooks-us.md section 9).
  *
  * Every adapter turns its aggregator's quirks into these shapes so WeldBooks
  * never sees them:

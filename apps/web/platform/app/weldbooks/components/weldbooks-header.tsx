@@ -84,6 +84,10 @@ export function WeldbooksHeader({
     'tax-worksheet': th.taxWorksheet,
     'tax-lines': th.taxLines,
     dimensions: th.dimensions,
+    'received-nfe': t.navigation.moduleSidebar.weldbooks.receivedNfe,
+    builder: th.builder,
+    'invoice-templates': th.invoiceTemplates,
+    callback: th.callback,
   };
 
   function labelFor(segment: string): string {

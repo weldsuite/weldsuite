@@ -13,7 +13,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { ArrowDownLeft, ArrowUpRight, Hash, Phone, PhoneCall, Users, Video } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUser } from '@clerk/expo';
+import { useUser } from '@weldsuite/mobile-platform/auth';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import type { ActiveCallSummary, ChatCallHistoryItem } from '@weldsuite/app-api-client/domains/chat-calls';

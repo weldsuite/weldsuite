@@ -49,11 +49,11 @@ export default function EditBillPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/weldbooks/bills/$id" params={{ id }}>
-          <Button variant="ghost" size="icon">
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/weldbooks/bills/$id" params={{ id }} aria-label={tb.backToBills}>
             <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <h1 className="text-2xl font-semibold">{tb.editBill.replace('{number}', bill.billNumber ?? '')}</h1>
       </div>
 

@@ -9,7 +9,7 @@
  * mode — a mailbox object can exist from an earlier shadow/object period even
  * if the workspace reads as `postgres` today, and `destroy`/`forgetMailData`
  * are both no-ops against data that was never written (design
- * docs/plans/weldmail-mailbox-store-design.md §7).
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md §7).
  *
  * Called from both:
  *   - `routes/webhooks/clerk.ts`'s `handleOrganizationDeleted`, before the

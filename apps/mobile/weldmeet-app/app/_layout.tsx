@@ -2,7 +2,8 @@
 // before any @cloudflare/realtimekit module is evaluated.
 import '@/polyfills';
 
-import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { AuthLoaded, AuthProvider, ClerkOnly, useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { getMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -17,8 +18,8 @@ import 'react-native-reanimated';
 import { hideAppSplash } from '@/utils/splash';
 import { ClerkBootGate } from '@/components/ClerkBootGate';
 
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { AuthSessionProvider, useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { ServerRuntimeGate } from '@weldsuite/mobile-ui/components/ServerRuntimeGate';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
@@ -29,6 +30,8 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
+import { language } from '@/lib/i18n';
+import { APP, BUILD } from '@/lib/server';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -37,14 +40,8 @@ Observe.configure({
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!CLERK_PUBLISHABLE_KEY) {
-  console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
-}
-
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { user, isLoading, getCredentials, organizationId } = useAuthSession();
   const router = useRouter();
   const segments = useSegments();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
@@ -198,19 +195,26 @@ function AppStack() {
 
 function AuthenticatedApp() {
   return (
-    <ClerkAuthProvider>
+    <AuthSessionProvider>
       <AnalyticsProvider>
         <ThemeProvider>
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
-    </ClerkAuthProvider>
+    </AuthSessionProvider>
   );
 }
 
+// Clerk only (Global): the boot screen for a Clerk that is slow or fails to load.
+// The other sign-in (EU, self-hosted) has no such load step.
+function ClerkBoot({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  const { auth } = getMobileRuntime();
+  return <ClerkBootGate publishableKey={auth.provider === 'clerk' ? auth.publishableKey : undefined} onRetry={onRetry} />;
+}
+
 function RootLayout() {
-  // Bumped by the boot screen's "Try again": remounts ClerkProvider, which
-  // starts a fresh Clerk load on the same instance.
+  // Bumped by the boot screen's "Try again": remounts AuthProvider (and with it
+  // ClerkProvider), which starts a fresh Clerk load on the same instance.
   const [clerkAttempt, setClerkAttempt] = useState(0);
   const retryClerk = useCallback(() => setClerkAttempt((n) => n + 1), []);
 
@@ -223,21 +227,20 @@ function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <ErrorBoundary>
-          {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-              client sync races browser SSO on Android and signs users out again. */}
-          <ClerkProvider
-            key={clerkAttempt}
-            publishableKey={CLERK_PUBLISHABLE_KEY || ''}
-            tokenCache={tokenCache}
-            __experimental_disableNativeClientSync
-          >
-            {/* Spinner while Clerk loads; error + retry when it never does (a failed
-                headless load is otherwise silent and leaves a blank screen). */}
-            <ClerkBootGate publishableKey={CLERK_PUBLISHABLE_KEY} onRetry={retryClerk} />
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
+          {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
+              in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+          <ServerRuntimeGate app={APP} build={BUILD} language={language} accentColor="#7C3AED" onFailed={hideAppSplash}>
+            <AuthProvider key={clerkAttempt}>
+              {/* Spinner while Clerk loads; error + retry when it never does (a failed
+                  headless load is otherwise silent and leaves a blank screen). */}
+              <ClerkOnly>
+                <ClerkBoot onRetry={retryClerk} />
+              </ClerkOnly>
+              <AuthLoaded>
+                <AuthenticatedApp />
+              </AuthLoaded>
+            </AuthProvider>
+          </ServerRuntimeGate>
         </ErrorBoundary>
       </KeyboardProvider>
     </GestureHandlerRootView>

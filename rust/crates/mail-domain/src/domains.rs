@@ -15,7 +15,7 @@
 //! - [`RelayDomains`]: the sending service's domain API (per-domain DKIM,
 //!   and verification when the service does it). On the EU edition that is
 //!   WeldSuite's own MTA ([`crate::mta_domains::MtaDomainApi`], ADR
-//!   MAIL-011, `docs/plans/eu-mail-service.md`).
+//!   MAIL-011, `weldsuite-documentation/plans/eu-mail-service.md`).
 
 use std::fmt::Write as _;
 use std::sync::Arc;

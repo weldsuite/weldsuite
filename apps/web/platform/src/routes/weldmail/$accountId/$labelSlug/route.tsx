@@ -7,7 +7,7 @@ export const Route = createFileRoute('/weldmail/$accountId/$labelSlug')({
   validateSearch: parseMailSearch,
   // Fire the thread list / labels / stats requests as soon as the route
   // matches, in parallel with the mail layout's `useAppAccess` gate, instead
-  // of only once it passes (docs/plans/weldmail-mailbox-storage.md phase 1
+  // of only once it passes (weldsuite-documentation/plans/weldmail-mailbox-storage.md phase 1
   // item 7). Not awaited — see label-route-prefetch.ts.
   beforeLoad: ({ context, params }) => {
     prefetchMailLabelRoute(context.queryClient, {

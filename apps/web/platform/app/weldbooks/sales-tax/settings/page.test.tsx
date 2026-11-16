@@ -107,7 +107,7 @@ describe('SalesTaxEngineSettingsPage', () => {
   it('is only for a US entity', () => {
     jurisdiction.salesTax = false;
     renderWithProviders(<SalesTaxEngineSettingsPage />);
-    expect(screen.getByText(en.weldbooksUs.salesTax.setup.common.usOnly)).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 });

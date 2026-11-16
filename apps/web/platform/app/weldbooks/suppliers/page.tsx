@@ -97,7 +97,7 @@ export default function AccountingSuppliersPage() {
     {
       id: 'name',
       header: tsp.colName,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (supplier) => (
         <>
           <RowAvatar name={supplier.name || '?'} icon={contactKindIcon(supplier)} />
@@ -108,13 +108,13 @@ export default function AccountingSuppliersPage() {
     {
       id: 'email',
       header: tsp.colEmail,
-      width: 'w-[240px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[240px]',
       render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',
       header: tsp.colRole,
-      width: 'w-[170px]',
+      width: 'shrink-0 w-[170px]',
       render: (c) =>
         c.role ? (
           <StatusChip tone={c.role === 'both' ? 'indigo' : 'purple'}>
@@ -127,7 +127,7 @@ export default function AccountingSuppliersPage() {
     {
       id: 'vat',
       header: labels.taxId,
-      width: 'w-[180px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[180px]',
       render: (c) => <RowText>{c.vatNumber}</RowText>,
     },
     ...(show1099
@@ -135,7 +135,7 @@ export default function AccountingSuppliersPage() {
           {
             id: 'form1099',
             header: ts.col1099,
-            width: 'w-[110px]',
+            width: 'hidden shrink-0 @6xl/list:flex w-[110px]',
             render: (c) =>
               c.is1099Vendor ? (
                 <RowChip tone="blue">{c.default1099Form ? ts.formShort[c.default1099Form] : ts.vendor1099}</RowChip>
@@ -146,7 +146,7 @@ export default function AccountingSuppliersPage() {
           {
             id: 'tin',
             header: ts.colTin,
-            width: 'w-[220px] gap-2',
+            width: 'hidden shrink-0 @6xl/list:flex w-[220px] gap-2',
             render: (c) => {
               const status = supplierTinStatus(c);
               if (status === 'none') return <RowText />;
@@ -161,7 +161,7 @@ export default function AccountingSuppliersPage() {
           {
             id: 'w9',
             header: ts.colW9,
-            width: 'w-[110px]',
+            width: 'hidden shrink-0 @6xl/list:flex w-[110px]',
             render: (c) =>
               c.w9?.receivedAt || c.w9?.legalName ? (
                 <StatusChip tone="green">{ts.w9Received}</StatusChip>

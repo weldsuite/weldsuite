@@ -17,6 +17,7 @@
 //!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
 //!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
 //!   "outbound": "http://127.0.0.1:...",   // third-party calls, through the test's fetch stub
+//!                                         // (the AI's too, with env AI_TEST_BASE_URL: crate::ai)
 //!   "sendEmail": "http://127.0.0.1:...",  // the test's SEND_EMAIL binding (customer mail)
 //!   "ledgers": { "OUTBOUND_LEDGER": "http://127.0.0.1:..." }, // its outbound-guard namespaces
 //!   "workflows": { "EXECUTE_SEQUENCE": "http://127.0.0.1:..." } } // its Workflow bindings
@@ -336,6 +337,10 @@ impl Pools {
 
     /// What the test shares with Rust beyond the session: its env, buckets,
     /// KV, session key and outbound bridge.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one of the test's bindings after the other"
+    )]
     fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
         if let Some(url) = context.smtp.as_deref().filter(|url| !url.is_empty()) {
             extensions.insert(weldsuite_reach::RequestSmtp(Arc::new(BridgedSmtp {
@@ -470,6 +475,20 @@ impl Pools {
             // WeldDesk's Discord and Slack calls.
             extensions.insert(self.outbound.desk_http(bridge));
         }
+        self.insert_ai(extensions, context);
+    }
+
+    /// The AI the routes call (`crate::ai::for_request`): on when the test
+    /// points `@weldsuite/ai` at the mock model (`AI_TEST_BASE_URL`), with its
+    /// calls answered by the test's fetch stub; off otherwise.
+    fn insert_ai(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        extensions.insert(crate::ai::conformance(
+            &context.env,
+            context
+                .outbound
+                .as_deref()
+                .map(|bridge| self.outbound.outbound_http(bridge)),
+        ));
     }
 
     /// What a cron job or a job run in a test gets in place of a request's

@@ -1,4 +1,4 @@
-# The MTA's queue (docs/plans/eu-mail-service.md): its own database,
+# The MTA's queue (weldsuite-documentation/plans/eu-mail-service.md): its own database,
 # weldsuite_mta, on the master cluster, owned by its own role `mta` (the
 # managed role the configs patch in ../layers.yaml adds, password from
 # postgres/master-db-mta).

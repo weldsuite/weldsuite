@@ -9,6 +9,7 @@
 
 import type { ReactNode } from 'react';
 import { Percent } from 'lucide-react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { FilesIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { BrTaxSummary } from '@/app/weldbooks/invoices/components/br-fields';
@@ -24,6 +25,7 @@ import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { cn } from '@/lib/utils';
+import { isBillOverdue } from './bill-capabilities';
 
 type BillItemRow = BillWithTax['items'][number];
 
@@ -76,8 +78,16 @@ function LineItemRow({
   item,
   currency,
   canCreateFixedAsset,
-}: Readonly<{ item: BillItemRow; currency: string | null; canCreateFixedAsset: boolean }>) {
+  defaultAccount,
+}: Readonly<{
+  item: BillItemRow;
+  currency: string | null;
+  canCreateFixedAsset: boolean;
+  /** What a line with no account of its own is booked to. */
+  defaultAccount?: { code: string; name: string } | null;
+}>) {
   const td = useDocumentTexts();
+  const st = useTranslations();
   const { formatMoney, formatNumber } = useWeldbooksFormat();
   const lineFlags = useLineFlags();
   const flags = lineFlags(item);
@@ -88,6 +98,11 @@ function LineItemRow({
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm">{item.description}</div>
         {flags.length > 0 ? <div className="truncate text-xs text-muted-foreground">{flags.join(' · ')}</div> : null}
+        {!item.accountId && defaultAccount ? (
+          <div className="truncate text-xs text-muted-foreground" data-testid="default-account">
+            {st('sweep.weldbooks.records.defaultAccount', { account: `${defaultAccount.code} — ${defaultAccount.name}` })}
+          </div>
+        ) : null}
         <div className="truncate text-xs text-muted-foreground tabular-nums @min-[560px]:hidden">
           {quantity} × {formatMoney(item.unitPrice, currency)}
         </div>
@@ -131,6 +146,7 @@ function BillTotals({ bill }: Readonly<{ bill: BillWithTax }>) {
   const { formatMoney } = useWeldbooksFormat();
   const { features } = useJurisdictionLabels();
   const hasPayment = !!bill.amountPaid && Number(bill.amountPaid) > 0;
+  const overdue = isBillOverdue(bill);
 
   return (
     <div className="ml-auto w-full max-w-xs space-y-2 p-4">
@@ -152,7 +168,7 @@ function BillTotals({ bill }: Readonly<{ bill: BillWithTax }>) {
           <TotalRow
             label={tb.balanceDue}
             value={formatMoney(bill.balanceDue, bill.currency)}
-            className="font-semibold [&>span]:text-destructive"
+            className={cn('font-semibold', overdue && '[&>span]:text-destructive')}
           />
         </>
       ) : null}
@@ -190,6 +206,7 @@ export function BillLineItemsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
             item={item}
             currency={bill.currency}
             canCreateFixedAsset={features.salesTax && isPosted}
+            defaultAccount={bill.defaultExpenseAccount}
           />
         ))}
       </TabListScope>

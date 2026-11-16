@@ -61,6 +61,39 @@ export const Destructive: Story = {
   },
 };
 
+/** `confirmDisabled` holds Confirm back until an acknowledgement inside the description is ticked. */
+export const WithAcknowledgement: Story = {
+  render: () => {
+    const [open, setOpen] = useState(false);
+    const [ack, setAck] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>Allow Claude</Button>
+        <ConfirmDialog
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next);
+            if (!next) setAck(false);
+          }}
+          title="Allow Claude?"
+          description={
+            <span className="block space-y-3">
+              <span className="block">Text you send to Claude leaves the EU.</span>
+              <label className="flex items-start gap-2 text-foreground">
+                <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+                <span>I understand that this data leaves the EU.</span>
+              </label>
+            </span>
+          }
+          confirmLabel="Switch on"
+          confirmDisabled={!ack}
+          onConfirm={() => setOpen(false)}
+        />
+      </>
+    );
+  },
+};
+
 /**
  * Without `confirmLabel` / `cancelLabel` the buttons take the app's
  * translations from `UiLabelsProvider` (here Dutch).

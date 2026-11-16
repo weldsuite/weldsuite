@@ -145,8 +145,9 @@ export const ColorPickerSelection = memo(({ className, ...props }: ColorPickerSe
   }, [hue]);
 
   const handlePointerMove = useCallback(
-    (event: PointerEvent) => {
-      if (!(isDragging && containerRef.current)) {
+    // `pressed` lets the press itself pick a colour, before `isDragging` has updated.
+    (event: PointerEvent, pressed = false) => {
+      if (!((isDragging || pressed) && containerRef.current)) {
         return;
       }
       const rect = containerRef.current.getBoundingClientRect();
@@ -183,7 +184,7 @@ export const ColorPickerSelection = memo(({ className, ...props }: ColorPickerSe
       onPointerDown={(e) => {
         e.preventDefault();
         setIsDragging(true);
-        handlePointerMove(e.nativeEvent);
+        handlePointerMove(e.nativeEvent, true);
       }}
       ref={containerRef}
       style={{

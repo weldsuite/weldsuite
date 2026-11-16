@@ -5,7 +5,7 @@
  *
  * Nothing is written to the tenant database until there is something to keep:
  * the response row is created by the first saved progress, so a bounce leaves no
- * trace (docs/plans/weldforms.md, "Respondent sessions").
+ * trace (weldsuite-documentation/plans/weldforms.md, "Respondent sessions").
  */
 
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';

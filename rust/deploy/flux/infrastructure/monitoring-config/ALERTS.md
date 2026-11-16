@@ -3,7 +3,7 @@
 What each alert means and what to check first. Every rule's `runbook_url`
 points at its heading here. A cluster operator's own steps (names, addresses,
 who to call) belong in that cluster's runbook, not here. Plan and decisions:
-[docs/plans/eu-observability.md](../../../../../docs/plans/eu-observability.md),
+[weldsuite-documentation/plans/eu-observability.md](https://github.com/weldsuite/weldsuite-documentation/blob/main/plans/eu-observability.md),
 ADR OPS-021.
 
 **Severity.** `critical` pages at any hour. `warning` is quiet and muted at
@@ -11,11 +11,18 @@ night (21:00–06:00 UTC), and arrives in the morning if it still fires.
 `info` only shows in Grafana. A critical alert silences the warnings of the
 same namespace. Flux's own failures arrive as warnings.
 
-**Where to look.** Grafana at `https://grafana.<domain>`: "WeldSuite API",
-"WeldSuite public endpoints", the Kubernetes dashboards, and Explore with
-Loki for logs (`{cluster="<domain>", namespace="weldsuite"}`). Without
-Zitadel: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
-3000:80` and the admin login from the Secret `grafana-admin`.
+**Where to look.** Grafana at `https://grafana.<domain>`, folder WeldSuite:
+"WeldSuite overview" first (is everything OK: hosts, errors, latency,
+alerts, Postgres, backups, nodes, failed cron runs), then "WeldSuite jobs
+and consumers", "WeldSuite Postgres and backups", "WeldSuite capacity",
+"WeldSuite API" and "WeldSuite public endpoints"
+(`dashboards/generate.mjs` writes them). Also the Kubernetes dashboards,
+the Components folder (CloudNativePG, Traefik, NATS, probes), and Explore
+with Loki for logs (`{cluster="<domain>", namespace="weldsuite"}`). Without
+Zitadel: `https://grafana.<domain>/login?disableAutoLogin=true` (or, without
+the ingress, `kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana
+3000:80` and `http://localhost:3000/login?disableAutoLogin=true`) with the
+admin login from the Secret `grafana-admin`.
 
 ## Receivers
 
@@ -46,6 +53,11 @@ On a test cluster, once, and after changing a receiver:
   (the operator scales it back; patch the Alertmanager's `spec.replicas` to
   hold it), wait 10 minutes.
 - A crash loop: a pod in the weldsuite namespace whose command exits.
+- `SecretStoreDown`: `systemctl restart openbao` on the test cluster's store
+  (it comes back sealed), wait 15 minutes, unseal. The snapshot check:
+  healthchecks.io's test notification on the check's ntfy integration, and
+  `systemctl start bao-snapshot` on the store shows up as a ping in the
+  check's log.
 - Flux: a HelmRelease value its chart's schema refuses, on a test-only branch.
 - Routing only, anywhere (production too): `amtool alert add test severity=critical
   --annotation=summary="routing test" --alertmanager.url=http://localhost:9093`
@@ -148,11 +160,14 @@ growing lag.
 
 ### PostgresInstanceDown
 
-A CloudNativePG instance has not been ready for 2 minutes. The clusters
-require a synchronous replica (`dataDurability: required`), so a
-two-instance cluster accepts no writes while either instance is down.
+A CloudNativePG instance has not been ready for 2 minutes: the platform's
+clusters (namespace `postgres`) or Zitadel's (`zitadel-db`, namespace
+`zitadel`; down, nobody can sign in). The clusters require a synchronous
+replica (`dataDurability: required`), so a two-instance cluster accepts no
+writes while either instance is down.
 
-- `kubectl -n postgres get pods`, `kubectl cnpg status <cluster> -n postgres`.
+- `kubectl -n postgres get pods`, `kubectl cnpg status <cluster> -n postgres`
+  (`-n zitadel` for `zitadel-db`).
 - A node down (`NodeNotReady`) takes its instance with it: the instance's
   volume is on that node, so it comes back with the node.
 - A full disk (`DiskFillingUp`) stops Postgres.
@@ -206,8 +221,8 @@ dmesg` / `services` through the API load balancer, and the Hetzner console
 
 ### DiskFillingUp
 
-A node filesystem (Talos's `/var`, where Postgres, Prometheus, NATS and
-Valkey keep their data) is below 10% free, or at the current rate will be
+A node's disk (per device: Talos's `/var`, where Postgres, Prometheus, NATS
+and Valkey keep their data) is above 90% used, or at the current rate will be
 full within a day. Find what grows: `kubectl get pvc -A` and the volumes
 under `/var/mnt/local-storage` (`talosctl -n <node> usage
 /var/mnt/local-storage`), container logs, images. Postgres WAL that isn't
@@ -215,8 +230,9 @@ archived (`PostgresWalArchivingFailing`) grows without bound.
 
 ### DiskUsageHigh
 
-A node filesystem is above 80% used for 30 minutes. Plan room before it
-becomes `DiskFillingUp`.
+A node's disk is above 80% used for 30 minutes. Plan room before it
+becomes `DiskFillingUp`; "WeldSuite capacity" shows which node and what
+grows.
 
 ## Certificates
 
@@ -252,10 +268,38 @@ Loki discards lines (rate or size limits, too-old timestamps) or answers
 pushes with 5xx. Its logs say which; limits are in
 `../logging/values/loki.yaml`.
 
+## Secret store
+
+### SecretStoreDown
+
+The cluster's secret store (`rust/deploy/hetzner/secret-store`, ADR
+OPS-023) has answered its health check (`SECRET_STORE_URL`/v1/sys/health)
+with something other than 200 for 10 minutes. The cluster keeps every Secret
+it has; External Secrets refreshes nothing, and new or changed values wait.
+A warning: it waits for the morning. The HTTP code in the summary says
+which:
+
+- 503, sealed: OpenBao restarted (a reboot, Hetzner maintenance, a crash).
+  Unseal it with two keys (the store's README, "Reboots and unsealing").
+- 0, no answer: the server (Hetzner console), Caddy (`systemctl status
+  caddy`), its DNS name, or the cluster's way out.
+- 501, not initialised: a new or rebuilt server; README, "First start" or
+  "Restore".
+- 429, standby: OpenBao won't become active; `journalctl -u openbao` (an
+  audit device changed in `openbao.hcl`, README, "Upgrades").
+
+Probed only while the cluster's `SECRET_STORE_URL` is set. Its daily
+snapshot isn't watched from here: a failed one is the healthchecks.io check
+pinged by the store itself (`SNAPSHOT_PING_URL`, README, "Backups"), which
+notifies on its own.
+
 ## From kube-prometheus-stack
 
 The chart's own rules also apply, trimmed (`../monitoring/values/kube-prometheus-stack.yaml`):
-among them `KubeJobFailed` (a cron run failed), `KubePodCrashLooping`,
+among them `KubeJobFailed` (a cron run failed; it clears a day later, when
+the chart's `cron.ttlSecondsAfterFinished` removes the failed Job, or at once
+with `kubectl -n weldsuite delete job <name>` once its logs are read),
+`KubePodCrashLooping`,
 `KubePersistentVolumeFillingUp`, `NodeMemoryHighUtilization`,
 `TargetDown`, `PrometheusRuleFailures` and `AlertmanagerFailedToSendAlerts`,
 and once etcd is scraped, `etcdNoLeader` and `etcdMembersDown` (critical).

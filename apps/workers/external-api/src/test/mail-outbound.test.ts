@@ -13,7 +13,7 @@
  *   - Cloudflare's own refusals become 429 (+ `Retry-After: 60`), 503 and 502
  *     (a partial send, with who got it and who did not);
  *   - nothing is transmitted when the guard refuses.
- * docs/plans/weldmail-outbound-abuse.md.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

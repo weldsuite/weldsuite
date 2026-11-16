@@ -116,6 +116,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
+import { MailAiBadge } from '@/components/ai/mail-ai-badge';
 
 type EmailMessage = MailTypes.Email;
 
@@ -1064,6 +1065,7 @@ function InlineAiBar({
         className="flex-1 text-sm outline-none bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
         rows={1}
       />
+      <MailAiBadge className="flex-shrink-0" />
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <Button variant="outline" size="sm" onClick={onCancel}>
           {t.mail.messageDetail.cancelButton}

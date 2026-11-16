@@ -175,7 +175,7 @@ export const weldbooksUsSalesTaxDocuments = {
   },
 
   form: {
-    creditMemoTitle: 'Edit credit memo',
+    creditMemoTitle: 'Edit {name}',
     creditMemoNote:
       'The tax of a credit memo follows the invoice it credits. Change quantities or prices to credit part of a line, or remove lines you do not credit.',
     creditMemoUpdated: 'Credit memo updated',

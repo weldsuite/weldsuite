@@ -1,6 +1,6 @@
 /**
  * US business entity types, their federal tax classification and the return
- * each files (docs/plans/weldbooks-us-research/federal.md §3).
+ * each files (weldsuite-documentation/plans/weldbooks-us-research/federal.md §3).
  *
  * `entities.entity_type` holds a `UsEntityType`; `entities.tax_classification`
  * holds a `UsTaxClassification`. The classification is how the IRS taxes the

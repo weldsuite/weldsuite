@@ -32,6 +32,15 @@ export function useFileVatReturn(id: string) {
   });
 }
 
+/** Record that the return was filed outside WeldSuite (no Digipoort on this edition). */
+export function useMarkVatReturnFiled(id: string) {
+  const invalidate = useInvalidateVatReturns();
+  return useMutation({
+    mutationFn: (data: { filingReference?: string; filedAt?: string }) => accountingApi.markVatReturnFiled(id, data),
+    onSuccess: invalidate,
+  });
+}
+
 export function useDeleteVatReturn(id: string) {
   const invalidate = useInvalidateVatReturns();
   return useMutation({

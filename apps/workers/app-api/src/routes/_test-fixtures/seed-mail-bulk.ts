@@ -1,6 +1,6 @@
 /**
  * Bulk mailbox seed for performance measurements (phase 0 of
- * docs/plans/weldmail-mailbox-storage.md). Fills one mailbox with messages
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md). Fills one mailbox with messages
  * grouped into threads, spread back in time from now, with bodies of a chosen
  * size, so opening mail can be timed on a mailbox the size of a real one.
  *
@@ -92,7 +92,7 @@ export function buildSeedMailRows(options: SeedMailBulkOptions): MailMessageInse
 
 /**
  * The same rows as `IngestMessage`s, for seeding an object-mode mailbox
- * through the store (docs/plans/weldmail-mailbox-store-design.md, task D6)
+ * through the store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D6)
  * instead of inserting them into Postgres directly. One-to-one with
  * `buildSeedMailRows`'s output: every row that would have been an INSERT
  * becomes one `ingest` op's message.

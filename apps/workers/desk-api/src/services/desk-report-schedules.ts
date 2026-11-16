@@ -367,7 +367,7 @@ export async function sendScheduledReport(options: SendReportOptions): Promise<R
     const attachments: OutgoingAttachment[] = schedule.attachCsv
       ? [{ filename: content.csv.filename, content: content.csv.content, contentType: 'text/csv; charset=utf-8' }]
       : [];
-    // The outbound mail guard (docs/plans/weldmail-outbound-abuse.md): the mail goes out
+    // The outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): the mail goes out
     // from WeldSuite's address and carries workspace-written names and titles.
     let reservation: OutboundReservation | null = null;
     try {

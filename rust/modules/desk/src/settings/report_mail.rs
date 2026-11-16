@@ -385,7 +385,7 @@ pub(crate) async fn send_scheduled_report(
     };
 
     let recipients = schedule.recipient_list();
-    // The outbound mail guard (docs/plans/weldmail-outbound-abuse.md): the mail goes out
+    // The outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): the mail goes out
     // from WeldSuite's address and carries workspace-written names and titles.
     let mut input = CheckOutboundInput::new(
         SubjectInput::Workspace {

@@ -4,8 +4,10 @@
 //! Drive file a request starts from; `/api/files`, `/api/folders` and
 //! `/api/drive` (`weldsuite-core-files`) are built on all of it. Also the
 //! plan limits ([`plan_limits`]): what a workspace's plan allows per feature
-//! (WeldForms' monthly response quota).
+//! (WeldForms' monthly response quota). And the prepaid credits wallet
+//! ([`credits`], `@weldsuite/credits`) every metered feature charges.
 
+pub mod credits;
 pub mod custom_field_query;
 pub mod custom_field_values;
 pub mod drive_access;

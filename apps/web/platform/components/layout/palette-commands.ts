@@ -14,6 +14,7 @@ import {
   Building2,
   CreditCard,
   Fingerprint,
+  Sparkles,
   History,
   Home,
   Keyboard,
@@ -83,13 +84,24 @@ export function appHref(app: InstalledAppRef): string {
   return `/${app.appCode}`;
 }
 
-/** Every page in a module's static sidebar menu, with the permission that gates it. */
-export function pagesForModule(appCode: string, t: TranslationsType): SidebarPage[] {
+/**
+ * Every page in a module's static sidebar menu, with the permission that gates it.
+ * `isHrefVisible` applies a module's own visibility rule (WeldBooks hides pages
+ * by the entity's country), the same one its sidebar uses.
+ */
+export function pagesForModule(
+  appCode: string,
+  t: TranslationsType,
+  options: { isHrefVisible?: (href: string) => boolean } = {},
+): SidebarPage[] {
+  const isHrefVisible = options.isHrefVisible ?? (() => true);
   const config = MODULE_CONFIGS[appCode];
   if (!config) return [];
   const pages: SidebarPage[] = [];
   for (const group of config.getMenuItems(t)) {
     for (const item of group.items) {
+      // A hidden item takes its sub-items with it, like in the sidebar.
+      if (!isHrefVisible(item.href)) continue;
       pages.push({
         title: item.title,
         href: item.href,
@@ -97,6 +109,7 @@ export function pagesForModule(appCode: string, t: TranslationsType): SidebarPag
         icon: item.icon,
       });
       for (const sub of item.subItems ?? []) {
+        if (!isHrefVisible(sub.href)) continue;
         pages.push({
           title: sub.title,
           href: sub.href,
@@ -327,6 +340,14 @@ export function settingsCommands(
       keywords: `${menu.sso} ${search.sso} sso saml okta entra identity provider`,
       href: '/settings/sso',
       icon: Fingerprint,
+    },
+    {
+      id: 'settings-ai',
+      title: menu.ai,
+      subtitle: settingsTitle,
+      keywords: `${menu.ai} ${search.ai} ai mistral claude chatgpt provider model openai anthropic`,
+      href: '/settings/ai',
+      icon: Sparkles,
     },
     {
       id: 'settings-plans',

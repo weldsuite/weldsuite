@@ -5,7 +5,7 @@
  *   pnpm dev:api
  *
  * app-api gets the HTTP port (8789); the module workers
- * (apps/workers/<module>-api, see docs/plans/app-api-module-split.md) are
+ * (apps/workers/<module>-api, see weldsuite-documentation/plans/app-api-module-split.md) are
  * reachable through their service bindings (`<MODULE>_API` in app-api's dev
  * config), and app-api forwards their paths (API_FORWARD_MODULES is set
  * here). The platform keeps talking to http://localhost:8789 only, so leave

@@ -1,7 +1,7 @@
 /**
  * Invitations: a personal link per person (members, CRM people, a CRM list,
  * pasted addresses), their status, reminders by hand and automatic, and revoke
- * (docs/plans/weldforms.md, "Invitations and reminders").
+ * (weldsuite-documentation/plans/weldforms.md, "Invitations and reminders").
  *
  * A link is `<portal>/i/<publicId>.<token>`; the token is 32 random bytes and
  * only its SHA-256 is kept, in the master `form_invitation_registry` (which the

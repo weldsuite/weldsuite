@@ -10,7 +10,7 @@
 
 mod actions;
 mod from_order;
-mod pdf;
+pub(crate) mod pdf;
 pub(crate) mod write;
 
 use std::collections::HashMap;

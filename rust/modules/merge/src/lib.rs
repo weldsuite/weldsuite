@@ -30,7 +30,7 @@ pub use weldsuite_merge_domain::installations;
 pub mod keys;
 
 /// `MergeInternal.workflowAction` in process (WeldConnect's `merge.*` actions).
-pub use across::workflow_action;
+pub use across::{agent_tool, workflow_action};
 /// The WeldChat daily digest's hourly sweep (`weldsuite cron merge-digest-sweep`).
 pub use chat::digest::run_digest_sweep;
 
@@ -124,6 +124,9 @@ pub struct MergeState {
     /// release's notes sent by email. A request's `RequestOutbound`
     /// (conformance) wins.
     pub mail: weldsuite_mail_domain::outbound::OutboundBindings,
+    /// The install's AI (ADR AI-012), for a release's notes; `None` with AI
+    /// off. A request's `Ai` (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for MergeState {
@@ -156,15 +159,6 @@ pub const ENV_NAMES: &[&str] = &[
     "INTERNAL_API_SECRET",
     "DATABASE_ENCRYPTION_KEY",
     "DATABASE_ENCRYPTION_KEY_V2",
-    // A release's notes, written by the model (`@weldsuite/ai`'s settings).
-    "CF_ACCOUNT_ID",
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CF_AI_GATEWAY",
-    "CF_AIG_TOKEN",
-    "AI_GATEWAY_API_TOKEN",
-    "CLOUDFLARE_API_TOKEN",
-    "CF_API_TOKEN",
-    "AI_FALLBACK_MODEL",
     // The internal calls' member check (`checkAppPermission` enforcement).
     "PERMISSIONS_APP_ENFORCE",
 ];
@@ -502,6 +496,9 @@ pub(crate) struct Overrides {
     pub(crate) http: Option<OutboundHttp>,
     pub(crate) master: Option<PgPool>,
     pub(crate) cache: Option<RequestCache>,
+    /// The request's AI (conformance builds: on with the test's mock model,
+    /// off without it).
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Overrides {
@@ -511,7 +508,18 @@ impl Overrides {
             http: extensions.get::<OutboundHttp>().cloned(),
             master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
             cache: extensions.get::<RequestCache>().cloned(),
+            ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
         }
+    }
+
+    /// The AI a call runs on: the request's (conformance), then the state's;
+    /// `None` when it is off.
+    pub(crate) fn ai(&self, state: &MergeState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// `c.env.<name>`: the request's env first (conformance), then the state's.

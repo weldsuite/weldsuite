@@ -348,6 +348,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         },
         assignment: None,
         merge: None,
+        ai: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),

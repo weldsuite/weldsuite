@@ -1,5 +1,7 @@
 # cert-manager renews 30 days before expiry. 21 days left means renewals
-# have failed for over a week; 7 days left is close to an outage.
+# have failed for over a week; 7 days left is close to an outage. A
+# certificate never issued reports expiry 0: CertificateNotReady covers it,
+# not the expiry alerts.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -10,7 +12,9 @@ spec:
     - name: weldsuite-certificates
       rules:
         - alert: CertificateExpiring
-          expr: certmanager_certificate_expiration_timestamp_seconds - time() < 7 * 86400
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds > 0)
+            and (certmanager_certificate_expiration_timestamp_seconds - time() < 7 * 86400)
           for: 10m
           labels:
             severity: critical
@@ -18,7 +22,9 @@ spec:
             summary: "{{ $labels.namespace }}/{{ $labels.name }} expires in {{ $value | humanizeDuration }}"
             runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#certificateexpiring
         - alert: CertificateRenewalLate
-          expr: certmanager_certificate_expiration_timestamp_seconds - time() < 21 * 86400
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds > 0)
+            and (certmanager_certificate_expiration_timestamp_seconds - time() < 21 * 86400)
           for: 1h
           labels:
             severity: warning

@@ -3,7 +3,7 @@
  *
  * All endpoints live on app-api:
  * - Products:   /products   (shared `products` table — WeldStash reads the same rows)
- * - Categories: /categories (hierarchical; manual + automated, see .claude/weldcommerce-plan.md)
+ * - Categories: /categories (hierarchical; manual + automated, see weldsuite-documentation/plans/weldcommerce-plan.md)
  * - Orders:     /orders
  *
  * Customers are NOT here on purpose. Per `apps/workers/crm-api/src/routes/companies/index.ts`,

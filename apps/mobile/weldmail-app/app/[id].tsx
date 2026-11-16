@@ -38,7 +38,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { getMessage, markMessageRead, getThread } from '@/services/mail-tenant';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
@@ -1031,7 +1031,7 @@ export default function EmailDetailScreen() {
   const preview = firstParam(params.preview);
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { organizationId } = useClerkAuth();
+  const { organizationId } = useAuthSession();
   const { refreshMail } = useMail();
   const cache = useMailCache();
 

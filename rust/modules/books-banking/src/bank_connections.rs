@@ -290,7 +290,8 @@ fn read_link(issues: &mut Issues, body: &Map<String, Value>) -> Option<LinkBody>
 }
 
 // A second factor verified in the last 10 minutes, for every mode: a link
-// (new or renewed) opens the bank's data to this workspace.
+// (new or renewed) opens the bank's data to this workspace. Clerk sign-in
+// only for now (`BooksState::second_factor_step_up`).
 async fn link_session(
     caller: Caller,
     State(state): State<BooksState>,
@@ -298,7 +299,9 @@ async fn link_session(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if let Err(refused) = weldsuite_auth::require_second_factor(&auth, 10) {
+    if state.second_factor_step_up
+        && let Err(refused) = weldsuite_auth::require_second_factor(&auth, 10)
+    {
         return refused.into_response();
     }
     let input = match validate(&headers, &body, read_link) {

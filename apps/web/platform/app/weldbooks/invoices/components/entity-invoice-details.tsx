@@ -29,7 +29,7 @@ import type { AccountingEntity, UpdateAccountingEntityInput } from '@/lib/api/do
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
-import { isValidIban } from '@/lib/weldbooks/identifiers';
+import { isValidIban, isValidKvk } from '@/lib/weldbooks/identifiers';
 import type { InvoiceField } from '@/lib/weldbooks/invoice-requirements';
 
 /** The entity's address is in its own country: the form starts from the jurisdiction's. */
@@ -54,9 +54,11 @@ type DetailsErrors = Partial<Record<InvoiceField, string>>;
 function detailsErrors(
   values: DetailsValues,
   fields: readonly InvoiceField[],
-  messages: { required: string; ibanInvalid: string; addressRequired: string },
+  messages: { required: string; ibanInvalid: string; kvkInvalid: string; addressRequired: string },
+  jurisdictionCode: string | null | undefined,
 ): DetailsErrors {
   const errors: DetailsErrors = {};
+  const isNl = jurisdictionCode?.toUpperCase() === 'NL';
   for (const field of fields) {
     if (field === 'address') {
       if (!values.address.line1?.trim() || !values.address.city?.trim()) errors.address = messages.addressRequired;
@@ -64,6 +66,9 @@ function detailsErrors(
       errors[field] = messages.required;
     } else if (field === 'iban' && !isValidIban(values.iban)) {
       errors.iban = messages.ibanInvalid;
+    } else if (field === 'registrationNumber' && isNl && !isValidKvk(values.registrationNumber)) {
+      // The same rule the API applies (8 digits), shown inline instead of in a toast.
+      errors.registrationNumber = messages.kvkInvalid;
     }
   }
   return errors;
@@ -126,19 +131,24 @@ export function EntityInvoiceDetailsDialog({
   const [errors, setErrors] = useState<DetailsErrors>({});
   const [submitted, setSubmitted] = useState(false);
 
-  const messages = { required: td.required, ibanInvalid: t.accounting.contacts.ibanInvalid, addressRequired: td.addressRequired };
+  const messages = {
+    required: td.required,
+    ibanInvalid: t.accounting.contacts.ibanInvalid,
+    kvkInvalid: t.accounting.contacts.kvkInvalid,
+    addressRequired: td.addressRequired,
+  };
 
   const update = (patch: Partial<DetailsValues>) => {
     const next = { ...values, ...patch };
     setValues(next);
-    if (submitted) setErrors(detailsErrors(next, asked, messages));
+    if (submitted) setErrors(detailsErrors(next, asked, messages, entity.jurisdictionCode));
   };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     event.stopPropagation();
     setSubmitted(true);
-    const found = detailsErrors(values, asked, messages);
+    const found = detailsErrors(values, asked, messages, entity.jurisdictionCode);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     try {

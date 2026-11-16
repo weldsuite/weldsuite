@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { Sparkles, Bot, Coins } from 'lucide-react-native';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -11,7 +12,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/data-states';
 import { IconTile } from '@/components/detail';
 import { useI18n } from '@/lib/i18n';
 import { ACCENTS, BRAND } from '@/lib/brand';
-import { TOP_UP_URL, useCreditsBalance } from '@/lib/credits';
+import { topUpUrl, useCreditsBalance } from '@/lib/credits';
 import appApi from '@/services/app-api';
 import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
@@ -20,6 +21,7 @@ export default function NewChatScreen() {
   const { colors } = useTheme();
   const { t } = useI18n();
   const { outOfCredits } = useCreditsBalance();
+  const canTopUp = useEditionFeature('credit-top-up');
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +61,14 @@ export default function NewChatScreen() {
             <IconTile icon={Coins} color={ACCENTS.credits} />
             <View style={styles.creditsBody}>
               <Text style={[styles.creditsText, { color: colors.text }]}>{t.chat.needsCredits}</Text>
-              <Button
-                title={t.credits.topUpWeb}
-                variant="outline"
-                size="sm"
-                onPress={() => void Linking.openURL(TOP_UP_URL)}
-              />
+              {canTopUp ? (
+                <Button
+                  title={t.credits.topUpWeb}
+                  variant="outline"
+                  size="sm"
+                  onPress={() => void Linking.openURL(topUpUrl())}
+                />
+              ) : null}
             </View>
           </View>
         ) : null}

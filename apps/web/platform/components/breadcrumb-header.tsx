@@ -208,7 +208,7 @@ export function BreadcrumbHeader({
               narrow one it takes the room the search and buttons leave and
               truncates inside it. */}
           {segments.length > 0 && (
-            <Breadcrumb className={cn("hidden md:flex min-w-0 overflow-hidden", !hideSearch ? "flex-1 @min-[1000px]:flex-none @min-[1000px]:max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
+            <Breadcrumb className={cn("hidden md:flex min-w-0 overflow-hidden", !hideSearch ? "flex-1 @min-[1200px]:flex-none @min-[1200px]:max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
               <BreadcrumbList className="flex-nowrap overflow-hidden">
                 {buildCrumbEntries(segments).map(({ segment, key: crumbKey, isFirst, isLast }) => {
 
@@ -219,7 +219,7 @@ export function BreadcrumbHeader({
                     // then collides → React "two children with the same key" warning.
                     <Fragment key={crumbKey}>
                       {!isFirst && <BreadcrumbSeparator className="shrink-0" />}
-                      <BreadcrumbItem className={cn("min-w-0", isLast ? "truncate" : "shrink-0")}>
+                      <BreadcrumbItem className={cn("min-w-0", isLast ? "max-w-[320px] shrink-0" : "shrink")}>
                         {isLast || !segment.href ? (
                           <BreadcrumbPage className="truncate max-w-[500px]">
                             {segment.label}
@@ -239,7 +239,7 @@ export function BreadcrumbHeader({
           {/* Centered over the header when it is wide enough, otherwise in the row
               at a width that follows the header (140px to 448px). */}
           {!hideSearch && (
-            <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1000px]:absolute @min-[1000px]:left-1/2 @min-[1000px]:-translate-x-1/2 @min-[1000px]:w-[448px]">
+            <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1200px]:absolute @min-[1200px]:left-1/2 @min-[1200px]:-translate-x-1/2 @min-[1200px]:w-[448px]">
               <CommandPaletteTrigger />
             </div>
           )}

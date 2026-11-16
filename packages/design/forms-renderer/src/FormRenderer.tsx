@@ -269,7 +269,7 @@ function stageView(s: StageInput): ReactNode {
 /**
  * The form a respondent fills in: the conversational layout (one step at a
  * time) or the classic one (pages). See ./types.ts for the props and
- * docs/plans/weldforms.md ("Renderer").
+ * weldsuite-documentation/plans/weldforms.md ("Renderer").
  */
 export function FormRenderer(props: FormRendererProps) {
   const def = props.definition;

@@ -14,7 +14,7 @@ Every PR targets **`main`**, the only branch. A merge that passes CI deploys to 
 
 ## Development setup
 
-Requirements: **Node 20+** and **pnpm 10.34.5** (`corepack enable` will pin the right pnpm).
+Requirements: **Node 22+** and **pnpm 10.34.5** (`corepack enable` will pin the right pnpm).
 
 ```bash
 pnpm install        # install all workspaces
@@ -31,11 +31,11 @@ pnpm dev            # Vite dev server (port 3000)
 pnpm type-check     # tsc --noEmit
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for a detailed map of the monorepo, module layout, where routes vs. components live, the API/database conventions, and more.
+See [AGENTS.md](./AGENTS.md) for a detailed map of the monorepo, module layout, where routes vs. components live, the API/database conventions, and more. Some folders have their own `AGENTS.md` with the rules that apply there.
 
 ## How the codebase is organized
 
-- **`apps/workers/app-api`** is the single first-party backend. New endpoints go there, organized by object (customers, tickets, …), never in another worker.
+- **One API worker per module.** A module's endpoints go in its worker (`apps/workers/<module>-api`), core platform endpoints in **`apps/workers/app-api`**, organized by object (customers, tickets, …).
 - **`apps/web/platform`** is a Vite SPA, **not** Next.js. No server components, server actions, or `middleware.ts`. Data fetching is client-side (TanStack Query).
 - **`packages/core/db`** holds all Drizzle schema. It's multi-tenant: a master DB plus per-workspace tenant DBs.
 - Internal packages are scoped `@weldsuite/*` and imported by name.
@@ -48,7 +48,7 @@ Before you open a PR, please make sure:
 - [ ] **Tenant scoping** is preserved: every database query is scoped by `workspaceId`.
 - [ ] **Permission checks** are present on new or changed backend routes.
 - [ ] **Validation** uses Zod (v3 in app code) on both client and server.
-- [ ] **Internationalization:** any new user-visible string has entries in **both** `en.json` and `nl.json`.
+- [ ] **Internationalization:** any new user-visible string has entries in **both** `en` and `nl` (`packages/core/i18n/src/locales/`).
 - [ ] `pnpm lint` passes in the workspace(s) you touched.
 - [ ] `pnpm build` passes for the app(s) you touched.
 - [ ] No stray `console.log`, `any`, or `@ts-ignore`.

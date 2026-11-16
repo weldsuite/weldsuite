@@ -1,6 +1,6 @@
 /**
  * `GET /api/dashboard/sidebar-badges` under the mailbox store's `object` mode
- * (docs/plans/weldmail-mailbox-store-design.md, task D6): the unread count
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D6): the unread count
  * must come from the mailbox objects (via `WorkspaceMailStore.unreadBadge`)
  * instead of a direct `mail_messages` query, while the accessible-mailbox
  * scoping still comes from the KV directory, built off the same

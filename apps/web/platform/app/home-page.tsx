@@ -122,7 +122,7 @@ export default function HomePage() {
   }, [input]);
 
   // Edition flags (4.F3): the agent composer needs the agent module and its AI.
-  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('agent-ai');
+  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('assistant-ai');
 
   // Load the chat page's chunk up front so the handoff below never waits on it
   // (or flashes the route skeleton) mid-transition.

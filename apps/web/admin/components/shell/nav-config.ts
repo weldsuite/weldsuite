@@ -2,6 +2,7 @@ import { getTranslations } from '@weldsuite/i18n';
 import { GLOBAL } from '@/lib/edition';
 import { partnersCopy } from '@/lib/partners-copy';
 import {
+  Activity,
   Building2,
   Coins,
   CreditCard,
@@ -85,6 +86,7 @@ function allNavAreas(): NavArea[] {
   const pricing = getTranslations('host').adminPricing;
   const phonePricing = getTranslations('host').adminPhonePricing;
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
+  const panelPricing = getTranslations('host').adminPanelPricing;
   const planPricing = getTranslations('host').adminPlanPricing;
   const billing = getTranslations('admin').nav;
   const databases = getTranslations('admin').nav;
@@ -121,6 +123,7 @@ function allNavAreas(): NavArea[] {
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe, globalOnly: true },
           { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone, globalOnly: true },
           { title: meetAiPricing.navJumpTo, href: '/weldmeet-ai-pricing', icon: Video, globalOnly: true },
+          { title: panelPricing.navJumpTo, href: '/weldpanel-pricing', icon: Activity, globalOnly: true },
         ],
       },
     ],
@@ -340,6 +343,19 @@ function allNavAreas(): NavArea[] {
       {
         group: meetAiPricing.navGroup,
         items: [{ title: meetAiPricing.navPage, href: '/weldmeet-ai-pricing', icon: Video, globalOnly: true }],
+      },
+    ],
+  },
+  {
+    key: 'weldpanel-pricing',
+    globalOnly: true,
+    name: panelPricing.navArea,
+    icon: Activity,
+    href: '/weldpanel-pricing',
+    groups: [
+      {
+        group: panelPricing.navGroup,
+        items: [{ title: panelPricing.navPage, href: '/weldpanel-pricing', icon: Activity, globalOnly: true }],
       },
     ],
   },

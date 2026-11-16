@@ -1,6 +1,6 @@
 /**
  * Object-mode coverage for the public mail API (design
- * docs/plans/weldmail-mailbox-store-design.md, task D5): the route code is
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5): the route code is
  * mode-agnostic (it only calls `store`/`access` from
  * `../lib/mail-store-context`), so these drive the REAL `getWorkspaceMail`
  * factory with `FLAGSHIP` pinned to `object` and the C2 fakes

@@ -4,6 +4,10 @@ resources:
   - weldsuite.yaml
 generatorOptions:
   disableNameSuffixHash: true
+  # helm-controller upgrades a release as soon as its values ConfigMap
+  # changes, not at the release's next interval (an hour for most).
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
 configMapGenerator:
   - name: weldsuite-values
     namespace: weldsuite

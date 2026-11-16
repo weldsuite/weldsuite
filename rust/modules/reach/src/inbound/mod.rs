@@ -6,12 +6,14 @@
 //! - [`rules`], [`bounce`]: auto-replies, the opt-out rule, the kind, and
 //!   delivery status notifications.
 //! - [`deliver`]: matching, storing and the effects (`deliverInbound`).
+//! - [`classify`]: the model's label for a reply (`services/classify.ts`).
 //! - [`handler`]: routing a recipient to its workspace and mailbox, the
 //!   warmup screen and the RCPT check ([`ReachInbound`]).
 //! - [`consume`]: the replies taken out of `mail.inbound`
 //!   ([`ReachInboundRouter`]).
 
 pub mod bounce;
+pub mod classify;
 pub mod consume;
 pub mod deliver;
 pub mod handler;

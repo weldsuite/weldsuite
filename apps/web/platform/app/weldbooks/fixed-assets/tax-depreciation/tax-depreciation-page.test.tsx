@@ -164,7 +164,7 @@ describe('Tax depreciation page', () => {
   it('is for US entities only', () => {
     jurisdiction = 'NL';
     renderWithProviders(<TaxDepreciationPage />);
-    expect(screen.getByText('This screen is for US accounting entities only.')).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(screen.queryByTestId('form-part1')).not.toBeInTheDocument();
     expect(reportParams.every((call) => call.enabled === false)).toBe(true);
   });

@@ -37,6 +37,8 @@ import {
 } from '@weldsuite/board-engine';
 import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { BoardAiInput } from '@weldsuite/app-api-client/schemas/boards';
+import { BoardAiError, boardAiAsk, boardAiPlan, checkBoardAi, type BoardAiAsk } from './services/ai-plan';
 
 type Checkpoint = { ok: true; checkpoint: Uint8Array };
 type Refused = { ok: false };
@@ -180,6 +182,58 @@ function place(liveJson: string, spec: BoardSpec, createdBy: string, now: number
   return { op: placed.op, ids: placed.ids, all: placed.all, keys: placed.keys };
 }
 
+/** A `BoardAiError` as the route answers it. */
+interface AiRefusal {
+  code: BoardAiError['code'];
+  message: string;
+  status: BoardAiError['status'];
+}
+
+function refusalOf(err: unknown): AiRefusal {
+  if (!(err instanceof BoardAiError)) throw err;
+  return { code: err.code, message: err.message, status: err.status };
+}
+
+/**
+ * `POST /api/boards/:id/ai` before the model (`runBoardAi`): a refusal
+ * before the AI layer is reached (`refused`: no prompt, no notes), one after
+ * it (`refusedAfterAi`: too few notes, nothing to summarise), or what to ask
+ * the model (`ask`). The caller checks AI and the wallet between the two.
+ */
+function aiPrepare(liveJson: string, input: BoardAiInput): { refused: AiRefusal } | { refusedAfterAi: AiRefusal } | { ask: BoardAiAsk } {
+  const board = Board.fromSnapshot(JSON.parse(liveJson) as BoardSnapshot);
+  try {
+    checkBoardAi(board, input);
+  } catch (err) {
+    return { refused: refusalOf(err) };
+  }
+  try {
+    return { ask: boardAiAsk(board, input) };
+  } catch (err) {
+    return { refusedAfterAi: refusalOf(err) };
+  }
+}
+
+/**
+ * `POST /api/boards/:id/ai` after the model: the ops to commit (null for
+ * none) and what the route answers, or the refusal (nothing to place).
+ */
+function aiPlan(
+  liveJson: string,
+  input: BoardAiInput,
+  answer: unknown,
+  userId: string,
+  now: number,
+): { op: Op | null; elementIds: string[]; text?: string; title?: string } | { refused: AiRefusal } {
+  const board = Board.fromSnapshot(JSON.parse(liveJson) as BoardSnapshot);
+  try {
+    const plan = boardAiPlan(board, input, answer, { userId, now });
+    return { op: isNoop(plan.op) ? null : plan.op, elementIds: plan.elementIds, ...(plan.text !== undefined ? { text: plan.text, title: plan.title } : {}) };
+  } catch (err) {
+    return { refused: refusalOf(err) };
+  }
+}
+
 /** Elements changed or removed by id (`/edit`). */
 function edit(liveJson: string, changes: ElementChange[]): { op: Op | null; changed: string[]; skipped: string[] } {
   const { op, changed, skipped } = editOps(Board.fromSnapshot(JSON.parse(liveJson) as BoardSnapshot), changes);
@@ -200,6 +254,8 @@ export const boardEngine = {
   readAs,
   place,
   edit,
+  aiPrepare,
+  aiPlan,
 };
 
 /** `boardEngine` shaped as a namespace binding (`ns.get(ns.idFromName(name))[method]`). */

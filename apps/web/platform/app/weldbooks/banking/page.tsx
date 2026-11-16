@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Link } from '@tanstack/react-router';
 import { ClipboardCheck, Download, Landmark, Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -195,7 +196,15 @@ export default function BankAccountsPage() {
 
       {launcher.elements}
 
-      <BankAccountFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <BankAccountFormDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(id) => {
+          toast.success(tbp.accountCreated);
+          // The new account opens in its side panel, like a new invoice.
+          if (id) openPanel({ type: 'bank_account', id });
+        }}
+      />
     </>
   );
 }

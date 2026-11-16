@@ -24,7 +24,7 @@
  * ends access within a minute even though the link itself lives for 12 hours.
  *
  * Also here: the optional dedicated bundle origin and the response headers the
- * bundle host sets. See docs/plans/weldapps-native-surfaces.md and the
+ * bundle host sets. See weldsuite-documentation/plans/weldapps-native-surfaces.md and the
  * "separate bundle origin" notes in routes/public-user-apps.
  */
 

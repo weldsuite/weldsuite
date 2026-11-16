@@ -10,7 +10,7 @@
  * so these tests can be replayed against the Rust backend.
  */
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb, createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
@@ -64,6 +64,23 @@ beforeEach(async () => {
   await resetForms(db, master);
   await seedWorkspace(master);
 });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/**
+ * Holds the clock at one instant for a burst of requests. The rate limits
+ * count in fixed one-minute windows on the clock, so a burst that runs over a
+ * minute's end starts counting again and never reaches its limit; conformance
+ * sends every request to both backends, which makes that likely (main's CI
+ * run 43382326767). Conformance passes the held clock to Rust too
+ * (`CONFORMANCE_NOW`).
+ */
+function holdClock(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-01T09:00:00.000Z'));
+}
 
 const FORMS = '/api/forms/forms';
 const PUBLIC = '/public/forms';
@@ -334,6 +351,7 @@ describe('POST /f/:publicId/view', () => {
   it('rate limits views per IP, since the view key is the browser\'s own choice', async () => {
     const { publicId } = await publish(simpleDefinition());
     const p = portal();
+    holdClock();
     for (let i = 0; i < 30; i++) expect((await p.post(`/f/${publicId}/view`, { viewKey: `script-key-${i}` })).status).toBe(200);
     const limited = await p.post(`/f/${publicId}/view`, { viewKey: 'script-key-30' });
     expect(limited.status).toBe(429);
@@ -404,6 +422,7 @@ describe('POST /f/:publicId/sessions', () => {
   it('rate limits sessions per IP and form', async () => {
     const { publicId } = await publish(simpleDefinition());
     const p = portal();
+    holdClock();
     for (let i = 0; i < 10; i++) expect((await p.post(`/f/${publicId}/sessions`, {})).status).toBe(201);
     const limited = await p.post(`/f/${publicId}/sessions`, {});
     expect(limited.status).toBe(429);

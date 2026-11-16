@@ -6,6 +6,7 @@
 //! under `rust/modules/` and is mounted at its path prefix.
 
 mod access_requests;
+mod agent_modules;
 pub(crate) mod books;
 mod feature_flags;
 mod host;
@@ -75,6 +76,15 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = core_team(router, state);
     let router = core_platform(router, state);
+    // Plan billing on Mollie (ADR BILL-014): app-api's `/api/billing`, only
+    // where `BILLING_PROVIDER=mollie` turns it on.
+    let router = match crate::billing::billing_state(state) {
+        Some(billing) if mounts("core") => router.nest(
+            "/billing",
+            weldsuite_core_billing::router(billing, &state.permissions),
+        ),
+        _ => router,
+    };
     let router = core_apps(router, state);
     let router = if mounts("docs") {
         let docs = weldsuite_docs::DocsState {
@@ -110,6 +120,8 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             } else {
                 board_links()
             },
+            ai: state.ai.clone(),
+            master: Some(state.workspaces.master().clone()),
         };
         router.nest(
             "/boards",
@@ -165,6 +177,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = panel(router, state);
     let router = merge(router, state);
     let router = forms(router, state);
+    let router = agent(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -189,6 +202,8 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    // The outbound review runs wherever customer mail is sent from.
+    mail_outbound_review(state);
     core_files(router, state)
 }
 
@@ -382,6 +397,8 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 outbound: deployment_outbound(state),
                 assignment: Some(desk_assignment_router()),
                 merge: integrations::merge_workflow_actions(state),
+                // The `ai_generate` / `ai_classify` steps.
+                ai: state.ai.clone(),
             },
         });
     // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
@@ -500,6 +517,8 @@ pub(crate) fn cron_connect_state(
         webhooks: connect_webhook_http(),
         trusted_proxies: 1,
         storage: infra.public_files.clone(),
+        // The cron jobs serve no AI route.
+        ai: None,
     }
 }
 
@@ -548,6 +567,8 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         } else {
             state.infra.public_files.clone()
         },
+        // "Generate with AI"; a conformance request carries the test's own.
+        ai: state.ai.clone(),
     }
 }
 
@@ -659,6 +680,7 @@ pub(crate) fn forms_state(state: &AppState) -> weldsuite_forms::FormsState {
         outbound: deployment_outbound(state),
         env: Arc::new(weldsuite_forms::env_from_process()),
         local_cache: Arc::default(),
+        ai: state.ai.clone(),
     }
 }
 
@@ -689,6 +711,62 @@ pub(crate) fn forms_public(state: &AppState) -> Router<AppState> {
         crate::conformance::forms_public,
     ));
     router
+}
+
+/// WeldAgent (`weldsuite-agent`): agent-api's `/api/weldagent`, `/api/ai-models`
+/// and `/api/chat-agent`, once the module is marked ported (always in
+/// conformance builds). Without AI the routes that run the model answer 503
+/// `ai_unavailable`.
+fn agent(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("agent") {
+        return router;
+    }
+    // The spreadsheet, board and WeldMerge tools reach their modules in process.
+    agent_modules::install(state);
+    // The jobs chat-api enqueues (`chat-room`) and the dispatchers start.
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_agent::rooms::WeldAgentJob {
+            tenants: Arc::new(weldsuite_subscribers::WorkspaceTenants::new(Arc::clone(
+                &state.workspaces,
+            ))),
+            ai: agent_ai(state),
+            env: agent_state(state).run_env(),
+        });
+    router.merge(weldsuite_agent::router(
+        agent_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldAgent's handle on the app: events, the install's AI, and what this
+/// edition has (the sandbox and web grants when the install has a sandbox,
+/// `SANDBOX_ENABLED`). Conformance builds behave like Global: the Claude
+/// model ids and the sandbox grants.
+pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_agent::AgentState {
+        events: state.infra.events.clone(),
+        ai: agent_ai(state),
+        sandbox: conformance || state.sandboxes.is_some(),
+        global: conformance,
+        sandboxes: state.sandboxes.clone(),
+        default_model: if conformance {
+            weldsuite_agent::agents::GLOBAL_DEFAULT_MODEL
+        } else {
+            weldsuite_agent::agents::POLICY_DEFAULT_MODEL
+        }
+        .to_owned(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        realtime: state.infra.realtime.clone(),
+    }
+}
+
+/// The install's AI for WeldAgent (`AppState::ai`); `None` with AI off, and
+/// the model routes answer 503.
+fn agent_ai(state: &AppState) -> Option<weldsuite_ai::Ai> {
+    state.ai.clone()
 }
 
 /// WeldMerge (`weldsuite-merge`): merge-api's `/api/merge`.
@@ -732,6 +810,8 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
         realtime: state.infra.realtime.clone(),
         // A release's notes by email: WeldMail's relay and ledgers.
         mail: deployment_outbound(state),
+        // A release's notes, written by the install's AI.
+        ai: state.ai.clone(),
     }
 }
 
@@ -983,6 +1063,11 @@ fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
             ))
         }),
         tenants: Some(tenant_databases(state)),
+        // With plans billed through Mollie, inboxes ride on the plan's charge
+        // (ADR BILL-014); otherwise they are provisioned unbilled.
+        inbox_billing: crate::billing::billing_state(state).map(|billing| {
+            crate::billing::reach_inbox_billing(billing, Arc::clone(&state.workspaces))
+        }),
     }
 }
 
@@ -1010,6 +1095,8 @@ fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                     findymail_api_key: std::env::var("FINDYMAIL_API_KEY").ok(),
                     prospeo_api_key: std::env::var("PROSPEO_API_KEY").ok(),
                 },
+                ai: state.ai.clone(),
+                master: Some(state.workspaces.master().clone()),
             }),
         Err(error) => tracing::error!(%error, "welddata: no HTTP client for the phone finder"),
     }
@@ -1123,10 +1210,18 @@ fn meet(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("meet") {
         return router;
     }
-    router.merge(weldsuite_meet::router(
-        meet_state(state),
-        &state.permissions,
-    ))
+    let meet = meet_state(state);
+    // `MEETING_AI` (transcribe afterwards, summaries) runs as a job on the
+    // install's AI; conformance builds take the test's Workflow fakes.
+    if meet.workflows.ai.is_some() {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_meet::MeetingAiJob {
+                state: meet.clone(),
+            });
+    }
+    router.merge(weldsuite_meet::router(meet, &state.permissions))
 }
 
 /// The video provider's webhooks (`/api/webhooks/cloudflare-realtime`,
@@ -1147,28 +1242,39 @@ fn meet_public(state: &AppState) -> Router<AppState> {
     router
 }
 
+/// The video provider WeldMeet's sessions and WeldChat's calls share
+/// (`VIDEO_PROVIDER`, `LIVEKIT_*`, `CF_REALTIME_*`:
+/// `weldsuite_video_rooms::from_env`), built once. Conformance builds have
+/// none: they use `RealtimeKit` with the test's credentials per request.
+fn video_rooms() -> Option<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> {
+    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    Some(Arc::clone(VIDEO.get_or_init(|| {
+        weldsuite_video_rooms::from_env(
+            |name| std::env::var(name).ok(),
+            shared_outbound()
+                .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
+        )
+    })))
+}
+
 /// WeldMeet's handle on the app: events, the cache (webhook mappings,
 /// recording tokens), the master database (credits, the AI price list), the
 /// realtime publisher, the video provider (`VIDEO_PROVIDER`, `LIVEKIT_*`,
 /// `CF_REALTIME_*`: `weldsuite_video_rooms::from_env`), invitation mail,
 /// the public bucket (avatars) and the workspaces' tenant databases. The
-/// Kubernetes editions have no recordings bucket and none of the worker's
-/// Workflows (recordings and transcripts are unavailable features there).
-/// Conformance builds take the test's KV, master database, fetch stub,
-/// buckets and Workflow fakes per request.
+/// Kubernetes editions have no recordings bucket (recordings and transcripts
+/// are unavailable features there); of the worker's Workflows only
+/// `MEETING_AI` runs, as `weldsuite_meet::MeetingAiJob` on the install's AI
+/// (`AppState::ai`), ready for the day recordings exist. Conformance builds
+/// take the test's KV, master database, fetch stub, buckets and Workflow
+/// fakes per request.
 fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
-    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
     let conformance = cfg!(feature = "conformance");
     let http = shared_outbound();
-    let video = (!conformance).then(|| {
-        Arc::clone(VIDEO.get_or_init(|| {
-            weldsuite_video_rooms::from_env(
-                |name| std::env::var(name).ok(),
-                http.clone()
-                    .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
-            )
-        }))
-    });
+    let video = video_rooms();
     let workspaces = Arc::clone(&state.workspaces);
     let tenants: weldsuite_meet::TenantDatabases = Arc::new(move |reference: String| {
         let workspaces = Arc::clone(&workspaces);
@@ -1194,6 +1300,7 @@ fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
         }),
         _ => None,
     };
+    let ai = state.ai.clone().filter(weldsuite_ai::Ai::enabled);
     weldsuite_meet::MeetState {
         events: state.infra.events.clone(),
         // Without Valkey, recording tokens and webhook mappings live in this
@@ -1210,9 +1317,16 @@ fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
             file_stores(state)
         },
         recordings: None,
-        workflows: weldsuite_meet::MeetWorkflows::default(),
+        workflows: weldsuite_meet::MeetWorkflows {
+            ai: (!conformance && ai.is_some()).then(|| {
+                Arc::new(weldsuite_meet::JobsMeetingAi(Arc::clone(&state.infra.jobs)))
+                    as Arc<dyn weldsuite_meet::MeetWorkflow>
+            }),
+            ..weldsuite_meet::MeetWorkflows::default()
+        },
         tenants: Some(tenants),
         livekit,
+        ai,
     }
 }
 
@@ -1239,6 +1353,8 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
         doh: Some(weldsuite_mail::send::reqwest_doh()),
         domains: mail_domains::mail_domains(),
         workspace_tenants: Some(mail_workspace_tenants(state)),
+        // `/api/mail-ai` (feature `mail`); conformance requests carry their own.
+        ai: state.ai.clone(),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
 }
@@ -1270,6 +1386,10 @@ fn deployment_outbound(state: &AppState) -> weldsuite_mail_domain::outbound::Out
 /// - an in-process backstop (30 sends a minute per sender) for when the
 ///   ledgers can't be reached.
 ///
+/// - with AI, the templates the ledgers queue for the abuse review go to the
+///   `mail.outbound-review` job ([`mail_outbound_review`]); without it they
+///   stay unclassified, as on Global without the gateway.
+///
 /// Conformance builds take the test's bindings per request instead.
 pub(crate) fn mail_outbound(
     state: &AppState,
@@ -1277,14 +1397,54 @@ pub(crate) fn mail_outbound(
     weldsuite_mail_domain::outbound::OutboundBindings,
     Arc<weldsuite_mail_domain::outbound::StoreLedger>,
 ) {
-    mail_outbound_for(state.workspaces.master(), &state.infra.flags)
+    let reviews = (!cfg!(feature = "conformance") && state.ai.is_some()).then(|| {
+        Arc::new(weldsuite_mail::review::JobsReviewQueue {
+            jobs: Arc::clone(&state.infra.jobs),
+        }) as Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>
+    });
+    mail_outbound_with(state.workspaces.master(), &state.infra.flags, reviews)
+}
+
+/// The outbound abuse review (`mail.outbound-review`, feature `mail-review`
+/// on the install provider): the job [`mail_outbound`]'s ledgers queue
+/// templates to, registered when the install has AI.
+fn mail_outbound_review(state: &AppState) {
+    if cfg!(feature = "conformance") {
+        return;
+    }
+    let Some(ai) = state.ai.clone() else {
+        return;
+    };
+    let ledger = Arc::clone(&mail_outbound(state).1);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_mail::review::OutboundReviewJob {
+            ledger: ledger as Arc<dyn weldsuite_mail_domain::outbound::OutboundLedger>,
+            classifier: Arc::new(weldsuite_mail::review::AiTemplateClassifier {
+                ai: Some(ai),
+                master: Some(state.workspaces.master().clone()),
+            }),
+        });
 }
 
 /// [`mail_outbound`] from its parts, for processes without an [`AppState`]
-/// (the `desk-sla-sweep` cron's escalation notices).
+/// (the `desk-sla-sweep` cron's escalation notices). Queues no reviews.
 pub(crate) fn mail_outbound_for(
     master: &weldsuite_db::PgPool,
     flags: &Arc<dyn weldsuite_ports::DynFlagSource>,
+) -> &'static (
+    weldsuite_mail_domain::outbound::OutboundBindings,
+    Arc<weldsuite_mail_domain::outbound::StoreLedger>,
+) {
+    mail_outbound_with(master, flags, None)
+}
+
+/// [`mail_outbound`], made by the first caller in the process.
+fn mail_outbound_with(
+    master: &weldsuite_db::PgPool,
+    flags: &Arc<dyn weldsuite_ports::DynFlagSource>,
+    reviews: Option<Arc<dyn weldsuite_mail_domain::outbound::ReviewQueue>>,
 ) -> &'static (
     weldsuite_mail_domain::outbound::OutboundBindings,
     Arc<weldsuite_mail_domain::outbound::StoreLedger>,
@@ -1320,7 +1480,7 @@ pub(crate) fn mail_outbound_for(
             store,
             master: Some(master.clone()),
             flags: Some(Arc::clone(flags)),
-            reviews: None,
+            reviews,
             daily_quota: read("MAIL_DAILY_QUOTA")
                 .and_then(|v| v.parse().ok())
                 .filter(|q| *q > 0),
@@ -1499,6 +1659,7 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         outbound: deployment_outbound(state),
         master: Some(state.workspaces.master().clone()),
         assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
+        ai: state.ai.clone(),
     }
 }
 
@@ -1765,6 +1926,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(social_public(state))
         .merge(call_public(state))
         .merge(meet_public(state))
+        .merge(chat_public(state))
         .merge(reach_public(state))
         .merge(books::public(state))
         .merge(host::public(state))
@@ -1834,9 +1996,27 @@ fn public_core(state: &AppState) -> Router<AppState> {
                 weldsuite_core_apps::public_user_apps(apps),
             )
             .merge(sign_in_public(state))
+            .merge(mollie_public(state))
     } else {
         Router::new()
     }
+}
+
+/// Mollie's webhook (`/api/webhooks/mollie`) and the pay links
+/// (`/public/billing/pay/:token`), ahead of the session. With plan billing
+/// on (ADR BILL-014) one webhook settles plan payments and credit top-ups
+/// alike; with only the top-up, the top-up's own.
+fn mollie_public(state: &AppState) -> Router<AppState> {
+    match crate::billing::billing_state(state) {
+        Some(billing) => crate::billing::webhook(state, billing.clone())
+            .merge(weldsuite_core_billing::public_router(billing)),
+        None => credit_top_up_public(state),
+    }
+}
+
+/// Whether the credit top-up is configured (`MOLLIE_API_KEY`).
+pub(crate) fn credit_top_up_configured(state: &AppState) -> bool {
+    credit_top_up(state).is_some()
 }
 
 /// `/api/sign-in`: the backend of the platform's own sign-in screens on an
@@ -1866,6 +2046,11 @@ fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
             jobs: Some(Arc::clone(&state.infra.jobs)),
             serve_public_objects: state.files_public_via_server,
         },
+        // Search query understanding and the reindex (ADR AI-012), metered
+        // on the master database's wallet; conformance builds take the
+        // test's.
+        ai: state.ai.clone(),
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
     }
 }
 
@@ -2030,17 +2215,18 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
     if !mounts("core") {
         return router;
     }
-    let platform = weldsuite_core_platform::CorePlatformState {
-        events: state.infra.events.clone(),
-        realtime: state.infra.realtime.clone(),
-        cache: state.infra.cache.clone(),
-        master: state.workspaces.master().clone(),
-        // Zitadel when configured; conformance builds take the test's per
-        // request.
-        identity: state.infra.identity.clone(),
-        audit_streams: audit_stream_gateway(),
-    };
+    let platform = core_platform_state(state);
     let gate = &state.permissions;
+    // `/api/ai-settings` (Rust only): only an install with an AI provider has
+    // anything to configure; without one the path is a 404.
+    let router = if platform.ai.is_some() {
+        router.nest(
+            "/ai-settings",
+            weldsuite_core_platform::ai_settings(platform.clone(), gate),
+        )
+    } else {
+        router
+    };
     router
         .nest(
             "/notifications",
@@ -2087,6 +2273,75 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
             "/appstore",
             weldsuite_core_platform::appstore(platform, gate),
         )
+}
+
+/// The core platform routes' handle on the app.
+fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatformState {
+    weldsuite_core_platform::CorePlatformState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        cache: state.infra.cache.clone(),
+        master: state.workspaces.master().clone(),
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
+        audit_streams: audit_stream_gateway(),
+        top_up: credit_top_up(state),
+        ai: state.ai.clone(),
+        mail: state.infra.mail.clone(),
+    }
+}
+
+/// Buying credits through Mollie (`MOLLIE_API_KEY`; the `credit-top-up`
+/// edition feature, ADR OPS-012), made once per process: Mollie over the
+/// shared client, pending checkouts in Valkey (or this process without it),
+/// VAT on top and a WeldBooks invoice when plan billing is on.
+/// `None` without the key, and in conformance builds, whose tests are
+/// Global's (Stripe through billing-worker).
+fn credit_top_up(state: &AppState) -> Option<Arc<weldsuite_core_platform::TopUp>> {
+    static TOP_UP: OnceLock<Option<Arc<weldsuite_core_platform::TopUp>>> = OnceLock::new();
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    TOP_UP
+        .get_or_init(|| {
+            match weldsuite_core_platform::TopUpSettings::from_lookup(&|name| {
+                std::env::var(name).ok()
+            }) {
+                Ok(Some(settings)) => {
+                    let top_up = weldsuite_core_platform::TopUp::new(
+                        &settings,
+                        shared_outbound(),
+                        Some(upload_token_cache(state)),
+                    );
+                    // With plan billing on Mollie (ADR BILL-014) a package's
+                    // price is before VAT and a paid top-up is invoiced.
+                    Some(Arc::new(match crate::billing::billing_state(state) {
+                        Some(billing) => {
+                            top_up.with_billing(crate::billing::top_up_billing(billing))
+                        }
+                        None => top_up,
+                    }))
+                }
+                Ok(None) => None,
+                // `serve` refuses to start on it (`crate::edition`).
+                Err(problem) => {
+                    tracing::error!(problem, "credits: no top-up");
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+/// Mollie's webhook (`/api/webhooks/mollie`), ahead of the session, when the
+/// top-up is configured.
+fn credit_top_up_public(state: &AppState) -> Router<AppState> {
+    let platform = core_platform_state(state);
+    if platform.top_up.is_none() {
+        return Router::new();
+    }
+    weldsuite_core_platform::top_up_webhooks(platform)
 }
 
 /// Audit log stream delivery for `/api/audit-log-streams`: the URL rules and
@@ -2370,8 +2625,32 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             tenants: chat_tenants(state),
             realtime: state.infra.realtime.clone(),
         });
+    // A DM call nobody answered ends as missed once its ring times out.
+    if let Some(video) = chat.video.clone() {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_chat::CallRingTimeoutJob {
+                tenants: chat_tenants(state),
+                video,
+                cache: chat.cache.clone(),
+                realtime: state.infra.realtime.clone(),
+                notifier: weldsuite_notifications::Notifier {
+                    realtime: state.infra.realtime.clone(),
+                    presence: None,
+                    mail: None,
+                    http: chat.http.clone(),
+                    apns: weldsuite_notifications::ApnsConfig::from_values(
+                        chat.env.get("APNS_KEY_ID").map(String::as_str),
+                        chat.env.get("APNS_TEAM_ID").map(String::as_str),
+                        chat.env.get("APNS_PRIVATE_KEY").map(String::as_str),
+                    ),
+                },
+            });
+    }
     let gate = &state.permissions;
     router
+        .nest("/chat-calls", weldsuite_chat::calls(chat.clone(), gate))
         .nest(
             "/channel-members",
             weldsuite_chat::channel_members(chat.clone(), gate),
@@ -2461,7 +2740,52 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         presence: None,
         env: Arc::clone(env),
+        video: video_rooms(),
+        leave_meetings: mounts("meet").then(|| meeting_sessions_leaver(state)),
+        // The worker's tests mock the ring timeout.
+        ring_jobs: !cfg!(feature = "conformance"),
+        tenants: Some(chat_tenants(state)),
     }
+}
+
+/// WeldMeet's half of "one live call at a time" for WeldChat's calls: the
+/// user's other meeting sessions are left with the call request's provider
+/// and cache.
+fn meeting_sessions_leaver(state: &AppState) -> weldsuite_chat::MeetingSessionsLeaver {
+    let meet = meet_state(state);
+    Arc::new(move |leave: weldsuite_chat::LeaveMeetings| {
+        let meet = meet.clone();
+        Box::pin(async move {
+            weldsuite_meet::leave_meeting_sessions(
+                &meet,
+                leave.video,
+                leave.cache,
+                &leave.db,
+                &leave.org_id,
+                &leave.user_id,
+                leave.triggered_at,
+            )
+            .await;
+        })
+    })
+}
+
+/// `/public/chat-calls`, ahead of the session (the ring token is the
+/// credential). Conformance builds open the test's tenant database.
+fn chat_public(state: &AppState) -> Router<AppState> {
+    if !mounts("chat") {
+        return Router::new();
+    }
+    let router = Router::new().nest(
+        "/public/chat-calls",
+        weldsuite_chat::public_calls(chat_state(state)),
+    );
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::meet_public,
+    ));
+    router
 }
 
 /// Another workspace's tenant database and its suspension, for WeldMail's
@@ -2576,12 +2900,27 @@ pub(crate) fn mcp(state: &AppState) -> Router {
                 .ok()
                 .and_then(|key| weldsuite_mcp::auth::clerk_frontend_api_url(&key))
         });
+    // `public_auth` is set exactly with `AUTH_PROVIDER=oidc`.
+    let discovery =
+        state
+            .public_auth
+            .as_deref()
+            .map_or(weldsuite_mcp::auth::Discovery::Clerk, |public| {
+                weldsuite_mcp::auth::Discovery::oidc(
+                    public.get("audience").and_then(serde_json::Value::as_str),
+                    public
+                        .get("orgClaim")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                )
+            });
     let auth = env.get("MCP_SERVER_URL").map(|server_url| {
         Arc::new(weldsuite_mcp::McpAuth {
             verifier: Arc::clone(&state.verifier),
             issuer,
             server_url: server_url.clone(),
             outbound: shared_outbound(),
+            discovery,
         })
     });
     let mcp_state = weldsuite_mcp::McpState::new(

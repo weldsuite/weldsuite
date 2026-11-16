@@ -9,7 +9,7 @@ ways from the same code.
 |---|---|---|
 | Build | `pnpm build` (Cloudflare Worker) | `pnpm build:node` (Node server, image `weldsuite-admin`) |
 | Host | `admin.weldsuite.org`, `admin-test.weldsuite.org` | `admin.<domain>`, behind an IP allowlist |
-| Sign-in | the console's own invite-only Clerk instance (ADR SEC-009), role in public metadata | OIDC (Zitadel), let in by an active `admin_users` row |
+| Sign-in | the console's own invite-only Clerk instance (ADR SEC-009), role in public metadata | OIDC (Zitadel) with an account of the staff organization (`ADMIN_OIDC_ORG_ID`), let in by an active `admin_users` row bound to that account (`console_subject`, ADR SEC-018) |
 | Databases | Neon HTTP; tenant URLs resolved through the Neon API | Postgres over TCP; tenant URLs from the sealed `database_url` |
 | Email | Cloudflare Email REST, else Resend | SMTP (`SMTP_URL`) |
 | Pages | all | Global-only pages answer 404; adds Staff and Feature flags |

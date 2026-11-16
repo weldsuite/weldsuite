@@ -14,7 +14,7 @@
  * `import-tasks-v3[-dev]` (bound as IMPORT_TASKS and re-exported from
  * flow-api's src/index.ts). app-api keeps its old `import-tasks-v2*` names and
  * re-exports this class only while their in-flight instances drain
- * (docs/plans/app-api-module-split.md, "Workflows draining in app-api").
+ * (weldsuite-documentation/plans/app-api-module-split.md, "Workflows draining in app-api").
  * Note: api-worker declared the binding + class but its dispatching route had
  * already been deleted — the dispatch surface was rebuilt in routes/projects
  * (now in flow-api).

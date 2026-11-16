@@ -1,5 +1,5 @@
 /**
- * WeldBooks' extension of a legal entity (docs/plans/legal-entities.md).
+ * WeldBooks' extension of a legal entity (weldsuite-documentation/plans/legal-entities.md).
  *
  * The legal entity itself (`entities`) is core and lives in
  * ./legal-entities.ts. A row here means "WeldBooks is enabled for this

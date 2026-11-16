@@ -18,7 +18,7 @@
 #   parity if that changes.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 #
-# WeldReach (/v1/reach/*, docs/plans/weldreach-external-api.md) adds no secrets and
+# WeldReach (/v1/reach/*, weldsuite-documentation/plans/weldreach-external-api.md) adds no secrets and
 # never sends email: it reads the inbox and runs reach-api's domain code for the
 # rest. Its bindings are the same resources reach-api and external-api use:
 # WORKSPACE_CACHE (the shared 60 s app-access cache), SCHEDULE_INDEX (reach-api's D1
@@ -58,7 +58,7 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D5): read by
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5): read by
 # `@weldsuite/mail-domain/store`'s `getWorkspaceMail` through the v1 mail
 # routes (`src/api/routes/v1/{mail-messages,mail-threads,mail-labels,
 # mail-attachments,mail-drafts}`) and the mail tools. mail-api hosts the

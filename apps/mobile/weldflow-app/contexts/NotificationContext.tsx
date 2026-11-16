@@ -4,7 +4,9 @@ import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
 
@@ -120,12 +122,23 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Leaving this server (switching to another): stop it pushing to this device.
+  useEffect(
+    () =>
+      onLeaveServer('push-token', async (runtime) => {
+        if (!runtime.pushEnabled) return;
+        const deviceId = await getDeviceId();
+        await appApi.pushTokens.unregister(deviceId);
+      }),
+    [],
+  );
 
   const registerPushToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
@@ -149,7 +162,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    if (!notifUtils || !EAS_PROJECT_ID) {
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!notifUtils || !EAS_PROJECT_ID || !isPushAvailable()) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
     }
@@ -205,7 +219,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
 
     const init = async () => {
-      if (!Notifications || !notifUtils) {
+      if (!Notifications || !notifUtils || !isPushAvailable()) {
         setIsConnected(false);
         return;
       }
@@ -254,6 +268,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
               string,
               unknown
             >;
+            // A notification left over from another server points at records this one doesn't have.
+            if (!isNotificationForThisServer(data)) return;
             const target = resolveTaskDeepLink(data);
             if (target?.taskId) {
               router.push(`/task/${target.projectId}/${target.taskId}`);

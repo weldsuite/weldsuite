@@ -9,13 +9,18 @@ import '@tanstack/react-start/server-only';
  * expiry and nonce. The ID token comes straight from the token endpoint over
  * TLS, which OIDC Core (3.1.3.7) accepts in place of checking its signature.
  *
- * Signing in only proves who someone is. Whether they get into the console,
- * and with which role, is the install's `admin_users` roster's to say, read on
- * every request (`staff-roster.ts`).
+ * Signing in only proves who someone is and which organization their account
+ * belongs to (Zitadel's `urn:zitadel:iam:user:resourceowner:id`). Whether they
+ * get into the console, and with which role, is for the staff organization
+ * and the install's `admin_users` roster to say, read on every request
+ * (`staff-roster.ts`, ADR SEC-018).
  *
  * Configuration (all required):
  * - `ADMIN_OIDC_ISSUER`: the provider's issuer URL, e.g. https://auth.eu.example
  * - `ADMIN_OIDC_CLIENT_ID`, `ADMIN_OIDC_CLIENT_SECRET`: the console's app there
+ * - `ADMIN_OIDC_ORG_ID`: the id of the organization that holds the staff's
+ *   own accounts (`WeldSuite Staff`); an account of any other organization,
+ *   a person's platform account included, gets no access
  * - `ADMIN_PUBLIC_URL`: where staff open the console; the redirect URI is
  *   `{ADMIN_PUBLIC_URL}/auth/callback` (never taken from the Host header)
  * - `ADMIN_SESSION_SECRET`: at least 32 characters, seals the cookies
@@ -32,12 +37,27 @@ export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 /** Time to finish signing in at the provider. */
 export const FLOW_TTL_SECONDS = 10 * 60;
 
-const SCOPES = 'openid email profile';
+/** The account's organization, as a claim, takes Zitadel's resource-owner scope. */
+export const ORG_SCOPE = 'urn:zitadel:iam:user:resourceowner';
+export const ORG_CLAIM = 'urn:zitadel:iam:user:resourceowner:id';
+
+/**
+ * What the console asks for: who the person is, their account's organization,
+ * and Zitadel's organization scope, with which its login accepts only the
+ * staff organization's accounts (as Grafana's sign-in does). The claim is
+ * still checked on every request: the console doesn't rely on the provider's
+ * settings alone.
+ */
+export function scopes(config: Pick<OidcConfig, 'staffOrgId'>): string {
+  return `openid email profile ${ORG_SCOPE} urn:zitadel:iam:org:id:${config.staffOrgId}`;
+}
 
 export interface OidcConfig {
   issuer: URL;
   clientId: string;
   clientSecret: string;
+  /** The staff organization: only its accounts get in. */
+  staffOrgId: string;
   publicUrl: URL;
   sessionSecret: string;
 }
@@ -48,6 +68,12 @@ export interface StaffSession {
   email: string | null;
   emailVerified: boolean;
   name: string | null;
+  /**
+   * The organization the account belongs to; null when the provider said
+   * none. Optional only for cookies sealed before it was added, which
+   * therefore get no access until their holder signs in again.
+   */
+  org?: string | null;
 }
 
 /** What the flow cookie holds between the redirect out and the callback. */
@@ -85,10 +111,19 @@ export function oidcConfig(env: Record<string, string | undefined> = process.env
   const publicUrl = url('ADMIN_PUBLIC_URL');
   const clientId = text('ADMIN_OIDC_CLIENT_ID');
   const clientSecret = text('ADMIN_OIDC_CLIENT_SECRET');
+  const staffOrgId = text('ADMIN_OIDC_ORG_ID');
   const sessionSecret = text('ADMIN_SESSION_SECRET');
   if (sessionSecret && sessionSecret.length < 32) problems.push('ADMIN_SESSION_SECRET is shorter than 32 characters');
   if (problems.length > 0 || !issuer || !publicUrl) throw new OidcConfigError(problems.join('; '));
-  return { issuer, clientId, clientSecret, publicUrl, sessionSecret };
+  return { issuer, clientId, clientSecret, staffOrgId, publicUrl, sessionSecret };
+}
+
+/** The organization in a claim: a non-empty string, else none. */
+export function claimedOrg(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 /** Plain HTTP only to a provider on this machine (local development); TLS everywhere else. */
@@ -159,7 +194,7 @@ export async function startSignIn(config: OidcConfig, returnTo: string | null): 
   location.searchParams.set('client_id', config.clientId);
   location.searchParams.set('redirect_uri', redirectUri(config));
   location.searchParams.set('response_type', 'code');
-  location.searchParams.set('scope', SCOPES);
+  location.searchParams.set('scope', scopes(config));
   location.searchParams.set('state', flow.state);
   location.searchParams.set('nonce', flow.nonce);
   location.searchParams.set('code_challenge', await oauth.calculatePKCECodeChallenge(flow.verifier));
@@ -208,8 +243,11 @@ export async function finishSignIn(
   );
   const email = typeof info.email === 'string' ? info.email.trim().toLowerCase() : null;
   const name = info.name ?? ([info.given_name, info.family_name].filter(Boolean).join(' ') || null);
+  // Zitadel puts it in the ID token when the app asks for user info there, and
+  // in the userinfo response (whose subject was checked above) either way.
+  const org = claimedOrg(claims[ORG_CLAIM], info[ORG_CLAIM]);
   return {
-    session: { sub: claims.sub, email: email || null, emailVerified: info.email_verified === true, name },
+    session: { sub: claims.sub, email: email || null, emailVerified: info.email_verified === true, name, org },
     returnTo: flow.returnTo,
   };
 }

@@ -121,7 +121,7 @@ variable "livekit_worker_count" {
   }
 }
 
-# The MTA's IP pools (docs/plans/eu-mail-service.md): `system` for the
+# The MTA's IP pools (weldsuite-documentation/plans/eu-mail-service.md): `system` for the
 # platform's own mail, `customer` for what people write. Each pool is its own
 # servers, each with a primary IPv4 that outlives the server and its reverse
 # DNS, round robin over the pool's locations. Private addresses: 10 per pool

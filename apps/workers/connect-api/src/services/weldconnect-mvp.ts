@@ -68,11 +68,11 @@ export const WELDCONNECT_ACTION_TYPES = [
   'loop',
   'delay',
   // Third-party provider actions (@weldsuite/workflow-integrations). See
-  // "Provider pattern" in docs/plans/weldconnect.md.
+  // "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
   'slack.post_message',
   // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
   // installation instead of a second OAuth app or a PAT). See "Provider
-  // pattern" in docs/plans/weldconnect.md.
+  // pattern" in weldsuite-documentation/plans/weldconnect.md.
   'github.create_issue',
   'github.create_comment',
   'google_sheets.append_row',

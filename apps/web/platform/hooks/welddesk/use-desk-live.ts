@@ -177,9 +177,11 @@ export function useDeskConversationRoom(conversationId: string | undefined): Des
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!conversationId) return;
+    const realtimeOrigin = getRealtimeWsOrigin();
+    // An empty origin means realtime is off for this deployment.
+    if (!conversationId || !realtimeOrigin) return;
     const client = new RoomClient({
-      url: `${getRealtimeWsOrigin()}/ws/conversation/${conversationId}`,
+      url: `${realtimeOrigin}/ws/conversation/${conversationId}`,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     clientRef.current = client;

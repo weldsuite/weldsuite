@@ -9,7 +9,7 @@
  * `createDrizzlePermissionQueries` / `initPermissionMiddleware` already
  * support (`@weldsuite/permissions/server`), so that package stays free of
  * worker-kit and KV imports — this is the "wrapping the queries/resolution"
- * piece (docs/plans/weldmail-mailbox-storage.md, phase 1 item 4). Registered
+ * piece (weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 1 item 4). Registered
  * once per isolate by `ensurePermissionMiddleware` in ./app.ts.
  *
  * Keyed by workspace id + user id + a per-workspace version

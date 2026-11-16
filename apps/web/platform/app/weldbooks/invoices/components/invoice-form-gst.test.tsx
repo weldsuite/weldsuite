@@ -151,7 +151,7 @@ function invoice(overrides: Record<string, unknown> = {}): InvoiceDetail {
 }
 
 const lastRequest = () => env.requests.at(-1) as TaxPreviewRequest | null;
-const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update Invoice' }));
+const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update invoice' }));
 
 describe('InvoiceForm for an India entity', { timeout: 30_000 }, () => {
   beforeAll(polyfillRadixSelect);

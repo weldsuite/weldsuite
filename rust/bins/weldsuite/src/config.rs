@@ -38,6 +38,10 @@ pub(crate) enum AuthConfig {
         /// `OIDC_WEB_CLIENT_ID`: the platform's public PKCE client, told to
         /// the frontends by `/config.json`.
         web_client_id: Option<String>,
+        /// `OIDC_MOBILE_CLIENT_ID`: the mobile apps' public native client
+        /// (PKCE, `<app scheme>://sso-callback` redirects), told to the
+        /// apps by `/config.json`. Without it the apps can't sign in here.
+        mobile_client_id: Option<String>,
         /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
         /// screens and this server is the provider's login client behind
         /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
@@ -58,11 +62,13 @@ impl fmt::Debug for AuthConfig {
             Self::Oidc {
                 settings,
                 web_client_id,
+                mobile_client_id,
                 platform_sign_in,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
+                .field("mobile_client_id", mobile_client_id)
                 .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
@@ -111,6 +117,7 @@ impl AuthConfig {
                 Self::Oidc {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
+                    mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
                     platform_sign_in,
                 }
             }
@@ -184,6 +191,9 @@ pub(crate) enum LogFormat {
 #[derive(Clone)]
 pub(crate) struct Config {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`: where `GET /metrics` listens, apart from the API
+    /// (`monitoring.rs`); `None` is off.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     /// `ENVIRONMENT`, reported by `/health`.
     pub(crate) environment: String,
     /// `EDITION` and `PUBLIC_ENV`, for `/config.json` (`edition.rs`).
@@ -254,6 +264,12 @@ pub(crate) struct Config {
     /// ingress trusts). The client's address is that many entries from the
     /// right; anything to its left came from the client.
     pub(crate) trusted_proxies: usize,
+    /// `AI_*` and the providers' keys (`weldsuite_ai::config`): the install
+    /// provider, the opt-ins workspaces may enable, fallback and billing.
+    pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*` and `SEARXNG_URL` (`weldsuite_sandbox::config`): WeldAgent's
+    /// sandbox pods and web search; `None` without `SANDBOX_ENABLED=true`.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -333,6 +349,9 @@ pub(crate) struct IdentityConfig {
     pub(crate) project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`.
     pub(crate) invite_url_template: Option<String>,
+    /// `OIDC_SIGN_IN=platform`: invitees accept on the platform's `/invite`
+    /// (unless `invite_url_template` says otherwise), not on Zitadel's page.
+    pub(crate) accept_on_platform: bool,
     /// `ZITADEL_HOST`: the `Host` header when `api_url` is in-cluster.
     pub(crate) host: Option<String>,
 }
@@ -365,6 +384,8 @@ impl IdentityConfig {
                 login_token: set("ZITADEL_LOGIN_TOKEN"),
                 project_id,
                 invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
+                // Set once the sign-in configuration is read.
+                accept_on_platform: false,
                 host: set("ZITADEL_HOST"),
             }),
             (None, None, None) => None,
@@ -579,6 +600,7 @@ impl fmt::Debug for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Config")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("edition", &self.edition)
             .field("master_max_connections", &self.master_max_connections)
@@ -591,6 +613,7 @@ impl fmt::Debug for Config {
             .field("spa_dir", &self.spa_dir)
             .field("infra", &self.infra)
             .field("realtime", &self.realtime)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -609,14 +632,15 @@ impl std::error::Error for ConfigError {}
 
 impl Config {
     pub(crate) fn from_env() -> Result<Self, ConfigError> {
-        Self::from_lookup(
-            |name| std::env::var(name).ok().filter(|v| !v.is_empty()),
-            |path| std::fs::read_to_string(path),
-        )
+        Self::from_lookup(env_value, |path| std::fs::read_to_string(path))
     }
 
     /// `lookup` reads a variable, `read_file` a file; both injectable for
     /// tests.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one variable after the other, as ConsumeConfig::from_lookup"
+    )]
     pub(crate) fn from_lookup(
         lookup: impl Fn(&str) -> Option<String>,
         read_file: impl Fn(&str) -> std::io::Result<String>,
@@ -643,8 +667,12 @@ impl Config {
         if trusted_proxies == 0 {
             problems.push("TRUSTED_PROXIES must be at least 1".to_owned());
         }
-        let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
+        let mut infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
         let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let host: IpAddr = match lookup("HOST") {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -670,7 +698,21 @@ impl Config {
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
         auth.check_sign_in_screens(&infra, &mut problems);
-        let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        if let Some(identity) = &mut infra.identity {
+            // The platform's own sign-in screens take invitations too.
+            identity.accept_on_platform = matches!(
+                auth,
+                AuthConfig::Oidc {
+                    platform_sign_in: true,
+                    ..
+                }
+            );
+        }
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let mut edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        edition.ai = ai.describe();
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
+        edition.sandbox = sandbox.is_some();
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -687,6 +729,7 @@ impl Config {
 
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             edition,
             master_database_url,
@@ -727,8 +770,18 @@ impl Config {
             platform_url: lookup("PLATFORM_URL").filter(|s| !s.trim().is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
+            ai,
+            sandbox,
         })
     }
+}
+
+/// A variable as `serve` and `consume` read it: empty counts as unset,
+/// except `METRICS_ADDR`, where empty turns the metrics listener off.
+pub(crate) fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.is_empty() || name == crate::monitoring::METRICS_ADDR)
 }
 
 fn saturate(value: u64) -> u32 {
@@ -853,6 +906,34 @@ mod tests {
     }
 
     #[test]
+    fn metrics_listen_apart_from_the_api_unless_off() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let with = |value: Option<&'static str>| {
+            let mut vars = base.to_vec();
+            vars.extend(value.map(|value| ("METRICS_ADDR", value)));
+            config(&vars)
+        };
+        let metrics = with(None).expect("valid").metrics_addr;
+        assert_eq!(
+            metrics.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
+        assert_ne!(metrics, Some(with(None).expect("valid").listen));
+        for off in ["off", ""] {
+            assert_eq!(
+                with(Some(off)).expect("valid").metrics_addr,
+                None,
+                "{off:?}"
+            );
+        }
+        let error = with(Some("everywhere")).expect_err("invalid");
+        assert!(error.to_string().contains("METRICS_ADDR"), "{error}");
+    }
+
+    #[test]
     fn lists_every_problem() {
         let error = config(&[("PORT", "eighty"), ("LOG_FORMAT", "xml")]).expect_err("invalid");
         assert_eq!(error.0.len(), 4, "{error}");
@@ -951,11 +1032,13 @@ abc",
             ("OIDC_ISSUER", "https://auth.eu.example"),
             ("OIDC_AUDIENCE", "300000000000000100, 300000000000000200"),
             ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
+            ("OIDC_MOBILE_CLIENT_ID", "300000000000000400"),
         ])
         .expect("valid");
         let AuthConfig::Oidc {
             settings,
             web_client_id,
+            mobile_client_id,
             platform_sign_in,
         } = &oidc.auth
         else {
@@ -970,6 +1053,7 @@ abc",
         assert_eq!(settings.org_claim, weldsuite_auth::ZITADEL_ORG_CLAIM);
         assert_eq!(settings.jwks_url, None);
         assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
+        assert_eq!(mobile_client_id.as_deref(), Some("300000000000000400"));
 
         let error = config(&[
             ("DATABASE_URL_MASTER", "postgres://master"),
@@ -1033,6 +1117,10 @@ abc",
         ));
         let identity = config_with.infra.identity.expect("identity");
         assert_eq!(identity.login_token.as_deref(), Some("login"));
+        assert!(
+            identity.accept_on_platform,
+            "invitations accepted there too"
+        );
         assert_eq!(
             config_with.platform_url.as_deref(),
             Some("https://app.eu.example")

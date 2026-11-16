@@ -103,6 +103,68 @@ fn definition(issues: &mut Issues, body: &Map<String, Value>, key: &str) -> Opti
     }
 }
 
+/// `formDefinitionSchema` at `key`, required: the parsed definition as JSON.
+pub(crate) fn required_definition(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+) -> Option<Value> {
+    if !body.contains_key(key) {
+        let path = issues.path_of(key);
+        issues.push_raw(json!({
+            "code": "invalid_type",
+            "expected": "object",
+            "received": "undefined",
+            "path": path,
+            "message": "Required",
+        }));
+        return None;
+    }
+    definition(issues, body, key)
+}
+
+/// `generateFormSchema`: `(prompt, layout, language)`.
+pub(crate) fn generate_form(
+    issues: &mut Issues,
+    b: &Map<String, Value>,
+) -> (String, Option<String>, Option<String>) {
+    let prompt = issues
+        .text_with(b, "prompt", Presence::Required, trimmed(10, 2000))
+        .into_option()
+        .unwrap_or_default();
+    let layout = issues
+        .choice(b, "layout", Presence::Optional, FORM_LAYOUTS)
+        .into_option();
+    let language = issues
+        .choice(b, "language", Presence::Optional, &["en", "nl"])
+        .into_option();
+    (prompt, layout, language)
+}
+
+/// `suggestBlocksSchema`: `(prompt, definition)`.
+pub(crate) fn suggest_blocks(issues: &mut Issues, b: &Map<String, Value>) -> (String, Value) {
+    let prompt = issues
+        .text_with(b, "prompt", Presence::Required, trimmed(3, 1000))
+        .into_option()
+        .unwrap_or_default();
+    let definition = required_definition(issues, b, "definition").unwrap_or(Value::Null);
+    (prompt, definition)
+}
+
+/// `createAiSummarySchema`: the question, or `None` for the whole form.
+pub(crate) fn create_ai_summary(issues: &mut Issues, b: &Map<String, Value>) -> Option<String> {
+    issues
+        .text_with(b, "blockId", Presence::Nullish, max(30))
+        .into_option()
+}
+
+/// The summary route's query: `blockId`.
+pub(crate) fn ai_summary_query(issues: &mut Issues, q: &Map<String, Value>) -> Option<String> {
+    issues
+        .text_with(q, "blockId", Presence::Optional, max(30))
+        .into_option()
+}
+
 /// `formThemeTokensSchema` at `key`: the parsed tokens as JSON.
 fn theme_tokens(
     issues: &mut Issues,

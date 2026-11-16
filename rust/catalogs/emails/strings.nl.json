@@ -1,4 +1,22 @@
 {
+  "aiProvider": {
+    "body": "{who} heeft {provider} ingeschakeld als AI-aanbieder voor {workspace}. Functies die hem gebruiken sturen hun inhoud naar {provider}, dat die buiten de EU verwerkt.",
+    "enabledBy": "Ingeschakeld door",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "{provider} is ingeschakeld voor AI",
+    "keyOwn": "De eigen sleutel van de werkruimte",
+    "keySource": "Betaald met",
+    "keyWeldsuite": "Het account van WeldSuite, in rekening gebracht als AI-tegoed",
+    "kicker": "AI-instellingen",
+    "note": "Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.",
+    "open": "AI-instellingen openen",
+    "outsideEu": "Buiten de EU",
+    "preview": "{provider} verwerkt gegevens buiten de EU.",
+    "provider": "Aanbieder",
+    "region": "Regio",
+    "subject": "{provider} is ingeschakeld voor AI in \"{workspace}\""
+  },
   "appAccess": {
     "company": "Bedrijf",
     "consent": "Toestemmingsregels",
@@ -24,6 +42,70 @@
     "website": "Website",
     "workspace": "Werkruimte",
     "workspaceId": "Werkruimte-id"
+  },
+  "auth": {
+    "passwordReset": {
+      "body": "We hebben een verzoek ontvangen om het wachtwoord van {email} opnieuw in te stellen.",
+      "expires": "De link en code verlopen over {minutes} minuten.",
+      "footer": "Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren. Je wachtwoord blijft hetzelfde.",
+      "heading": "Kies een nieuw wachtwoord",
+      "kicker": "Wachtwoord opnieuw instellen",
+      "preview": "Kies een nieuw wachtwoord voor {email}.",
+      "reset": "Wachtwoord opnieuw instellen",
+      "subject": "Stel je WeldSuite-wachtwoord opnieuw in",
+      "useCode": "Of vul deze code in op het scherm voor een nieuw wachtwoord:"
+    },
+    "signInCode": {
+      "body": "Vul deze code in om het inloggen af te ronden:",
+      "expires": "De code verloopt over {minutes} minuten.",
+      "footer": "Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.",
+      "heading": "Inloggen bij WeldSuite",
+      "kicker": "Je inlogcode",
+      "preview": "Je inlogcode is {code}.",
+      "subject": "Je inlogcode voor WeldSuite: {code}"
+    },
+    "verifyEmail": {
+      "body": "Bevestig dit adres om het aanmaken van je account af te ronden.",
+      "confirm": "E-mailadres bevestigen",
+      "expires": "De link en code verlopen over {minutes} minuten.",
+      "footer": "Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.",
+      "heading": "Welkom bij WeldSuite",
+      "kicker": "Bevestig je e-mailadres",
+      "preview": "Je bevestigingscode is {code}.",
+      "subject": "Bevestig je e-mailadres voor WeldSuite",
+      "useCode": "Of vul deze code in op het inlogscherm:"
+    }
+  },
+  "billingDunning": {
+    "amount": "Openstaand bedrag",
+    "ended": {
+      "body": "Een betaling van {amount} voor het {plan}-abonnement van {workspace} bleef open, dus de werkruimte is overgezet op het gratis abonnement. Je gegevens blijven bewaard. Kies opnieuw een abonnement om je gebruikers en functies terug te krijgen.",
+      "button": "Kies een abonnement",
+      "heading": "Je abonnement is gestopt",
+      "note": "Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Het {plan}-abonnement is gestopt omdat een betaling open bleef.",
+      "subject": "\"{workspace}\" staat nu op het gratis abonnement"
+    },
+    "endsOn": "Abonnement stopt op",
+    "failed": {
+      "body": "We konden {amount} voor het {plan}-abonnement van {workspace} niet innen. Je abonnement blijft werken tot {date}. Betaal voor die datum om het te houden.",
+      "button": "Nu betalen",
+      "heading": "Je betaling is niet gelukt",
+      "note": "Met de betaling sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
+      "subject": "Betaling mislukt voor \"{workspace}\""
+    },
+    "kicker": "Facturatie",
+    "plan": "Abonnement",
+    "reminder": {
+      "body": "Voor het {plan}-abonnement van {workspace} staat nog {amount} open. Is dat op {date} niet betaald, dan gaat de werkruimte over op het gratis abonnement.",
+      "button": "Nu betalen",
+      "heading": "Je betaling staat nog open",
+      "note": "Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
+      "subject": "Herinnering: er staat een betaling open voor \"{workspace}\""
+    },
+    "workspace": "Werkruimte"
   },
   "booking": {
     "date": "Datum",
@@ -323,6 +405,32 @@
     "verdict": "AI-oordeel",
     "workspace": "Werkruimte",
     "workspaceId": "Werkruimte-id"
+  },
+  "panel": {
+    "usage": {
+      "amount": "{used} van {allowance}",
+      "bodyEventsBlocked": "Je tegoed kan het volgende blok gebruik niet dekken en je zit meer dan 10% boven de bundel, dus nieuwe events en opnames worden niet opgeslagen tot de volgende maand, een opwaardering of een upgrade. Gemiste events zijn niet terug te halen.",
+      "bodyFull": "Gebruik boven de bundel wordt nu in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.",
+      "bodyNear": "Gebruik boven de bundel wordt in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.",
+      "bodyReplayBlocked": "Je tegoed kan het volgende blok gebruik niet dekken, dus er worden geen nieuwe opnames gemaakt. Events worden nog wel geteld. Waardeer je tegoed op of upgrade je abonnement om door te gaan.",
+      "button": "Bekijk gebruik",
+      "events": "Events",
+      "footer": "Je krijgt dit omdat je eigenaar van de werkruimte bent.",
+      "headingEventsBlocked": "Nieuwe events worden niet meer opgeslagen",
+      "headingFull": "Je hebt je maandelijkse bundel gebruikt",
+      "headingNear": "Je hebt 80% van je maandelijkse bundel gebruikt",
+      "headingReplayBlocked": "Nieuwe opnames zijn gestopt",
+      "kicker": "WeldPanel-gebruik",
+      "previewBlocked": "Je tegoed kan geen extra WeldPanel-gebruik meer dekken.",
+      "previewFull": "De bundel van deze maand is op: {events} events en {recordings} opnames.",
+      "previewNear": "{events} events en {recordings} opnames deze maand gebruikt.",
+      "recordings": "Opnames",
+      "resets": "De teller begint opnieuw op {date}.",
+      "subjectEventsBlocked": "WeldPanel laat events vallen voor {workspace}",
+      "subjectFull": "{workspace} heeft de WeldPanel-bundel van deze maand gebruikt",
+      "subjectNear": "{workspace} heeft 80% van de WeldPanel-bundel gebruikt",
+      "subjectReplayBlocked": "WeldPanel neemt geen sessies meer op voor {workspace}"
+    }
   },
   "portal": {
     "expiresCode": "De code verloopt over {minutes} minuten.",

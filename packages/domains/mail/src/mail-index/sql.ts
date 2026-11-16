@@ -1,7 +1,7 @@
 /**
  * `MailIndex`'s schema: versioned, append-only migrations applied through
  * `ctx.storage.sql`, one `transactionSync` per version (mirrors the pattern
- * `docs/plans/weldmail-mailbox-store-design.md` §3.4 describes for
+ * `weldsuite-documentation/plans/weldmail-mailbox-store-design.md` §3.4 describes for
  * `MailboxObject`). Each array entry is one statement; `MailIndex`'s
  * constructor runs every migration newer than the stored `schema_version`.
  */

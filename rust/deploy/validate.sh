@@ -92,6 +92,9 @@ echo "== OpenTofu"
 tofu -chdir=hetzner fmt -check -recursive
 tofu -chdir=hetzner init -backend=false -input=false >/dev/null
 tofu -chdir=hetzner validate
+# The cluster's secret store: a module of its own (its own state).
+tofu -chdir=hetzner/secret-store init -backend=false -input=false >/dev/null
+tofu -chdir=hetzner/secret-store validate
 
 echo "== Flux base layers (settings: $settings)"
 for dir in \
@@ -239,7 +242,9 @@ else
   echo "(no eu cluster: production's release not checked)"
 fi
 # Base layers at a release tag (sources.yaml) follow the cluster's own
-# release; base layers at a commit go with a main build (that build's commit).
+# release; base layers at a commit go with a main build (the build's commit,
+# or the later commit on main whose passing CI vouched for the build: one that
+# changed none of the paths the build is made from; ADR OPS-020).
 for cluster in "$clusters"/*/; do
   cluster="${cluster%/}"
   [ -f "$cluster/sources.yaml" ] || continue

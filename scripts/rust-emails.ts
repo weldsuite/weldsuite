@@ -182,6 +182,13 @@ interface ShapeSpec {
   lists?: ShapeListSpec[];
 }
 
+/** `billing.dunning`'s kind from its flags: none is a failed charge. */
+function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
+  if (flags.has('ended')) return 'ended';
+  if (flags.has('reminder')) return 'reminder';
+  return 'failed';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -346,6 +353,38 @@ const SPECS: Spec[] = [
       expiresInMinutes: S('minutes'),
     }),
   },
+  // WeldSuite's own sign-in screens (ADR SEC-016): the codes Zitadel hands
+  // back instead of mailing them, and the invitation it used to send.
+  {
+    id: 'auth.verify-email',
+    flags: [],
+    fields: ['code', 'url', 'minutes'],
+    props: () => ({ code: S('code'), url: S('url'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'auth.sign-in-code',
+    flags: [],
+    fields: ['code', 'minutes'],
+    props: () => ({ code: S('code'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'auth.password-reset',
+    flags: [],
+    fields: ['email', 'code', 'url', 'minutes'],
+    props: () => ({ email: S('email'), code: S('code'), url: S('url'), expiresInMinutes: S('minutes') }),
+  },
+  {
+    id: 'workspace.invitation',
+    flags: [],
+    fields: ['inviter_name', 'workspace_name', 'role', 'accept_url', 'recipient_email'],
+    props: () => ({
+      inviterName: S('inviter_name'),
+      workspaceName: S('workspace_name'),
+      role: S('role'),
+      acceptUrl: S('accept_url'),
+      recipientEmail: S('recipient_email'),
+    }),
+  },
   {
     id: 'hr.payslip-ready',
     flags: ['name', 'url'],
@@ -372,6 +411,35 @@ const SPECS: Spec[] = [
       employerName: S('employer_name'),
       byEmployee: f.has('by_employee'),
       changedAt: SAMPLE_DATE,
+    }),
+  },
+  // AI settings: a provider outside the EU was enabled; sent to the workspace owners.
+  {
+    id: 'ai.provider-enabled',
+    flags: ['name', 'own'],
+    fields: ['recipient_name', 'workspace_name', 'provider_name', 'enabled_by', 'url'],
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      workspaceName: S('workspace_name'),
+      providerName: S('provider_name'),
+      enabledBy: S('enabled_by'),
+      keySource: f.has('own') ? 'own' : 'weldsuite',
+      settingsUrl: S('url'),
+    }),
+  },
+  // EU plan billing (ADR BILL-014): a failed charge, the reminder halfway
+  // through the grace period, and the plan ending on Free. No flag: failed.
+  {
+    id: 'billing.dunning',
+    flags: ['reminder', 'ended'],
+    fields: ['workspace_name', 'plan_name', 'amount', 'ends_on', 'url'],
+    props: (f) => ({
+      kind: dunningKind(f),
+      workspaceName: S('workspace_name'),
+      planName: S('plan_name'),
+      amount: S('amount'),
+      endsOn: S('ends_on'),
+      url: S('url'),
     }),
   },
   // WeldFlow's published status report: the overall colour is two flags (none:

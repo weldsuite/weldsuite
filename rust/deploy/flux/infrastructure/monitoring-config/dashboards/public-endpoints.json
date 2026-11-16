@@ -1,6 +1,7 @@
 {
   "uid": "weldsuite-public-endpoints",
   "title": "WeldSuite public endpoints",
+  "description": "The blackbox probes of the public hosts, and Traefik's view of the services behind them.",
   "tags": [
     "weldsuite"
   ],
@@ -8,11 +9,24 @@
   "schemaVersion": 39,
   "version": 1,
   "editable": false,
-  "refresh": "30s",
+  "graphTooltip": 1,
+  "refresh": "1m",
   "time": {
     "from": "now-6h",
     "to": "now"
   },
+  "links": [
+    {
+      "title": "WeldSuite",
+      "type": "dashboards",
+      "tags": [
+        "weldsuite"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
   "templating": {
     "list": []
   },
@@ -26,10 +40,10 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 0,
-        "y": 0,
         "w": 24,
-        "h": 7
+        "h": 7,
+        "x": 0,
+        "y": 0
       },
       "targets": [
         {
@@ -38,9 +52,11 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "probe_success",
+          "editorMode": "code",
+          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "expr": "probe_success"
         },
         {
           "datasource": {
@@ -48,9 +64,11 @@
             "uid": "prometheus"
           },
           "refId": "B",
-          "expr": "probe_http_status_code",
+          "editorMode": "code",
+          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "expr": "probe_http_status_code"
         },
         {
           "datasource": {
@@ -58,9 +76,11 @@
             "uid": "prometheus"
           },
           "refId": "C",
-          "expr": "(probe_ssl_earliest_cert_expiry - time()) / 86400",
+          "editorMode": "code",
+          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "expr": "(probe_ssl_earliest_cert_expiry - time()) / 86400"
         }
       ],
       "transformations": [
@@ -73,24 +93,129 @@
           "options": {
             "excludeByName": {
               "Time": true,
+              "__name__": true,
               "job": true,
-              "namespace": true,
+              "instance": true,
               "endpoint": true,
-              "container": true,
-              "pod": true,
               "service": true,
-              "prometheus": true
+              "pod": true,
+              "container": true,
+              "namespace": true,
+              "prometheus": true,
+              "cluster": true,
+              "uid": true
             },
             "renameByName": {
-              "instance": "Target",
-              "group": "Group",
               "Value #A": "Up",
               "Value #B": "HTTP status",
               "Value #C": "Certificate days left"
             }
           }
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Up"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HTTP status"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Certificate days left"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 7
+                    },
+                    {
+                      "color": "green",
+                      "value": 21
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [],
+        "cellHeight": "sm"
+      }
     },
     {
       "id": 2,
@@ -101,10 +226,10 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 0,
-        "y": 7,
         "w": 12,
-        "h": 8
+        "h": 8,
+        "x": 0,
+        "y": 7
       },
       "targets": [
         {
@@ -113,6 +238,8 @@
             "uid": "prometheus"
           },
           "refId": "A",
+          "editorMode": "code",
+          "range": true,
           "expr": "probe_duration_seconds",
           "legendFormat": "{{instance}}"
         }
@@ -121,8 +248,15 @@
         "defaults": {
           "unit": "s",
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -151,10 +285,10 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 7,
         "w": 12,
-        "h": 8
+        "h": 8,
+        "x": 12,
+        "y": 7
       },
       "targets": [
         {
@@ -163,6 +297,8 @@
             "uid": "prometheus"
           },
           "refId": "A",
+          "editorMode": "code",
+          "range": true,
           "expr": "avg_over_time(probe_success[5m])",
           "legendFormat": "{{instance}}"
         }
@@ -170,9 +306,18 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "min": 0,
+          "max": 1,
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -201,10 +346,10 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 0,
-        "y": 15,
         "w": 12,
-        "h": 8
+        "h": 8,
+        "x": 0,
+        "y": 15
       },
       "targets": [
         {
@@ -213,6 +358,8 @@
             "uid": "prometheus"
           },
           "refId": "A",
+          "editorMode": "code",
+          "range": true,
           "expr": "sum by (service) (rate(traefik_service_requests_total[$__rate_interval]))",
           "legendFormat": "{{service}}"
         }
@@ -221,8 +368,15 @@
         "defaults": {
           "unit": "reqps",
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -245,16 +399,16 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "5xx ratio per service (Traefik)",
+      "title": "5xx share per service (Traefik)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 15,
         "w": 12,
-        "h": 8
+        "h": 8,
+        "x": 12,
+        "y": 15
       },
       "targets": [
         {
@@ -263,7 +417,9 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[$__rate_interval])) / sum by (service) (rate(traefik_service_requests_total[$__rate_interval]))",
+          "editorMode": "code",
+          "range": true,
+          "expr": "sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[$__rate_interval])) / clamp_min(sum by (service) (rate(traefik_service_requests_total[$__rate_interval])), 1e-9)",
           "legendFormat": "{{service}}"
         }
       ],
@@ -271,8 +427,15 @@
         "defaults": {
           "unit": "percentunit",
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "spanNulls": true
           }
         },
         "overrides": []

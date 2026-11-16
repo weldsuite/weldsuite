@@ -214,11 +214,15 @@ COPY rust/bins bins
 # (crates/migrations/build.rs).
 COPY packages/core/db/drizzle drizzle
 ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
+# `release` ships. CI builds a pull request's image with `ci-image`
+# (rust/Cargo.toml), which skips the slow release settings. Any profile but
+# `dev`, whose output folder isn't named after it.
+ARG CARGO_PROFILE=release
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
     target="$(cat /rust-target)" \
- && cargo build --release --locked --bin weldsuite --target "$target" \
- && cp "target/$target/release/weldsuite" /weldsuite
+ && cargo build --profile "$CARGO_PROFILE" --locked --bin weldsuite --target "$target" \
+ && cp "target/$target/$CARGO_PROFILE/weldsuite" /weldsuite
 
 # glibc + libgcc + CA certificates, no shell, uid 65532. The last stage, so
 # a build without --target makes this image.

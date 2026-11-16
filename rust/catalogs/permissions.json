@@ -545,6 +545,17 @@
       ]
     },
     {
+      "key": "ai",
+      "label": "AI settings",
+      "permissions": [
+        {
+          "description": "Choose the AI provider and models, enable providers outside the EU, store the workspace’s own provider keys and see AI usage.",
+          "key": "ai:manage",
+          "label": "Manage AI providers"
+        }
+      ]
+    },
+    {
       "key": "leads",
       "label": "Leads",
       "permissions": [
@@ -3179,6 +3190,7 @@
         "working-hours:edit-self",
         "sso:read",
         "sso:manage",
+        "ai:manage",
         "legal_entities:read",
         "legal_entities:create",
         "legal_entities:update",
