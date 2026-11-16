@@ -56,6 +56,31 @@ export function formatDay(iso: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
 }
 
+/** The day of the month of a `YYYY-MM-DD` date, as the week columns show it. */
+export function dayOfMonth(iso: string): number {
+  return new Date(`${iso}T00:00:00Z`).getUTCDate();
+}
+
+/** A run of week columns that start in the same month, for the header's month row. */
+export interface MonthSpan {
+  key: string;
+  label: string;
+  span: number;
+}
+
+/** Consecutive weeks grouped by the month they start in ("November 2026" over three weeks). */
+export function monthSpans(weeks: readonly { startsOn: string }[], locale: string): MonthSpan[] {
+  const label = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const spans: MonthSpan[] = [];
+  for (const week of weeks) {
+    const key = week.startsOn.slice(0, 7);
+    const last = spans.at(-1);
+    if (last?.key === key) last.span += 1;
+    else spans.push({ key, label: label.format(new Date(`${week.startsOn}T00:00:00Z`)), span: 1 });
+  }
+  return spans;
+}
+
 /** Skills typed as text: comma separated, trimmed, each once. */
 export function splitSkills(text: string): string[] {
   const seen = new Set<string>();

@@ -34,6 +34,8 @@ export const flowPortfolio = {
       group: 'Skill group',
       noSkill: 'No skill',
       people: '{count} people',
+      peopleHeader: 'People',
+      contractHours: 'Contract hours',
       hoursPerWeek: '{hours} h/week',
       show: 'Show projects for {name}',
       hide: 'Hide projects for {name}',

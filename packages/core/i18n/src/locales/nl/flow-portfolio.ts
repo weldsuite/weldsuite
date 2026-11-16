@@ -34,6 +34,8 @@ export const flowPortfolio = {
       group: 'Vaardigheidsgroep',
       noSkill: 'Geen vaardigheid',
       people: '{count} personen',
+      peopleHeader: 'Personen',
+      contractHours: 'Contracturen',
       hoursPerWeek: '{hours} u/week',
       show: 'Projecten van {name} tonen',
       hide: 'Projecten van {name} verbergen',
