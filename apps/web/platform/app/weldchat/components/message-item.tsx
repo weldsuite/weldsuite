@@ -307,6 +307,14 @@ function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): Lu
 type CallHistoryStrings = ReturnType<typeof useI18n>['t']['weldchat']['callHistory'];
 type FormatFn = ReturnType<typeof useI18n>['format'];
 
+/** A missed call's title: "Missed voice call from Gert" with `named`, else "Missed voice call". */
+function missedCallTitle(tc: CallHistoryStrings, format: FormatFn, call: CallSummary, named: boolean): string {
+  const isVideo = call.callType === 'video';
+  if (call.endOnly) return tc.missedCall;
+  if (named) return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name: call.initiatorName ?? '' });
+  return isVideo ? tc.missedVideoCall : tc.missedVoiceCall;
+}
+
 function callRowTitle(
   tc: CallHistoryStrings,
   format: FormatFn,
@@ -320,11 +328,7 @@ function callRowTitle(
   // In a DM there are two people and the direction icon (outgoing / incoming)
   // says who called; in a channel the caller's name stays in the text.
   const named = showCaller && !!name;
-  if (state === 'missed') {
-    if (call.endOnly) return tc.missedCall;
-    if (named) return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name });
-    return isVideo ? tc.missedVideoCall : tc.missedVoiceCall;
-  }
+  if (state === 'missed') return missedCallTitle(tc, format, call, named);
   if (call.endOnly) return tc.callEnded;
   if (!isMine && named) return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
   return isVideo ? tc.videoCall : tc.voiceCall;

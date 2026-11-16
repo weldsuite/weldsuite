@@ -137,10 +137,9 @@ export function AgentChatInput({
       rows={1}
       className={
         stacked
-          ? 'max-h-[200px] min-h-[40px] w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-3 pl-[10px] pt-[7px] text-[15px] text-gray-900 outline-none placeholder:text-gray-500 dark:text-foreground dark:placeholder:text-muted-foreground'
+          ? 'max-h-[200px] min-h-[40px] w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-3 pl-[10px] pt-[7px] text-[15px] text-gray-900 outline-none [scrollbar-color:rgba(200,200,200,0.3)_transparent] [scrollbar-width:thin] placeholder:text-gray-500 dark:text-foreground dark:placeholder:text-muted-foreground'
           : 'max-h-[200px] min-h-[36px] flex-1 resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70'
       }
-      style={stacked ? { scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' } : undefined}
     />
   );
 

@@ -137,6 +137,12 @@ const SUGGESTIONS_MENU_INLINE = 'left-0 w-72';
 // The reply type menu in place of "To": its icon lines up with the text under it.
 const RECIPIENTS_LABEL_SLOT = 'flex-shrink-0 -ml-2.5 pr-1';
 
+/** The field label and suggestions classes: a label column when there are From/Subject rows to line up with, inline otherwise. */
+function fieldLayout(showFromRow: boolean, showSubjectRow: boolean): { fieldLabel: string; suggestionsMenu: string } {
+  if (showFromRow || showSubjectRow) return { fieldLabel: FIELD_LABEL, suggestionsMenu: SUGGESTIONS_MENU };
+  return { fieldLabel: FIELD_LABEL_INLINE, suggestionsMenu: SUGGESTIONS_MENU_INLINE };
+}
+
 type MailAccountOption = NonNullable<ReturnType<typeof useMailAccounts>['data']>['data'][number];
 
 function accountDisplayName(account: MailAccountOption): string {
@@ -435,9 +441,7 @@ export function ComposeSurface({
   const { t } = useI18n();
   // The AI bar and its button need `/mail-ai`, which the Kubernetes editions lack.
   const aiAvailable = isFeatureAvailable('mail-ai');
-  const inlineLabels = !showFromRow && !showSubjectRow;
-  const fieldLabel = inlineLabels ? FIELD_LABEL_INLINE : FIELD_LABEL;
-  const suggestionsMenu = inlineLabels ? SUGGESTIONS_MENU_INLINE : SUGGESTIONS_MENU;
+  const { fieldLabel, suggestionsMenu } = fieldLayout(showFromRow, showSubjectRow);
   const inlineHeader = recipientsLabel !== undefined;
   const signature = useComposeSignature({ editorRef, accountId, autoInsert: signatureMode, onChange: onBodyInput });
 

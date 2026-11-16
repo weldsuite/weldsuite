@@ -306,9 +306,9 @@ function buildMessage(conversation: SampleConversation, threadIndex: number, ind
   const mine = message.from === null;
   const from = mine ? { name: account.displayName ?? 'You', email: account.email } : { name: message.from![0], email: message.from![1] };
   const firstOther = conversation.messages.find((m) => m.from !== null)?.from ?? null;
-  const to = mine
-    ? (message.to ?? (firstOther ? [firstOther] : [])).map(([name, email]) => ({ name, email }))
-    : [{ name: account.displayName ?? 'You', email: account.email }];
+  // What you sent goes to its own recipients, else to the first other person in the thread.
+  const sentTo = message.to ?? (firstOther ? [firstOther] : []);
+  const to = mine ? sentTo.map(([name, email]) => ({ name, email })) : [{ name: account.displayName ?? 'You', email: account.email }];
   const attachments: MailAttachmentRow[] = (message.attachments ?? []).map(([fileName, contentType, size], a) => ({
     id: `sample_att_${threadIndex}_${index}_${a}`,
     messageId: id,

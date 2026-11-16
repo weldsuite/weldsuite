@@ -76,6 +76,15 @@ function targetName(target: DriveShareTarget | null): string {
   return target.kind === 'file' ? target.file.name : target.folder.name;
 }
 
+/** The line under the title: the module's own wording for what it shares, else the drive's for a file or folder. */
+function targetDescription(
+  target: DriveShareTarget | null,
+  share: { descriptionFile: string; descriptionFolder: string },
+): string {
+  if (target?.kind === 'item' && target.description) return target.description;
+  return target?.kind === 'folder' ? share.descriptionFolder : share.descriptionFile;
+}
+
 function targetLink(target: DriveShareTarget | null): string | null {
   if (!target) return null;
   if (target.kind === 'item') return target.link;
@@ -359,11 +368,7 @@ export function ShareDialog({ target, onOpenChange }: Readonly<ShareDialogProps>
             {t.welddrive.share.title.replace('{name}', targetName(target))}
           </DialogTitle>
           <DialogDescription>
-            {target?.kind === 'item' && target.description
-              ? target.description
-              : target?.kind === 'folder'
-                ? t.welddrive.share.descriptionFolder
-                : t.welddrive.share.descriptionFile}
+            {targetDescription(target, t.welddrive.share)}
           </DialogDescription>
         </DialogHeader>
 

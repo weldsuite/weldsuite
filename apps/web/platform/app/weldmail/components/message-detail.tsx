@@ -2642,7 +2642,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         </div>
 
         {/* Email Content */}
-        <div className={cn('pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 group/email', showActionBar ? 'pb-1 md:pb-3' : 'pb-6')}>
+        <div
+          data-action-bar={showActionBar}
+          className="pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 group/email pb-6 data-[action-bar=true]:pb-1 md:data-[action-bar=true]:pb-3"
+        >
           <div className="text-gray-700 dark:text-foreground text-sm leading-relaxed overflow-x-auto">
             <MessageBodyContent
               mainContent={mainContent}
@@ -2686,10 +2689,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         {showActionBar && (
           <div
             ref={actionBarRef}
-            className={cn(
-              'sticky -bottom-px z-10 border-t bg-white dark:bg-background pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 py-3',
-              actionBarFloating ? 'border-border' : 'border-transparent',
-            )}
+            data-floating={actionBarFloating}
+            className="sticky -bottom-px z-10 border-t border-transparent data-[floating=true]:border-border bg-white dark:bg-background pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 py-3"
           >
           <div className="flex items-center justify-start gap-2">
             {isFeatureAvailable('mail-ai') && (

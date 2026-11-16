@@ -753,12 +753,16 @@ export class Interactions {
       c.select([hit.id]);
       return;
     }
-    if (c.canEditText(hit) || (hit.type === 'connector' && !hit.locked)) {
-      const pos = this.textOffsetAt(hit, p);
-      c.startEditing(hit.id, pos ?? undefined);
-      if (pos === null) c.editing = { id: hit.id, anchor: 0, head: hit.text?.text.length ?? 0 };
-      c.changed();
-    }
+    if (c.canEditText(hit) || (hit.type === 'connector' && !hit.locked)) this.editTextAt(hit, p);
+  }
+
+  /** Starts editing `el`'s text with the cursor at `p`, or with all of it selected when `p` is not over its text. */
+  private editTextAt(el: BoardElement, p: Point): void {
+    const c = this.c;
+    const pos = this.textOffsetAt(el, p);
+    c.startEditing(el.id, pos ?? undefined);
+    if (pos === null) c.editing = { id: el.id, anchor: 0, head: el.text?.text.length ?? 0 };
+    c.changed();
   }
 
   /** A third click in a row in the text being edited selects all of it. */
