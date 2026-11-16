@@ -51,11 +51,12 @@ kc() {
     -schema-location default -schema-location "$catalog" "$@"
 }
 
-# ${NAME} -> a cluster's settings (Flux's postBuild substitution).
+# ${NAME} and ${NAME:=default} -> a cluster's settings (Flux's postBuild
+# substitution); a name the settings leave out takes its default.
 substitute() {
   local script
-  script="$(tr -d '\r' <"$1" | awk '/^data:/{d=1;next} d && /^  [A-Z0-9_]+:/{k=$1; sub(":","",k); v=$0; sub(/^  [A-Z0-9_]+: */,"",v); gsub(/^"|"$/,"",v); gsub(/[\/&]/,"\\\\&",v); printf "s/[$][{]%s[}]/%s/g;", k, v}')"
-  sed -e "$script"
+  script="$(tr -d '\r' <"$1" | awk '/^data:/{d=1;next} d && /^  [A-Z0-9_]+:/{k=$1; sub(":","",k); v=$0; sub(/^  [A-Z0-9_]+: */,"",v); gsub(/^"|"$/,"",v); gsub(/[\/&]/,"\\\\&",v); printf "s/[$][{]%s(:=[^}]*)?[}]/%s/g;", k, v}')"
+  sed -E -e "$script" -e 's/[$][{][A-Z0-9_]+:=([^}]*)[}]/\1/g'
 }
 
 # SOPS-encrypted Secrets carry a top-level `sops:` block that Flux removes

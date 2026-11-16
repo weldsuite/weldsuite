@@ -57,5 +57,6 @@ data:
   # The cluster's secret store (rust/deploy/hetzner/secret-store), as
   # https://<its hostname>, no trailing slash. Set, Prometheus probes its
   # /v1/sys/health and SecretStoreDown fires while it is sealed or
-  # unreachable (monitoring-config/ALERTS.md). Empty: no store, no probe.
+  # unreachable (monitoring-config/ALERTS.md). Empty or left out: no store,
+  # no probe.
   SECRET_STORE_URL: ""
