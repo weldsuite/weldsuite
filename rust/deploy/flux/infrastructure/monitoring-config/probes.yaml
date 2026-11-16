@@ -27,7 +27,9 @@ spec:
 # The cluster's secret store (rust/deploy/hetzner/secret-store), outside the
 # cluster: OpenBao's health check answers 200 only while it is unsealed and
 # active (503 sealed, 501 not initialised, 429 standby), and Caddy lets it
-# through from anywhere. SECRET_STORE_URL is the cluster's setting; empty, the
+# through from anywhere. SECRET_STORE_URL is the cluster's setting, and
+# optional: `:=` makes a missing one empty, since Flux substitutes strictly on
+# WeldSuite's clusters and an unset name fails the whole layer. Empty, the
 # target is only the path, which the relabeling drops: no store, no probe.
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
@@ -43,7 +45,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - ${SECRET_STORE_URL}/v1/sys/health
+        - ${SECRET_STORE_URL:=}/v1/sys/health
       labels:
         group: secret-store
       relabelingConfigs:
