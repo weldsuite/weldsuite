@@ -189,6 +189,41 @@ function moveCaretInLayout(c: BoardController, e: TextEditing, move: 'up' | 'dow
   return setCaret(c, next.pos, extend, next.x);
 }
 
+/**
+ * The word at `pos` (a double-click): from its start to its end. Between words,
+ * the run of spaces or punctuation there; at a word's very end, that word.
+ */
+export function wordRangeAt(text: string, pos: number): { from: number; to: number } {
+  if (!text) return { from: 0, to: 0 };
+  const at = Math.max(0, Math.min(text.length, pos));
+  if (wordSegmenter) {
+    const segs = [...wordSegmenter.segment(text)];
+    const i = segs.findIndex((s) => at >= s.index && at < s.index + s.segment.length);
+    const index = i === -1 ? segs.length - 1 : i;
+    const prev = segs[index - 1];
+    const seg = !segs[index]!.isWordLike && prev?.isWordLike && prev.index + prev.segment.length === at ? prev : segs[index]!;
+    return { from: seg.index, to: seg.index + seg.segment.length };
+  }
+  const isWord = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
+  let from = at;
+  let to = at;
+  if (!isWord(text[at]) && isWord(text[at - 1])) from = to = at - 1;
+  const word = isWord(text[from]);
+  while (from > 0 && isWord(text[from - 1]) === word) from--;
+  while (to < text.length && isWord(text[to]) === word) to++;
+  return { from, to };
+}
+
+/** Selects the word at `pos` in the text being edited. */
+export function selectWordAt(c: BoardController, pos: number): void {
+  const e = c.editing;
+  if (!e) return;
+  const { from, to } = wordRangeAt(textOf(c), pos);
+  c.editing = { id: e.id, anchor: from, head: to };
+  pendingMarks.delete(c);
+  c.changed();
+}
+
 export function selectAllText(c: BoardController): void {
   const e = c.editing;
   if (!e) return;

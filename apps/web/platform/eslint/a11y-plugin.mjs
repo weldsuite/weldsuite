@@ -201,10 +201,32 @@ const fieldHasName = {
   },
 };
 
+/** Input types that take typed text, and so show a blinking cursor while focused. */
+const TEXT_INPUT_TYPES = new Set(['text', 'email', 'search', 'url', 'tel', 'password', 'number']);
+
+/**
+ * A field you type into: a text input, a textarea or a contentEditable editor.
+ * Its blinking cursor already marks focus, so it needs no ring or border on top
+ * (the mail composer's To, Subject and body fields are plain text on purpose).
+ */
+function isTextEntry(element) {
+  const editable = attr(element, 'contentEditable');
+  if (editable && !(editable.value?.type === 'JSXExpressionContainer' && editable.value.expression.value === false)) {
+    return true;
+  }
+  if (!FIELDS.has(elementName(element))) return false;
+  const type = attr(element, 'type');
+  if (!type) return true;
+  return type.value?.type === 'Literal' && TEXT_INPUT_TYPES.has(type.value.value);
+}
+
 const outlineNoneHasFocusStyle = {
   meta: {
     type: 'problem',
-    docs: { description: '`outline-none` needs a visible focus replacement (focus-visible:ring-…, focus:bg-…).' },
+    docs: {
+      description:
+        '`outline-none` needs a visible focus replacement (focus-visible:ring-…, focus:bg-…), except on text-entry fields, whose cursor shows focus.',
+    },
     schema: [],
     messages: {
       missing: '`outline-none` hides the focus ring. Add a focus-visible: (or focus:) ring, border or background.',
@@ -216,6 +238,7 @@ const outlineNoneHasFocusStyle = {
         if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'className' || !node.value) return;
         const tokens = classTokens(node.value);
         if (!removesOutline(tokens) || replacesOutline(tokens)) return;
+        if (node.parent.parent?.type === 'JSXElement' && isTextEntry(node.parent.parent)) return;
         const owner = node.parent.name;
         const ownerName = owner.type === 'JSXIdentifier' ? owner.name : owner.property?.name;
         if (RING_COMPONENTS.has(ownerName) && !removesRing(tokens)) return;

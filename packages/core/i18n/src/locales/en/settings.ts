@@ -1652,7 +1652,11 @@ export const settings = {
       loadFailed: 'The legal entities could not be loaded.',
       retry: 'Try again',
       add: 'Add legal entity',
-      showArchived: 'Show archived',
+      filters: {
+        status: 'Status',
+        active: 'Active',
+        archived: 'Archived',
+      },
       columns: {
         name: 'Name',
         legalForm: 'Legal form',
@@ -1673,7 +1677,7 @@ export const settings = {
         title: 'No legal entities yet',
         description: 'Add your company. The first legal entity becomes the default one.',
         archivedTitle: 'No legal entities match',
-        archivedDescription: 'Switch on "Show archived" to see archived entities.',
+        archivedDescription: 'There are no archived legal entities. Remove the filter to see the active ones.',
       },
       create: {
         title: 'Add legal entity',

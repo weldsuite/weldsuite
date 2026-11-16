@@ -1647,7 +1647,11 @@ export const settings = {
       loadFailed: 'De juridische entiteiten konden niet worden geladen.',
       retry: 'Opnieuw proberen',
       add: 'Juridische entiteit toevoegen',
-      showArchived: 'Gearchiveerde tonen',
+      filters: {
+        status: 'Status',
+        active: 'Actief',
+        archived: 'Gearchiveerd',
+      },
       columns: {
         name: 'Naam',
         legalForm: 'Rechtsvorm',
@@ -1668,7 +1672,7 @@ export const settings = {
         title: 'Nog geen juridische entiteiten',
         description: 'Voeg je bedrijf toe. De eerste juridische entiteit wordt de standaard.',
         archivedTitle: 'Geen juridische entiteiten gevonden',
-        archivedDescription: 'Zet "Gearchiveerde tonen" aan om gearchiveerde entiteiten te zien.',
+        archivedDescription: 'Er zijn geen gearchiveerde juridische entiteiten. Verwijder het filter om de actieve te zien.',
       },
       create: {
         title: 'Juridische entiteit toevoegen',

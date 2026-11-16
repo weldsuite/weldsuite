@@ -81,6 +81,10 @@ export interface PanelEntityListProps<T extends { id: string }> {
    * renders its own toolbar elsewhere. The page then filters `items` itself.
    */
   hideTopBar?: boolean;
+  /** Classes for the top bar (Filter, search, create button). */
+  topBarClassName?: string;
+  /** Puts the column header and rows in a box with these classes (see `EntityList`). */
+  listClassName?: string;
 
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -117,6 +121,8 @@ export function PanelEntityList<T extends { id: string }>({
   actionButtons,
   leftActionButtons,
   hideTopBar,
+  topBarClassName,
+  listClassName,
   hasMore,
   isLoadingMore,
   onLoadMore,
@@ -234,6 +240,8 @@ export function PanelEntityList<T extends { id: string }>({
       actionButtons={actionButtons}
       leftActionButtons={leftActionButtons}
       hideTopBar={hideTopBar}
+      topBarClassName={topBarClassName}
+      listClassName={listClassName}
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}

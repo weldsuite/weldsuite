@@ -81,7 +81,45 @@ export const mail = {
       scheduleMessage: 'Schedule Send',
       addSignature: 'Add Signature',
       recipientRequired: 'Add at least one recipient',
+      invalidRecipient: '{recipient} is not a valid email address',
+      invalidRecipients: 'These are not valid email addresses: {recipients}',
     },
+
+    // The AI island at the bottom of the composer
+    composeAi: {
+      open: 'Write with AI',
+      placeholder: 'Describe the email you want to write…',
+      replyPlaceholder: 'Describe the reply you want to write…',
+      write: 'Write',
+      ideasLabel: 'Prompt ideas',
+      optionsLabel: 'Tone and length',
+      rewriteLabel: 'Rewrite what you wrote',
+      nothingToRewrite: 'Write something first to rewrite it',
+      rewriteFailed: 'Could not rewrite the text. Try again.',
+      tone: 'Tone',
+      length: 'Length',
+      automatic: 'Automatic',
+      tones: { professional: 'Professional', friendly: 'Friendly', casual: 'Casual' },
+      lengths: { short: 'Short', medium: 'Medium', long: 'Long' },
+      rewrites: {
+        improve: 'Improve the writing',
+        shorten: 'Make it shorter',
+        expand: 'Make it longer',
+        formalize: 'Make it more formal',
+        make_friendly: 'Make it friendlier',
+      },
+      ideas: {
+        meeting: 'Ask to meet next week',
+        followUp: 'Follow up on my last email',
+        introduce: 'Introduce myself and what we do',
+        thanks: 'Thank them for their help',
+        accept: 'Say yes and confirm the details',
+        decline: 'Say no politely',
+        moreDetails: 'Ask for more details',
+        thankThem: 'Thank them',
+      },
+    },
+
 
     // Search
     search: {
@@ -710,6 +748,7 @@ export const mail = {
       expandToFullScreen: 'Expand to full screen',
       viewContactDetails: 'View contact details',
       toWord: 'to',
+      me: 'me',
       markAsNotImportant: 'Mark as not important',
       markedAsNotImportant: 'Marked as not important',
       markDone: 'Mark as done',
@@ -958,6 +997,14 @@ export const mail = {
       colorBlue: 'Blue',
       colorPurple: 'Purple',
       colorPink: 'Pink',
+      colorAmber: 'Amber',
+      colorLime: 'Lime',
+      colorEmerald: 'Emerald',
+      colorCyan: 'Cyan',
+      colorSky: 'Sky blue',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Gray',
     },
 
     // Settings - Labels page
@@ -1021,6 +1068,14 @@ export const mail = {
       colorBlue: 'Blue',
       colorPurple: 'Purple',
       colorPink: 'Pink',
+      colorAmber: 'Amber',
+      colorLime: 'Lime',
+      colorEmerald: 'Emerald',
+      colorCyan: 'Cyan',
+      colorSky: 'Sky blue',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Gray',
     },
 
     // Setup page
