@@ -10,6 +10,7 @@ import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
+import { isPendingInvitee } from '../lib/dm-availability';
 import {
   EntityList,
   EmptyStateIllustration,
@@ -44,6 +45,8 @@ interface DirectoryItem {
   status?: string;
   userId?: string;
   lastMessageAt?: Date | null;
+  /** Invited but not joined yet: listed, but can't be messaged until they accept. */
+  isInvited: boolean;
 }
 
 export default function DirectoriesPage() {
@@ -72,6 +75,7 @@ export default function DirectoriesPage() {
       status: m.status,
       userId: m.userId ?? m.id,
       lastMessageAt: m.lastMessageAt ? new Date(m.lastMessageAt) : null,
+      isInvited: isPendingInvitee(m),
     }));
 
     // People are loaded as a single list with no server-side search support,
@@ -92,18 +96,9 @@ export default function DirectoriesPage() {
   ], [t]);
 
   const renderRow = useCallback((item: DirectoryItem) => {
-    return (
-      <button
-        type="button"
-        key={item.id}
-        onClick={() =>
-          navigate({
-            to: '/weldchat/dm/$userId',
-            params: { userId: item.userId ?? item.id },
-          })
-        }
-        className="w-full text-left flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-      >
+    const rowClassName = 'w-full text-left flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group';
+    const content = (
+      <>
         <span className="flex-1 min-w-0 flex items-center gap-3">
           <span className="relative flex-shrink-0">
             <Avatar className="h-6 w-6">
@@ -128,16 +123,45 @@ export default function DirectoriesPage() {
         </span>
 
         <span className="w-[120px] flex-shrink-0">
-          <span className={cn(
-            'text-sm',
-            item.lastMessageAt ? 'tabular-nums' : 'text-gray-400',
-          )}>
-            {formatRelative(item.lastMessageAt, st)}
-          </span>
+          {item.isInvited ? (
+            <span className="text-sm text-gray-400">{t.dmCreate.invited}</span>
+          ) : (
+            <span className={cn(
+              'text-sm',
+              item.lastMessageAt ? 'tabular-nums' : 'text-gray-400',
+            )}>
+              {formatRelative(item.lastMessageAt, st)}
+            </span>
+          )}
         </span>
+      </>
+    );
+
+    // An invitee can't be messaged until they accept, so their row opens nothing.
+    if (item.isInvited) {
+      return (
+        <div key={item.id} title={t.dmCreate.invitedHint} className={cn(rowClassName, 'opacity-60')}>
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        key={item.id}
+        onClick={() =>
+          navigate({
+            to: '/weldchat/dm/$userId',
+            params: { userId: item.userId ?? item.id },
+          })
+        }
+        className={cn(rowClassName, 'hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer')}
+      >
+        {content}
       </button>
     );
-  }, [navigate, presenceMap, st]);
+  }, [navigate, presenceMap, st, t]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
