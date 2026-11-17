@@ -514,9 +514,23 @@ function registerIpc() {
         return { status: 'failed', reason: 'invalid_request' };
       }
       const outcome = flow.expect(checked.state, readPageText(opts.page));
+      // The checked URL, rebuilt on the issuer's origin: never the page's
+      // string. Its scheme and host are checked against the issuer once more,
+      // right at the call, as an allowlist.
+      const target = new URL(checked.url);
+      const issuerUrl = new URL(issuer);
+      const allowedSchemes = [issuerUrl.protocol];
+      const allowedHosts = [issuerUrl.hostname];
       try {
-        // The checked URL, rebuilt on the issuer's origin: never the page's string.
-        await shell.openExternal(checked.url);
+        if (
+          allowedSchemes.includes(target.protocol) &&
+          allowedHosts.includes(target.hostname) &&
+          target.port === issuerUrl.port
+        ) {
+          await shell.openExternal(target.href);
+        } else {
+          flow.fail('browser');
+        }
       } catch {
         flow.fail('browser');
       }
