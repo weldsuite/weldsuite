@@ -354,6 +354,23 @@ describe('WeldForms home page', () => {
     expect(screen.getByText('Survey')).toBeTruthy();
   });
 
+  it('keeps loading pages while an "is not" filter leaves none of the loaded rows', () => {
+    listState = { ...listState, forms: [draft], hasNextPage: true };
+    render(<WeldFormsHome />);
+    fireEvent.click(screen.getByText(`except ${en.weldforms.status.draft}`));
+    // No row is left to scroll to, so the page asks for the next one itself and shows it is still looking.
+    expect(fetchNextPage).toHaveBeenCalled();
+    expect(screen.getByText('loading')).toBeTruthy();
+  });
+
+  it('stops looking when the last page leaves no row for an "is not" filter', () => {
+    listState = { ...listState, forms: [draft], hasNextPage: false };
+    render(<WeldFormsHome />);
+    fireEvent.click(screen.getByText(`except ${en.weldforms.status.draft}`));
+    expect(fetchNextPage).not.toHaveBeenCalled();
+    expect(screen.queryByText('loading')).toBeNull();
+  });
+
   it('ignores a filter value that is not a status and lifts a cleared filter', () => {
     render(<WeldFormsHome />);
     fireEvent.click(screen.getByText('bogus filter'));

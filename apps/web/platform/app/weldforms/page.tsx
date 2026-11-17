@@ -5,7 +5,7 @@
  * duplicate, move to a folder and delete.
  */
 
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Copy, EllipsisVertical, FolderInput, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -93,6 +93,14 @@ export default function WeldFormsHome() {
 
   // The server filters on one status; "is not" leaves one out of the rows loaded.
   const forms = status.except ? query.forms.filter((form) => form.status !== status.except) : query.forms;
+  // When that leaves none of the loaded rows, the list has no row to scroll to and
+  // never asks for more, so load the next page here until a row is left or none remain.
+  const filteredAway = Boolean(status.except) && forms.length === 0 && query.forms.length > 0;
+  const searchingFurther = filteredAway && query.hasNextPage;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    if (filteredAway && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [filteredAway, hasNextPage, isFetchingNextPage, fetchNextPage]);
   // Every form, those outside a folder included. Unfiltered, this is the same
   // query (and cache entry) as the "All forms" list, so it costs no extra request there.
   const allForms = useForms({ sort: sort.sort });
@@ -216,7 +224,7 @@ export default function WeldFormsHome() {
           ) : (
             <EntityList<FormSummary>
               items={forms}
-              isLoading={query.isLoading}
+              isLoading={query.isLoading || searchingFurther}
               error={null}
               headerColumns={headerColumns}
               filters={filterConfigs}
