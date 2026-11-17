@@ -11,7 +11,7 @@
 
 import type { Pipeline } from 'cloudflare:pipelines';
 import type { PanelEventRow } from '@weldsuite/panel-domain/event-row';
-import type { PanelIdentityRecord, PanelPersonRecord, PanelReplayChunkRecord } from '@weldsuite/panel-domain/tables';
+import type { PanelGroupRecord, PanelIdentityRecord, PanelPersonRecord, PanelReplayChunkRecord } from '@weldsuite/panel-domain/tables';
 import type { PanelProject } from './durable-objects/panel-project';
 import type { PanelSalt } from './durable-objects/panel-salt';
 import type { PanelUsage } from './durable-objects/panel-usage';
@@ -29,6 +29,8 @@ export interface Env {
   PANEL_IDENTITIES?: Pipeline<PanelIdentityRecord>;
   /** Stream behind `panel.people_v1`: written by PanelProject on a profile change. */
   PANEL_PEOPLE?: Pipeline<PanelPersonRecord>;
+  /** Stream behind `panel.groups_v1`: written by PanelProject on a group profile change. Missing = profiles stay in the object only. */
+  PANEL_GROUPS_STREAM?: Pipeline<PanelGroupRecord>;
   /** Stream behind `panel.replay_chunks_v1`: one row per chunk `POST /r` stores. */
   PANEL_REPLAY_CHUNKS?: Pipeline<PanelReplayChunkRecord>;
   /** One global instance (`idFromName('global')`): the daily salt of the cookieless visitor hash. */
@@ -48,8 +50,17 @@ export interface Env {
    * counts there to be settled against the credit wallet. Without it counts are kept, never settled.
    */
   PANEL_API?: Fetcher;
-  /** Per-IP limits on the public browser routes, `[[ratelimits]]` in wrangler.toml. */
+  /**
+   * Per-IP limits on the public browser routes, `[[ratelimits]]` in wrangler.toml. The client IP is
+   * the first `X-Forwarded-For` hop when there is one (a reverse proxy on the customer's own
+   * domain), else `CF-Connecting-IP` (lib/address.ts).
+   */
   EVENTS_RATE_LIMIT?: RateLimit;
+  /**
+   * `POST /e` per connecting IP when it differs from the client IP (a proxy, or a forged
+   * `X-Forwarded-For`): a ceiling 50 times `EVENTS_RATE_LIMIT`, so rotating the header buys little.
+   */
+  EVENTS_PROXY_RATE_LIMIT?: RateLimit;
   REPLAYS_RATE_LIMIT?: RateLimit;
   SNAPSHOTS_RATE_LIMIT?: RateLimit;
 }

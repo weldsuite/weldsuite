@@ -8,6 +8,7 @@
  *   const panel = createPanelServer({ secretKey: process.env.WELDPANEL_SECRET_KEY });
  *   panel.track({ name: 'Subscription renewed', distinctId: user.id, props: { plan: 'pro' } });
  *   panel.people.set(user.id, { email: user.email, plan: 'pro' });
+ *   panel.groupSet('company', account.id, { name: account.name, plan: 'pro' });
  *   await panel.flush();
  *
  * Nothing is sent until `flush()` (or until 100 events are waiting): call it
@@ -23,25 +24,31 @@ import {
   isoTime,
   isSystemEvent,
   LIB_VERSION,
+  normalizeGroupOp,
   normalizePeopleOp,
   str,
+  type GroupOpInput,
   type PeopleOpInput,
 } from './event';
 import { DEFAULT_HOST, trimTrailingSlashes } from './host';
 import {
   EVENT_PROPERTY_KEY,
+  GROUP_TYPE,
+  MAX_GROUP_OPS_PER_BATCH,
   MAX_ID,
   MAX_IMPORT_EVENTS,
   MAX_PEOPLE_OPS_PER_BATCH,
   MAX_TITLE,
   MAX_TRACK_EVENTS,
   PROPERTY_KEY,
+  type Properties,
   type ServerBatch,
   type ServerEvent,
+  type WireGroupOp,
   type WirePeopleOp,
 } from './wire';
 
-export type { ServerBatch, ServerEvent, WirePeopleOp } from './wire';
+export type { ServerBatch, ServerEvent, WireGroupOp, WirePeopleOp } from './wire';
 
 const RETRY_DELAY_MS = 1000;
 
@@ -68,6 +75,8 @@ export interface ServerEventInput {
   url?: string;
   title?: string;
   props?: Record<string, unknown>;
+  /** The groups it belongs to, `{ company: 'acme' }`: sent as `$group_company` properties. */
+  groups?: Record<string, string | number>;
   /** When it happened. Defaults to now. `track()` takes the last 7 days, `import()` up to 5 years. */
   timestamp?: Date | string | number;
   /** Your id for the event (8 to 64 characters), so sending it twice counts once. Generated when missing. */
@@ -104,6 +113,8 @@ export interface PanelServer {
     unset(userId: string, keys: string | string[]): void;
     increment(userId: string, props: string | Record<string, number>, by?: number): void;
   };
+  /** A group's profile (`company`, `acme`): like `people.set()` for a company or an account. Sent with `flush()`. */
+  groupSet(type: string, key: string | number, props: Record<string, unknown>): void;
   /** Send historical events now (timestamps up to 5 years old), in requests of 1000. */
   import(events: ServerEventInput[]): Promise<PanelServerResult>;
   /** Send everything queued. Rejects with a {@link PanelServerError} when the collector refuses (401: bad or revoked key). */
@@ -158,9 +169,20 @@ export function toServerEvent(input: ServerEventInput): ServerEvent | null {
   if (url) event.url = url;
   const title = str(input.title, MAX_TITLE);
   if (title) event.title = title;
-  const props = cleanProps(input.props, undefined, isSystemEvent(name) ? EVENT_PROPERTY_KEY : PROPERTY_KEY);
-  if (props) event.props = props;
+  const props = cleanProps(input.props, undefined, isSystemEvent(name) ? EVENT_PROPERTY_KEY : PROPERTY_KEY) || {};
+  addGroups(props, input.groups);
+  const clean = cleanProps(props, undefined, EVENT_PROPERTY_KEY);
+  if (clean) event.props = clean;
   return event;
+}
+
+/** `$group_<type>` for each valid group type and key. */
+function addGroups(props: Properties, groups: ServerEventInput['groups']): void {
+  const all: Record<string, unknown> = groups || {};
+  for (const type of Object.keys(all)) {
+    const key = cleanUserId(all[type]);
+    if (GROUP_TYPE.test(type) && key) props[`$group_${type}`] = key;
+  }
 }
 
 export function createPanelServer(options: PanelServerOptions): PanelServer {
@@ -173,6 +195,7 @@ export function createPanelServer(options: PanelServerOptions): PanelServer {
 
   let events: ServerEvent[] = [];
   let people: WirePeopleOp[] = [];
+  let groupOps: WireGroupOp[] = [];
   /** Invalid input dropped here, and what sends started by a full queue got back, since the last flush(). */
   let carried: PanelServerResult = { accepted: 0, dropped: 0 };
   /** A send for a full queue is on its way. */
@@ -214,10 +237,12 @@ export function createPanelServer(options: PanelServerOptions): PanelServer {
   async function drain(): Promise<PanelServerResult> {
     autoFlush = false;
     const total: PanelServerResult = { accepted: 0, dropped: 0 };
-    while (events.length || people.length) {
+    while (events.length || people.length || groupOps.length) {
       const body: ServerBatch = { lib: 'server', lib_version: LIB_VERSION, events: events.splice(0, MAX_TRACK_EVENTS) };
       const ops = people.splice(0, MAX_PEOPLE_OPS_PER_BATCH);
       if (ops.length) body.people = ops;
+      const groupBatch = groupOps.splice(0, MAX_GROUP_OPS_PER_BATCH);
+      if (groupBatch.length) body.groups = groupBatch;
       const result = await post('/v1/track', body);
       total.accepted += result.accepted;
       total.dropped += result.dropped;
@@ -267,8 +292,19 @@ export function createPanelServer(options: PanelServerOptions): PanelServer {
     if (people.length >= MAX_PEOPLE_OPS_PER_BATCH) sendFull();
   }
 
+  function groupOp(input: GroupOpInput): void {
+    const op = normalizeGroupOp(input);
+    if (!op) {
+      carried.dropped++;
+      return;
+    }
+    groupOps.push(op);
+    if (groupOps.length >= MAX_GROUP_OPS_PER_BATCH) sendFull();
+  }
+
   return {
     track: (event) => queueEvent(toServerEvent(event)),
+    groupSet: (type, key, props) => groupOp({ op: 'set', type, key, props }),
     identify: ({ userId, anonId, timestamp }) => {
       const anon = str(anonId, MAX_ID);
       queueEvent(anon ? toServerEvent({ name: '$identify', distinctId: userId, userId, anonId: anon, timestamp }) : null);

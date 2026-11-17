@@ -8,6 +8,12 @@ declare module '@weldsuite/panel-sdk/dist/panel.global.js' {
   export default source;
 }
 
+/** The web vitals plugin bundle `GET /v.js` serves, built the same way. */
+declare module '@weldsuite/panel-sdk/dist/panel-vitals.global.js' {
+  const source: string;
+  export default source;
+}
+
 /** The recording plugin bundle `GET /rec.js` serves, built the same way. */
 declare module '@weldsuite/panel-sdk/dist/panel-recorder.global.js' {
   const source: string;

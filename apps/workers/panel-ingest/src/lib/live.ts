@@ -28,12 +28,15 @@ const MAX_PATH_CHANGES = 5;
 /** Projects one isolate remembers a send time for; more than this and it starts over (a few extra sends). */
 const MAX_REMEMBERED_PROJECTS = 2000;
 
+const LEAVING = new Set(['$pageleave', '$app_backgrounded', '$webvitals']);
+
 const pending = new Map<string, Map<string, PanelLiveTouch[]>>();
 const lastFlush = new Map<string, number>();
 
 function toTouch(row: PanelEventRow): PanelLiveTouch | null {
-  // Page-bound web events only: not the leave beacon, not server events.
-  if (row.lib === 'server' || row.name === '$pageleave' || row.path === '') return null;
+  // Page-bound events only: not the leave beacon or the app going to the background, not server
+  // events, and not web vitals (sent without the visitor's ids, so they would add a session).
+  if (row.lib === 'server' || LEAVING.has(row.name) || row.path === '') return null;
   return {
     sessionId: row.session_id ?? row.anon_id,
     distinctId: row.distinct_id,

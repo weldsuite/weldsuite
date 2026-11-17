@@ -20,11 +20,13 @@
 
 # PANEL_PROJECT is the PanelProject Durable Object (people, identities, erased ids, live view;
 # EU jurisdiction through projectObjectStub). panel-api binds the same class with script_name.
-# PANEL_IDENTITIES / PANEL_PEOPLE / PANEL_REPLAY_CHUNKS are the streams behind the other Basin
+# PANEL_IDENTITIES / PANEL_PEOPLE / PANEL_GROUPS_STREAM / PANEL_REPLAY_CHUNKS are the streams behind the other Basin
 # tables (packages/domains/panel/src/*-v1-schema.json) and PANEL_REPLAYS the EU recordings bucket.
 # The code treats a missing one as "feature off" (one log warning), so [env.production] leaves
-# these four out until the production resources exist.
-# The *_RATE_LIMIT bindings are Workers rate limiters, per client IP.
+# these out until the production resources exist (and PANEL_GROUPS_STREAM is commented out everywhere
+# until its stream is created).
+# The *_RATE_LIMIT bindings are Workers rate limiters, per client IP (the first X-Forwarded-For hop behind
+# a proxy); EVENTS_PROXY_RATE_LIMIT is the higher ceiling per connecting IP.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-panel-ingest-dev"
@@ -77,6 +79,13 @@ stream = "d434e13caced469396eb843c635575f3"
 binding = "PANEL_PEOPLE"
 stream = "7b6f347299184392a79e29e6c7d9459f"
 
+# panel.groups_v1 (PanelProject writes a row per group profile change). Not created yet: run
+# `node scripts/weldpanel/setup-resources.mjs test`, then uncomment with the printed stream id.
+# Missing = group profiles stay in the object only.
+# [[pipelines]]
+# binding = "PANEL_GROUPS_STREAM"
+# stream = "__PANEL_GROUPS_STREAM_TEST__"
+
 [[pipelines]]
 binding = "PANEL_REPLAY_CHUNKS"
 stream = "8a018cf93e9049b1b35be0c9e49716d8"
@@ -110,6 +119,12 @@ simple = { limit = 600, period = 60 }
 name = "SNAPSHOTS_RATE_LIMIT"
 namespace_id = "7103"
 simple = { limit = 60, period = 60 }
+
+# POST /e per connecting IP when it is not the client (a proxy on the site's own domain): 50 x EVENTS_RATE_LIMIT.
+[[ratelimits]]
+name = "EVENTS_PROXY_RATE_LIMIT"
+namespace_id = "7104"
+simple = { limit = 60000, period = 60 }
 
 # panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
 # Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).
@@ -158,6 +173,11 @@ stream = "d434e13caced469396eb843c635575f3"
 binding = "PANEL_PEOPLE"
 stream = "7b6f347299184392a79e29e6c7d9459f"
 
+# panel.groups_v1: uncomment once `setup-resources.mjs test` has created the stream (see the dev block).
+# [[env.test.pipelines]]
+# binding = "PANEL_GROUPS_STREAM"
+# stream = "__PANEL_GROUPS_STREAM_TEST__"
+
 [[env.test.pipelines]]
 binding = "PANEL_REPLAY_CHUNKS"
 stream = "8a018cf93e9049b1b35be0c9e49716d8"
@@ -191,6 +211,12 @@ simple = { limit = 600, period = 60 }
 name = "SNAPSHOTS_RATE_LIMIT"
 namespace_id = "7203"
 simple = { limit = 60, period = 60 }
+
+# POST /e per connecting IP when it is not the client (a proxy on the site's own domain): 50 x EVENTS_RATE_LIMIT.
+[[env.test.ratelimits]]
+name = "EVENTS_PROXY_RATE_LIMIT"
+namespace_id = "7204"
+simple = { limit = 60000, period = 60 }
 
 # panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
 # Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).
@@ -258,6 +284,12 @@ simple = { limit = 600, period = 60 }
 name = "SNAPSHOTS_RATE_LIMIT"
 namespace_id = "7303"
 simple = { limit = 60, period = 60 }
+
+# POST /e per connecting IP when it is not the client (a proxy on the site's own domain): 50 x EVENTS_RATE_LIMIT.
+[[env.production.ratelimits]]
+name = "EVENTS_PROXY_RATE_LIMIT"
+namespace_id = "7304"
+simple = { limit = 60000, period = 60 }
 
 # panel-api's PanelApiInternal entrypoint: PanelUsage settles counts there (usage, wallet, quota state).
 # Reachable only over a service binding, so no secret. Deploy panel-api first (it exports the entrypoint).

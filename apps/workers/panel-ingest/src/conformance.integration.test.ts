@@ -411,16 +411,21 @@ describe('POST /e', () => {
     expect(stream.sent[3]!.properties).toBe('{"$from":"/pricing"}');
   });
 
-  it('refuses a bad user id, click position or reserved property, and too many people operations', async () => {
+  it('refuses a bad user id, click position or reserved property, and too many people or group operations', async () => {
     const { request, token } = setup();
     const op = { op: 'set', user_id: 'u', ts: new Date().toISOString(), props: {} };
+    const groupOp = { op: 'set', type: 'company', key: 'acme', props: {} };
     const cases: Array<[unknown, string]> = [
       [batch(token, { events: [{ ...event(), user_id: 'a\nb' }] }), 'events.0.user_id: Invalid'],
       [batch(token, { events: [{ ...event(), user_id: '' }] }), 'events.0.user_id: Invalid'],
       [batch(token, { events: [{ ...event(), rel_x: 1.5 }] }), 'events.0.rel_x: Number must be less than or equal to 1'],
       [batch(token, { events: [{ ...event(), error_message: 'e'.repeat(1001) }] }), 'events.0.error_message: String must contain at most 1000 character(s)'],
       [batch(token, { events: [{ ...event(), props: { $action: 'click' } }] }), 'events.0.props.$action: Invalid'],
+      [batch(token, { events: [{ ...event(), props: { $group_Company: 'acme' } }] }), 'events.0.props.$group_Company: Invalid'],
+      [batch(token, { events: [{ ...event(), props: { $initial_utm: 'x' } }] }), 'events.0.props.$initial_utm: Invalid'],
+      [batch(token, { events: [{ ...event(), name: '$app_crashed' }] }), 'events.0.name: Invalid'],
       [{ ...batch(token), people: Array.from({ length: 51 }, () => op) }, 'people: Array must contain at most 50 element(s)'],
+      [{ ...batch(token), groups: Array.from({ length: 51 }, () => groupOp) }, 'groups: Array must contain at most 50 element(s)'],
     ];
     for (const [body, message] of cases) {
       const res = await request('/e', post(body));
@@ -509,6 +514,148 @@ describe('POST /e', () => {
     expect(stream.sent).toHaveLength(1);
   });
 
+  it("takes a mobile event's app, screen and device from its properties, not the URL or user agent", async () => {
+    const { request, token, stream } = setup({ settings: { ...DEFAULT_PANEL_SETTINGS, excludedUrls: ['/Settings*'] } });
+    const url = 'app://com.acme.shop/Product Detail';
+    const props = { $app_id: 'com.acme.shop', $os: 'ios', $device_type: 'tablet', $app_version: '2.1.0' };
+    const res = await request(
+      '/e',
+      post(
+        batch(token, {
+          lib: 'mobile',
+          lib_version: '0.3.0',
+          events: [
+            event({
+              event_id: 'evt-aaaaaaaa',
+              name: '$screen',
+              url,
+              title: 'Not the screen',
+              referrer: 'https://www.google.com/?q=shoes',
+              viewport_w: 820,
+              props: { ...props, $screen_name: ' Product  Detail ' },
+            }),
+            event({ event_id: 'evt-bbbbbbbb', name: '$app_opened', url, props }),
+            event({ event_id: 'evt-cccccccc', name: '$screen', url, props: { ...props, $screen_name: 'Settings Privacy' } }),
+            event({
+              event_id: 'evt-dddddddd',
+              name: 'Added to cart',
+              url,
+              title: 'Cart',
+              props: { $app_id: '.not-an-id', $os: 'Android', $device_type: 'phone', $screen_name: '   ' },
+            }),
+          ],
+        }),
+      ),
+    );
+    expect(res.status).toBe(204);
+
+    expect(stream.sent.map((row) => row.event_id)).toEqual(['evt-aaaaaaaa', 'evt-bbbbbbbb', 'evt-dddddddd']);
+    const placeless = { browser: null, referrer: null, referrer_host: null, utm_source: null, utm_medium: null, lib: 'mobile', lib_version: '0.3.0' };
+    expect(stream.sent[0]).toMatchObject({
+      ...placeless,
+      host: 'com.acme.shop',
+      path: '/Product-Detail',
+      url: 'app://com.acme.shop/Product-Detail',
+      title: 'Product  Detail',
+      os: 'iOS',
+      device_type: 'tablet',
+      viewport_w: 820,
+      properties: JSON.stringify({ ...props, $screen_name: ' Product  Detail ' }),
+    });
+    expect(stream.sent[1]).toMatchObject({
+      ...placeless,
+      host: 'com.acme.shop',
+      path: '/',
+      url: 'app://com.acme.shop/',
+      title: null,
+      os: 'iOS',
+      device_type: 'tablet',
+    });
+    expect(stream.sent[2]).toMatchObject({ ...placeless, host: '', path: '/', url: '', title: 'Cart', os: 'Android', device_type: null });
+  });
+
+  it('accepts group operations and stores first-touch, group and web vitals properties as sent', async () => {
+    const { request, token, stream } = setup();
+    const groups = [
+      { op: 'set', type: 'company', key: 'acme', props: { $name: 'Acme', plan: 'pro' } },
+      { op: 'set_once', type: 'company', key: 'acme', props: { $created: '2026-01-01' } },
+      { op: 'unset', type: 'company', key: 'acme', keys: ['legacy'] },
+      // Not understood: costs only itself.
+      { op: 'set', type: 'Bad Type', key: 'acme', props: {} },
+      { op: 'delete', type: 'company', key: 'acme' },
+    ];
+    const firstTouch = {
+      $group_company: 'acme',
+      $initial_referrer: 'https://www.google.com/',
+      $initial_referring_domain: 'www.google.com',
+      $initial_utm_source: 'newsletter',
+      $initial_landing_path: '/pricing',
+    };
+    const vitals = { $lcp: 1830, $inp: 96, $fcp: 640, $ttfb: 120, $cls: 0.04, $lcp_el: 'main > img.hero', $nav_type: 'navigate' };
+    const events = [
+      event({ event_id: 'evt-aaaaaaaa', props: firstTouch }),
+      event({ event_id: 'evt-bbbbbbbb', name: '$webvitals', props: { ...vitals, $group_company: 'acme' } }),
+    ];
+    for (const consent of [false, true]) {
+      const body = { ...batch(token, { consent, events: events.map((e) => ({ ...e, event_id: `${e.event_id}-${consent}` })) }), groups };
+      expect((await request('/e', post(body))).status).toBe(204);
+    }
+
+    expect(stream.sent.map((row) => [row.event_id, row.name, row.properties])).toEqual([
+      ['evt-aaaaaaaa-false', '$pageview', JSON.stringify(firstTouch)],
+      ['evt-bbbbbbbb-false', '$webvitals', JSON.stringify({ ...vitals, $group_company: 'acme' })],
+      ['evt-aaaaaaaa-true', '$pageview', JSON.stringify(firstTouch)],
+      ['evt-bbbbbbbb-true', '$webvitals', JSON.stringify({ ...vitals, $group_company: 'acme' })],
+    ]);
+  });
+
+  it("takes the visitor's address from the first forwarded hop, and the geo from a proxy's headers", async () => {
+    const { request, token, stream } = setup();
+    const forwarded = { 'X-Forwarded-For': '198.51.100.9, 203.0.113.7' };
+    const cases: Array<[string, Record<string, string>, { country: string | null; region: string | null; city: string | null }]> = [
+      [
+        'evt-aaaaaaaa',
+        { ...forwarded, 'X-WeldPanel-Country': 'de', 'X-WeldPanel-Region': 'Berlin', 'X-WeldPanel-City': 'Berlin%20Mitte' },
+        { country: 'DE', region: 'Berlin', city: 'Berlin Mitte' },
+      ],
+      [
+        'evt-bbbbbbbb',
+        { ...forwarded, 'x-vercel-ip-country': 'br', 'x-vercel-ip-country-region': 'SP', 'x-vercel-ip-city': 'S%C3%A3o%20Paulo' },
+        { country: 'BR', region: 'SP', city: 'São Paulo' },
+      ],
+      // The first-party family wins whenever it names a country, even an unknown one.
+      [
+        'evt-cccccccc',
+        { ...forwarded, 'X-WeldPanel-Country': 'XX', 'X-WeldPanel-City': '100%', 'x-vercel-ip-country': 'NL', 'x-vercel-ip-city': 'Amsterdam' },
+        { country: null, region: null, city: '100%' },
+      ],
+      ['evt-dddddddd', { 'X-WeldPanel-Country': '  ', 'x-vercel-ip-country': 'Netherlands' }, { country: null, region: null, city: null }],
+      ['evt-eeeeeeee', {}, { country: null, region: null, city: null }],
+    ];
+    for (const [eventId, headers] of cases) {
+      expect((await request('/e', post(batch(token, { events: [event({ event_id: eventId })] }), headers))).status).toBe(204);
+    }
+
+    expect(stream.sent.map((row) => [row.event_id, { country: row.country, region: row.region, city: row.city }])).toEqual(
+      cases.map(([eventId, , geo]) => [eventId, geo]),
+    );
+    // The cookieless hash reads the first hop: the same visitor through the proxy, another one without it.
+    const [viaProxy, , , direct] = stream.sent.map((row) => row.anon_id);
+    expect(stream.sent[1]!.anon_id).toBe(viaProxy);
+    expect(direct).not.toBe(viaProxy);
+  });
+
+  it("drops a batch whose first forwarded hop is filtered, whatever the hops after it", async () => {
+    const { request, token, stream } = setup({ settings: { ...DEFAULT_PANEL_SETTINGS, ipFilters: ['198.51.100.0/24'] } });
+    const filtered = await request('/e', post(batch(token), { 'X-Forwarded-For': '198.51.100.9, 203.0.113.7' }));
+    expect(filtered.status).toBe(204);
+    expect(stream.sent).toEqual([]);
+
+    const kept = await request('/e', post(batch(token), { 'X-Forwarded-For': '203.0.113.7, 198.51.100.9' }));
+    expect(kept.status).toBe(204);
+    expect(stream.sent).toHaveLength(1);
+  });
+
   it('refuses what it cannot read', async () => {
     const { request, token } = setup();
     const cases: Array<[RequestInit, number, string, string]> = [
@@ -516,7 +663,7 @@ describe('POST /e', () => {
       [post('x'.repeat(MAX_BATCH_BYTES + 1)), 413, 'payload_too_large', `A batch is at most ${MAX_BATCH_BYTES} bytes`],
       [post('{not json'), 400, 'invalid_body', 'The body is not valid JSON'],
       [post({ ...batch(token), token: 42 }), 400, 'invalid_batch', 'token: Expected string, received number'],
-      [post({ ...batch(token), lib: 'ios' }), 400, 'invalid_batch', "lib: Invalid enum value. Expected 'web' | 'server', received 'ios'"],
+      [post({ ...batch(token), lib: 'ios' }), 400, 'invalid_batch', "lib: Invalid enum value. Expected 'web' | 'server' | 'mobile', received 'ios'"],
       [post({ ...batch(token), events: [] }), 400, 'invalid_batch', 'events: Array must contain at least 1 element(s)'],
       [post([1, 2]), 400, 'invalid_batch', 'Expected object, received array'],
       [post(batch(token, { events: [{ ...event(), url: 'not a url' }] })), 400, 'invalid_batch', 'events.0.url: Invalid url'],

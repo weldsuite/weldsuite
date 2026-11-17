@@ -120,6 +120,13 @@ binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api-dev"
 entrypoint = "BoardsInternal"
 
+# panel-api's PanelApiInternal entrypoint: the weldpanel_* tools read WeldPanel through it
+# (src/api/routes/v1/panel). Reachable only over a service binding, so no secret.
+[[services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api-dev"
+entrypoint = "PanelApiInternal"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"
@@ -188,6 +195,13 @@ service = "helpdesk-workflow-worker-test"
 binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api-test"
 entrypoint = "BoardsInternal"
+
+# panel-api's PanelApiInternal entrypoint: the weldpanel_* tools read WeldPanel through it
+# (src/api/routes/v1/panel). Reachable only over a service binding, so no secret.
+[[env.test.services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api-test"
+entrypoint = "PanelApiInternal"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -276,3 +290,10 @@ service = "helpdesk-workflow-worker"
 binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api"
 entrypoint = "BoardsInternal"
+
+# panel-api's PanelApiInternal entrypoint: the weldpanel_* tools read WeldPanel through it
+# (src/api/routes/v1/panel). Reachable only over a service binding, so no secret.
+[[env.production.services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api"
+entrypoint = "PanelApiInternal"

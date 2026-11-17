@@ -97,6 +97,11 @@ export const weldpanelAnalytics = {
     funnel: 'Funnel',
     retention: 'Retention',
     flows: 'Flow',
+    stickiness: 'Stickiness',
+    lifecycle: 'Lifecycle',
+    vitals: 'Web vitals',
+    impact: 'Impact',
+    signal: 'Signal',
   },
 
   filters: {

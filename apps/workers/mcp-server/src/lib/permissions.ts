@@ -60,6 +60,8 @@ const RESOURCE_ALIASES: Record<string, string> = {
   mail_messages: 'messages',
   mail_drafts: 'messages',
   mail_attachments: 'messages',
+  // WeldPanel's read API (`panel:read`): reports, dashboards, cohorts, the lexicon (pinned routes below for the rest).
+  panel: 'panel_reports',
 };
 
 /**
@@ -102,6 +104,13 @@ const ROUTE_PERMISSIONS: Readonly<Record<string, string>> = {
   'DELETE /v1/reach/suppressions/:id': 'reach_settings:update',
   // Adding to a board, or changing what is on it, edits the board.
   'POST /v1/boards/:id/elements': 'boards:update',
+  // WeldPanel: a query only reads; projects and people have their own read permissions, as in the app.
+  'POST /v1/panel/query': 'panel_reports:read',
+  'GET /v1/panel/projects': 'panel_projects:read',
+  'GET /v1/panel/people': 'panel_people:read',
+  'GET /v1/panel/people/:distinctId': 'panel_people:read',
+  'GET /v1/panel/groups': 'panel_people:read',
+  'GET /v1/panel/groups/:type/:key': 'panel_people:read',
 };
 
 /** The permission a route pins for itself, or undefined when the HTTP verb decides. */

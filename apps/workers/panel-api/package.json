@@ -18,11 +18,14 @@
     "@weldsuite/ai": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/chat-domain": "workspace:*",
+    "@weldsuite/cloudflare-zones": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
     "@weldsuite/panel-domain": "workspace:*",
     "@weldsuite/panel-sdk": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
@@ -34,6 +37,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "typescript": "^5.7",
     "vitest": "^4.1.12",
     "wrangler": "^4.95.0"

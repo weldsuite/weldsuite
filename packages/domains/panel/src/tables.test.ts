@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { PanelIdentityRow, PanelPersonRow, PanelReplayChunkRow } from './tables';
+import { PANEL_TABLES, type PanelGroupRow, type PanelIdentityRow, type PanelPersonRow, type PanelReplayChunkRow } from './tables';
 
 type Schema = { fields: { name: string; type: string; required: boolean }[] };
 
@@ -14,6 +14,9 @@ const IDENTITY_KEYS: Record<keyof PanelIdentityRow, true> = { workspace_id: true
 const PERSON_KEYS: Record<keyof PanelPersonRow, true> = {
   workspace_id: true, project_id: true, user_id: true, version: true, ts: true, properties: true, deleted: true,
 };
+const GROUP_KEYS: Record<keyof PanelGroupRow, true> = {
+  workspace_id: true, project_id: true, group_type: true, group_key: true, version: true, ts: true, properties: true, deleted: true,
+};
 const CHUNK_KEYS: Record<keyof PanelReplayChunkRow, true> = {
   workspace_id: true, project_id: true, session_id: true, seq: true, ts_start: true, ts_end: true,
   bytes: true, has_full_snapshot: true, r2_key: true,
@@ -22,8 +25,15 @@ const CHUNK_KEYS: Record<keyof PanelReplayChunkRow, true> = {
 const TABLES = [
   ['identities_v1', 'identities-v1-schema.json', IDENTITY_KEYS],
   ['people_v1', 'people-v1-schema.json', PERSON_KEYS],
+  ['groups_v1', 'groups-v1-schema.json', GROUP_KEYS],
   ['replay_chunks_v1', 'replay-chunks-v1-schema.json', CHUNK_KEYS],
 ] as const;
+
+describe('PANEL_TABLES', () => {
+  it('names every table that has a stream schema', () => {
+    expect(Object.values(PANEL_TABLES).filter((name) => name !== PANEL_TABLES.events).sort()).toEqual(TABLES.map(([table]) => table).sort());
+  });
+});
 
 describe.each(TABLES)('%s stream schema', (_table, file, keys) => {
   const schema = schemaOf(file);

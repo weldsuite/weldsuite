@@ -252,9 +252,15 @@ modules, each with conformance suites that reach every route:
   salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
   the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
   claimed by the first pod and expiring as the object's alarm deletes it;
-  the client address is the ingress's `X-Forwarded-For` entry, and there is
-  no geo (Cloudflare's `request.cf`), so `country`, `region` and `city` stay
-  null. A project record missing from the cache is read from the master
+  the client address is the first `X-Forwarded-For` hop, as panel-ingest
+  reads it (a site's first-party proxy passes the visitor's there), and the
+  geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City` or
+  Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
+  stay null (Cloudflare's `request.cf` has no equivalent here); there is no
+  per-address rate limit (panel-ingest's Workers rate limiting). Mobile
+  batches (`lib: "mobile"`) take their place and device columns from their
+  `$` properties, and group operations are accepted and ignored like
+  people's. A project record missing from the cache is read from the master
   registry. Nothing reads the events yet: reports, recordings and people
   are later WeldPanel phases, and their store (a consumer of the stream
   into Postgres or a columnar store) comes with them)

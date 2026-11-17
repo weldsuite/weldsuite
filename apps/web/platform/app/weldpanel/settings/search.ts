@@ -1,6 +1,6 @@
 /** The tabs of the module-level settings page and how `?tab=` is read. */
 
-export const SETTINGS_TABS = ['usage'] as const;
+export const SETTINGS_TABS = ['usage', 'exports', 'api'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** Router `validateSearch`: an unknown tab is dropped, which opens the first. */

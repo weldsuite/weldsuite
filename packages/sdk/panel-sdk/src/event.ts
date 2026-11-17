@@ -9,6 +9,7 @@ import { version } from '../package.json';
 import {
   CUSTOM_EVENT_NAME,
   EVENT_PROPERTY_KEY,
+  GROUP_TYPE,
   MAX_ELEMENT_TEXT,
   MAX_ERROR_MESSAGE,
   MAX_ID,
@@ -20,9 +21,11 @@ import {
   PROPERTY_KEY,
   SYSTEM_EVENTS,
   USER_ID,
+  type KeyPattern,
   type Properties,
   type WireElement,
   type WireEvent,
+  type WireGroupOp,
   type WirePeopleOp,
 } from './wire';
 
@@ -117,7 +120,7 @@ export function cleanUserId(id: unknown): string | undefined {
 export function cleanProps(
   props: Record<string, unknown> | null | undefined,
   onDrop?: (key: string, reason: string) => void,
-  keys: RegExp = PROPERTY_KEY,
+  keys: KeyPattern = PROPERTY_KEY,
   numbersOnly = false,
 ): Properties | undefined {
   if (!props || typeof props !== 'object') return undefined;
@@ -177,6 +180,35 @@ export function normalizePeopleOp(input: PeopleOpInput, onDrop?: (key: string, r
   return input.op === 'increment'
     ? { op: 'increment', user_id, ts, props: props as Record<string, number> }
     : { op: input.op, user_id, ts, props };
+}
+
+/** What {@link normalizeGroupOp} takes: a group type and key (a number becomes text), and the change. */
+export type GroupOpInput =
+  | { op: 'set' | 'set_once'; type: string; key: unknown; props?: Record<string, unknown> }
+  | { op: 'unset'; type: string; key: unknown; keys: unknown };
+
+/** A group key the collector accepts: like a user id, 1 to 255 characters. */
+export const cleanGroupKey = cleanUserId;
+
+/**
+ * The group profile operation as the collector will accept it, or null for a
+ * bad type or key or an `unset` with no valid key. A `set` with no valid
+ * property still goes: it creates the group's profile.
+ */
+export function normalizeGroupOp(input: GroupOpInput, onDrop?: (key: string, reason: string) => void): WireGroupOp | null {
+  const key = input && cleanGroupKey(input.key);
+  if (!key || typeof input.type !== 'string' || !GROUP_TYPE.test(input.type)) return null;
+  const type = input.type;
+  if (input.op === 'unset') {
+    const keys = unsetKeys(input.keys, onDrop);
+    return keys.length ? { op: 'unset', type, key, keys } : null;
+  }
+  if (input.op !== 'set' && input.op !== 'set_once') return null;
+  const mapped: Record<string, unknown> = {};
+  if (input.props && typeof input.props === 'object') {
+    for (const k of Object.keys(input.props)) mapped[profileKey(k)] = input.props[k];
+  }
+  return { op: input.op, type, key, props: cleanProps(mapped, onDrop, PROFILE_PROPERTY_KEY) || {} };
 }
 
 /** The URL as sent: at most {@link MAX_STRING} characters, losing the hash, then the query, before cutting. */

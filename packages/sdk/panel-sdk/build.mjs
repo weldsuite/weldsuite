@@ -1,6 +1,7 @@
 // Builds the two scripts the collector serves:
 //   dist/panel.global.js           /s.js    the core
 //   dist/panel-recorder.global.js  /rec.js  the recording plugin, loaded only for recorded sessions
+//   dist/panel-vitals.global.js    /v.js    the web vitals plugin, loaded unless web vitals are off
 // Workspace consumers import src/ directly; only the script tags need bundles.
 
 import { readFileSync } from 'node:fs';
@@ -12,6 +13,8 @@ import { build } from 'esbuild';
 const CORE_MAX_GZIP_BYTES = 10 * 1024;
 /** The recorder is rrweb's record() plus chunking: about 25 KB; fail well before it gets heavy. */
 const RECORDER_MAX_GZIP_BYTES = 80 * 1024;
+/** The web vitals plugin: a few performance observers. */
+const VITALS_MAX_GZIP_BYTES = 3 * 1024;
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -25,6 +28,7 @@ const bundles = [
     max: RECORDER_MAX_GZIP_BYTES,
     banner: ' | includes rrweb (MIT, https://github.com/rrweb-io/rrweb)',
   },
+  { entry: 'src/vitals-global.ts', outfile: 'dist/panel-vitals.global.js', max: VITALS_MAX_GZIP_BYTES, banner: '' },
 ];
 
 let failed = false;

@@ -8,15 +8,17 @@ import { useI18n } from '@/lib/i18n/provider';
 import { AnalyticsPage } from '../components/analytics-page';
 import { ChartCard } from '../components/chart-card';
 import { DateRangePicker } from '../components/date-range-picker';
+import { PanelDefinitionsProvider } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { EventPicker } from '../components/pickers';
 import { ReportActions } from '../components/report-actions';
-import { FlowsResultView } from '../components/results/flows-result';
+import { FlowsResultView, flowsCsvRows } from '../components/results/flows-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
 import { defaultReportName, emptyFlowsDraft, flowsDraftFromSpec, isFlowsReady, type FlowsDraft } from '../lib/builders';
+import { csvFilename } from '../lib/csv';
 import { parseRange, useDateRange } from '../lib/date-range';
 
 const DEPTHS = [1, 2, 3, 4, 5] as const;
@@ -137,6 +139,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
         onRetry={() => void refetch()}
         empty={!ready}
         emptyText={tf.completeHint}
+        csv={data ? () => ({ filename: csvFilename(saved.report?.name ?? tf.title), rows: flowsCsvRows(data.result, tf.left) }) : undefined}
       >
         {data && (
           <div className="grid gap-4">
@@ -154,7 +157,11 @@ export default function FlowsPage() {
   const tf = t.weldpanel.analytics.flows;
   return (
     <AnalyticsPage title={tf.title} description={tf.description}>
-      {(project) => <Builder key={project.id} projectId={project.id} />}
+      {(project) => (
+        <PanelDefinitionsProvider key={project.id} projectId={project.id}>
+          <Builder projectId={project.id} />
+        </PanelDefinitionsProvider>
+      )}
     </AnalyticsPage>
   );
 }

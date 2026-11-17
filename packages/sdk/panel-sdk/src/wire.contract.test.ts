@@ -31,9 +31,14 @@ describe('wire contract', () => {
     expect([...sdk.SYSTEM_EVENTS].sort()).toEqual([...domain.SYSTEM_EVENTS].sort());
     expect(sdk.CUSTOM_EVENT_NAME.source).toBe(domain.CUSTOM_EVENT_NAME.source);
     expect(sdk.PROPERTY_KEY.source).toBe(domain.PROPERTY_KEY.source);
-    expect(sdk.EVENT_PROPERTY_KEY.source).toBe(domain.EVENT_PROPERTY_KEY.source);
+    expect(sdk.PAGE_EVENT_KEY.source).toBe(domain.PAGE_EVENT_KEY.source);
+    expect(sdk.DEVICE_EVENT_KEY.source).toBe(domain.DEVICE_EVENT_KEY.source);
     expect(sdk.PROFILE_PROPERTY_KEY.source).toBe(domain.PROFILE_PROPERTY_KEY.source);
     expect(sdk.USER_ID.source).toBe(domain.USER_ID.source);
+    expect(sdk.MAX_GROUP_OPS_PER_BATCH).toBe(domain.MAX_GROUP_OPS_PER_BATCH);
+    expect(sdk.MAX_GROUP_TYPES).toBe(domain.MAX_GROUP_TYPES);
+    expect(sdk.MAX_GROUP_KEY).toBe(domain.MAX_GROUP_KEY);
+    expect(sdk.GROUP_TYPE.source).toBe(domain.GROUP_TYPE.source);
   });
 
   it('splits device classes where the collector does', () => {
@@ -97,7 +102,8 @@ describe('wire contract', () => {
     const names = ([] as string[]).concat(...sent.map((s) => s.batch.events.map((e) => e.name)));
     for (const name of ['$autocapture', '$rageclick', '$deadclick', '$exception', '$identify', '$quickback']) expect(names).toContain(name);
     expect(sent.map((s) => s.batch.consent)).toEqual([false, true]);
-    expect(sent[1].batch.people).toHaveLength(2);
+    // The first-touch set_once from identify(), then set and increment.
+    expect(sent[1].batch.people).toHaveLength(3);
     for (const s of sent) {
       const parsed = domain.parseEventBatch(s.batch);
       expect(parsed).toMatchObject({ ok: true, dropped: 0, peopleDropped: 0 });

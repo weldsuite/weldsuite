@@ -11,8 +11,9 @@
  * and table.
  *
  * Writers:
- * - `identities_v1` and `people_v1`: the PanelProject Durable Object in
- *   panel-ingest (./project-object), whenever a link or a profile changes.
+ * - `identities_v1`, `people_v1` and `groups_v1`: the PanelProject Durable
+ *   Object in panel-ingest (./project-object), whenever a link, a person or a
+ *   group profile changes.
  * - `replay_chunks_v1`: panel-ingest's `POST /r`, one row per chunk stored in
  *   the EU replays bucket (./replays).
  */
@@ -23,6 +24,7 @@ export const PANEL_TABLES = {
   events: 'events_v1',
   identities: 'identities_v1',
   people: 'people_v1',
+  groups: 'groups_v1',
   replayChunks: 'replay_chunks_v1',
 } as const;
 
@@ -53,6 +55,26 @@ export interface PanelPersonRow {
   deleted: boolean;
 }
 
+/**
+ * `groups_v1`: one row per group profile change (a company, an account), like
+ * `people_v1`. The current profile is the highest `version` per
+ * `(group_type, group_key)`; `deleted` marks a removed group. Events carry the
+ * membership as their `$group_<type>` property.
+ */
+export interface PanelGroupRow {
+  workspace_id: string;
+  project_id: string;
+  /** `company`, `workspace`: the type the SDK's `group(type, key)` names. */
+  group_type: string;
+  group_key: string;
+  /** Increases with every change (the Durable Object's counter, shared with people). */
+  version: number;
+  ts: string;
+  /** The whole profile after the change, JSON object as a string. */
+  properties: string;
+  deleted: boolean;
+}
+
 /** `replay_chunks_v1`: one row per recording chunk stored in R2. */
 export interface PanelReplayChunkRow {
   workspace_id: string;
@@ -73,4 +95,5 @@ export interface PanelReplayChunkRow {
 /** `Pipeline<T>` wants an index-signature type; an interface has none. */
 export type PanelIdentityRecord = { [K in keyof PanelIdentityRow]: PanelIdentityRow[K] };
 export type PanelPersonRecord = { [K in keyof PanelPersonRow]: PanelPersonRow[K] };
+export type PanelGroupRecord = { [K in keyof PanelGroupRow]: PanelGroupRow[K] };
 export type PanelReplayChunkRecord = { [K in keyof PanelReplayChunkRow]: PanelReplayChunkRow[K] };

@@ -21,6 +21,7 @@ import {
 } from '@weldsuite/panel-domain/registry';
 import { isDeviceClass, type DeviceClass } from '@weldsuite/panel-domain/device-class';
 import type { Env } from '../env';
+import { requestAddresses } from '../lib/address';
 import { readBytesLimited } from '../lib/body';
 import { matchesIpFilter } from '../lib/ip-filter';
 import { loadProject } from '../lib/project';
@@ -74,7 +75,8 @@ async function accept(c: BlobContext, token: string): Promise<Response | Accepte
   const project = await loadProject(c.env, token);
   if (!project) return reject(c, 404, 'unknown_project', 'Unknown project token');
 
-  const ip = c.req.header('CF-Connecting-IP') ?? '';
+  // The client IP: the first X-Forwarded-For hop behind a proxy on the site's own domain (lib/address.ts).
+  const ip = requestAddresses(c.req.raw.headers).client;
   const cf = c.req.raw.cf as IncomingRequestCfProperties | undefined;
   const dropped =
     !isAllowedOrigin(c.req.header('Origin') ?? null, project.allowedDomains) ||
@@ -96,7 +98,7 @@ async function accept(c: BlobContext, token: string): Promise<Response | Accepte
 export const recordingRoutes = new Hono<{ Bindings: Env }>();
 
 recordingRoutes.post('/r', async (c) => {
-  if (await rateLimited(c.env.REPLAYS_RATE_LIMIT, c.req.header('CF-Connecting-IP') ?? '')) {
+  if (await rateLimited(c.env.REPLAYS_RATE_LIMIT, requestAddresses(c.req.raw.headers).client)) {
     c.header('Retry-After', '10');
     return reject(c, 429, 'rate_limited', 'Too many requests');
   }
@@ -132,7 +134,7 @@ recordingRoutes.post('/r', async (c) => {
 });
 
 recordingRoutes.post('/snap', async (c) => {
-  if (await rateLimited(c.env.SNAPSHOTS_RATE_LIMIT, c.req.header('CF-Connecting-IP') ?? '')) {
+  if (await rateLimited(c.env.SNAPSHOTS_RATE_LIMIT, requestAddresses(c.req.raw.headers).client)) {
     c.header('Retry-After', '10');
     return reject(c, 429, 'rate_limited', 'Too many requests');
   }

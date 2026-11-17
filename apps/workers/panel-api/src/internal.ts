@@ -10,6 +10,9 @@
  * reaches them.
  *
  *   POST /internal/panel/usage/settle   PanelUsage → counts in, quota state out
+ *   /internal/panel/v1/:workspaceId/*   read API for external-api's `/v1/panel` and the MCP
+ *                                       server (routes/internal-v1: acts for `x-weld-user`
+ *                                       or `x-weld-workspace-key`, read-only)
  */
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
@@ -19,6 +22,7 @@ import { getMasterDb } from '@weldsuite/worker-kit/db';
 import type { Env } from './types';
 import { MONTH, settleUsage } from './services/usage-settlement';
 import { sendUsageNotice } from './services/usage-mail';
+import internalV1Routes from './routes/internal-v1';
 
 const settleSchema = z.object({
   workspaceId: z.string().min(1).max(255),
@@ -46,6 +50,8 @@ internalApp.post('/internal/panel/usage/settle', async (c) => {
   if (!result) return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown workspace' } }, 404);
   return c.json({ month: result.month, events: result.usage.events, recordings: result.usage.recordings, quota: result.quota });
 });
+
+internalApp.route('/internal/panel/v1', internalV1Routes);
 
 internalApp.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: `${c.req.path} not found` } }, 404));
 internalApp.onError((error, c) => {

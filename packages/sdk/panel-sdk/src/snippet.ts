@@ -3,8 +3,11 @@
  *
  *   <script async src="https://pnl.weldsuite.org/s.js" data-project="wpk_…"></script>
  *
- * The token comes from `data-project`, the collector is the script's own
- * origin, and calls queued on the stub (./install.ts) are replayed.
+ * The token comes from `data-project`, the collector is where the script came
+ * from (`https://example.com/wp` for `https://example.com/wp/s.js`, a reverse
+ * proxy), or `data-api-host` when events go somewhere else than the script,
+ * `data-web-vitals="false"` turns web vitals off, and calls queued on the stub
+ * (./install.ts) are replayed.
  */
 
 import type { WeldPanel } from './client';
@@ -33,6 +36,14 @@ const METHODS = [
   'people.set_once',
   'people.unset',
   'people.increment',
+  'register',
+  'registerOnce',
+  'unregister',
+  'group',
+  'resetGroups',
+  'groups.set',
+  'groups.set_once',
+  'groups.unset',
 ];
 
 function method(api: WeldPanel, name: string): Method | undefined {
@@ -70,7 +81,15 @@ export function bootSnippet(current: Element | null): WeldPanel | undefined {
     return undefined;
   }
 
-  const api = init({ token, host: new URL(script.src, location.href).origin, debug: script.hasAttribute('data-debug') });
+  // `…/s.js` behind a path on the site's own domain (`/wp/s.js`, a reverse proxy) keeps the path.
+  const src = new URL(script.src, location.href);
+  const api = init({
+    token,
+    host: src.origin + (/\/s\.js$/.test(src.pathname) ? src.pathname.slice(0, -5) : ''),
+    apiHost: script.getAttribute('data-api-host') || undefined,
+    debug: script.hasAttribute('data-debug'),
+    webVitals: script.getAttribute('data-web-vitals') !== 'false',
+  });
   const target: Stub = existing && typeof existing === 'object' ? existing : {};
   const queue = Array.isArray(target.q) ? target.q : [];
   delete target.q;

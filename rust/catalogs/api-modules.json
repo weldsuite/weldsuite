@@ -657,7 +657,8 @@
     "devPort": 8825,
     "id": "panel",
     "prefixes": [
-      "/api/panel"
+      "/api/panel",
+      "/public/panel"
     ],
     "rust": true,
     "worker": "panel-api"

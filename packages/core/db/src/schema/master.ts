@@ -1514,17 +1514,32 @@ export {
   type FormInvitationLink,
   type FormAbuseReport,
 } from './weldforms-links';
-// WeldPanel: project tokens and secret keys -> workspace and project, and monthly usage.
+// WeldPanel: project tokens and secret keys -> workspace and project, monthly usage,
+// custom collector domains, public share tokens and the alert/report/export schedule.
 export {
   panelProjectRegistry,
   panelKeyRegistry,
   panelUsageMonthly,
+  panelCustomDomains,
+  panelShareRegistry,
+  panelScheduleRegistry,
+  PANEL_DOMAIN_STATUSES,
+  PANEL_SCHEDULE_KINDS,
   type PanelProjectRegistryRow,
   type NewPanelProjectRegistryRow,
   type PanelKey,
   type NewPanelKey,
   type PanelUsageMonth,
   type NewPanelUsageMonth,
+  type PanelCustomDomain,
+  type NewPanelCustomDomain,
+  type PanelDomainStatus,
+  type PanelDomainVerificationRecord,
+  type PanelShareRegistryRow,
+  type NewPanelShareRegistryRow,
+  type PanelScheduleKind,
+  type PanelScheduleRegistryRow,
+  type NewPanelScheduleRegistryRow,
 } from './weldpanel-registry';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
