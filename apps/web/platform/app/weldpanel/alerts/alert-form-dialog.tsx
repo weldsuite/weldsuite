@@ -311,8 +311,11 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                   </FormItem>
                 )}
               />
+              {/* Keyed: without a key React reuses one Controller for both names, and
+                  react-hook-form unregisters the field it leaves, emptying its value. */}
               {values.source === 'report' ? (
                 <FormField
+                  key="reportId"
                   control={form.control}
                   name="reportId"
                   render={({ field }) => {
@@ -354,6 +357,7 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                 />
               ) : (
                 <FormField
+                  key="event"
                   control={form.control}
                   name="event"
                   render={({ field }) => (
