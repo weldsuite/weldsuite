@@ -13,7 +13,7 @@ export const Route = createFileRoute('/welddrive/')({
   validateSearch: (search: Record<string, unknown>): DriveSearch => ({
     folderId: (search.folderId as string) || undefined,
     file: (search.file as string) || undefined,
-    new: search.new == null ? undefined : String(search.new),
+    new: typeof search.new === 'string' || typeof search.new === 'number' ? String(search.new) : undefined,
   }),
   component: DrivePageWrapper,
 });

@@ -35,7 +35,9 @@ export function useCreateIntent(onCreate: () => void, options: CreateIntentOptio
   const { ready = true, kind = '1' } = options;
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const navigate = useNavigate();
-  const wanted = String(search[CREATE_INTENT_PARAM] ?? '') === kind;
+  const raw = search[CREATE_INTENT_PARAM];
+  // The router parses `?new=1` as the number 1.
+  const wanted = (typeof raw === 'string' || typeof raw === 'number') && String(raw) === kind;
   const onCreateRef = useRef(onCreate);
   onCreateRef.current = onCreate;
   // Survives StrictMode's effect replay, so one link starts one flow.
