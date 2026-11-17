@@ -35,25 +35,8 @@ import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
 import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { isModuleOffered } from '@/lib/edition';
-
-/**
- * WeldAgent isn't an installed app (every workspace has it when the edition
- * offers the agent module), but it sits in the rail's app list like one so it
- * can be dragged between the other apps and keeps its slot in the saved order.
- */
-const WELDAGENT_RAIL_CODE = 'weldagent';
-
-/** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
- * hosted at `/apps/{code}`, first-party system apps keep their own `/{code}`
- * top-level route, WeldAgent lives at `/agents`. */
-function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): string {
-  if (appCode === WELDAGENT_RAIL_CODE) return '/agents';
-  if (appType === 'user') return `/apps/${appCode}`;
-  // WeldObjects are first-party UI over user-defined schema, so they get a real
-  // platform route rather than the sandboxed /apps/ iframe host.
-  if (appType === 'object') return `/objects/${appCode}`;
-  return `/${appCode}`;
-}
+import { railAppHref, withAgentRailApp } from '@/lib/apps/rail-apps';
+import { useScrollEdgeFade } from '@/hooks/use-scroll-edge-fade';
 
 // Stable `app-nav-<appCode>` testid for each app's rail icon, keyed by the
 // real branded app code (e.g. welddesk, weldcrm) — NOT legacy aliases. The
@@ -200,24 +183,10 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
   // The installed apps plus WeldAgent (edition flag: needs the agent module),
   // which goes last until the user drags it elsewhere.
   const agentLabel = t.navigation.aiAgents;
-  const railApps = useMemo<InstalledApp[]>(() => {
-    if (!isModuleOffered('agent') || installedApps.some((a) => a.appCode === WELDAGENT_RAIL_CODE)) {
-      return installedApps;
-    }
-    return [
-      ...installedApps,
-      {
-        id: WELDAGENT_RAIL_CODE,
-        workspaceId: '',
-        appCode: WELDAGENT_RAIL_CODE,
-        name: agentLabel,
-        status: 'active',
-        installedAt: '',
-        displayOrder: installedApps.length,
-        appType: 'system',
-      },
-    ];
-  }, [installedApps, agentLabel]);
+  const railApps = useMemo(
+    () => withAgentRailApp(installedApps, { offered: isModuleOffered('agent'), name: agentLabel }),
+    [installedApps, agentLabel],
+  );
 
   // Every app code the user has had in the rail, uninstalled ones included, so
   // a reinstalled app returns to its old slot rather than the bottom.
@@ -236,30 +205,8 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
     setMounted(true);
   }, []);
 
-  // Mark the app list's edges that have apps scrolled out of view, so the CSS
-  // (`.app-rail-scroll` in globals.css) fades them out instead of slicing an
-  // icon in half. Set on the node directly: scrolling must not re-render the
-  // rail. Re-checked on scroll, on resize and when the list's items change.
-  const appsScrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = appsScrollRef.current;
-    if (!el) return;
-    const update = () => {
-      el.toggleAttribute('data-fade-top', el.scrollTop > 1);
-      el.toggleAttribute('data-fade-bottom', el.scrollTop + el.clientHeight < el.scrollHeight - 1);
-    };
-    update();
-    el.addEventListener('scroll', update, { passive: true });
-    const resizeObserver = new ResizeObserver(update);
-    resizeObserver.observe(el);
-    const mutationObserver = new MutationObserver(update);
-    mutationObserver.observe(el, { childList: true, subtree: true });
-    return () => {
-      el.removeEventListener('scroll', update);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-    };
-  }, []);
+  // Fades out the app list's edges that have apps scrolled out of view.
+  const appsScrollRef = useScrollEdgeFade<HTMLDivElement>();
 
   // Update when the rail's apps change (e.g., new app installed), and once when
   // the saved order loads after the first render.
@@ -386,7 +333,7 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
               >
                 {orderedApps.map((app) => {
                   const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} icon={app.icon} appType={app.appType} />;
-                  const appPath = appHref(app.appCode, app.appType);
+                  const appPath = railAppHref(app.appCode, app.appType);
 
                   return (
                     <SortableAppItem
@@ -428,7 +375,7 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
             <>
               {orderedApps.map((app) => {
                 const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} imgSize={56} icon={app.icon} appType={app.appType} />;
-                const appPath = appHref(app.appCode, app.appType);
+                const appPath = railAppHref(app.appCode, app.appType);
 
                 return (
                   <Tooltip key={app.id}>

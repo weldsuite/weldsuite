@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesAppFilters, matchesAppQuery } from './app-search';
+import { matchesAppFilters, matchesAppQuery, userAppMatches } from './app-search';
 
 const crm = ['WeldCRM', 'weldcrm', 'Win more deals with a CRM', 'Sales & Marketing', 'Customers'];
 
@@ -65,5 +65,41 @@ describe('matchesAppFilters', () => {
   it('ignores pills that are still being built', () => {
     expect(matchesAppFilters([{ field: 'category', operator: '', value: '' }], installedCrm)).toBe(true);
     expect(matchesAppFilters([{ field: 'category', operator: 'is', value: '' }], installedCrm)).toBe(true);
+  });
+
+  it('ignores filters on a field the store does not know', () => {
+    expect(matchesAppFilters([{ field: 'publisher', operator: 'is', value: 'weldsuite' }], installedCrm)).toBe(true);
+  });
+});
+
+describe('userAppMatches', () => {
+  const timesheets = {
+    name: 'Timesheets',
+    code: 'timesheets',
+    description: 'Log hours against projects',
+    category: 'Productivity',
+  };
+
+  it('searches the name, code, description and category', () => {
+    expect(userAppMatches(timesheets, 'hours', [])).toBe(true);
+    expect(userAppMatches(timesheets, 'productivity', [])).toBe(true);
+    expect(userAppMatches(timesheets, 'invoices', [])).toBe(false);
+  });
+
+  it('filters on its category group', () => {
+    expect(userAppMatches(timesheets, '', [{ field: 'category', operator: 'is', value: 'Work' }])).toBe(true);
+    expect(userAppMatches(timesheets, '', [{ field: 'category', operator: 'is', value: 'Finance' }])).toBe(false);
+  });
+
+  it('reads the install state from either field the API sends', () => {
+    const installed = [{ field: 'status', operator: 'is', value: 'installed' }];
+    expect(userAppMatches({ ...timesheets, isInstalled: true }, '', installed)).toBe(true);
+    expect(userAppMatches({ ...timesheets, installed: true }, '', installed)).toBe(true);
+    expect(userAppMatches(timesheets, '', installed)).toBe(false);
+  });
+
+  it('copes with an app that has no description or category', () => {
+    const bare = { name: 'Notes', code: 'notes', description: null, category: null };
+    expect(userAppMatches(bare, 'notes', [{ field: 'status', operator: 'is', value: 'not_installed' }])).toBe(true);
   });
 });
