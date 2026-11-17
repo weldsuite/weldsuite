@@ -562,12 +562,12 @@ export function useDeleteChannel() {
       );
       queryClient.removeQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
       // Saved messages from it are gone with it (the server drops them too).
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.bookmarks() });
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.bookmarks() });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       // DMs are chat channels too and the sidebar deletes them through this
       // same mutation — without this the deleted conversation stays on screen
       // until a full refetch.
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
     },
   });
 }

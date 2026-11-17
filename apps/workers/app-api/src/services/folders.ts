@@ -177,7 +177,7 @@ export function trashableContents(
 export async function softDeleteFolder(
   db: Database,
   id: string,
-  contents: FolderTrashContents = { folderIds: [id], fileIds: [] },
+  contents?: FolderTrashContents,
 ) {
   const [existing] = await db
     .select()
@@ -186,8 +186,9 @@ export async function softDeleteFolder(
     .limit(1);
   if (!existing) return null;
   const now = new Date().toISOString();
-  const folderIds = contents.folderIds.includes(id) ? contents.folderIds : [id, ...contents.folderIds];
-  const fileCondition = contents.fileIds.length > 0 ? inArray(files.id, contents.fileIds) : sql`false`;
+  const trash = contents ?? { folderIds: [id], fileIds: [] };
+  const folderIds = trash.folderIds.includes(id) ? trash.folderIds : [id, ...trash.folderIds];
+  const fileCondition = trash.fileIds.length > 0 ? inArray(files.id, trash.fileIds) : sql`false`;
   await db.execute(sql`
     with trashed_files as (
       update ${files} set deleted_at = ${now}::timestamp, updated_at = ${now}::timestamp
