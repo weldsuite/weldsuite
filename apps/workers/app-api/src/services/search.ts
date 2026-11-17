@@ -118,7 +118,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'board',
   'form',
   'sign_envelope',
-  'file',
+  'drive_file',
   'meeting',
   'chat_channel',
   'reach_campaign',
@@ -164,11 +164,40 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * none: WeldDrive opens it in the preview from `?file=<id>`, and a warehouse
  * opens as an object panel on its list page.
  */
+/** Types whose record has a page of its own at `<path>/<id>`. */
+const RECORD_PAGE = {
+  article: '/welddesk/help-center/articles',
+  knowledge_page: '/weldknow/page',
+  invoice: '/weldbooks/invoices',
+  bill: '/weldbooks/bills',
+  project: '/weldflow/project',
+  task: '/weldflow/task',
+  sheet: '/weldsheets',
+  board: '/weldboard',
+  domain: '/weldhost/domains',
+  document: '/welddocs',
+  form: '/weldforms',
+  conversation: '/welddesk/inbox',
+  meeting: '/weldmeet',
+  sign_envelope: '/weldsign',
+  workflow: '/weldconnect/workflows',
+  agent: '/agents',
+  reach_campaign: '/weldreach/campaigns',
+  chat_channel: '/weldchat',
+  data_list: '/welddata/lists',
+  panel_project: '/weldpanel/projects',
+} as const satisfies Partial<Record<SearchEntityType, string>>;
+
+function hasRecordPage(type: SearchEntityType): type is keyof typeof RECORD_PAGE {
+  return type in RECORD_PAGE;
+}
+
 export function buildResultUrl(
   type: SearchEntityType,
   id: string,
   memberApps?: ReadonlySet<string>,
 ): string {
+  if (hasRecordPage(type)) return `${RECORD_PAGE[type]}/${id}`;
   switch (type) {
     case 'contact':
       return `/weldcrm/people?stack=person:${encodeURIComponent(id)}`;
@@ -180,10 +209,6 @@ export function buildResultUrl(
       return `/weldcrm?entity=opportunity:${encodeURIComponent(id)}`;
     case 'ticket':
       return `/welddesk/inbox?entity=ticket:${encodeURIComponent(id)}`;
-    case 'article':
-      return `/welddesk/help-center/articles/${id}`;
-    case 'knowledge_page':
-      return `/weldknow/page/${id}`;
     case 'product': {
       const app =
         memberApps && !memberApps.has('weldcommerce') && memberApps.has('weldstash')
@@ -193,50 +218,14 @@ export function buildResultUrl(
     }
     case 'order':
       return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
-    case 'invoice':
-      return `/weldbooks/invoices/${id}`;
-    case 'bill':
-      return `/weldbooks/bills/${id}`;
-    case 'project':
-      return `/weldflow/project/${id}`;
-    case 'task':
-      return `/weldflow/task/${id}`;
-    case 'sheet':
-      return `/weldsheets/${id}`;
-    case 'board':
-      return `/weldboard/${id}`;
-    case 'domain':
-      return `/weldhost/domains/${id}`;
     case 'merge_issue':
       return `/weldmerge/issues/${encodeURIComponent(id)}`;
     case 'merge_pull_request':
       return `/weldmerge/pull-requests/${encodeURIComponent(id)}`;
-    case 'document':
-      return `/welddocs/${id}`;
-    case 'form':
-      return `/weldforms/${id}`;
-    case 'file':
+    case 'drive_file':
       return `/welddrive?file=${encodeURIComponent(id)}`;
-    case 'conversation':
-      return `/welddesk/inbox/${id}`;
-    case 'meeting':
-      return `/weldmeet/${id}`;
-    case 'sign_envelope':
-      return `/weldsign/${id}`;
     case 'warehouse':
       return `/weldstash/warehouses?stack=warehouse:${encodeURIComponent(id)}`;
-    case 'workflow':
-      return `/weldconnect/workflows/${id}`;
-    case 'agent':
-      return `/agents/${id}`;
-    case 'reach_campaign':
-      return `/weldreach/campaigns/${id}`;
-    case 'chat_channel':
-      return `/weldchat/${id}`;
-    case 'data_list':
-      return `/welddata/lists/${id}`;
-    case 'panel_project':
-      return `/weldpanel/projects/${id}`;
   }
 }
 
@@ -1405,7 +1394,7 @@ export async function searchFiles(
   limit: number,
   caller: SearchCaller,
 ): Promise<SearchResultGroup> {
-  if (!caller.userId) return emptyGroup('file');
+  if (!caller.userId) return emptyGroup('drive_file');
   const { files, docs, sheets, whiteboards } = schema;
   const t = likeTerms(q);
   const nameMatches = and(
@@ -1418,7 +1407,7 @@ export async function searchFiles(
   );
 
   const [candidate] = await db.select({ id: files.id }).from(files).where(nameMatches).limit(1);
-  if (!candidate) return emptyGroup('file');
+  if (!candidate) return emptyGroup('drive_file');
 
   const access = await driveAccessOf(db, caller);
   const score = scoreText(files.fileName, t);
@@ -1428,7 +1417,7 @@ export async function searchFiles(
     .where(and(nameMatches, visibleFilesCondition(access)))
     .orderBy(desc(score), desc(files.updatedAt), desc(files.id))
     .limit(limit + 1);
-  return toGroup('file', rows, limit, (r) => ({ title: r.name || 'File', subtitle: null }));
+  return toGroup('drive_file', rows, limit, (r) => ({ title: r.name || 'File', subtitle: null }));
 }
 
 /**
@@ -1854,7 +1843,7 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'board', permission: 'boards:read', search: (db, ws, q, limit, caller) => searchBoards(db, ws, q, limit, caller.userId) },
   { type: 'form', permission: 'forms:read', search: searchForms },
   { type: 'sign_envelope', permission: 'sign_envelopes:read', search: searchSignEnvelopes },
-  { type: 'file', permission: 'welddrive:files:read', search: searchFiles },
+  { type: 'drive_file', permission: 'welddrive:files:read', search: searchFiles },
   { type: 'meeting', permission: 'weldmeet:meetings:read', search: searchMeetings },
   { type: 'chat_channel', permission: 'weldchat:channels:read', search: searchChatChannels },
   { type: 'reach_campaign', permission: 'reach_campaigns:read', search: searchReachCampaigns },

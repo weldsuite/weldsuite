@@ -69,7 +69,7 @@ describe('buildResultUrl · records outside the CRM', () => {
     // The editor: `/weldforms/:id` redirects there.
     ['form', 'frm_1', '/weldforms/frm_1'],
     // WeldDrive opens a linked file in its preview.
-    ['file', 'fil 1', '/welddrive?file=fil%201'],
+    ['drive_file', 'fil 1', '/welddrive?file=fil%201'],
     ['conversation', 'dcv_1', '/welddesk/inbox/dcv_1'],
     ['meeting', 'mtg_1', '/weldmeet/mtg_1'],
     ['sign_envelope', 'sgn_1', '/weldsign/sgn_1'],

@@ -140,7 +140,7 @@ fn should_understand(q: &str) -> bool {
 fn keyword_type(word: &str) -> Option<SearchType> {
     use SearchType::{
         Agent, Article, Bill, Board, ChatChannel, Contact, Conversation, Customer, DataList,
-        Document, Domain, File, Form, Invoice, KnowledgePage, Lead, Meeting, MergeIssue,
+        Document, Domain, DriveFile, Form, Invoice, KnowledgePage, Lead, Meeting, MergeIssue,
         MergePullRequest, Opportunity, Order, Product, Project, ReachCampaign, Sheet, SignEnvelope,
         Task, Ticket, Warehouse, Workflow,
     };
@@ -164,7 +164,7 @@ fn keyword_type(word: &str) -> Option<SearchType> {
         "board" | "boards" | "whiteboard" | "whiteboards" => Board,
         "document" | "documents" | "doc" | "docs" | "documenten" => Document,
         "form" | "forms" | "formulier" | "formulieren" => Form,
-        "file" | "files" | "bestand" | "bestanden" => File,
+        "file" | "files" | "bestand" | "bestanden" => DriveFile,
         "conversation" | "conversations" | "gesprek" | "gesprekken" => Conversation,
         "meeting" | "meetings" | "vergadering" | "vergaderingen" => Meeting,
         "envelope" | "envelopes" | "envelop" | "enveloppen" => SignEnvelope,
@@ -457,8 +457,12 @@ mod tests {
             ("document Offerte", SearchType::Document, "Offerte"),
             ("documenten van Piet", SearchType::Document, "Piet"),
             ("formulier Verzuim", SearchType::Form, "Verzuim"),
-            ("files about Budget", SearchType::File, "Budget"),
-            ("bestanden Jaarrekening", SearchType::File, "Jaarrekening"),
+            ("files about Budget", SearchType::DriveFile, "Budget"),
+            (
+                "bestanden Jaarrekening",
+                SearchType::DriveFile,
+                "Jaarrekening",
+            ),
             ("gesprek met Jansen", SearchType::Conversation, "Jansen"),
             ("conversations from Acme", SearchType::Conversation, "Acme"),
             ("vergadering Planning", SearchType::Meeting, "Planning"),

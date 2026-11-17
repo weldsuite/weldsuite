@@ -182,7 +182,7 @@ describe('POST /api/search', () => {
     expect(res.data.map((g) => g.type)).toEqual([
       'contact', 'customer', 'lead', 'opportunity', 'ticket', 'conversation', 'article', 'knowledge_page',
       'product', 'order', 'warehouse', 'invoice', 'bill', 'project', 'task', 'merge_issue', 'merge_pull_request',
-      'document', 'sheet', 'board', 'form', 'sign_envelope', 'file', 'meeting', 'chat_channel', 'reach_campaign',
+      'document', 'sheet', 'board', 'form', 'sign_envelope', 'drive_file', 'meeting', 'chat_channel', 'reach_campaign',
       'data_list', 'panel_project', 'workflow', 'agent', 'domain',
     ]);
     const byType = new Map(res.data.map((g) => [g.type, g]));
@@ -276,7 +276,7 @@ describe('POST /api/search · more record types', () => {
     'reach_campaigns:read', 'weldchat:channels:read', 'prospects:read', 'panel_projects:read',
   ];
   const NEW_TYPES = [
-    'document', 'form', 'file', 'conversation', 'meeting', 'sign_envelope', 'warehouse', 'workflow',
+    'document', 'form', 'drive_file', 'conversation', 'meeting', 'sign_envelope', 'warehouse', 'workflow',
     'agent', 'reach_campaign', 'chat_channel', 'data_list', 'panel_project',
   ];
 
@@ -416,12 +416,12 @@ describe('POST /api/search · more record types', () => {
   it('finds a record of every new type and says where it opens', async () => {
     const res = await body(await search({ q: 'zeta', types: NEW_TYPES, limit: 20 }, { keys: ['*'] }));
     expect(res.data.map((g) => g.type)).toEqual([
-      'conversation', 'warehouse', 'document', 'form', 'sign_envelope', 'file', 'meeting', 'chat_channel',
+      'conversation', 'warehouse', 'document', 'form', 'sign_envelope', 'drive_file', 'meeting', 'chat_channel',
       'reach_campaign', 'data_list', 'panel_project', 'workflow', 'agent',
     ]);
     const first = (type: string) => res.data.find((g) => g.type === type)?.items[0];
     expect(first('document')).toMatchObject({ id: 'doc_zopen', title: 'Zeta proposal', subtitle: null, url: '/welddocs/doc_zopen' });
-    expect(first('file')).toMatchObject({ id: 'fil_zfile_open', title: 'Zeta notes.pdf', url: '/welddrive?file=fil_zfile_open' });
+    expect(first('drive_file')).toMatchObject({ id: 'fil_zfile_open', title: 'Zeta notes.pdf', url: '/welddrive?file=fil_zfile_open' });
     expect(first('warehouse')).toMatchObject({
       id: 'whs_zmain', title: 'Zeta Rotterdam', subtitle: 'ZR1', url: '/weldstash/warehouses?stack=warehouse:whs_zmain',
     });
@@ -480,8 +480,8 @@ describe('POST /api/search · more record types', () => {
     expect(await found('document')).toEqual(['doc_zopen']); // not Bob's private, legacy or trashed
     expect(await found('document', { userId: BOB })).toEqual(['doc_zopen', 'doc_zprivate']);
     // Files: Drive uploads only, not the files behind documents, spreadsheets and boards.
-    expect(await found('file')).toEqual(['fil_zfile_open']);
-    expect(await found('file', { userId: BOB })).toEqual(['fil_zfile_open', 'fil_zfile_private']);
+    expect(await found('drive_file')).toEqual(['fil_zfile_open']);
+    expect(await found('drive_file', { userId: BOB })).toEqual(['fil_zfile_open', 'fil_zfile_private']);
   });
 
   it('shows a form to the workspace, its owner and its access list, and to forms:manage', async () => {
@@ -527,8 +527,8 @@ describe('POST /api/search · more record types', () => {
     const one = async (key: string) => (await body(await search({ q: 'zeta' }, { keys: [key] }))).permittedTypes;
     expect(await one('docs:read')).toEqual(['document']);
     expect(await one('forms:read')).toEqual(['form']);
-    expect(await one('welddrive:files:read')).toEqual(['file']);
-    expect(await one('files:read')).toEqual(['file']); // grants stored before the per-app keys
+    expect(await one('welddrive:files:read')).toEqual(['drive_file']);
+    expect(await one('files:read')).toEqual(['drive_file']); // grants stored before the per-app keys
     expect(await one('weldflow:files:read')).toEqual([]); // WeldFlow's files are not WeldDrive's
     expect(await one('conversations:read')).toEqual(['conversation']);
     expect(await one('weldmeet:meetings:read')).toEqual(['meeting']);

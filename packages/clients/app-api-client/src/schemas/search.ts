@@ -25,7 +25,7 @@ export const SEARCH_ENTITY_TYPES = [
   'merge_pull_request',
   'document',
   'form',
-  'file',
+  'drive_file',
   'conversation',
   'meeting',
   'sign_envelope',

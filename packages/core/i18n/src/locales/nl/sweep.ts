@@ -1005,7 +1005,7 @@ export const sweep = {
         "board": "Borden",
         "form": "Formulieren",
         "sign_envelope": "Ondertekenverzoeken",
-        "file": "Bestanden",
+        "drive_file": "Bestanden",
         "meeting": "Vergaderingen",
         "chat_channel": "Kanalen",
         "reach_campaign": "Outreachcampagnes",

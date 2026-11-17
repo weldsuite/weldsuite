@@ -182,7 +182,7 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   // form (WeldForms)
   form: 'form', forms: 'form', formulier: 'form', formulieren: 'form',
   // file (WeldDrive)
-  file: 'file', files: 'file', bestand: 'file', bestanden: 'file',
+  file: 'drive_file', files: 'drive_file', bestand: 'drive_file', bestanden: 'drive_file',
   // conversation (WeldDesk)
   conversation: 'conversation', conversations: 'conversation',
   gesprek: 'conversation', gesprekken: 'conversation',
