@@ -162,8 +162,9 @@ export function SsoSamlConnectionForm({ connection, onSaved, onCancel }: Readonl
     }
     try {
       await save.mutateAsync(input);
-      const refetched = Boolean(connection && input.metadataUrl);
-      toast.success(connection ? (refetched ? copy.metadataRefetched : copy.saved) : copy.samlCreated);
+      let message = copy.samlCreated;
+      if (connection) message = input.metadataUrl ? copy.metadataRefetched : copy.saved;
+      toast.success(message);
       onSaved();
     } catch (err) {
       setError(err);
