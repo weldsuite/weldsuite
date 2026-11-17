@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { ShoppingCart } from 'lucide-react';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useCompanies } from '@/components/objects/company/use-company-data';
@@ -38,6 +39,7 @@ export function OrdersList({
   useObjectPanelUrlSync('/weldcommerce/orders');
 
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateIntent(() => setCreateOpen(true));
   const [editing, setEditing] = useState<CommerceOrder | undefined>();
 
   // Orders carry only `customerId`; resolve names once for the whole list.

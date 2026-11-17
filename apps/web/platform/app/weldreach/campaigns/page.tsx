@@ -4,6 +4,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Megaphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -51,6 +52,7 @@ export default function ReachCampaignsPage() {
 
   const canCreate = can('reach_campaigns:create');
   const canDelete = can('reach_campaigns:delete');
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   const openCampaign = (campaign: ReachCampaign) =>
     router.push(`/weldreach/campaigns/${campaign.id}`);

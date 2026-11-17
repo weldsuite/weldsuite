@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
+import { nl } from '@weldsuite/i18n/locales/nl';
 import { Home } from 'lucide-react';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { isWeldbooksHrefVisible } from '@/lib/weldbooks/jurisdiction-menu';
 import { NO_JURISDICTION_FEATURES, type JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import {
+  CREATE_ACTIONS,
   actionCommands,
+  agentNavigationCommands,
+  createCommands,
   navigationCommandsForApps,
   pagesForModule,
   settingsCommands,
@@ -207,5 +211,112 @@ describe('actionCommands create records', () => {
     }).map((command) => command.id);
     expect(stash).not.toContain('action:create-company');
     expect(stash).not.toContain('action:create-person');
+  });
+});
+
+describe('createCommands', () => {
+  const installed = new Set(['welddocs', 'weldforms', 'weldcrm']);
+  const names: Record<string, string> = { welddocs: 'WeldDocs', weldforms: 'WeldForms', weldcrm: 'WeldCRM', agents: 'AI Agents' };
+  const allowAll = { canSee: () => true, installedCodes: installed, appName: (code: string) => names[code] };
+
+  afterEach(() => setRuntimeConfig(null));
+
+  it('offers a Create action for each installed app, linking to the page that starts it', () => {
+    const commands = createCommands(en, allowAll);
+    const ids = commands.map((command) => command.id);
+    expect(ids).toEqual(expect.arrayContaining(['create:document', 'create:form', 'create:crm-task', 'create:crm-note']));
+    expect(ids).not.toContain('create:sheet');
+    const doc = commands.find((command) => command.id === 'create:document');
+    expect(doc).toMatchObject({ title: 'Create document', subtitle: 'WeldDocs', href: '/welddocs?new=1', group: 'actions' });
+  });
+
+  it('checks the create permission in the app that owns the record', () => {
+    const asked: Array<[string | undefined, string | null | undefined]> = [];
+    const ids = createCommands(en, {
+      installedCodes: installed,
+      canSee: (permission, app) => {
+        asked.push([permission, app]);
+        return app === 'welddocs' && permission === 'docs:create';
+      },
+    }).map((command) => command.id);
+    expect(ids).toEqual(['create:document']);
+    expect(asked).toContainEqual(['forms:create', 'weldforms']);
+  });
+
+  it("shows only the current app's actions before typing, and all of them when typing", () => {
+    const commands = createCommands(en, { ...allowAll, currentApp: 'welddocs' });
+    expect(visibleCommands(commands, '').map((command) => command.id)).toEqual(['create:document']);
+    expect(visibleCommands(commands, 'create').map((command) => command.id)).toEqual(
+      expect.arrayContaining(['create:document', 'create:form', 'create:crm-task']),
+    );
+    expect(visibleCommands(commands, 'nieuw formulier').map((command) => command.id)).toEqual(['create:form']);
+  });
+
+  it('shows Create company before typing on home and in WeldCRM, not in another app', () => {
+    const shown = (currentApp: string | null) =>
+      visibleCommands(actionCommands(en, 'light', { ...allowAll, currentApp }), '').map((command) => command.id);
+    expect(shown(null)).toContain('action:create-company');
+    expect(shown('weldcrm')).toContain('action:create-company');
+    expect(shown('welddocs')).not.toContain('action:create-company');
+  });
+
+  it('drops Create actions whose app this edition does not serve', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'docs'] });
+    const ids = createCommands(en, allowAll).map((command) => command.id);
+    expect(ids).toContain('create:document');
+    expect(ids).not.toContain('create:form');
+  });
+
+  it('offers a WeldAgent agent without an install, when the edition has the module', () => {
+    expect(createCommands(en, allowAll).map((command) => command.id)).toContain('create:agent');
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'docs'] });
+    expect(createCommands(en, allowAll).map((command) => command.id)).not.toContain('create:agent');
+  });
+
+  it('gives every Create action a title in English and Dutch', () => {
+    for (const action of CREATE_ACTIONS) {
+      expect(action.title(en.sweep.shared.commandPalette.create), action.id).toBeTruthy();
+      expect(action.title(nl.sweep.shared.commandPalette.create), action.id).toBeTruthy();
+    }
+  });
+});
+
+describe('pages of modules whose sidebar is built by a hook', () => {
+  it('lists their fixed pages', () => {
+    const hrefs = (code: string) => pagesForModule(code, en).map((p) => p.href);
+    expect(hrefs('weldflow')).toEqual(expect.arrayContaining(['/weldflow', '/weldflow/projects', '/weldflow/workload']));
+    expect(hrefs('weldmail')).toEqual(expect.arrayContaining(['/weldmail/unified/inbox', '/weldmail/unified/sent']));
+    expect(hrefs('weldchat')).toEqual(expect.arrayContaining(['/weldchat/activity', '/weldchat/bookmarks']));
+    expect(hrefs('weldconnect')).toEqual(expect.arrayContaining(['/weldconnect/workflows', '/weldconnect/executions']));
+    expect(hrefs('weldcalendar')).toContain('/weldcalendar/scheduling');
+  });
+
+  it("checks a page's permission in its own app", () => {
+    const commands = navigationCommandsForApps(
+      [{ appCode: 'weldflow', name: 'WeldFlow', appType: 'system' }],
+      (code) => pagesForModule(code, en),
+      () => icon,
+      (permission, app) => !(permission === 'portfolio:read' && app === 'weldflow'),
+    );
+    const hrefs = commands.map((command) => command.href);
+    expect(hrefs).toContain('/weldflow/workload');
+    expect(hrefs).not.toContain('/weldflow/intake');
+  });
+
+  it('lists WeldAgent next to the installed apps', () => {
+    expect(visibleCommands(agentNavigationCommands(en), '').map((command) => command.href)).toEqual(['/agents']);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    expect(agentNavigationCommands(en)).toEqual([]);
+    setRuntimeConfig(null);
+  });
+});
+
+describe('visibleCommands caps', () => {
+  it('lists every matching Create action but caps pages', () => {
+    const many = (group: PaletteCommand['group'], n: number): PaletteCommand[] =>
+      Array.from({ length: n }, (_, i) => ({ id: `${group}:${i}`, title: `Create thing ${i}`, subtitle: '', keywords: '', group, showWhenEmpty: false, icon }));
+    const shown = visibleCommands([...many('actions', 20), ...many('navigation', 20)], 'create');
+    expect(shown.filter((command) => command.group === 'actions')).toHaveLength(20);
+    expect(shown.filter((command) => command.group === 'navigation')).toHaveLength(12);
   });
 });

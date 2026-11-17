@@ -65,6 +65,22 @@ describe('buildResultUrl · records outside the CRM', () => {
     ['task', 'tsk_1', '/weldflow/task/tsk_1'],
     ['sheet', 'sht_1', '/weldsheets/sht_1'],
     ['domain', 'dom_1', '/weldhost/domains/dom_1'],
+    ['document', 'doc_1', '/welddocs/doc_1'],
+    // The editor: `/weldforms/:id` redirects there.
+    ['form', 'frm_1', '/weldforms/frm_1'],
+    // WeldDrive opens a linked file in its preview.
+    ['file', 'fil 1', '/welddrive?file=fil%201'],
+    ['conversation', 'dcv_1', '/welddesk/inbox/dcv_1'],
+    ['meeting', 'mtg_1', '/weldmeet/mtg_1'],
+    ['sign_envelope', 'sgn_1', '/weldsign/sgn_1'],
+    // An object panel on the warehouses list.
+    ['warehouse', 'whs_1', '/weldstash/warehouses?stack=warehouse:whs_1'],
+    ['workflow', 'wfl_1', '/weldconnect/workflows/wfl_1'],
+    ['agent', 'agt_1', '/agents/agt_1'],
+    ['reach_campaign', 'rcmp_1', '/weldreach/campaigns/rcmp_1'],
+    ['chat_channel', 'chn_1', '/weldchat/chn_1'],
+    ['data_list', 'wdl_1', '/welddata/lists/wdl_1'],
+    ['panel_project', 'pnp_1', '/weldpanel/projects/pnp_1'],
   ])('links a %s to where the platform opens it', (type, id, url) => {
     expect(buildResultUrl(type, id)).toBe(url);
   });

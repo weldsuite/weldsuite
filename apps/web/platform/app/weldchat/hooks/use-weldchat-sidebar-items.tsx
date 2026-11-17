@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark, ExternalLink, UserMinus, EyeOff, MoreHorizontal, MessagesSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
@@ -561,6 +562,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 } {
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDm, setShowNewDm] = React.useState(false);
+  useCreateIntent(() => setShowNewChannel(true), { ready: isActive, kind: 'channel' });
+  useCreateIntent(() => setShowNewDm(true), { ready: isActive, kind: 'dm' });
   const [showNewSection, setShowNewSection] = React.useState(false);
   const [pendingSectionId, setPendingSectionId] = React.useState<string | null>(null);
   const [renamingSectionId, setRenamingSectionId] = React.useState<string | null>(null);

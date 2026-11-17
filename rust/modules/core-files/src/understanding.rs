@@ -139,8 +139,10 @@ fn should_understand(q: &str) -> bool {
 /// Entity-type nouns in English and Dutch (`TYPE_KEYWORD_MAP`).
 fn keyword_type(word: &str) -> Option<SearchType> {
     use SearchType::{
-        Article, Bill, Board, Contact, Customer, Domain, Invoice, KnowledgePage, Lead, MergeIssue,
-        MergePullRequest, Opportunity, Order, Product, Project, Sheet, Task, Ticket,
+        Agent, Article, Bill, Board, ChatChannel, Contact, Conversation, Customer, DataList,
+        Document, Domain, File, Form, Invoice, KnowledgePage, Lead, Meeting, MergeIssue,
+        MergePullRequest, Opportunity, Order, Product, Project, ReachCampaign, Sheet, SignEnvelope,
+        Task, Ticket, Warehouse, Workflow,
     };
     Some(match word {
         "contact" | "contacts" | "contactpersoon" | "contactpersonen" | "person" | "people"
@@ -160,6 +162,19 @@ fn keyword_type(word: &str) -> Option<SearchType> {
         "task" | "tasks" | "taak" | "taken" => Task,
         "sheet" | "sheets" | "spreadsheet" | "spreadsheets" | "rekenblad" | "rekenbladen" => Sheet,
         "board" | "boards" | "whiteboard" | "whiteboards" => Board,
+        "document" | "documents" | "doc" | "docs" | "documenten" => Document,
+        "form" | "forms" | "formulier" | "formulieren" => Form,
+        "file" | "files" | "bestand" | "bestanden" => File,
+        "conversation" | "conversations" | "gesprek" | "gesprekken" => Conversation,
+        "meeting" | "meetings" | "vergadering" | "vergaderingen" => Meeting,
+        "envelope" | "envelopes" | "envelop" | "enveloppen" => SignEnvelope,
+        "warehouse" | "warehouses" | "magazijn" | "magazijnen" => Warehouse,
+        "workflow" | "workflows" => Workflow,
+        "agent" | "agents" | "agenten" => Agent,
+        "campaign" | "campaigns" | "campagne" | "campagnes" => ReachCampaign,
+        "channel" | "channels" | "kanaal" | "kanalen" => ChatChannel,
+        // Not "list": that stays a function word ("list my invoices").
+        "lists" | "lijst" | "lijsten" => DataList,
         "issue" | "issues" => MergeIssue,
         "pr" | "prs" | "pullrequest" | "pullrequests" => MergePullRequest,
         "domain" | "domains" | "domein" | "domeinen" => Domain,
@@ -434,6 +449,45 @@ mod tests {
         assert_eq!(understand_query("ann@acme.com is").source, Source::Lexical);
         assert_eq!(understand_query("John Smith").source, Source::Lexical);
         assert_eq!(understand_query("1042").source, Source::Lexical);
+    }
+
+    #[test]
+    fn the_lexicon_knows_the_other_modules_in_both_languages() {
+        for (query, kind, term) in [
+            ("document Offerte", SearchType::Document, "Offerte"),
+            ("documenten van Piet", SearchType::Document, "Piet"),
+            ("formulier Verzuim", SearchType::Form, "Verzuim"),
+            ("files about Budget", SearchType::File, "Budget"),
+            ("bestanden Jaarrekening", SearchType::File, "Jaarrekening"),
+            ("gesprek met Jansen", SearchType::Conversation, "Jansen"),
+            ("conversations from Acme", SearchType::Conversation, "Acme"),
+            ("vergadering Planning", SearchType::Meeting, "Planning"),
+            ("meeting with Acme", SearchType::Meeting, "Acme"),
+            ("envelope NDA", SearchType::SignEnvelope, "NDA"),
+            ("magazijn Rotterdam", SearchType::Warehouse, "Rotterdam"),
+            ("warehouses in Utrecht", SearchType::Warehouse, "Utrecht"),
+            ("workflow Onboarding", SearchType::Workflow, "Onboarding"),
+            ("agent Sales", SearchType::Agent, "Sales"),
+            ("campagne Najaar", SearchType::ReachCampaign, "Najaar"),
+            ("campaign Autumn", SearchType::ReachCampaign, "Autumn"),
+            ("kanaal Algemeen", SearchType::ChatChannel, "Algemeen"),
+            ("channels about Sales", SearchType::ChatChannel, "Sales"),
+            ("lijst Prospects", SearchType::DataList, "Prospects"),
+            ("lists Benelux", SearchType::DataList, "Benelux"),
+        ] {
+            let parsed = understand_query(query);
+            assert_eq!(parsed.source, Source::Lexicon, "{query}");
+            assert_eq!(parsed.entity_types, [kind], "{query}");
+            assert_eq!(parsed.lexical_term, term, "{query}");
+        }
+        // "list" stays a function word, "project" stays WeldFlow's.
+        let parsed = understand_query("list invoices Acme");
+        assert_eq!(parsed.entity_types, [SearchType::Invoice]);
+        assert_eq!(parsed.lexical_term, "Acme");
+        assert_eq!(
+            understand_query("project Acme").entity_types,
+            [SearchType::Project]
+        );
     }
 
     #[test]

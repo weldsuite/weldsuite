@@ -12,10 +12,15 @@
  * core-api → app-api migration. Result-URL mapping is folded in below.
  */
 
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
-import { loadDriveAccessForUser, visibleFilesCondition } from '@weldsuite/core-domain/drive-access';
+import {
+  loadDriveAccessForUser,
+  visibleFilesCondition,
+  type DriveAccessIndex,
+} from '@weldsuite/core-domain/drive-access';
+import { agentVisibleTo } from '@weldsuite/core-domain/agent-access';
 import {
   type SearchEntityType,
   type SearchResultGroup,
@@ -55,10 +60,26 @@ export interface RunSearchParams {
   memberApps?: () => Promise<ReadonlySet<string>>;
   /**
    * Who is searching. Records that are visible per person rather than per
-   * workspace (spreadsheets follow WeldDrive sharing) are filtered by it; with
-   * no user (null or omitted) those types return nothing.
+   * workspace (Drive files follow WeldDrive sharing, forms, meetings, signature
+   * requests, channels and agents their own rules) are filtered by it; with no
+   * user (null or omitted) those types return nothing. Scope grants are read
+   * through `perms`.
    */
   userId?: string | null;
+}
+
+/**
+ * Who is searching, for the record types whose visibility is per person:
+ * the user (null: no one, so those types return nothing) and a permission
+ * check against the same any-app subject that gates the types themselves.
+ * Scope grants (`weldmeet:meetings:scope:all`, `forms:manage`, ...) read
+ * through `can`.
+ */
+export interface SearchCaller {
+  userId: string | null;
+  can: (permission: string) => boolean;
+  /** The caller's WeldDrive access, loaded once for every Drive-backed type of one search. */
+  driveAccess?: () => Promise<DriveAccessIndex>;
 }
 
 interface EntityRegistration {
@@ -69,8 +90,7 @@ interface EntityRegistration {
     workspaceId: string,
     q: string,
     limit: number,
-    /** The person searching, or null (see `RunSearchParams.userId`). */
-    userId: string | null,
+    caller: SearchCaller,
   ) => Promise<SearchResultGroup>;
 }
 
@@ -81,18 +101,31 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'lead',
   'opportunity',
   'ticket',
+  'conversation',
   'article',
   'knowledge_page',
   'product',
   'order',
+  'warehouse',
   'invoice',
   'bill',
   'project',
   'task',
   'merge_issue',
   'merge_pull_request',
+  'document',
   'sheet',
   'board',
+  'form',
+  'sign_envelope',
+  'file',
+  'meeting',
+  'chat_channel',
+  'reach_campaign',
+  'data_list',
+  'panel_project',
+  'workflow',
+  'agent',
   'domain',
 ];
 
@@ -124,7 +157,12 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * `memberApps` shows the member can only open WeldStash (WeldCommerce would
  * show them its "not installed" screen). Only WeldCommerce has an orders list.
  *
- * Spreadsheets have a page of their own: `/weldsheets/:id`.
+ * Spreadsheets have a page of their own: `/weldsheets/:id`. So do documents
+ * (`/welddocs/:id`), forms (`/weldforms/:id`, which opens the editor), desk
+ * conversations, meetings, signature requests, workflows, agents, outreach
+ * campaigns, chat channels, data lists and tracked projects. A Drive file has
+ * none: WeldDrive opens it in the preview from `?file=<id>`, and a warehouse
+ * opens as an object panel on its list page.
  */
 export function buildResultUrl(
   type: SearchEntityType,
@@ -173,6 +211,32 @@ export function buildResultUrl(
       return `/weldmerge/issues/${encodeURIComponent(id)}`;
     case 'merge_pull_request':
       return `/weldmerge/pull-requests/${encodeURIComponent(id)}`;
+    case 'document':
+      return `/welddocs/${id}`;
+    case 'form':
+      return `/weldforms/${id}`;
+    case 'file':
+      return `/welddrive?file=${encodeURIComponent(id)}`;
+    case 'conversation':
+      return `/welddesk/inbox/${id}`;
+    case 'meeting':
+      return `/weldmeet/${id}`;
+    case 'sign_envelope':
+      return `/weldsign/${id}`;
+    case 'warehouse':
+      return `/weldstash/warehouses?stack=warehouse:${encodeURIComponent(id)}`;
+    case 'workflow':
+      return `/weldconnect/workflows/${id}`;
+    case 'agent':
+      return `/agents/${id}`;
+    case 'reach_campaign':
+      return `/weldreach/campaigns/${id}`;
+    case 'chat_channel':
+      return `/weldchat/${id}`;
+    case 'data_list':
+      return `/welddata/lists/${id}`;
+    case 'panel_project':
+      return `/weldpanel/projects/${id}`;
   }
 }
 
@@ -1220,27 +1284,584 @@ export async function searchBoards(
 }
 
 // ============================================================================
+// Records visible per person, and the rest of the modules' lists
+// ============================================================================
+//
+// Every function below copies the module's own list rule, so a search never
+// shows what that module's list would hide (the file and line are named on
+// each). The term is matched escaped, so a typed `_` or `%` matches itself.
+
+/** The lower-cased term and its LIKE patterns, escaped. */
+interface LikeTerms {
+  lower: string;
+  startsWith: string;
+  contains: string;
+}
+
+function likeTerms(q: string): LikeTerms {
+  const lower = q.toLowerCase();
+  const escaped = escapeLike(lower);
+  return { lower, startsWith: `${escaped}%`, contains: `%${escaped}%` };
+}
+
+/** 1.0 exact, 0.9 prefix, 0.6 substring (an e-mail column: 1.0 / 0.7 / 0.3). */
+function scoreText(col: unknown, t: LikeTerms, weights: [number, number, number] = [1, 0.9, 0.6]) {
+  return sql<number>`CASE
+    WHEN lower(${col}) = ${t.lower} THEN ${sql.raw(weights[0].toFixed(1))}
+    WHEN lower(${col}) LIKE ${t.startsWith} THEN ${sql.raw(weights[1].toFixed(1))}
+    WHEN lower(${col}) LIKE ${t.contains} THEN ${sql.raw(weights[2].toFixed(1))}
+    ELSE 0
+  END`;
+}
+
+const matchesText = (col: unknown, t: LikeTerms) => sql`lower(${col}) LIKE ${t.contains}`;
+
+const emptyGroup = (type: SearchEntityType): SearchResultGroup => ({ type, items: [], totalCount: 0, hasMore: false });
+
+const toScore = (score: unknown): number | null => (typeof score === 'number' ? score : Number(score) || null);
+
+/** `limit + 1` rows become a group: `hasMore` is the extra row. */
+function toGroup<R extends { id: string; score: unknown }>(
+  type: SearchEntityType,
+  rows: R[],
+  limit: number,
+  describe: (row: R) => { title: string; subtitle: string | null },
+): SearchResultGroup {
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type,
+    ...describe(r),
+    url: buildResultUrl(type, r.id),
+    score: toScore(r.score),
+  }));
+  return { type, items, totalCount: items.length, hasMore: rows.length > limit };
+}
+
+const excerpt = (text: string | null | undefined): string | null => (text ? text.slice(0, 80) : null);
+
+/** The caller's WeldDrive access, once per search however many Drive types ask. */
+function driveAccessOf(db: Database, caller: SearchCaller): Promise<DriveAccessIndex> {
+  return caller.driveAccess ? caller.driveAccess() : loadDriveAccessForUser(db, caller.userId);
+}
+
+/**
+ * WeldDocs documents, matched on the name of their WeldDrive file, the same
+ * way as spreadsheets (`searchSheets`). Mirrors `listDocs` in docs-api
+ * (services/docs.ts: a checkpoint in R2, `snapshotKey`, marks a WeldDocs
+ * document, and the file is not in the trash); a document of a module record
+ * stays out, as for spreadsheets. Narrowed to what the caller may see in
+ * WeldDrive; without a user nothing is returned.
+ */
+export async function searchDocuments(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  if (!caller.userId) return emptyGroup('document');
+  const { docs, files } = schema;
+  const t = likeTerms(q);
+  const nameMatches = and(
+    isNotNull(docs.snapshotKey),
+    isNull(files.deletedAt),
+    isNull(files.entityType),
+    matchesText(files.fileName, t),
+  );
+
+  // Most keystrokes match no document: skip the drive's folder tree until one does.
+  const [candidate] = await db
+    .select({ id: docs.id })
+    .from(docs)
+    .innerJoin(files, eq(files.id, docs.fileId))
+    .where(nameMatches)
+    .limit(1);
+  if (!candidate) return emptyGroup('document');
+
+  const access = await driveAccessOf(db, caller);
+  const score = scoreText(files.fileName, t);
+  const changedAt = sql`greatest(${docs.updatedAt}, ${files.updatedAt})`;
+  const rows = await db
+    .select({ id: docs.id, name: files.fileName, score })
+    .from(docs)
+    .innerJoin(files, eq(files.id, docs.fileId))
+    .where(and(nameMatches, visibleFilesCondition(access)))
+    .orderBy(desc(score), desc(changedAt), desc(docs.id))
+    .limit(limit + 1);
+  return toGroup('document', rows, limit, (r) => ({ title: r.name || 'Document', subtitle: null }));
+}
+
+/**
+ * WeldDrive files, matched on their name. Mirrors `/api/files` in app-api
+ * (routes/files/index.ts): files not in the trash, narrowed to what the caller
+ * may see. A file of a module record (`entityType`) is not a Drive upload, and
+ * the files behind documents, spreadsheets and boards are found as those types.
+ * Without a user nothing is returned.
+ */
+export async function searchFiles(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  if (!caller.userId) return emptyGroup('file');
+  const { files, docs, sheets, whiteboards } = schema;
+  const t = likeTerms(q);
+  const nameMatches = and(
+    isNull(files.deletedAt),
+    isNull(files.entityType),
+    matchesText(files.fileName, t),
+    sql`NOT EXISTS (SELECT 1 FROM ${docs} WHERE ${docs.fileId} = ${files.id})`,
+    sql`NOT EXISTS (SELECT 1 FROM ${sheets} WHERE ${sheets.fileId} = ${files.id})`,
+    sql`NOT EXISTS (SELECT 1 FROM ${whiteboards} WHERE ${whiteboards.fileId} = ${files.id})`,
+  );
+
+  const [candidate] = await db.select({ id: files.id }).from(files).where(nameMatches).limit(1);
+  if (!candidate) return emptyGroup('file');
+
+  const access = await driveAccessOf(db, caller);
+  const score = scoreText(files.fileName, t);
+  const rows = await db
+    .select({ id: files.id, name: files.fileName, score })
+    .from(files)
+    .where(and(nameMatches, visibleFilesCondition(access)))
+    .orderBy(desc(score), desc(files.updatedAt), desc(files.id))
+    .limit(limit + 1);
+  return toGroup('file', rows, limit, (r) => ({ title: r.name || 'File', subtitle: null }));
+}
+
+/**
+ * WeldForms forms by title. Mirrors `listForms` in forms-api
+ * (services/forms.ts `visibleTo`): `forms:manage` sees every form; anyone else
+ * the forms open to the workspace, their own, and those they are on the access
+ * list of.
+ */
+export async function searchForms(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  const { userId } = caller;
+  if (!userId) return emptyGroup('form');
+  const { forms, formAccess } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(forms.title, t);
+  const visible = caller.can('forms:manage')
+    ? undefined
+    : or(
+        eq(forms.access, 'workspace'),
+        eq(forms.ownerUserId, userId),
+        sql`${forms.id} IN (SELECT ${formAccess.formId} FROM ${formAccess} WHERE ${formAccess.userId} = ${userId})`,
+      );
+  const rows = await db
+    .select({ id: forms.id, title: forms.title, status: forms.status, score })
+    .from(forms)
+    .where(and(matchesText(forms.title, t), visible))
+    .orderBy(desc(score), desc(forms.updatedAt), desc(forms.id))
+    .limit(limit + 1);
+  return toGroup('form', rows, limit, (r) => ({ title: r.title || 'Form', subtitle: r.status || null }));
+}
+
+/**
+ * WeldDesk conversations by title, customer name, e-mail or number (`#42`).
+ * Mirrors `listDeskConversations` (packages/core/db/src/lib/desk.ts), which
+ * the desk inbox lists through desk-api: every conversation, for anyone who
+ * may read conversations.
+ */
+export async function searchConversations(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { deskConversations: c } = schema;
+  const t = likeTerms(q);
+  const reference = /^#?(\d{1,9})$/.exec(q.trim());
+  const number = reference ? Number(reference[1]) : null;
+  const score = sql<number>`GREATEST(
+    ${scoreText(c.title, t)},
+    ${scoreText(c.name, t)},
+    ${scoreText(c.email, t, [1, 0.7, 0.3])},
+    ${number === null ? sql`0` : sql`CASE WHEN ${c.conversationNumber} = ${number} THEN 1.0 ELSE 0 END`}
+  )`;
+  const rows = await db
+    .select({
+      id: c.id,
+      title: c.title,
+      name: c.name,
+      email: c.email,
+      conversationNumber: c.conversationNumber,
+      score,
+    })
+    .from(c)
+    .where(
+      or(
+        matchesText(c.title, t),
+        matchesText(c.name, t),
+        matchesText(c.email, t),
+        number === null ? undefined : eq(c.conversationNumber, number),
+      ),
+    )
+    .orderBy(desc(score), desc(c.updatedAt), desc(c.id))
+    .limit(limit + 1);
+  return toGroup('conversation', rows, limit, (r) => ({
+    title: r.title || r.name || r.email || `Conversation #${r.conversationNumber}`,
+    subtitle: withSuffix(`#${r.conversationNumber}`, r.name || r.email),
+  }));
+}
+
+/**
+ * WeldMeet meetings by title. Mirrors `GET /api/meetings` in meet-api
+ * (routes/meetings/index.ts `scopeFor`): the organiser's own meetings, unless
+ * the caller holds `meetings:scope:all`.
+ */
+export async function searchMeetings(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  const { userId } = caller;
+  const all = caller.can('weldmeet:meetings:scope:all');
+  if (!userId && !all) return emptyGroup('meeting');
+  const { meetings } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(meetings.title, t);
+  const rows = await db
+    .select({ id: meetings.id, title: meetings.title, status: meetings.status, score })
+    .from(meetings)
+    .where(
+      and(
+        isNull(meetings.deletedAt),
+        matchesText(meetings.title, t),
+        all || !userId ? undefined : eq(meetings.organizerId, userId),
+      ),
+    )
+    .orderBy(desc(score), desc(meetings.updatedAt), desc(meetings.id))
+    .limit(limit + 1);
+  return toGroup('meeting', rows, limit, (r) => ({ title: r.title || 'Meeting', subtitle: r.status || null }));
+}
+
+/**
+ * WeldSign signature requests by title. Mirrors `listEnvelopes` in
+ * `@weldsuite/sign-domain` (envelopes.ts `visibleTo`): `sign_envelopes:manage`
+ * sees every request; anyone else their own, and sent requests with a
+ * recipient at their e-mail address (the one their member row holds).
+ */
+export async function searchSignEnvelopes(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  const { userId } = caller;
+  const manageAll = caller.can('sign_envelopes:manage');
+  if (!userId && !manageAll) return emptyGroup('sign_envelope');
+  const { signEnvelopes, signRecipients, workspaceMembers } = schema;
+
+  let visible: SQL | undefined;
+  if (!manageAll && userId) {
+    const [member] = await db
+      .select({ email: workspaceMembers.email })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
+      .limit(1);
+    const email = member?.email?.toLowerCase() ?? null;
+    const own = eq(signEnvelopes.senderUserId, userId);
+    visible = email
+      ? or(
+          own,
+          and(
+            ne(signEnvelopes.status, 'draft'),
+            sql`${signEnvelopes.id} IN (SELECT ${signRecipients.envelopeId} FROM ${signRecipients} WHERE ${signRecipients.email} = ${email})`,
+          ),
+        )
+      : own;
+  }
+
+  const t = likeTerms(q);
+  const score = scoreText(signEnvelopes.title, t);
+  const rows = await db
+    .select({ id: signEnvelopes.id, title: signEnvelopes.title, status: signEnvelopes.status, score })
+    .from(signEnvelopes)
+    .where(
+      and(
+        eq(signEnvelopes.kind, 'envelope'),
+        isNull(signEnvelopes.deletedAt),
+        matchesText(signEnvelopes.title, t),
+        visible,
+      ),
+    )
+    .orderBy(desc(score), desc(signEnvelopes.updatedAt), desc(signEnvelopes.id))
+    .limit(limit + 1);
+  return toGroup('sign_envelope', rows, limit, (r) => ({
+    title: r.title || 'Signature request',
+    subtitle: r.status || null,
+  }));
+}
+
+/**
+ * WeldStash warehouses by name or code. Mirrors `GET /api/warehouses` in
+ * stash-api (routes/warehouses/index.ts): not deleted, the same for everyone
+ * who may read warehouses.
+ */
+export async function searchWarehouses(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { warehouses } = schema;
+  const t = likeTerms(q);
+  const score = sql<number>`GREATEST(${scoreText(warehouses.name, t)}, ${scoreText(warehouses.code, t)})`;
+  const rows = await db
+    .select({ id: warehouses.id, name: warehouses.name, code: warehouses.code, city: warehouses.city, score })
+    .from(warehouses)
+    .where(and(isNull(warehouses.deletedAt), or(matchesText(warehouses.name, t), matchesText(warehouses.code, t))))
+    .orderBy(desc(score), desc(warehouses.updatedAt), desc(warehouses.id))
+    .limit(limit + 1);
+  return toGroup('warehouse', rows, limit, (r) => ({
+    title: r.name || 'Warehouse',
+    subtitle: r.code || r.city || null,
+  }));
+}
+
+/**
+ * WeldConnect workflows by name. Mirrors `listWorkflows` in connect-api
+ * (services/workflows.ts): not deleted, and not a CRM sequence (a workflow
+ * tagged `__type:sequence`, which WeldConnect's list leaves out).
+ */
+export async function searchWorkflows(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { workflows } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(workflows.name, t);
+  const rows = await db
+    .select({ id: workflows.id, name: workflows.name, status: workflows.status, score })
+    .from(workflows)
+    .where(
+      and(
+        isNull(workflows.deletedAt),
+        matchesText(workflows.name, t),
+        sql`not (coalesce(${workflows.tags}, '[]'::jsonb) ? '__type:sequence')`,
+      ),
+    )
+    .orderBy(desc(score), desc(workflows.updatedAt), desc(workflows.id))
+    .limit(limit + 1);
+  return toGroup('workflow', rows, limit, (r) => ({ title: r.name || 'Workflow', subtitle: r.status || null }));
+}
+
+/**
+ * WeldAgent workspace agents by name. Mirrors `listAgents` in
+ * `@weldsuite/agent-domain` (agents.ts): not deleted, and the agents the
+ * caller may see (`agentVisibleTo`: the owner's, workspace-wide ones, the
+ * ones they are a listed member of, everything for `weldagent:manage`).
+ */
+export async function searchAgents(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  const { userId } = caller;
+  const canManageAll = caller.can('weldagent:manage');
+  if (!userId && !canManageAll) return emptyGroup('agent');
+  const { weldagentAgents: a } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(a.name, t);
+  const rows = await db
+    .select({ id: a.id, name: a.name, description: a.description, score })
+    .from(a)
+    .where(
+      and(
+        isNull(a.deletedAt),
+        matchesText(a.name, t),
+        agentVisibleTo({ userId: userId ?? '', canManageAll }),
+      ),
+    )
+    .orderBy(desc(score), desc(a.updatedAt), desc(a.id))
+    .limit(limit + 1);
+  return toGroup('agent', rows, limit, (r) => ({ title: r.name || 'Agent', subtitle: excerpt(r.description) }));
+}
+
+/**
+ * WeldReach campaigns by name. Mirrors `listCampaigns` in
+ * `@weldsuite/reach-domain` (campaigns.ts): not deleted. (reach-api also
+ * refuses a workspace whose WeldReach access staff have not approved; that
+ * lives in the master database and is not read here.)
+ */
+export async function searchReachCampaigns(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { reachCampaigns } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(reachCampaigns.name, t);
+  const rows = await db
+    .select({ id: reachCampaigns.id, name: reachCampaigns.name, status: reachCampaigns.status, score })
+    .from(reachCampaigns)
+    .where(and(isNull(reachCampaigns.deletedAt), matchesText(reachCampaigns.name, t)))
+    .orderBy(desc(score), desc(reachCampaigns.updatedAt), desc(reachCampaigns.id))
+    .limit(limit + 1);
+  return toGroup('reach_campaign', rows, limit, (r) => ({
+    title: r.name || 'Campaign',
+    subtitle: r.status || null,
+  }));
+}
+
+/**
+ * WeldChat channels by name. Mirrors `GET /api/channels` in chat-api
+ * (routes/channels/index.ts): public channels, and the ones the caller has
+ * joined. Direct messages and record (entity) channels are not channels here:
+ * their names are the people's and the record's.
+ */
+export async function searchChatChannels(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  caller: SearchCaller,
+): Promise<SearchResultGroup> {
+  const { userId } = caller;
+  if (!userId) return emptyGroup('chat_channel');
+  const { chatChannels, chatChannelMembers } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(chatChannels.name, t);
+  const rows = await db
+    .select({
+      id: chatChannels.id,
+      name: chatChannels.name,
+      topic: chatChannels.topic,
+      description: chatChannels.description,
+      score,
+    })
+    .from(chatChannels)
+    .where(
+      and(
+        isNull(chatChannels.deletedAt),
+        matchesText(chatChannels.name, t),
+        or(
+          eq(chatChannels.type, 'public'),
+          and(
+            eq(chatChannels.type, 'private'),
+            sql`EXISTS (SELECT 1 FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${chatChannels.id} AND ${chatChannelMembers.userId} = ${userId})`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(score), desc(chatChannels.updatedAt), desc(chatChannels.id))
+    .limit(limit + 1);
+  return toGroup('chat_channel', rows, limit, (r) => ({
+    title: r.name || 'Channel',
+    subtitle: excerpt(r.topic || r.description),
+  }));
+}
+
+/**
+ * WeldData lists by name. Mirrors `listLists` in data-api
+ * (services/welddata.ts): not deleted, the same for everyone who may read
+ * prospects.
+ */
+export async function searchDataLists(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { welddataLists } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(welddataLists.name, t);
+  const rows = await db
+    .select({ id: welddataLists.id, name: welddataLists.name, description: welddataLists.description, score })
+    .from(welddataLists)
+    .where(and(isNull(welddataLists.deletedAt), matchesText(welddataLists.name, t)))
+    .orderBy(desc(score), desc(welddataLists.updatedAt), desc(welddataLists.id))
+    .limit(limit + 1);
+  return toGroup('data_list', rows, limit, (r) => ({ title: r.name || 'List', subtitle: excerpt(r.description) }));
+}
+
+/**
+ * WeldPanel tracked projects by name. Mirrors `listProjects` in panel-api
+ * (services/projects.ts): not deleted, the same for everyone who may read
+ * them.
+ */
+export async function searchPanelProjects(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { panelProjects } = schema;
+  const t = likeTerms(q);
+  const score = scoreText(panelProjects.name, t);
+  const rows = await db
+    .select({
+      id: panelProjects.id,
+      name: panelProjects.name,
+      kind: panelProjects.kind,
+      status: panelProjects.status,
+      score,
+    })
+    .from(panelProjects)
+    .where(and(isNull(panelProjects.deletedAt), matchesText(panelProjects.name, t)))
+    .orderBy(desc(score), desc(panelProjects.updatedAt), desc(panelProjects.id))
+    .limit(limit + 1);
+  return toGroup('panel_project', rows, limit, (r) => ({
+    title: r.name || 'Project',
+    subtitle: withSuffix(r.kind, r.status),
+  }));
+}
+
+// ============================================================================
 // Registry + Orchestrator
 // ============================================================================
 
+// In `CANONICAL_ORDER`, which is also the order of `permittedTypes`. A key names
+// the app where the object is shared between several (`files`, `workflows`,
+// `channels`, `meetings`), as the module's own routes are checked in that app.
 const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'contact', permission: 'contacts:read', search: searchContacts },
   { type: 'customer', permission: 'contacts:read', search: searchCustomers },
   { type: 'lead', permission: 'leads:read', search: searchLeads },
   { type: 'opportunity', permission: 'opportunities:read', search: searchOpportunities },
   { type: 'ticket', permission: 'tickets:read', search: searchTickets },
+  { type: 'conversation', permission: 'conversations:read', search: searchConversations },
   { type: 'article', permission: 'articles:read', search: searchArticles },
   { type: 'knowledge_page', permission: 'knowledge:read', search: searchKnowledgePages },
   { type: 'product', permission: 'products:read', search: searchProducts },
   { type: 'order', permission: 'orders:read', search: searchOrders },
+  { type: 'warehouse', permission: 'warehouses:read', search: searchWarehouses },
   { type: 'invoice', permission: 'invoices:read', search: searchInvoices },
   { type: 'bill', permission: 'bills:read', search: searchBills },
   { type: 'project', permission: 'projects:read', search: searchProjects },
   { type: 'task', permission: 'tasks:read', search: searchTasks },
   { type: 'merge_issue', permission: 'merge_issues:read', search: searchMergeIssues },
   { type: 'merge_pull_request', permission: 'merge_pull_requests:read', search: searchMergePullRequests },
-  { type: 'sheet', permission: 'sheets:read', search: searchSheets },
-  { type: 'board', permission: 'boards:read', search: searchBoards },
+  { type: 'document', permission: 'docs:read', search: searchDocuments },
+  { type: 'sheet', permission: 'sheets:read', search: (db, ws, q, limit, caller) => searchSheets(db, ws, q, limit, caller.userId) },
+  { type: 'board', permission: 'boards:read', search: (db, ws, q, limit, caller) => searchBoards(db, ws, q, limit, caller.userId) },
+  { type: 'form', permission: 'forms:read', search: searchForms },
+  { type: 'sign_envelope', permission: 'sign_envelopes:read', search: searchSignEnvelopes },
+  { type: 'file', permission: 'welddrive:files:read', search: searchFiles },
+  { type: 'meeting', permission: 'weldmeet:meetings:read', search: searchMeetings },
+  { type: 'chat_channel', permission: 'weldchat:channels:read', search: searchChatChannels },
+  { type: 'reach_campaign', permission: 'reach_campaigns:read', search: searchReachCampaigns },
+  { type: 'data_list', permission: 'prospects:read', search: searchDataLists },
+  { type: 'panel_project', permission: 'panel_projects:read', search: searchPanelProjects },
+  { type: 'workflow', permission: 'weldconnect:workflows:read', search: searchWorkflows },
+  { type: 'agent', permission: 'weldagent:read', search: searchAgents },
   { type: 'domain', permission: 'domains:read', search: searchDomains },
 ];
 
@@ -1260,8 +1881,15 @@ export async function runSearch(
 
   const term = params.lexicalTerm?.trim() || params.q;
 
+  const userId = params.userId ?? null;
+  let driveAccess: Promise<DriveAccessIndex> | undefined;
+  const caller: SearchCaller = {
+    userId,
+    can: (permission) => params.perms.hasAny([permission]),
+    driveAccess: () => (driveAccess ??= loadDriveAccessForUser(db, userId)),
+  };
   const groups = await Promise.all(
-    filtered.map((r) => r.search(db, workspaceId, term, params.limit, params.userId ?? null)),
+    filtered.map((r) => r.search(db, workspaceId, term, params.limit, caller)),
   );
 
   // Sort by canonical order
