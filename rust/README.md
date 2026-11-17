@@ -434,7 +434,8 @@ statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
 yet: mail (8 groups), custom-objects and reach.
 
 The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
-is served at `/mcp` on the same host, with its OAuth discovery documents at
+is served at `/mcp` (with the EU values on a host of its own, `mcp.<domain>`,
+set by `config.mcp.serverUrl`), with its OAuth discovery documents at
 `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-authorization-server` (the issuer's metadata passed
 through: Clerk's RFC 8414 document, or an OIDC provider's OpenID

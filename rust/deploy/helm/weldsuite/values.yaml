@@ -143,9 +143,12 @@ config:
   # reaches it through this release's own Service by default.
   publicApi:
     gatewayUrl: ""
-  # The MCP server (mcp-server: /mcp on the same host, OAuth bearer tokens of
-  # the identity provider). The origin its discovery documents name; empty:
-  # https:// and the first ingress host.
+  # The MCP server (mcp-server: /mcp, OAuth bearer tokens of the identity
+  # provider). The origin its discovery documents name; empty: https:// and
+  # the first ingress host. For a host of its own (the EU values:
+  # mcp.<domain>), add it to ingress.hosts with the paths /mcp,
+  # /.well-known/oauth-protected-resource and
+  # /.well-known/oauth-authorization-server, and set its origin here.
   mcp:
     serverUrl: ""
   realtime:
