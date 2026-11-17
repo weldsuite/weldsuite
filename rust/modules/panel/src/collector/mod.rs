@@ -15,6 +15,7 @@
 //! tag's own origin is a collector, at the root of every host.
 
 mod ip_filter;
+mod proxy;
 mod rows;
 mod url;
 mod user_agent;
@@ -162,7 +163,10 @@ pub struct CollectorState {
     pub sink: Option<Arc<dyn EventSink>>,
     pub environment: String,
     pub sdk: Option<Arc<SdkBundle>>,
-    /// How many proxies in front append to `X-Forwarded-For`.
+    /// How many proxies in front append to `X-Forwarded-For`. The collector
+    /// doesn't read it: like panel-ingest it takes the first hop, which a
+    /// site's own proxy (forwarding beacons first-party) sets to the
+    /// visitor's address (`proxy::client_ip`).
     pub trusted_proxies: usize,
     seen: Arc<SeenThrottle>,
 }
@@ -556,26 +560,6 @@ async fn config(
     response
 }
 
-/// The client's address: the `X-Forwarded-For` entry the ingress appended
-/// (`trusted_proxies` from the right). On Global, Cloudflare sets
-/// `CF-Connecting-IP`; nothing in front of this server does, so a client
-/// could send any, and it is ignored. Empty when there is none.
-fn client_ip(headers: &HeaderMap, trusted_proxies: usize) -> String {
-    let hops: Vec<&str> = headers
-        .get_all("x-forwarded-for")
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
-        .map(str::trim)
-        .filter(|hop| !hop.is_empty())
-        .collect();
-    hops.len()
-        .checked_sub(trusted_proxies.max(1))
-        .and_then(|at| hops.get(at))
-        .map(|ip| (*ip).to_owned())
-        .unwrap_or_default()
-}
-
 /// The request body as text, at most `limit` bytes (`readTextLimited`);
 /// `None` when larger.
 async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Option<String> {
@@ -687,7 +671,7 @@ async fn events(
         );
     }
 
-    let ip = client_ip(&headers, state.trusted_proxies);
+    let ip = proxy::client_ip(&headers);
     let user_agent = headers
         .get("user-agent")
         .and_then(|value| value.to_str().ok())
@@ -710,6 +694,7 @@ async fn events(
         received_at: ctx.now_ms(),
         ip,
         user_agent,
+        geo: proxy::request_geo(&headers),
     };
     let ports = ctx.ports(&state);
     let cache = ctx.cache(&state);
@@ -726,9 +711,10 @@ struct Accepted {
     project: ProjectRecord,
     batch: EventBatch,
     received_at: i64,
-    /// Used for the cookieless hash only, never stored.
+    /// Used for the cookieless hash and the IP filter only, never stored.
     ip: String,
     user_agent: String,
+    geo: Geo,
 }
 
 /// Failures are logged with ids and counts only, never request data.
@@ -755,6 +741,7 @@ async fn collect(
         received_at,
         ip,
         user_agent,
+        geo,
     } = accepted;
     // Events that need a cookieless id are left out when the salt is
     // unavailable: an id built without it would be stable across days.
@@ -784,7 +771,7 @@ async fn collect(
         batch: &batch,
         received_at,
         user_agent: user_agent::parse_user_agent(&user_agent),
-        geo: Geo::default(),
+        geo,
         cookieless_id,
     });
     if rows.is_empty() {

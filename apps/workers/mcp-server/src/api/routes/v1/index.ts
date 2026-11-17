@@ -34,6 +34,7 @@ import mailMessages from './mail-messages';
 import mailThreads from './mail-threads';
 import milestones from './milestones';
 import opportunities from './opportunities';
+import panel from './panel';
 import orders from './orders';
 import people from './people';
 import pipelines from './pipelines';
@@ -108,6 +109,7 @@ v1.get('/', (c) => {
       '/v1/milestones',
       '/v1/opportunities',
       '/v1/orders',
+      '/v1/panel',
       '/v1/people',
       '/v1/pipeline-stages',
       '/v1/pipelines',
@@ -147,7 +149,9 @@ v1.get('/', (c) => {
       '/v1/webhooks',
       '/v1/whiteboards',
       '/v1/workflows',
-    ].filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL),
+    ]
+      .filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL)
+      .filter((path) => path !== '/v1/panel' || !!c.env.PANEL_INTERNAL),
   });
 });
 
@@ -198,6 +202,7 @@ v1.route('/mail-threads', mailThreads);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
 v1.route('/orders', orders);
+v1.route('/panel', panel);
 v1.route('/people', people);
 v1.route('/pipeline-stages', pipelineStages);
 v1.route('/pipelines', pipelines);

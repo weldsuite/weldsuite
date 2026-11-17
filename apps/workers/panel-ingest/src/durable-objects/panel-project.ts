@@ -7,14 +7,17 @@
  *   identities  anonymous id → user id links
  *   erased      ids erased but not yet rewritten out of Iceberg (queries exclude them)
  *   live        sessions seen in the last five minutes, for the live view
+ *   groups      group profiles (a company, an account), and `group_types`:
+ *               the at most five group types the project collects
  *
  * The collector calls `identify`, `applyPeopleOps` and `touchLive`; panel-api
  * reaches the same class (a binding with `script_name`) for the read and
  * erase side. Every call goes through `projectObjectStub`, which pins the EU
  * jurisdiction: an id made without it names a different, empty object.
  *
- * A link or a profile change also writes a row to `identities_v1` / `people_v1`
- * (`PANEL_IDENTITIES` / `PANEL_PEOPLE`), so reports can join on them. A missing
+ * A link, a person or a group change also writes a row to `identities_v1` /
+ * `people_v1` / `groups_v1` (`PANEL_IDENTITIES` / `PANEL_PEOPLE` /
+ * `PANEL_GROUPS_STREAM`), so reports can join on them. A missing
  * stream is one warning and no row, never an error: the object's own state is
  * the source of truth.
  *
@@ -26,6 +29,10 @@
 import { DurableObject } from 'cloudflare:workers';
 import type {
   PanelErasure,
+  PanelGroup,
+  PanelGroupOp,
+  PanelGroupOpsResult,
+  PanelGroupsPage,
   PanelLiveSession,
   PanelLiveTouch,
   PanelPeopleOp,
@@ -34,7 +41,8 @@ import type {
   PanelProjectObjectApi,
   PanelPropertyValue,
 } from '@weldsuite/panel-domain/project-object';
-import type { PanelIdentityRecord, PanelPersonRecord } from '@weldsuite/panel-domain/tables';
+import type { PanelGroupRecord, PanelIdentityRecord, PanelPersonRecord } from '@weldsuite/panel-domain/tables';
+import { GROUP_TYPE, MAX_GROUP_KEY, MAX_GROUP_TYPES } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
 import { warnOnce } from '../lib/warn';
 
@@ -102,7 +110,25 @@ const SCHEMA = [
    )`,
   'CREATE INDEX IF NOT EXISTS live_ts ON live (ts)',
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)',
+  `CREATE TABLE IF NOT EXISTS groups (
+     group_type TEXT NOT NULL,
+     group_key TEXT NOT NULL,
+     properties TEXT NOT NULL,
+     first_seen TEXT NOT NULL,
+     last_seen TEXT NOT NULL,
+     PRIMARY KEY (group_type, group_key)
+   )`,
+  'CREATE INDEX IF NOT EXISTS groups_last_seen ON groups (group_type, last_seen DESC, group_key DESC)',
+  'CREATE TABLE IF NOT EXISTS group_types (group_type TEXT PRIMARY KEY, position INTEGER NOT NULL, ts TEXT NOT NULL)',
 ];
+
+type GroupRow = { group_type: string; group_key: string; properties: string; first_seen: string; last_seen: string };
+
+/** What a set, set_once, unset or increment does to a profile's properties (people and groups alike). */
+type PropsOp =
+  | { op: 'set' | 'set_once'; props: Record<string, PanelPropertyValue> }
+  | { op: 'unset'; keys: string[] }
+  | { op: 'increment'; props: Record<string, number> };
 
 function parseProps(text: string): Props {
   try {
@@ -123,7 +149,7 @@ function normalise(key: string, value: PanelPropertyValue): PanelPropertyValue |
 }
 
 /** Applies one operation to a profile's properties in place. */
-function applyOp(props: Props, op: PanelPeopleOp): void {
+function applyOp(props: Props, op: PropsOp): void {
   const assign = (key: string, value: PanelPropertyValue, onlyIfMissing: boolean) => {
     if (FORBIDDEN_KEYS.has(key)) return;
     if (onlyIfMissing && key in props) return;
@@ -513,5 +539,175 @@ export class PanelProject extends DurableObject<Env> implements PanelProjectObje
     this.ctx.storage.transactionSync(() => {
       for (const id of ids) this.run('DELETE FROM erased WHERE id = ?', id);
     });
+  }
+
+  // --- groups -------------------------------------------------------------
+
+  private groupTypeList(): string[] {
+    return this.all<{ group_type: string }>('SELECT group_type FROM group_types ORDER BY position, group_type').map((row) => row.group_type);
+  }
+
+  /** Gives each new valid type a slot while fewer than {@link MAX_GROUP_TYPES} are taken; the project's types after. Inside a transaction. */
+  private takeGroupTypes(types: readonly string[]): string[] {
+    const current = this.groupTypeList();
+    const now = new Date().toISOString();
+    for (const type of types) {
+      if (current.includes(type) || current.length >= MAX_GROUP_TYPES || !GROUP_TYPE.test(type)) continue;
+      this.run(
+        'INSERT INTO group_types (group_type, position, ts) VALUES (?, (SELECT COALESCE(MAX(position), 0) + 1 FROM group_types), ?)',
+        type,
+        now,
+      );
+      current.push(type);
+    }
+    return current;
+  }
+
+  private groupRow(groupType: string, groupKey: string): GroupRow | undefined {
+    return this.all<GroupRow>('SELECT * FROM groups WHERE group_type = ? AND group_key = ?', groupType, groupKey)[0];
+  }
+
+  private toGroup(row: GroupRow): PanelGroup {
+    return {
+      groupType: row.group_type,
+      groupKey: row.group_key,
+      properties: parseProps(row.properties),
+      firstSeen: row.first_seen,
+      lastSeen: row.last_seen,
+    };
+  }
+
+  private groupSnapshot(
+    scope: { workspaceId: string; projectId: string },
+    row: Pick<GroupRow, 'group_type' | 'group_key'>,
+    ts: string,
+    props: Props,
+    deleted: boolean,
+  ): PanelGroupRecord {
+    return {
+      workspace_id: scope.workspaceId,
+      project_id: scope.projectId,
+      group_type: row.group_type,
+      group_key: row.group_key,
+      version: this.nextVersion(),
+      ts,
+      properties: JSON.stringify(deleted ? {} : props),
+      deleted,
+    };
+  }
+
+  async applyGroupOps(input: { workspaceId: string; projectId: string; ops: PanelGroupOp[] }): Promise<PanelGroupOpsResult> {
+    const { ops } = input;
+    // One row per group and call: the state after the last of its operations.
+    const changed = new Map<string, PanelGroupRecord>();
+    const now = new Date().toISOString();
+    let applied = 0;
+    let types: string[] = [];
+
+    this.ctx.storage.transactionSync(() => {
+      types = this.takeGroupTypes([...new Set(ops.map((op) => op.groupType))]);
+      for (const op of ops) {
+        if (!types.includes(op.groupType) || !op.groupKey || op.groupKey.length > MAX_GROUP_KEY) continue;
+        const existing = this.groupRow(op.groupType, op.groupKey);
+        const props = existing ? parseProps(existing.properties) : (Object.create(null) as Props);
+        const before = JSON.stringify(props);
+        applyOp(props, op);
+        const after = JSON.stringify(props);
+        if (after.length > MAX_PROFILE_BYTES) continue;
+        applied += 1;
+
+        if (existing && before === after) {
+          this.run('UPDATE groups SET last_seen = ? WHERE group_type = ? AND group_key = ?', now, op.groupType, op.groupKey);
+          continue;
+        }
+        if (existing) {
+          this.run('UPDATE groups SET properties = ?, last_seen = ? WHERE group_type = ? AND group_key = ?', after, now, op.groupType, op.groupKey);
+        } else {
+          this.run(
+            'INSERT INTO groups (group_type, group_key, properties, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)',
+            op.groupType,
+            op.groupKey,
+            after,
+            now,
+            now,
+          );
+        }
+        const row = { group_type: op.groupType, group_key: op.groupKey };
+        changed.set(`${op.groupType}\u0000${op.groupKey}`, this.groupSnapshot(input, row, now, props, false));
+      }
+    });
+
+    await this.emit(this.env.PANEL_GROUPS_STREAM, 'groups_v1', [...changed.values()]);
+    return { applied, dropped: ops.length - applied, types };
+  }
+
+  async ensureGroupTypes(types: string[]): Promise<string[]> {
+    return this.ctx.storage.transactionSync(() => this.takeGroupTypes(types));
+  }
+
+  async groupTypes(): Promise<string[]> {
+    return this.groupTypeList();
+  }
+
+  async releaseGroupType(groupType: string): Promise<void> {
+    this.run('DELETE FROM group_types WHERE group_type = ?', groupType);
+  }
+
+  async getGroup(groupType: string, groupKey: string): Promise<PanelGroup | null> {
+    const row = this.groupRow(groupType, groupKey);
+    return row ? this.toGroup(row) : null;
+  }
+
+  async listGroups(input: { groupType: string; search?: string; cursor?: string | null; limit: number }): Promise<PanelGroupsPage> {
+    const limit = Math.min(Math.max(Math.trunc(input.limit) || 1, 1), MAX_PAGE);
+    const conditions = ['group_type = ?'];
+    const bindings: SqlStorageValue[] = [input.groupType];
+
+    const search = input.search?.trim();
+    if (search) {
+      const like = `%${escapeLike(search)}%`;
+      conditions.push(
+        `(group_key LIKE ? ESCAPE '\\' OR json_extract(properties, '$."$name"') LIKE ? ESCAPE '\\' OR json_extract(properties, '$.name') LIKE ? ESCAPE '\\')`,
+      );
+      bindings.push(like, like, like);
+    }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const totalCount = this.all<{ n: number }>(`SELECT COUNT(*) AS n FROM groups ${where}`, ...bindings)[0]?.n ?? 0;
+
+    const after = decodeCursor(input.cursor);
+    const pageConditions = [...conditions];
+    const pageBindings = [...bindings];
+    if (after) {
+      pageConditions.push('(last_seen < ? OR (last_seen = ? AND group_key < ?))');
+      pageBindings.push(after[0], after[0], after[1]);
+    }
+    const rows = this.all<GroupRow>(
+      `SELECT * FROM groups WHERE ${pageConditions.join(' AND ')} ORDER BY last_seen DESC, group_key DESC LIMIT ?`,
+      ...pageBindings,
+      limit + 1,
+    );
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      groups: page.map((row) => this.toGroup(row)),
+      cursor: hasMore && last ? encodeCursor(last.last_seen, last.group_key) : null,
+      totalCount,
+    };
+  }
+
+  async deleteGroup(input: { workspaceId: string; projectId: string; groupType: string; groupKey: string }): Promise<boolean> {
+    let deleted: PanelGroupRecord | null = null;
+    const now = new Date().toISOString();
+    this.ctx.storage.transactionSync(() => {
+      const row = this.groupRow(input.groupType, input.groupKey);
+      if (!row) return;
+      this.run('DELETE FROM groups WHERE group_type = ? AND group_key = ?', input.groupType, input.groupKey);
+      deleted = this.groupSnapshot(input, row, now, Object.create(null) as Props, true);
+    });
+    if (!deleted) return false;
+    await this.emit(this.env.PANEL_GROUPS_STREAM, 'groups_v1', [deleted]);
+    return true;
   }
 }

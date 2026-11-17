@@ -63,13 +63,17 @@ export function ts(date: Date): string {
   return `TIMESTAMP '${date.toISOString().slice(0, 19).replace('T', ' ')}'`;
 }
 
-const SYSTEM_EVENT = /^\$[a-z]{2,32}$/;
+/** `$pageview`, `$webvitals`, `$app_opened`: the SDKs' own events (copy of `PANEL_SYSTEM_EVENT_NAME`). */
+const SYSTEM_EVENT = /^\$[a-z][a-z_]{1,31}$/;
+
+/** True for a tracked event name (custom or `$` system), the only names {@link eventName} writes. */
+export function isEventName(name: unknown): name is string {
+  return typeof name === 'string' && (CUSTOM_EVENT_NAME.test(name) || SYSTEM_EVENT.test(name));
+}
 
 /** An event name: a custom event or a `$` system event. */
 export function eventName(name: string): string {
-  if (typeof name !== 'string' || !(CUSTOM_EVENT_NAME.test(name) || SYSTEM_EVENT.test(name))) {
-    throw new PanelQueryError('Not a valid event name');
-  }
+  if (!isEventName(name)) throw new PanelQueryError('Not a valid event name');
   return lit(name);
 }
 
@@ -102,4 +106,29 @@ export function likePattern(pattern: string): string {
 export function inList(values: readonly string[]): string {
   if (values.length === 0) throw new PanelQueryError('Empty list');
   return `(${values.map(lit).join(', ')})`;
+}
+
+const GROUP_TYPE = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** A group type (`company`), safe as part of an alias: refused unless it matches the pattern. */
+export function groupType(type: string): string {
+  if (typeof type !== 'string' || !GROUP_TYPE.test(type)) throw new PanelQueryError('Not a valid group type');
+  return type;
+}
+
+/**
+ * An approximate percentile (0-1) of `expr`. Basin SQL is DataFusion:
+ * `approx_percentile_cont(expr, p)` (t-digest). The one place that names it,
+ * so another engine needs one change.
+ */
+export function percentileSql(expr: string, p: number): string {
+  if (!(p > 0 && p < 1)) throw new PanelQueryError('Expected a percentile between 0 and 1');
+  return `approx_percentile_cont(${expr}, ${num(p)})`;
+}
+
+/** A row id inside a ref (`pnce_ab12`), checked before it is used anywhere. */
+export function refIdOf(ref: string, prefix: 'pnce' | 'pncp'): string {
+  const match = new RegExp(`^@(${prefix}_[A-Za-z0-9]{1,26})$`).exec(ref);
+  if (!match) throw new PanelQueryError('Not a valid reference');
+  return match[1] as string;
 }

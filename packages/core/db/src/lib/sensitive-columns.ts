@@ -56,6 +56,11 @@ export const SENSITIVE_COLUMNS = {
   audit_log_streams: ['tokenEncrypted'],
   /** A workspace's own AI provider key (AI_KEYS_ENCRYPTION_KEY); only the Rust backend decrypts it, to call the provider. */
   ai_provider_keys: ['ciphertext'],
+  /** WeldPanel alert and scheduled-report Slack webhook URLs; only panel-api's delivery service decrypts them. */
+  panel_alerts: ['slackWebhookCiphertext'],
+  panel_subscriptions: ['slackWebhookCiphertext'],
+  /** The secret access key of a WeldPanel raw export's bucket; only panel-api's export runner decrypts it. */
+  panel_exports: ['secretCiphertext'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type SensitiveTableName = keyof typeof SENSITIVE_COLUMNS;

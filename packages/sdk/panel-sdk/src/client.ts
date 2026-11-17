@@ -7,10 +7,22 @@
  * History method runs through `safe()`.
  */
 
-import { clickPosition, clickTarget, describeElement, isBlocked } from './autocapture';
+import { clickPosition, clickTarget, cssSelector, describeElement, isBlocked } from './autocapture';
 import { buildBatches } from './batch';
 import { excludedMatcher, resolveConfig } from './config';
-import { cleanProps, cleanUserId, isCustomEventName, LIB_VERSION, normalizeEvent, normalizePeopleOp, type EventInput, type PeopleOpInput } from './event';
+import {
+  cleanGroupKey,
+  cleanProps,
+  cleanUserId,
+  isCustomEventName,
+  LIB_VERSION,
+  normalizeEvent,
+  normalizeGroupOp,
+  normalizePeopleOp,
+  type EventInput,
+  type GroupOpInput,
+  type PeopleOpInput,
+} from './event';
 import {
   deadClickCandidate,
   DEAD_CLICK_MS,
@@ -39,7 +51,18 @@ import {
   writeState,
   type VisitorState,
 } from './storage';
-import { deviceClassFromViewport, MAX_PEOPLE_OPS_PER_BATCH, type ClientConfig, type Properties, type WireEvent, type WirePeopleOp } from './wire';
+import { VITALS_GLOBAL, type Vitals, type VitalsFactory } from './vitals-api';
+import {
+  deviceClassFromViewport,
+  GROUP_TYPE,
+  MAX_GROUP_OPS_PER_BATCH,
+  MAX_PEOPLE_OPS_PER_BATCH,
+  type ClientConfig,
+  type Properties,
+  type WireEvent,
+  type WireGroupOp,
+  type WirePeopleOp,
+} from './wire';
 
 /** Send at least every 5 seconds while events are waiting… */
 export const FLUSH_INTERVAL_MS = 5000;
@@ -55,12 +78,18 @@ const MAX_PENDING_PEOPLE = 500;
 export interface ClientOptions {
   /** The project token, `wpk_…`. */
   token: string;
-  /** The collector's origin, no trailing slash. */
+  /** The collector's origin, no trailing slash: where the recording plugin is loaded from. */
   host: string;
+  /** Where events, the config and recordings go (a reverse proxy on the site's own domain); defaults to `host`. */
+  apiHost?: string;
   /** Warn in the console about dropped events and properties. */
   debug?: boolean;
   /** The recording plugin, when the app bundles it; otherwise it is loaded from `{host}/rec.js` when needed. */
   recorder?: RecorderFactory;
+  /** `false`: no `$webvitals` events. */
+  webVitals?: boolean;
+  /** The web vitals plugin, when the app bundles it; otherwise it is loaded from `{host}/v.js`. */
+  vitals?: VitalsFactory;
 }
 
 /** The public API: `window.weldpanel`, and what `init()` returns. */
@@ -90,6 +119,31 @@ export interface WeldPanel {
     /** The visitor withdrew: delete what is stored and go back to cookieless counting. */
     revoke(): void;
   };
+  /**
+   * Super properties: added to every later event (the event's own properties win). Keys like
+   * `track()`'s, no `$`. Kept in the browser only with consent, in memory before it.
+   */
+  register(props: Record<string, unknown>): void;
+  /** Only the super properties not set yet. */
+  registerOnce(props: Record<string, unknown>): void;
+  unregister(key: string): void;
+  /**
+   * The visitor belongs to this group (`group('company', 'acme')`): every later event carries
+   * `$group_company: 'acme'`. `props` update the group's profile.
+   */
+  group(type: string, key: string | number, props?: Record<string, unknown>): void;
+  /** A group's profile; works for any group, not only the visitor's. */
+  groups: {
+    set(type: string, key: string | number, props: Record<string, unknown>): void;
+    set_once(type: string, key: string | number, props: Record<string, unknown>): void;
+    unset(type: string, key: string | number, keys: string | string[]): void;
+  };
+  /** Leave every group: later events carry no `$group_` properties. */
+  resetGroups(): void;
+  /** The user id, else the anonymous id; null without consent (the visitor is counted cookieless). */
+  getDistinctId(): string | null;
+  /** The session id; null without consent. */
+  getSessionId(): string | null;
   /** Send nothing at all, now and on later visits, until `optIn()`. */
   optOut(): void;
   optIn(): void;
@@ -141,9 +195,19 @@ function shortHash(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/** The properties of the first of `lists` that has each key: earlier lists win. */
+function merge(...lists: Array<Properties | null | undefined>): Properties {
+  const out: Properties = {};
+  for (const list of lists) if (list) for (const k of Object.keys(list)) if (!(k in out)) out[k] = list[k];
+  return out;
+}
+
+const UTM = ['source', 'medium', 'campaign', 'content', 'term'];
+
 export function createClient(options: ClientOptions): Client {
   const { token, host } = options;
-  const endpoint = `${host}/e`;
+  const apiOrigin = options.apiHost || host;
+  const endpoint = `${apiOrigin}/e`;
   const warn = (...args: unknown[]): void => {
     if (options.debug) console.warn('[weldpanel]', ...args);
   };
@@ -167,6 +231,11 @@ export function createClient(options: ClientOptions): Client {
   let optedOut = isOptedOut();
   let queue: WireEvent[] = [];
   let people: WirePeopleOp[] = [];
+  let groupOps: WireGroupOp[] = [];
+  /** Super properties, groups (type → key) and first-touch properties: in memory, and in `state` with consent. */
+  let supers: Properties = {};
+  let groups: Record<string, string> = {};
+  let first: Properties | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let page: Page | null = null;
   /** `document.referrer` belongs to the first pageview of the page load only. */
@@ -188,7 +257,23 @@ export function createClient(options: ClientOptions): Client {
     else state = noneNeeded ? newState(false, Date.now()) : null;
     // Ids kept under settings that no longer allow them (consent mode changed, GPC, opt-out) go.
     if (stored && state !== stored) clearState(token);
-    if (state && state !== stored) writeState(token, state);
+    if (state === stored && stored) adopt(stored);
+    else persist();
+  }
+
+  /** Super properties, groups and first touch as another page or tab kept them. */
+  function adopt(from: VisitorState): void {
+    if (from.p) supers = from.p;
+    if (from.r) groups = from.r;
+    if (from.f) first = from.f;
+  }
+
+  /** Writes the state with the super properties, groups and first touch; nothing without consent. */
+  function persist(): void {
+    if (!state) return;
+    state = { ...state, p: supers, r: groups };
+    if (first) state.f = first;
+    writeState(token, state);
   }
 
   /** Consent is gone: nothing more is kept, recorded or sent with ids. */
@@ -206,7 +291,7 @@ export function createClient(options: ClientOptions): Client {
     void flush();
     const shared = state || readState(token);
     state = shared ? { ...shared, g: 1 } : newState(true, Date.now());
-    writeState(token, state);
+    persist();
     syncRecording();
     maybeSnapshot();
   }
@@ -221,6 +306,7 @@ export function createClient(options: ClientOptions): Client {
   function optOut(): void {
     optedOut = true;
     queue = [];
+    groupOps = [];
     clearTimeout(timer);
     timer = undefined;
     forget();
@@ -246,6 +332,7 @@ export function createClient(options: ClientOptions): Client {
     if ((key === OPT_OUT_KEY || key === null) && isOptedOut()) {
       optedOut = true;
       queue = [];
+      groupOps = [];
       clearTimeout(timer);
       timer = undefined;
       forget();
@@ -257,8 +344,12 @@ export function createClient(options: ClientOptions): Client {
 
   // ── Events ───────────────────────────────────────────────────────────
 
-  /** Queue an event about `at` (default: the current page) unless the visitor opted out or the page is excluded. */
-  function emit(name: string, extra: Partial<EventInput>, at?: Page): void {
+  /**
+   * Queue an event about `at` (default: the current page) unless the visitor opted out or the page
+   * is excluded. Its properties get the groups, super and first-touch properties added, unless
+   * `anonymous` (web vitals): then it carries no ids and nothing else either.
+   */
+  function emit(name: string, extra: Partial<EventInput>, at?: Page | null, anonymous?: boolean): void {
     if (!config || optedOut) return;
     if (excluded(at ? at.path : location.pathname)) return;
     const now = Date.now();
@@ -270,15 +361,24 @@ export function createClient(options: ClientOptions): Client {
       viewport_w: window.innerWidth,
       ...extra,
     };
-    if (state) {
+    if (state && !anonymous) {
       // Another tab may have moved the session on, or identified the visitor, since this one last looked.
       const stored = readState(token);
-      if (stored && stored.a === state.a && stored.t > state.t) state = { ...stored, g: state.g || stored.g };
+      if (stored && stored.a === state.a && stored.t > state.t) {
+        state = { ...stored, g: state.g || stored.g };
+        adopt(stored);
+      }
       state = touchSession(state, now);
       writeState(token, state);
       input.anon_id = state.a;
       input.session_id = state.s;
       if (state.u) input.user_id = state.u;
+    }
+    if (!anonymous) {
+      const member: Properties = {};
+      // Group membership is kept in memory before consent but only sent after it.
+      if (state) for (const type of Object.keys(groups)) member[`$group_${type}`] = groups[type];
+      input.props = merge(extra.props as Properties | undefined, member, supers, first);
     }
     const event = normalizeEvent(input);
     if (!event) return warn(`event "${name}" dropped: not a valid event`);
@@ -292,7 +392,7 @@ export function createClient(options: ClientOptions): Client {
   function track(rawName: string, props?: Record<string, unknown>): void {
     const name = typeof rawName === 'string' ? rawName.trim() : rawName;
     if (!isCustomEventName(name)) {
-      return warn(`event "${String(name)}" dropped: names start with a letter or digit and use letters, digits, space and _ . : / -`);
+      return warn(`event "${String(name)}" dropped: a name is letters, digits, space and _ . : / -`);
     }
     const clean = cleanProps(props, (key, why) => warn(`"${name}": property "${key}" dropped: ${why}`));
     emit(name, clean ? { props: clean } : {});
@@ -303,7 +403,7 @@ export function createClient(options: ClientOptions): Client {
   function identify(raw: unknown): void {
     if (!config || optedOut) return;
     const id = cleanUserId(raw);
-    if (!id) return warn('identify() dropped: a user id is 1 to 255 characters, without control characters');
+    if (!id) return warn('identify() dropped: a user id is 1 to 255 characters');
     if (!state) return warn('identify() dropped: no consent');
     // Nothing is sent from an excluded page; the next identify() elsewhere links the visitor.
     if (excluded(location.pathname) || state.u === id) return;
@@ -312,6 +412,8 @@ export function createClient(options: ClientOptions): Client {
     state = { ...state, u: id };
     writeState(token, state);
     emit('$identify', {});
+    // Where this visitor first came from, on the profile too (only where it isn't there yet).
+    if (first) profile({ op: 'set_once', user_id: '', props: first });
   }
 
   function reset(): void {
@@ -319,8 +421,70 @@ export function createClient(options: ClientOptions): Client {
     // What the old identity queued leaves under it.
     void flush();
     state = newState(state.g === 1, Date.now());
-    writeState(token, state);
+    supers = {};
+    groups = {};
+    persist();
     syncRecording();
+  }
+
+  // ── Super properties, first touch and groups ───────────────────────
+
+  function register(props: Record<string, unknown>, once?: boolean): void {
+    const clean = cleanProps(props, (key, why) => warn(`register(): "${key}" dropped: ${why}`));
+    if (!clean) return;
+    supers = once ? merge(supers, clean) : merge(clean, supers);
+    persist();
+  }
+
+  function unregister(key: string): void {
+    supers = { ...supers };
+    delete supers[key];
+    persist();
+  }
+
+  /** `$initial_*` from the first page seen: referrer (without query), its host, the UTM tags and the landing path. */
+  function firstTouch(): void {
+    if (first) return;
+    let referrer = '$direct';
+    let domain = '$direct';
+    try {
+      if (document.referrer) {
+        const u = new URL(document.referrer);
+        referrer = (u.origin + u.pathname).slice(0, 2048);
+        domain = u.hostname;
+      }
+    } catch {
+      // An unreadable referrer counts as direct.
+    }
+    first = { $initial_referrer: referrer, $initial_referring_domain: domain, $initial_landing_path: location.pathname.slice(0, 2048) };
+    const query = new URLSearchParams(location.search);
+    for (const tag of UTM) {
+      const value = query.get(`utm_${tag}`);
+      if (value) first[`$initial_utm_${tag}`] = value.slice(0, 256);
+    }
+    persist();
+  }
+
+  function groupOp(input: GroupOpInput): void {
+    if (!config || optedOut) return;
+    // An account ties events together across visitors, so like identity it waits for consent.
+    if (!state) return warn(`groups.${input.op}() dropped: no consent`);
+    const op = normalizeGroupOp(input, (key, why) => warn(`group "${key}" dropped: ${why}`));
+    // Types: a-z, 0-9 and _, starting with a letter; keys: 1 to 255 characters.
+    if (!op) return warn('group dropped: bad type or key');
+    if (groupOps.length >= MAX_PENDING_PEOPLE) groupOps.shift();
+    groupOps.push(op);
+    if (queue.length && !timer) timer = setTimeout(() => void flush(), FLUSH_INTERVAL_MS);
+  }
+
+  /** Membership (only for a valid type and key), and the group's profile operation (which warns about a bad one). */
+  function group(type: string, rawKey: unknown, props?: Record<string, unknown>): void {
+    const key = cleanGroupKey(rawKey);
+    if (key && GROUP_TYPE.test(type)) {
+      groups = { ...groups, [type]: key };
+      persist();
+    }
+    groupOp({ op: 'set', type, key: rawKey, props });
   }
 
   function profile(input: PeopleOpInput): void {
@@ -378,10 +542,24 @@ export function createClient(options: ClientOptions): Client {
     if (state) writeJson(stateKey(token), tab, true);
   }
 
+  // ── Web vitals ───────────────────────────────────────────────────────
+
+  let vitals: Vitals | null = null;
+
+  /** The page view's `$webvitals`, once, without ids or other properties. */
+  function sendVitals(): void {
+    const props = vitals && vitals.take();
+    if (props) emit('$webvitals', { props }, page, true);
+  }
+
   function onLocation(): void {
     activity();
     const key = pageKey();
     if (page && page.key === key && !page.left) return;
+    if (page && vitals) {
+      sendVitals();
+      vitals.soft();
+    }
     leave(false);
     const now = Date.now();
     page = { key, url: location.href, title: document.title, path: location.pathname, depth: depthNow(), left: false };
@@ -517,19 +695,24 @@ export function createClient(options: ClientOptions): Client {
     return sampled[1];
   }
 
-  /** The recorder factory: passed in, already on the page, or loaded from `{host}/rec.js`. */
-  function loadRecorder(): Promise<RecorderFactory | null> {
-    const w = window as unknown as Record<string, RecorderFactory | undefined>;
-    const ready = options.recorder || w[RECORDER_GLOBAL];
+  /** A plugin's factory: passed in, already on the page, or loaded from `{host}{path}`, which puts it on `window[name]`. */
+  function loadPlugin<T>(given: T | undefined, name: string, path: string): Promise<T | null> {
+    const w = window as unknown as Record<string, T | undefined>;
+    const ready = given || w[name];
     if (ready) return Promise.resolve(ready);
     return new Promise((resolve) => {
       const script = document.createElement('script');
       script.async = true;
-      script.src = `${host}/rec.js`;
-      script.onload = () => resolve(w[RECORDER_GLOBAL] || null);
+      script.src = host + path;
+      script.onload = () => resolve(w[name] || null);
       script.onerror = () => resolve(null);
       (document.head || document.documentElement).appendChild(script);
     });
+  }
+
+  /** The recorder factory: passed in, already on the page, or loaded from `{host}/rec.js`. */
+  function loadRecorder(): Promise<RecorderFactory | null> {
+    return loadPlugin(options.recorder, RECORDER_GLOBAL, '/rec.js');
   }
 
   function withRecorder(run?: (r: PanelRecorder) => void): void {
@@ -542,7 +725,7 @@ export function createClient(options: ClientOptions): Client {
       safe((factory: RecorderFactory | null) => {
         if (!factory || !config) return warn('recording plugin not available');
         if (!recorder) {
-          recorder = factory({ host, token, maskingLevel: config.maskingLevel, debug: options.debug });
+          recorder = factory({ host: apiOrigin, token, maskingLevel: config.maskingLevel, debug: options.debug });
           syncRecording();
         }
         if (run) run(recorder);
@@ -621,7 +804,7 @@ export function createClient(options: ClientOptions): Client {
     timer = undefined;
     if (!queue.length) return Promise.resolve();
     const ops = state ? people.splice(0, MAX_PEOPLE_OPS_PER_BATCH) : [];
-    const batches = buildBatches({ token, consent: state !== null, events: queue, people: ops });
+    const batches = buildBatches({ token, consent: state !== null, events: queue, people: ops, groups: groupOps.splice(0, MAX_GROUP_OPS_PER_BATCH) });
     queue = [];
     return Promise.all(batches.map((b) => send(JSON.stringify(b), beacon))).then(() => undefined);
   }
@@ -661,10 +844,13 @@ export function createClient(options: ClientOptions): Client {
     on(window, 'storage', onStorage);
     on(document, 'visibilitychange', () => {
       activity();
-      if (document.visibilityState === 'hidden') void flush(true);
+      if (document.visibilityState !== 'hidden') return;
+      sendVitals();
+      void flush(true);
     });
     on(window, 'pagehide', () => {
       activity();
+      sendVitals();
       leave(true);
       void flush(true);
     });
@@ -683,7 +869,7 @@ export function createClient(options: ClientOptions): Client {
       on(window, 'beforeunload', activity);
       on(window, 'blur', activity);
       // The SDK's own requests are not the page reacting.
-      cleanup.push(watchRequests((url) => (url.indexOf(host) === 0 ? undefined : activity())));
+      cleanup.push(watchRequests((url) => (url.indexOf(host) === 0 || url.indexOf(apiOrigin) === 0 ? undefined : activity())));
       cleanup.push(() => {
         if (observer) observer.disconnect();
         observer = null;
@@ -691,10 +877,23 @@ export function createClient(options: ClientOptions): Client {
       });
     }
 
+    // Web vitals: the plugin (`/v.js`) measures; its observers are buffered, so arriving late loses nothing.
+    if (options.webVitals !== false && typeof PerformanceObserver === 'function') {
+      void loadPlugin(options.vitals, VITALS_GLOBAL, '/v.js').then(
+        safe((factory: VitalsFactory | null) => {
+          if (!factory || !config) return;
+          const watched = factory(cssSelector);
+          vitals = watched;
+          cleanup.push(() => watched.stop());
+        }),
+      );
+    }
+
     // Consent, opt-out and identity calls made before load apply to the first
     // pageview; events and profile calls follow it.
     const calls = pending;
     pending = null;
+    safe(firstTouch)();
     for (const [changesState, run] of calls) if (changesState) safe(run)();
     safe(onLocation)();
     for (const [changesState, run] of calls) if (!changesState) safe(run)();
@@ -721,6 +920,23 @@ export function createClient(options: ClientOptions): Client {
       grant: () => call(true, grant),
       revoke: () => call(true, revoke),
     },
+    // Super properties and groups apply to the first pageview too.
+    register: (props) => call(true, () => register(props)),
+    registerOnce: (props) => call(true, () => register(props, true)),
+    unregister: (key) => call(true, () => unregister(key)),
+    group: (type, key, props) => call(true, () => group(type, key, props)),
+    groups: {
+      set: (type, key, props) => call(false, () => groupOp({ op: 'set', type, key, props })),
+      set_once: (type, key, props) => call(false, () => groupOp({ op: 'set_once', type, key, props })),
+      unset: (type, key, keys) => call(false, () => groupOp({ op: 'unset', type, key, keys: typeof keys === 'string' ? [keys] : keys })),
+    },
+    resetGroups: () =>
+      call(true, () => {
+        groups = {};
+        persist();
+      }),
+    getDistinctId: () => (state ? state.u || state.a : null),
+    getSessionId: () => (state ? state.s : null),
     optOut: () => call(true, optOut),
     optIn: () => call(true, optIn),
     flush: () => {

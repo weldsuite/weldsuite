@@ -1,21 +1,28 @@
 /**
  * `web`: the Overview. Visitors, visits, pageviews, bounce rate and visit
- * duration, a daily series, top pages, entry and exit pages and the usual
- * dimensions. One statement per list (each reads the table once), run a few at
- * a time; visits are derived from 30-minute gaps for cookieless visitors.
+ * duration, a daily series, top pages, entry and exit pages, channels and the
+ * usual dimensions, and conversion goals. One statement per list (each reads
+ * the table once), run a few at a time; visits are derived from 30-minute
+ * gaps for cookieless visitors. `panels` picks the lists (`PANEL_WEB_DEFAULT_PANELS` by default);
+ * paths are cleaned by the project's path rules unless `cleanPaths` is false.
  */
 
-import type {
-  PanelBreakdownRow,
-  PanelEntryExitRow,
-  PanelInterval,
-  PanelTotals,
-  PanelWebResult,
-  ParsedWebSpec,
+import {
+  PANEL_SCREEN_SIZES,
+  PANEL_WEB_DEFAULT_PANELS,
+  type PanelBreakdownRow,
+  type PanelEntryExitRow,
+  type PanelInterval,
+  type PanelTotals,
+  type PanelWebGoalResult,
+  type PanelWebPanel,
+  type PanelWebResult,
+  type ParsedWebSpec,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelQueryContext } from './context';
-import { eventsScope, type EventsScope } from './scope';
-import { int, lit } from './sql';
+import { cleanedPathSql } from './paths';
+import { eventsScope, eventWithFilters, scopeNeeds, type EventsScope } from './scope';
+import { int, LIKE_ESCAPE, likePattern, lit } from './sql';
 import { bucketLabel, bucketLabels, bucketSql, previousBounds, resolveRange, type ResolvedRange, type TimeBounds } from './time';
 import { toNumber, toText, type PanelSqlQuery, type Row } from './rows';
 import { toResolvedRange } from './result-range';
@@ -29,24 +36,114 @@ export function webInterval(range: ResolvedRange): PanelInterval {
   return days <= 2 ? 'hour' : 'day';
 }
 
+type DimensionKey = Exclude<PanelWebPanel, 'entryExitPages'>;
+
 interface DimensionDef {
-  key: 'topPages' | 'sources' | 'utmSources' | 'utmMediums' | 'utmCampaigns' | 'countries' | 'devices' | 'browsers' | 'operatingSystems';
+  key: DimensionKey;
   expr: string;
   /** Rows without a value are left out (utm), or labelled. */
   notNull: boolean;
 }
 
-const DIMENSIONS: DimensionDef[] = [
-  { key: 'topPages', expr: 'e.path', notNull: false },
-  { key: 'sources', expr: `COALESCE(e.referrer_host, '(direct)')`, notNull: false },
-  { key: 'utmSources', expr: 'e.utm_source', notNull: true },
-  { key: 'utmMediums', expr: 'e.utm_medium', notNull: true },
-  { key: 'utmCampaigns', expr: 'e.utm_campaign', notNull: true },
-  { key: 'countries', expr: `COALESCE(e.country, '(unknown)')`, notNull: false },
-  { key: 'devices', expr: `COALESCE(e.device_type, '(unknown)')`, notNull: false },
-  { key: 'browsers', expr: `COALESCE(e.browser, '(unknown)')`, notNull: false },
-  { key: 'operatingSystems', expr: `COALESCE(e.os, '(unknown)')`, notNull: false },
+// ---------------------------------------------------------------------------
+// Channels
+// ---------------------------------------------------------------------------
+
+const SEARCH_HOSTS = ['google.', 'bing.', 'duckduckgo.', 'yahoo.', 'baidu.', 'yandex.', 'ecosia.', 'search.brave.', 'startpage.', 'qwant.'];
+const SOCIAL_HOSTS = [
+  'facebook.',
+  'instagram.',
+  't.co',
+  'twitter.',
+  'x.com',
+  'linkedin.',
+  'lnkd.in',
+  'reddit.',
+  'pinterest.',
+  'tiktok.',
+  'threads.',
+  'mastodon.',
+  'bsky.',
+  'news.ycombinator.',
+  'quora.',
 ];
+const VIDEO_HOSTS = ['youtube.', 'youtu.be', 'vimeo.', 'twitch.', 'dailymotion.'];
+const MAIL_HOSTS = ['mail.google.', 'outlook.', 'mail.yahoo.', 'webmail.', 'mail.'];
+
+const PAID_SEARCH_MEDIUMS = ['cpc', 'ppc', 'paidsearch', 'paid-search', 'paid_search', 'sem'];
+const PAID_SOCIAL_MEDIUMS = ['paid-social', 'paidsocial', 'paid_social', 'social-paid', 'social_paid', 'cpm-social'];
+const DISPLAY_MEDIUMS = ['display', 'banner', 'cpm', 'expandable', 'interstitial'];
+const SOCIAL_MEDIUMS = ['social', 'social-network', 'social-media', 'sm', 'social network', 'social media'];
+
+function hostLike(hosts: readonly string[]): string {
+  // Each host is matched at the start or after a dot (`www.google.nl`, `google.com`).
+  return hosts
+    .map((h) => {
+      const atStart = likePattern(h + '*');
+      const afterDot = likePattern('*.' + h + '*');
+      return `(e.referrer_host LIKE ${atStart}${LIKE_ESCAPE} OR e.referrer_host LIKE ${afterDot}${LIKE_ESCAPE})`;
+    })
+    .join(' OR ');
+}
+
+function inValues(column: string, values: readonly string[]): string {
+  return `${column} IN (${values.map(lit).join(', ')})`;
+}
+
+/**
+ * The channel of an event from its referrer host and `utm_medium` (GA4's
+ * default channel grouping, simplified): paid mediums first, then email,
+ * affiliate, display and video, then the referrer's kind of site.
+ */
+export function channelSql(): string {
+  const medium = `LOWER(COALESCE(e.utm_medium, ''))`;
+  const referrer = `e.referrer_host`;
+  const external = `(${referrer} IS NOT NULL AND ${referrer} <> '' AND (e.host IS NULL OR ${referrer} <> e.host))`;
+  const whens: Array<[string, string]> = [
+    [`(${inValues(medium, PAID_SEARCH_MEDIUMS)} AND NOT (${hostLike(SOCIAL_HOSTS)}))`, 'Paid Search'],
+    [`(${inValues(medium, PAID_SOCIAL_MEDIUMS)} OR (${inValues(medium, PAID_SEARCH_MEDIUMS)} AND (${hostLike(SOCIAL_HOSTS)})))`, 'Paid Social'],
+    [inValues(medium, DISPLAY_MEDIUMS), 'Display'],
+    [`${medium} = 'affiliate'`, 'Affiliate'],
+    [`(${inValues(medium, ['email', 'e-mail', 'e_mail', 'newsletter'])} OR LOWER(COALESCE(e.utm_source, '')) IN ('email', 'newsletter'))`, 'Email'],
+    [`(${medium} = 'video' OR (${external} AND (${hostLike(VIDEO_HOSTS)})))`, 'Video'],
+    [`(${medium} = 'organic' OR (${external} AND (${hostLike(SEARCH_HOSTS)})))`, 'Organic Search'],
+    [`(${inValues(medium, SOCIAL_MEDIUMS)} OR (${external} AND (${hostLike(SOCIAL_HOSTS)})))`, 'Organic Social'],
+    [`(${external} AND (${hostLike(MAIL_HOSTS)}))`, 'Email'],
+    [`(NOT ${external} AND e.utm_source IS NULL AND e.utm_medium IS NULL AND e.utm_campaign IS NULL)`, 'Direct'],
+    [`(${external} OR ${medium} = 'referral')`, 'Referral'],
+  ];
+  const cases = whens.map(([cond, label]) => 'WHEN ' + cond + ' THEN ' + lit(label));
+  return `CASE ${cases.join(' ')} ELSE 'Other' END`;
+}
+
+/** Viewport width class (see `PANEL_SCREEN_SIZES`). */
+export function screenSizeSql(): string {
+  const [mobile, tablet, laptop, desktop, wide, unknown] = PANEL_SCREEN_SIZES;
+  return (
+    `CASE WHEN e.viewport_w IS NULL OR e.viewport_w <= 0 THEN ${lit(unknown)} WHEN e.viewport_w < 768 THEN ${lit(mobile)} ` +
+    `WHEN e.viewport_w < 1024 THEN ${lit(tablet)} WHEN e.viewport_w < 1440 THEN ${lit(laptop)} ` +
+    `WHEN e.viewport_w < 1920 THEN ${lit(desktop)} ELSE ${lit(wide)} END`
+  );
+}
+
+function dimensions(ctx: PanelQueryContext, spec: ParsedWebSpec): DimensionDef[] {
+  return [
+    { key: 'topPages', expr: cleanedPathSql(ctx, spec.cleanPaths), notNull: false },
+    { key: 'sources', expr: `COALESCE(e.referrer_host, '(direct)')`, notNull: false },
+    { key: 'utmSources', expr: 'e.utm_source', notNull: true },
+    { key: 'utmMediums', expr: 'e.utm_medium', notNull: true },
+    { key: 'utmCampaigns', expr: 'e.utm_campaign', notNull: true },
+    { key: 'countries', expr: `COALESCE(e.country, '(unknown)')`, notNull: false },
+    { key: 'devices', expr: `COALESCE(e.device_type, '(unknown)')`, notNull: false },
+    { key: 'browsers', expr: `COALESCE(e.browser, '(unknown)')`, notNull: false },
+    { key: 'operatingSystems', expr: `COALESCE(e.os, '(unknown)')`, notNull: false },
+    { key: 'hostnames', expr: `COALESCE(e.host, '(unknown)')`, notNull: false },
+    { key: 'regions', expr: `(COALESCE(e.country, '??') || ' / ' || e.region)`, notNull: true },
+    { key: 'cities', expr: `(COALESCE(e.country, '??') || ' / ' || e.city)`, notNull: true },
+    { key: 'channels', expr: channelSql(), notNull: false },
+    { key: 'screenSizes', expr: screenSizeSql(), notNull: false },
+  ];
+}
 
 /** Events with their visit key: gaps over 30 minutes start a new visit (cookieless visitors have no session id). */
 function visitsSql(scope: EventsScope): string {
@@ -98,7 +195,7 @@ function entryExitQuery(ctx: PanelQueryContext, range: ResolvedRange, spec: Pars
   const partition = 'COALESCE(session_id, anon_id)';
   const pvWhere = scope.where(`e.name = ${PAGEVIEW}`);
   const sql =
-    `WITH pv AS (SELECT e.path AS path, e.session_id AS session_id, e.anon_id AS anon_id, e.ts AS ts, e.event_id AS event_id, ` +
+    `WITH pv AS (SELECT ${cleanedPathSql(ctx, spec.cleanPaths)} AS path, e.session_id AS session_id, e.anon_id AS anon_id, e.ts AS ts, e.event_id AS event_id, ` +
     `LAG(e.ts) OVER (PARTITION BY COALESCE(e.session_id, e.anon_id) ORDER BY e.ts, e.event_id) AS prev_ts ` +
     `FROM ${scope.from} ${pvWhere}), ` +
     `seg AS (SELECT path, session_id, anon_id, ts, event_id, ` +
@@ -120,6 +217,27 @@ function dimensionQuery(def: DimensionDef, ctx: PanelQueryContext, range: Resolv
     `SELECT ${def.expr} AS value, COUNT(DISTINCT ${scope.person}) AS visitors, COUNT(*) AS events ` +
     `FROM ${scope.from} ${scope.where(...extra)} GROUP BY ${def.expr} ORDER BY COUNT(DISTINCT ${scope.person}) DESC, COUNT(*) DESC LIMIT ${int(spec.limit, 50)}`;
   return { name: `web.${def.key}`, sql, columns: ['value', 'visitors', 'events'] };
+}
+
+/** Every goal as a conditional count over one scan of the events that reach any goal. */
+function goalsQuery(ctx: PanelQueryContext, range: ResolvedRange, spec: ParsedWebSpec): PanelSqlQuery | null {
+  const goals = spec.goals ?? [];
+  if (goals.length === 0) return null;
+  const needs = scopeNeeds(ctx, { filters: goals.map((g) => g.filters), events: goals.flatMap((g) => (g.event ? [g.event] : [])) });
+  const scope = eventsScope(ctx, range, range, { filters: spec.filters, ...needs });
+  const conds = goals.map((g) => {
+    const reach = g.event
+      ? eventWithFilters(g.event, g.filters, ctx, range, scope.person)
+      : eventWithFilters('$pageview', g.filters, ctx, range, scope.person) + ` AND e.path LIKE ${likePattern(g.pathPattern ?? '/')}${LIKE_ESCAPE}`;
+    return `(${reach})`;
+  });
+  const selects = conds.flatMap((cond, i) => [
+    `COUNT(CASE WHEN ${cond} THEN 1 END) AS g${i}_n`,
+    `COUNT(DISTINCT CASE WHEN ${cond} THEN ${scope.person} END) AS g${i}_u`,
+  ]);
+  const anyGoal = '(' + conds.join(' OR ') + ')';
+  const sql = `SELECT ${selects.join(', ')} FROM ${scope.from} ${scope.where(anyGoal)}`;
+  return { name: 'web.goals', sql, columns: goals.flatMap((_, i) => [`g${i}_n`, `g${i}_u`]) };
 }
 
 function totalsFrom(rows: Row[]): PanelTotals {
@@ -150,6 +268,19 @@ function entryExitFrom(rows: Row[], limit: number): PanelEntryExitRow[] {
   return rows.slice(0, limit).map((r) => ({ value: toText(r.path), entries: toNumber(r.entries), exits: toNumber(r.exits) }));
 }
 
+function goalsFrom(spec: ParsedWebSpec, rows: Row[], visitors: number): PanelWebGoalResult[] {
+  const row = rows[0] ?? {};
+  return (spec.goals ?? []).map((goal, i) => {
+    const unique = toNumber(row[`g${i}_u`]);
+    return {
+      label: goal.label,
+      conversions: toNumber(row[`g${i}_n`]),
+      uniqueConverters: unique,
+      conversionRate: visitors > 0 ? Math.min(unique / visitors, 1) : 0,
+    };
+  });
+}
+
 export async function runWeb(
   spec: ParsedWebSpec,
   ctx: PanelQueryContext,
@@ -158,13 +289,17 @@ export async function runWeb(
   const range = resolveRange(spec.dateRange, spec.timezone, ctx);
   const interval = webInterval(range);
   const previous = spec.compare ? previousBounds(range, range.floor) : null;
+  const panels = new Set<PanelWebPanel>(spec.panels ?? PANEL_WEB_DEFAULT_PANELS);
+  const defs = dimensions(ctx, spec).filter((def) => panels.has(def.key));
 
   const queries: PanelSqlQuery[] = [
     summaryQuery('web.summary', ctx, range, range, spec),
     seriesQuery('web.series', ctx, range, range, interval, spec),
-    entryExitQuery(ctx, range, spec),
-    ...DIMENSIONS.map((def) => dimensionQuery(def, ctx, range, spec)),
+    ...(panels.has('entryExitPages') ? [entryExitQuery(ctx, range, spec)] : []),
+    ...defs.map((def) => dimensionQuery(def, ctx, range, spec)),
   ];
+  const goals = goalsQuery(ctx, range, spec);
+  if (goals) queries.push(goals);
   if (previous) {
     queries.push(
       summaryQuery('web.summary.previous', ctx, range, previous, spec),
@@ -173,19 +308,30 @@ export async function runWeb(
   }
   const results = await run(queries);
   const at = (name: string): Row[] => results[queries.findIndex((q) => q.name === name)] ?? [];
+  const list = (key: DimensionKey) => breakdownFrom(at(`web.${key}`));
 
-  const lists = Object.fromEntries(DIMENSIONS.map((def) => [def.key, breakdownFrom(at(`web.${def.key}`))])) as Record<
-    DimensionDef['key'],
-    PanelBreakdownRow[]
-  >;
-  return {
+  const totals = totalsFrom(at('web.summary'));
+  const result: PanelWebResult = {
     range: toResolvedRange(range, previous),
     interval,
-    totals: totalsFrom(at('web.summary')),
+    totals,
     previousTotals: previous ? totalsFrom(at('web.summary.previous')) : null,
     series: seriesFrom(at('web.series'), range, interval, range.offsetMinutes),
     previousSeries: previous ? seriesFrom(at('web.series.previous'), previous, interval, range.offsetMinutes) : null,
     entryExitPages: entryExitFrom(at('web.entryExit'), spec.limit),
-    ...lists,
+    topPages: list('topPages'),
+    sources: list('sources'),
+    utmSources: list('utmSources'),
+    utmMediums: list('utmMediums'),
+    utmCampaigns: list('utmCampaigns'),
+    countries: list('countries'),
+    devices: list('devices'),
+    browsers: list('browsers'),
+    operatingSystems: list('operatingSystems'),
   };
+  for (const key of ['hostnames', 'regions', 'cities', 'channels', 'screenSizes'] as const) {
+    if (panels.has(key)) result[key] = list(key);
+  }
+  if (spec.goals && spec.goals.length > 0) result.goals = goalsFrom(spec, at('web.goals'), totals.visitors);
+  return result;
 }

@@ -61,6 +61,11 @@ import type {
   UpdatePanelReportInput,
 } from '../schemas/weldpanel-objects';
 import type {
+  CreatePanelDashboardFromTemplateInput,
+  PanelDashboardTemplateDto,
+  PanelTemplateLocale,
+} from '../schemas/weldpanel-collab';
+import type {
   PanelDeviceClass,
   PanelHeatmapSpec,
   PanelQueryKind,
@@ -152,8 +157,17 @@ export function createWeldPanelApi(api: ClientApi) {
       get(id: string): Promise<DataResponse<PanelDashboardDetailDto>> {
         return api.get(`${panel}/dashboards/${id}`);
       },
+      /** Name, description, visibility and dashboard-wide `filters` (date range + filters on every report tile). */
       create(input: CreatePanelDashboardInput): Promise<DataResponse<PanelDashboardDto>> {
         return api.post(`${panel}/dashboards`, input);
+      },
+      /** The built-in templates, in `locale` (else the request's language). */
+      templates(locale?: PanelTemplateLocale): Promise<ListResponse<PanelDashboardTemplateDto>> {
+        return api.get(`${panel}/dashboards/templates${buildQueryString({ locale })}`);
+      },
+      /** Creates the template's reports and the dashboard; answers the dashboard as `get` does. */
+      createFromTemplate(input: CreatePanelDashboardFromTemplateInput): Promise<DataResponse<PanelDashboardDetailDto>> {
+        return api.post(`${panel}/dashboards/from-template`, input);
       },
       update(id: string, input: UpdatePanelDashboardInput): Promise<DataResponse<PanelDashboardDto>> {
         return api.patch(`${panel}/dashboards/${id}`, input);
@@ -161,9 +175,11 @@ export function createWeldPanelApi(api: ClientApi) {
       remove(id: string): Promise<void> {
         return api.delete(`${panel}/dashboards/${id}`);
       },
+      /** A report tile (`{ reportId, layout }`) or a text tile (`{ kind: 'text', text, layout }`). */
       addTile(id: string, input: AddPanelDashboardTileInput): Promise<DataResponse<PanelDashboardTileDto>> {
         return api.post(`${panel}/dashboards/${id}/tiles`, input);
       },
+      /** Move or resize a tile, or change a text tile's text. */
       updateTile(id: string, tileId: string, input: UpdatePanelDashboardTileInput): Promise<DataResponse<PanelDashboardTileDto>> {
         return api.patch(`${panel}/dashboards/${id}/tiles/${tileId}`, input);
       },

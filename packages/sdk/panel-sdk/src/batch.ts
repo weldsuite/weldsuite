@@ -1,5 +1,24 @@
-import { isoTime, LIB_VERSION, normalizeEvent, normalizePeopleOp, utf8Length, type EventInput, type PeopleOpInput } from './event';
-import { MAX_BATCH_BYTES, MAX_EVENTS_PER_BATCH, MAX_PEOPLE_OPS_PER_BATCH, type EventBatch, type WireEvent, type WirePeopleOp } from './wire';
+import {
+  isoTime,
+  LIB_VERSION,
+  normalizeEvent,
+  normalizeGroupOp,
+  normalizePeopleOp,
+  utf8Length,
+  type EventInput,
+  type GroupOpInput,
+  type PeopleOpInput,
+} from './event';
+import {
+  MAX_BATCH_BYTES,
+  MAX_EVENTS_PER_BATCH,
+  MAX_GROUP_OPS_PER_BATCH,
+  MAX_PEOPLE_OPS_PER_BATCH,
+  type EventBatch,
+  type WireEvent,
+  type WireGroupOp,
+  type WirePeopleOp,
+} from './wire';
 
 export interface BatchInput {
   /** The project token (`wpk_…`). */
@@ -13,6 +32,11 @@ export interface BatchInput {
    * the event batches are left out.
    */
   people?: ReadonlyArray<PeopleOpInput | WirePeopleOp>;
+  /**
+   * Group profile operations: like `people`, but sent with or without consent
+   * (they describe a company or an account, not the visitor).
+   */
+  groups?: ReadonlyArray<GroupOpInput | WireGroupOp>;
   /** Defaults to now. */
   sentAt?: string | number | Date;
   /** Defaults to this package's version. */
@@ -22,10 +46,11 @@ export interface BatchInput {
 /**
  * The bodies the SDK POSTs to `{collector}/e` for these events: each one at
  * most {@link MAX_EVENTS_PER_BATCH} events, {@link MAX_PEOPLE_OPS_PER_BATCH}
- * profile operations and {@link MAX_BATCH_BYTES} bytes of JSON. Events are run
- * through {@link normalizeEvent} and operations through
- * {@link normalizePeopleOp}; those that cannot be made valid, or that would
- * not fit in a batch, are left out.
+ * profile operations, {@link MAX_GROUP_OPS_PER_BATCH} group operations and
+ * {@link MAX_BATCH_BYTES} bytes of JSON. Events are run through
+ * {@link normalizeEvent} and operations through {@link normalizePeopleOp} /
+ * {@link normalizeGroupOp}; those that cannot be made valid, or that would not
+ * fit in a batch, are left out.
  *
  * Pure apart from filling a missing `event_id`, `ts` or `sentAt`. This is the
  * function the transport uses, so a test that validates its output against the
@@ -65,22 +90,24 @@ export function buildBatches(input: BatchInput): EventBatch[] {
   }
 
   if (input.consent && input.people) {
-    for (const raw of input.people) addPeopleOp(batches, sizes, normalizePeopleOp(raw as PeopleOpInput));
+    for (const raw of input.people) addOp(batches, sizes, 'people', MAX_PEOPLE_OPS_PER_BATCH, normalizePeopleOp(raw as PeopleOpInput));
   }
+  for (const raw of input.groups || []) addOp(batches, sizes, 'groups', MAX_GROUP_OPS_PER_BATCH, normalizeGroupOp(raw as GroupOpInput));
   return batches;
 }
 
-/** Puts a profile operation in the first batch with room for it; `sizes` tracks each batch's JSON bytes. */
-function addPeopleOp(batches: EventBatch[], sizes: number[], op: WirePeopleOp | null): void {
+/** Puts an operation in the first batch with room for it; `sizes` tracks each batch's JSON bytes. */
+function addOp(batches: EventBatch[], sizes: number[], field: 'people' | 'groups', max: number, op: WirePeopleOp | WireGroupOp | null): void {
   if (!op) return;
   const n = utf8Length(JSON.stringify(op));
   for (let i = 0; i < batches.length; i++) {
-    const people = batches[i].people;
-    // `,"people":[` + `]` the first time, a comma after that.
-    const extra = people ? n + 1 : n + 12;
-    if ((people?.length ?? 0) >= MAX_PEOPLE_OPS_PER_BATCH || sizes[i] + extra > MAX_BATCH_BYTES) continue;
-    if (people) people.push(op);
-    else batches[i].people = [op];
+    const list = batches[i][field] as Array<WirePeopleOp | WireGroupOp> | undefined;
+    // `,"people":[` / `,"groups":[` + `]` the first time, a comma after that.
+    const extra = list ? n + 1 : n + 12;
+    if ((list ? list.length : 0) >= max || sizes[i] + extra > MAX_BATCH_BYTES) continue;
+    if (list) list.push(op);
+    else if (field === 'people') batches[i].people = [op as WirePeopleOp];
+    else batches[i].groups = [op as WireGroupOp];
     sizes[i] += extra;
     return;
   }

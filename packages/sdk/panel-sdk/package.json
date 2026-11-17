@@ -1,6 +1,6 @@
 {
   "name": "@weldsuite/panel-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "WeldPanel analytics SDK: pageviews, clicks, custom events, identity, frustration signals and session recordings for websites and web apps",
   "license": "MIT",
   "private": true,
@@ -9,7 +9,9 @@
     "./src/global.ts",
     "./src/recorder-global.ts",
     "./dist/panel.global.js",
-    "./dist/panel-recorder.global.js"
+    "./src/vitals-global.ts",
+    "./dist/panel-recorder.global.js",
+    "./dist/panel-vitals.global.js"
   ],
   "exports": {
     ".": "./src/index.ts",
@@ -17,8 +19,10 @@
     "./install": "./src/install.ts",
     "./recorder": "./src/recorder.ts",
     "./server": "./src/server.ts",
+    "./vitals": "./src/vitals.ts",
     "./dist/panel.global.js": "./dist/panel.global.js",
-    "./dist/panel-recorder.global.js": "./dist/panel-recorder.global.js"
+    "./dist/panel-recorder.global.js": "./dist/panel-recorder.global.js",
+    "./dist/panel-vitals.global.js": "./dist/panel-vitals.global.js"
   },
   "scripts": {
     "build": "node build.mjs",

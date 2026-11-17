@@ -178,8 +178,10 @@ const STUB: &str = concat!(
     "!function(w,p,s){p=w.weldpanel=w.weldpanel||{q:[]};if(!p.q)return;",
     "s=function(n){return function(){p.q.push([n,[].slice.call(arguments)])}};",
     "p.track=s(\"track\");p.identify=s(\"identify\");p.reset=s(\"reset\");p.optOut=s(\"optOut\");p.optIn=s(\"optIn\");p.flush=s(\"flush\");",
+    "p.register=s(\"register\");p.registerOnce=s(\"registerOnce\");p.unregister=s(\"unregister\");p.group=s(\"group\");p.resetGroups=s(\"resetGroups\");",
     "p.consent={grant:s(\"consent.grant\"),revoke:s(\"consent.revoke\")};",
-    "p.people={set:s(\"people.set\"),set_once:s(\"people.set_once\"),unset:s(\"people.unset\"),increment:s(\"people.increment\")}}(window);",
+    "p.people={set:s(\"people.set\"),set_once:s(\"people.set_once\"),unset:s(\"people.unset\"),increment:s(\"people.increment\")};",
+    "p.groups={set:s(\"groups.set\"),set_once:s(\"groups.set_once\"),unset:s(\"groups.unset\")}}(window);",
 );
 
 fn attr(value: &str) -> String {

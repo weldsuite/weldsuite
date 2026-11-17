@@ -67,6 +67,8 @@ export interface Env {
   HELPDESK_WORKFLOW?: Fetcher;
   /** board-api's BoardsInternal entrypoint: the deprecated /v1/whiteboards on WeldBoard boards. */
   BOARDS_INTERNAL?: Fetcher;
+  /** panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel (the weldpanel_* tools). */
+  PANEL_INTERNAL?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
   /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */

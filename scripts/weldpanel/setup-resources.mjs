@@ -4,7 +4,7 @@
  * (weldsuite-documentation/plans/weldpanel.md, "Basin tables" and "Recordings"):
  *
  *   streams    one Basin stream per table (events_v1, identities_v1,
- *              people_v1, replay_chunks_v1), with the schema files in
+ *              people_v1, groups_v1, replay_chunks_v1), with the schema files in
  *              packages/domains/panel/src/
  *   bucket     the private EU-jurisdiction replays bucket and its lifecycle
  *              rules (30d/, 90d/, keep/, snapshots/)
@@ -41,6 +41,7 @@ const TABLES = [
   { key: 'events', table: 'events_v1', schema: 'events-v1-schema.json' },
   { key: 'identities', table: 'identities_v1', schema: 'identities-v1-schema.json' },
   { key: 'people', table: 'people_v1', schema: 'people-v1-schema.json' },
+  { key: 'groups', table: 'groups_v1', schema: 'groups-v1-schema.json' },
   { key: 'replay_chunks', table: 'replay_chunks_v1', schema: 'replay-chunks-v1-schema.json' },
 ];
 

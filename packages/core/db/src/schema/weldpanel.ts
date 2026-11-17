@@ -49,7 +49,7 @@ export type PanelMaskingLevel = (typeof PANEL_MASKING_LEVELS)[number];
 export const PANEL_CONSENT_MODES = ['required', 'none'] as const;
 export type PanelConsentMode = (typeof PANEL_CONSENT_MODES)[number];
 
-export const PANEL_REPORT_KINDS = ['web', 'trends', 'funnel', 'retention', 'flows'] as const;
+export const PANEL_REPORT_KINDS = ['web', 'trends', 'funnel', 'retention', 'flows', 'stickiness', 'lifecycle', 'vitals', 'impact', 'signal'] as const;
 export type PanelReportKind = (typeof PANEL_REPORT_KINDS)[number];
 
 export const PANEL_VISIBILITIES = ['private', 'workspace'] as const;
