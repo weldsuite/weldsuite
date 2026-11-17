@@ -606,7 +606,13 @@ describe('WeldChatCallProvider · connecting fast', () => {
 
   it('joins a listed call with POST /join alone, taking the channel and type from its answer', async () => {
     api.post.mockImplementation(async () => ({
-      data: { callId: 'call_5', channelId: 'ch_5', callType: 'video', authToken: 'tok_5', participants: [] },
+      data: {
+        callId: 'call_5',
+        channelId: 'ch_5',
+        callType: 'video',
+        authToken: 'tok_5',
+        participants: [{ userId: 'user_host', leftAt: null }, { userId: 'user_gone', leftAt: '2026-11-17T15:00:00.000Z' }],
+      },
     }));
     mountChat();
 
@@ -622,6 +628,7 @@ describe('WeldChatCallProvider · connecting fast', () => {
     );
     expect(call.channelId).toBe('ch_5');
     expect(call.callType).toBe('video');
+    expect(call.callMemberIds).toEqual(['user_host']);
   });
 
   it('still joins against a server that leaves the channel out of the answer', async () => {
@@ -882,6 +889,28 @@ describe('WeldChatCallProvider · answering fast', () => {
     publish('call_incoming', incomingCall('call_2'));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/chat-calls/call_2/prepare', {}));
+  });
+
+  it('remembers who was in the call when it was answered, for the room to show them as connecting', async () => {
+    preparedTokens(async () => ({
+      data: {
+        callId: 'call_2',
+        authToken: 'tok_join',
+        participants: [
+          { userId: 'user_caller', leftAt: null },
+          { userId: 'user_me', leftAt: null },
+        ],
+      },
+    }));
+    mountChat({ coordinator: true });
+    publish('call_incoming', incomingCall('call_2'));
+
+    await act(async () => {
+      await call.acceptIncomingCall();
+    });
+
+    expect(call.isCallInitiator).toBe(false);
+    expect(call.callMemberIds).toEqual(['user_caller', 'user_me']);
   });
 
   it('connects with the prepared token on accept, without fetching the call first', async () => {
