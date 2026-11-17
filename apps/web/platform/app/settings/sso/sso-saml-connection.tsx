@@ -214,7 +214,9 @@ export function SsoSamlConnectionForm({ connection, onSaved, onCancel }: Readonl
             </FormItem>
           )}
         />
-        {source === 'url' ? (
+        {/* Both stay mounted (the other one hidden): a field that unmounts
+            loses its value in react-hook-form, and its rule would then fail. */}
+        <div hidden={source !== 'url'}>
           <FormField
             control={form.control}
             name="metadataUrl"
@@ -237,7 +239,8 @@ export function SsoSamlConnectionForm({ connection, onSaved, onCancel }: Readonl
               </FormItem>
             )}
           />
-        ) : (
+        </div>
+        <div hidden={source !== 'file'}>
           <FormField
             control={form.control}
             name="metadataXml"
@@ -260,7 +263,7 @@ export function SsoSamlConnectionForm({ connection, onSaved, onCancel }: Readonl
               </FormItem>
             )}
           />
-        )}
+        </div>
         <FormField
           control={form.control}
           name="trustEmails"
