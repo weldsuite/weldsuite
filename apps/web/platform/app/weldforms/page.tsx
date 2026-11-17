@@ -95,12 +95,15 @@ export default function WeldFormsHome() {
   const forms = status.except ? query.forms.filter((form) => form.status !== status.except) : query.forms;
   // When that leaves none of the loaded rows, the list has no row to scroll to and
   // never asks for more, so load the next page here until a row is left or none remain.
+  // A page that fails stops it (retrying here would loop on a persistent error) and
+  // shows the error in place of the list.
   const filteredAway = Boolean(status.except) && forms.length === 0 && query.forms.length > 0;
-  const searchingFurther = filteredAway && query.hasNextPage;
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query;
+  const searchingFurther = filteredAway && hasNextPage && !isFetchNextPageError;
+  const searchFailed = filteredAway && isFetchNextPageError;
   useEffect(() => {
-    if (filteredAway && hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [filteredAway, hasNextPage, isFetchingNextPage, fetchNextPage]);
+    if (searchingFurther && !isFetchingNextPage) void fetchNextPage();
+  }, [searchingFurther, isFetchingNextPage, fetchNextPage]);
   // Every form, those outside a folder included. Unfiltered, this is the same
   // query (and cache entry) as the "All forms" list, so it costs no extra request there.
   const allForms = useForms({ sort: sort.sort });
@@ -219,8 +222,8 @@ export default function WeldFormsHome() {
         {/* The toolbar's left side is hidden on small screens; the folder picker shows here instead. */}
         <div className="border-b px-3 py-2 md:hidden">{folderMenu}</div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {query.error && !query.data ? (
-            <ErrorState message={t.weldforms.loadFailed} onRetry={() => void query.refetch()} retryLabel={t.common.actions.retry} />
+          {(query.error && !query.data) || searchFailed ? (
+            <ErrorState message={t.weldforms.loadFailed} onRetry={() => void (searchFailed ? fetchNextPage() : query.refetch())} retryLabel={t.common.actions.retry} />
           ) : (
             <EntityList<FormSummary>
               items={forms}

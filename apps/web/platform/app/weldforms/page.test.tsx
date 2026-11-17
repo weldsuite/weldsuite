@@ -18,6 +18,7 @@ interface ListState {
   error: Error | null;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
 }
 
 const permissions = new Set<string>();
@@ -241,6 +242,7 @@ describe('WeldForms home page', () => {
       error: null,
       hasNextPage: false,
       isFetchingNextPage: false,
+      isFetchNextPageError: false,
     };
     folderData = [marketing];
     listCalls.length = 0;
@@ -361,6 +363,19 @@ describe('WeldForms home page', () => {
     // No row is left to scroll to, so the page asks for the next one itself and shows it is still looking.
     expect(fetchNextPage).toHaveBeenCalled();
     expect(screen.getByText('loading')).toBeTruthy();
+  });
+
+  it('stops looking when the next page fails, shows the error and retries that page', () => {
+    listState = { ...listState, forms: [draft], hasNextPage: true, isFetchNextPageError: true };
+    render(<WeldFormsHome />);
+    fireEvent.click(screen.getByText(`except ${en.weldforms.status.draft}`));
+    // No loop on a failing page: nothing is asked for until the member retries.
+    expect(fetchNextPage).not.toHaveBeenCalled();
+    expect(screen.queryByText('loading')).toBeNull();
+    expect(screen.getByText(en.weldforms.loadFailed)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: en.common.actions.retry }));
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    expect(refetch).not.toHaveBeenCalled();
   });
 
   it('stops looking when the last page leaves no row for an "is not" filter', () => {
