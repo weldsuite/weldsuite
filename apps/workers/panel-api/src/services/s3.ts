@@ -183,14 +183,18 @@ export async function putObject(
 ): Promise<void> {
   const url = safeObjectUrl(dest, key);
   const signed = await signRequest({ method: 'PUT', url, headers, body, credentials, region: dest.region, now: options.now });
-  const res = await (options.fetch ?? fetch)(url, { method: 'PUT', headers: sendable(signed), body });
+  // The customer chooses where their export goes, so no fixed host allow-list
+  // fits; `safeObjectUrl` has just checked for a public https host name, and
+  // the bucket and region were regex-checked on save (ADR PANEL-011).
+  const res = await (options.fetch ?? fetch)(url, { method: 'PUT', headers: sendable(signed), body }); // NOSONAR: S5144 reviewed, see above
   if (!res.ok) throw await s3Failure(res);
 }
 
 export async function deleteObject(dest: S3Destination, credentials: S3Credentials, key: string, options: S3CallOptions = {}): Promise<void> {
   const url = safeObjectUrl(dest, key);
   const signed = await signRequest({ method: 'DELETE', url, credentials, region: dest.region, now: options.now });
-  const res = await (options.fetch ?? fetch)(url, { method: 'DELETE', headers: sendable(signed) });
+  // Same customer-chosen, public-host-checked destination as `putObject`.
+  const res = await (options.fetch ?? fetch)(url, { method: 'DELETE', headers: sendable(signed) }); // NOSONAR: S5144 reviewed, see putObject
   if (!res.ok && res.status !== 404) throw await s3Failure(res);
 }
 
