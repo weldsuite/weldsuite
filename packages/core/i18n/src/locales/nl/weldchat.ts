@@ -91,6 +91,7 @@ export const weldchat = {
     },
     calling: {
       ringing: 'Gaat over…',
+      connecting: 'Verbinden…',
       autoEnded: 'Gesprek automatisch beëindigd na 3 minuten alleen.',
       reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
       reconnected: 'Je bent weer in het gesprek',
