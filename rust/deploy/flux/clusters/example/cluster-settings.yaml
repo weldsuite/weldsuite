@@ -30,6 +30,11 @@ data:
   # redirects; runbook step 7, item 2b). Empty until it is made: the apps
   # then can't sign in to this cluster.
   ZITADEL_MOBILE_CLIENT_ID: ""
+  # The desktop app's native application (PKCE, the loopback redirect
+  # http://127.0.0.1/callback; runbook step 7, item 2c). Optional: empty or
+  # absent, the desktop app signs in inside its window with the web
+  # application, where Google and Microsoft sign-in is refused.
+  ZITADEL_DESKTOP_CLIENT_ID: ""
   # The Zitadel organisation whose users may open Grafana (grafana.${DOMAIN})
   # and the staff admin console (admin.${DOMAIN}, ADR SEC-018; the WeldSuite
   # Staff org on WeldSuite's clusters): its id, from the organisation's
@@ -60,3 +65,25 @@ data:
   # unreachable (monitoring-config/ALERTS.md). Empty or left out: no store,
   # no probe.
   SECRET_STORE_URL: ""
+  # WeldID, opt-in (weldid.yaml here; infrastructure/weldid/README.md). Read
+  # only by its layers, so a cluster without WeldID may leave these out.
+  # The chart's release (X.Y.Z, oci://ghcr.io/weldsuite/charts/weldid),
+  # which installs the image of the same version.
+  WELDID_VERSION: "0.1.0"
+  # The passkeys' relying party id: auth.<DOMAIN> or a parent of it,
+  # normally DOMAIN itself. Chosen once, before WeldID's first start, and
+  # NEVER changed: every passkey is bound to it.
+  WELDID_RP_ID: weldsuite.example.com
+  # The public half of the server's admin API key (base64url x and y of its
+  # P-256 key), which `fill-secrets.mjs --weldid` prints when it makes the
+  # key. Empty or wrong: WeldID starts, but refuses every call the server
+  # makes to its admin API (sign-up, team changes, the identity sync).
+  WELDID_BACKEND_KEY_X: ""
+  WELDID_BACKEND_KEY_Y: ""
+  # Optional: WeldID's sender, when the platform's isn't the chart's
+  # default (infrastructure/weldid/values/weldid.yaml, mail.from).
+  # WELDID_MAIL_FROM: WeldSuite <notifications@mail.example.com>
+  # Optional: the path the auth. probe asks for (monitoring-config/
+  # probes.yaml). Zitadel's /debug/healthz by default; once sign-in is on
+  # WeldID, /.well-known/openid-configuration.
+  # AUTH_PROBE_PATH: /.well-known/openid-configuration

@@ -33,7 +33,12 @@ import { getRuntimeConfig } from '@/lib/runtime-config';
  * (`UNAVAILABLE_FEATURES` in `rust/bins/weldsuite/src/edition.rs`).
  */
 export const EDITION_FEATURES = [
-  /** SAML connections (`/api/sso` connection changes). */
+  /**
+   * Enterprise SSO connections (`/api/sso`): Clerk's SAML connections on
+   * Global; on the Kubernetes editions only with WeldID as the identity
+   * provider, as OpenID Connect connections (ADR SEC-019). Zitadel installs
+   * list it, and the settings page is hidden.
+   */
   'sso-connections',
   /** Plans, subscriptions, seats, payment methods and invoices (Stripe). */
   'billing',
@@ -52,7 +57,13 @@ export const EDITION_FEATURES = [
   'credit-top-up',
   /** Paid WeldApps: subscriptions and developer payouts (Stripe). */
   'paid-apps',
-  /** The desktop app's sign-in ticket (`/api/auth-desktop/ticket`). */
+  /**
+   * The desktop app's Clerk sign-in ticket (`/api/auth-desktop/ticket`, the
+   * `/auth/desktop-handoff` page): Global's desktop sign-in. It hides nothing
+   * else: on the OIDC editions the desktop app signs in through the system
+   * browser and a loopback redirect, which needs no ticket
+   * (`lib/auth/oidc/browser-sign-in.ts`).
+   */
   'desktop-sign-in',
   /** Analytics pages (Cloudflare's analytics store). */
   'analytics',

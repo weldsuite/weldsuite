@@ -8,13 +8,32 @@
 //! token. A request then counts against the workspace's per-minute limit on
 //! the cache's counters (the worker's `RateLimiter` Durable Object).
 //!
+//! In membership mode (`OIDC_WORKSPACE_SOURCE=header`, WeldID) the token
+//! names no workspace, and an MCP client can't send the platform's
+//! `X-Weld-Workspace` header, so the server URL names it instead:
+//! `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization id),
+//! checked against WeldSuite's own `user_workspaces` like the header
+//! ([`McpAuth::membership`]). A plain `/mcp` takes the user's only
+//! workspace; someone in several is told which URL to use. With a token
+//! that names its workspace (claim mode, Clerk) a workspace URL must name
+//! that same one.
+//!
+//! RFC 9728: every URL the endpoint answers on is its own resource, so the
+//! 401's `WWW-Authenticate` points at the metadata for the URL the client
+//! called (`/.well-known/oauth-protected-resource/mcp/w/<workspace>` for
+//! `/mcp/w/<workspace>`), whose `resource` is exactly that URL.
+//!
 //! The discovery documents follow the sign-in ([`Discovery`]): with Clerk
 //! they are Global's, field for field; with an OIDC provider they name its
 //! endpoints and the scopes its tokens need, and the authorization server's
-//! metadata is the provider's `openid-configuration`.
+//! metadata is the provider's `openid-configuration`. Whatever names one of
+//! the issuer's endpoints (Clerk's `token_introspection_endpoint` and
+//! `jwks_uri`, the authorization server document) comes from the issuer's
+//! own metadata, fetched once and reused ([`IssuerMetadata`]), never from a
+//! path built after one provider's layout.
 
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -25,7 +44,7 @@ use http::{HeaderValue, StatusCode, header};
 use serde_json::{Value, json};
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::TenantPermissionQueries;
-use weldsuite_db::{Tenant, WorkspaceError};
+use weldsuite_db::{SoleWorkspace, Tenant, WorkspaceError, WorkspaceSelector};
 use weldsuite_permissions::resolve_effective_permissions;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
 
@@ -44,6 +63,47 @@ const PROTECTED_RESOURCE_PATH: &str = "/.well-known/oauth-protected-resource";
 const AUTHORIZATION_SERVER_PATH: &str = "/.well-known/oauth-authorization-server";
 const OPENID_CONFIGURATION_PATH: &str = "/.well-known/openid-configuration";
 const RATE_WINDOW_SECONDS: u64 = 60;
+/// The endpoint (`lib.rs`'s router); `/mcp/w/<workspace>` names a workspace.
+pub const MCP_PATH: &str = "/mcp";
+/// What follows [`MCP_PATH`] when the URL names a workspace.
+const WORKSPACE_PREFIX: &str = "/w/";
+/// The longest workspace reference (the columns are 255 wide).
+const MAX_WORKSPACE_REFERENCE: usize = 255;
+
+/// A workspace path segment as it may appear in the endpoint's URL: a
+/// `workspaces.id`, slug or organization id, in URL-unreserved characters
+/// only, so it needs no decoding and the resource echoes it exactly.
+fn is_workspace_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.len() <= MAX_WORKSPACE_REFERENCE
+        && segment
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'))
+}
+
+/// The workspace a request path names: `Ok(None)` for `/mcp`,
+/// `Ok(Some(..))` for `/mcp/w/<workspace>`, `Err(())` for any other path.
+fn path_workspace(path: &str) -> Result<Option<&str>, ()> {
+    let rest = path.strip_prefix(MCP_PATH).ok_or(())?;
+    if rest.is_empty() {
+        return Ok(None);
+    }
+    let segment = rest.strip_prefix(WORKSPACE_PREFIX).ok_or(())?;
+    if is_workspace_segment(segment) {
+        Ok(Some(segment))
+    } else {
+        Err(())
+    }
+}
+
+/// The resource a request path is for, as the path RFC 9728 puts after the
+/// well-known suffix: `/mcp`, or `/mcp/w/<workspace>`.
+fn resource_path(path: &str) -> String {
+    match path_workspace(path) {
+        Ok(Some(workspace)) => format!("{MCP_PATH}{WORKSPACE_PREFIX}{workspace}"),
+        _ => MCP_PATH.to_owned(),
+    }
+}
 
 /// Who signs MCP clients in, which shapes the discovery documents.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +148,46 @@ impl Discovery {
     }
 }
 
+/// How long the issuer's metadata is reused, and how long a failed fetch
+/// waits before the next.
+const METADATA_TTL: Duration = Duration::from_secs(3600);
+const METADATA_RETRY: Duration = Duration::from_secs(60);
+
+/// The issuer's metadata, as last fetched: reused for [`METADATA_TTL`]; a
+/// failed fetch is tried again after [`METADATA_RETRY`].
+#[derive(Debug, Default)]
+pub struct IssuerMetadata {
+    fetched: Mutex<Option<(Instant, Fetched)>>,
+}
+
+/// What the last fetch gave.
+#[derive(Debug, Clone)]
+enum Fetched {
+    Document(Value),
+    Failed,
+}
+
+impl IssuerMetadata {
+    /// The last fetch's outcome while it is fresh.
+    fn cached(&self) -> Option<Fetched> {
+        let fetched = self.fetched.lock().unwrap_or_else(PoisonError::into_inner);
+        let (at, outcome) = fetched.as_ref()?;
+        let ttl = match outcome {
+            Fetched::Document(_) => METADATA_TTL,
+            Fetched::Failed => METADATA_RETRY,
+        };
+        (at.elapsed() < ttl).then(|| outcome.clone())
+    }
+
+    fn store(&self, metadata: Option<&Value>) {
+        let outcome = metadata.map_or(Fetched::Failed, |document| {
+            Fetched::Document(document.clone())
+        });
+        *self.fetched.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some((Instant::now(), outcome));
+    }
+}
+
 /// The verifier and what discovery names.
 pub struct McpAuth {
     pub verifier: Arc<SessionVerifier>,
@@ -98,6 +198,30 @@ pub struct McpAuth {
     pub server_url: String,
     pub outbound: Option<OutboundHttp>,
     pub discovery: Discovery,
+    /// The issuer's metadata, cached.
+    pub metadata: IssuerMetadata,
+    /// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): the platform's
+    /// workspace check, which the URL's workspace goes through instead of a
+    /// token claim. `None` when the token names the workspace.
+    pub membership: Option<WorkspaceSelector>,
+}
+
+impl McpAuth {
+    /// The issuer's metadata ([`authorization_server_metadata`]), from the
+    /// cache when it is fresh.
+    async fn issuer_metadata(&self) -> Option<Value> {
+        match self.metadata.cached() {
+            Some(Fetched::Document(document)) => return Some(document),
+            Some(Fetched::Failed) => return None,
+            None => {}
+        }
+        let (Some(issuer), Some(outbound)) = (&self.issuer, &self.outbound) else {
+            return None;
+        };
+        let fetched = authorization_server_metadata(issuer, outbound, &self.discovery).await;
+        self.metadata.store(fetched.as_ref());
+        fetched
+    }
 }
 
 impl std::fmt::Debug for McpAuth {
@@ -106,6 +230,7 @@ impl std::fmt::Debug for McpAuth {
             .field("issuer", &self.issuer)
             .field("server_url", &self.server_url)
             .field("discovery", &self.discovery)
+            .field("membership", &self.membership.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -138,11 +263,71 @@ fn jsonrpc_error(status: StatusCode, code: i64, message: &str) -> Response {
         .into_response()
 }
 
-fn metadata_url(server_url: &str) -> String {
+/// The protected-resource metadata of the resource at `resource_path`
+/// (RFC 9728 §3.1: the well-known suffix goes between the host and the path).
+fn metadata_url(server_url: &str, resource_path: &str) -> String {
     format!(
-        "{}{PROTECTED_RESOURCE_PATH}",
+        "{}{PROTECTED_RESOURCE_PATH}{resource_path}",
         server_url.trim_end_matches('/')
     )
+}
+
+/// The 401's challenge for a request to `path`: where its resource's
+/// metadata is.
+pub fn bearer_challenge(server_url: &str, path: &str) -> Option<HeaderValue> {
+    HeaderValue::from_str(&format!(
+        "Bearer resource_metadata=\"{}\"",
+        metadata_url(server_url, &resource_path(path))
+    ))
+    .ok()
+}
+
+fn forbidden(message: &str) -> Response {
+    jsonrpc_error(StatusCode::FORBIDDEN, -32003, message)
+}
+
+fn workspace_lookup_failed(error: &WorkspaceError) -> Response {
+    tracing::error!(%error, "mcp auth: workspace lookup failed");
+    jsonrpc_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        -32603,
+        "Could not resolve workspace.",
+    )
+}
+
+/// Whether a workspace URL's reference is `tenant`, by its id or
+/// organization id (claim mode; the slug is not at hand there).
+fn names_tenant(reference: &str, tenant: &Tenant) -> bool {
+    reference == tenant.workspace_id || tenant.clerk_org_id.as_deref() == Some(reference)
+}
+
+/// Membership mode: the workspace the URL names, or the user's only one,
+/// checked against WeldSuite's memberships like the platform's
+/// `X-Weld-Workspace`. The organization reference the tenant is found by.
+async fn membership_workspace(
+    selector: &WorkspaceSelector,
+    user_id: &str,
+    named: Option<&str>,
+    server_url: &str,
+) -> Result<String, Response> {
+    if let Some(reference) = named {
+        return match selector.resolve(user_id, reference).await {
+            Ok(Some(org)) => Ok(org),
+            Ok(None) => Err(forbidden("You are not a member of this workspace.")),
+            Err(error) => Err(workspace_lookup_failed(&error)),
+        };
+    }
+    match selector.sole_workspace(user_id).await {
+        Ok(SoleWorkspace::One(org)) => Ok(org),
+        Ok(SoleWorkspace::Several) => Err(forbidden(&format!(
+            "Your account belongs to several workspaces, so this address doesn't say which one to use. Connect your MCP client to {}{MCP_PATH}{WORKSPACE_PREFIX}<workspace> instead, where <workspace> is the workspace's slug (as in WeldSuite's /w/<slug> addresses) or its id.",
+            server_url.trim_end_matches('/')
+        ))),
+        Ok(SoleWorkspace::None) => Err(forbidden(
+            "You are not a member of any workspace yet. Create or join one in WeldSuite first.",
+        )),
+        Err(error) => Err(workspace_lookup_failed(&error)),
+    }
 }
 
 /// `authMiddleware` then `rateLimitMiddleware`.
@@ -159,13 +344,18 @@ pub async fn authenticate(
             "MCP sign-in is not configured.",
         );
     };
+    let path = request.uri().path().to_owned();
+    let Ok(named_workspace) = path_workspace(&path).map(|named| named.map(str::to_owned)) else {
+        return jsonrpc_error(
+            StatusCode::NOT_FOUND,
+            -32600,
+            "Not found. The MCP endpoint is /mcp, or /mcp/w/<workspace> for one workspace.",
+        );
+    };
     let unauthorized = |message: &str, diagnostic: &str| {
         tracing::warn!(diagnostic, "mcp auth: 401");
         let mut response = jsonrpc_error(StatusCode::UNAUTHORIZED, -32001, message);
-        if let Ok(value) = HeaderValue::from_str(&format!(
-            "Bearer resource_metadata=\"{}\"",
-            metadata_url(&auth.server_url)
-        )) {
+        if let Some(value) = bearer_challenge(&auth.server_url, &path) {
             response
                 .headers_mut()
                 .insert(header::WWW_AUTHENTICATE, value);
@@ -193,11 +383,26 @@ pub async fn authenticate(
             return unauthorized("Invalid or expired access token.", &error.to_string());
         }
     };
-    let Some(org) = context.org_id.clone() else {
-        return unauthorized(
-            auth.discovery.no_organization_message(),
-            "no organization claim",
-        );
+    let org = if let Some(selector) = &auth.membership {
+        match membership_workspace(
+            selector,
+            &context.user_id,
+            named_workspace.as_deref(),
+            &auth.server_url,
+        )
+        .await
+        {
+            Ok(org) => org,
+            Err(refused) => return refused,
+        }
+    } else {
+        let Some(org) = context.org_id.clone() else {
+            return unauthorized(
+                auth.discovery.no_organization_message(),
+                "no organization claim",
+            );
+        };
+        org
     };
     let tenant = match state.workspaces.tenant(&org).await {
         Ok(tenant) => tenant,
@@ -208,15 +413,17 @@ pub async fn authenticate(
                 "No WeldSuite workspace is linked to the selected organization.",
             );
         }
-        Err(error) => {
-            tracing::error!(%error, "mcp auth: workspace lookup failed");
-            return jsonrpc_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                -32603,
-                "Could not resolve workspace.",
-            );
-        }
+        Err(error) => return workspace_lookup_failed(&error),
     };
+    // A token that names its workspace: a workspace URL must name that one.
+    if auth.membership.is_none()
+        && let Some(named) = named_workspace.as_deref()
+        && !names_tenant(named, &tenant)
+    {
+        return forbidden(
+            "This token is for another workspace than the one this address names. Connect to /mcp, or sign in again for this workspace.",
+        );
+    }
     let queries = TenantPermissionQueries::new(tenant.db.clone());
     let resolved = match resolve_effective_permissions(&queries, &context.user_id).await {
         Ok(resolved) => resolved,
@@ -389,12 +596,30 @@ fn metadata_cors(mut response: Response) -> Response {
     response
 }
 
-/// RFC 9728's document for `{server_url}{resource_path}`.
+/// One of the issuer's endpoints from its metadata, else where Clerk keeps
+/// it (`fallback`, under the issuer).
+fn issuer_endpoint(metadata: Option<&Value>, field: &str, issuer: &str, fallback: &str) -> String {
+    metadata
+        .and_then(|metadata| metadata.get(field))
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map_or_else(
+            || format!("{}{fallback}", issuer.trim_end_matches('/')),
+            str::to_owned,
+        )
+}
+
+/// RFC 9728's document for `{server_url}{resource_path}`. With Clerk it
+/// names the issuer's token endpoint and keys as Clerk's MCP tooling does,
+/// taken from the issuer's `metadata` (Clerk's own paths until it has
+/// answered); an OIDC provider's document names neither, as RFC 9728 means
+/// those fields for the resource's own.
 fn protected_resource_document(
     issuer: &str,
     server_url: &str,
     resource_path: &str,
     discovery: &Discovery,
+    metadata: Option<&Value>,
 ) -> Value {
     let resource = format!("{}{resource_path}", server_url.trim_end_matches('/'));
     match discovery {
@@ -402,9 +627,9 @@ fn protected_resource_document(
             "resource": resource,
             "authorization_servers": [issuer],
             "token_types_supported": ["urn:ietf:params:oauth:token-type:access_token"],
-            "token_introspection_endpoint": format!("{issuer}/oauth/token"),
+            "token_introspection_endpoint": issuer_endpoint(metadata, "token_endpoint", issuer, "/oauth/token"),
             "token_introspection_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
-            "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
+            "jwks_uri": issuer_endpoint(metadata, "jwks_uri", issuer, "/.well-known/jwks.json"),
             "authorization_data_types_supported": ["oauth_scope"],
             "authorization_data_locations_supported": ["header", "body"],
             "key_challenges_supported": [{ "challenge_type": "urn:ietf:params:oauth:pkce:code_challenge", "challenge_algs": ["S256"] }],
@@ -421,7 +646,7 @@ fn protected_resource_document(
     }
 }
 
-fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
+async fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
     let Some(issuer) = &auth.issuer else {
         return metadata_cors(
             (
@@ -431,12 +656,18 @@ fn protected_resource(auth: &McpAuth, resource_path: &str) -> Response {
                 .into_response(),
         );
     };
+    // Only Clerk's document names the issuer's endpoints.
+    let metadata = match auth.discovery {
+        Discovery::Clerk => auth.issuer_metadata().await,
+        Discovery::Oidc { .. } => None,
+    };
     metadata_cors(
         axum::Json(protected_resource_document(
             issuer,
             &auth.server_url,
             resource_path,
             &auth.discovery,
+            metadata.as_ref(),
         ))
         .into_response(),
     )
@@ -467,13 +698,7 @@ async fn authorization_server_metadata(
 }
 
 async fn authorization_server(auth: &McpAuth) -> Response {
-    let metadata = match (&auth.issuer, &auth.outbound) {
-        (Some(issuer), Some(outbound)) => {
-            authorization_server_metadata(issuer, outbound, &auth.discovery).await
-        }
-        _ => None,
-    };
-    match metadata {
+    match auth.issuer_metadata().await {
         Some(metadata) => metadata_cors(axum::Json(metadata).into_response()),
         None => metadata_cors(
             (
@@ -485,18 +710,39 @@ async fn authorization_server(auth: &McpAuth) -> Response {
     }
 }
 
-/// The discovery documents, unauthenticated, at their root paths.
+/// The discovery documents, unauthenticated, at their root paths. Each
+/// protected-resource document answers for the URL it was looked up for
+/// (RFC 9728 §3.3): the bare one for the origin, `…/mcp` for the endpoint,
+/// `…/mcp/w/<workspace>` for one workspace's endpoint.
 pub fn well_known_router(auth: Arc<McpAuth>) -> Router {
     let preflight = || async { metadata_cors(StatusCode::NO_CONTENT.into_response()) };
-    let (a, b, c) = (Arc::clone(&auth), Arc::clone(&auth), auth);
+    let (a, b, c, d) = (
+        Arc::clone(&auth),
+        Arc::clone(&auth),
+        Arc::clone(&auth),
+        auth,
+    );
     Router::new()
         .route(
             PROTECTED_RESOURCE_PATH,
-            get(move || async move { protected_resource(&a, "") }).options(preflight),
+            get(move || async move { protected_resource(&a, "").await }).options(preflight),
         )
         .route(
             "/.well-known/oauth-protected-resource/mcp",
-            get(move || async move { protected_resource(&b, "/mcp") }).options(preflight),
+            get(move || async move { protected_resource(&b, MCP_PATH).await }).options(preflight),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp/w/{workspace}",
+            get(
+                move |axum::extract::Path(workspace): axum::extract::Path<String>| async move {
+                    if !is_workspace_segment(&workspace) {
+                        return metadata_cors(StatusCode::NOT_FOUND.into_response());
+                    }
+                    let path = format!("{MCP_PATH}{WORKSPACE_PREFIX}{workspace}");
+                    protected_resource(&d, &path).await
+                },
+            )
+            .options(preflight),
         )
         .route(
             AUTHORIZATION_SERVER_PATH,
@@ -552,11 +798,17 @@ mod tests {
     #[test]
     fn protected_resource_names_the_oidc_provider_only() {
         let discovery = Discovery::oidc(Some("397"), "urn:zitadel:iam:org:project:397:roles");
+        let metadata = json!({
+            "issuer": "https://auth.example.eu",
+            "token_endpoint": "https://auth.example.eu/oauth/token",
+            "jwks_uri": "https://auth.example.eu/oauth/jwks",
+        });
         let document = protected_resource_document(
             "https://auth.example.eu",
             "https://app.example.eu/",
             "/mcp",
             &discovery,
+            Some(&metadata),
         );
         assert_eq!(
             document,
@@ -571,18 +823,127 @@ mod tests {
                 "bearer_methods_supported": ["header"],
             })
         );
+        // Clerk's document, before Clerk's metadata has been read: Clerk's paths.
         let clerk = protected_resource_document(
             "https://clerk.example.org",
             "https://mcp.example.org",
             "",
             &Discovery::Clerk,
+            None,
         );
         assert_eq!(clerk["resource"], "https://mcp.example.org");
         assert_eq!(
             clerk["jwks_uri"],
             "https://clerk.example.org/.well-known/jwks.json"
         );
+        assert_eq!(
+            clerk["token_introspection_endpoint"],
+            "https://clerk.example.org/oauth/token"
+        );
         assert_eq!(clerk["scopes_supported"], json!(CLERK_SCOPES));
+    }
+
+    #[test]
+    fn the_issuers_endpoints_come_from_its_metadata() {
+        let metadata = json!({
+            "issuer": "https://clerk.example.org",
+            "token_endpoint": "https://clerk.example.org/v2/oauth/token",
+            "jwks_uri": "https://keys.example.org/jwks.json",
+        });
+        let clerk = protected_resource_document(
+            "https://clerk.example.org",
+            "https://mcp.example.org",
+            "/mcp",
+            &Discovery::Clerk,
+            Some(&metadata),
+        );
+        assert_eq!(
+            clerk["token_introspection_endpoint"],
+            "https://clerk.example.org/v2/oauth/token"
+        );
+        assert_eq!(clerk["jwks_uri"], "https://keys.example.org/jwks.json");
+        // A field the metadata lacks keeps Clerk's path.
+        let partial = json!({ "issuer": "https://clerk.example.org", "jwks_uri": "" });
+        assert_eq!(
+            issuer_endpoint(
+                Some(&partial),
+                "jwks_uri",
+                "https://clerk.example.org/",
+                "/.well-known/jwks.json"
+            ),
+            "https://clerk.example.org/.well-known/jwks.json"
+        );
+    }
+
+    /// Counts its calls; answers the discovery document with `issuer`, or
+    /// fails while `down`.
+    struct Counting {
+        calls: std::sync::atomic::AtomicUsize,
+        down: std::sync::atomic::AtomicBool,
+    }
+
+    impl weldsuite_ports::DynOutboundHttp for Counting {
+        fn send(
+            &self,
+            request: HttpRequest,
+        ) -> weldsuite_ports::BoxFuture<
+            '_,
+            Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>,
+        > {
+            use std::sync::atomic::Ordering;
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let response = if self.down.load(Ordering::SeqCst) {
+                weldsuite_ports::HttpResponse::new(503, b"down".to_vec())
+            } else {
+                assert_eq!(
+                    request.url,
+                    "https://auth.example.eu/.well-known/openid-configuration"
+                );
+                weldsuite_ports::HttpResponse::new(
+                    200,
+                    br#"{"issuer":"https://auth.example.eu","token_endpoint":"https://auth.example.eu/oauth/token","jwks_uri":"https://auth.example.eu/oauth/jwks"}"#.to_vec(),
+                )
+            };
+            Box::pin(std::future::ready(Ok(response)))
+        }
+    }
+
+    #[tokio::test]
+    async fn the_issuers_metadata_is_fetched_once_and_a_failure_retried_later() {
+        use std::sync::atomic::Ordering;
+        let counting = Arc::new(Counting {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            down: std::sync::atomic::AtomicBool::new(true),
+        });
+        let auth = McpAuth {
+            verifier: Arc::new(
+                SessionVerifier::oidc(weldsuite_auth::OidcSettings::new(
+                    "https://auth.example.eu",
+                    vec!["weldsuite-api".to_owned()],
+                ))
+                .expect("verifier"),
+            ),
+            issuer: Some("https://auth.example.eu".to_owned()),
+            server_url: "https://app.example.eu".to_owned(),
+            outbound: Some(OutboundHttp(counting.clone())),
+            discovery: Discovery::oidc(Some("weldsuite-api"), ""),
+            metadata: IssuerMetadata::default(),
+            membership: None,
+        };
+        // Down: no document, and no new fetch until the retry is due.
+        assert_eq!(auth.issuer_metadata().await, None);
+        assert_eq!(auth.issuer_metadata().await, None);
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
+        // Once the retry is due, it is fetched and then reused.
+        counting.down.store(false, Ordering::SeqCst);
+        *auth.metadata.fetched.lock().expect("lock") = Some((
+            Instant::now().checked_sub(METADATA_RETRY).expect("past"),
+            Fetched::Failed,
+        ));
+        let metadata = auth.issuer_metadata().await.expect("metadata");
+        assert_eq!(metadata["jwks_uri"], "https://auth.example.eu/oauth/jwks");
+        auth.issuer_metadata().await.expect("cached");
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 2);
     }
 
     /// Answers `openid-configuration` only, as Zitadel does.
@@ -627,5 +988,316 @@ mod tests {
                 .await,
             None
         );
+    }
+}
+
+/// What a client sees before and while it picks a workspace in membership
+/// mode: the 401's challenge for the URL it called, that URL's metadata, and
+/// the workspace the URL (or the user's only membership) selects.
+#[cfg(test)]
+mod workspace_tests {
+    use std::collections::HashMap;
+
+    use axum::body::{Body, to_bytes};
+    use http::Request;
+    use tower::ServiceExt;
+    use weldsuite_db::{
+        Keyring, MembershipFuture, MembershipLookup, MembershipsFuture, WorkspaceConfig, Workspaces,
+    };
+
+    use super::*;
+
+    const SERVER: &str = "https://app.example.eu";
+
+    /// The auth crate's OIDC fixture: its issuer, keys and a token valid until 2096.
+    fn fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../crates/auth/tests/fixtures/oidc-tokens.json"
+        ))
+        .expect("fixture")
+    }
+
+    /// `(user, reference, org)` memberships; fails every lookup when `down`.
+    #[derive(Default)]
+    struct Memberships {
+        granted: Vec<(String, &'static str, &'static str)>,
+        down: bool,
+    }
+
+    impl MembershipLookup for Memberships {
+        fn member_workspace<'a>(
+            &'a self,
+            user_id: &'a str,
+            reference: &'a str,
+        ) -> MembershipFuture<'a> {
+            let result = if self.down {
+                Err(WorkspaceError::NoDatabase)
+            } else {
+                Ok(self
+                    .granted
+                    .iter()
+                    .find(|(user, r, _)| user == user_id && *r == reference)
+                    .map(|(_, _, org)| (*org).to_owned()))
+            };
+            Box::pin(std::future::ready(result))
+        }
+
+        fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a> {
+            let result = if self.down {
+                Err(WorkspaceError::NoDatabase)
+            } else {
+                let mut orgs: Vec<String> = Vec::new();
+                for (user, _, org) in &self.granted {
+                    if user == user_id && !orgs.iter().any(|known| known == org) {
+                        orgs.push((*org).to_owned());
+                    }
+                }
+                orgs.truncate(usize::from(limit));
+                Ok(orgs)
+            };
+            Box::pin(std::future::ready(result))
+        }
+    }
+
+    fn selector(granted: &[(&str, &'static str, &'static str)]) -> WorkspaceSelector {
+        WorkspaceSelector::new(Arc::new(Memberships {
+            granted: granted
+                .iter()
+                .map(|(user, reference, org)| ((*user).to_owned(), *reference, *org))
+                .collect(),
+            down: false,
+        }))
+    }
+
+    /// The endpoint and its discovery documents, in membership mode on a
+    /// WeldID-shaped issuer, with a master database nobody listens on.
+    fn app(membership: WorkspaceSelector) -> Router {
+        let fixture = fixture();
+        let settings = weldsuite_auth::OidcSettings {
+            workspace_source: weldsuite_auth::WorkspaceSource::Header,
+            ..weldsuite_auth::OidcSettings::new(
+                fixture["issuer"].as_str().expect("issuer"),
+                vec![fixture["project"].as_str().expect("project").to_owned()],
+            )
+        };
+        let verifier =
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks");
+        let auth = Arc::new(McpAuth {
+            verifier: Arc::new(verifier),
+            issuer: Some(fixture["issuer"].as_str().expect("issuer").to_owned()),
+            server_url: format!("{SERVER}/"),
+            outbound: None,
+            discovery: Discovery::oidc(Some("weldsuite-api"), ""),
+            metadata: IssuerMetadata::default(),
+            membership: Some(membership),
+        });
+        let master = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(300))
+            .connect_lazy("postgres://weldsuite:x@127.0.0.1:1/master")
+            .expect("valid url");
+        let workspaces = Arc::new(Workspaces::new(
+            master.clone(),
+            Keyring::default(),
+            WorkspaceConfig::default(),
+        ));
+        let state = McpState::new(
+            Router::new(),
+            master,
+            workspaces,
+            None,
+            Some(Arc::clone(&auth)),
+            Arc::new(HashMap::new()),
+        );
+        crate::router::<()>(state.clone())
+            .layer(axum::middleware::from_fn_with_state(state, authenticate))
+            .merge(well_known_router(auth))
+    }
+
+    async fn send(
+        app: &Router,
+        method: &str,
+        path: &str,
+        token: Option<&str>,
+    ) -> (StatusCode, Option<String>, String) {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let status = response.status();
+        let challenge = response
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        (
+            status,
+            challenge,
+            String::from_utf8(body.to_vec()).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn a_workspace_url_names_one_workspace_in_unreserved_characters() {
+        assert_eq!(path_workspace("/mcp"), Ok(None));
+        assert_eq!(path_workspace("/mcp/w/ws_01HX"), Ok(Some("ws_01HX")));
+        assert_eq!(path_workspace("/mcp/w/acme-bv"), Ok(Some("acme-bv")));
+        for path in [
+            "/mcp/",
+            "/mcp/w/",
+            "/mcp/x/ws_1",
+            "/mcp/w/a b",
+            "/mcp/w/a%20b",
+            "/mcpx",
+            "/other",
+        ] {
+            assert_eq!(path_workspace(path), Err(()), "{path}");
+        }
+        assert_eq!(
+            path_workspace(&format!("/mcp/w/{}", "x".repeat(256))),
+            Err(())
+        );
+    }
+
+    #[tokio::test]
+    async fn the_401_points_at_the_metadata_of_the_url_the_client_called() {
+        let app = app(selector(&[]));
+        let (status, challenge, _) = send(&app, "POST", "/mcp", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            challenge.as_deref(),
+            Some(
+                "Bearer resource_metadata=\"https://app.example.eu/.well-known/oauth-protected-resource/mcp\""
+            )
+        );
+        let (status, challenge, body) =
+            send(&app, "POST", "/mcp/w/ws_acme", Some("not-a-jwt")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_eq!(
+            challenge.as_deref(),
+            Some(
+                "Bearer resource_metadata=\"https://app.example.eu/.well-known/oauth-protected-resource/mcp/w/ws_acme\""
+            )
+        );
+        // A path that names no usable workspace is no endpoint at all.
+        let (status, _, _) = send(&app, "POST", "/mcp/w/a%20b", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn each_metadata_document_names_the_url_it_was_looked_up_for_and_the_issuer() {
+        let app = app(selector(&[]));
+        let issuer = fixture()["issuer"].as_str().expect("issuer").to_owned();
+        for (path, resource) in [
+            ("/.well-known/oauth-protected-resource", SERVER.to_owned()),
+            (
+                "/.well-known/oauth-protected-resource/mcp",
+                format!("{SERVER}/mcp"),
+            ),
+            (
+                "/.well-known/oauth-protected-resource/mcp/w/ws_acme",
+                format!("{SERVER}/mcp/w/ws_acme"),
+            ),
+        ] {
+            let (status, _, body) = send(&app, "GET", path, None).await;
+            assert_eq!(status, StatusCode::OK, "{path}: {body}");
+            let document: Value = serde_json::from_str(&body).expect("json");
+            assert_eq!(document["resource"], resource, "{path}");
+            assert_eq!(document["authorization_servers"], json!([issuer]), "{path}");
+            // WeldID's tokens name no workspace: plain OIDC scopes only.
+            assert_eq!(document["scopes_supported"], json!(OIDC_SCOPES), "{path}");
+        }
+        let (status, _, _) = send(
+            &app,
+            "GET",
+            "/.well-known/oauth-protected-resource/mcp/w/a%20b",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn the_url_names_the_workspace_and_memberships_decide() {
+        let fixture = fixture();
+        let user = fixture["user"].as_str().expect("user");
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let app = app(selector(&[
+            (user, "ws_member", "org_member"),
+            (user, "member-co", "org_member"),
+        ]));
+
+        // A workspace the user belongs to: on to its tenant database (none
+        // here, so that lookup fails), past the membership check.
+        for path in ["/mcp/w/ws_member", "/mcp/w/member-co"] {
+            let (status, _, body) = send(&app, "POST", path, Some(token)).await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{path}: {body}");
+            assert!(body.contains("Could not resolve workspace"), "{body}");
+        }
+        // One they don't: refused before any lookup, unknown and foreign alike.
+        for path in ["/mcp/w/ws_other", "/mcp/w/nope"] {
+            let (status, _, body) = send(&app, "POST", path, Some(token)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+            assert!(body.contains("not a member of this workspace"), "{body}");
+        }
+        // No workspace in the URL: their only one.
+        let (status, _, body) = send(&app, "POST", "/mcp", Some(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("Could not resolve workspace"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn without_a_workspace_in_the_url_several_memberships_are_told_how_to_pick() {
+        let fixture = fixture();
+        let user = fixture["user"].as_str().expect("user");
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+
+        let several = app(selector(&[(user, "ws_a", "ws_a"), (user, "ws_b", "ws_b")]));
+        let (status, _, body) = send(&several, "POST", "/mcp", Some(token)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("several workspaces"), "{body}");
+        assert!(
+            body.contains("https://app.example.eu/mcp/w/<workspace>"),
+            "{body}"
+        );
+        // Naming one of them works.
+        let (status, _, body) = send(&several, "POST", "/mcp/w/ws_b", Some(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+
+        let none = app(selector(&[]));
+        let (status, _, body) = send(&none, "POST", "/mcp", Some(token)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("not a member of any workspace"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_membership_lookup_is_an_error_not_a_refusal() {
+        let token = fixture()["tokens"]["longLived"]
+            .as_str()
+            .expect("token")
+            .to_owned();
+        let down = app(WorkspaceSelector::new(Arc::new(Memberships {
+            down: true,
+            ..Memberships::default()
+        })));
+        for path in ["/mcp", "/mcp/w/ws_member"] {
+            let (status, _, body) = send(&down, "POST", path, Some(&token)).await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{path}: {body}");
+        }
     }
 }

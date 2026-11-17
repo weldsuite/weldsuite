@@ -2,7 +2,9 @@
 # load balancer, Traefik, the certificate, the app (the blackbox exporter,
 # monitoring/values/blackbox-exporter.yaml). /readyz fails when the server
 # can't reach its database or NATS. A cluster adds its own sites (group
-# "site", alert SiteDown) in its cluster folder.
+# "site", alert SiteDown) in its cluster folder. auth. is Zitadel's health
+# check by default; a cluster that signs in with WeldID sets
+# AUTH_PROBE_PATH to /.well-known/openid-configuration (`:=`: optional).
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
@@ -19,7 +21,7 @@ spec:
       static:
         - https://app.${DOMAIN}/readyz
         - https://api.${DOMAIN}/readyz
-        - https://auth.${DOMAIN}/debug/healthz
+        - https://auth.${DOMAIN}${AUTH_PROBE_PATH:=/debug/healthz}
         - https://sign.${DOMAIN}/healthz
         # The MCP server's host routes only MCP paths, so no /readyz: its
         # discovery document, served without a token.

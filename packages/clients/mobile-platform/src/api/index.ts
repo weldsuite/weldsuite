@@ -15,13 +15,36 @@ import { createClientApi } from '@weldsuite/api-client/client';
 import { createApiOriginResolver, type ApiOriginResolver } from '@weldsuite/api-modules';
 import { getMobileRuntime } from '../runtime/state';
 
+/** `workspaces.id`, named in `X-Weld-Workspace` in OIDC header mode. */
+export const WORKSPACE_HEADER = 'X-Weld-Workspace';
+
+/**
+ * `{ X-Weld-Workspace }` for the active workspace, only in OIDC header mode
+ * (WeldID in membership mode, plan `weldid-auth-server.md`): the access token
+ * names no workspace there, so every request names it instead. `{}` on Clerk,
+ * on claim-mode OIDC (the token already names the org) and before a workspace
+ * is active. Mirrors the platform's `lib/api/workspace-header.ts`.
+ *
+ * The auth facade (`../auth`) is imported lazily, and only once this gate
+ * passes: it pulls in Clerk and the Expo secure-store/crypto/browser modules,
+ * which a plain unit test of a service built on this client never mocks (this
+ * module itself stays free of them, like before).
+ */
+export async function workspaceHeaders(): Promise<Record<string, string>> {
+  const { auth } = getMobileRuntime();
+  if (auth.provider !== 'oidc' || auth.workspaceSource !== 'header') return {};
+  const { getActiveWorkspaceId } = await import('../auth');
+  const workspaceId = getActiveWorkspaceId();
+  return workspaceId ? { [WORKSPACE_HEADER]: workspaceId } : {};
+}
+
 export interface MobileApiClientOptions {
   /** Sent as `X-Weld-App`: which app's permissions apply (per-app permission model). */
   appCode: string;
   /** The bearer token; null sends no Authorization header. */
   getToken: () => Promise<string | null>;
   /** Further headers per request (WeldBooks' `X-Accounting-Entity-Id`). */
-  getExtraHeaders?: () => Record<string, string>;
+  getExtraHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
 }
 
 let resolver: ApiOriginResolver | null = null;
@@ -59,9 +82,10 @@ export function platformUrl(): string {
 }
 
 export function createMobileApiClient(options: MobileApiClientOptions) {
-  const headers = (): Record<string, string> => ({
-    ...options.getExtraHeaders?.(),
+  const headers = async (): Promise<Record<string, string>> => ({
+    ...(await options.getExtraHeaders?.()),
     'X-Weld-App': options.appCode,
+    ...(await workspaceHeaders()),
   });
   const client = createClientApi({
     baseUrl: (fullPath: string) => apiOriginForPath(fullPath),
@@ -80,7 +104,7 @@ export function createMobileApiClient(options: MobileApiClientOptions) {
     const fullPath = `/api${path}`;
     return {
       url: `${apiOriginForPath(fullPath)}${fullPath}`,
-      headers: { Authorization: `Bearer ${token}`, ...headers() },
+      headers: { Authorization: `Bearer ${token}`, ...(await headers()) },
     };
   }
 

@@ -4,10 +4,15 @@
  * Configuration (domain, Clerk SAML connection, on/off) is served by app-api;
  * the `/billing` paths are the SSO add-on subscription, which app-api forwards
  * to billing-worker. See `../schemas/sso.ts`.
+ *
+ * On a Kubernetes edition with WeldID as the identity provider (`mode:
+ * 'weldid'` in the view), the connection is an OpenID Connect connection at
+ * WeldID with domains of its own: `saveOidcConnection` and the `/domains`
+ * calls.
  */
 
 import type { ClientApi, DataResponse } from '../types';
-import type { SsoBillingView, SsoConfigView, SsoConnectionInput } from '../schemas/sso';
+import type { SsoBillingView, SsoConfigView, SsoConnectionInput, SsoOidcConnectionInput } from '../schemas/sso';
 
 export function createSsoApi(api: ClientApi) {
   return {
@@ -45,6 +50,29 @@ export function createSsoApi(api: ClientApi) {
 
     deactivate(): Promise<DataResponse<SsoConfigView>> {
       return api.post<DataResponse<SsoConfigView>>('/sso/connection/deactivate');
+    },
+
+    /**
+     * WeldID mode: create the OpenID Connect connection, or change it (only the
+     * fields sent). The client secret is write-only; leaving it out keeps it.
+     */
+    saveOidcConnection(input: SsoOidcConnectionInput): Promise<DataResponse<SsoConfigView>> {
+      return api.put<DataResponse<SsoConfigView>>('/sso/connection', input);
+    },
+
+    /** WeldID mode: add a domain to the connection; it stays pending until its TXT record is found. */
+    addDomain(domain: string): Promise<DataResponse<SsoConfigView>> {
+      return api.post<DataResponse<SsoConfigView>>('/sso/domains', { domain });
+    },
+
+    /** WeldID mode: remove one of the connection's domains. */
+    removeConnectionDomain(domain: string): Promise<DataResponse<SsoConfigView>> {
+      return api.delete<DataResponse<SsoConfigView>>(`/sso/domains/${encodeURIComponent(domain)}`);
+    },
+
+    /** WeldID mode: WeldID looks for the TXT record now. 422 `SSO_DOMAIN_NOT_VERIFIED` while it is not there. */
+    verifyConnectionDomain(domain: string): Promise<DataResponse<SsoConfigView>> {
+      return api.post<DataResponse<SsoConfigView>>(`/sso/domains/${encodeURIComponent(domain)}/verify`);
     },
 
     billing(): Promise<DataResponse<SsoBillingView>> {

@@ -76,7 +76,8 @@ Postgres or NATS.
   (`kubectl -n traefik get pods`, the Hetzner console's load balancer
   health). One: that service (`CoreWorkloadDown` usually fires too).
 - auth. down means nobody can sign in: Zitadel's pods and its database
-  (`zitadel-db`).
+  (`zitadel-db`), or on a cluster that signs in with WeldID, WeldID's
+  (`WeldIDDown`, `weldid-db`; its probe path is `AUTH_PROBE_PATH`).
 - A certificate error shows as a failed probe too: `kubectl get certificates -A`.
 
 ### SiteDown
@@ -161,13 +162,14 @@ growing lag.
 ### PostgresInstanceDown
 
 A CloudNativePG instance has not been ready for 2 minutes: the platform's
-clusters (namespace `postgres`) or Zitadel's (`zitadel-db`, namespace
-`zitadel`; down, nobody can sign in). The clusters require a synchronous
-replica (`dataDurability: required`), so a two-instance cluster accepts no
-writes while either instance is down.
+clusters (namespace `postgres`), Zitadel's (`zitadel-db`, namespace
+`zitadel`; down, nobody can sign in) or WeldID's (`weldid-db`, namespace
+`weldid`, the rule in `../weldid/monitoring.yaml`). The clusters require a
+synchronous replica (`dataDurability: required`), so a two-instance
+cluster accepts no writes while either instance is down.
 
 - `kubectl -n postgres get pods`, `kubectl cnpg status <cluster> -n postgres`
-  (`-n zitadel` for `zitadel-db`).
+  (`-n zitadel` for `zitadel-db`, `-n weldid` for `weldid-db`).
 - A node down (`NodeNotReady`) takes its instance with it: the instance's
   volume is on that node, so it comes back with the node.
 - A full disk (`DiskFillingUp`) stops Postgres.
@@ -292,6 +294,75 @@ Probed only while the cluster's `SECRET_STORE_URL` is set. Its daily
 snapshot isn't watched from here: a failed one is the healthchecks.io check
 pinged by the store itself (`SNAPSHOT_PING_URL`, README, "Backups"), which
 notifies on its own.
+
+## WeldID
+
+Only on a cluster that runs WeldID (`../weldid`, opt-in; the rules are in
+`../weldid/monitoring.yaml`). Before the cluster switches to it
+(`../weldid/README.md`, "Switching") nobody signs in through WeldID, so
+these can wait for the morning; after it, WeldID is sign-in for the
+platform, the mobile apps, the admin console and Grafana. Its ops port:
+`kubectl -n weldid port-forward svc/weldid 9090`, then `/readyz` and
+`/metrics` on `localhost:9090`. Logs: `{namespace="weldid"}` in Explore.
+
+### WeldIDDown
+
+No WeldID pod has been ready for 3 minutes.
+
+- `kubectl -n weldid get pods`, `describe` and `logs --previous` of the
+  ones not ready: an image pull error (the `registry` Secret: the images
+  are private until WeldID 1.0), a crash at start (a config or secret
+  WeldID refuses: its log says which), or not ready (`WeldIDNotReady`).
+- A failed upgrade leaves the running pods alone; check the migration
+  Job: `kubectl -n weldid logs job/weldid-migrate -c check-config`, then
+  `-c migrate`, and `flux get helmreleases -n weldid`.
+- `weldid-db` down (`PostgresInstanceDown`) takes WeldID with it.
+
+### WeldIDNotReady
+
+A WeldID pod has failed `/readyz` for 5 minutes while the other may still
+serve. `/readyz` says which: `database: unavailable` (`weldid-db`, its
+Service `weldid-db-rw`, the password in `weldid-env`) or `keys:
+unavailable` (no current signing key: `WeldIDKeyRotationOverdue`, or a
+`WELDID_MASTER_KEY` that doesn't open the keys in the database, after a
+restore or a changed Secret: put the old key back, never a new one).
+
+### WeldIDSignInFailures
+
+More than 12 failed sign-ins a minute on one issuer for 10 minutes, at
+least three for every success: password guessing or credential stuffing.
+The rate limits slow each address down (`WeldIDRateLimited`); many
+addresses mean a distributed attempt. Which accounts and addresses: the
+logs. A wave against the staff issuer is the more serious one. Blocking at
+Traefik or the load balancer, or making the second factor required on the
+platform issuer (`issuers.platform.mfa` in `../weldid/values/weldid.yaml`)
+are the levers.
+
+### WeldIDRateLimited
+
+WeldID refuses more than 30 requests a minute under one rate limit (the
+`rule` label) for 15 minutes. An attack (see `WeldIDSignInFailures`), a
+client stuck in a loop, or every visitor seen as one address: if the logs
+show the same address for everyone (Traefik's), `trustedProxyHops` in
+WeldID's values doesn't match the proxies in front of it.
+
+### WeldIDKeyRotationOverdue
+
+An issuer's newest signing key (per algorithm) retires in less than 6 days
+and no successor is there. WeldID makes the successor 7 days ahead, at
+start and hourly, so its key job has been failing for a day. At 0 that
+issuer can't sign: sign-in stops and `/readyz` fails. The logs say why
+(`kubectl -n weldid logs deploy/weldid | grep -i key`); `weldid keys rotate
+--config /etc/weldid/weldid.toml [--issuer platform|staff]` in a WeldID pod
+makes new keys at once (every client fetches the new JWKS by itself).
+
+### WeldIDKeyMetricsMissing
+
+WeldID is up but `weldid-db` reports no signing-key metric, so
+`WeldIDKeyRotationOverdue` can't fire: the CloudNativePG custom query in
+`../weldid/database.yaml` fails (a renamed table or column after a WeldID
+upgrade, or the ConfigMap missing). The instance's log names the query's
+error; fix the query.
 
 ## From kube-prometheus-stack
 

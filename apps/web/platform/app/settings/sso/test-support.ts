@@ -60,3 +60,51 @@ export function makeBilling(overrides: Partial<SsoBillingView> = {}): SsoBilling
     ...overrides,
   };
 }
+
+// ============================================================================
+// WeldID mode
+// ============================================================================
+
+type Oidc = NonNullable<SsoConfigView['oidc']>;
+type OidcConnection = NonNullable<Oidc['connection']>;
+type OidcDomain = Oidc['domains'][number];
+
+export function makeOidcConnection(overrides: Partial<OidcConnection> = {}): OidcConnection {
+  return {
+    id: 'ssoc_1',
+    displayName: 'Acme Entra',
+    issuer: 'https://login.example.test/acme/v2.0',
+    clientId: 'client-1',
+    hasClientSecret: true,
+    scopes: [],
+    trustEmails: false,
+    enabled: false,
+    enforceSso: false,
+    redirectUri: 'https://auth.example.test/sso/oidc/ssoc_1/callback',
+    updatedAt: '2026-11-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function makeOidcDomain(overrides: Partial<OidcDomain> = {}): OidcDomain {
+  const name = overrides.name ?? 'acme.com';
+  return {
+    name,
+    status: 'pending',
+    verified: false,
+    verifiedAt: null,
+    checkedAt: null,
+    dnsRecord: { type: 'TXT', name: `_weldsuite-sso.${name}`, value: 'weldsuite-sso-verification=tok1' },
+    ...overrides,
+  };
+}
+
+/** A configuration as the Rust backend answers it with WeldID as the identity provider. */
+export function makeWeldIdConfig(oidc: Partial<Oidc> = {}, overrides: Partial<SsoConfigView> = {}): SsoConfigView {
+  return makeConfig({
+    entitlement: { entitled: true, source: 'plan' },
+    mode: 'weldid',
+    oidc: { connection: null, domains: [], defaultRole: 'MEMBER', active: false, ...oidc },
+    ...overrides,
+  });
+}

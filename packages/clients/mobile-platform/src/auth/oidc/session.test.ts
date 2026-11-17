@@ -121,6 +121,24 @@ function session(f: Fake) {
   );
 }
 
+/** WeldID in membership mode: no audience/organization scope, one token for every workspace. */
+function headerSession(f: Fake) {
+  return new OidcMobileSession(
+    {
+      issuer: ISSUER,
+      clientId: 'mobile-client',
+      redirectUri: REDIRECT,
+      // WeldID names plain OIDC scopes: no Zitadel-shaped roles scope to ask for.
+      scopes: ['openid', 'profile', 'email', 'offline_access'],
+      audienceScope: null,
+      organizationScope: null,
+      workspaceSource: 'header',
+      storageId: storageIdFor('https://app.test.weldsuite.eu'),
+    },
+    f.deps,
+  );
+}
+
 const PERSON = { sub: 'user-1', given_name: 'Ada', family_name: 'Lovelace', email: 'ada@example.com' };
 
 function tokens(orgs: Record<string, string>, refresh: string) {
@@ -275,5 +293,52 @@ describe('OidcMobileSession', () => {
 
   it('keeps storage keys to the characters the secure store allows', () => {
     expect(storageIdFor('https://weld.example.com:8443')).toBe('weld.example.com_8443');
+  });
+});
+
+describe('OidcMobileSession in header mode (WeldID in membership mode)', () => {
+  it('signs in once with no organization scope, and starts with no active workspace', async () => {
+    const f = fake();
+    f.tokenAnswers.push(tokens({}, 'rt-1'));
+    const s = headerSession(f);
+    await expect(s.signIn()).resolves.toBe('signed-in');
+
+    const authorize = new URL(f.authorizeUrls[0]!);
+    expect(authorize.searchParams.get('scope')).not.toContain('urn:zitadel:iam:org');
+    expect(s.getSnapshot()).toMatchObject({ person: { id: 'user-1' }, activeOrgId: null });
+    await expect(s.getToken()).resolves.toMatch(/\./);
+  });
+
+  it('switches workspace locally: no browser, no new token', async () => {
+    const f = fake();
+    f.tokenAnswers.push(tokens({}, 'rt-1'));
+    const s = headerSession(f);
+    await s.signIn();
+    expect(f.authorizeUrls).toHaveLength(1);
+
+    await s.setActiveOrganization('ws_globex');
+    expect(s.getSnapshot().activeOrgId).toBe('ws_globex');
+    // Still the one sign-in: no browser sheet, no token request for the switch.
+    expect(f.authorizeUrls).toHaveLength(1);
+    expect(f.tokenCalls).toHaveLength(1);
+
+    await s.setActiveOrganization('ws_acme');
+    expect(s.getSnapshot().activeOrgId).toBe('ws_acme');
+    expect(f.authorizeUrls).toHaveLength(1);
+  });
+
+  it('keeps the chosen workspace across a restart, and forgets it on sign-out', async () => {
+    const f = fake();
+    f.tokenAnswers.push(tokens({}, 'rt-1'));
+    const s = headerSession(f);
+    await s.signIn();
+    await s.setActiveOrganization('ws_globex');
+
+    const restarted = headerSession(f);
+    await restarted.init();
+    expect(restarted.getSnapshot()).toMatchObject({ person: { id: 'user-1' }, activeOrgId: 'ws_globex' });
+
+    await restarted.signOut();
+    expect(restarted.getSnapshot()).toMatchObject({ person: null, activeOrgId: null });
   });
 });

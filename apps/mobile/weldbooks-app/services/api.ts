@@ -27,7 +27,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
-import { apiOrigin, apiOriginForPath } from '@weldsuite/mobile-platform/api';
+import { apiOrigin, apiOriginForPath, workspaceHeaders } from '@weldsuite/mobile-platform/api';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import type {
   ApiResponse,
@@ -282,9 +282,11 @@ async function getToken(): Promise<string | null> {
 const client = createClientApi({
   baseUrl: apiOriginForPath,
   getToken,
-  getExtraHeaders: (): Record<string, string> => {
+  getExtraHeaders: async (): Promise<Record<string, string>> => {
     // X-Weld-App: which app's permissions apply (per-app permission model).
-    const headers: Record<string, string> = { 'X-Weld-App': APP.code };
+    // X-Weld-Workspace: the active workspace, OIDC header mode only (WeldID
+    // in membership mode — the token itself names no workspace there).
+    const headers: Record<string, string> = { 'X-Weld-App': APP.code, ...(await workspaceHeaders()) };
     if (accountingEntityId) headers['X-Accounting-Entity-Id'] = accountingEntityId;
     return headers;
   },
@@ -1022,7 +1024,7 @@ class WeldBooksApi {
     const path = fileKey.split('/').map(encodeURIComponent).join('/');
     return {
       uri: `${apiOrigin()}/api/storage/private/${path}`,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: token ? { Authorization: `Bearer ${token}`, ...(await workspaceHeaders()) } : {},
       mimeType: doc.data?.mimeType ? str(doc.data.mimeType) : null,
     };
   }

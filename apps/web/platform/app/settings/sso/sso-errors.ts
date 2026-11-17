@@ -13,8 +13,15 @@ import type { TranslationsType } from '@/lib/i18n/types';
 
 export type SsoErrorCopy = TranslationsType['settings']['sso']['errors'];
 
-export function ssoErrorMessage(err: unknown, copy: SsoErrorCopy): string {
-  switch (apiErrorCode(err)) {
+/**
+ * `weldid`: the page is in WeldID mode (an OpenID Connect connection), where
+ * the incomplete-details and entitlement messages read differently.
+ */
+export function ssoErrorMessage(err: unknown, copy: SsoErrorCopy, weldid = false): string {
+  const code = apiErrorCode(err);
+  if (weldid && code === SSO_ERRORS.IDP_INCOMPLETE) return copy.oidcIncomplete;
+  if (weldid && code === SSO_ERRORS.NOT_ENTITLED) return copy.oidcNotEntitled;
+  switch (code) {
     case SSO_ERRORS.NOT_ENTITLED:
       return copy.notEntitled;
     case SSO_ERRORS.DOMAIN_INVALID:

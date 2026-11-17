@@ -28,6 +28,11 @@
  * - `usesPlatformSignIn()`: on OIDC, WeldSuite shows the sign-in screens
  *   itself (the ones Global shows, `lib/auth/oidc/sign-in-api.ts`) rather
  *   than the provider.
+ * - `usesBrowserSignIn()` / `signInWithBrowser()` / `cancelBrowserSignIn()`:
+ *   inside the desktop shell on OIDC, sign-in happens in the system browser
+ *   (RFC 8252 loopback; `lib/auth/oidc/browser-sign-in.ts`), started from a
+ *   button on the sign-in screen. Global's desktop sign-in (a Clerk ticket by
+ *   deep link) is unchanged.
  *
  * Clerk-only hooks and types (`useSignIn`, `useReverification`, …) live in
  * `@/lib/auth/clerk`; a screen that needs them renders inside `<ClerkOnly>`.
@@ -35,6 +40,7 @@
 
 import type { ReactNode } from 'react';
 import { clerkAuth } from './clerk-adapter';
+import { BrowserSignInError } from './oidc/browser-sign-in';
 import type {
   AuthImplementation,
   AuthProviderName,
@@ -68,6 +74,7 @@ export type {
   SignOutOptions,
   UserState,
 } from './types';
+export { BrowserSignInError, type BrowserSignInFailure } from './oidc/browser-sign-in';
 
 let active: AuthImplementation = clerkAuth;
 
@@ -137,6 +144,30 @@ export async function redirectToSignIn(options?: RedirectToSignInOptions): Promi
   await active.redirectToSignIn?.(options);
 }
 
+/**
+ * True inside the desktop shell on OIDC: the sign-in screens offer a button
+ * that signs in through the system browser instead of sending this window to
+ * the provider. Constant for the page's lifetime.
+ */
+export function usesBrowserSignIn(): boolean {
+  return Boolean(active.signInWithBrowser);
+}
+
+/**
+ * Sign in through the system browser (desktop shell on OIDC). Resolves once
+ * signed in, with the page on its way to `returnTo`; rejects with
+ * `BrowserSignInError` (`reason`: cancelled, timeout, failed).
+ */
+export async function signInWithBrowser(options?: RedirectToSignInOptions): Promise<void> {
+  if (!active.signInWithBrowser) throw new BrowserSignInError('failed');
+  await active.signInWithBrowser(options);
+}
+
+/** Stop a sign-in still waiting for the browser. A no-op when none is. */
+export function cancelBrowserSignIn(): void {
+  active.cancelBrowserSignIn?.();
+}
+
 /** Finish a provider redirect on `/auth/sso-callback`; resolves to the path to continue on. */
 export async function completeSignIn(): Promise<string> {
   return active.completeSignIn ? active.completeSignIn() : '/';
@@ -145,6 +176,15 @@ export async function completeSignIn(): Promise<string> {
 /** Where the person manages their account when the provider owns it (OIDC); undefined on Clerk. */
 export function getAccountUrl(): string | undefined {
   return active.accountUrl;
+}
+
+/**
+ * The active workspace id outside React (`lib/api/workspace-header.ts`).
+ * Null on every provider except OIDC with `auth.workspaceSource: "header"`
+ * (WeldID in membership mode), where it is the `X-Weld-Workspace` value.
+ */
+export function getActiveWorkspaceId(): string | null {
+  return active.getActiveOrgId?.() ?? null;
 }
 
 /**

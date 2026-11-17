@@ -27,6 +27,37 @@ export interface SettingsApi {
   defaults(): Promise<DesktopSettings>;
 }
 
+/** The page the browser shows once it is back from the provider, in the app's language. */
+export interface OidcSignInPageText {
+  lang: string;
+  successTitle: string;
+  successBody: string;
+  failureTitle: string;
+  failureBody: string;
+}
+
+/** How one sign-in through the system browser ended. */
+export type OidcSignInOutcome =
+  | { status: 'callback'; callbackUrl: string }
+  | { status: 'cancelled' }
+  | { status: 'timeout' }
+  | { status: 'failed'; reason: 'invalid_request' | 'unknown_sign_in' | 'browser' | 'listener' };
+
+/**
+ * Sign-in on the OIDC editions through the system browser and a loopback
+ * redirect (RFC 8252, docs/auth-handoff.md). The page builds the
+ * authorization request and redeems the code; the shell only listens on
+ * 127.0.0.1 and opens the browser. Answers the app's own origin only.
+ */
+export interface OidcSignInApi {
+  /** Open a one-shot listener; its `redirectUri` goes into the authorization request. */
+  start(): Promise<{ id: string; redirectUri: string }>;
+  /** Open the authorization request in the system browser and wait for it to come back. */
+  authorize(opts: { id: string; url: string; page?: OidcSignInPageText }): Promise<OidcSignInOutcome>;
+  /** Stop waiting; `authorize` then resolves as cancelled. */
+  cancel(id: string): Promise<boolean>;
+}
+
 export interface WeldsuiteDesktopApi {
   readonly isDesktop: true;
   readonly platform: NodeJS.Platform;
@@ -45,6 +76,8 @@ export interface WeldsuiteDesktopApi {
   flashFrame(flag: boolean): Promise<void>;
   openExternal(url: string): Promise<boolean>;
   signInExternally(opts?: { path?: string; returnTo?: string }): Promise<{ url: string; returnTo: string }>;
+  /** Since 0.3.0. */
+  oidcSignIn: OidcSignInApi;
   reloadApp(): Promise<boolean>;
   relaunch(): Promise<boolean>;
   settings: SettingsApi;
@@ -100,6 +133,11 @@ const api: WeldsuiteDesktopApi = {
   flashFrame: (flag) => ipcRenderer.invoke('weldsuite:flash-frame', flag),
   openExternal: (url) => ipcRenderer.invoke('weldsuite:open-external', url),
   signInExternally: (opts) => ipcRenderer.invoke('weldsuite:sign-in-external', opts ?? {}),
+  oidcSignIn: {
+    start: () => ipcRenderer.invoke('weldsuite:oidc-sign-in:start'),
+    authorize: (opts) => ipcRenderer.invoke('weldsuite:oidc-sign-in:authorize', opts),
+    cancel: (id) => ipcRenderer.invoke('weldsuite:oidc-sign-in:cancel', id),
+  },
   reloadApp: () => ipcRenderer.invoke('weldsuite:reload-app'),
   relaunch: () => ipcRenderer.invoke('weldsuite:relaunch'),
   settings: {

@@ -128,6 +128,7 @@ fn harness(tenant: PgPool, master: PgPool, user: &str, permissions: &[&str]) -> 
         top_up: None,
         ai: Some(Ai::fake(config(), fake.clone())),
         mail: Some(Arc::clone(&mail) as Arc<dyn DynSystemMail>),
+        sso: None,
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let user_id = user.to_owned();

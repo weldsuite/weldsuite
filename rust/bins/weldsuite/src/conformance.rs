@@ -89,6 +89,8 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         // The test's Clerk stub per request; no provisioning (the onboarding
         // routes answer as app-api without its workspace worker).
         identity: None,
+        // Global's tests: `/api/sso` answers as without WeldID.
+        sso: None,
         provisioner: None,
         panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
     };

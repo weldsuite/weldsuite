@@ -30,6 +30,7 @@
 //! | [`Identity::create_organization`] | `POST /organizations` | onboarding (a new workspace) |
 //! | [`Identity::update_organization_metadata`] | `PATCH /organizations/{org}/metadata` | onboarding |
 //! | [`Identity::changes_since`] | (Clerk pushes webhooks instead) | the identity sync |
+//! | [`Identity::events_after`] | (Clerk pushes webhooks instead) | the identity sync on an event feed (WeldID's outbox) |
 //! | [`Identity::sessions`] | `GET /sessions?user_id=…&status=active&limit=100` | sign out other devices |
 //! | [`Identity::session`] | `GET /sessions/{id}` | sign out a device |
 //! | [`Identity::revoke_session`] | `POST /sessions/{id}/revoke` | sign out devices |
@@ -228,6 +229,44 @@ pub struct ChangeEvent {
     /// RFC 3339; the feed is in this order.
     pub at: String,
     pub change: IdentityChange,
+}
+
+/// One event of a provider's ordered event feed ([`Identity::events_after`],
+/// WeldID's outbox): `user.created`, `user.updated`, `user.email_changed`,
+/// `user.deleted`, `session.revoked`, and `sso.signed_in` (a sign-in
+/// through a workspace's SSO connection; its `data` names the workspace,
+/// `tenantRef`, and the connection). Like a change, an event says what
+/// moved; the reader asks the provider for the current state, except for a
+/// deletion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeedEvent {
+    /// The feed's cursor for this event (ascending).
+    pub id: String,
+    pub kind: String,
+    pub user_id: Option<String>,
+    /// RFC 3339, when the provider says.
+    pub at: Option<String>,
+    /// The event's own payload; `Null` when none.
+    pub data: Value,
+}
+
+/// A page of [`Identity::events_after`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FeedPage {
+    pub events: Vec<FeedEvent>,
+    /// Where the next page starts (`after=`); `None`: the last event's id.
+    pub cursor: Option<String>,
+    pub has_more: bool,
+}
+
+impl FeedPage {
+    /// The cursor to store once this page is handled: the provider's, else
+    /// the last event's id.
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.cursor
+            .as_deref()
+            .or_else(|| self.events.last().map(|event| event.id.as_str()))
+    }
 }
 
 /// What [`Identity::update_organization`] changes; `None` leaves a field.
@@ -533,6 +572,19 @@ pub trait Identity: Send + Sync {
         let _ = (since, limit);
         unavailable("no change feed")
     }
+
+    /// The events after the cursor `after` (`None`: from the start), oldest
+    /// first, at most `limit`: a provider's transactional outbox (WeldID's
+    /// `GET /admin/v1/events?after=`), which the identity sync reads with a
+    /// watermark of its own instead of [`Identity::changes_since`].
+    fn events_after<'a>(
+        &'a self,
+        after: Option<&'a str>,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<FeedPage>> {
+        let _ = (after, limit);
+        unavailable("no event feed")
+    }
 }
 
 fn unavailable<T: Send + 'static>(what: &str) -> BoxFuture<'static, IdentityResult<T>> {
@@ -624,6 +676,7 @@ pub enum IdentityCall {
     CreateOrganization(NewOrganization),
     UpdateOrganizationMetadata(String, Option<Value>, Option<Value>),
     ChangesSince(Option<String>, u32),
+    EventsAfter(Option<String>, u32),
 }
 
 #[derive(Debug, Default)]
@@ -641,6 +694,8 @@ struct MemoryState {
     user_metadata: BTreeMap<String, Value>,
     /// The change feed, oldest first.
     changes: Vec<ChangeEvent>,
+    /// The event feed, oldest first; ids are their position, from 1.
+    events: Vec<FeedEvent>,
     calls: Vec<IdentityCall>,
     next_id: u64,
     /// Refuse every call with this error, when set.
@@ -734,6 +789,31 @@ impl MemoryIdentity {
             at: at.to_owned(),
             change,
         });
+    }
+
+    /// Append an event to the feed of [`Identity::events_after`]: `kind`
+    /// about `user_id`. Its id is its position (1, 2, …).
+    pub fn record_event(&self, kind: &str, user_id: &str) {
+        self.record_event_with(kind, user_id, Value::Null);
+    }
+
+    /// [`MemoryIdentity::record_event`] with the event's own payload
+    /// (`sso.signed_in` carries the workspace and the connection).
+    pub fn record_event_with(&self, kind: &str, user_id: &str, data: Value) {
+        let mut state = self.lock();
+        let id = (state.events.len() + 1).to_string();
+        state.events.push(FeedEvent {
+            id,
+            kind: kind.to_owned(),
+            user_id: Some(user_id.to_owned()),
+            at: None,
+            data,
+        });
+    }
+
+    /// Change a user's profile (or add one), as the provider's own pages do.
+    pub fn set_profile(&self, profile: UserProfile) {
+        self.lock().profiles.insert(profile.id.clone(), profile);
     }
 
     /// Remove a user: their profile, email and memberships go.
@@ -1252,6 +1332,28 @@ impl Identity for MemoryIdentity {
             },
         )
     }
+
+    fn events_after<'a>(
+        &'a self,
+        after: Option<&'a str>,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<FeedPage>> {
+        self.answer(
+            IdentityCall::EventsAfter(after.map(str::to_owned), limit),
+            |s| {
+                let start = after
+                    .and_then(|after| after.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let rest = s.events.get(start..).unwrap_or_default();
+                let events: Vec<FeedEvent> = rest.iter().take(limit as usize).cloned().collect();
+                Ok(FeedPage {
+                    has_more: rest.len() > events.len(),
+                    cursor: None,
+                    events,
+                })
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1291,6 +1393,32 @@ mod tests {
             .expect("list");
         assert_eq!(pending.data.len(), 0);
         assert_eq!(identity.calls().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn the_memory_event_feed_pages_after_a_cursor() {
+        let identity = MemoryIdentity::new();
+        for (kind, user) in [
+            ("user.created", "u1"),
+            ("user.updated", "u1"),
+            ("user.deleted", "u2"),
+        ] {
+            identity.record_event(kind, user);
+        }
+        let first = identity.events_after(None, 2).await.expect("page");
+        assert_eq!(first.events.len(), 2);
+        assert!(first.has_more);
+        assert_eq!(first.next_cursor(), Some("2"));
+        let rest = identity
+            .events_after(first.next_cursor(), 2)
+            .await
+            .expect("page");
+        assert_eq!(rest.events[0].kind, "user.deleted");
+        assert!(!rest.has_more);
+        let empty = identity.events_after(Some("3"), 2).await.expect("page");
+        assert_eq!(empty.events, Vec::new());
+        assert_eq!(empty.next_cursor(), None);
+        assert_eq!(identity.calls()[0], IdentityCall::EventsAfter(None, 2));
     }
 
     #[tokio::test]

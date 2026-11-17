@@ -215,6 +215,9 @@ importers:
       vite:
         specifier: ^6.4.4
         version: 6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   apps/mobile/_shared:
     dependencies:
@@ -2703,8 +2706,8 @@ importers:
         specifier: ^8.6.14
         version: 8.6.15(storybook@8.6.19(bufferutil@4.1.0)(prettier@3.9.10)(utf-8-validate@6.0.6))
       '@tailwindcss/vite':
-        specifier: ^4.1.11
-        version: 4.1.18(vite@8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../../packages/config/typescript-config
@@ -37261,13 +37264,6 @@ snapshots:
       tailwindcss: 4.1.18
       vite: 6.4.5(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
-  '@tailwindcss/vite@4.1.18(vite@8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
-    dependencies:
-      '@tailwindcss/node': 4.1.18
-      '@tailwindcss/oxide': 4.1.18
-      tailwindcss: 4.1.18
-      vite: 8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
-
   '@tailwindcss/vite@4.3.3(vite@8.3.5(@types/node@20.19.43)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
     dependencies:
       '@tailwindcss/node': 4.3.3
@@ -37281,6 +37277,13 @@ snapshots:
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
       vite: 8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+
+  '@tailwindcss/vite@4.3.3(vite@8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))':
+    dependencies:
+      '@tailwindcss/node': 4.3.3
+      '@tailwindcss/oxide': 4.3.3
+      tailwindcss: 4.3.3
+      vite: 8.3.5(@types/node@26.2.0)(esbuild@0.25.12)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
   '@tanstack/history@1.154.14': {}
 

@@ -6,11 +6,15 @@
  */
 
 import {
+  areSsoScopesValid,
   isPublicEmailDomain,
   normalizeSsoDomain,
+  parseSsoScopes,
   type SsoBillingView,
   type SsoConfigView,
   type SsoConnectionInput,
+  type SsoOidcConnectionInput,
+  type SsoOidcView,
   type SsoProviderId,
 } from '@weldsuite/app-api-client/schemas/sso';
 
@@ -265,4 +269,114 @@ export function connectionInputFrom(values: IdpFormValues, idp: SsoIdp): SsoConn
     }
   }
   return input;
+}
+
+// ============================================================================
+// WeldID mode (Kubernetes editions): the OpenID Connect connection
+// ============================================================================
+
+export type SsoOidcConnection = NonNullable<SsoOidcView['connection']>;
+
+/** The WeldID part of the view, when the backend answers in WeldID mode. */
+export function oidcView(config: SsoConfigView): SsoOidcView | null {
+  return config.mode === 'weldid' && config.oidc ? config.oidc : null;
+}
+
+/**
+ * `active`: sign-ins at the verified domains go to the identity provider.
+ * `off`: a connection exists but isn't doing that (switched off, or no
+ * verified domain yet). `not_set_up`: no connection.
+ */
+export function oidcStatus(oidc: SsoOidcView): SsoStatus {
+  if (!oidc.connection) return 'not_set_up';
+  return oidc.active ? 'active' : 'off';
+}
+
+export type OidcActivationBlock = 'not_entitled' | 'no_connection' | 'domain_unverified';
+
+/** What stops WeldID SSO from being switched on, or null. Switching off is never blocked. */
+export function oidcActivationBlock(config: SsoConfigView, oidc: SsoOidcView): OidcActivationBlock | null {
+  if (!config.entitlement.entitled) return 'not_entitled';
+  if (!oidc.connection) return 'no_connection';
+  if (!oidc.domains.some((domain) => domain.verified)) return 'domain_unverified';
+  return null;
+}
+
+export interface OidcFormValues {
+  displayName: string;
+  issuer: string;
+  clientId: string;
+  /** Write-only: empty keeps a stored secret. */
+  clientSecret: string;
+  /** As typed: separated by spaces or commas. */
+  scopes: string;
+  trustEmails: boolean;
+}
+
+/** The form's starting values. The secret is never sent back, so it starts empty. */
+export function oidcFormValues(connection: SsoOidcConnection | null): OidcFormValues {
+  return {
+    displayName: connection?.displayName ?? '',
+    issuer: connection?.issuer ?? '',
+    clientId: connection?.clientId ?? '',
+    clientSecret: '',
+    scopes: connection?.scopes.join(' ') ?? '',
+    trustEmails: connection?.trustEmails ?? false,
+  };
+}
+
+export type OidcField = Exclude<keyof OidcFormValues, 'trustEmails'>;
+export type OidcIssueCode = 'required' | 'httpsUrl' | 'scopes';
+export interface OidcIssue {
+  field: OidcField;
+  code: OidcIssueCode;
+}
+
+/** What is wrong with the form; a new connection needs a secret, a saved one keeps its own. */
+export function oidcIssues(values: OidcFormValues, connection: SsoOidcConnection | null): OidcIssue[] {
+  const issues: OidcIssue[] = [];
+  if (!values.displayName.trim()) issues.push({ field: 'displayName', code: 'required' });
+  const issuer = values.issuer.trim();
+  if (!issuer) issues.push({ field: 'issuer', code: 'required' });
+  else if (!isHttpsUrl(issuer)) issues.push({ field: 'issuer', code: 'httpsUrl' });
+  if (!values.clientId.trim()) issues.push({ field: 'clientId', code: 'required' });
+  if (!values.clientSecret.trim() && !connection?.hasClientSecret) {
+    issues.push({ field: 'clientSecret', code: 'required' });
+  }
+  if (!areSsoScopesValid(parseSsoScopes(values.scopes))) issues.push({ field: 'scopes', code: 'scopes' });
+  return issues;
+}
+
+/**
+ * The `PUT /api/sso/connection` body for the form: everything for a new
+ * connection, only what changed for a saved one. A secret left empty is not
+ * sent, so the stored one stays.
+ */
+export function oidcInputFrom(values: OidcFormValues, connection: SsoOidcConnection | null): SsoOidcConnectionInput {
+  const next = {
+    displayName: values.displayName.trim(),
+    issuer: values.issuer.trim(),
+    clientId: values.clientId.trim(),
+    scopes: parseSsoScopes(values.scopes),
+    trustEmails: values.trustEmails,
+  };
+  const secret = values.clientSecret.trim();
+  if (!connection) return { ...next, clientSecret: secret };
+
+  const input: SsoOidcConnectionInput = {};
+  if (next.displayName !== connection.displayName) input.displayName = next.displayName;
+  if (next.issuer !== connection.issuer) input.issuer = next.issuer;
+  if (next.clientId !== connection.clientId) input.clientId = next.clientId;
+  if (next.scopes.join(' ') !== connection.scopes.join(' ')) input.scopes = next.scopes;
+  if (next.trustEmails !== connection.trustEmails) input.trustEmails = next.trustEmails;
+  if (secret) input.clientSecret = secret;
+  return input;
+}
+
+/** The verified domains, for the sentence that names them ("acme.com, acme.nl"). */
+export function verifiedDomainNames(oidc: SsoOidcView): string {
+  return oidc.domains
+    .filter((domain) => domain.verified)
+    .map((domain) => domain.name)
+    .join(', ');
 }

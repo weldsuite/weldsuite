@@ -7,3 +7,7 @@ kind: Kustomization
 resources:
   - cluster-settings.yaml
   - layers.yaml
+  # Opt-in: WeldID next to Zitadel, then sign-in on WeldID
+  # (infrastructure/weldid/README.md).
+  # - weldid.yaml
+  # - weldid-switch.yaml
