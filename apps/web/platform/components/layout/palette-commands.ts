@@ -109,6 +109,13 @@ export interface PaletteCommand {
   href?: string;
   run?: 'toggle-theme' | 'sign-out' | 'create-company' | 'create-person';
   icon: PaletteIcon;
+  /**
+   * Words shared by many commands (the create verbs). When set, the command
+   * matches on word starts instead of anywhere in its text, and a query word
+   * finds it through these only from three letters, so "re" or "ad" doesn't
+   * list every Create action.
+   */
+  sharedWords?: string;
 }
 
 /** What the signed-in member can do, and which apps this workspace has installed. */
@@ -339,7 +346,7 @@ interface CreateAction {
 }
 
 /** Words that find every Create action. */
-const CREATE_WORDS = 'create new add make start nieuw nieuwe aanmaken toevoegen maken starten';
+const CREATE_WORDS = 'create new add make nieuw nieuwe aanmaken toevoegen maken';
 
 export const CREATE_ACTIONS: readonly CreateAction[] = [
   // WeldCRM (companies and people use the quick-add dialogs above)
@@ -432,7 +439,8 @@ export function createCommands(t: TranslationsType, access: CommandAccess): Pale
       id: `create:${action.id}`,
       title: action.title(copy),
       subtitle: appName,
-      keywords: `${CREATE_WORDS} ${action.keywords} ${appName} ${action.app}`,
+      keywords: `${action.keywords} ${appName} ${action.app}`,
+      sharedWords: CREATE_WORDS,
       group: 'actions' as const,
       showWhenEmpty: sameApp(access.currentApp, action.app),
       href: action.href,
@@ -763,14 +771,33 @@ export function settingsCommands(
     }));
 }
 
+const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+/** Shared words count only from this many letters. */
+const SHARED_WORD_MIN = 3;
+
 export function commandMatches(
-  command: Pick<PaletteCommand, 'title' | 'subtitle' | 'keywords'>,
+  command: Pick<PaletteCommand, 'title' | 'subtitle' | 'keywords' | 'sharedWords'>,
   query: string,
 ): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return false;
-  const hay = `${command.title} ${command.subtitle} ${command.keywords}`.toLowerCase();
-  return q.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
+  const text = `${command.title} ${command.subtitle} ${command.keywords}`;
+  if (command.sharedWords === undefined) {
+    const hay = text.toLowerCase();
+    return q.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
+  }
+  const own = words(text);
+  const shared = words(command.sharedWords);
+  const tokens = words(q);
+  return (
+    tokens.length > 0 &&
+    tokens.every(
+      (token) =>
+        own.some((word) => word.startsWith(token)) ||
+        (token.length >= SHARED_WORD_MIN && shared.some((word) => word.startsWith(token))),
+    )
+  );
 }
 
 function rank(command: PaletteCommand, query: string): number {

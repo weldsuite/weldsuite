@@ -320,3 +320,27 @@ describe('visibleCommands caps', () => {
     expect(shown.filter((command) => command.group === 'navigation')).toHaveLength(12);
   });
 });
+
+describe('Create action matching', () => {
+  const commands = createCommands(en, {
+    canSee: () => true,
+    installedCodes: new Set(['welddocs', 'weldforms', 'weldcommerce', 'weldstash', 'weldcrm', 'weldads', 'weldmail']),
+  });
+  const ids = (query: string) => visibleCommands(commands, query).map((command) => command.id);
+
+  it('does not list every Create action for a fragment of a create word or the title verb', () => {
+    for (const fragment of ['re', 'ate', 'sta', 'art', 'ma', 'ne', 'ken']) {
+      expect(ids(fragment).length, fragment).toBeLessThan(3);
+    }
+    expect(ids('ad')).toEqual(['create:ad-campaign']);
+  });
+
+  it('still finds them by a create word or its start, in either language', () => {
+    expect(ids('create')).toHaveLength(commands.length);
+    expect(ids('cre')).toHaveLength(commands.length);
+    expect(ids('nieuw')).toHaveLength(commands.length);
+    expect(ids('new doc')).toEqual(['create:document']);
+    expect(ids('aanmaken formulier')).toEqual(['create:form']);
+    expect(ids('e-mail')).toEqual(['create:email']);
+  });
+});
