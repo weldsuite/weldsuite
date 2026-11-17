@@ -26,6 +26,7 @@ const rn = vi.hoisted(() => {
 vi.mock('react-native', () => ({ Platform: rn.Platform, Dimensions: rn.Dimensions, AppState: rn.AppState }));
 
 import { createWeldPanel } from './index';
+import { deviceTypeFromScreen, type Size } from './platform';
 import { deviceInfo, nativePlatform } from './platform-native';
 import { fakeNetwork, memoryStorage } from './test/harness';
 
@@ -47,6 +48,16 @@ describe('the React Native platform', () => {
     rn.Platform.constants = { Release: '', Manufacturer: 'samsung', Model: 'samsung SM-X710' };
     rn.Dimensions.get.mockImplementation(() => ({ width: 1600, height: 2560 }));
     expect(deviceInfo()).toMatchObject({ osVersion: '34', deviceType: 'tablet', deviceModel: 'samsung SM-X710' });
+  });
+
+  it('tablet from a shorter side of 600 dp, and no device type for a missing or unusable size', () => {
+    expect(deviceTypeFromScreen({ width: 600, height: 960 })).toBe('tablet');
+    expect(deviceTypeFromScreen({ width: 1024, height: 599.5 })).toBe('mobile');
+    expect(deviceTypeFromScreen({ width: Infinity, height: 700 })).toBe('tablet');
+    for (const screen of [undefined, { width: 0, height: 800 }, { width: 800, height: -1 }, { width: Number.NaN, height: 800 }, { width: 800, height: Number.NaN }]) {
+      expect(deviceTypeFromScreen(screen), JSON.stringify(screen)).toBeUndefined();
+    }
+    expect(deviceTypeFromScreen({ height: 800 } as unknown as Size)).toBeUndefined();
   });
 
   it('reads the locale from Intl', () => {

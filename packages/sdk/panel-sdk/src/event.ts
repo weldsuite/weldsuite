@@ -21,6 +21,7 @@ import {
   PROPERTY_KEY,
   SYSTEM_EVENTS,
   USER_ID,
+  type KeyPattern,
   type Properties,
   type WireElement,
   type WireEvent,
@@ -119,7 +120,7 @@ export function cleanUserId(id: unknown): string | undefined {
 export function cleanProps(
   props: Record<string, unknown> | null | undefined,
   onDrop?: (key: string, reason: string) => void,
-  keys: RegExp = PROPERTY_KEY,
+  keys: KeyPattern = PROPERTY_KEY,
   numbersOnly = false,
 ): Properties | undefined {
   if (!props || typeof props !== 'object') return undefined;

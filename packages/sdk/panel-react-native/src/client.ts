@@ -659,7 +659,14 @@ export function createClient(options: WeldPanelOptions & { platform: PanelPlatfo
     optedOut = loaded.optedOut;
     // Offline at launch: a stored record made without a grant means the project needed no consent.
     consentMode = mode ?? (record && !record.granted ? 'none' : 'required');
+    restoreIdentity(record);
+    if (!optedOut) restoreQueue(loaded);
+    watchDevice();
+    replayEarlyCalls();
+  }
 
+  /** The stored ids, super properties and groups, when the opt-out, consent and the project's mode still allow them. */
+  function restoreIdentity(record: StoredRecord | null): void {
     if (optedOut) {
       ids = null;
       forgetStored();
@@ -676,15 +683,18 @@ export function createClient(options: WeldPanelOptions & { platform: PanelPlatfo
       ids = consentMode === 'none' ? newIdentity(false, Date.now()) : null;
       saveState();
     }
+  }
 
-    if (!optedOut) {
-      // Left over from a launch that ended offline: sent first. Collected with consent, so sent with it.
-      queue = loaded.queue.events.map((e) => ({ e, c: true }));
-      people = loaded.queue.people;
-      groupOps = loaded.queue.groups;
-      if (!ids && loaded.queueStored) writer.write(queueKey(token), () => null);
-    }
+  /** Left over from a launch that ended offline: sent first. Collected with consent, so sent with it. */
+  function restoreQueue(loaded: Loaded): void {
+    queue = loaded.queue.events.map((e) => ({ e, c: true }));
+    people = loaded.queue.people;
+    groupOps = loaded.queue.groups;
+    if (!ids && loaded.queueStored) writer.write(queueKey(token), () => null);
+  }
 
+  /** The device's details and the app state; a platform that can't tell costs only those. */
+  function watchDevice(): void {
     try {
       device = platform.device();
     } catch (err) {
@@ -696,9 +706,13 @@ export function createClient(options: WeldPanelOptions & { platform: PanelPlatfo
     } catch (err) {
       warn('app state unavailable', err);
     }
+  }
 
-    // Consent, opt-out, identity, super properties and groups set before the
-    // SDK was ready apply to the launch events; events and profiles follow them.
+  /**
+   * The calls made before the SDK was ready, around the launch events: consent, opt-out, identity,
+   * super properties and groups apply to them; events and profiles follow them.
+   */
+  function replayEarlyCalls(): void {
     const calls = pending || [];
     pending = null;
     // With ids from storage (or a project needing no consent) the launch is recorded first; a grant() records it itself.
@@ -768,14 +782,8 @@ export function createClient(options: WeldPanelOptions & { platform: PanelPlatfo
     },
     optOut: () => call(true, optOut),
     optIn: () => call(true, optIn),
-    flush: () => {
-      try {
-        return flush().catch(warn);
-      } catch (err) {
-        warn(err);
-        return Promise.resolve();
-      }
-    },
+    // `flush` never throws synchronously and catches the drain's errors itself.
+    flush: () => flush().catch(warn),
     getDistinctId: () => (ids ? ids.userId || ids.anonId : null),
     getSessionId: () => (ids ? ids.sessionId : null),
     shutdown: () => safe(shutdown)(),

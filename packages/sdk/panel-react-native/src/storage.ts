@@ -122,25 +122,23 @@ export function parseRecord(raw: string | null): StoredRecord | null {
 
 /** The stored queue, every item checked again (what doesn't pass is left out). */
 export function parseQueue(raw: string | null): StoredQueue {
-  const v = parseObject(raw);
-  const list = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
-  const events: WireEvent[] = [];
-  const people: WirePeopleOp[] = [];
-  const groups: WireGroupOp[] = [];
-  if (!v) return { events, people, groups };
-  for (const e of list(v.events)) {
-    const event = isObject(e) ? normalizeEvent(e as unknown as EventInput) : null;
-    if (event) events.push(event);
+  const v = parseObject(raw) || {};
+  return {
+    events: parseList(v.events, (e) => normalizeEvent(e as unknown as EventInput)),
+    people: parseList(v.people, (o) => normalizePeopleOp(o as unknown as PeopleOpInput)),
+    groups: parseList(v.groups, (o) => normalizeGroupOp(o as unknown as GroupOpInput, undefined, true)),
+  };
+}
+
+/** The items of a stored list that are objects and pass `parse`. */
+function parseList<T>(list: unknown, parse: (item: Record<string, unknown>) => T | null): T[] {
+  const out: T[] = [];
+  if (!Array.isArray(list)) return out;
+  for (const item of list) {
+    const parsed = isObject(item) ? parse(item) : null;
+    if (parsed) out.push(parsed);
   }
-  for (const o of list(v.people)) {
-    const op = isObject(o) ? normalizePeopleOp(o as unknown as PeopleOpInput) : null;
-    if (op) people.push(op);
-  }
-  for (const o of list(v.groups)) {
-    const op = isObject(o) ? normalizeGroupOp(o as unknown as GroupOpInput, undefined, true) : null;
-    if (op) groups.push(op);
-  }
-  return { events, people, groups };
+  return out;
 }
 
 export interface Writer {

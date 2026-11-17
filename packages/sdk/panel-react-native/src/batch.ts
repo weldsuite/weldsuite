@@ -96,10 +96,7 @@ export function nextBatch(input: NextBatchInput): BatchPlan | null {
     size += extra;
     events.push(queued.e);
     used.push(queued);
-    if (events.length === 1) {
-      if (consent) [people, size] = takeOps(input.people, MAX_PEOPLE_OPS_PER_BATCH, size);
-      [groups, size] = takeOps(input.groups, MAX_GROUP_OPS_PER_BATCH, size);
-    }
+    if (events.length === 1) [people, groups, size] = takeAllOps(input, consent, size);
   }
 
   if (!events.length) return { batch: null, events: used, people: [], groups: [] };
@@ -107,6 +104,14 @@ export function nextBatch(input: NextBatchInput): BatchPlan | null {
   if (people.length) batch.people = people;
   if (groups.length) batch.groups = groups;
   return { batch, events: used, people, groups };
+}
+
+/** The profile operations (only with consent) and group operations that fit, and the batch's size with them. */
+function takeAllOps(input: NextBatchInput, consent: boolean, size: number): [WirePeopleOp[], WireGroupOp[], number] {
+  let people: WirePeopleOp[] = [];
+  if (consent) [people, size] = takeOps(input.people, MAX_PEOPLE_OPS_PER_BATCH, size);
+  const [groups, total] = takeOps(input.groups, MAX_GROUP_OPS_PER_BATCH, size);
+  return [people, groups, total];
 }
 
 /** The leading operations that fit, and the batch's size with them. */

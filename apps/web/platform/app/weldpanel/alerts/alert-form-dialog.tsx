@@ -6,7 +6,7 @@
  * anomaly band over it, the way the checker will judge it.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
@@ -78,7 +78,8 @@ function initialValues(alert: PanelAlertDto | null | undefined, reportId: string
   const inlineSeries = Array.isArray(specSeries) ? (specSeries[alert?.seriesIndex ?? 0] as { event?: unknown; math?: unknown } | undefined) : undefined;
   return {
     name: alert?.name ?? '',
-    source: alert ? (alert.reportId ? 'report' : 'custom') : 'report',
+    // A new alert starts on a report; an existing one keeps what it watches.
+    source: alert && !alert.reportId ? 'custom' : 'report',
     reportId: alert?.reportId ?? reportId ?? '',
     seriesIndex: String(alert?.seriesIndex ?? 0),
     event: typeof inlineSeries?.event === 'string' ? inlineSeries.event : (inline?.event ?? ''),
@@ -189,7 +190,9 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
           if (v.source === 'report' && v.reportId === '') ctx.addIssue({ code: 'custom', path: ['reportId'], message: tf.targetRequired });
           if (v.source === 'custom' && v.event.trim() === '') ctx.addIssue({ code: 'custom', path: ['event'], message: tf.targetRequired });
           if (v.conditionType === 'threshold' && (v.value.trim() === '' || !Number.isFinite(Number(v.value)))) ctx.addIssue({ code: 'custom', path: ['value'], message: tf.valueRequired });
-          if (v.conditionType === 'change' && !(Number(v.percent) > 0)) ctx.addIssue({ code: 'custom', path: ['percent'], message: tf.percentRequired });
+          const percent = Number(v.percent);
+          // NaN counts as missing too.
+          if (v.conditionType === 'change' && (Number.isNaN(percent) || percent <= 0)) ctx.addIssue({ code: 'custom', path: ['percent'], message: tf.percentRequired });
         }),
     [tf.nameRequired, tf.targetRequired, tf.valueRequired, tf.percentRequired],
   );
@@ -229,7 +232,8 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
       try {
         let saved: PanelAlertDto;
         if (alert) {
-          const watch = v.source === 'report' ? (alert.reportId !== v.reportId ? target : {}) : customChanged ? target : {};
+          const watchChanged = v.source === 'report' ? alert.reportId !== v.reportId : customChanged;
+          const watch = watchChanged ? target : {};
           saved = await update.mutateAsync({
             id: alert.id,
             name: v.name.trim(),
@@ -311,14 +315,12 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                 <FormField
                   control={form.control}
                   name="reportId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{tf.reportLabel}</FormLabel>
-                      {reportsLoading ? (
-                        <Skeleton className="h-9 w-full" />
-                      ) : (reports ?? []).length === 0 ? (
-                        <p className="text-sm text-muted-foreground">{tf.noReports}</p>
-                      ) : (
+                  render={({ field }) => {
+                    let picker: ReactNode;
+                    if (reportsLoading) picker = <Skeleton className="h-9 w-full" />;
+                    else if ((reports ?? []).length === 0) picker = <p className="text-sm text-muted-foreground">{tf.noReports}</p>;
+                    else {
+                      picker = (
                         <Select
                           value={field.value}
                           onValueChange={(next) => {
@@ -339,10 +341,16 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                             ))}
                           </SelectContent>
                         </Select>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                      );
+                    }
+                    return (
+                      <FormItem>
+                        <FormLabel>{tf.reportLabel}</FormLabel>
+                        {picker}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
               ) : (
                 <FormField

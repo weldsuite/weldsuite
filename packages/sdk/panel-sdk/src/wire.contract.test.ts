@@ -31,7 +31,8 @@ describe('wire contract', () => {
     expect([...sdk.SYSTEM_EVENTS].sort()).toEqual([...domain.SYSTEM_EVENTS].sort());
     expect(sdk.CUSTOM_EVENT_NAME.source).toBe(domain.CUSTOM_EVENT_NAME.source);
     expect(sdk.PROPERTY_KEY.source).toBe(domain.PROPERTY_KEY.source);
-    expect(sdk.EVENT_PROPERTY_KEY.source).toBe(domain.EVENT_PROPERTY_KEY.source);
+    expect(sdk.PAGE_EVENT_KEY.source).toBe(domain.PAGE_EVENT_KEY.source);
+    expect(sdk.DEVICE_EVENT_KEY.source).toBe(domain.DEVICE_EVENT_KEY.source);
     expect(sdk.PROFILE_PROPERTY_KEY.source).toBe(domain.PROFILE_PROPERTY_KEY.source);
     expect(sdk.USER_ID.source).toBe(domain.USER_ID.source);
     expect(sdk.MAX_GROUP_OPS_PER_BATCH).toBe(domain.MAX_GROUP_OPS_PER_BATCH);

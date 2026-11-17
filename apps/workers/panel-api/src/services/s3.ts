@@ -10,7 +10,7 @@
  * The payload hash is the real SHA-256 of the body.
  */
 
-import type { ParsedPanelExportDestination } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
+import { isPublicHostname, type ParsedPanelExportDestination } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
 
 export interface S3Credentials {
   accessKeyId: string;
@@ -84,7 +84,8 @@ export async function signRequest(input: SignInput): Promise<Record<string, stri
   headers['x-amz-date'] = amzDate;
   headers['x-amz-content-sha256'] = payloadHash;
 
-  const names = Object.keys(headers).sort();
+  // SigV4 orders header names by byte (code unit), never by locale.
+  const names = Object.keys(headers).sort((a, b) => (a < b ? -1 : Number(a > b)));
   const canonicalHeaders = names.map((n) => `${n}:${headers[n]}\n`).join('');
   const signedHeaders = names.join(';');
   const query = [...url.searchParams.entries()]
@@ -157,6 +158,21 @@ export interface S3CallOptions {
   now?: Date;
 }
 
+/**
+ * The URL a request may go to: https, no credentials, and a public DNS host
+ * name. The endpoint comes from the customer, so an IP literal, `localhost`,
+ * an internal suffix or one of WeldSuite's own hosts is refused before any
+ * request leaves the worker (the schema refuses them on save too; this is the
+ * check at the point of use).
+ */
+export function safeObjectUrl(dest: S3Destination, key: string): string {
+  const url = new URL(objectUrl(dest, key));
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || !isPublicHostname(url.hostname)) {
+    throw new S3Error('The endpoint is not a public https host name', 400);
+  }
+  return url.toString();
+}
+
 export async function putObject(
   dest: S3Destination,
   credentials: S3Credentials,
@@ -165,14 +181,14 @@ export async function putObject(
   headers: Record<string, string>,
   options: S3CallOptions = {},
 ): Promise<void> {
-  const url = objectUrl(dest, key);
+  const url = safeObjectUrl(dest, key);
   const signed = await signRequest({ method: 'PUT', url, headers, body, credentials, region: dest.region, now: options.now });
   const res = await (options.fetch ?? fetch)(url, { method: 'PUT', headers: sendable(signed), body });
   if (!res.ok) throw await s3Failure(res);
 }
 
 export async function deleteObject(dest: S3Destination, credentials: S3Credentials, key: string, options: S3CallOptions = {}): Promise<void> {
-  const url = objectUrl(dest, key);
+  const url = safeObjectUrl(dest, key);
   const signed = await signRequest({ method: 'DELETE', url, credentials, region: dest.region, now: options.now });
   const res = await (options.fetch ?? fetch)(url, { method: 'DELETE', headers: sendable(signed) });
   if (!res.ok && res.status !== 404) throw await s3Failure(res);

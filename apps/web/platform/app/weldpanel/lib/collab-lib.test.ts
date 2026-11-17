@@ -152,8 +152,8 @@ describe('alerts', () => {
 
 describe('share', () => {
   it('adds embed=1 and escapes the iframe attributes', () => {
-    expect(embedUrl('https://app.weldsuite.org/share/panel/wpsh_x')).toBe('https://app.weldsuite.org/share/panel/wpsh_x?embed=1');
-    expect(iframeSnippet('https://a.test/share/panel/t', 'Sales "Q1" <b>')).toContain('title="Sales &quot;Q1&quot; &lt;b>"');
+    expect(embedUrl('https://app.weldsuite.org/s/panel/wpsh_x')).toBe('https://app.weldsuite.org/s/panel/wpsh_x?embed=1');
+    expect(iframeSnippet('https://a.test/s/panel/t', 'Sales "Q1" <b>')).toContain('title="Sales &quot;Q1&quot; &lt;b>"');
   });
 
   it('reads the refusal reasons of a 422 NOT_SHAREABLE', () => {

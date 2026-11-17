@@ -87,7 +87,8 @@ export function watchVitals(selector: (el: Element) => string): Vitals {
     if (n) {
       const activation = n.activationStart || 0;
       if (n.responseStart > 0) m.$ttfb = Math.max(0, Math.round(n.responseStart - activation));
-      m.$nav_type = activation > 0 ? 'prerender' : n.type === 'reload' || n.type === 'back_forward' ? n.type : 'navigate';
+      m.$nav_type = n.type === 'reload' || n.type === 'back_forward' ? n.type : 'navigate';
+      if (activation > 0) m.$nav_type = 'prerender';
     }
   } catch {
     // No navigation timing.

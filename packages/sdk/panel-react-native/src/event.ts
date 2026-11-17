@@ -19,6 +19,7 @@ import {
   PROPERTY_KEY,
   SYSTEM_EVENTS,
   USER_ID,
+  type KeyPattern,
   type Properties,
   type WireEvent,
   type WireGroupOp,
@@ -75,8 +76,10 @@ function randomBytes(): Uint8Array {
     }
   }
   // Hermes has no `crypto` unless the app polyfills it. These ids only tell
-  // events, visitors and sessions apart; they guard nothing.
-  for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  // events, visitors and sessions apart; they guard nothing (no access is
+  // granted by knowing one), so a non-cryptographic fallback is acceptable.
+  // eslint-disable-next-line sonarjs/pseudo-random -- ids, not secrets (see above)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256); // NOSONAR
   return bytes;
 }
 
@@ -153,7 +156,7 @@ export function cleanGroupKey(key: unknown): string | undefined {
 export function cleanProps(
   props: Record<string, unknown> | null | undefined,
   onDrop?: OnDrop,
-  keys: RegExp = PROPERTY_KEY,
+  keys: KeyPattern = PROPERTY_KEY,
   numbersOnly = false,
 ): Properties | undefined {
   if (!props || typeof props !== 'object') return undefined;

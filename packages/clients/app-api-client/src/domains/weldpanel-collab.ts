@@ -7,7 +7,7 @@
  *
  * Also the public share client ({@link createWeldPanelPublicShareApi}): no
  * session, the token in the URL is the only credential, for the
- * `/share/panel/<token>` page.
+ * `/s/panel/<token>` page.
  */
 
 import { buildQueryString } from '../types';

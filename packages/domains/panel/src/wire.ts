@@ -77,9 +77,19 @@ export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
 export const CUSTOM_EVENT_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$/;
 /** Property keys: identifiers, kept SQL-safe because the query compiler reads them with `json_get_*`. */
 export const PROPERTY_KEY = /^[A-Za-z_]\w{0,63}$/;
+/** Reserved event keys about the page and the visitor: `$exception`'s source, line and column, `$quickback`'s page left, the first touch and `$group_<type>`. */
+export const PAGE_EVENT_KEY =
+  /^\$(?:source|line|col|from|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|group_[a-z][a-z0-9_]{0,31})$/;
+/** Reserved event keys about the device: `$webvitals`' measures, and the mobile SDK's device and screen. */
+export const DEVICE_EVENT_KEY =
+  /^\$(?:lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|screen_width|screen_height|locale)$/;
+/** What a property key is checked against: a RegExp, or {@link EVENT_PROPERTY_KEY}. */
+export interface KeyPattern {
+  test(key: string): boolean;
+}
 /**
  * Property keys of an event: {@link PROPERTY_KEY}, plus the reserved `$` keys
- * the SDKs set themselves:
+ * the SDKs set themselves ({@link PAGE_EVENT_KEY}, {@link DEVICE_EVENT_KEY}):
  *
  * - `$exception`: source, line, column; `$quickback`: the page left;
  * - first touch, on every event: `$initial_referrer`, `$initial_referring_domain`,
@@ -93,10 +103,12 @@ export const PROPERTY_KEY = /^[A-Za-z_]\w{0,63}$/;
  *
  * Any other `$` key stays refused, so a client can't forge the collector's
  * own (`$action`). The Rust collector (rust/modules/panel/src/collector/wire.rs)
- * has the same pattern.
+ * has the same keys in one regex; here they are three simpler patterns, which
+ * accept exactly the keys that regex does.
  */
-export const EVENT_PROPERTY_KEY =
-  /^(?:[A-Za-z_]\w{0,63}|\$(?:source|line|col|from|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|group_[a-z][a-z0-9_]{0,31}|lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|screen_width|screen_height|locale))$/;
+export const EVENT_PROPERTY_KEY: KeyPattern = {
+  test: (key) => PROPERTY_KEY.test(key) || PAGE_EVENT_KEY.test(key) || DEVICE_EVENT_KEY.test(key),
+};
 /**
  * Profile property keys: {@link PROPERTY_KEY}, plus the reserved profile fields and the
  * first-touch keys the SDK sends with `people.set_once` on `identify()` (`$initial_referrer`, …).
@@ -108,8 +120,13 @@ export const USER_ID = /^[^\u0000-\u001f\u007f-\u009f]{1,255}$/;
 
 const propertyValue = z.union([z.string().max(MAX_STRING), z.number().finite(), z.boolean(), z.null()]);
 
+/** A key {@link EVENT_PROPERTY_KEY} accepts; any other fails with the issue a `.regex()` check gives. */
+const eventPropertyKey = z.string().superRefine((key, ctx) => {
+  if (!EVENT_PROPERTY_KEY.test(key)) ctx.addIssue({ code: z.ZodIssueCode.invalid_string, validation: 'regex' });
+});
+
 const eventProps = z
-  .record(z.string().regex(EVENT_PROPERTY_KEY), propertyValue)
+  .record(eventPropertyKey, propertyValue)
   .refine((p) => Object.keys(p).length <= MAX_PROPERTIES, { message: `At most ${MAX_PROPERTIES} properties` });
 
 export const wireEventSchema = z.object({

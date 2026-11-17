@@ -351,42 +351,46 @@ export function createClient(options: ClientOptions): Client {
    */
   function emit(name: string, extra: Partial<EventInput>, at?: Page | null, anonymous?: boolean): void {
     if (!config || optedOut) return;
-    if (excluded(at ? at.path : location.pathname)) return;
+    const where = at || { url: location.href, title: document.title, path: location.pathname };
+    if (excluded(where.path)) return;
     const now = Date.now();
-    const input: EventInput = {
-      name,
-      ts: now,
-      url: at ? at.url : location.href,
-      title: at ? at.title : document.title,
-      viewport_w: window.innerWidth,
-      ...extra,
-    };
-    if (state && !anonymous) {
-      // Another tab may have moved the session on, or identified the visitor, since this one last looked.
-      const stored = readState(token);
-      if (stored && stored.a === state.a && stored.t > state.t) {
-        state = { ...stored, g: state.g || stored.g };
-        adopt(stored);
-      }
-      state = touchSession(state, now);
-      writeState(token, state);
-      input.anon_id = state.a;
-      input.session_id = state.s;
-      if (state.u) input.user_id = state.u;
-    }
-    if (!anonymous) {
-      const member: Properties = {};
-      // Group membership is kept in memory before consent but only sent after it.
-      if (state) for (const type of Object.keys(groups)) member[`$group_${type}`] = groups[type];
-      input.props = merge(extra.props as Properties | undefined, member, supers, first);
-    }
+    const input: EventInput = { name, ts: now, url: where.url, title: where.title, viewport_w: window.innerWidth, ...extra };
+    // stamp() runs before `supers` and `first` are read: it may adopt another tab's.
+    if (!anonymous) input.props = merge(extra.props as Properties | undefined, stamp(input, now), supers, first);
     const event = normalizeEvent(input);
     if (!event) return warn(`event "${name}" dropped: not a valid event`);
     queue.push(event);
     if (queue.length >= FLUSH_AT) void flush();
-    else if (!timer) timer = setTimeout(() => void flush(), FLUSH_INTERVAL_MS);
+    else schedule();
     // The session may have rolled over.
     if (state) syncRecording();
+  }
+
+  /**
+   * With consent: the visitor's ids on the event, and their group membership as `$group_<type>`
+   * properties (kept in memory before consent but only sent after it). Nothing without.
+   */
+  function stamp(input: EventInput, now: number): Properties {
+    const member: Properties = {};
+    if (!state) return member;
+    // Another tab may have moved the session on, or identified the visitor, since this one last looked.
+    const stored = readState(token);
+    if (stored && stored.a === state.a && stored.t > state.t) {
+      state = { ...stored, g: state.g || stored.g };
+      adopt(stored);
+    }
+    state = touchSession(state, now);
+    writeState(token, state);
+    input.anon_id = state.a;
+    input.session_id = state.s;
+    if (state.u) input.user_id = state.u;
+    for (const type of Object.keys(groups)) member[`$group_${type}`] = groups[type];
+    return member;
+  }
+
+  /** A send within {@link FLUSH_INTERVAL_MS} while events are waiting (profile and group operations leave with them). */
+  function schedule(): void {
+    if (queue.length && !timer) timer = setTimeout(() => void flush(), FLUSH_INTERVAL_MS);
   }
 
   function track(rawName: string, props?: Record<string, unknown>): void {
@@ -474,7 +478,7 @@ export function createClient(options: ClientOptions): Client {
     if (!op) return warn('group dropped: bad type or key');
     if (groupOps.length >= MAX_PENDING_PEOPLE) groupOps.shift();
     groupOps.push(op);
-    if (queue.length && !timer) timer = setTimeout(() => void flush(), FLUSH_INTERVAL_MS);
+    schedule();
   }
 
   /** Membership (only for a valid type and key), and the group's profile operation (which warns about a bad one). */
@@ -498,7 +502,7 @@ export function createClient(options: ClientOptions): Client {
     if (people.length >= MAX_PENDING_PEOPLE) people.shift();
     people.push(clean);
     // Profile operations travel with events: they leave with the next batch.
-    if (queue.length && !timer) timer = setTimeout(() => void flush(), FLUSH_INTERVAL_MS);
+    schedule();
   }
 
   function increment(props: string | Record<string, number>, by?: number): void {

@@ -1,5 +1,5 @@
 /**
- * The public page of a WeldPanel share link, `/share/panel/<token>`: a
+ * The public page of a WeldPanel share link, `/s/panel/<token>`: a
  * read-only report or dashboard for anyone with the link, no session. Outside
  * the workspace shell (`share` is reserved in `lib/workspace-url.ts`), kept
  * out of search engines and Referer headers, and shown inside another site's

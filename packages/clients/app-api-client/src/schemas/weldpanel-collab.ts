@@ -567,7 +567,7 @@ export interface PanelShareLinkDto {
 /** The only time the token and the link are shown: only a hash is kept. */
 export interface PanelCreatedShareLinkDto extends PanelShareLinkDto {
   token: string;
-  /** `${PLATFORM_URL}/share/panel/<token>`. */
+  /** `${PLATFORM_URL}/s/panel/<token>`. */
   url: string;
 }
 
@@ -578,9 +578,9 @@ export interface PanelNotShareableDetails {
   reasons: { reportId: string; reason: PanelShareRefusal }[];
 }
 
-/** The public page of a link: `/share/panel/<token>` on the platform. */
+/** The public page of a link: `/s/panel/<token>` on the platform. */
 export function panelShareUrl(platformUrl: string, token: string): string {
-  return `${withoutTrailingSlash(platformUrl)}/share/panel/${token}`;
+  return `${withoutTrailingSlash(platformUrl)}/s/panel/${token}`;
 }
 
 /** `url` without the slashes it ends with. */

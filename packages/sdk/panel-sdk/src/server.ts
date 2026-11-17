@@ -41,6 +41,7 @@ import {
   MAX_TITLE,
   MAX_TRACK_EVENTS,
   PROPERTY_KEY,
+  type Properties,
   type ServerBatch,
   type ServerEvent,
   type WireGroupOp,
@@ -169,13 +170,19 @@ export function toServerEvent(input: ServerEventInput): ServerEvent | null {
   const title = str(input.title, MAX_TITLE);
   if (title) event.title = title;
   const props = cleanProps(input.props, undefined, isSystemEvent(name) ? EVENT_PROPERTY_KEY : PROPERTY_KEY) || {};
-  for (const type of Object.keys(input.groups || {})) {
-    const key = cleanUserId((input.groups as Record<string, unknown>)[type]);
-    if (GROUP_TYPE.test(type) && key) props[`$group_${type}`] = key;
-  }
+  addGroups(props, input.groups);
   const clean = cleanProps(props, undefined, EVENT_PROPERTY_KEY);
   if (clean) event.props = clean;
   return event;
+}
+
+/** `$group_<type>` for each valid group type and key. */
+function addGroups(props: Properties, groups: ServerEventInput['groups']): void {
+  const all: Record<string, unknown> = groups || {};
+  for (const type of Object.keys(all)) {
+    const key = cleanUserId(all[type]);
+    if (GROUP_TYPE.test(type) && key) props[`$group_${type}`] = key;
+  }
 }
 
 export function createPanelServer(options: PanelServerOptions): PanelServer {

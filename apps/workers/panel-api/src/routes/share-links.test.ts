@@ -185,7 +185,7 @@ describe('creating, listing and revoking', () => {
     events = [];
     const link = await shared('report', report.id, { allowDateChange: true });
     expect(link.token).toMatch(/^wpsh_[A-Za-z0-9]{32}$/);
-    expect(link.url).toBe(`https://app-test.weldsuite.org/share/panel/${link.token}`);
+    expect(link.url).toBe(`https://app-test.weldsuite.org/s/panel/${link.token}`);
     expect(link.prefix).toBe(`${link.token.slice(0, 9)}…`);
     expect(link).toMatchObject({ targetType: 'report', targetId: report.id, projectId: 'pnp_a', allowEmbed: false, allowDateChange: true, viewCount: 0 });
 

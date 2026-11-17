@@ -319,10 +319,34 @@ export const PANEL_EXPORT_RUN_STATUSES = ['running', 'succeeded', 'failed'] as c
 export type PanelExportRunStatus = (typeof PANEL_EXPORT_RUN_STATUSES)[number];
 
 /** Endpoint for a store other than AWS S3: an `https://` origin, no path, no credentials. */
+const IPV4_LITERAL = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const PRIVATE_SUFFIXES = ['.localhost', '.local', '.internal', '.lan', '.home', '.corp', '.intranet', '.weldsuite.org'];
+
+/**
+ * A host name an outbound request from WeldSuite may go to: a dotted DNS name,
+ * not an IP literal, not `localhost` or a private suffix, and none of
+ * WeldSuite's own hosts. Customer-supplied endpoints (export buckets) are
+ * checked with it on save and again right before each request.
+ */
+export function isPublicHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (host === '' || !host.includes('.') || host.startsWith('[') || host.includes(':')) return false;
+  if (IPV4_LITERAL.test(host) || host === 'localhost' || host === 'weldsuite.org') return false;
+  return !PRIVATE_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
 function isEndpoint(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && url.username === '' && url.password === '' && (url.pathname === '/' || url.pathname === '') && !url.search && !url.hash;
+    return (
+      url.protocol === 'https:' &&
+      url.username === '' &&
+      url.password === '' &&
+      (url.pathname === '/' || url.pathname === '') &&
+      !url.search &&
+      !url.hash &&
+      isPublicHostname(url.hostname)
+    );
   } catch {
     return false;
   }

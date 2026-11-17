@@ -89,9 +89,8 @@ export function buildBatches(input: BatchInput): EventBatch[] {
     sizes.push(size);
   }
 
-  if (input.consent && input.people) {
-    for (const raw of input.people) addOp(batches, sizes, 'people', MAX_PEOPLE_OPS_PER_BATCH, normalizePeopleOp(raw as PeopleOpInput));
-  }
+  // Profile operations only with consent; group operations with or without.
+  for (const raw of (input.consent && input.people) || []) addOp(batches, sizes, 'people', MAX_PEOPLE_OPS_PER_BATCH, normalizePeopleOp(raw as PeopleOpInput));
   for (const raw of input.groups || []) addOp(batches, sizes, 'groups', MAX_GROUP_OPS_PER_BATCH, normalizeGroupOp(raw as GroupOpInput));
   return batches;
 }
@@ -101,13 +100,15 @@ function addOp(batches: EventBatch[], sizes: number[], field: 'people' | 'groups
   if (!op) return;
   const n = utf8Length(JSON.stringify(op));
   for (let i = 0; i < batches.length; i++) {
-    const list = batches[i][field] as Array<WirePeopleOp | WireGroupOp> | undefined;
+    // `op` is of `field`'s kind, so the list stays all one kind.
+    const batch: Partial<Record<typeof field, Array<WirePeopleOp | WireGroupOp>>> = batches[i];
+    // A batch's list is never empty: it is made for its first operation.
+    const list = batch[field] || [];
     // `,"people":[` / `,"groups":[` + `]` the first time, a comma after that.
-    const extra = list ? n + 1 : n + 12;
-    if ((list ? list.length : 0) >= max || sizes[i] + extra > MAX_BATCH_BYTES) continue;
-    if (list) list.push(op);
-    else if (field === 'people') batches[i].people = [op as WirePeopleOp];
-    else batches[i].groups = [op as WireGroupOp];
+    const extra = list.length ? n + 1 : n + 12;
+    if (list.length >= max || sizes[i] + extra > MAX_BATCH_BYTES) continue;
+    list.push(op);
+    batch[field] = list;
     sizes[i] += extra;
     return;
   }

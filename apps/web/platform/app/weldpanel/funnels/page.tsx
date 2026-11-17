@@ -9,6 +9,7 @@ import {
   type PanelFilter,
   type PanelFunnelCorrelationSpec,
   type PanelFunnelDisplay,
+  type PanelFunnelResult,
   type PanelFunnelSpec,
   type PanelInterval,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
@@ -40,7 +41,7 @@ import { FunnelResultView } from '../components/results/funnel-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
 import { defaultReportName, emptyFunnelDraft, funnelDraftFromSpec, isFunnelReady, type FunnelDraft } from '../lib/builders';
-import { csvFilename } from '../lib/csv';
+import { csvFilename, type CsvExport, type CsvRow } from '../lib/csv';
 import { defaultInterval, parseRange, useDateRange } from '../lib/date-range';
 import { correlationCsvRows, funnelCsvRows, funnelTrendCsvRows, timeToConvertCsvRows } from '../lib/explore-csv';
 
@@ -72,6 +73,19 @@ function funnelSpecFromDraft(draft: FunnelDraft, projectId: string, range: Panel
     display: display === 'steps' ? undefined : display,
     interval: display === 'trends' ? (draft.interval ?? fallbackInterval) : undefined,
   };
+}
+
+/** The CSV of the result as it is displayed: the steps, the trend or the time to convert. */
+function funnelResultCsvRows(result: PanelFunnelResult, display: PanelFunnelDisplay): CsvRow[] {
+  if (display === 'trends') return funnelTrendCsvRows(result);
+  if (display === 'time_to_convert') return timeToConvertCsvRows(result);
+  return funnelCsvRows(result);
+}
+
+/** The results card's "Export CSV", once there is a result. */
+function funnelCsvExport(result: PanelFunnelResult | undefined, display: PanelFunnelDisplay, name: string): (() => CsvExport) | undefined {
+  if (!result) return undefined;
+  return () => ({ filename: csvFilename(name), rows: funnelResultCsvRows(result, display) });
 }
 
 function Builder({ projectId }: Readonly<{ projectId: string }>) {
@@ -138,13 +152,6 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   const orderLabel = (o: FunnelOrder) => (o === 'any' ? tx.orders.any : tf.orders[o]);
   const orderHint = order === 'any' ? tx.orderHints.any : tf.orderHints[order];
   const csvName = saved.report?.name ?? tf.title;
-
-  let csvRows: (() => ReturnType<typeof funnelCsvRows>) | null = null;
-  if (data) {
-    if (display === 'trends') csvRows = () => funnelTrendCsvRows(data.result);
-    else if (display === 'time_to_convert') csvRows = () => timeToConvertCsvRows(data.result);
-    else csvRows = () => funnelCsvRows(data.result);
-  }
 
   return (
     <div className="grid gap-6">
@@ -359,7 +366,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
             onRetry={() => void refetch()}
             empty={!ready}
             emptyText={tf.completeHint}
-            csv={csvRows ? () => ({ filename: csvFilename(csvName), rows: csvRows!() }) : undefined}
+            csv={funnelCsvExport(data?.result, display, csvName)}
             actions={
               <div className="flex flex-wrap items-center gap-3">
                 <ToggleGroup type="single" variant="outline" size="sm" value={display} onValueChange={(next) => next && setDraft((d) => ({ ...d, display: next as PanelFunnelDisplay }))} aria-label={tx.display.label}>

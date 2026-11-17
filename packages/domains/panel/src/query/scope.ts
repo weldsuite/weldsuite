@@ -33,6 +33,7 @@ import { parseExpression, toSql } from '../expression';
 import { cleanedPathSql } from './paths';
 import {
   PanelQueryError,
+  compareText,
   eventName,
   groupType as checkedGroupType,
   inList,
@@ -151,7 +152,7 @@ export function eventsScope(ctx: PanelQueryContext, range: ResolvedRange, bounds
   const person = personExpr(ctx);
   const own = scopeNeeds(ctx, { filters: options.filters ? [options.filters] : [] });
   const joinProfiles = options.personProps === true || own.personProps;
-  const groupTypes = [...new Set([...(options.groupTypes ?? []), ...own.groupTypes])].sort();
+  const groupTypes = [...new Set([...(options.groupTypes ?? []), ...own.groupTypes])].sort(compareText);
 
   let from = `${eventsTable} e`;
   if (ctx.hasIdentifiedUsers) from += ` LEFT JOIN ${identitiesLatest(ctx, range)} i ON i.anon_id = e.anon_id`;
@@ -214,7 +215,7 @@ export function scopeNeeds(ctx: PanelQueryContext, use: ScopeUse): ScopeNeeds {
     if (b?.source === 'person') personProps = true;
     if (b?.source === 'group') groupTypes.add(b.groupType);
   }
-  return { personProps, groupTypes: [...groupTypes].sort() };
+  return { personProps, groupTypes: [...groupTypes].sort(compareText) };
 }
 
 // ---------------------------------------------------------------------------

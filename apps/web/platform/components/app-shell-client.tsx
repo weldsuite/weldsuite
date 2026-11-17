@@ -82,7 +82,7 @@ const MeetingPiPWidget = lazy(() =>
 
 /**
  * /auth, /onboarding and /invite bootstrap their own org context; the public
- * /w9 form and WeldPanel share links (/share/panel) have none at all.
+ * /w9 form and WeldPanel share links (/s/panel) have none at all.
  */
 function bootstrapsOwnOrg(pathname: string): boolean {
   return (
@@ -90,7 +90,7 @@ function bootstrapsOwnOrg(pathname: string): boolean {
     pathname === '/onboarding' ||
     pathname.startsWith('/invite') ||
     pathname.startsWith('/w9/') ||
-    pathname.startsWith('/share/')
+    pathname.startsWith('/s/')
   );
 }
 

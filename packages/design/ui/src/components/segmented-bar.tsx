@@ -44,10 +44,11 @@ function defaultShare(share: number): string {
 export function SegmentedBar({ segments, label, legend = true, formatShare = defaultShare, className }: Readonly<SegmentedBarProps>) {
   const total = segments.reduce((sum, s) => sum + Math.max(0, s.value), 0);
   const share = (value: number) => (total > 0 ? Math.max(0, value) / total : 0);
+  const parts = segments.map((s) => `${s.label} ${formatShare(share(s.value))}`).join(', ');
 
   return (
     <div className={cn('grid gap-2', className)}>
-      <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`${label}: ${segments.map((s) => `${s.label} ${formatShare(share(s.value))}`).join(', ')}`}>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`${label}: ${parts}`}>
         {segments.map((s) =>
           s.value > 0 ? <div key={s.key} className={cn('h-full', TONES[s.tone ?? 'primary'])} style={{ width: `${share(s.value) * 100}%` }} title={`${s.label}: ${formatShare(share(s.value))}`} /> : null,
         )}

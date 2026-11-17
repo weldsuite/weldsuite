@@ -80,9 +80,18 @@ const MAX_SCREEN = 200;
 /** A bundle id or package name (`com.acme.shop`). */
 const APP_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 /** ASCII whitespace only, so the Rust collector cuts screen names the same way. */
-const SCREEN_EDGE_SPACE = /^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g;
+const SCREEN_SPACE = ' \t\n\r\v\f';
 const SCREEN_SPACE_RUN = /[ \t\n\r\v\f]+/g;
 const MOBILE_OS: Record<string, string> = { ios: 'iOS', ipados: 'iOS', android: 'Android', windows: 'Windows', macos: 'macOS' };
+
+/** `text` without {@link SCREEN_SPACE} at either end: a scan from each end, as a trailing-space pattern would backtrack. */
+function trimScreenSpace(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && SCREEN_SPACE.includes(text.charAt(start))) start++;
+  while (end > start && SCREEN_SPACE.includes(text.charAt(end - 1))) end--;
+  return text.slice(start, end);
+}
 
 /**
  * A mobile event's place (`lib: 'mobile'`, the React Native SDK), from the `$`
@@ -97,7 +106,7 @@ function mobilePlace(event: WireEvent): Place {
   };
   const rawAppId = prop('$app_id');
   const appId = rawAppId !== null && APP_ID.test(rawAppId) ? rawAppId : null;
-  const screen = prop('$screen_name')?.replace(SCREEN_EDGE_SPACE, '') || null;
+  const screen = trimScreenSpace(prop('$screen_name') ?? '') || null;
   const path = screen ? `/${screen.replace(SCREEN_SPACE_RUN, '-').slice(0, MAX_SCREEN)}` : '/';
   const deviceType = prop('$device_type');
   return {

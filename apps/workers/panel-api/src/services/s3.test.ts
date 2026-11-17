@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { deleteObject, encodeKey, objectUrl, putObject, sha256Hex, signRequest } from './s3';
+import { isPublicHostname } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
+import { deleteObject, encodeKey, objectUrl, putObject, safeObjectUrl, sha256Hex, signRequest } from './s3';
 
 const credentials = { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
 const NOW = new Date('2013-05-24T00:00:00Z');
@@ -66,6 +67,26 @@ describe('addressing', () => {
     const r2 = { provider: 'r2' as const, endpoint: 'https://acc.r2.cloudflarestorage.com', region: 'auto', bucket: 'raw', pathStyle: true };
     expect(objectUrl(r2, 'x/y.gz')).toBe('https://acc.r2.cloudflarestorage.com/raw/x/y.gz');
     expect(objectUrl({ ...r2, provider: 'gcs', endpoint: 'https://storage.googleapis.com', pathStyle: false }, 'y.gz')).toBe('https://raw.storage.googleapis.com/y.gz');
+  });
+
+  it('only sends to a public https host name', async () => {
+    const minio = { provider: 'minio' as const, region: 'us-east-1', bucket: 'raw', pathStyle: true };
+    expect(safeObjectUrl({ ...minio, endpoint: 'https://minio.example.com' }, 'a.gz')).toBe('https://minio.example.com/raw/a.gz');
+    for (const endpoint of ['https://10.0.0.5', 'https://localhost', 'https://store.internal', 'https://app-api.weldsuite.org', 'https://[::1]']) {
+      expect(() => safeObjectUrl({ ...minio, endpoint }, 'a.gz')).toThrow('public https host name');
+    }
+    const fetcher = vi.fn();
+    const credentials = { accessKeyId: 'AKID', secretAccessKey: 'secret' };
+    await expect(putObject({ ...minio, endpoint: 'https://169.254.169.254' }, credentials, 'a.gz', new Uint8Array(), {}, { fetch: fetcher })).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('knows a public host name', () => {
+    expect(isPublicHostname('acc.r2.cloudflarestorage.com')).toBe(true);
+    expect(isPublicHostname('storage.googleapis.com.')).toBe(true);
+    for (const host of ['localhost', 'nas', '192.168.1.2', 'printer.local', 'weldsuite.org', 'x.weldsuite.org', '[fe80::1]']) {
+      expect(isPublicHostname(host)).toBe(false);
+    }
   });
 });
 

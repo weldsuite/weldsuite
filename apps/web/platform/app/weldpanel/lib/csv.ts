@@ -42,19 +42,27 @@ export function toCsv(rows: readonly CsvRow[]): string {
   return `${BOM}${lines.join('\r\n')}\r\n`;
 }
 
+/** `--a-b--` → `a-b`: the hyphens at either end dropped (a loop, not a backtracking regex). */
+function trimHyphens(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === '-') start++;
+  while (end > start && text[end - 1] === '-') end--;
+  return text.slice(start, end);
+}
+
 /**
  * A file name from a report (or page) name and a date: `Signups by week` on
  * 3 March 2026 → `signups-by-week-2026-03-03`. Characters a file system
  * refuses are dropped; an empty name becomes `weldpanel`.
  */
 export function csvFilename(name: string, date: Date = new Date()): string {
-  const slug = name
+  const words = name
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
+    .replace(/[^a-z0-9]+/g, '-');
+  const slug = trimHyphens(words).slice(0, 80);
   const day = date.toISOString().slice(0, 10);
   return `${slug || 'weldpanel'}-${day}`;
 }

@@ -123,7 +123,8 @@ function ExportRow({ item, onEdit, onRuns, onDelete }: Readonly<ExportRowProps>)
     }
   }
 
-  const destination = `${te.providers[item.destination.provider]} · ${item.destination.bucket}${item.destination.prefix ? `/${item.destination.prefix}` : ''}`;
+  const prefix = item.destination.prefix ? `/${item.destination.prefix}` : '';
+  const destination = `${te.providers[item.destination.provider]} · ${item.destination.bucket}${prefix}`;
   return (
     <TableRow>
       <TableCell className="max-w-56">

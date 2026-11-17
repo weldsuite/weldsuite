@@ -54,6 +54,50 @@ describe('groups, mobile and the new reserved keys', () => {
     expect(groupTypeOfProperty('group_company')).toBeNull();
   });
 
+  it('accepts exactly the event property keys the Rust collector does', () => {
+    // The Rust collector's PROPERTY_KEY (rust/modules/panel/src/collector/wire.rs), as one pattern.
+    const rust =
+      /^(?:[A-Za-z_][A-Za-z0-9_]{0,63}|\$(?:source|line|col|from|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|group_[a-z][a-z0-9_]{0,31}|lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|screen_width|screen_height|locale))$/;
+    const reserved = ['source', 'line', 'col', 'from', 'lcp', 'inp', 'fcp', 'ttfb', 'cls', 'lcp_el', 'inp_el', 'cls_el', 'nav_type'];
+    const mobile = ['screen_name', 'os', 'os_version', 'device_type', 'device_model', 'app_id', 'app_version', 'app_build', 'screen_width', 'screen_height', 'locale'];
+    const initial = ['referrer', 'referring_domain', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'landing_path'];
+    const names = [...reserved, ...mobile, ...initial.map((k) => `initial_${k}`), 'group_a', `group_a${'b'.repeat(31)}`];
+    const keys = [
+      ...names.flatMap((name) => [`$${name}`, name, `$${name}x`, `$${name}_`, `x$${name}`, `$$${name}`, ` $${name}`, `$${name} `, `$${name}\n`, `$${name.toUpperCase()}`]),
+      // Plain identifiers: up to 64 characters, not starting with a digit.
+      'a',
+      '_',
+      'A_1',
+      '1a',
+      'a'.repeat(64),
+      'a'.repeat(65),
+      'a-b',
+      'é',
+      '',
+      // `$group_<type>`: a lower-case letter, then up to 31 of a-z, 0-9 and _.
+      '$group_',
+      '$group_1',
+      '$group_A',
+      '$group_a-b',
+      `$group_a${'b'.repeat(32)}`,
+      // Prefixes, partial names and keys of no SDK.
+      '$',
+      '$initial_',
+      '$initial_utm',
+      '$lcp_e',
+      '$os_',
+      '$app',
+      '$action',
+      '$constructor',
+      '$__proto__',
+    ];
+    for (const key of keys) expect(EVENT_PROPERTY_KEY.test(key), JSON.stringify(key)).toBe(rust.test(key));
+
+    // A refused key reads as a failed pattern check, as it did when the schema used `.regex()`.
+    const refused = parseEventBatch(batch({ events: [event({ props: { $action: 1 } })] }));
+    expect(refused.ok || refused.issues[0]).toEqual({ code: 'invalid_string', validation: 'regex', message: 'Invalid', path: ['events', 0, 'props', '$action'] });
+  });
+
   it('takes a server batch with only group operations', () => {
     const parsed = parseServerBatch({ lib: 'server', lib_version: '0.3.0', groups: [{ op: 'set', type: 'company', key: 'acme', props: {} }] }, 100);
     expect(parsed.ok && parsed.batch.groups).toHaveLength(1);

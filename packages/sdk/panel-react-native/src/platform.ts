@@ -45,6 +45,8 @@ export function intlLocale(): string | undefined {
 
 /** The usual Android split: a screen whose shorter side is at least 600 dp is a tablet. */
 export function deviceTypeFromScreen(screen: Size | undefined): DeviceType | undefined {
-  if (!screen || !(screen.width > 0) || !(screen.height > 0)) return undefined;
-  return Math.min(screen.width, screen.height) >= 600 ? 'tablet' : 'mobile';
+  // NaN when a side is missing or not a number: no device type then, as for a side of 0 or less.
+  const shorter = screen ? Math.min(screen.width, screen.height) : Number.NaN;
+  if (shorter > 0) return shorter >= 600 ? 'tablet' : 'mobile';
+  return undefined;
 }

@@ -339,7 +339,6 @@ import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/repo
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
-import { Route as SharePanelTokenRouteImport } from './routes/share/panel/$token'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
 import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
@@ -347,6 +346,7 @@ import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/w
 import { Route as SettingsAppsWeldflowRouteImport } from './routes/settings/apps/weldflow'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
 import { Route as SettingsAppsWeldcalendarRouteImport } from './routes/settings/apps/weldcalendar'
+import { Route as SPanelTokenRouteImport } from './routes/s/panel/$token'
 import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
 import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
 import { Route as AuthLoginSplatRouteImport } from './routes/auth/login/$'
@@ -2346,11 +2346,6 @@ const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   path: '/dm/$userId',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const SharePanelTokenRoute = SharePanelTokenRouteImport.update({
-  id: '/share/panel/$token',
-  path: '/share/panel/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsCustomObjectsObjectIdRoute =
   SettingsCustomObjectsObjectIdRouteImport.update({
     id: '/custom-objects/$objectId',
@@ -2388,6 +2383,11 @@ const SettingsAppsWeldcalendarRoute =
     path: '/apps/weldcalendar',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SPanelTokenRoute = SPanelTokenRouteImport.update({
+  id: '/s/panel/$token',
+  path: '/s/panel/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
   id: '/objects/$slug/$recordId',
   path: '/objects/$slug/$recordId',
@@ -4274,6 +4274,7 @@ export interface FileRoutesByFullPath {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/s/panel/$token': typeof SPanelTokenRoute
   '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
@@ -4281,7 +4282,6 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
-  '/share/panel/$token': typeof SharePanelTokenRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -4862,6 +4862,7 @@ export interface FileRoutesByTo {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/s/panel/$token': typeof SPanelTokenRoute
   '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
@@ -4869,7 +4870,6 @@ export interface FileRoutesByTo {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
-  '/share/panel/$token': typeof SharePanelTokenRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -5497,6 +5497,7 @@ export interface FileRoutesById {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/s/panel/$token': typeof SPanelTokenRoute
   '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
@@ -5504,7 +5505,6 @@ export interface FileRoutesById {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
-  '/share/panel/$token': typeof SharePanelTokenRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -6140,6 +6140,7 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/s/panel/$token'
     | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
@@ -6147,7 +6148,6 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
-    | '/share/panel/$token'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -6728,6 +6728,7 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/s/panel/$token'
     | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
@@ -6735,7 +6736,6 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
-    | '/share/panel/$token'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -7362,6 +7362,7 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/s/panel/$token'
     | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
     | '/settings/apps/weldflow'
@@ -7369,7 +7370,6 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldreach'
     | '/settings/custom-objects/$objectId'
-    | '/share/panel/$token'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -7952,7 +7952,7 @@ export interface RootRouteChildren {
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   WelcomeIndexRoute: typeof WelcomeIndexRoute
   ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
-  SharePanelTokenRoute: typeof SharePanelTokenRoute
+  SPanelTokenRoute: typeof SPanelTokenRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
@@ -10271,13 +10271,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldchatDmUserIdRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
-    '/share/panel/$token': {
-      id: '/share/panel/$token'
-      path: '/share/panel/$token'
-      fullPath: '/share/panel/$token'
-      preLoaderRoute: typeof SharePanelTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings/custom-objects/$objectId': {
       id: '/settings/custom-objects/$objectId'
       path: '/custom-objects/$objectId'
@@ -10326,6 +10319,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/apps/weldcalendar'
       preLoaderRoute: typeof SettingsAppsWeldcalendarRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/s/panel/$token': {
+      id: '/s/panel/$token'
+      path: '/s/panel/$token'
+      fullPath: '/s/panel/$token'
+      preLoaderRoute: typeof SPanelTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/objects/$slug/$recordId': {
       id: '/objects/$slug/$recordId'
@@ -14483,7 +14483,7 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingIndexRoute: OnboardingIndexRoute,
   WelcomeIndexRoute: WelcomeIndexRoute,
   ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
-  SharePanelTokenRoute: SharePanelTokenRoute,
+  SPanelTokenRoute: SPanelTokenRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,

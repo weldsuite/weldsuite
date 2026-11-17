@@ -180,6 +180,6 @@ export async function metricTreeValues(
   });
 
   const first = runs.find((r) => r.range);
-  const asOf = runs.map((r) => r.dataAsOf).filter((d): d is string => d !== null).sort()[0];
+  const asOf = runs.map((r) => r.dataAsOf).filter((d): d is string => d !== null).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
   return { range: first?.range ?? null, nodes: values, dataAsOf: asOf ?? new Date().toISOString() };
 }

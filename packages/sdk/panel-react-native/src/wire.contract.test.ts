@@ -28,7 +28,7 @@ describe('wire contract', () => {
     expect(sdk.MAX_UNSET_KEYS).toBe(domain.MAX_UNSET_KEYS);
     expect([...sdk.SYSTEM_EVENTS].sort()).toEqual([...domain.SYSTEM_EVENTS].sort());
     expect(domain.LIBS).toContain('mobile');
-    for (const name of ['CUSTOM_EVENT_NAME', 'PROPERTY_KEY', 'EVENT_PROPERTY_KEY', 'PROFILE_PROPERTY_KEY', 'USER_ID', 'GROUP_TYPE', 'GROUP_PROPERTY'] as const) {
+    for (const name of ['CUSTOM_EVENT_NAME', 'PROPERTY_KEY', 'PAGE_EVENT_KEY', 'DEVICE_EVENT_KEY', 'PROFILE_PROPERTY_KEY', 'USER_ID', 'GROUP_TYPE', 'GROUP_PROPERTY'] as const) {
       expect(sdk[name].source, name).toBe(domain[name].source);
     }
   });

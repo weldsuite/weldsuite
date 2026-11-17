@@ -83,15 +83,15 @@ describe('ChartCard', () => {
 
 describe('SharePanel', () => {
   it('creates a link and shows it, with the embed code, once', async () => {
-    state.createLink.mockResolvedValue({ id: 'pnsl_1', allowEmbed: true, url: 'https://app.test/share/panel/wpsh_abc' });
+    state.createLink.mockResolvedValue({ id: 'pnsl_1', allowEmbed: true, url: 'https://app.test/s/panel/wpsh_abc' });
     render(<SharePanel target={reportTarget} />);
     await userEvent.click(screen.getByRole('switch', { name: tc.share.embedLabel }));
     await userEvent.click(screen.getByRole('button', { name: tc.share.create }));
     await waitFor(() => expect(state.createLink).toHaveBeenCalledTimes(1));
     expect(state.createLink.mock.calls[0]?.[0]).toEqual({ targetType: 'report', targetId: 'wpr_1', allowEmbed: true, allowDateChange: true, expiresAt: null });
     expect(await screen.findByText(tc.share.onceTitle)).toBeTruthy();
-    expect(screen.getByText('https://app.test/share/panel/wpsh_abc')).toBeTruthy();
-    expect(screen.getByText(/<iframe src="https:\/\/app\.test\/share\/panel\/wpsh_abc\?embed=1"/)).toBeTruthy();
+    expect(screen.getByText('https://app.test/s/panel/wpsh_abc')).toBeTruthy();
+    expect(screen.getByText(/<iframe src="https:\/\/app\.test\/s\/panel\/wpsh_abc\?embed=1"/)).toBeTruthy();
   });
 
   it('says which report holds people data when sharing is refused', async () => {

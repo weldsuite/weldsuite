@@ -15,6 +15,7 @@ import {
   type ParsedPanelQuerySpec,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { ParsedPanelCustomEventDefinition } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
+import { compareText } from './sql';
 
 export interface SpecReferences {
   cohortIds: string[];
@@ -155,7 +156,7 @@ export function specReferences(spec: ParsedPanelQuerySpec): SpecReferences {
     cohortIds: [...c.cohorts],
     customEventIds: [...c.customEvents],
     computedPropertyIds: [...c.computed],
-    groupTypes: [...c.groups].sort(),
+    groupTypes: [...c.groups].sort(compareText),
     usesPathRules: usesPaths && cleanPaths !== false,
   };
 }
@@ -164,5 +165,5 @@ export function specReferences(spec: ParsedPanelQuerySpec): SpecReferences {
 export function customEventReferences(definitions: readonly ParsedPanelCustomEventDefinition[]): { computedPropertyIds: string[]; groupTypes: string[] } {
   const c = collector();
   for (const def of definitions) for (const m of def.match) addFilters(c, m.filters as readonly PanelFilter[]);
-  return { computedPropertyIds: [...c.computed], groupTypes: [...c.groups].sort() };
+  return { computedPropertyIds: [...c.computed], groupTypes: [...c.groups].sort(compareText) };
 }

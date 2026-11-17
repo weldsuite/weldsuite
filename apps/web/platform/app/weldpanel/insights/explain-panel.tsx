@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useExplainWeldPanelChange } from '@/hooks/queries/use-weldpanel-analysis-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { LabeledField } from '../components/labeled-field';
-import { aiFailure } from '../lib/api-errors';
+import { aiFailure, type AiFailure } from '../lib/api-errors';
 import { countryName, formatBucket, formatDateTime, formatNumber, formatPercent, formatSignedPercent } from '../lib/format';
 import { seriesLetter } from '../lib/builders';
 
@@ -109,6 +109,25 @@ function DimensionTable({ dimension, language }: Readonly<{ dimension: PanelExpl
   );
 }
 
+type I18n = ReturnType<typeof useI18n>;
+
+/** Why there is no AI summary: the request failed, or the result came back without one. Null: nothing to say. */
+function narrativeFailureText(
+  failure: AiFailure | null,
+  unavailable: PanelExplainResult['narrativeUnavailable'],
+  ta: I18n['t']['weldpanel']['explore']['explain']['ai'],
+  format: I18n['format'],
+): string | null {
+  if (failure?.kind === 'credits') {
+    return failure.required !== null && failure.available !== null ? format(ta.noCredits, { required: failure.required, available: failure.available }) : ta.noCreditsGeneric;
+  }
+  if (failure?.kind === 'disabled' || unavailable === 'ai_disabled') return ta.disabled;
+  if (unavailable === 'insufficient_credits') return ta.noCreditsGeneric;
+  if (unavailable === 'ai_unavailable') return ta.unavailable;
+  if (failure) return ta.failed;
+  return null;
+}
+
 export function ExplainPanel({ open, onOpenChange, projectId, spec, result, seriesLabels, aiEnabled, initialSeries = 0 }: Readonly<ExplainPanelProps>) {
   const { t, language, format } = useI18n();
   const tx = t.weldpanel.explore.explain;
@@ -145,14 +164,7 @@ export function ExplainPanel({ open, onOpenChange, projectId, spec, result, seri
   const narrative = narrate.data?.narrative ?? data?.narrative ?? null;
   const unavailable = narrate.data?.narrativeUnavailable;
   const failure = narrate.error ? aiFailure(narrate.error) : null;
-
-  let failureText: string | null = null;
-  if (failure?.kind === 'credits') {
-    failureText = failure.required !== null && failure.available !== null ? format(tx.ai.noCredits, { required: failure.required, available: failure.available }) : tx.ai.noCreditsGeneric;
-  } else if (failure?.kind === 'disabled' || unavailable === 'ai_disabled') failureText = tx.ai.disabled;
-  else if (unavailable === 'insufficient_credits') failureText = tx.ai.noCreditsGeneric;
-  else if (unavailable === 'ai_unavailable') failureText = tx.ai.unavailable;
-  else if (failure) failureText = tx.ai.failed;
+  const failureText = narrativeFailureText(failure, unavailable, tx.ai, format);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

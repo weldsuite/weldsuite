@@ -92,6 +92,16 @@ function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (ch) => `!${ch}`);
 }
 
+/**
+ * Orders text by UTF-16 code unit, as a bare `.sort()` does, but explicit and
+ * locale-independent: cache keys and generated SQL must not change with the
+ * runtime's locale (which `localeCompare` would let them).
+ */
+export function compareText(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** `'%value%'`, for case-insensitive contains (compare with `LOWER(expr)`). */
 export function likeContains(value: string): string {
   return lit(`%${escapeLike(value.toLowerCase())}%`);
